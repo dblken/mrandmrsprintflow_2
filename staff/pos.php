@@ -1493,6 +1493,15 @@ try {
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
+        async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await fetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
         function formatMoney(value) {
             const amount = Number.parseFloat(value);
             const safeAmount = Number.isFinite(amount) ? amount : 0;
@@ -1729,6 +1738,8 @@ try {
                 return;
             }
             customization['branch_id'] = branchVal;
+            customization['service_id'] = serviceId;
+            customization['service_type'] = serviceName;
 
             // All visible rows
             body.querySelectorAll('.shopee-form-row').forEach(row => {
@@ -2704,12 +2715,13 @@ try {
                 }))
             };
 
+            let checkoutCompleted = false;
             try {
-                const res = await fetch(staffUrl('staff/api/pos_checkout.php'), {
+                const res = await fetchWithTimeout(staffUrl('staff/api/pos_checkout.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
-                });
+                }, 45000);
                 const text = await res.text();
                 let data;
                 try {
@@ -2722,6 +2734,7 @@ try {
                 }
                 if (data.success) {
                     await syncedCartAction('clear');
+                    checkoutCompleted = true;
 
                     // Show Success Modal
                     const overlay = document.getElementById('success-modal-overlay');
@@ -2748,8 +2761,15 @@ try {
                 }
             } catch (e) {
                 console.error('Checkout error:', e);
-                await showPOSAlert('Network Error', 'Network error: ' + e.message, 'error');
+                const message = e.name === 'AbortError'
+                    ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
+                    : 'Network error: ' + e.message;
+                await showPOSAlert('Network Error', message, 'error');
                 updateCheckoutState();
+            } finally {
+                if (!checkoutCompleted) {
+                    updateCheckoutState();
+                }
             }
         }
 

@@ -325,6 +325,7 @@ $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
 // Calculate total and verify stock
 $total_amount = 0;
 $products_cache = [];
+$actual_product_ids = [];
 foreach ($items as $item) {
     $product_id = (int)$item['id'];
     $qty = (int)$item['qty'];
@@ -343,6 +344,7 @@ foreach ($items as $item) {
     }
     $p = $product[0];
     $products_cache[$product_id] = $p;
+    $actual_product_ids[$product_id] = true;
 
     // Skip stock check for services
     if (!$is_service_item) {
@@ -409,11 +411,13 @@ try {
         // Detect if this specific item is a service or customized product
         $is_service = (isset($item['is_service']) && $item['is_service']);
         
-        // Determine if we should keep the product_id (only for actual products in the DB)
-        $is_actual_product = isset($products_cache[$product_id]);
-
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];
+
+        // Service catalog IDs can overlap product IDs. Only keep product_id for
+        // product-backed custom items, not services selected from the Services tab.
+        $is_catalog_service = $is_service && (int)($custom_details['service_id'] ?? 0) === $product_id;
+        $is_actual_product = !$is_catalog_service && isset($actual_product_ids[$product_id]);
         
         // Store the service name in customization for proper display
         if ($is_service && $name) {
@@ -554,13 +558,25 @@ try {
 
     $conn->commit();
     $transaction_open = false;
+    $sync_warning = '';
     foreach ($post_commit_job_sync as $sync_order_id => $syncMeta) {
         $syncOrderId = (int)$sync_order_id;
         $syncStatus = is_array($syncMeta) ? (string)($syncMeta['status'] ?? '') : (string)$syncMeta;
         $pendingOrderId = is_array($syncMeta) ? (int)($syncMeta['pending_order_id'] ?? 0) : 0;
-        pos_finalize_inventory_after_checkout($syncOrderId, $syncStatus, $pendingOrderId);
+        try {
+            pos_finalize_inventory_after_checkout($syncOrderId, $syncStatus, $pendingOrderId);
+        } catch (Throwable $syncError) {
+            $sync_warning = 'Sale completed, but production sync needs follow-up.';
+            error_log('PrintFlow POS checkout sync warning for order #' . $syncOrderId . ': ' . $syncError->getMessage());
+        }
     }
-    echo json_encode(['success' => true, 'order_id' => $order_id, 'customization_id' => $last_customization_id ?? null, 'message' => 'Sale completed successfully.']);
+    echo json_encode([
+        'success' => true,
+        'order_id' => $order_id,
+        'customization_id' => $last_customization_id ?? null,
+        'message' => 'Sale completed successfully.',
+        'warning' => $sync_warning
+    ]);
 
 } catch (Exception $e) {
     if ($transaction_open && isset($conn)) {
