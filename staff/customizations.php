@@ -2166,6 +2166,11 @@ window.pfCustomizationPreloadedOrders = (() => {
             adminApiUrl(path = '') {
                 return this.resolvePageUrl(`../admin/${String(path).replace(/^\/+/, '')}`);
             },
+            adminApiNoCache(path = '') {
+                const url = new URL(this.adminApiUrl(path), window.location.href);
+                url.searchParams.set('_', String(Date.now()));
+                return url.toString();
+            },
             staffApiUrl(path = '') {
                 return this.resolvePageUrl(`../staff/${String(path).replace(/^\/+/, '')}`);
             },
@@ -3044,7 +3049,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     const parsedSourceOrderId = parseInt(sourceOrderId, 10);
                     if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
                         const resolved = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`))
+                            await fetch(
+                                this.adminApiNoCache(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`),
+                                { cache: 'no-store' }
+                            )
                         );
 
                         if (resolved.success && resolved.job_id) {
@@ -3132,7 +3140,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (oid == null || oid === '') return null;
                     try {
                         const res = await this.parseJsonResponse(
-                            await fetch(`../admin/job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(oid)}`)
+                            await fetch(
+                                this.adminApiNoCache(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(oid)}`),
+                                { cache: 'no-store' }
+                            )
                         );
                         if (res.success && res.job_id) {
                             this.currentJo.job_order_id = res.job_id;
@@ -3149,7 +3160,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (oid == null || oid === '') return null;
                 try {
                     const res = await this.parseJsonResponse(
-                        await fetch(`../admin/job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(oid)}`)
+                        await fetch(
+                            this.adminApiNoCache(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(oid)}`),
+                            { cache: 'no-store' }
+                        )
                     );
                     if (res.success && res.job_id) {
                         this.currentJo.job_order_id = res.job_id;
@@ -3370,7 +3384,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     // Fetch customization entry details
                     try {
                         const detailRes = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=get_customization&id=${id}`))
+                            await fetch(
+                                this.adminApiNoCache(`job_orders_api.php?action=get_customization&id=${id}`),
+                                { cache: 'no-store' }
+                            )
                         );
                         if (detailRes.success) {
                             this.currentJo = this.applyPosSetPriceDeepLinkOverride({ ...detailRes.data, order_type: 'CUSTOMIZATION' });
@@ -3386,7 +3403,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         } else {
                             const fallbackOrderId = order?.order_id ?? id;
                             const fallbackRes = await this.parseJsonResponse(
-                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`))
+                                await fetch(
+                                    this.adminApiNoCache(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`),
+                                    { cache: 'no-store' }
+                                )
                             );
                             if (fallbackRes.success && fallbackRes.data) {
                                 this.currentJo = this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' });
@@ -3409,7 +3429,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         try {
                             const fallbackOrderId = order?.order_id ?? id;
                             const fallbackRes = await this.parseJsonResponse(
-                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`))
+                                await fetch(
+                                    this.adminApiNoCache(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`),
+                                    { cache: 'no-store' }
+                                )
                             );
                             if (fallbackRes.success && fallbackRes.data) {
                                 this.currentJo = this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' });
@@ -3439,7 +3462,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     let detailErrorMessage = '';
                     try {
                         const detailRes = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${regularOrderId}`))
+                            await fetch(
+                                this.adminApiNoCache(`job_orders_api.php?action=get_regular_order&service_only=1&id=${regularOrderId}`),
+                                { cache: 'no-store' }
+                            )
                         );
                         if (detailRes.success) {
                             order = detailRes.data;
@@ -3448,7 +3474,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                             let resolvedJobId = order?.job_order_id || null;
                             if (!resolvedJobId) {
                                 const resolveRes = await this.parseJsonResponse(
-                                    await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${regularOrderId}`))
+                                    await fetch(
+                                        this.adminApiNoCache(`job_orders_api.php?action=resolve_job_for_order&order_id=${regularOrderId}`),
+                                        { cache: 'no-store' }
+                                    )
                                 );
                                 if (resolveRes.success && resolveRes.job_id) {
                                     resolvedJobId = resolveRes.job_id;
@@ -3460,7 +3489,10 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                             if (resolvedJobId) {
                                 const jobFallbackRes = await this.parseJsonResponse(
-                                    await fetch(this.adminApiUrl(`job_orders_api.php?action=get_order&id=${resolvedJobId}`))
+                                    await fetch(
+                                        this.adminApiNoCache(`job_orders_api.php?action=get_order&id=${resolvedJobId}`),
+                                        { cache: 'no-store' }
+                                    )
                                 );
                                 if (jobFallbackRes.success && jobFallbackRes.data) {
                                     order = {
@@ -3511,7 +3543,10 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                     try {
                         const res = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=get_order&id=${jid}`))
+                            await fetch(
+                                this.adminApiNoCache(`job_orders_api.php?action=get_order&id=${jid}`),
+                                { cache: 'no-store' }
+                            )
                         );
                         if (res.success) {
                             this.currentJo = { ...res.data, order_type: 'JOB' };
@@ -3526,7 +3561,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         } else {
                             // Fallback: It might be a regular order ID passed with job_type=JOB
                             const fallbackRes = await this.parseJsonResponse(
-                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${jid}`))
+                                await fetch(
+                                    this.adminApiNoCache(`job_orders_api.php?action=get_regular_order&service_only=1&id=${jid}`),
+                                    { cache: 'no-store' }
+                                )
                             );
                             if (fallbackRes.success) {
                                 this.currentJo = { ...fallbackRes.data, order_type: 'ORDER' };
@@ -4376,7 +4414,10 @@ window.pfCustomizationPreloadedOrders = (() => {
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
                 if (!jid) return;
-                const res = await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
+                const res = await (await fetch(
+                    this.adminApiNoCache(`job_orders_api.php?action=get_order&id=${jid}`),
+                    { cache: 'no-store' }
+                )).json();
                 if(res.success) {
                     const previousJo = this.currentJo || {};
                     const merged = {
