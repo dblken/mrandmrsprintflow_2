@@ -39,6 +39,13 @@ class JobOrderService {
         return self::$columnExistsCache[$cacheKey] = !empty($rows);
     }
 
+    private static function normalizeWorkflowStatus(string $status): string {
+        $normalized = strtoupper(trim($status));
+        $normalized = str_replace(['–', '-'], '_', $normalized);
+        $normalized = preg_replace('/\s+/', '_', $normalized);
+        return trim((string)$normalized, '_');
+    }
+
     private static function resolveBranchIdForOrderData(array $orderData): ?int {
         $branchId = (int)($orderData['branch_id'] ?? 0);
         if ($branchId > 0) {
@@ -142,7 +149,7 @@ class JobOrderService {
 
         foreach ($jobs as $job) {
             $jobId = (int)($job['id'] ?? 0);
-            $status = strtoupper(trim((string)($job['status'] ?? '')));
+            $status = self::normalizeWorkflowStatus((string)($job['status'] ?? ''));
             if ($jobId <= 0) {
                 continue;
             }
@@ -757,15 +764,16 @@ class JobOrderService {
             $conn->begin_transaction();
         }
         try {
+            $normalizedNewStatus = self::normalizeWorkflowStatus((string)$newStatus);
             // Materials are now handled once the job is live in production.
-            if ($newStatus === 'IN_PRODUCTION') {
+            if (in_array($normalizedNewStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
                 // Deduct materials when moving to production
                 self::processDeductions($orderId);
             }
 
-            if ($newStatus === 'COMPLETED') {
+            if ($normalizedNewStatus === 'COMPLETED') {
                 // For POS orders (walk-in) or orders already in TO_RECEIVE status, skip payment check
-                $currentStatus = strtoupper((string)($order['status'] ?? ''));
+                $currentStatus = self::normalizeWorkflowStatus((string)($order['status'] ?? ''));
                 $isPOSOrder = !empty($order['order_id']) && db_query(
                     "SELECT 1 FROM orders WHERE order_id = ? AND order_type = 'custom' AND payment_method IN ('Cash', 'GCash', 'Maya') LIMIT 1",
                     'i',
@@ -799,12 +807,14 @@ class JobOrderService {
                     'TO_PAY'        => 'To Pay',
                     'VERIFY_PAY'    => 'To Verify',
                     'IN_PRODUCTION' => 'In Production',
+                    'PROCESSING'    => 'In Production',
+                    'PRINTING'      => 'In Production',
                     'TO_RECEIVE'    => 'Ready for Pickup',
                     'COMPLETED'     => 'Completed',
                     'CANCELLED'     => 'Cancelled',
                     'FOR REVISION'  => 'For Revision',
                 ];
-                $storeStatus = $order_status_map[strtoupper($newStatus)] ?? $newStatus;
+                $storeStatus = $order_status_map[$normalizedNewStatus] ?? $newStatus;
 
                 $sql_parts = ["status = ?", "updated_at = NOW()"];
                 $params = [$storeStatus];
@@ -1011,7 +1021,7 @@ class JobOrderService {
             'i',
             [$jobId]
         ) ?: [];
-        $status = strtoupper(trim((string)($jobRows[0]['status'] ?? '')));
+        $status = self::normalizeWorkflowStatus((string)($jobRows[0]['status'] ?? ''));
         if (!in_array($status, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'COMPLETED'], true)) {
             return;
         }
