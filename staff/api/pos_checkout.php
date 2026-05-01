@@ -30,6 +30,55 @@ function pos_table_has_column(string $table, string $column): bool {
     return $cache[$key] = !empty($rows);
 }
 
+function pos_order_items_product_id_allows_null(): bool {
+    $rows = db_query("SHOW COLUMNS FROM order_items LIKE 'product_id'") ?: [];
+    if (empty($rows)) {
+        return false;
+    }
+
+    return strtoupper((string)($rows[0]['Null'] ?? '')) === 'YES';
+}
+
+function pos_ensure_order_items_service_support(): bool {
+    if (pos_order_items_product_id_allows_null()) {
+        return true;
+    }
+
+    $rows = db_query("SHOW COLUMNS FROM order_items LIKE 'product_id'") ?: [];
+    $columnType = preg_replace('/[^a-zA-Z0-9(), ]/', '', (string)($rows[0]['Type'] ?? 'int'));
+    if ($columnType === '') {
+        $columnType = 'int';
+    }
+
+    global $conn;
+    if ($conn instanceof mysqli && @$conn->query("ALTER TABLE order_items MODIFY product_id {$columnType} NULL")) {
+        return true;
+    }
+
+    error_log('PrintFlow POS checkout: unable to make order_items.product_id nullable for service-only items: ' . ($conn->error ?? 'unknown error'));
+    return pos_order_items_product_id_allows_null();
+}
+
+function pos_get_service_placeholder_product_id(): int {
+    $existing = db_query("SELECT product_id FROM products WHERE sku = 'POS-SERVICE' LIMIT 1") ?: [];
+    if (!empty($existing)) {
+        return (int)$existing[0]['product_id'];
+    }
+
+    global $conn;
+    $created = db_execute(
+        "INSERT INTO products (sku, name, category, description, price, stock_quantity, status)
+         VALUES ('POS-SERVICE', 'POS Service Item', 'Service', 'Placeholder product for POS service-only order items.', 0, 0, 'Activated')"
+    );
+
+    if ($created) {
+        return (int)$conn->insert_id;
+    }
+
+    $existing = db_query("SELECT product_id FROM products WHERE sku = 'POS-SERVICE' LIMIT 1") ?: [];
+    return !empty($existing) ? (int)$existing[0]['product_id'] : 0;
+}
+
 function pos_migrate_pending_assignments_to_order(int $sourceOrderId, int $targetOrderId): void {
     if ($sourceOrderId <= 0 || $targetOrderId <= 0 || $sourceOrderId === $targetOrderId) {
         return;
@@ -363,6 +412,7 @@ try {
     global $conn;
     $post_commit_job_sync = [];
     $transaction_open = false;
+    $order_items_product_nullable = pos_ensure_order_items_service_support();
     $conn->begin_transaction();
     $transaction_open = true;
 
@@ -418,6 +468,15 @@ try {
         // product-backed custom items, not services selected from the Services tab.
         $is_catalog_service = $is_service && (int)($custom_details['service_id'] ?? 0) === $product_id;
         $is_actual_product = !$is_catalog_service && isset($actual_product_ids[$product_id]);
+        $order_item_product_id = $is_actual_product ? $product_id : null;
+        if ($order_item_product_id === null && !$order_items_product_nullable) {
+            $order_item_product_id = pos_get_service_placeholder_product_id();
+            if ($order_item_product_id <= 0) {
+                $conn->rollback();
+                echo json_encode(['success' => false, 'message' => 'Failed to prepare service order item support.']);
+                exit;
+            }
+        }
         
         // Store the service name in customization for proper display
         if ($is_service && $name) {
@@ -429,7 +488,7 @@ try {
         $item_result = db_execute(
             "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, ?, ?)",
             'iiids',
-            [$order_id, $is_actual_product ? $product_id : null, $qty, $price, $customization_json]
+            [$order_id, $order_item_product_id, $qty, $price, $customization_json]
         );
 
         if (!$item_result) {
