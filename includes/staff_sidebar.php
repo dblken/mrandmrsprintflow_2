@@ -26,7 +26,9 @@ if (isset($_SESSION['user_id'])) {
     $_staff_unread_notif = get_unread_notification_count((int)$_SESSION['user_id'], 'Staff');
     $sidebar_user = db_query("SELECT profile_picture FROM users WHERE user_id = ?", 'i', [$_SESSION['user_id']]);
     if (!empty($sidebar_user) && !empty($sidebar_user[0]['profile_picture'])) {
-        $sidebar_profile_pic = $base_path . '/public/assets/uploads/profiles/' . $sidebar_user[0]['profile_picture'];
+        $sidebar_profile_pic = function_exists('get_profile_image')
+            ? get_profile_image($sidebar_user[0]['profile_picture'])
+            : $base_path . '/public/assets/uploads/profiles/' . basename($sidebar_user[0]['profile_picture']);
     }
 }
 ?>

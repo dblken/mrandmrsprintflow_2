@@ -17,7 +17,9 @@ $sidebar_profile_pic = '';
 if (isset($_SESSION['user_id'])) {
     $sidebar_user = db_query("SELECT profile_picture FROM users WHERE user_id = ?", 'i', [$_SESSION['user_id']]);
     if (!empty($sidebar_user) && !empty($sidebar_user[0]['profile_picture'])) {
-        $sidebar_profile_pic = BASE_PATH . '/public/assets/uploads/profiles/' . $sidebar_user[0]['profile_picture'];
+        $sidebar_profile_pic = function_exists('get_profile_image')
+            ? get_profile_image($sidebar_user[0]['profile_picture'])
+            : $base_path . '/public/assets/uploads/profiles/' . basename($sidebar_user[0]['profile_picture']);
     }
 
     // Get unread notification count
@@ -142,7 +144,7 @@ if (isset($_SESSION['user_id'])) {
         <a href="<?php echo $base_path; ?>/manager/profile.php" class="user-profile" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:10px; width:100%;">
             <div class="user-avatar" style="flex-shrink:0; overflow:hidden;">
                 <?php if ($sidebar_profile_pic): ?>
-                    <img src="<?php echo $sidebar_profile_pic; ?>?t=<?php echo time(); ?>" alt="" style="width:100%;height:100%;object-fit:cover;">
+                    <img src="<?php echo htmlspecialchars($sidebar_profile_pic); ?>?t=<?php echo time(); ?>" alt="" style="width:100%;height:100%;object-fit:cover;">
                 <?php else: ?>
                     <?php echo $user_initial; ?>
                 <?php endif; ?>

@@ -738,7 +738,8 @@ if ($initials === '') {
                             <div class="pf-avatar transition-all duration-300"
                                  style="width:1.85rem;height:1.85rem;font-size:0.7rem;<?php echo (stripos($_SERVER['REQUEST_URI'] ?? '', '/profile.php') !== false) ? 'color:#53C5E0;' : ''; ?>">
                                 <?php if (!empty($current_user['profile_picture'])): ?>
-                                    <img src="<?php echo $asset_base; ?>/assets/uploads/profiles/<?php echo htmlspecialchars($current_user['profile_picture']); ?>?t=<?php echo time(); ?>"
+                                    <?php $profile_image_url = function_exists('get_profile_image') ? get_profile_image($current_user['profile_picture']) : $asset_base . '/assets/uploads/profiles/' . basename($current_user['profile_picture']); ?>
+                                    <img src="<?php echo htmlspecialchars($profile_image_url); ?>?t=<?php echo time(); ?>"
                                          alt="Profile"
                                          class="w-full h-full object-cover">
                                 <?php else: ?>

@@ -2506,7 +2506,7 @@ function get_base_url() {
  */
 function get_profile_image($image) {
     $base = rtrim(defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : ''), '/');
-    $fallback = $base . '/public/assets/images/icon-192.png';
+    $fallback = $base . '/public/assets/uploads/profiles/default.png';
     $image = trim((string)$image);
 
     if ($image === '' || strtolower($image) === 'null' || strtolower($image) === 'undefined') {
@@ -2517,12 +2517,24 @@ function get_profile_image($image) {
         return $image;
     }
 
-    $clean = ltrim($image, '/');
-    if (strpos($clean, 'public/') === 0 || strpos($clean, 'uploads/') === 0) {
-        return $base . '/' . $clean;
+    $clean = str_replace('\\', '/', ltrim($image, '/'));
+    $base_path = trim(parse_url($base, PHP_URL_PATH) ?: $base, '/');
+    if ($base_path !== '' && strpos($clean, $base_path . '/') === 0) {
+        $clean = substr($clean, strlen($base_path) + 1);
     }
 
-    return $base . '/public/assets/uploads/profiles/' . basename($clean);
+    if (strpos($clean, 'public/') === 0 || strpos($clean, 'uploads/') === 0) {
+        $relative_path = preg_replace('#/+#', '/', $clean);
+    } else {
+        $relative_path = 'public/assets/uploads/profiles/' . basename($clean);
+    }
+
+    $file_path = __DIR__ . '/../' . $relative_path;
+    if (!is_file($file_path)) {
+        return $fallback;
+    }
+
+    return $base . '/' . $relative_path;
 }
 
 /**
