@@ -151,6 +151,7 @@ if ($action === 'verify_payment') {
     // immediately. Keep related rows in sync to avoid the UI "coming back" to To Verify.
     $new_order_status = 'IN_PRODUCTION';
     $should_move_to_production = true;
+    $syncWarnings = [];
     
     // Execute update transaction
     try {
@@ -177,10 +178,9 @@ if ($action === 'verify_payment') {
                 $linkedReadiness = strtoupper((string)($linkedJobOrder['readiness'] ?? 'READY'));
                 if (in_array($linkedReadiness, ['LOW', 'MISSING'], true)) {
                     $jobCode = printflow_format_job_code($linkedJobId);
-                    $message = $linkedReadiness === 'MISSING'
-                        ? "Cannot approve payment for JO-{$jobCode}: inventory stock is missing."
-                        : "Cannot approve payment for JO-{$jobCode}: inventory stock is not enough.";
-                    throw new Exception($message);
+                    $syncWarnings[] = $linkedReadiness === 'MISSING'
+                        ? "Inventory stock is missing for JO-{$jobCode}."
+                        : "Inventory stock is low for JO-{$jobCode}.";
                 }
             }
         }
@@ -215,7 +215,20 @@ if ($action === 'verify_payment') {
                     'sii',
                     [$new_payment_status, $user_id, $linkedJobId]
                 );
-                JobOrderService::updateStatus($linkedJobId, 'IN_PRODUCTION', null, '', $notified);
+                try {
+                    JobOrderService::updateStatus($linkedJobId, 'IN_PRODUCTION', null, '', $notified);
+                } catch (Throwable $statusSyncError) {
+                    // Keep payment verification successful even if deduction sync needs follow-up.
+                    db_execute(
+                        "UPDATE job_orders
+                         SET status = 'IN_PRODUCTION', updated_at = NOW()
+                         WHERE id = ?",
+                        'i',
+                        [$linkedJobId]
+                    );
+                    $syncWarnings[] = "Inventory deduction is pending for JO-" . printflow_format_job_code($linkedJobId) . ".";
+                    error_log('PrintFlow verify_payment warning for job #' . $linkedJobId . ': ' . $statusSyncError->getMessage());
+                }
                 $notified = true;
             }
             if (!empty($job['order_id'])) {
@@ -266,8 +279,13 @@ if ($action === 'verify_payment') {
 
 
         $conn->commit();
-        
-        echo json_encode(['success' => true]);
+
+        $warningMessage = '';
+        if (!empty($syncWarnings)) {
+            $warningMessage = 'Payment verified. Some inventory updates need follow-up.';
+        }
+
+        echo json_encode(['success' => true, 'warning' => $warningMessage]);
     } catch (Throwable $e) {
         if (($conn->in_transaction ?? false)) {
             $conn->rollback();

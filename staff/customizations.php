@@ -3692,7 +3692,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         ));
                         this.bumpOrdersVersion();
                         this.showDetailsModal = false;
-                        this.showStaffAlert('Success', 'Payment verified. Materials deducted and production started.');
+                        const verificationMessage = res.warning
+                            ? 'Payment verified. Production started, but inventory deduction still needs follow-up.'
+                            : 'Payment verified. Materials deducted and production started.';
+                        this.showStaffAlert('Success', verificationMessage);
                     } else {
                         this.showStaffAlert('Verification Failed', res.error || 'Verification failed.');
                     }

@@ -54,6 +54,7 @@ $new_status = '';
 $payment_status = $order['payment_status'];
 $success = false;
 $error_message = '';
+$sync_warning = '';
 
 try {
     if ($action === 'Approve') {
@@ -155,8 +156,19 @@ try {
                         // Move product jobs straight to READY_TO_COLLECT
                         db_execute("UPDATE job_orders SET status = 'READY_TO_COLLECT' WHERE id = ?", 'i', [$job['id']]);
                     } else {
-                        // Move service jobs to IN_PRODUCTION (triggers inventory deduction)
-                        JobOrderService::updateStatus($job['id'], 'IN_PRODUCTION', null, '', $notified);
+                        // Move service jobs to IN_PRODUCTION. Keep payment success even if
+                        // inventory deduction sync fails and needs manual follow-up.
+                        try {
+                            JobOrderService::updateStatus($job['id'], 'IN_PRODUCTION', null, '', $notified);
+                        } catch (Throwable $statusSyncError) {
+                            db_execute(
+                                "UPDATE job_orders SET status = 'IN_PRODUCTION', updated_at = NOW() WHERE id = ?",
+                                'i',
+                                [$job['id']]
+                            );
+                            $sync_warning = 'Payment approved, but inventory deduction needs follow-up.';
+                            error_log('PrintFlow staff verify payment warning for job #' . (int)$job['id'] . ': ' . $statusSyncError->getMessage());
+                        }
                         $notified = true;
                     }
                 }
@@ -251,7 +263,8 @@ if ($success) {
     echo json_encode([
         'success' => true,
         'new_status' => $new_status,
-        'payment_status' => $payment_status
+        'payment_status' => $payment_status,
+        'warning' => $sync_warning
     ]);
 } else {
     echo json_encode(['success' => false, 'error' => $error_message ?: 'Database update failed']);
