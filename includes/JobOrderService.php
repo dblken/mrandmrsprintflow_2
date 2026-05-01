@@ -14,10 +14,6 @@ require_once __DIR__ . '/NotificationService.php';
 class JobOrderService {
     private static array $columnExistsCache = [];
 
-    private static function undeductedConditionSql(string $column = 'deducted_at'): string {
-        return '(' . $column . " IS NULL OR " . $column . " = '' OR " . $column . " = '0000-00-00 00:00:00')";
-    }
-
     private static function tableHasColumn(string $table, string $column): bool {
         $cacheKey = $table . '.' . $column;
         if (array_key_exists($cacheKey, self::$columnExistsCache)) {
@@ -112,7 +108,7 @@ class JobOrderService {
         $sql .= ")";
 
         if ($onlyUndeducted) {
-            $sql .= " AND " . self::undeductedConditionSql('deducted_at');
+            $sql .= " AND deducted_at IS NULL";
         }
 
         return db_query($sql, $types, $params) ?: [];
@@ -174,35 +170,8 @@ class JobOrderService {
             return;
         }
 
-        $orderRows = db_query(
-            "SELECT status FROM orders WHERE order_id = ? LIMIT 1",
-            'i',
-            [$storeOrderId]
-        ) ?: [];
-        $orderStatus = self::normalizeWorkflowStatus((string)($orderRows[0]['status'] ?? ''));
-        if (!in_array($orderStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'COMPLETED'], true)) {
-            return;
-        }
-
         self::ensureJobsForStoreOrder($storeOrderId);
-
-        $jobs = db_query(
-            "SELECT id
-             FROM job_orders
-             WHERE order_id = ?
-               AND status <> 'CANCELLED'
-             ORDER BY id ASC",
-            'i',
-            [$storeOrderId]
-        ) ?: [];
-
-        foreach ($jobs as $job) {
-            $jobId = (int)($job['id'] ?? 0);
-            if ($jobId <= 0) {
-                continue;
-            }
-            self::processDeductions($jobId, ['materials' => true, 'inks' => false]);
-        }
+        self::syncStoreOrderAssignmentsIfNeeded($storeOrderId, ['materials' => true, 'inks' => false]);
     }
 
     private static function cleanupLegacyAutoAssignedMaterials(int $jobId, int $storeOrderId = 0, string $serviceType = ''): void {
@@ -318,7 +287,7 @@ class JobOrderService {
         if (!empty($invalidIds)) {
             $placeholders = implode(',', array_fill(0, count($invalidIds), '?'));
             db_execute(
-                "DELETE FROM job_order_materials WHERE id IN ($placeholders) AND " . self::undeductedConditionSql('deducted_at'),
+                "DELETE FROM job_order_materials WHERE id IN ($placeholders) AND deducted_at IS NULL",
                 str_repeat('i', count($invalidIds)),
                 $invalidIds
             );
@@ -591,7 +560,7 @@ class JobOrderService {
      * Assign a specific roll to a job order material item.
      */
     public static function assignRoll($jomId, $rollId) {
-        $sql = "UPDATE job_order_materials SET roll_id = ? WHERE id = ? AND " . self::undeductedConditionSql('deducted_at');
+        $sql = "UPDATE job_order_materials SET roll_id = ? WHERE id = ? AND deducted_at IS NULL";
         return db_execute($sql, 'ii', [$rollId, $jomId]);
     }
 
@@ -728,7 +697,7 @@ class JobOrderService {
      */
     public static function removeMaterial($jomId) {
         // Can only remove if not yet deducted
-        $sql = "DELETE FROM job_order_materials WHERE id = ? AND " . self::undeductedConditionSql('deducted_at');
+        $sql = "DELETE FROM job_order_materials WHERE id = ? AND deducted_at IS NULL";
         return db_execute($sql, 'i', [$jomId]);
     }
 
@@ -1195,22 +1164,6 @@ class JobOrderService {
         $order = db_query($sql, 'i', [$id]);
         if (!$order) return null;
         $order = $order[0];
-
-        // Heal stale deduction state whenever staff opens a production job.
-        // This is idempotent and only processes rows that are still undeducted.
-        try {
-            self::syncLiveJobMaterialsIfNeeded((int)$id);
-            $linkedStoreOrderId = (int)($order['order_id'] ?? 0);
-            if ($linkedStoreOrderId > 0) {
-                self::ensureStoreOrderProductionDeductions($linkedStoreOrderId);
-            }
-        } catch (Throwable $syncErr) {
-            error_log(sprintf(
-                'PrintFlow getOrder deduction sync failed for job %d: %s',
-                (int)$id,
-                $syncErr->getMessage()
-            ));
-        }
         
         // Format customer picture with full path
         if (!empty($order['profile_picture'])) {

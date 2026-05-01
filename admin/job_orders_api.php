@@ -1053,9 +1053,7 @@ try {
                 if (!empty($autoAssignedIds)) {
                     $placeholders = implode(',', array_fill(0, count($autoAssignedIds), '?'));
                     db_execute(
-                        "DELETE FROM job_order_materials
-                         WHERE id IN ($placeholders)
-                           AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                        "DELETE FROM job_order_materials WHERE id IN ($placeholders) AND deducted_at IS NULL",
                         str_repeat('i', count($autoAssignedIds)),
                         $autoAssignedIds
                     );
