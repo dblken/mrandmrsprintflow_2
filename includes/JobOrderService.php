@@ -171,6 +171,19 @@ class JobOrderService {
         }
 
         self::ensureJobsForStoreOrder($storeOrderId);
+        $orderRows = db_query(
+            "SELECT status FROM orders WHERE order_id = ? LIMIT 1",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+        $storeStatus = strtolower(trim((string)($orderRows[0]['status'] ?? '')));
+
+        // Heal stale job-order states for orders already in production.
+        if (in_array($storeStatus, ['processing', 'in production', 'printing', 'paid – in process', 'paid - in process'], true)) {
+            self::syncStoreOrderToStatus($storeOrderId, 'IN_PRODUCTION', null, '', true);
+            return;
+        }
+
         self::syncStoreOrderAssignmentsIfNeeded($storeOrderId, ['materials' => true, 'inks' => false]);
     }
 
@@ -1164,6 +1177,18 @@ class JobOrderService {
         $order = db_query($sql, 'i', [$id]);
         if (!$order) return null;
         $order = $order[0];
+
+        // If this job is already live, ensure undeducted material rows are
+        // processed before we build the payload shown in the modal.
+        try {
+            self::syncLiveJobMaterialsIfNeeded((int)$id);
+        } catch (Throwable $syncErr) {
+            error_log(sprintf(
+                'PrintFlow getOrder deduction sync failed for job %d: %s',
+                (int)$id,
+                $syncErr->getMessage()
+            ));
+        }
         
         // Format customer picture with full path
         if (!empty($order['profile_picture'])) {

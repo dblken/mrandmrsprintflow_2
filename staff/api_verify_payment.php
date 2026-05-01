@@ -59,6 +59,10 @@ try {
     if ($action === 'Approve') {
         require_once __DIR__ . '/../includes/JobOrderService.php';
         global $conn;
+        $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+        if ($orderType !== 'product') {
+            JobOrderService::ensureJobsForStoreOrder($order_id);
+        }
         $jobs = db_query(
             "SELECT id FROM job_orders WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
             'i',
@@ -66,6 +70,9 @@ try {
         ) ?: [];
         $hasProductionJobs = !empty($jobs);
         $isPlainProductOrder = (($order['order_type'] ?? '') === 'product') && !$hasProductionJobs;
+        if (!$isPlainProductOrder && !$hasProductionJobs) {
+            throw new Exception('Cannot verify payment: no linked production job found for this service order.');
+        }
         $new_status = $isPlainProductOrder ? 'Ready for Pickup' : 'Processing';
         $payment_status = 'Paid';
         
