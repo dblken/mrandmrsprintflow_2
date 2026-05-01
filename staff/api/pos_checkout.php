@@ -185,6 +185,7 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
     // POS service requirement: deduct in IN_PRODUCTION stage, but do it safely so
     // checkout stays successful even if inventory sync needs follow-up.
     if (in_array($normalizedTargetStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
+        $syncHadWarning = false;
         foreach ($jobs as $job) {
             $jobId = (int)($job['id'] ?? 0);
             if ($jobId <= 0) {
@@ -201,7 +202,19 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
                     [$jobId]
                 );
                 error_log('PrintFlow POS IN_PRODUCTION sync warning for job #' . $jobId . ': ' . $syncError->getMessage());
+                $syncHadWarning = true;
             }
+        }
+        try {
+            // Force an idempotent deduction pass for this store order so materials are
+            // consumed as soon as POS payment moves the job to In Production.
+            JobOrderService::ensureStoreOrderProductionDeductions($orderId);
+        } catch (Throwable $deductSyncError) {
+            $syncHadWarning = true;
+            error_log('PrintFlow POS deduction sync warning for order #' . $orderId . ': ' . $deductSyncError->getMessage());
+        }
+        if ($syncHadWarning) {
+            throw new Exception('Production status was applied, but some inventory deductions still need follow-up.');
         }
         return;
     }
