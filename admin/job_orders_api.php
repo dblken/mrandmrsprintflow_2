@@ -832,6 +832,18 @@ try {
             ];
             $mapped_status = $status_map[$cust['status'] ?? ''] ?? 'PENDING';
 
+            if (!empty($cust['order_id']) && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
+                try {
+                    JobOrderService::ensureStoreOrderProductionDeductions((int)$cust['order_id']);
+                } catch (Throwable $syncErr) {
+                    error_log(sprintf(
+                        'PrintFlow customization deduction sync failed for order %d: %s',
+                        (int)$cust['order_id'],
+                        $syncErr->getMessage()
+                    ));
+                }
+            }
+
             // Determine payment proof status
             $payment_proof_status = 'NONE';
             $payment_proof_url = null;
@@ -1134,6 +1146,18 @@ try {
             ];
             $db_status = $o['status'] ?? '';
             $mapped_status = $status_map[$db_status] ?? $db_status;
+
+            if ($order_id > 0 && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
+                try {
+                    JobOrderService::ensureStoreOrderProductionDeductions($order_id);
+                } catch (Throwable $syncErr) {
+                    error_log(sprintf(
+                        'PrintFlow order deduction sync failed for order %d: %s',
+                        $order_id,
+                        $syncErr->getMessage()
+                    ));
+                }
+            }
             
             // Map payment proof status for staff dashboard
             $payment_proof_status = 'NONE';

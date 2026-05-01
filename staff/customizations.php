@@ -2180,9 +2180,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const grouped = [];
                 this.currentJo.materials.forEach(m => {
                     const existing = grouped.find(g => g.item_id === m.item_id);
+                    const hasDeductedAt = !!(m && m.deducted_at && String(m.deducted_at).trim() !== '');
                     if (existing) {
                         existing.quantity = (parseFloat(existing.quantity) || 0) + (parseFloat(m.quantity) || 0);
                         existing.computed_required_length_ft = (parseFloat(existing.computed_required_length_ft) || 0) + (parseFloat(m.computed_required_length_ft) || 0);
+                        // Preserve deducted badge if any merged assignment line was already deducted.
+                        if (!existing.deducted_at && hasDeductedAt) {
+                            existing.deducted_at = m.deducted_at;
+                        }
                     } else {
                         grouped.push({ ...m });
                     }

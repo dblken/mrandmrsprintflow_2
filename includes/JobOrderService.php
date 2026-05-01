@@ -161,6 +161,19 @@ class JobOrderService {
         }
     }
 
+    /**
+     * Ensure inventory deductions are applied for store orders that are already
+     * in production-ready states (idempotent: only undeducted rows are processed).
+     */
+    public static function ensureStoreOrderProductionDeductions(int $storeOrderId): void {
+        if ($storeOrderId <= 0) {
+            return;
+        }
+
+        self::ensureJobsForStoreOrder($storeOrderId);
+        self::syncStoreOrderAssignmentsIfNeeded($storeOrderId, ['materials' => true, 'inks' => false]);
+    }
+
     private static function cleanupLegacyAutoAssignedMaterials(int $jobId, int $storeOrderId = 0, string $serviceType = ''): void {
         if ($jobId <= 0 || $storeOrderId <= 0 || $serviceType === '' || !self::tableHasColumn('job_order_materials', 'std_order_id')) {
             return;
