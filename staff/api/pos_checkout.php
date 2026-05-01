@@ -181,6 +181,24 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
         [$orderId]
     ) ?: [];
 
+    $normalizedTargetStatus = strtoupper(trim($targetStatus));
+    // POS flow requirement: keep payment successful and avoid deduction during checkout.
+    // Deduction must remain deferred until COMPLETED.
+    if (in_array($normalizedTargetStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
+        foreach ($jobs as $job) {
+            $jobId = (int)($job['id'] ?? 0);
+            if ($jobId <= 0) {
+                continue;
+            }
+            db_execute(
+                "UPDATE job_orders SET status = 'IN_PRODUCTION', updated_at = NOW() WHERE id = ?",
+                'i',
+                [$jobId]
+            );
+        }
+        return;
+    }
+
     foreach ($jobs as $job) {
         JobOrderService::updateStatus((int)$job['id'], $targetStatus);
     }
