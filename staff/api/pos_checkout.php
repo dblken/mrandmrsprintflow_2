@@ -182,19 +182,26 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
     ) ?: [];
 
     $normalizedTargetStatus = strtoupper(trim($targetStatus));
-    // POS flow requirement: keep payment successful and avoid deduction during checkout.
-    // Deduction must remain deferred until COMPLETED.
+    // POS service requirement: deduct in IN_PRODUCTION stage, but do it safely so
+    // checkout stays successful even if inventory sync needs follow-up.
     if (in_array($normalizedTargetStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
         foreach ($jobs as $job) {
             $jobId = (int)($job['id'] ?? 0);
             if ($jobId <= 0) {
                 continue;
             }
-            db_execute(
-                "UPDATE job_orders SET status = 'IN_PRODUCTION', updated_at = NOW() WHERE id = ?",
-                'i',
-                [$jobId]
-            );
+            try {
+                JobOrderService::updateStatus($jobId, 'IN_PRODUCTION', null, '', true);
+            } catch (Throwable $syncError) {
+                // Keep POS sale flow resilient: status still advances to production,
+                // and deduction can be retried from staff customizations/order flow.
+                db_execute(
+                    "UPDATE job_orders SET status = 'IN_PRODUCTION', updated_at = NOW() WHERE id = ?",
+                    'i',
+                    [$jobId]
+                );
+                error_log('PrintFlow POS IN_PRODUCTION sync warning for job #' . $jobId . ': ' . $syncError->getMessage());
+            }
         }
         return;
     }
