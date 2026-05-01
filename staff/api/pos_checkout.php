@@ -192,12 +192,14 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
                 continue;
             }
             try {
-                JobOrderService::updateStatus($jobId, 'IN_PRODUCTION', null, '', true);
+                // Use store-facing "Processing" so order/customization/job statuses stay
+                // aligned to the same production phase and deduction triggers immediately.
+                JobOrderService::updateStatus($jobId, 'Processing', null, '', true);
             } catch (Throwable $syncError) {
                 // Keep POS sale flow resilient: status still advances to production,
                 // and deduction can be retried from staff customizations/order flow.
                 db_execute(
-                    "UPDATE job_orders SET status = 'IN_PRODUCTION', updated_at = NOW() WHERE id = ?",
+                    "UPDATE job_orders SET status = 'Processing', updated_at = NOW() WHERE id = ?",
                     'i',
                     [$jobId]
                 );
