@@ -475,13 +475,14 @@ try {
         }
     }
     $order_type = $has_service ? 'custom' : 'product';
+    $order_status = $has_service ? 'In Production' : 'Completed';
     $reference_id = $items[0]['id'] ?? null;
 
     $order_result = db_execute(
         "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source) 
-         VALUES (?, ?, ?, ?, 'In Production', 'Paid', ?, ?, NOW(), NOW(), ?, 'pos')",
-        'iiidsss',
-        [$customer_id, $branch_id, $reference_id, $total_amount, $payment_method, $reference_number, $order_type]
+         VALUES (?, ?, ?, ?, ?, 'Paid', ?, ?, NOW(), NOW(), ?, 'pos')",
+        'iiidssss',
+        [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $payment_method, $reference_number, $order_type]
     );
 
     if (!$order_result) {
