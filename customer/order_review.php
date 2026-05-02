@@ -1336,7 +1336,6 @@ require_once __DIR__ . '/../includes/header.php';
                 <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #e5e7eb; margin-bottom: 1.5rem;">
                     <label class="review-input-label" style="margin-bottom: 0.5rem; display: block;">Pickup Branch *</label>
                     <select name="branch_id" id="branch_id" class="input-field" required style="background: #ffffff; border: 1px solid #d1d5db; color: #374151; font-weight: 500; font-size: 0.9rem; padding: 0.75rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; width: 100%; display: block;">
-                        <option value="">-- Select Branch --</option>
                         <?php foreach ($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>
@@ -1410,23 +1409,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const branchError = document.getElementById('branch-error');
 
     if (form && branchSelect) {
-        form.addEventListener('submit', function(e) {
-            if (!branchSelect.value || branchSelect.value === '') {
-                e.preventDefault();
-                branchError.style.display = 'flex';
-                branchSelect.style.borderColor = '#ef4444';
-                branchSelect.style.boxShadow = '0 0 0 4px rgba(239, 68, 68, 0.1)';
-                branchSelect.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        });
-
-        branchSelect.addEventListener('change', function() {
-            if (this.value) {
-                branchError.style.display = 'none';
-                this.style.borderColor = '#d1d5db';
-                this.style.boxShadow = 'none';
-            }
-        });
+        // Validation removed as branch is now always selected by default
     }
 });
 </script>

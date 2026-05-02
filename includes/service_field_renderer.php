@@ -142,7 +142,6 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             if ($field_key === 'branch') {
                 $selected_branch = $existing_data['branch_id'] ?? '';
                 $html .= '<select name="branch_id" id="branch_id" class="shopee-opt-btn" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
-                $html .= '<option value="">Select Branch</option>';
                 foreach ($branches as $b) {
                     $selected = ($selected_branch == $b['id']) ? ' selected' : '';
                     $html .= '<option value="' . (int)$b['id'] . '"' . $selected . '>' . htmlspecialchars($b['branch_name']) . '</option>';

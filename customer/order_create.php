@@ -76,7 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     $notes      = trim($_POST['notes'] ?? '');
     [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);
 
-    if ($branch_id < 1) {
+    if (false) {
         $error = 'Please select a branch.';
     } elseif ($quantity > (int)$branch_stock_qty) {
         $error = 'Quantity exceeds available stock.';
@@ -319,7 +319,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="shopee-form-label">Branch *</div>
                         <div class="shopee-form-field">
                             <select name="branch_id" id="poc-branch-select" class="shopee-opt-btn" required style="width: 175px; cursor: pointer;">
-                                <option value="">Select Branch</option>
                                 <?php 
                                 $saved_branch = $existing_data['branch_id'] ?? ($_POST['branch_id'] ?? '');
                                 foreach ($branches as $b): 
@@ -724,7 +723,7 @@ document.addEventListener('DOMContentLoaded', function() {
             };
 
             const branchSelect = form.querySelector('select[name="branch_id"]');
-            if (branchSelect && !branchSelect.value) setError(branchSelect, 'Branch is required.');
+            // Branch validation removed - always selected by default
 
             if (hasError) {
                 e.preventDefault();
