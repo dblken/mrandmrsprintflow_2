@@ -190,11 +190,11 @@ function render_branch_selector(array $branchCtx, ?string $base_url = null): voi
         <div class="branch-dropdown" id="branchDropdown">
             <?php if ($is_admin): ?>
             <div class="branch-dropdown-label">View Mode</div>
-            <a class="branch-dropdown-item <?php echo $selected === 'all' ? 'active' : ''; ?>"
+            <a class="branch-dropdown-item <?php echo printflow_branch_value_is_all($selected) ? 'active' : ''; ?>"
                href="<?php echo $base_url . $sep; ?>branch_id=all">
                 <span class="item-dot" style="background:#0d9488;"></span>
                 All Branches
-                <?php if ($selected === 'all'): ?>
+                <?php if (printflow_branch_value_is_all($selected)): ?>
                     <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 <?php endif; ?>
             </a>
@@ -205,7 +205,7 @@ function render_branch_selector(array $branchCtx, ?string $base_url = null): voi
             <?php foreach ($branches as $idx => $b):
                 $bid = (int)$b['id'];
                 $bname = htmlspecialchars($b['branch_name']);
-                $is_active = ($selected === $bid);
+                $is_active = (!printflow_branch_value_is_all($selected) && (int)$selected === $bid);
                 if ($is_admin === false && !in_array($bid, array_map('intval', $allowed), true)) continue;
                 $colours = ['#6366f1','#10b981','#f59e0b','#7c3aed','#ef4444','#3b82f6','#14b8a6','#f97316','#ec4899','#84cc16'];
                 $dot = $colours[$idx % count($colours)];

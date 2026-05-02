@@ -50,6 +50,45 @@ function get_all_branches(): array {
     return $cache;
 }
 
+/**
+ * True when the UI/session value means "aggregate all active branches".
+ * Accepts synonyms so odd casing or stray whitespace does not become (int)0.
+ */
+function printflow_branch_value_is_all($value): bool {
+    if ($value === 'all') {
+        return true;
+    }
+    if (is_string($value)) {
+        return strtolower(trim($value)) === 'all';
+    }
+    return false;
+}
+
+/**
+ * Canonical branch switch from `?branch_id=` for admins: `'all'`, positive id, or null (ignore).
+ *
+ * @return 'all'|int|null
+ */
+function printflow_parse_admin_branch_switch($raw) {
+    if (is_array($raw)) {
+        return null;
+    }
+    if (printflow_branch_value_is_all($raw)) {
+        return 'all';
+    }
+    if ($raw === null || $raw === '') {
+        return null;
+    }
+    if (is_numeric($raw)) {
+        return (int) $raw > 0 ? (int) $raw : null;
+    }
+    if (is_string($raw)) {
+        $t = trim($raw);
+        return ctype_digit($t) ? (int) $t : null;
+    }
+    return null;
+}
+
 /** ─────────────────────────────────────────────────────
  *  2. get_user_allowed_branches($user_id, $role)
  *
@@ -101,7 +140,7 @@ function normalize_selected_branch($selected, $allowed, bool $requires_branch = 
     if ($allowed === 'all') {
         if ($requires_branch) {
             // Keep the explicitly selected branch when it is valid.
-            if ($selected !== 'all' && $selected !== null) {
+            if (!printflow_branch_value_is_all($selected) && $selected !== null && $selected !== '') {
                 $selected_int = (int)$selected;
                 foreach (get_all_branches() as $branch) {
                     if ((int)($branch['id'] ?? 0) === $selected_int) {
@@ -119,11 +158,14 @@ function normalize_selected_branch($selected, $allowed, bool $requires_branch = 
             return !empty($branches) ? (int)$branches[0]['id'] : 1;
         }
         // Admin on an analytics page → can keep 'all'
-        return ($selected === 'all' || $selected === null) ? 'all' : (int)$selected;
+        if (printflow_branch_value_is_all($selected) || $selected === '' || $selected === null) {
+            return 'all';
+        }
+        return (int) $selected > 0 ? (int) $selected : printflow_get_default_admin_branch_id();
     }
 
     // Restricted user
-    if ($selected === 'all' || $selected === null) {
+    if (printflow_branch_value_is_all($selected) || $selected === null) {
         return (int)$allowed[0];
     }
     $selected_int = (int)$selected;
@@ -154,14 +196,26 @@ function init_branch_context(bool $page_requires_branch = false): array {
     }
 
     $user_id   = (int)($_SESSION['user_id'] ?? 0);
-    $role      = $_SESSION['user_type'] ?? 'Staff';
+    $role      = function_exists('get_user_type')
+        ? (string) (get_user_type() ?: ($_SESSION['user_type'] ?? 'Staff'))
+        : (string) ($_SESSION['user_type'] ?? 'Staff');
     $allowed   = get_user_allowed_branches($user_id, $role);
     $branches  = get_all_branches();
 
     // Branch switch via URL — Admins only (Managers/Staff are locked to assignment)
     if (isset($_GET['branch_id']) && $role === 'Admin') {
-        $switch = $_GET['branch_id'] === 'all' ? 'all' : (int)$_GET['branch_id'];
-        $_SESSION['selected_branch_id'] = $switch;
+        $parsed = printflow_parse_admin_branch_switch($_GET['branch_id']);
+        if ($parsed === 'all') {
+            $_SESSION['selected_branch_id'] = 'all';
+        } elseif (is_int($parsed) && $parsed > 0) {
+            foreach ($branches as $branchRow) {
+                if ((int) ($branchRow['id'] ?? 0) === $parsed) {
+                    $_SESSION['selected_branch_id'] = $parsed;
+                    break;
+                }
+            }
+        }
+        // Invalid/missing IDs: leave existing session untouched (avoid accidental branch_id = 0).
     }
 
     $default_selected = ($role === 'Admin')
@@ -271,7 +325,7 @@ function branch_where_parts(string $tableAlias, $branchContext): array {
     if ($a === '') {
         $a = 'o';
     }
-    if ($branchContext === 'all') {
+    if (printflow_branch_value_is_all($branchContext)) {
         return [
             " AND {$a}.branch_id IN (SELECT id FROM branches WHERE status != 'Archived') ",
             '',
@@ -279,6 +333,9 @@ function branch_where_parts(string $tableAlias, $branchContext): array {
         ];
     }
     $branch_id = (int)$branchContext;
+    if ($branch_id <= 0) {
+        return [" AND {$a}.branch_id IN (SELECT id FROM branches WHERE status != 'Archived') ", '', []];
+    }
     return [" AND {$a}.branch_id = ? ", 'i', [$branch_id]];
 }
 
