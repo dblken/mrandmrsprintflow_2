@@ -2658,6 +2658,36 @@ function customer_orders_merge_job_order_row_into_customization(array $custom, ?
     return $custom;
 }
 
+/**
+ * Merge cart/session `dynamic_form_data` into the customization array before persisting to order_items.
+ * Dynamic catalog items store answers alongside `customization`; without this merge only metadata (form_type, config_id, …) is saved.
+ */
+function printflow_merge_dynamic_form_data_into_customization(array $custom, array $item): array {
+    $dfd = $item['dynamic_form_data'] ?? null;
+    if (!is_array($dfd) || $dfd === []) {
+        return $custom;
+    }
+    $clean = [];
+    foreach ($dfd as $key => $value) {
+        if (!is_string($key) && !is_int($key)) {
+            continue;
+        }
+        $keyStr = trim((string)$key);
+        if ($keyStr === '') {
+            continue;
+        }
+        if (is_array($value) && isset($value['type']) && $value['type'] === 'file') {
+            continue;
+        }
+        $clean[$keyStr] = $value;
+    }
+    if ($clean === []) {
+        return $custom;
+    }
+
+    return array_replace($clean, $custom);
+}
+
 function customer_orders_custom_order_is_catalog_product(array $custom): bool {
     $src = strtolower(trim((string)($custom['source_page'] ?? '')));
     if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {
@@ -2776,6 +2806,7 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
             'values',
             'payload',
             'order_spec',
+            'dynamic_form_data',
         ]
         as $wrap
     ) {
@@ -2877,9 +2908,9 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
     $unnamed = 0;
     foreach ($custom as $k => $v) {
         if (is_int($k)) {
-            $k = (string)$k;
-        }
-        if (!is_string($k)) {
+            $unnamed++;
+            $k = $unnamed === 1 ? 'Details' : ('Details ' . $unnamed);
+        } elseif (!is_string($k)) {
             continue;
         }
         if ($k === '') {

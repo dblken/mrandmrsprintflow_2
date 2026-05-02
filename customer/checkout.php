@@ -180,6 +180,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 } elseif (!checkout_item_is_service($item) && empty($custom['product_type']) && !empty($item['name'])) {
                     $custom['product_type'] = $item['name'];
                 }
+
+                $custom = printflow_merge_dynamic_form_data_into_customization($custom, $item);
                 
                 $custom_data    = json_encode($custom);
                 $design_binary  = null;
