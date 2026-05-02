@@ -239,8 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $status = $current[0]['status'] ?? '';
 
         if ($status === 'Archived') {
-            db_execute("DELETE FROM services WHERE service_id = ?", 'i', [$service_id]);
-            $success = 'Service deleted permanently!';
+            $error = 'Archived services cannot be permanently deleted.';
         } else {
             $new_status = ($status === 'Activated') ? 'Deactivated' : 'Activated';
             db_execute("UPDATE services SET status = ?, updated_at = NOW() WHERE service_id = ?", 'si', [$new_status, $service_id]);
@@ -270,10 +269,6 @@ if (isset($_GET['get_archived'])) {
             $html .= csrf_field();
             $html .= '<input type="hidden" name="service_id" value="' . (int)$s['service_id'] . '">';
             $html .= '<button type="submit" name="restore_service" class="btn-action teal">Restore</button></form>';
-            $html .= '<form method="POST" class="inline service-status-form" data-pf-skip-guard style="display:inline-block;" data-action="Delete Permanently" data-service-name="' . htmlspecialchars($s['name'], ENT_QUOTES) . '" onsubmit="showServiceStatusModal(event, this);return false;">';
-            $html .= csrf_field();
-            $html .= '<input type="hidden" name="service_id" value="' . (int)$s['service_id'] . '">';
-            $html .= '<button type="submit" name="delete_service" class="btn-action red">Delete</button></form>';
             $html .= '</td></tr>';
         }
     }
@@ -403,11 +398,6 @@ function render_services_table_rows(array $services): void {
                                     <?php echo csrf_field(); ?>
                                     <input type="hidden" name="service_id" value="<?php echo (int)$svc['service_id']; ?>">
                                     <button type="submit" name="restore_service" class="btn-action teal">Restore</button>
-                                </form>
-                                <form method="POST" class="inline service-status-form" data-pf-skip-guard data-action="Delete Permanently" data-service-name="<?php echo htmlspecialchars($svc['name'], ENT_QUOTES); ?>" onsubmit="showServiceStatusModal(event, this);return false;">
-                                    <?php echo csrf_field(); ?>
-                                    <input type="hidden" name="service_id" value="<?php echo (int)$svc['service_id']; ?>">
-                                    <button type="submit" name="delete_service" class="btn-action red">Delete</button>
                                 </form>
                             <?php endif; ?>
                         </td>

@@ -750,8 +750,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     $status = $current[0]['status'] ?? '';
     
     if ($status === 'Archived') {
-        db_execute("DELETE FROM products WHERE product_id = ?", 'i', [$product_id]);
-        $success = 'Product deleted permanently!';
+        $error = 'Archived products cannot be permanently deleted.';
     } else {
         $new_status = ($status === 'Activated') ? 'Deactivated' : 'Activated';
         db_execute("UPDATE products SET status = ?, updated_at = NOW() WHERE product_id = ?", 'si', [$new_status, $product_id]);
@@ -787,10 +786,6 @@ if (isset($_GET['get_archived'])) {
             $html .= csrf_field();
             $html .= '<input type="hidden" name="product_id" value="' . $p['product_id'] . '">';
             $html .= '<button type="submit" name="restore_product" class="btn-action teal">Restore</button></form>';
-            $html .= '<form method="POST" class="inline product-status-form" data-pf-skip-guard style="display:inline-block;" data-action="Delete Permanently" data-product-name="' . htmlspecialchars($p['name'], ENT_QUOTES) . '" onsubmit="showProductStatusModal(event, this);return false;">';
-            $html .= csrf_field();
-            $html .= '<input type="hidden" name="product_id" value="' . $p['product_id'] . '">';
-            $html .= '<button type="submit" name="delete_product" class="btn-action red">Delete</button></form>';
             $html .= '</td></tr>';
         }
     }
@@ -1033,11 +1028,6 @@ if (isset($_GET['ajax'])) {
                                     <?php echo csrf_field(); ?>
                                     <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
                                     <button type="submit" name="restore_product" class="btn-action teal">Restore</button>
-                                </form>
-                                <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Delete Permanently" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
-                                    <?php echo csrf_field(); ?>
-                                    <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                    <button type="submit" name="delete_product" class="btn-action red">Delete</button>
                                 </form>
                             <?php endif; ?>
                             <?php endif; ?>
@@ -1959,11 +1949,6 @@ if (isset($_GET['ajax'])) {
                                                     <?php echo csrf_field(); ?>
                                                     <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
                                                     <button type="submit" name="restore_product" class="btn-action teal">Restore</button>
-                                                </form>
-                                                <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Delete Permanently" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
-                                                    <?php echo csrf_field(); ?>
-                                                    <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
-                                                    <button type="submit" name="delete_product" class="btn-action red">Delete</button>
                                                 </form>
                                             <?php endif; ?>
                                             <?php endif; ?>
