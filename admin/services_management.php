@@ -34,6 +34,10 @@ function admin_service_media_url(string $path): string {
     if ($publicPos !== false) {
         $path = substr($path, $publicPos);
     }
+    $uploadsPos = strpos($path, '/uploads/');
+    if ($uploadsPos !== false && ($publicPos === false || $uploadsPos < $publicPos)) {
+        $path = substr($path, $uploadsPos);
+    }
     if ($base_path === '' && strpos($path, '/printflow/') === 0) {
         $path = substr($path, strlen('/printflow'));
     }
@@ -868,6 +872,8 @@ function serviceMediaUrl(path) {
     value = value.replace(/^[A-Za-z]:/, '');
     const publicIndex = value.indexOf('/public/');
     if (publicIndex !== -1) value = value.slice(publicIndex);
+    const uploadsIndex = value.indexOf('/uploads/');
+    if (uploadsIndex !== -1 && (publicIndex === -1 || uploadsIndex < publicIndex)) value = value.slice(uploadsIndex);
     if (!base && value.startsWith('/printflow/')) value = value.slice('/printflow'.length);
     if (!value.startsWith('/')) value = '/' + value.replace(/^\/+/, '');
     if (base && !value.startsWith(base + '/')) value = base + value;
