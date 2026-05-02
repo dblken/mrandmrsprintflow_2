@@ -2831,6 +2831,82 @@ function printflow_resolve_service_catalog_service_id(?string $serviceName): int
         }
     }
 
+    // Last resort: unique substring relationship between hint and catalog name (Plates-style rows often match exactly;
+    // legacy flows store abbreviated service_type / job titles that never hit equality above).
+    $haystack = strtolower(preg_replace('/\s+/', ' ', $serviceName));
+    $haystack = trim($haystack);
+    if ($haystack !== '' && strlen($haystack) >= 5 && function_exists('db_query')) {
+        $hits = db_query(
+            'SELECT service_id FROM services
+             WHERE LOWER(TRIM(COALESCE(status, \'\'))) <> \'archived\'
+               AND (
+                    (? LIKE CONCAT(\'%\', LOWER(TRIM(name)), \'%\') AND CHAR_LENGTH(TRIM(name)) >= 6)
+                 OR (CHAR_LENGTH(?) >= 8 AND LOWER(TRIM(name)) LIKE CONCAT(\'%\', ?, \'%\'))
+               )
+             ORDER BY CHAR_LENGTH(TRIM(name)) ASC, service_id ASC',
+            'sss',
+            [$haystack, $haystack, $haystack]
+        );
+        if (is_array($hits) && count($hits) === 1) {
+            return (int)($hits[0]['service_id'] ?? 0);
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Resolve catalog service_id for an existing order line (modal / history). Mirrors Plates-style reliability when
+ * JSON carries service_id; fills gaps from orders.reference_id, product label, or job metadata.
+ */
+function printflow_resolve_service_catalog_service_id_for_order_line(array $custom_data, array $order, array $item): int {
+    $validateServicePk = static function (int $sid): int {
+        if ($sid <= 0 || !function_exists('db_query')) {
+            return 0;
+        }
+        $hit = db_query(
+            "SELECT service_id FROM services WHERE service_id = ? AND LOWER(TRIM(COALESCE(status,''))) <> 'archived' LIMIT 1",
+            'i',
+            [$sid]
+        );
+
+        return !empty($hit) ? $sid : 0;
+    };
+
+    $try = $validateServicePk((int)($custom_data['service_id'] ?? 0));
+    if ($try > 0) {
+        return $try;
+    }
+
+    $try = $validateServicePk((int)($order['reference_id'] ?? 0));
+    if ($try > 0) {
+        return $try;
+    }
+
+    foreach ([
+        trim((string)($custom_data['service_type'] ?? '')),
+        trim((string)($item['product_name'] ?? '')),
+        trim((string)($order['first_job_title'] ?? '')),
+        trim((string)($order['first_job_service_type'] ?? '')),
+    ] as $hint) {
+        if ($hint === '') {
+            continue;
+        }
+        $rid = printflow_resolve_service_catalog_service_id($hint);
+        if ($rid > 0) {
+            return $rid;
+        }
+        if (function_exists('normalize_service_name')) {
+            $norm = normalize_service_name($hint, '');
+            if (is_string($norm) && trim($norm) !== '' && strcasecmp(trim($norm), $hint) !== 0) {
+                $rid = printflow_resolve_service_catalog_service_id(trim($norm));
+                if ($rid > 0) {
+                    return $rid;
+                }
+            }
+        }
+    }
+
     return 0;
 }
 

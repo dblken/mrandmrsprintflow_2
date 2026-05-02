@@ -559,6 +559,24 @@ foreach ($items as $lineIndex => $item) {
     $custom_data = customer_order_items_normalize_service_specs_for_modal($custom_data, $order, $item, $is_service_order);
 
     if ($is_service_order) {
+        // Align with orders that store full service_id + field configs (e.g. Plates via order_service_dynamic):
+        // recover catalog id from reference_id, job rows, product label, or fuzzy service_type when JSON omits service_id.
+        if (function_exists('printflow_resolve_service_catalog_service_id_for_order_line')) {
+            $resolvedSid = printflow_resolve_service_catalog_service_id_for_order_line($custom_data, $order, $item);
+            if ($resolvedSid > 0 && (int)($custom_data['service_id'] ?? 0) <= 0) {
+                $custom_data['service_id'] = $resolvedSid;
+            }
+            if (trim((string)($custom_data['service_type'] ?? '')) === '') {
+                $sidTmp = (int)($custom_data['service_id'] ?? 0);
+                if ($sidTmp > 0 && function_exists('customer_orders_resolve_service_name_by_id')) {
+                    $nm = customer_orders_resolve_service_name_by_id($sidTmp);
+                    if ($nm !== '') {
+                        $custom_data['service_type'] = $nm;
+                    }
+                }
+            }
+        }
+
         $sidForSort = (int)($custom_data['service_id'] ?? 0);
         if ($sidForSort <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
             $sidForSort = (int)($order['reference_id'] ?? 0);
