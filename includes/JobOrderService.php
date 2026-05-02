@@ -108,7 +108,7 @@ class JobOrderService {
         $sql .= ")";
 
         if ($onlyUndeducted) {
-            $sql .= " AND deducted_at IS NULL";
+            $sql .= " AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')";
         }
 
         return db_query($sql, $types, $params) ?: [];
@@ -170,8 +170,35 @@ class JobOrderService {
             return;
         }
 
+        $orderRows = db_query(
+            "SELECT status FROM orders WHERE order_id = ? LIMIT 1",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+        $orderStatus = self::normalizeWorkflowStatus((string)($orderRows[0]['status'] ?? ''));
+        if (!in_array($orderStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'COMPLETED'], true)) {
+            return;
+        }
+
         self::ensureJobsForStoreOrder($storeOrderId);
-        self::syncStoreOrderAssignmentsIfNeeded($storeOrderId, ['materials' => true, 'inks' => false]);
+
+        $jobs = db_query(
+            "SELECT id
+             FROM job_orders
+             WHERE order_id = ?
+               AND status <> 'CANCELLED'
+             ORDER BY id ASC",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+
+        foreach ($jobs as $job) {
+            $jobId = (int)($job['id'] ?? 0);
+            if ($jobId <= 0) {
+                continue;
+            }
+            self::processDeductions($jobId, ['materials' => true, 'inks' => false]);
+        }
     }
 
     private static function cleanupLegacyAutoAssignedMaterials(int $jobId, int $storeOrderId = 0, string $serviceType = ''): void {

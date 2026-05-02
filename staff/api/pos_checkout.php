@@ -216,7 +216,7 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
             error_log('PrintFlow POS deduction sync warning for order #' . $orderId . ': ' . $deductSyncError->getMessage());
         }
         if ($syncHadWarning) {
-            throw new Exception('Production status was applied, but some inventory deductions still need follow-up.');
+            error_log('PrintFlow POS production sync warning for order #' . $orderId . ': checkout will continue and deduction can be retried.');
         }
         return;
     }

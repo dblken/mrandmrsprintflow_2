@@ -73,6 +73,8 @@ try {
                     }
                     
                     $item['qty'] += $qty;
+                    // Preserve service flag when legacy cart rows are missing it.
+                    $item['is_service'] = !empty($item['is_service']) || $is_service;
                     $found = true;
                     break;
                 }
