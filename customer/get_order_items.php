@@ -84,21 +84,7 @@ function customer_order_items_decode_customization_payload($raw): array {
 }
 
 function customer_order_items_overlay_nonempty_specs(array $base, array $overlay): array {
-    $out = $base;
-    foreach ($overlay as $k => $v) {
-        if ($v === null || $v === '') {
-            continue;
-        }
-        if (is_string($v) && trim($v) === '') {
-            continue;
-        }
-        if (is_array($v) && $v === []) {
-            continue;
-        }
-        $out[$k] = $v;
-    }
-
-    return $out;
+    return printflow_overlay_nonempty_assoc($base, $overlay);
 }
 
 function customer_order_items_merge_customization_payload(array $primary, array $fallback, string $fallbackServiceType = ''): array {
@@ -355,7 +341,7 @@ foreach ($customization_rows as $cRow) {
     $orderItemId = (int)($cRow['order_item_id'] ?? 0);
     // Order-level rows, or stale/wrong order_item_id (specs still need to show on every line).
     if ($orderItemId <= 0 || !isset($valid_order_item_ids[$orderItemId])) {
-        $orphan_customization_details = array_replace($orphan_customization_details, $details);
+        $orphan_customization_details = printflow_overlay_nonempty_assoc($orphan_customization_details, $details);
         if ($serviceType !== '' && trim((string)($orphan_customization_details['service_type'] ?? '')) === '') {
             $orphan_customization_details['service_type'] = $serviceType;
         }
@@ -368,7 +354,7 @@ foreach ($customization_rows as $cRow) {
             'service_type' => '',
         ];
     }
-    $customization_by_item_id[$orderItemId]['details'] = array_replace(
+    $customization_by_item_id[$orderItemId]['details'] = printflow_overlay_nonempty_assoc(
         $customization_by_item_id[$orderItemId]['details'],
         $details
     );
@@ -388,7 +374,7 @@ if (!empty($first_item_raw_customization[0]['customization_data'])) {
 }
 $first_item_customization = customer_order_items_merge_customization_payload(
     $first_item_customization,
-    array_replace($orphan_customization_details, $first_customization_payload),
+    printflow_overlay_nonempty_assoc($orphan_customization_details, $first_customization_payload),
     $first_customization_service_type !== ''
         ? $first_customization_service_type
         : trim((string)($orphan_customization_details['service_type'] ?? ''))

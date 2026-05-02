@@ -2650,7 +2650,7 @@ function customer_orders_primary_customization(array $order): array {
     $itemCustom = customer_orders_decode_customization_payload((string)($order['first_item_customization'] ?? ''));
     $tableCustom = customer_orders_decode_customization_payload((string)($order['first_customization_details'] ?? ''));
 
-    $merged = array_replace($tableCustom, $itemCustom);
+    $merged = printflow_overlay_nonempty_assoc($tableCustom, $itemCustom);
 
     $serviceType = trim((string)($order['first_customization_service_type'] ?? ''));
     if ($serviceType !== '' && empty($merged['service_type'])) {
@@ -2997,7 +2997,7 @@ function printflow_merge_dynamic_form_data_into_customization(array $custom, arr
         return $custom;
     }
 
-    return array_replace($clean, $custom);
+    return printflow_overlay_nonempty_assoc($clean, $custom);
 }
 
 function customer_orders_custom_order_is_catalog_product(array $custom): bool {
@@ -3095,6 +3095,32 @@ function printflow_is_sequential_list_array(array $arr): bool {
 }
 
 /**
+ * Merge associative customization payloads without letting empty overlay values wipe existing base values.
+ * (PHP array_replace overwrites even when the new value is "", which drops specs when multiple customizations rows or wrappers are sparse.)
+ *
+ * @param array<string, mixed> $base
+ * @param array<string, mixed> $overlay
+ * @return array<string, mixed>
+ */
+function printflow_overlay_nonempty_assoc(array $base, array $overlay): array {
+    $out = $base;
+    foreach ($overlay as $k => $v) {
+        if ($v === null || $v === '') {
+            continue;
+        }
+        if (is_string($v) && trim($v) === '') {
+            continue;
+        }
+        if (is_array($v) && $v === []) {
+            continue;
+        }
+        $out[$k] = $v;
+    }
+
+    return $out;
+}
+
+/**
  * Unwrap nested containers and list-shaped payloads so modal specs are not dropped (numeric PHP keys are skipped by flatten).
  */
 function printflow_normalize_customization_for_modal(array $custom, int $depth = 0): array {
@@ -3135,7 +3161,7 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
         $inner = $custom[$wrap];
         unset($custom[$wrap]);
         $innerNorm = printflow_normalize_customization_for_modal($inner, $depth + 1);
-        $custom = array_replace($innerNorm, $custom);
+        $custom = printflow_overlay_nonempty_assoc($innerNorm, $custom);
     }
 
     if (printflow_is_sequential_list_array($custom)) {
