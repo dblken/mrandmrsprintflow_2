@@ -262,7 +262,7 @@ try {
                         $jo['order_source'] ?? null
                     );
                     if (!empty($jo['order_id'])) {
-                        $payload = JobOrderService::getStoreOrderItemsPayload((int)$jo['order_id'], $serviceOnly);
+                        $payload = JobOrderService::getStoreOrderItemsPayload((int)$jo['order_id'], $serviceOnly, $serviceOnly);
                         if ($serviceOnly && empty($payload['items'])) {
                             continue;
                         }
@@ -436,7 +436,7 @@ try {
                 }
                 
                 // Fetch dynamic correct names based on ordered items customizations
-                $payload = JobOrderService::getStoreOrderItemsPayload($order['order_id'], $serviceOnly);
+                $payload = JobOrderService::getStoreOrderItemsPayload($order['order_id'], $serviceOnly, $serviceOnly);
                 if ($serviceOnly && empty($payload['items'])) {
                     continue;
                 }

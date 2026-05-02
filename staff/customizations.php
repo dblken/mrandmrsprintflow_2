@@ -175,7 +175,7 @@ $job_rows = db_query(
 
 foreach ($job_rows as $row) {
     if (!empty($row['order_id'])) {
-        $payload = JobOrderService::getStoreOrderItemsPayload((int)$row['order_id'], true);
+        $payload = JobOrderService::getStoreOrderItemsPayload((int)$row['order_id'], true, true);
         $serviceItems = array_values($payload['items'] ?? []);
         if (empty($serviceItems)) {
             continue;

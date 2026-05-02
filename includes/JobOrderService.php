@@ -1544,8 +1544,11 @@ class JobOrderService {
             || (int)($firstItemCustomization['service_id'] ?? 0) > 0
             || in_array($firstSourcePage, ['services', 'service'], true)
             || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($firstItemCustomization));
-        if (!$isServiceOrder) {
-            $isServiceOrder = $orderTypeNormalized === 'custom' && empty($firstItemCustomization['product_type']);
+        if (!$isServiceOrder && $orderTypeNormalized === 'custom') {
+            $isServiceOrder = !(
+                function_exists('customer_orders_custom_order_is_catalog_product')
+                && customer_orders_custom_order_is_catalog_product($firstItemCustomization)
+            );
         }
 
         $jobOrdersList = db_query(
