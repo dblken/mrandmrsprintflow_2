@@ -524,6 +524,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $customization[$branchLabel] = $branch_row[0]['branch_name'];
                 }
             }
+            if (empty($customization['source_page'])) {
+                $customization['source_page'] = 'services';
+            }
             $customization['service_id'] = $service_id;
             if (empty($customization['service_type'])) {
                 $customization['service_type'] = $service['name'];

@@ -485,6 +485,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             if (!empty($item['service_id'])) {
                                 $custom['service_id'] = (int)$item['service_id'];
                             }
+                            if (empty($custom['source_page'])) {
+                                $custom['source_page'] = trim((string)($item['source_page'] ?? 'services')) ?: 'services';
+                            }
                         } elseif (review_item_is_product($item) && empty($custom['product_type']) && !empty($item['name'])) {
                             $custom['product_type'] = $item['name'];
                         }
@@ -497,7 +500,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 $custom['service_id'] = $resolvedSid;
                             }
                         }
-                        $custom_data   = json_encode($custom);
+                        $custom_data   = printflow_encode_customization_payload($custom);
                         $design_binary = null;
                         $design_mime   = $item['design_mime']   ?? null;
                         $design_name   = $item['design_name']   ?? null;

@@ -2646,6 +2646,24 @@ function customer_orders_decode_customization_payload($raw): array {
     return [];
 }
 
+function printflow_encode_customization_payload(array $payload): string {
+    $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    if (defined('JSON_PARTIAL_OUTPUT_ON_ERROR')) {
+        $flags |= JSON_PARTIAL_OUTPUT_ON_ERROR;
+    }
+
+    $json = json_encode($payload, $flags);
+    if ($json === false) {
+        error_log('Failed to encode customization payload JSON: ' . json_last_error_msg());
+        return '{}';
+    }
+
+    return $json;
+}
+
 function customer_orders_is_generic_item_name(string $name): bool {
     $normalized = strtolower(trim((string)preg_replace('/\s+/', ' ', $name)));
     if ($normalized === '') {

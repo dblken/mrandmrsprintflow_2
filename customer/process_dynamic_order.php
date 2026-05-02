@@ -242,7 +242,7 @@ if ($action === 'buy_now') {
             $custom_data[$key] = $value;
         }
         
-        $custom_json = json_encode($custom_data);
+        $custom_json = printflow_encode_customization_payload($custom_data);
         
         // Handle file uploads
         $upload_dir = __DIR__ . '/../uploads/orders';

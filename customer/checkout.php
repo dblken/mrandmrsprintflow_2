@@ -191,8 +191,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                         $custom['source_page'] = $sp;
                     }
                 }
-                if (checkout_item_is_service($item) && empty($custom['service_type']) && !empty($item['name'])) {
-                    $custom['service_type'] = $item['name'];
+                if (checkout_item_is_service($item)) {
+                    if (empty($custom['service_type']) && !empty($item['name'])) {
+                        $custom['service_type'] = $item['name'];
+                    }
+                    if (empty($custom['source_page'])) {
+                        $custom['source_page'] = trim((string)($item['source_page'] ?? 'services')) ?: 'services';
+                    }
                 } elseif (!checkout_item_is_service($item) && empty($custom['product_type']) && !empty($item['name'])) {
                     $custom['product_type'] = $item['name'];
                 }
@@ -208,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     }
                 }
 
-                $custom_data    = json_encode($custom);
+                $custom_data    = printflow_encode_customization_payload($custom);
                 $design_binary  = null;
                 $design_mime    = $item['design_mime']   ?? null;
                 $design_name    = $item['design_name']   ?? null;
@@ -340,6 +345,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     error_log("Failed to create job order for item in Order #$order_id: " . $e->getMessage());
                 }
             }
+
+            if (!isset($_SESSION['pending_payment_cart_restore']) || !is_array($_SESSION['pending_payment_cart_restore'])) {
+                $_SESSION['pending_payment_cart_restore'] = [];
+            }
+            $_SESSION['pending_payment_cart_restore'][(string)$order_id] = [
+                'items' => $cart_items,
+                'created_at' => time(),
+            ];
             
             unset($_SESSION['cart']);
             sync_cart_to_db($customer_id);

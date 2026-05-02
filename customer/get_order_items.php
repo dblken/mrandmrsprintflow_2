@@ -103,6 +103,27 @@ function customer_order_items_merge_customization_payload(array $primary, array 
     return $merged;
 }
 
+function customer_order_items_restore_customization_from_session(array $restoreItem): array {
+    $custom = $restoreItem['customization'] ?? [];
+    if (is_string($custom)) {
+        $custom = customer_order_items_decode_customization_payload($custom);
+    } elseif (!is_array($custom)) {
+        $custom = [];
+    }
+
+    if (!empty($restoreItem['service_id']) && (int)($custom['service_id'] ?? 0) <= 0) {
+        $custom['service_id'] = (int)$restoreItem['service_id'];
+    }
+    if (!empty($restoreItem['name']) && trim((string)($custom['service_type'] ?? '')) === '') {
+        $custom['service_type'] = trim((string)$restoreItem['name']);
+    }
+    if (!empty($restoreItem['source_page']) && trim((string)($custom['source_page'] ?? '')) === '') {
+        $custom['source_page'] = trim((string)$restoreItem['source_page']);
+    }
+
+    return is_array($custom) ? $custom : [];
+}
+
 /**
  * Align branch / quantity labels with admin-configured service_field_configs (no hardcoded service-specific labels).
  * Fills branch from orders.branch_name when specs omit it (legacy rows).
@@ -417,6 +438,7 @@ $items = db_query("
     FROM order_items oi
     LEFT JOIN products p ON oi.product_id = p.product_id
     WHERE oi.order_id = ?
+    ORDER BY oi.order_item_id ASC
 ", 'i', [$order_id]);
 
 $items = is_array($items) ? $items : [];
@@ -506,6 +528,14 @@ $items_out = [];
 $service_items_raw = [];
 $order_total_amount = (float)($order['total_amount'] ?? 0);
 $item_count = count($items);
+$session_restore_items = [];
+$session_restore_entry = $_SESSION['pending_payment_cart_restore'][(string)$order_id] ?? null;
+if (is_array($session_restore_entry) && !empty($session_restore_entry['items']) && is_array($session_restore_entry['items'])) {
+    $session_restore_items = array_values(array_filter(
+        $session_restore_entry['items'],
+        static fn($row) => is_array($row)
+    ));
+}
 
 $any_design_order_item_id = 0;
 foreach ($items as $_it) {
@@ -545,6 +575,9 @@ if ($any_design_order_item_id > 0) {
 
 foreach ($items as $lineIndex => $item) {
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
+    $session_restore_custom = isset($session_restore_items[$lineIndex])
+        ? customer_order_items_restore_customization_from_session($session_restore_items[$lineIndex])
+        : [];
     $itemCustomizationFallback = $customization_by_item_id[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
     $mergedTableDetails = customer_order_items_overlay_nonempty_specs(
         $orphan_customization_details,
@@ -557,6 +590,11 @@ foreach ($items as $lineIndex => $item) {
         $custom_data,
         $mergedTableDetails,
         $fallbackSvc
+    );
+    $custom_data = customer_order_items_merge_customization_payload(
+        $custom_data,
+        $session_restore_custom,
+        trim((string)($session_restore_custom['service_type'] ?? $fallbackSvc))
     );
     if (empty($custom_data['service_type']) && !empty($first_item_customization['service_type'])) {
         $custom_data['service_type'] = (string)$first_item_customization['service_type'];
