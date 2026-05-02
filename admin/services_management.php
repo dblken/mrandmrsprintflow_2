@@ -405,6 +405,29 @@ usort($categories, static function ($a, $b) {
     return strcasecmp($a['category'], $b['category']);
 });
 
+/** Minimal, stable payload for row JS (view/edit modals). Avoids fragile inline JSON in onclick. */
+function pf_admin_service_row_payload(array $svc): array {
+    return [
+        'service_id' => isset($svc['service_id']) ? (int) $svc['service_id'] : 0,
+        'name' => (string) ($svc['name'] ?? ''),
+        'category' => (string) ($svc['category'] ?? ''),
+        'description' => (string) ($svc['description'] ?? ''),
+        'status' => (string) ($svc['status'] ?? ''),
+        'display_image' => (string) ($svc['display_image'] ?? ''),
+        'video_url' => (string) ($svc['video_url'] ?? ''),
+        'customer_modal_text' => isset($svc['customer_modal_text']) ? (string) $svc['customer_modal_text'] : '',
+    ];
+}
+
+function pf_admin_service_row_json(array $svc): string {
+    $json = json_encode(
+        pf_admin_service_row_payload($svc),
+        JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+
+    return $json !== false ? $json : '{}';
+}
+
 function render_services_table_rows(array $services): void {
     ?>
     <table class="orders-table">
@@ -422,7 +445,8 @@ function render_services_table_rows(array $services): void {
                 <tr><td colspan="5" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No services found.</td></tr>
             <?php else: ?>
                 <?php foreach ($services as $svc): ?>
-                    <tr onclick="openViewModal(<?php echo htmlspecialchars(json_encode($svc), ENT_QUOTES); ?>)">
+                    <?php $svc_row_json = htmlspecialchars(pf_admin_service_row_json($svc), ENT_QUOTES, 'UTF-8'); ?>
+                    <tr data-pf-service="<?php echo $svc_row_json; ?>">
                         <td style="color:#1f2937;"><?php echo (int)$svc['service_id']; ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($svc['name']); ?></td>
                         <td><?php echo htmlspecialchars($svc['category'] ?? '—'); ?></td>
@@ -438,7 +462,7 @@ function render_services_table_rows(array $services): void {
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo htmlspecialchars($svc['status']); ?></span>
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-                            <button type="button" class="btn-action blue" onclick='openServiceModal("edit", <?php echo htmlspecialchars(json_encode($svc), ENT_QUOTES); ?>)'>Edit</button>
+                            <button type="button" class="btn-action blue" onclick="event.stopPropagation(); openServiceModal(&quot;edit&quot;, pfParseServiceRow(this))">Edit</button>
                             <a href="service_field_config.php?service_id=<?php echo (int)$svc['service_id']; ?>" class="btn-action" style="color:#059669;border-color:#059669;text-decoration:none;" title="Configure service fields">Fields</a>
                             <?php if ($svc['status'] !== 'Archived'): ?>
                                 <form method="POST" class="inline service-status-form" data-pf-skip-guard data-action="<?php echo $svc['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>" data-service-name="<?php echo htmlspecialchars($svc['name'], ENT_QUOTES); ?>" onsubmit="showServiceStatusModal(event, this);return false;">
@@ -940,6 +964,17 @@ function serviceMediaList(paths) {
         .join(',');
 }
 
+function pfParseServiceRow(el) {
+    const tr = el && el.closest ? el.closest('tr[data-pf-service]') : null;
+    if (!tr) return null;
+    try {
+        return JSON.parse(tr.getAttribute('data-pf-service'));
+    } catch (e) {
+        console.error(e);
+        return null;
+    }
+}
+
 function filterPanel() {
     return {
         sortOpen: false,
@@ -1022,6 +1057,24 @@ function applySortFilter(sortKey) {
 
 function printflowInitServicesPage() {
     if (!document.getElementById('servicesListHeader')) return;
+
+    const tableWrap = document.getElementById('servicesTableContainer');
+    if (tableWrap && !tableWrap.dataset.pfSvcRowClickBound) {
+        tableWrap.dataset.pfSvcRowClickBound = '1';
+        tableWrap.addEventListener('click', function (e) {
+            const tr = e.target.closest('tr[data-pf-service]');
+            if (!tr) return;
+            if (e.target.closest('td:last-child')) return;
+            let svc;
+            try {
+                svc = JSON.parse(tr.getAttribute('data-pf-service'));
+            } catch (err) {
+                console.error(err);
+                return;
+            }
+            openViewModal(svc);
+        });
+    }
 
     // Filter and Search
     ['fp_date_from', 'fp_date_to', 'fp_category', 'fp_status'].forEach(id => {
@@ -1112,7 +1165,11 @@ function openServiceModal(mode, svc) {
 
     document.getElementById('modal-category').querySelectorAll('option[data-pf-legacy-cat]').forEach(function (o) { o.remove(); });
 
-    if (mode === 'edit' && svc) {
+    if (mode === 'edit') {
+        if (!svc) {
+            console.warn('openServiceModal: missing service row data');
+            return;
+        }
         title.textContent = 'Edit Service';
         modeInput.name = 'update_service';
         submitBtn.textContent = 'Save Changes';
