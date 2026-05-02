@@ -63,18 +63,10 @@ function pf_reports_sql_alias(string $alias, string $fallback): string {
 /** Resolved sold-item label for product-category charts when no live category exists. */
 function pf_product_sales_chart_item_label_sql(
     string $productAlias = 'p',
-    string $itemAlias = 'oi',
-    string $orderAlias = 'o',
-    string $variantAlias = 'pv',
-    string $referenceProductAlias = 'pr',
-    string $referenceServiceAlias = 'sr'
+    string $itemAlias = 'oi'
 ): string {
     $productAlias = pf_reports_sql_alias($productAlias, 'p');
     $itemAlias = pf_reports_sql_alias($itemAlias, 'oi');
-    $orderAlias = pf_reports_sql_alias($orderAlias, 'o');
-    $variantAlias = pf_reports_sql_alias($variantAlias, 'pv');
-    $referenceProductAlias = pf_reports_sql_alias($referenceProductAlias, 'pr');
-    $referenceServiceAlias = pf_reports_sql_alias($referenceServiceAlias, 'sr');
 
     $catalogNameSql = "CASE
         WHEN LOWER(TRIM(COALESCE({$productAlias}.name, ''))) IN (
@@ -93,42 +85,11 @@ function pf_product_sales_chart_item_label_sql(
         ELSE NULLIF(TRIM({$productAlias}.name), '')
     END";
 
-    $referenceNameSql = "CASE
-        WHEN COALESCE({$itemAlias}.product_id, 0) > 0 THEN NULL
-        WHEN COALESCE({$orderAlias}.reference_id, 0) <= 0 THEN NULL
-        WHEN LOWER(TRIM(COALESCE({$referenceProductAlias}.name, ''))) IN (
-            'custom order',
-            'customer order',
-            'service order',
-            'service item',
-            'order item',
-            'sticker pack',
-            'merchandise',
-            'pos service item',
-            'pos-service item',
-            'pos service',
-            'pos-service'
-        ) THEN NULL
-        ELSE NULLIF(TRIM({$referenceProductAlias}.name), '')
-    END";
-
     return "COALESCE(
                 {$catalogNameSql},
-                NULLIF(TRIM({$variantAlias}.variant_name), ''),
-                {$referenceNameSql},
-                NULLIF(TRIM({$referenceServiceAlias}.name), ''),
                 NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_name'))), ''),
                 NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_type'))), ''),
                 NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_type'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.name'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.variant_name'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.variant_label'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.item_name'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_name'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.job_title'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.title'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.Sintra_Type'))), ''),
-                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.sintra_type'))), ''),
                 NULLIF(TRIM({$itemAlias}.sku), ''),
                 CASE
                     WHEN COALESCE({$itemAlias}.product_id, 0) > 0 THEN CONCAT('Product #', {$itemAlias}.product_id)
@@ -144,7 +105,7 @@ function pf_product_sales_chart_item_label_sql(
  *   via material/name fallbacks (legacy / retired SKUs stay on their own product).
  */
 function pf_product_sales_chart_bucket_sql(): string {
-    $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi', 'o', 'pv', 'pr', 'sr');
+    $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi');
     return "CASE
                 WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN CONCAT('cat:', TRIM(p.category))
                 WHEN COALESCE(oi.product_id, 0) > 0 THEN CONCAT('pid:', oi.product_id)
@@ -154,7 +115,7 @@ function pf_product_sales_chart_bucket_sql(): string {
 
 /** SELECT list expression for the human-readable slice label (paired with bucket SQL). */
 function pf_product_sales_chart_label_sql(): string {
-    $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi', 'o', 'pv', 'pr', 'sr');
+    $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi');
     return "MAX(CASE
                    WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN TRIM(p.category)
                    ELSE {$itemLabel}
@@ -194,10 +155,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
              LEFT JOIN products p ON p.product_id = oi.product_id
-             LEFT JOIN product_variants pv ON pv.variant_id = oi.variant_id
              JOIN orders o ON oi.order_id = o.order_id
-             LEFT JOIN products pr ON pr.product_id = o.reference_id
-             LEFT JOIN services sr ON sr.service_id = o.reference_id
              WHERE (
                  LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
                  OR o.status = 'Completed'
