@@ -3425,74 +3425,66 @@ function render_pagination($current_page, $total_pages, $extra_params = [], $pag
     if ($total_pages <= 1) return '';
 
     $current_page = (int)$current_page;
-    $window = 3; // Increased from 2 to show more numbers
+    $window = 2; // Pages before/after current (classic admin pagination)
     $pages = [];
-    
-    // Always include first page
+
     $pages[] = 1;
-    
+
     $range_start = max(2, $current_page - $window);
     $range_end   = min($total_pages - 1, $current_page + $window);
     for ($i = $range_start; $i <= $range_end; $i++) {
         $pages[] = $i;
     }
-    
-    // Always include last page
+
     if ($total_pages > 1) {
         $pages[] = $total_pages;
     }
-    
+
     $pages = array_unique($pages);
     sort($pages);
 
-    // Shared button styles
-    $base_btn  = 'all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 10px;border-radius:10px;border:1px solid #e2e8f0;background:#ffffff;color:#475569 !important;text-decoration:none !important;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);box-shadow: 0 1px 2px rgba(0,0,0,0.05);';
-    $active_btn = 'all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 10px;border-radius:10px;border:1px solid #06A1A1;background:linear-gradient(135deg, #06A1A1 0%, #047676 100%);color:#ffffff !important;text-decoration:none !important;font-size:13px;font-weight:700;cursor:default;box-shadow:0 4px 12px rgba(6,161,161,0.25);';
-    
-    $hover_script = ' onmouseover="if(this.style.background!==\'linear-gradient(135deg, #06A1A1 0%, #047676 100%)\'){this.style.borderColor=\'#06A1A1\';this.style.color=\'#06A1A1\';this.style.transform=\'translateY(-1px)\';this.style.boxShadow=\'0 4px 6px rgba(0,0,0,0.05)\';}" onmouseout="if(this.style.background!==\'linear-gradient(135deg, #06A1A1 0%, #047676 100%)\'){this.style.borderColor=\'#e2e8f0\';this.style.color=\'#475569\';this.style.transform=\'none\';this.style.boxShadow=\'0 1px 2px rgba(0,0,0,0.05)\';}"';
-    
-    $ellipsis = '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;font-size:14px;color:#94a3b8;font-weight:700;letter-spacing:1px;">···</span>';
+    // Inline styles — 'all:unset' defeats Tailwind/output.css resets on <a> tags (PrintFlow primary #06A1A1)
+    $base_btn   = 'all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;padding:0 8px;border-radius:8px;border:1px solid #e5e7eb;background:#ffffff;color:#374151 !important;text-decoration:none !important;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;';
+    $active_btn = 'all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;padding:0 8px;border-radius:8px;border:1px solid #06A1A1;background:#06A1A1;color:#ffffff !important;text-decoration:none !important;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 2px 4px rgba(6,161,161,0.2);';
+    $hover      = ' onmouseover="this.style.borderColor=\'#06A1A1\';this.style.color=\'#06A1A1\'" onmouseout="this.style.borderColor=\'#e5e7eb\';this.style.color=\'#374151\'"';
+    $ellipsis   = '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:34px;font-size:13px;color:#9ca3af;letter-spacing:1px;">···</span>';
 
     $params = $extra_params;
     unset($params[$page_param]);
-    
-    $html = '<div class="pagination-container" style="display:flex; align-items:center; justify-content:center; gap:8px; margin-top:24px; padding:20px 0; border-top:1px solid #f1f5f9; width:100%;">';
 
-    // Previous button
+    // Plain href navigation (no fetchUpdatedTable onclick): avoids mismatched signatures (e.g. fetchUpdatedTable(number) vs {page:n}) breaking Products/Services pagination.
+    $html = '<div class="pagination-container" style="display:flex; align-items:center; justify-content:center; gap:6px; margin-top:24px; padding:16px 0; border-top:1px solid #f1f5f9; width:100%;">';
+
     if ($current_page > 1) {
         $params[$page_param] = $current_page - 1;
         $url = '?' . http_build_query($params);
-        $onclick = "if(window.fetchUpdatedTable){ event.preventDefault(); fetchUpdatedTable({page:".($current_page - 1)."}); }";
-        $html .= '<a class="pagination-link pagination-prev" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover_script . ' onclick="' . $onclick . '">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width:2.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        $html .= '<a class="pagination-link pagination-prev" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </a>';
     }
 
-    $prev_p = null;
+    $prev_page = null;
     foreach ($pages as $p) {
-        if ($prev_p !== null && $p - $prev_p > 1) {
+        if ($prev_page !== null && $p - $prev_page > 1) {
             $html .= $ellipsis;
         }
-        
+
         $params[$page_param] = $p;
         $url = '?' . http_build_query($params);
-        $onclick = "if(window.fetchUpdatedTable){ event.preventDefault(); fetchUpdatedTable({page:".$p."}); }";
-        
+
         if ((int)$p === (int)$current_page) {
-            $html .= '<a class="pagination-link is-active" aria-current="page" href="javascript:void(0)" style="' . $active_btn . '">' . $p . '</a>';
+            $html .= '<a class="pagination-link is-active" aria-current="page" href="' . htmlspecialchars($url) . '" style="' . $active_btn . '">' . $p . '</a>';
         } else {
-            $html .= '<a class="pagination-link" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover_script . ' onclick="' . $onclick . '">' . $p . '</a>';
+            $html .= '<a class="pagination-link" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>' . $p . '</a>';
         }
-        $prev_p = $p;
+        $prev_page = $p;
     }
 
-    // Next button
     if ($current_page < $total_pages) {
         $params[$page_param] = $current_page + 1;
         $url = '?' . http_build_query($params);
-        $onclick = "if(window.fetchUpdatedTable){ event.preventDefault(); fetchUpdatedTable({page:".($current_page + 1)."}); }";
-        $html .= '<a class="pagination-link pagination-next" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover_script . ' onclick="' . $onclick . '">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width:2.5;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        $html .= '<a class="pagination-link pagination-next" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         </a>';
     }
 
