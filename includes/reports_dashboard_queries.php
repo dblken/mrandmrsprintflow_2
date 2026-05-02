@@ -373,6 +373,15 @@ function pf_reports_customer_city_sql_expr(string $alias = 'c'): string {
 }
 
 /**
+ * Normalize locality labels for BI maps (merge distant places into nearest branch catchment).
+ *
+ * @param string $rawCol SQL column reference (e.g. z.city_raw)
+ */
+function pf_reports_customer_location_city_map_sql(string $rawCol): string {
+    return "CASE WHEN LOWER(TRIM({$rawCol})) IN ('calauan') THEN 'Cabuyao' ELSE TRIM({$rawCol}) END";
+}
+
+/**
  * Roll up customer locality from transaction rows: each store order and each job order counts once.
  * Uses the customer's address fields linked to that transaction (best available city label).
  *
@@ -421,27 +430,35 @@ function pf_reports_customer_locations_merged(
         ? 'COUNT(*) AS orders, COALESCE(SUM(x.line_rev), 0) AS revenue'
         : 'COUNT(*) AS orders';
 
+    $cityMap = pf_reports_customer_location_city_map_sql('z.city_raw');
+
     $sql = "
-SELECT TRIM(x.city_raw) AS city, {$outerAgg}
+SELECT TRIM(x.mapped_city) AS city, {$outerAgg}
 FROM (
-    SELECT {$cityExpr} AS city_raw, {$revO} AS line_rev
-    FROM orders o
-    INNER JOIN customers c ON c.customer_id = o.customer_id
-    WHERE o.customer_id IS NOT NULL
-      {$oDate}
-      {$bo}
-    UNION ALL
-    SELECT {$cityExpr} AS city_raw, {$revJ} AS line_rev
-    FROM job_orders jo
-    INNER JOIN customers c ON c.customer_id = jo.customer_id
-    WHERE jo.customer_id IS NOT NULL
-      {$joDate}
-      {$bj}
+    SELECT {$cityMap} AS mapped_city, z.line_rev
+    FROM (
+        SELECT {$cityExpr} AS city_raw, {$revO} AS line_rev
+        FROM orders o
+        INNER JOIN customers c ON c.customer_id = o.customer_id
+        WHERE o.customer_id IS NOT NULL
+          {$oDate}
+          {$bo}
+        UNION ALL
+        SELECT {$cityExpr} AS city_raw, {$revJ} AS line_rev
+        FROM job_orders jo
+        INNER JOIN customers c ON c.customer_id = jo.customer_id
+        WHERE jo.customer_id IS NOT NULL
+          {$joDate}
+          {$bj}
+    ) z
+    WHERE z.city_raw IS NOT NULL
+      AND TRIM(z.city_raw) <> ''
+      AND CHAR_LENGTH(TRIM(z.city_raw)) > 2
 ) x
-WHERE x.city_raw IS NOT NULL
-  AND TRIM(x.city_raw) <> ''
-  AND CHAR_LENGTH(TRIM(x.city_raw)) > 2
-GROUP BY TRIM(x.city_raw)
+WHERE x.mapped_city IS NOT NULL
+  AND TRIM(x.mapped_city) <> ''
+  AND CHAR_LENGTH(TRIM(x.mapped_city)) > 2
+GROUP BY TRIM(x.mapped_city)
 ORDER BY orders DESC
 LIMIT {$limit}
 ";
