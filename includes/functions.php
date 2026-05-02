@@ -1231,6 +1231,15 @@ function format_currency($amount, $currency = '₱') {
 function printflow_format_order_code($order_id, $order_sku = '') {
     $order_id = (int)$order_id;
     $order_sku = trim((string)$order_sku);
+
+    // Hide technical placeholder SKU from customer-facing order codes.
+    if ($order_sku !== '') {
+        $order_sku = preg_replace('/(?:^|-)POS-SERVICE(?=-|$)/i', '', $order_sku);
+        $order_sku = preg_replace('/(?:^|-)POS_SERVICE(?=-|$)/i', '', (string)$order_sku);
+        $order_sku = preg_replace('/-{2,}/', '-', (string)$order_sku);
+        $order_sku = trim((string)$order_sku, "- \t\n\r\0\x0B");
+    }
+
     return $order_sku !== '' ? ($order_sku . '-' . $order_id) : ('ORD-' . $order_id);
 }
 
@@ -2814,6 +2823,25 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
         if ($raw === '') {
             return '';
         }
+
+        // Ignore technical/generic labels that should not be shown as service names.
+        $blocked = [
+            'service',
+            'service order',
+            'service item',
+            'order item',
+            'custom order',
+            'custom service',
+            'pos service item',
+            'pos-service',
+            'pos_service',
+            'pos',
+        ];
+        $normalized_raw = strtolower(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $raw)));
+        if (in_array($normalized_raw, $blocked, true)) {
+            return '';
+        }
+
         $normalized = normalize_service_name($raw, '');
         $known = [
             'Tarpaulin Printing',
@@ -2826,7 +2854,12 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
             'Souvenirs',
             'Layouts',
         ];
-        return in_array($normalized, $known, true) ? $normalized : '';
+        // Keep canonical names for known services, but do not discard valid
+        // custom service names configured by staff (e.g. "Mug Printing").
+        if (in_array($normalized, $known, true)) {
+            return $normalized;
+        }
+        return normalize_service_name($raw, $raw);
     };
 
     // Source of truth: if the customer explicitly selected a service, prefer it.
@@ -2984,7 +3017,19 @@ function printflow_resolve_order_item_name($raw_name, $custom, $fallback = 'Orde
     }
 
     $raw_name = trim((string)$raw_name);
-    $generic_names = ['custom order', 'customer order', 'service order', 'order item', 'sticker pack', 'merchandise'];
+    $generic_names = [
+        'custom order',
+        'customer order',
+        'service order',
+        'service item',
+        'order item',
+        'sticker pack',
+        'merchandise',
+        'pos service item',
+        'pos-service item',
+        'pos service',
+        'pos-service'
+    ];
     $raw_lower = strtolower($raw_name);
     $custom_name = normalize_service_name(get_service_name_from_customization($custom, $fallback), $fallback);
 
@@ -3013,6 +3058,9 @@ function printflow_resolve_order_item_name($raw_name, $custom, $fallback = 'Orde
     }
 
     if ($custom_name !== '' && $custom_name !== normalize_service_name($fallback, $fallback)) {
+        if ($raw_name === '' || in_array($raw_lower, $generic_names, true)) {
+            return $custom_name;
+        }
         $service_keywords = [
             'Tarpaulin Printing' => ['tarpaulin', 'tarp'],
             'T-Shirt Printing' => ['t-shirt', 'tshirt', 'shirt', 'vinyl'],
@@ -3036,6 +3084,10 @@ function printflow_resolve_order_item_name($raw_name, $custom, $fallback = 'Orde
             if (!$matches_expected_service) {
                 return $custom_name;
             }
+        } else {
+            // For custom services not in the fixed keyword map, trust the
+            // resolved customization service label over placeholder product names.
+            return $custom_name;
         }
     }
 
