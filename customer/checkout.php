@@ -211,6 +211,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     if ($resolvedSid > 0 && (int)($custom['service_id'] ?? 0) <= 0) {
                         $custom['service_id'] = $resolvedSid;
                     }
+                    $custom = printflow_apply_service_field_config_display_labels(
+                        $custom,
+                        (int)($custom['service_id'] ?? 0),
+                        [
+                            'quantity' => (int)($item['quantity'] ?? 1),
+                            'design_name' => trim((string)($item['design_name'] ?? '')),
+                            'reference_name' => trim((string)($item['reference_name'] ?? '')),
+                            'dimension_unit' => trim((string)($custom['unit'] ?? '')),
+                        ]
+                    );
                 }
 
                 $custom_data    = printflow_encode_customization_payload($custom);

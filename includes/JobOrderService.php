@@ -1934,6 +1934,18 @@ class JobOrderService {
                 }
             }
 
+            $custom = printflow_apply_service_field_config_display_labels(
+                $custom,
+                (int)($custom['service_id'] ?? 0),
+                [
+                    'branch_name' => (string)($order['branch_name'] ?? ''),
+                    'quantity' => max(1, (int)($item['quantity'] ?? 0)),
+                    'design_name' => trim((string)($item['design_image_name'] ?? '')),
+                    'reference_name' => basename((string)($item['reference_image_file'] ?? '')),
+                    'dimension_unit' => trim((string)($custom['unit'] ?? '')),
+                ]
+            );
+
             if ($isServiceOrder) {
                 $serviceIdForSort = (int)($custom['service_id'] ?? 0);
                 if ($serviceIdForSort <= 0) {

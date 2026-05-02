@@ -2812,6 +2812,170 @@ function customer_orders_enrich_line_customization(array $merged, array $order):
 }
 
 /**
+ * Add service-config display labels to legacy/customization payloads so older hardcoded service pages
+ * behave more like dynamic service orders in staff/customer detail modals.
+ *
+ * @param array<string,mixed> $custom
+ * @param array<string,mixed> $context
+ * @return array<string,mixed>
+ */
+function printflow_apply_service_field_config_display_labels(array $custom, int $serviceId, array $context = []): array {
+    $serviceId = (int)$serviceId;
+    if ($serviceId <= 0) {
+        return $custom;
+    }
+
+    require_once __DIR__ . '/service_field_config_helper.php';
+    if (!function_exists('get_service_field_config')) {
+        return $custom;
+    }
+
+    $configs = get_service_field_config($serviceId);
+    if (!is_array($configs) || $configs === []) {
+        return $custom;
+    }
+
+    $normalize = static function (string $value): string {
+        return strtolower(preg_replace('/[\s_\-]+/', '', trim($value)));
+    };
+
+    $firstValue = static function (array $source, array $aliases) use ($normalize) {
+        $wanted = [];
+        foreach ($aliases as $alias) {
+            if (!is_string($alias)) {
+                continue;
+            }
+            $alias = trim($alias);
+            if ($alias === '') {
+                continue;
+            }
+            $wanted[$normalize($alias)] = true;
+        }
+
+        foreach ($source as $key => $value) {
+            if (!is_string($key) && !is_int($key)) {
+                continue;
+            }
+            if (!isset($wanted[$normalize((string)$key)])) {
+                continue;
+            }
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (is_string($value) && trim($value) === '') {
+                continue;
+            }
+            if (is_array($value) && $value === []) {
+                continue;
+            }
+            return $value;
+        }
+
+        return null;
+    };
+
+    $stringify = static function ($value): string {
+        if ($value === null) {
+            return '';
+        }
+        if (is_array($value)) {
+            return function_exists('pf_order_ui_value_to_text')
+                ? pf_order_ui_value_to_text($value)
+                : json_encode($value, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        }
+        return trim((string)$value);
+    };
+
+    $formatDimension = static function (array $source, array $aliases, array $context) use ($firstValue, $stringify): string {
+        $direct = $firstValue($source, $aliases);
+        $directText = $stringify($direct);
+        if ($directText !== '') {
+            return $directText;
+        }
+
+        $width = $stringify($firstValue($source, ['width', 'Width', 'width_ft', 'Width_Ft']));
+        $height = $stringify($firstValue($source, ['height', 'Height', 'height_ft', 'Height_Ft']));
+        $unit = trim((string)($firstValue($source, ['unit', 'Unit']) ?? ($context['dimension_unit'] ?? '')));
+        if ($width !== '' && $height !== '') {
+            $text = $width . ' x ' . $height;
+            if ($unit !== '') {
+                $text .= ' ' . $unit;
+            }
+            return $text;
+        }
+
+        return '';
+    };
+
+    $aliasMap = [
+        'dimensions' => ['dimensions', 'dimension', 'size', 'sizes', 'exact_size', 'exact size', 'poster size', 'print size', 'tarp size', 'Dimensions', 'Size', 'Sizes'],
+        'size' => ['size', 'sizes', 'dimensions', 'dimension', 'Size', 'Sizes', 'Dimensions'],
+        'sizes' => ['sizes', 'size', 'dimensions', 'dimension', 'Sizes', 'Size', 'Dimensions'],
+        'lamination' => ['lamination', 'laminate_option', 'Lamination', 'Laminate', 'Lamination Option'],
+        'eyelets' => ['eyelets', 'with_eyelets', 'Eyelets'],
+        'design_file' => ['design_file', 'design_upload', 'design_upload_path', 'upload_design', 'upload design', 'Design', 'Upload Design'],
+        'reference_file' => ['reference_file', 'reference_upload', 'reference_upload_path', 'upload_reference', 'reference upload', 'Reference', 'Reference Upload'],
+        'shirt_color' => ['shirt_color', 'tshirt_color', 'color', 'Color'],
+        'size_ft' => ['size_ft', 'dimensions', 'size'],
+        'type' => ['type', 'sintra_type', 'sticker_type', 'poster_type', 'Type'],
+    ];
+
+    $designName = trim((string)($context['design_name'] ?? ''));
+    if ($designName === '') {
+        $designCandidate = $firstValue($custom, $aliasMap['design_file']);
+        $designName = basename($stringify($designCandidate));
+    }
+    $referenceName = trim((string)($context['reference_name'] ?? ''));
+    if ($referenceName === '') {
+        $referenceCandidate = $firstValue($custom, $aliasMap['reference_file']);
+        $referenceName = basename($stringify($referenceCandidate));
+    }
+
+    foreach ($configs as $fieldKey => $cfg) {
+        if (!is_array($cfg) || empty($cfg['visible'])) {
+            continue;
+        }
+
+        $label = trim((string)($cfg['label'] ?? ''));
+        if ($label === '') {
+            $label = trim((string)$fieldKey);
+        }
+        if ($label === '') {
+            continue;
+        }
+
+        $existingLabelValue = $firstValue($custom, [$label]);
+        if ($stringify($existingLabelValue) !== '') {
+            continue;
+        }
+
+        $aliases = $aliasMap[$fieldKey] ?? [$fieldKey, $label, str_replace(' ', '_', $label)];
+        $resolved = '';
+        $fieldType = strtolower(trim((string)($cfg['type'] ?? '')));
+
+        if ($fieldKey === 'branch') {
+            $resolved = trim((string)($context['branch_name'] ?? ''));
+        } elseif ($fieldType === 'quantity') {
+            $qty = (int)($context['quantity'] ?? 0);
+            $resolved = $qty > 0 ? (string)$qty : '';
+        } elseif ($fieldType === 'file') {
+            $isReference = str_contains($normalize((string)$fieldKey), 'reference') || str_contains($normalize($label), 'reference');
+            $resolved = $isReference ? $referenceName : $designName;
+        } elseif ($fieldType === 'dimension') {
+            $resolved = $formatDimension($custom, $aliases, $context);
+        } else {
+            $resolved = $stringify($firstValue($custom, $aliases));
+        }
+
+        if ($resolved !== '') {
+            $custom[$label] = $resolved;
+        }
+    }
+
+    return $custom;
+}
+
+/**
  * Fill gaps in per-line customization from a job_orders row (staff POS / job workflow).
  * Does not overwrite keys already present in $custom.
  */
