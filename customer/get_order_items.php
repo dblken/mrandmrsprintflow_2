@@ -89,6 +89,9 @@ function customer_order_items_overlay_nonempty_specs(array $base, array $overlay
         if ($v === null || $v === '') {
             continue;
         }
+        if (is_string($v) && trim($v) === '') {
+            continue;
+        }
         if (is_array($v) && $v === []) {
             continue;
         }

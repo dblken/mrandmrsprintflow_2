@@ -701,7 +701,7 @@ require_once __DIR__ . '/../includes/header.php';
 .im-spec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.6rem; margin: 0.8rem 0 0; }
 .im-spec-card { background: #f8fafc; border: 1px solid #dbeafe; padding: 0.65rem 0.75rem; border-radius: 8px; min-width: 0; }
 .im-spec-label { display: block; font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.3rem; }
-.im-spec-value { display: block; font-size: 0.82rem; font-weight: 700; color: #0f172a; line-height: 1.45; word-break: break-word; }
+.im-spec-value { display: block; font-size: 0.82rem; font-weight: 700; color: #0f172a; line-height: 1.45; word-break: break-word; white-space: pre-wrap; }
 .im-thumb { width: 90px; height: 90px; object-fit: cover; border-radius: 6px !important; border: 1px solid #e2e8f0; background: #f8fafc; }
 .im-asset-trigger { display: inline-flex; flex-direction: column; gap: 0.35rem; cursor: pointer; border: 0; background: transparent; padding: 0; text-decoration: none; }
 .im-asset-thumb-wrap { position: relative; display: inline-flex; width: fit-content; }
@@ -729,6 +729,9 @@ require_once __DIR__ . '/../includes/header.php';
 .im-note-card { margin-top: 1.25rem; padding: 0.9rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #94a3b8; border-radius: 8px; }
 .im-note-label { font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.45rem; }
 .im-note-copy { display:block; margin-top:0.2rem; font-size: 0.82rem; color: #334155; line-height: 1.6; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.im-longform-block { margin-top: 0.85rem; padding: 0.75rem 0.85rem; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; border-left: 4px solid #38bdf8; }
+.im-longform-label { font-size: 0.68rem; font-weight: 800; color: #0369a1; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.35rem; }
+.im-longform-text { font-size: 0.84rem; color: #0c4a6e; line-height: 1.55; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .im-reject-card {
     padding: 0.95rem 1rem;
     background: #fff7f7;
@@ -1390,6 +1393,29 @@ window.addEventListener('DOMContentLoaded', () => {
 </div>
 
 <script>
+function imIsLongFormSpecKey(k) {
+    const s = String(k || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!s) {
+        return false;
+    }
+    if (s === 'notes' || s === 'additional notes' || s === 'additional_notes' || s === 'job_notes') {
+        return true;
+    }
+    if (s.includes('description')) {
+        return true;
+    }
+    if (s.includes('instruction')) {
+        return true;
+    }
+    if (s.includes('remark')) {
+        return true;
+    }
+    if (s.includes('special request')) {
+        return true;
+    }
+    return false;
+}
+
 function imBadge(val) {
     const raw = String(val || '');
     const s = raw.toLowerCase();
@@ -1479,27 +1505,43 @@ function openItemsModal(orderId, event) {
         const itemsList = Array.isArray(data.items) ? data.items : [];
         const rows = itemsList.map(item => {
             let specs = '';
+            let longFormHtml = '';
             if (item.customization) {
-                const specItems = Object.entries(item.customization)
-                    .filter(([k,v]) => {
-                        if (v === null || v === undefined || v === '' || v === 'No' || v === 'None') return false;
-                        if (['design_upload','reference_upload'].includes(k) || String(k).startsWith('_')) return false;
-                        return true;
-                    })
-                    .map(([k,v]) => {
-                        let disp = v;
-                        if (typeof v === 'object' && v !== null) {
-                            try { disp = JSON.stringify(v); } catch (e) { disp = String(v); }
+                const entries = Object.entries(item.customization).filter(([k, v]) => {
+                    if (v === null || v === undefined || v === '' || v === 'No' || v === 'None') return false;
+                    if (['design_upload', 'reference_upload'].includes(k) || String(k).startsWith('_')) return false;
+                    return true;
+                });
+                const specParts = [];
+                for (const [k, v] of entries) {
+                    let disp = v;
+                    if (typeof v === 'object' && v !== null) {
+                        try { disp = JSON.stringify(v); } catch (e) { disp = String(v); }
+                    }
+                    const dispStr = String(disp);
+                    const kl = String(k).toLowerCase();
+                    if (imIsLongFormSpecKey(k)) {
+                        if (kl === 'notes' && dispStr.trim() !== '' && dispStr.trim() === String(data.notes || '').trim()) {
+                            continue;
                         }
-                        return `
+                        const label = String(k).replace(/_/g, ' ');
+                        longFormHtml += `
+                        <div class="im-longform-block">
+                            <div class="im-longform-label">${escIM(label)}</div>
+                            <div class="im-longform-text">${escIM(dispStr)}</div>
+                        </div>`;
+                        continue;
+                    }
+                    specParts.push(`
                         <div class="im-spec-card">
-                            <span class="im-spec-label capitalize-first">${k.replace(/_/g,' ')}</span>
-                            <span class="im-spec-value">${escIM(disp)}</span>
+                            <span class="im-spec-label capitalize-first">${String(k).replace(/_/g, ' ')}</span>
+                            <span class="im-spec-value">${escIM(dispStr)}</span>
                         </div>
-                    `;
-                    })
-                    .join('');
-                if (specItems) specs = `<div class="im-spec-grid">${specItems}</div>`;
+                    `);
+                }
+                if (specParts.length) {
+                    specs = `<div class="im-spec-grid">${specParts.join('')}</div>`;
+                }
             }
 
             const design = item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
@@ -1510,6 +1552,7 @@ function openItemsModal(orderId, event) {
                 <td data-label="${descLabel}" style="min-width: 250px;">
                     <div class="im-item-title">${escIM(item.product_name)}</div>
                     ${specs}
+                    ${longFormHtml}
                     
                     ${design || reference ? `
                         <div style="margin-top: 1rem;">
