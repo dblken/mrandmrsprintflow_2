@@ -1249,12 +1249,7 @@ try {
                                 </select>
                             </div>
 
-                            <div class="pos-tender-group" id="reference-group"
-                                style="display: none; margin-bottom: 12px;">
-                                <span style="font-weight: 600; font-size: 14px; color: #475569;">Reference No. *</span>
-                                <input type="text" id="pos-reference" name="reference_number" class="pos-tender-input"
-                                    placeholder="e.g. 100234" oninput="updateCheckoutState()">
-                            </div>
+
 
                             <div class="pos-tender-group" id="tender-group">
                                 <span style="font-weight: 600; font-size: 14px; color: #475569;">Amount Paid</span>
@@ -2589,13 +2584,6 @@ try {
 
         function toggleReferenceField() {
             const pm = document.getElementById('pos-payment-method').value;
-            const refGroup = document.getElementById('reference-group');
-            if (pm !== 'Cash') {
-                refGroup.style.display = 'flex';
-            } else {
-                refGroup.style.display = 'none';
-                document.getElementById('pos-reference').value = '';
-            }
             // Show GCash QR modal when GCash is selected
             if (pm === 'GCash') {
                 const qrModal = document.getElementById('gcash-qr-modal');
@@ -2667,7 +2655,7 @@ try {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const ref = document.getElementById('pos-reference').value.trim();
+            const ref = '';
 
             if (pm !== 'Cash' && !ref) {
                 canCheckout = false;
@@ -2704,7 +2692,7 @@ try {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const ref = document.getElementById('pos-reference').value.trim();
+            const ref = '';
             if (pm !== 'Cash' && !ref) {
                 await showPOSAlert('Reference Required', "Reference number is required for " + pm, 'warning');
                 return;
@@ -2733,7 +2721,7 @@ try {
                 action: 'walkin_checkout',
                 customer_id: $('#pos-customer').val(),
                 payment_method: pm,
-                reference_number: ref,
+                reference_number: '',
                 amount_tendered: tendered,
                 items: cart.map(i => ({
                     id: i.product_id,
@@ -2773,10 +2761,8 @@ try {
                     overlay.style.display = 'flex';
                     setTimeout(() => overlay.classList.add('active'), 10);
 
-                    // Reset POS UI for new transaction
-                    $('#pos-customer').val('guest').trigger('change');
+                    // Reset payment method
                     document.getElementById('pos-payment-method').value = 'Cash';
-                    document.getElementById('pos-reference').value = '';
                     document.getElementById('pos-tendered').value = '';
                     toggleReferenceField();
                     calculateChange();

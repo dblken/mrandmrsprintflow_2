@@ -1,4 +1,4 @@
-<?php
+Reference No. *<?php
 /**
  * API: POS Checkout Process
  * Path: staff/api/pos_checkout.php
