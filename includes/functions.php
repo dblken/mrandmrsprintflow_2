@@ -2351,6 +2351,15 @@ function printflow_job_notification_preview(int $job_id): array {
     return $preview;
 }
 
+function printflow_is_pos_service_placeholder_row(array $row): bool {
+    $sku = strtoupper(trim((string)($row['product_sku'] ?? '')));
+    if ($sku !== '' && (strpos($sku, 'POS-SERVICE') !== false || strpos($sku, 'POS_SERVICE') !== false)) {
+        return true;
+    }
+    $name = strtolower(trim((string)($row['product_name'] ?? '')));
+    return $name === 'pos service item' || strpos($name, 'pos service') !== false;
+}
+
 function printflow_known_service_labels(): array {
     return [
         'Tarpaulin Printing',
@@ -2402,7 +2411,9 @@ function printflow_order_item_has_service_marker(array $custom): bool {
     }
 
     $productType = trim((string)($custom['product_type'] ?? ''));
-    if ($productType !== '') {
+    $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
+    $fromCatalog = in_array($sourcePage, ['products', 'product', 'dynamic_form'], true);
+    if (!$fromCatalog && $productType !== '') {
         $normalizedProductType = normalize_service_name($productType, '');
         if (in_array($normalizedProductType, printflow_known_service_labels(), true)) {
             return true;
@@ -2465,6 +2476,7 @@ function printflow_order_notification_preview(int $order_id): array {
                 ) AS has_design,
                 oi.customization_data,
                 p.name AS product_name,
+                p.sku AS product_sku,
                 p.product_id,
                 p.product_type,
                 o.order_type,
@@ -2489,12 +2501,19 @@ function printflow_order_notification_preview(int $order_id): array {
     $custom = !empty($row['customization_data']) ? json_decode((string)$row['customization_data'], true) : [];
     $custom = is_array($custom) ? $custom : [];
     $order_type = strtolower(trim((string)($row['order_type'] ?? '')));
-    $is_service_item = printflow_order_item_has_service_marker($custom);
-    if ($is_service_item) {
+    $is_pos_placeholder = printflow_is_pos_service_placeholder_row($row);
+
+    if ($order_type === 'product' && !$is_pos_placeholder) {
+        $preview['item_kind'] = 'Product';
+    } elseif ($is_pos_placeholder || $order_type === 'custom') {
         $preview['item_kind'] = 'Service';
-    } elseif ($order_type === 'product' || $order_type === 'custom' || !empty($row['product_id'])) {
+    } elseif (printflow_order_item_has_service_marker($custom)) {
+        $preview['item_kind'] = 'Service';
+    } elseif (!empty($row['product_id'])) {
         $preview['item_kind'] = 'Product';
     }
+
+    $is_service_item = ($preview['item_kind'] === 'Service');
     $service_name = $is_service_item ? get_service_name_from_customization($custom, '') : '';
     $display_name_source = $service_name !== '' ? $service_name : (string)($row['product_name'] ?? 'Order Item');
     if (!$is_service_item && trim($display_name_source) === '') {

@@ -20,13 +20,9 @@ function pf_normalize_service_image_path($path, $base_path, $default_img) {
         return $default_img;
     }
     $path = str_replace('\\', '/', $path);
+    // Absolute URLs must be used as-is so images load from CDNs or absolute hosts.
     if (preg_match('#^https?://#i', $path)) {
-        $parts = parse_url($path);
-        if (!empty($parts['path'])) {
-            $path = $parts['path'];
-        } else {
-            return $path;
-        }
+        return $path;
     }
     if (preg_match('#^[A-Za-z]:/#', $path)) {
         $path = preg_replace('#^[A-Za-z]:#', '', $path);
@@ -71,19 +67,60 @@ function pf_service_local_asset_exists($urlPath, $base_path): bool {
         return false;
     }
     $clean = '/' . ltrim((string)$clean, '/');
-
-    $local = realpath(__DIR__ . '/..' . $clean);
-    if ($local === false) {
+    $appRoot = realpath(__DIR__ . '/..');
+    if ($appRoot === false) {
         return false;
     }
 
-    $appRoot = realpath(__DIR__ . '/..');
-    if ($appRoot === false) {
-        return is_file($local);
+    $candidates = [__DIR__ . '/..' . $clean];
+    // Some deployments store web assets under /public (e.g. /public/uploads/...).
+    if (strpos($clean, '/uploads/') === 0 || strpos($clean, '/public/') === 0) {
+        $candidates[] = $appRoot . '/public' . (strpos($clean, '/public/') === 0 ? substr($clean, strlen('/public')) : $clean);
     }
 
-    // Keep checks inside app directory only.
-    return strpos($local, $appRoot) === 0 && is_file($local);
+    foreach ($candidates as $full) {
+        $local = realpath($full);
+        if ($local !== false && strpos($local, $appRoot) === 0 && is_file($local)) {
+            return true;
+        }
+        if (is_file($full) && strpos(realpath(dirname($full)) ?: '', $appRoot) === 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * First image (non-video) from display_image CSV, else first media, then hero.
+ */
+function pf_service_card_primary_image(string $display_csv, string $hero, string $base_path, string $default_img): string {
+    $candidates = [];
+    if (trim($display_csv) !== '') {
+        foreach (array_filter(array_map('trim', explode(',', $display_csv))) as $p) {
+            if ($p !== '') {
+                $candidates[] = $p;
+            }
+        }
+    }
+    if (trim($hero) !== '') {
+        $candidates[] = trim($hero);
+    }
+
+    $pick = '';
+    foreach ($candidates as $raw) {
+        if (!pf_service_media_is_video($raw)) {
+            $pick = $raw;
+            break;
+        }
+    }
+    if ($pick === '' && $candidates !== []) {
+        $pick = $candidates[0];
+    }
+    if ($pick === '') {
+        return $default_img;
+    }
+    return pf_normalize_service_image_path($pick, $base_path, $default_img);
 }
 
 function pf_service_media_is_video($path) {
@@ -104,25 +141,20 @@ $visible_rows = db_query(
 
 $core_services = [];
 foreach ($visible_rows as $row) {
-    // Prioritize display_image over hero_image
-    $display_imgs = trim((string) ($row['display_image'] ?? ''));
-    if ($display_imgs !== '') {
-        $imgs_array = array_filter(array_map('trim', explode(',', $display_imgs)));
-        $img = !empty($imgs_array) ? $imgs_array[0] : '';
-    } else {
-        $img = trim((string) ($row['hero_image'] ?? ''));
-    }
-    
-    if ($img === '') {
-        $img = $default_service_img;
-    }
-    $img = pf_normalize_service_image_path($img, $base_path, $default_service_img);
-    
+    $img = pf_service_card_primary_image(
+        (string)($row['display_image'] ?? ''),
+        (string)($row['hero_image'] ?? ''),
+        $base_path,
+        $default_service_img
+    );
+
     $core_services[] = [
         'id' => $row['service_id'],
         'name' => $row['name'],
         'category' => $row['category'] ?? '',
         'img' => $img,
+        'display_image_raw' => (string)($row['display_image'] ?? ''),
+        'hero_image_raw' => (string)($row['hero_image'] ?? ''),
         'link' => service_has_field_config($row['service_id']) 
             ? 'order_service_dynamic.php?service_id=' . $row['service_id']
             : ($row['customer_link'] ?: 'order_create.php'),
@@ -150,10 +182,6 @@ function render_service_card($srv) {
     global $base_path, $default_service_img;
     $img = pf_normalize_service_image_path($srv['img'], $base_path, $default_service_img);
     $is_video = pf_service_media_is_video($img);
-    if (!pf_service_local_asset_exists($img, $base_path)) {
-        $img = $default_service_img;
-        $is_video = false;
-    }
     
     $json_name = htmlspecialchars(json_encode($srv['name']), ENT_QUOTES, 'UTF-8');
     $json_category = htmlspecialchars(json_encode($srv['category']), ENT_QUOTES, 'UTF-8');
@@ -161,22 +189,25 @@ function render_service_card($srv) {
     $json_link = htmlspecialchars(json_encode($srv['link']), ENT_QUOTES, 'UTF-8');
     $json_modal_text = htmlspecialchars(json_encode($srv['modal_text']), ENT_QUOTES, 'UTF-8');
     
-    // Get display images from database
-    $service_data = db_query("SELECT display_image FROM services WHERE service_id = ?", 'i', [$srv['id']]);
     $display_images = [];
-    if (!empty($service_data) && !empty($service_data[0]['display_image'])) {
-        $images = explode(',', $service_data[0]['display_image']);
-        foreach ($images as $imgPath) {
+    $raw_csv = trim((string)($srv['display_image_raw'] ?? ''));
+    if ($raw_csv !== '') {
+        foreach (explode(',', $raw_csv) as $imgPath) {
             $imgPath = trim($imgPath);
             if ($imgPath !== '') {
                 $normalized = pf_normalize_service_image_path($imgPath, $base_path, $default_service_img);
-                if (pf_service_local_asset_exists($normalized, $base_path)) {
+                if ($normalized !== '') {
                     $display_images[] = $normalized;
                 }
             }
         }
     }
-    // Fallback to hero image if no display images
+    if (empty($display_images) && trim((string)($srv['hero_image_raw'] ?? '')) !== '') {
+        $h = pf_normalize_service_image_path(trim($srv['hero_image_raw']), $base_path, $default_service_img);
+        if ($h !== '' && $h !== $default_service_img) {
+            $display_images[] = $h;
+        }
+    }
     if (empty($display_images)) {
         $display_images[] = $img;
     }
