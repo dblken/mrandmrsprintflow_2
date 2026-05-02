@@ -205,6 +205,58 @@ if (!$gaBranchEmpty) {
 }
 $period_has_activity = ($total_orders > 0);
 
+// ── 2b. Sales by product category & service category (report date range + branch) ──
+$report_product_category_sales = [];
+$report_service_category_sales = [];
+if (!$gaBranchEmpty) {
+    try {
+        [$bpc, $btpc, $bppc] = branch_where_parts('o', $globalAnalyticsBranchId);
+        [$dwpc, $dtpc, $dppc] = $getDateWhere('o', 'order_date');
+        $report_product_category_sales = db_query(
+            "SELECT COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized') AS category,
+                    SUM(oi.quantity) AS items_sold,
+                    SUM(oi.quantity * oi.unit_price) AS total
+             FROM order_items oi
+             JOIN products p ON oi.product_id = p.product_id
+             JOIN orders o ON oi.order_id = o.order_id
+             WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
+               {$dwpc} {$bpc}
+             GROUP BY COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized')
+             ORDER BY total DESC",
+            $dtpc . $btpc,
+            array_merge($dppc, $bppc)
+        ) ?: [];
+    } catch (Throwable $e) {
+        $report_product_category_sales = [];
+    }
+    try {
+        [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', $globalAnalyticsBranchId);
+        [$dwjsc, $dtjsc, $dpjsc] = $getDateWhere('jo', 'created_at');
+        $report_service_category_sales = db_query(
+            "SELECT COALESCE(NULLIF(TRIM(sc.category), ''), 'Uncategorized') AS category,
+                    SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
+                             THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total,
+                    SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
+                             THEN COALESCE(jo.quantity, 1) ELSE 0 END) AS qty_sold
+             FROM job_orders jo
+             LEFT JOIN (
+                 SELECT LOWER(TRIM(name)) AS name_key,
+                        MAX(NULLIF(TRIM(category), '')) AS category
+                 FROM services
+                 WHERE status != 'Archived'
+                 GROUP BY LOWER(TRIM(name))
+             ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
+             WHERE 1=1 {$dwjsc} {$bjsc}
+             GROUP BY COALESCE(NULLIF(TRIM(sc.category), ''), 'Uncategorized')
+             ORDER BY total DESC",
+            $dtjsc . $btjsc,
+            array_merge($dpjsc, $bpjsc)
+        ) ?: [];
+    } catch (Throwable $e) {
+        $report_service_category_sales = [];
+    }
+}
+
 // Previous period for trend arrows — only if a specific date range is set
 $orders_delta = $revenue_delta = null;
 if ($from !== '' && $to !== '' && !$gaBranchEmpty) {
@@ -1918,6 +1970,20 @@ $dashData = [
             'revenue' => round((float)$p['revenue'], 2)
         ];
     }, $rev_donut),
+    'productCategorySales' => array_map(static function ($r) {
+        return [
+            'category' => (string)($r['category'] ?? 'Uncategorized'),
+            'revenue'  => round((float)($r['total'] ?? 0), 2),
+            'items'    => (int)($r['items_sold'] ?? 0),
+        ];
+    }, $report_product_category_sales),
+    'serviceCategorySales' => array_map(static function ($r) {
+        return [
+            'category' => (string)($r['category'] ?? 'Uncategorized'),
+            'revenue'  => round((float)($r['total'] ?? 0), 2),
+            'jobs'     => (int)($r['qty_sold'] ?? 0),
+        ];
+    }, $report_service_category_sales),
     'orderStatus' => array_map(function($s) {
         return [
             'status' => $s['status'],
@@ -2255,6 +2321,52 @@ $dashData = [
                                 </ul>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══ SALES BY PRODUCT CATEGORY | SALES BY SERVICE CATEGORY ═══ -->
+            <div class="ana-grid print-hide">
+                <div class="ana-card">
+                    <div class="ana-hd">
+                        <h3 style="margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
+                            Sales by Product Category
+                            <span style="margin-left:4px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
+                        </h3>
+                    </div>
+                    <div class="ana-bd">
+                        <?php if (!empty($report_product_category_sales)): ?>
+                        <div class="ch-box" style="min-height:260px;">
+                            <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
+                                <canvas id="reportsProductCategoryChart" aria-label="Sales by product category"></canvas>
+                            </div>
+                        </div>
+                        <div id="reports-product-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;padding:8px 10px 4px;"></div>
+                        <?php else: ?>
+                        <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>No store sales by category for this period</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="ana-card">
+                    <div class="ana-hd">
+                        <h3 style="margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
+                            Sales by Service Category
+                            <span style="margin-left:4px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
+                        </h3>
+                    </div>
+                    <div class="ana-bd">
+                        <?php if (!empty($report_service_category_sales)): ?>
+                        <div class="ch-box" style="min-height:260px;">
+                            <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
+                                <canvas id="reportsServiceCategoryChart" aria-label="Sales by service category"></canvas>
+                            </div>
+                        </div>
+                        <div id="reports-service-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;padding:8px 10px 4px;"></div>
+                        <?php else: ?>
+                        <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>No customization revenue by category for this period</div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>

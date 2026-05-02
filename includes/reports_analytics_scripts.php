@@ -87,6 +87,14 @@ window.printflowTeardownReportsCharts = function () {
         try { window.__pfDashSalesChart.destroy(); } catch (e) {}
         window.__pfDashSalesChart = null;
     }
+    if (window.__pfReportsProductCategoryChart) {
+        try { window.__pfReportsProductCategoryChart.destroy(); } catch (e) {}
+        window.__pfReportsProductCategoryChart = null;
+    }
+    if (window.__pfReportsServiceCategoryChart) {
+        try { window.__pfReportsServiceCategoryChart.destroy(); } catch (e) {}
+        window.__pfReportsServiceCategoryChart = null;
+    }
     window.__pfReportsChartQueue = [];
     document.querySelectorAll('.ch-box[data-pf-chart-revealed]').forEach(function (b) {
         b.removeAttribute('data-pf-chart-revealed');
@@ -1381,6 +1389,83 @@ window.printflowInitReportsCharts = function () {
                 legend:{show:false}, dataLabels:{enabled:false}
             });
         } catch(e) { console.error('RevenueDonut error:', e); }
+    })();
+
+    // ── SALES BY PRODUCT CATEGORY & SERVICE CATEGORY (filtered date range + branch) ──
+    (function initReportsCategoryDonuts() {
+        try {
+            var rData = window.__pfReportsData || {};
+            if (typeof Chart === 'undefined') return;
+
+            var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
+
+            function destroyChart(ref) {
+                if (window[ref]) {
+                    try { window[ref].destroy(); } catch (e2) {}
+                    window[ref] = null;
+                }
+            }
+
+            function fillLegend(elId, labels, colors) {
+                var el = document.getElementById(elId);
+                if (!el) return;
+                var html = '';
+                labels.forEach(function (label, i) {
+                    var color = colors[i % colors.length];
+                    html += '<div style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap;">';
+                    html += '<span style="width:10px;height:10px;border-radius:50%;background:' + color + ';"></span>';
+                    html += '<span style="font-weight:600;color:#374151;">' + pfEscHtml(label) + '</span>';
+                    html += '</div>';
+                });
+                el.innerHTML = html;
+            }
+
+            function buildDoughnut(canvasId, legendId, rows, chartRef, extraTooltip) {
+                destroyChart(chartRef);
+                var canvas = document.getElementById(canvasId);
+                if (!canvas || !rows || rows.length === 0) return;
+                var labels = rows.map(function (r) { return r.category || '\u2014'; });
+                var data = rows.map(function (r) { return Number(r.revenue) || 0; });
+                var colors = labels.map(function (_, i) { return catColors[i % catColors.length]; });
+                fillLegend(legendId, labels, colors);
+
+                window[chartRef] = new Chart(canvas.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        animation: { duration: 900, easing: 'easeOutQuart' },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (ctx) {
+                                        var v = Number(ctx.parsed) || 0;
+                                        var row = rows[ctx.dataIndex] || {};
+                                        var suffix = '';
+                                        if (extraTooltip === 'items' && row.items != null) suffix = ' \u00b7 ' + row.items + ' items';
+                                        if (extraTooltip === 'jobs' && row.jobs != null) suffix = ' \u00b7 ' + row.jobs + ' jobs';
+                                        return ctx.label + ': \u20b1' + v.toLocaleString(undefined, { maximumFractionDigits: 0 }) + suffix;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
+            buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', rData.serviceCategorySales || [], '__pfReportsServiceCategoryChart', 'jobs');
+        } catch (e) { console.error('ReportsCategoryDonuts error:', e); }
     })();
 
     // ── ORDER STATUS BREAKDOWN (Independent - All-Time) ──
