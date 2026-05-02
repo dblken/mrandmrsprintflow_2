@@ -2099,11 +2099,12 @@ function printflow_notification_service_image_from_id(int $serviceId): string {
         return '';
     }
 
+    // Use any non-archived row so staff notifications match catalog art even when a service is deactivated.
     $rows = db_query(
         "SELECT display_image, hero_image, image_path
          FROM services
          WHERE service_id = ?
-           AND status = 'Activated'
+           AND status <> 'Archived'
          LIMIT 1",
         'i',
         [$serviceId]
@@ -2138,13 +2139,34 @@ function printflow_notification_service_image_from_name(string $serviceName): st
     $rows = db_query(
         "SELECT display_image, hero_image, image_path
          FROM services
-         WHERE status = 'Activated'
+         WHERE status <> 'Archived'
            AND name IN ($placeholders)
          ORDER BY FIELD(name, $placeholders)
          LIMIT 1",
         str_repeat('s', count($aliases) * 2),
         array_merge($aliases, $aliases)
     ) ?: [];
+    if (empty($rows)) {
+        foreach ($aliases as $alias) {
+            $alias = trim((string)$alias);
+            if ($alias === '') {
+                continue;
+            }
+            $try = db_query(
+                "SELECT display_image, hero_image, image_path
+                 FROM services
+                 WHERE status <> 'Archived'
+                   AND LOWER(TRIM(name)) = LOWER(?)
+                 LIMIT 1",
+                's',
+                [$alias]
+            ) ?: [];
+            if (!empty($try)) {
+                $rows = $try;
+                break;
+            }
+        }
+    }
     if (empty($rows)) {
         return '';
     }
