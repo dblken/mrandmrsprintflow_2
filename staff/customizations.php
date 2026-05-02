@@ -2810,7 +2810,13 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             // Redundant / internal keys to skip in the customization grid.
             // notes and additional_notes are handled separately in the yellow 'Order Notes' box.
-            customFieldSkip: ['Branch_ID', 'branch_id', 'service_type', 'product_type', 'notes', 'additional_notes', 'layout_file', 'reference_file'],
+            customFieldSkip: [
+                'Branch_ID', 'branch_id', 'service_type', 'product_type',
+                'service_id', 'product_id', 'source_page', 'source',
+                'notes', 'additional_notes', 'layout_file', 'reference_file',
+                'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
+                'cart_key', '_cart_key', 'config_id', 'form_type'
+            ],
             getDisplayableCustom(custom) {
                 if (!custom || typeof custom !== 'object') return [];
                 const skip = this.customFieldSkip;
@@ -4475,4 +4481,3 @@ window.pfCustomizationPreloadedOrders = (() => {
 </script>
 </body>
 </html>
-

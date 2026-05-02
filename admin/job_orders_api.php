@@ -783,7 +783,7 @@ try {
             $cust = $cust_row[0];
 
             // Parse customization details
-            $details = json_decode($cust['customization_details'] ?? '{}', true) ?: [];
+            $details = printflow_decode_modal_customization_payload((string)($cust['customization_details'] ?? ''));
             $design_name = '';
             $reference_name = '';
             foreach ($details as $detail_key => $detail_value) {
@@ -1573,5 +1573,4 @@ try {
 
 // Flush clean JSON output
 ob_end_flush();
-
 

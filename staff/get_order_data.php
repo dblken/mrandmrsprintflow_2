@@ -265,7 +265,7 @@ $items = db_query("
 // Build items array
 $items_out = [];
 foreach ($items as $item) {
-    $custom_data = json_decode($item['customization_data'] ?? '{}', true) ?? [];
+    $custom_data = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
     // Remove design_upload key from display
     unset($custom_data['design_upload']);
 

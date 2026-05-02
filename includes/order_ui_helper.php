@@ -172,18 +172,13 @@ if (!function_exists('pf_order_ui_asset_url')) {
 if (!function_exists('pf_order_ui_is_product_item')) {
     function pf_order_ui_is_product_item(array $item, bool $is_cart_item = false): bool {
         if (!$is_cart_item) {
-            $custom = $item['customization_data'] ?? [];
-            if (is_string($custom)) {
-                $decoded = json_decode($custom, true);
-                $custom = is_array($decoded) ? $decoded : [];
-            }
+            $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? []);
             return empty($custom['service_type']);
         }
 
         $custom = $item['customization'] ?? [];
         if (is_string($custom)) {
-            $decoded = json_decode($custom, true);
-            $custom = is_array($decoded) ? $decoded : [];
+            $custom = printflow_decode_modal_customization_payload($custom);
         }
 
         $source_page = strtolower(trim((string)($item['source_page'] ?? '')));
@@ -293,13 +288,9 @@ if (!function_exists('pf_order_ui_item_estimated_total')) {
  */
 function render_order_item_neubrutalism($item, $is_cart_item = false, $show_price = true) {
     // 1. Data Normalization
-    $custom = $is_cart_item ? ($item['customization'] ?? []) : json_decode($item['customization_data'] ?? '{}', true);
-    if (is_string($custom)) {
-        $decoded_custom = json_decode($custom, true);
-        $custom = is_array($decoded_custom) ? $decoded_custom : [];
-    } elseif (!is_array($custom)) {
-        $custom = [];
-    }
+    $custom = $is_cart_item
+        ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
+        : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? null), $custom, 'Order Item');
     $category = $item['category'] ?? 'General';
     $is_service_item = pf_order_ui_is_service_item($item, $is_cart_item);
@@ -475,13 +466,9 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
  */
 function render_order_item_clean($item, $is_cart_item = false, $show_price = true, $show_quantity = true) {
     // 1. Data Normalization
-    $custom = $is_cart_item ? ($item['customization'] ?? []) : json_decode($item['customization_data'] ?? '{}', true);
-    if (is_string($custom)) {
-        $decoded_custom = json_decode($custom, true);
-        $custom = is_array($decoded_custom) ? $decoded_custom : [];
-    } elseif (!is_array($custom)) {
-        $custom = [];
-    }
+    $custom = $is_cart_item
+        ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
+        : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? 'Order Item'), $custom, 'Order Item');
     
     $category = $item['category'] ?? 'General';

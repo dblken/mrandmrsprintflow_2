@@ -532,13 +532,7 @@ class JobOrderService {
 
         $firstJobId = null;
         foreach ($items as $item) {
-            $custom = [];
-            if (!empty($item['customization_data'])) {
-                $decoded = json_decode($item['customization_data'], true);
-                if (is_array($decoded)) {
-                    $custom = $decoded;
-                }
-            }
+            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
             $pname = (string)($item['product_name'] ?? '');
             $pcat = (string)($item['product_category'] ?? '');
             $service_type = get_service_name_from_customization($custom, '');
@@ -1163,7 +1157,7 @@ class JobOrderService {
         $width_ft = '1';
         $height_ft = '1';
         foreach ($items as $item) {
-            $custom = json_decode($item['customization_data'] ?? '{}', true) ?: [];
+            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
             if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
                 continue;
             }

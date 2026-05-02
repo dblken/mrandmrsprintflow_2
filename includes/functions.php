@@ -2664,6 +2664,12 @@ function printflow_encode_customization_payload(array $payload): string {
     return $json;
 }
 
+function printflow_decode_modal_customization_payload($raw): array {
+    return printflow_normalize_customization_for_modal(
+        customer_orders_decode_customization_payload($raw)
+    );
+}
+
 function customer_orders_is_generic_item_name(string $name): bool {
     $normalized = strtolower(trim((string)preg_replace('/\s+/', ' ', $name)));
     if ($normalized === '') {
@@ -3720,8 +3726,7 @@ function printflow_order_notification_preview(int $order_id): array {
     }
 
     $row = $item[0];
-    $custom = !empty($row['customization_data']) ? json_decode((string)$row['customization_data'], true) : [];
-    $custom = is_array($custom) ? $custom : [];
+    $custom = printflow_decode_modal_customization_payload((string)($row['customization_data'] ?? ''));
     $order_type = strtolower(trim((string)($row['order_type'] ?? '')));
     $is_pos_placeholder = printflow_is_pos_service_placeholder_row($row);
     $linePid = (int)($row['product_id'] ?? 0);
@@ -4358,9 +4363,8 @@ function printflow_get_service_reviews(string $service_name, ?int $limit = null,
 }
 
 function get_service_name_from_customization($custom, $fallback = 'Custom Order') {
-    if (!$custom) return $fallback;
-    $custom = is_string($custom) ? json_decode($custom, true) : $custom;
-    if (!is_array($custom)) return $fallback;
+    $custom = printflow_decode_modal_customization_payload($custom);
+    if ($custom === []) return $fallback;
 
     $souvItem = trim((string)($custom['souvenir_type'] ?? ''));
     if ($souvItem !== '') {
@@ -5037,10 +5041,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
     $base          = rtrim(BASE_URL, '/');
     $customization = [];
     if (!empty($item['customization_data'])) {
-        $decoded_customization = json_decode((string)$item['customization_data'], true);
-        if (is_array($decoded_customization)) {
-            $customization = $decoded_customization;
-        }
+        $customization = printflow_decode_modal_customization_payload((string)$item['customization_data']);
     }
     $service_type = trim((string)($customization['service_type'] ?? ''));
     $size_hint = trim((string)($customization['size'] ?? $customization['dimensions'] ?? ''));

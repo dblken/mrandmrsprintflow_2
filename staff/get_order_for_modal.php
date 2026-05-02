@@ -68,7 +68,7 @@ $width_ft = '1';
 $height_ft = '1';
 
 foreach ($items as $item) {
-    $custom = json_decode($item['customization_data'] ?? '{}', true) ?: [];
+    $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
     if (empty($first_custom)) $first_custom = $custom;
     $total_qty += (int)$item['quantity'];
     if (!empty($custom['width']) && !empty($custom['height'])) {
