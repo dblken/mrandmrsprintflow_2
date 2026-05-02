@@ -3077,6 +3077,69 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
 }
 
 /**
+ * Whether a customization label should be shown as long-form text (matches order review card “notes” patterns).
+ */
+function printflow_customization_key_is_long_form_customer_visible(string $key): bool {
+    $k = trim($key);
+    if ($k === '' || ($k[0] === '_')) {
+        return false;
+    }
+    if (stripos($k, 'description') !== false) {
+        return true;
+    }
+
+    return (bool) preg_match('/\bnotes\b|instructions?\b|remarks?\b|specifications?\b|memo\b/i', $k);
+}
+
+/**
+ * Flatten customization for the customer “View order” modal and merge back any fields visible on
+ * order_review (render_order_item_clean) that the generic flattener omitted (e.g. noise filter edge cases).
+ */
+function printflow_flatten_customization_for_customer_order_modal(array $custom): array {
+    $flat = printflow_flatten_order_customization_for_customer_modal($custom);
+    $norm = printflow_normalize_customization_for_modal($custom);
+
+    $reviewSkipTiles = ['design_upload', 'reference_upload', 'notes', 'additional_notes', 'other_instructions', 'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit', 'install_province', 'install_city', 'install_barangay', 'install_street'];
+
+    foreach ($norm as $ck => $cv) {
+        if (!is_string($ck) || $ck === '') {
+            continue;
+        }
+        if ($ck[0] === '_') {
+            continue;
+        }
+        if (in_array($ck, ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime', 'service_id'], true)) {
+            continue;
+        }
+        if ($cv === null || $cv === '') {
+            continue;
+        }
+        if (is_string($cv) && trim($cv) === '') {
+            continue;
+        }
+
+        $text = function_exists('pf_order_ui_value_to_text')
+            ? pf_order_ui_value_to_text($cv)
+            : (is_array($cv) ? json_encode($cv, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : (string) $cv);
+        if (trim((string) $text) === '') {
+            continue;
+        }
+        if (printflow_modal_spec_value_is_empty_noise($ck, $cv, (string) $text)) {
+            continue;
+        }
+
+        $wouldShowTile = !in_array($ck, $reviewSkipTiles, true) && stripos($ck, 'description') === false;
+        $wouldShowLong = printflow_customization_key_is_long_form_customer_visible($ck);
+
+        if (($wouldShowTile || $wouldShowLong) && !array_key_exists($ck, $flat)) {
+            $flat[$ck] = $text;
+        }
+    }
+
+    return $flat;
+}
+
+/**
  * Sum of quantities for catalog product sales (non-cancelled). Counts product-type and legacy orders;
  * custom rows that are catalog/dynamic products (config_id / dynamic form / products source);
  * and custom checkout/review orders once source_page is stored in customization_data (see order_review/checkout).

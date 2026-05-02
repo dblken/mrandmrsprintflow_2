@@ -1398,7 +1398,7 @@ function imIsLongFormSpecKey(k) {
     if (!s) {
         return false;
     }
-    if (s === 'notes' || s === 'additional notes' || s === 'additional_notes' || s === 'job_notes') {
+    if (/\bnotes\b/.test(s)) {
         return true;
     }
     if (s.includes('description')) {
@@ -1408,6 +1408,12 @@ function imIsLongFormSpecKey(k) {
         return true;
     }
     if (s.includes('remark')) {
+        return true;
+    }
+    if (s.includes('specification')) {
+        return true;
+    }
+    if (s.includes('memo')) {
         return true;
     }
     if (s.includes('special request')) {

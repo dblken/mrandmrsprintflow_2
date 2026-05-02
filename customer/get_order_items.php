@@ -582,9 +582,11 @@ foreach ($items as $lineIndex => $item) {
         '_use_job_title_fallback' => $use_job_line_fallback,
     ];
     $resolved_item_name = customer_orders_primary_item_name($orderLike);
-    $customForPayload = function_exists('printflow_flatten_order_customization_for_customer_modal')
-        ? printflow_flatten_order_customization_for_customer_modal($custom_data)
-        : $custom_data;
+    $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
+        ? printflow_flatten_customization_for_customer_order_modal($custom_data)
+        : (function_exists('printflow_flatten_order_customization_for_customer_modal')
+            ? printflow_flatten_order_customization_for_customer_modal($custom_data)
+            : $custom_data);
     if (is_array($customForPayload) && isset($customForPayload['service_type'])) {
         $dn = strtolower(trim((string)$resolved_item_name));
         $stv = strtolower(trim((string)$customForPayload['service_type']));

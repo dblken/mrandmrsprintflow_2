@@ -40,6 +40,44 @@ if (!function_exists('pf_order_ui_value_to_text')) {
     }
 }
 
+if (!function_exists('pf_order_ui_resolve_special_instructions_text')) {
+    /**
+     * Long-form text shown under “Notes” on order review — merges legacy note keys plus any *description* fields
+     * that are excluded from the specification tiles (same idea as customer orders modal).
+     */
+    function pf_order_ui_resolve_special_instructions_text(array $custom, array $item = []): string {
+        $notes = $custom['notes'] ?? $custom['additional_notes'] ?? $custom['other_instructions'] ?? ($custom['design_description'] ?? ($custom['tshirt_design_description'] ?? ($custom['tarp_design_description'] ?? ($custom['design_notes'] ?? ($item['design_notes'] ?? null)))));
+        $parts = [];
+        if ($notes !== null && $notes !== '') {
+            $t = trim(pf_order_ui_value_to_text($notes));
+            if ($t !== '') {
+                $parts[] = $t;
+            }
+        }
+        foreach ($custom as $ck => $cv) {
+            if (!is_string($ck) || $ck === '') {
+                continue;
+            }
+            if ($cv === null || $cv === '') {
+                continue;
+            }
+            if (stripos($ck, 'description') === false) {
+                continue;
+            }
+            if (in_array($ck, ['design_description', 'tshirt_design_description', 'tarp_design_description'], true)) {
+                continue;
+            }
+            $t = trim(pf_order_ui_value_to_text($cv));
+            if ($t === '') {
+                continue;
+            }
+            $parts[] = trim(str_replace(['_', '-'], ' ', $ck)) . ': ' . $t;
+        }
+
+        return implode("\n\n", $parts);
+    }
+}
+
 if (!function_exists('pf_order_ui_temp_preview_url')) {
     function pf_order_ui_temp_preview_url(array $item, string $field): ?string {
         $cart_key = (string)($item['_cart_key'] ?? '');
@@ -387,7 +425,7 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
                 <?php 
                 $has_specs = false;
                 foreach ($custom as $ck => $cv): 
-                    if (empty($cv) || in_array($ck, $skip) || strpos($ck, 'description') !== false) continue;
+                    if (empty($cv) || in_array($ck, $skip) || stripos($ck, 'description') !== false) continue;
                     $has_specs = true;
                     $label = $field_map[$ck] ?? ucwords(str_replace(['_', '-'], ' ', (string)$ck));
                     $display_val = ($ck === 'tshirt_provider' && $cv === 'shop') ? 'Shop will provide' : (($ck === 'tshirt_provider' && $cv === 'customer') ? 'Customer will provide' : (($ck === 'installation_fee' && is_numeric($cv)) ? format_currency((float)$cv) : pf_order_ui_value_to_text($cv)));
@@ -404,13 +442,13 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
             </div>
 
             <!-- Notes -->
-            <?php 
-            $notes = $custom['notes'] ?? $custom['additional_notes'] ?? $custom['other_instructions'] ?? ($custom['design_description'] ?? ($custom['tshirt_design_description'] ?? ($custom['tarp_design_description'] ?? ($custom['design_notes'] ?? ($item['design_notes'] ?? null)))));
-            if ($notes):
+            <?php
+            $notesCombined = pf_order_ui_resolve_special_instructions_text($custom, $item);
+            if ($notesCombined !== ''):
             ?>
                 <div style="margin-top: 1rem; padding: 1rem; background: #fffbeb; border: 1px solid #000; border-radius: 8px; min-width: 0;">
                     <div style="font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: #92400e; margin-bottom: 4px;">Notes</div>
-                    <div style="font-size: 0.9rem; font-weight: 700; color: #b45309; line-height: 1.4; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap;"><?php echo nl2br(pf_order_ui_escape(pf_order_ui_value_to_text($notes))); ?></div>
+                    <div style="font-size: 0.9rem; font-weight: 700; color: #b45309; line-height: 1.4; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap;"><?php echo nl2br(pf_order_ui_escape($notesCombined)); ?></div>
                 </div>
             <?php endif; ?>
         </div>
@@ -572,7 +610,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                 <?php 
                 $has_specs = false;
                 foreach ($custom as $ck => $cv): 
-                    if (empty($cv) || in_array($ck, $skip) || strpos($ck, 'description') !== false) continue;
+                    if (empty($cv) || in_array($ck, $skip) || stripos($ck, 'description') !== false) continue;
                     $has_specs = true;
                     $label = $field_map[$ck] ?? ucwords(str_replace(['_', '-'], ' ', (string)$ck));
                     $display_val = ($ck === 'tshirt_provider' && $cv === 'shop') ? 'Shop will provide' : (($ck === 'tshirt_provider' && $cv === 'customer') ? 'Customer will provide' : (($ck === 'installation_fee' && is_numeric($cv)) ? format_currency((float)$cv) : pf_order_ui_value_to_text($cv)));
@@ -589,15 +627,15 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
             </div>
 
             <!-- Notes -->
-            <?php 
-            $notes = $custom['notes'] ?? $custom['additional_notes'] ?? $custom['other_instructions'] ?? ($custom['design_description'] ?? ($custom['tshirt_design_description'] ?? ($custom['tarp_design_description'] ?? ($custom['design_notes'] ?? ($item['design_notes'] ?? null)))));
-            if ($notes):
+            <?php
+            $notesCombined = pf_order_ui_resolve_special_instructions_text($custom, $item);
+            if ($notesCombined !== ''):
             ?>
                 <div style="margin-top: 1.5rem; padding: 1.25rem; background: rgba(83, 197, 224, 0.08); border: 1px solid rgba(83, 197, 224, 0.22); border-left: 4px solid #53c5e0; border-radius: 12px;">
                     <div style="font-size: 0.75rem; font-weight: 800; color: #53c5e0; text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
                         Special Instructions & Notes
                     </div>
-                    <div style="font-size: 0.95rem; color: #eaf6fb; line-height: 1.6; font-weight: 600; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; transition: color 0.2s;"><?php echo nl2br(pf_order_ui_escape(pf_order_ui_value_to_text($notes))); ?></div>
+                    <div style="font-size: 0.95rem; color: #eaf6fb; line-height: 1.6; font-weight: 600; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; transition: color 0.2s;"><?php echo nl2br(pf_order_ui_escape($notesCombined)); ?></div>
                 </div>
             <?php endif; ?>
         </div>
