@@ -1204,16 +1204,14 @@ function get_order_status_notification_payload($order_id, $status) {
         'In Production' => "Your order is now being processed.",
         'Printing' => "Your order is now being processed.",
         'Ready for Pickup' => "Your order is ready for pickup.",
-        'Completed' => "Your order has been completed. You may now rate your experience.",
-        'To Rate' => "Your order has been completed. You may now rate your experience.",
+        'Completed' => "Your order has been completed.",
+        'To Rate' => "Your order has been completed.",
         'Rated' => "Thank you for rating your completed order.",
         'Cancelled' => "Your order has been cancelled."
     ];
 
     $message = $map[$status] ?? "Your order #{$order_id} status has been updated to: {$status}";
-    if ($status === 'Completed' || $status === 'To Rate') {
-        $message .= " Rate here: " . $base_url . "/customer/rate_order.php?order_id={$order_id}";
-    }
+    // Removed auto-rate link for completed orders per user request.
 
     return ['type' => $type, 'message' => $message];
 }
