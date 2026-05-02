@@ -1833,13 +1833,14 @@ a.export-dd-link:hover { background: #f9fafb; }
 
             <?php
 
-// ── 15. Dash Sales Chart series (Store vs Custom vs Orders) ──────────────────
+// ── 15. Dash Sales Chart (branch revenue = store + customization; filter-aware) ──
 // This is the ONLY component affected by the global from/to/branch filter
 try {
     $dashSales = pf_reports_period_sales_merged($salesTrendFrom, $salesTrendToEnd, $salesTrendBranchId);
     $dash_labels     = $dashSales['labels'] ?? [];
     $dash_rev_store  = $dashSales['revStore'] ?? [];
     $dash_rev_custom = $dashSales['revCustom'] ?? [];
+    $dash_rev_total  = $dashSales['revTotal'] ?? [];
     $dash_orders     = $dashSales['orders'] ?? [];
     
     // Debug logging for sales chart data
@@ -1851,7 +1852,7 @@ try {
         'sample_label' => $dash_labels[0] ?? null,
         'revStore_count' => count($dash_rev_store),
         'sample_revStore' => $dash_rev_store[0] ?? null,
-        'total_revenue' => array_sum($dash_rev_store) + array_sum($dash_rev_custom),
+        'total_revenue' => array_sum($dash_rev_total) ?: (array_sum($dash_rev_store) + array_sum($dash_rev_custom)),
         'total_orders' => array_sum($dash_orders)
     ]));
 } catch (Exception $e) {
@@ -1859,6 +1860,7 @@ try {
     $dash_labels = [];
     $dash_rev_store = [];
     $dash_rev_custom = [];
+    $dash_rev_total = [];
     $dash_orders = [];
 }
 
@@ -1882,6 +1884,7 @@ $dashData = [
     ],
     'salesChart' => [
         'labels'    => $dash_labels,
+        'revTotal'  => $dash_rev_total,
         'revStore'  => $dash_rev_store,
         'revCustom' => $dash_rev_custom,
         'orders'    => $dash_orders,
@@ -1893,6 +1896,7 @@ $dashData = [
         'revenues'   => $trend12_revenues,
         'orders'     => $trend12_orders,
         'forecast'   => [
+            'revenue'   => $forecast_revenue,
             'revStore'  => $forecast_revenue_store,
             'revCustom' => $forecast_revenue_custom,
             'orders'    => $forecast_orders,
@@ -2089,6 +2093,7 @@ $dashData = [
                         <?php if (isset($_GET['debug'])): ?>
                         <div style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.8);color:white;padding:8px;font-size:10px;border-radius:4px;z-index:999;">
                             Labels: <?php echo count($dash_labels); ?><br>
+                            Branch Rev: <?php echo array_sum($dash_rev_total); ?><br>
                             Store Rev: <?php echo array_sum($dash_rev_store); ?><br>
                             Custom Rev: <?php echo array_sum($dash_rev_custom); ?><br>
                             Orders: <?php echo array_sum($dash_orders); ?><br>

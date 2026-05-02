@@ -567,35 +567,36 @@ window.printflowInitReportsCharts = function () {
         var dsLabels    = sChart.labels    || [];
         var dsRevStore  = sChart.revStore  || [];
         var dsRevCustom = sChart.revCustom || [];
-        var dsOrders    = sChart.orders    || [];
+        var dsRevTotal  = sChart.revTotal  || [];
+        var dsRevBranch = [];
+        if (Array.isArray(dsRevTotal) && dsRevTotal.length === dsLabels.length) {
+            dsRevBranch = dsRevTotal.map(function (v) { return Number(v) || 0; });
+        } else {
+            dsRevBranch = dsRevStore.map(function (v, i) {
+                return Number(v || 0) + Number(dsRevCustom[i] || 0);
+            });
+        }
         
         console.log('[PrintFlow] Dashboard sales chart data:', {
             labels: dsLabels.length,
-            revStore: dsRevStore.length,
-            revCustom: dsRevCustom.length,
-            orders: dsOrders.length,
+            revBranch: dsRevBranch.length,
             sampleLabel: dsLabels[0],
-            sampleRevStore: dsRevStore[0],
-            totalRevenue: dsRevStore.reduce((a,b) => a + (b||0), 0)
+            sampleRevBranch: dsRevBranch[0],
+            totalRevenue: dsRevBranch.reduce(function (a, b) { return a + (b || 0); }, 0)
         });
         
         var noDataEl = document.getElementById('dash-sales-nodata');
         
         // Check if we have meaningful data
         var hasData = dsLabels.length > 0;
-        var hasRevenue = dsRevStore.some(v => v > 0) || dsRevCustom.some(v => v > 0);
-        var hasOrders = dsOrders.some(v => v > 0);
-        
-        // Show chart if we have labels and any meaningful data
-        if (!hasData || (!hasRevenue && !hasOrders)) {
+        var hasRevenue = dsRevBranch.some(function (v) { return v > 0; });
+
+        if (!hasData || !hasRevenue) {
             console.log('[PrintFlow] Dashboard sales chart: No meaningful data found', {
                 hasData: hasData,
                 hasRevenue: hasRevenue,
-                hasOrders: hasOrders,
                 labelsLength: dsLabels.length,
-                totalRevStore: dsRevStore.reduce((a,b) => a + (b||0), 0),
-                totalRevCustom: dsRevCustom.reduce((a,b) => a + (b||0), 0),
-                totalOrders: dsOrders.reduce((a,b) => a + (b||0), 0)
+                totalBranchRev: dsRevBranch.reduce(function (a, b) { return a + (b || 0); }, 0)
             });
             if (noDataEl) {
                 noDataEl.style.display = 'flex';
@@ -624,44 +625,18 @@ window.printflowInitReportsCharts = function () {
                 data: { 
                     labels: dsLabels, 
                     datasets: [
-                        { 
-                            label: 'Store Revenue (\u20b1)', 
-                            data: dsRevStore, 
-                            borderColor: '#00232b', 
-                            backgroundColor: 'rgba(0,35,43,.08)', 
-                            borderWidth: 2.5, 
-                            fill: true, 
-                            tension: 0.35, 
-                            pointBackgroundColor: '#00232b', 
-                            pointRadius: 3, 
-                            pointHoverRadius: 6, 
-                            yAxisID: 'y' 
-                        },
-                        { 
-                            label: 'Customization Revenue (\u20b1)', 
-                            data: dsRevCustom, 
-                            borderColor: '#6366F1', 
-                            backgroundColor: 'transparent', 
-                            borderWidth: 2.5, 
-                            fill: false, 
-                            tension: 0.35, 
-                            pointBackgroundColor: '#6366F1', 
-                            pointRadius: 3, 
-                            pointHoverRadius: 6, 
-                            yAxisID: 'y' 
-                        },
-                        { 
-                            label: 'Orders (total)', 
-                            data: dsOrders, 
-                            borderColor: '#53C5E0', 
-                            backgroundColor: 'transparent', 
-                            borderWidth: 2, 
-                            borderDash: [6,4], 
-                            tension: 0.35, 
-                            pointBackgroundColor: '#3A86A8', 
-                            pointRadius: 2, 
-                            pointHoverRadius: 5, 
-                            yAxisID: 'y1' 
+                        {
+                            label: 'Branch revenue (\u20b1)',
+                            data: dsRevBranch,
+                            borderColor: '#00232b',
+                            backgroundColor: 'rgba(0,35,43,.08)',
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.35,
+                            pointBackgroundColor: '#00232b',
+                            pointRadius: 3,
+                            pointHoverRadius: 6,
+                            yAxisID: 'y'
                         }
                     ]
                 },
@@ -684,9 +659,6 @@ window.printflowInitReportsCharts = function () {
                             callbacks: { 
                                 label: function(ctx) {
                                     var l = ctx.dataset.label || '';
-                                    if (l.indexOf('Orders') !== -1) {
-                                        return l + ': ' + Math.round(ctx.parsed.y);
-                                    }
                                     return l + ': \u20b1' + Number(ctx.parsed.y).toLocaleString(undefined,{minimumFractionDigits:0});
                                 }
                             }
@@ -702,12 +674,6 @@ window.printflowInitReportsCharts = function () {
                                 } 
                             }, 
                             grid: { color: '#f3f4f6' } 
-                        },
-                        y1: { 
-                            beginAtZero: true, 
-                            position: 'right', 
-                            ticks: { font: { size: 11 }, precision: 0 }, 
-                            grid: { display: false } 
                         },
                         x:  { 
                             ticks: { font: { size: 10 }, maxRotation: 45 }, 
@@ -744,134 +710,61 @@ window.printflowInitReportsCharts = function () {
                 return;
             }
 
-            const revenues = trend.revenues || [];
-            const orders = trend.orders || [];
             const revStore = trend.revStore || [];
             const revCustom = trend.revCustom || [];
+            const revenues = trend.revenues || [];
             const forecast = trend.forecast || {};
+            const combined = (revenues.length > 0)
+                ? revenues.map(function (v) { return Number(v) || 0; })
+                : revStore.map(function (v, i) { return Number(v || 0) + Number(revCustom[i] || 0); });
 
-            // Prepare data arrays - historical data only
             const histLabels = [...(trend.labels || [])];
-            const histRevStore = [...revStore];
-            const histRevCustom = [...revCustom];
-            const histOrders = [...orders];
-            const forecastStartIndex = histLabels.length - 1; // Index where forecast begins
+            const histCombined = combined.slice();
+            const forecastStartIndex = histLabels.length - 1;
 
-            // Prepare forecast data arrays - start with nulls, then add forecast point
-            const forecastRevStore = new Array(histLabels.length).fill(null);
-            const forecastRevCustom = new Array(histLabels.length).fill(null);
-            const forecastOrders = new Array(histLabels.length).fill(null);
+            const forecastRevBranch = new Array(histLabels.length).fill(null);
+            let forecastVal = (forecast.revenue != null && forecast.revenue !== '')
+                ? Number(forecast.revenue)
+                : (Number(forecast.revStore || 0) + Number(forecast.revCustom || 0));
 
-            // Add forecast data point if available
-            if (forecast.label && (forecast.revStore > 0 || forecast.revCustom > 0 || forecast.orders > 0)) {
-                // Connect last historical point to forecast
-                if (histRevStore.length > 0) {
-                    forecastRevStore[histRevStore.length - 1] = histRevStore[histRevStore.length - 1];
-                    forecastRevCustom[histRevCustom.length - 1] = histRevCustom[histRevCustom.length - 1];
-                    forecastOrders[histOrders.length - 1] = histOrders[histOrders.length - 1];
+            if (forecast.label && forecastVal > 0) {
+                if (histCombined.length > 0) {
+                    forecastRevBranch[histCombined.length - 1] = histCombined[histCombined.length - 1];
                 }
-                
-                // Add forecast point
                 histLabels.push(forecast.label);
-                forecastRevStore.push(forecast.revStore || 0);
-                forecastRevCustom.push(forecast.revCustom || 0);
-                forecastOrders.push(forecast.orders || 0);
-                
-                // Extend historical arrays with null for forecast point
-                histRevStore.push(null);
-                histRevCustom.push(null);
-                histOrders.push(null);
+                forecastRevBranch.push(forecastVal);
+                histCombined.push(null);
             }
 
             var trendDatasets = [
                 {
-                    label: 'Store Revenue (₱)', 
-                    data: histRevStore, 
-                    borderColor: '#00232b', 
-                    backgroundColor: 'rgba(0,35,43,.08)', 
-                    borderWidth: 2.5, 
-                    fill: true, 
-                    tension: 0.35, 
-                    pointBackgroundColor: '#00232b', 
-                    pointRadius: 3, 
-                    pointHoverRadius: 6, 
-                    yAxisID: 'y' 
+                    label: 'Branch revenue (₱)',
+                    data: histCombined,
+                    borderColor: '#00232b',
+                    backgroundColor: 'rgba(0,35,43,.08)',
+                    borderWidth: 2.5,
+                    fill: true,
+                    tension: 0.35,
+                    pointBackgroundColor: '#00232b',
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                    yAxisID: 'y'
                 },
                 {
-                    label: 'Customization Revenue (₱)', 
-                    data: histRevCustom, 
-                    borderColor: '#6366F1', 
-                    backgroundColor: 'transparent', 
-                    borderWidth: 2.5, 
-                    fill: false, 
-                    tension: 0.35, 
-                    pointBackgroundColor: '#6366F1', 
-                    pointRadius: 3, 
-                    pointHoverRadius: 6, 
-                    yAxisID: 'y' 
-                },
-                { 
-                    label: 'Orders (total)', 
-                    data: histOrders, 
-                    borderColor: '#53C5E0', 
-                    backgroundColor: 'transparent', 
-                    borderWidth: 2, 
-                    borderDash: [6, 4], 
-                    tension: 0.35, 
-                    pointBackgroundColor: '#3A86A8', 
-                    pointRadius: 2, 
-                    pointHoverRadius: 5, 
-                    yAxisID: 'y1' 
-                },
-                // Forecast lines (dashed)
-                {
-                    label: 'Store Revenue Forecast (₱)', 
-                    data: forecastRevStore, 
-                    borderColor: '#00232b', 
-                    backgroundColor: 'transparent', 
-                    borderWidth: 2.5, 
-                    borderDash: [8, 6], 
-                    fill: false, 
-                    tension: 0.35, 
-                    pointBackgroundColor: '#00232b', 
+                    label: 'Branch revenue forecast (₱)',
+                    data: forecastRevBranch,
+                    borderColor: '#6366F1',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2.5,
+                    borderDash: [8, 6],
+                    fill: false,
+                    tension: 0.35,
+                    pointBackgroundColor: '#6366F1',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 2,
-                    pointRadius: 4, 
-                    pointHoverRadius: 7, 
+                    pointRadius: 4,
+                    pointHoverRadius: 7,
                     yAxisID: 'y',
-                    spanGaps: true
-                },
-                {
-                    label: 'Customization Revenue Forecast (₱)', 
-                    data: forecastRevCustom, 
-                    borderColor: '#6366F1', 
-                    backgroundColor: 'transparent', 
-                    borderWidth: 2.5, 
-                    borderDash: [8, 6], 
-                    fill: false, 
-                    tension: 0.35, 
-                    pointBackgroundColor: '#6366F1', 
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 4, 
-                    pointHoverRadius: 7, 
-                    yAxisID: 'y',
-                    spanGaps: true
-                },
-                { 
-                    label: 'Orders Forecast (total)', 
-                    data: forecastOrders, 
-                    borderColor: '#53C5E0', 
-                    backgroundColor: 'transparent', 
-                    borderWidth: 2, 
-                    borderDash: [10, 8], 
-                    tension: 0.35, 
-                    pointBackgroundColor: '#3A86A8', 
-                    pointBorderColor: '#ffffff',
-                    pointBorderWidth: 2,
-                    pointRadius: 3, 
-                    pointHoverRadius: 6, 
-                    yAxisID: 'y1',
                     spanGaps: true
                 }
             ];
@@ -945,7 +838,6 @@ window.printflowInitReportsCharts = function () {
                                 callbacks: {
                                     label: function (c) {
                                         var lab = c.dataset && c.dataset.label ? String(c.dataset.label) : '';
-                                        if (lab.indexOf('Orders') !== -1) return lab + ': ' + Math.round(c.parsed.y);
                                         return lab + ': ₱' + Number(c.parsed.y).toLocaleString(undefined,{minimumFractionDigits:0});
                                     },
                                     afterLabel: function(c) {
@@ -968,7 +860,6 @@ window.printflowInitReportsCharts = function () {
                         },
                         scales: {
                             y:  { beginAtZero: true, ticks: { font: { size: 11 }, callback: function (v) { return '₱' + v.toLocaleString(); } }, grid: { color: '#f3f4f6' } },
-                            y1: { beginAtZero: true, position: 'right', ticks: { font: { size: 11 }, precision: 0 }, grid: { display: false } },
                             x:  { ticks: { font: { size: 10 }, maxRotation: 45 }, grid: { display: false } }
                         }
                     },

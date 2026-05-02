@@ -825,18 +825,19 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     return;
                 }
                 var labels = data.labels || [];
-                var revStore = data.revenue_store;
-                var revCustom = data.revenue_custom;
-                if (!Array.isArray(revStore) || !Array.isArray(revCustom)) {
-                    revStore = data.revenue || [];
-                    revCustom = revStore.map(function () { return 0; });
+                var revBranch = [];
+                if (Array.isArray(data.revenue) && data.revenue.length) {
+                    revBranch = data.revenue.map(function (v) { return Number(v) || 0; });
+                } else {
+                    var rs = Array.isArray(data.revenue_store) ? data.revenue_store : [];
+                    var rc = Array.isArray(data.revenue_custom) ? data.revenue_custom : [];
+                    for (var bi = 0; bi < labels.length; bi++) {
+                        revBranch.push(Number(rs[bi] || 0) + Number(rc[bi] || 0));
+                    }
                 }
-                var orders = data.orders || [];
                 if (!window.__pfDashSalesChart) return;
                 window.__pfDashSalesChart.data.labels = labels;
-                window.__pfDashSalesChart.data.datasets[0].data = revStore;
-                window.__pfDashSalesChart.data.datasets[1].data = revCustom;
-                window.__pfDashSalesChart.data.datasets[2].data = orders;
+                window.__pfDashSalesChart.data.datasets[0].data = revBranch;
                 var dur = salesFirstFetch ? dashAnimLong : dashAnimShort;
                 salesFirstFetch = false;
                 if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.animation) {
@@ -892,25 +893,11 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                 type: 'line',
                 data: { labels: [], datasets: [
                     {
-                        label: 'Store revenue (₱)', data: [],
+                        label: 'Branch revenue (₱)', data: [],
                         borderColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[0],
                         backgroundColor: 'rgba(0,35,43,.10)',
                         borderWidth: 2.5, fill: true, tension: 0.35,
                         pointBackgroundColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[0], pointRadius: 3, pointHoverRadius: 6, yAxisID: 'y'
-                    },
-                    {
-                        label: 'Customization revenue (₱)', data: [],
-                        borderColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[4],
-                        backgroundColor: 'transparent',
-                        borderWidth: 2.5, fill: false, tension: 0.35,
-                        pointBackgroundColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[4], pointRadius: 3, pointHoverRadius: 6, yAxisID: 'y'
-                    },
-                    {
-                        label: 'Orders (total)', data: [],
-                        borderColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[1],
-                        backgroundColor: 'transparent',
-                        borderWidth: 2, borderDash: [6, 4], tension: 0.35,
-                        pointBackgroundColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[5], pointRadius: 2, pointHoverRadius: 5, yAxisID: 'y1'
                     }
                 ]},
                 options: {
@@ -923,7 +910,6 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     },
                     scales: {
                         y:  { beginAtZero: true, ticks: { font: { size: 11 }, callback: function (v) { return '₱' + v.toLocaleString(); } }, grid: { color: '#f3f4f6' } },
-                        y1: { beginAtZero: true, position: 'right', ticks: { font: { size: 11 }, precision: 0 }, grid: { display: false } },
                         x:  { ticks: { font: { size: 10 }, maxRotation: 45 }, grid: { display: false } }
                     }
                 }

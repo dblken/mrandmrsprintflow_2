@@ -239,8 +239,8 @@ try {
     ) ?: [];
 } catch (Exception $e) { $top_products = []; }
 
-// ── 12-Month Sales Trend (Store + Customization) ──────
-$trend12_labels = $trend12_revenues_store = $trend12_revenues_custom = $trend12_orders = [];
+// ── 12-Month Sales Trend (branch revenue = store + customization) ──────
+$trend12_labels = $trend12_revenues_store = $trend12_revenues_custom = $trend12_revenues_branch = [];
 try {
     [$bo,$bto,$bpo] = branch_where_parts('o', $branchId);
     [$bj,$btj,$bpj] = branch_where_parts('jo', $branchId);
@@ -279,7 +279,7 @@ try {
         $rc = (float)($j['revenue_custom'] ?? 0);
         $trend12_revenues_store[] = $rs;
         $trend12_revenues_custom[] = $rc;
-        $trend12_orders[] = (int)($s['orders_store'] ?? 0) + (int)($j['orders_custom'] ?? 0);
+        $trend12_revenues_branch[] = $rs + $rc;
     }
 } catch (Exception $e) {}
 
@@ -1225,18 +1225,19 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 }
                 if (data.error) console.warn('Chart API error:', data.error, data.message || '');
                 var labels = data.labels || [];
-                var revStore = data.revenue_store;
-                var revCustom = data.revenue_custom;
-                if (!Array.isArray(revStore) || !Array.isArray(revCustom)) {
-                    revStore = data.revenue || [];
-                    revCustom = revStore.map(function () { return 0; });
+                var revBranch = [];
+                if (Array.isArray(data.revenue) && data.revenue.length) {
+                    revBranch = data.revenue.map(function (v) { return Number(v) || 0; });
+                } else {
+                    var rs = Array.isArray(data.revenue_store) ? data.revenue_store : [];
+                    var rc = Array.isArray(data.revenue_custom) ? data.revenue_custom : [];
+                    for (var bi = 0; bi < labels.length; bi++) {
+                        revBranch.push(Number(rs[bi] || 0) + Number(rc[bi] || 0));
+                    }
                 }
-                var orders = data.orders || [];
                 if (!window.__pfDashSalesChart) return;
                 window.__pfDashSalesChart.data.labels = labels;
-                window.__pfDashSalesChart.data.datasets[0].data = revStore;
-                window.__pfDashSalesChart.data.datasets[1].data = revCustom;
-                window.__pfDashSalesChart.data.datasets[2].data = orders;
+                window.__pfDashSalesChart.data.datasets[0].data = revBranch;
                 var dur = salesFirstFetch ? dashAnimLong : dashAnimShort;
                 salesFirstFetch = false;
                 if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.animation) {
@@ -1293,7 +1294,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 type: 'line',
                 data: { labels: [], datasets: [
                     {
-                        label: 'Store Revenue (₱)',
+                        label: 'Branch revenue (₱)',
                         data: [],
                         borderColor: '#00232b',
                         backgroundColor: 'rgba(0,35,43,.08)',
@@ -1304,32 +1305,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         pointRadius: 3,
                         pointHoverRadius: 6,
                         yAxisID: 'y'
-                    },
-                    {
-                        label: 'Customization Revenue (₱)',
-                        data: [],
-                        borderColor: '#6366F1',
-                        backgroundColor: 'transparent',
-                        borderWidth: 2.5,
-                        fill: false,
-                        tension: 0.35,
-                        pointBackgroundColor: '#6366F1',
-                        pointRadius: 3,
-                        pointHoverRadius: 6,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Orders (total)',
-                        data: [],
-                        borderColor: '#53C5E0',
-                        backgroundColor: 'transparent',
-                        borderWidth: 2,
-                        borderDash: [6, 4],
-                        tension: 0.35,
-                        pointBackgroundColor: '#3A86A8',
-                        pointRadius: 2,
-                        pointHoverRadius: 5,
-                        yAxisID: 'y1'
                     }
                 ]},
                 options: {
@@ -1355,9 +1330,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             callbacks: {
                                 label: function (ctx) {
                                     var label = ctx.dataset.label || '';
-                                    if (label.indexOf('Orders') !== -1) {
-                                        return label + ': ' + Math.round(ctx.parsed.y);
-                                    }
                                     return label + ': ₱' + Number(ctx.parsed.y).toLocaleString(undefined, { minimumFractionDigits: 0 });
                                 }
                             }
@@ -1365,7 +1337,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     },
                     scales: {
                         y:  { beginAtZero: true, ticks: { font: { size: isDashMobile() ? 10 : 11 }, maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
-                        y1: { display: !isDashMobile(), beginAtZero: true, position: 'right', ticks: { font: { size: 11 }, precision: 0 }, grid: { display: false } },
                         x:  { ticks: { font: { size: isDashMobile() ? 9 : 10 }, maxRotation: isDashMobile() ? 0 : 45, autoSkip: true, maxTicksLimit: isDashMobile() ? 5 : 10 }, grid: { display: false } }
                     }
                 }
@@ -1530,32 +1501,14 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     data: {
                         labels: <?php echo json_encode($trend12_labels); ?>,
                         datasets: [{
-                            label: 'Store',
-                            data: <?php echo json_encode($trend12_revenues_store); ?>,
+                            label: 'Branch revenue (₱)',
+                            data: <?php echo json_encode($trend12_revenues_branch); ?>,
                             borderColor: '#00232b',
                             backgroundColor: 'rgba(0,35,43,.08)',
                             borderWidth: 2.5,
                             fill: true,
                             tension: 0.35,
                             yAxisID: 'y'
-                        }, {
-                            label: 'Custom',
-                            data: <?php echo json_encode($trend12_revenues_custom); ?>,
-                            borderColor: '#6366F1',
-                            backgroundColor: 'transparent',
-                            borderWidth: 2.5,
-                            fill: false,
-                            tension: 0.35,
-                            yAxisID: 'y'
-                        }, {
-                            label: 'Orders',
-                            data: <?php echo json_encode($trend12_orders); ?>,
-                            borderColor: '#53C5E0',
-                            backgroundColor: 'transparent',
-                            borderWidth: 2,
-                            borderDash: [6, 4],
-                            tension: 0.35,
-                            yAxisID: 'y1'
                         }]
                     },
                     options: {
@@ -1578,7 +1531,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         },
                         scales: {
                             y: { beginAtZero: true, ticks: { font: { size: isDashMobile() ? 10 : 11 }, maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
-                            y1: { display: !isDashMobile(), beginAtZero: true, position: 'right', ticks: { font: { size: 11 }, precision: 0 }, grid: { display: false } },
                             x: { ticks: { font: { size: isDashMobile() ? 9 : 10 }, maxRotation: isDashMobile() ? 0 : 45, autoSkip: true, maxTicksLimit: isDashMobile() ? 5 : 10 }, grid: { display: false } }
                         }
                     }

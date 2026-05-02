@@ -755,10 +755,10 @@ function pf_reports_render_heatmap_html(array $cellsByService, int $displayYear)
  *
  * @param string $from  'YYYY-MM-DD'
  * @param string $toEnd 'YYYY-MM-DD 23:59:59'
- * @return array{labels:string[], revStore:float[], revCustom:float[], orders:int[]}
+ * @return array{labels:string[], revStore:float[], revCustom:float[], revTotal:float[], orders:int[]}
  */
 function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId): array {
-    $labels = []; $revStore = []; $revCustom = []; $orders = [];
+    $labels = []; $revStore = []; $revCustom = []; $revTotal = []; $orders = [];
     
     // Validate inputs
     if (empty($from) && empty($toEnd)) {
@@ -773,7 +773,7 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
     
     if ($tsFrom === false || $tsTo === false) {
         error_log('[PrintFlow] Invalid date format in pf_reports_period_sales_merged: from=' . $from . ', to=' . $toEnd);
-        return ['labels' => [], 'revStore' => [], 'revCustom' => [], 'orders' => []];
+        return ['labels' => [], 'revStore' => [], 'revCustom' => [], 'revTotal' => [], 'orders' => []];
     }
     
     $days   = ($tsTo - $tsFrom) / 86400;
@@ -857,8 +857,11 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
             $labels[] = date('M Y', strtotime($curr . '-01'));
             $s = $mapStore[$curr] ?? ['cnt'=>0,'rev'=>0];
             $j = $mapJobs[$curr] ?? ['cnt'=>0,'rev'=>0];
-            $revStore[]  = (float)$s['rev'];
-            $revCustom[] = (float)$j['rev'];
+            $rs = (float)$s['rev'];
+            $rj = (float)$j['rev'];
+            $revStore[]  = $rs;
+            $revCustom[] = $rj;
+            $revTotal[]  = $rs + $rj;
             $orders[]    = (int)($s['cnt'] + $j['cnt']);
             $curr = date('Y-m', strtotime($curr . '-01 +1 month'));
         }
@@ -870,8 +873,11 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
             $labels[] = date('M d', strtotime($curr));
             $s = $mapStore[$curr] ?? ['cnt'=>0,'rev'=>0];
             $j = $mapJobs[$curr] ?? ['cnt'=>0,'rev'=>0];
-            $revStore[]  = (float)$s['rev'];
-            $revCustom[] = (float)$j['rev'];
+            $rs = (float)$s['rev'];
+            $rj = (float)$j['rev'];
+            $revStore[]  = $rs;
+            $revCustom[] = $rj;
+            $revTotal[]  = $rs + $rj;
             $orders[]    = (int)($s['cnt'] + $j['cnt']);
             $curr = date('Y-m-d', strtotime($curr . ' +1 day'));
         }
@@ -881,6 +887,7 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
         'labels'    => $labels,
         'revStore'  => $revStore,
         'revCustom' => $revCustom,
+        'revTotal'  => $revTotal,
         'orders'    => $orders
     ];
     
