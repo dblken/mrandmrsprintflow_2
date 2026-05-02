@@ -258,14 +258,16 @@ if (isset($_GET['ajax'])) {
     exit;
 }
 
-// KPIs (respect branch context when filtered)
+// KPIs (same branch scope + customization filter as the table — was wrongly using undefined $branch_filter → branch_id = 0)
 $kpiBranchSql = '';
 $kpiTypes = '';
 $kpiParams = [];
-if ($branch_filter !== '') {
-    $kpiBranchSql = ' AND COALESCE(jo.branch_id, (SELECT ord2.branch_id FROM orders ord2 WHERE ord2.order_id = jo.order_id LIMIT 1)) = ?';
+if ($branchId !== 'all') {
+    $kpiBranchSql = " AND {$joBranchExpr} = ?";
     $kpiTypes = 'i';
-    $kpiParams = [(int)$branch_filter];
+    $kpiParams = [(int)$branchId];
+} else {
+    $kpiBranchSql = " AND ({$joBranchExpr} IS NULL OR {$joBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived'))";
 }
 $kpi_total   = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE 1=1" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
 $kpi_pending = db_query("SELECT COUNT(*) as c FROM job_orders jo WHERE jo.status IN ('PENDING','APPROVED')" . $jobCustomizationScopeSql . $kpiBranchSql, $kpiTypes ?: null, $kpiParams ?: null)[0]['c'] ?? 0;
