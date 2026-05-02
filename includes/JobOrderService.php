@@ -1857,8 +1857,13 @@ class JobOrderService {
                 $order['width_ft'] = $payload['width_ft'];
                 $order['height_ft'] = $payload['height_ft'];
             }
-            if (!empty($payload['service_type']) && (empty($order['service_type']) || $order['service_type'] === 'Custom Order')) {
+            // Prefer store checkout line(s) for titles so staff modal matches the customer's order summary.
+            if (!empty($payload['service_type'])) {
                 $order['service_type'] = $payload['service_type'];
+            }
+            $firstLineTitle = trim((string)($payload['items'][0]['product_name'] ?? ''));
+            if ($firstLineTitle !== '') {
+                $order['job_title'] = $firstLineTitle;
             }
             self::cleanupLegacyAutoAssignedMaterials((int)$id, $storeOid, (string)($payload['service_type'] ?? $order['service_type'] ?? ''));
             $st = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$storeOid]);

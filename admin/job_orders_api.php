@@ -925,6 +925,24 @@ try {
             $items[0]['quantity'] = $summary['quantity'];
 
             if (!empty($cust['order_id'])) {
+                $storeLinePayload = JobOrderService::getStoreOrderItemsPayload((int)$cust['order_id'], false, true);
+                if (!empty($storeLinePayload['items'])) {
+                    $items = $storeLinePayload['items'];
+                }
+                if (!empty($storeLinePayload['service_type'])) {
+                    $summary['service_type'] = $storeLinePayload['service_type'];
+                    $summary['job_title'] = $storeLinePayload['service_type'];
+                }
+                if (!empty($storeLinePayload['width_ft'])) {
+                    $summary['width_ft'] = $storeLinePayload['width_ft'];
+                }
+                if (!empty($storeLinePayload['height_ft'])) {
+                    $summary['height_ft'] = $storeLinePayload['height_ft'];
+                }
+                if (isset($storeLinePayload['line_qty']) && (int)$storeLinePayload['line_qty'] > 0) {
+                    $summary['quantity'] = (int)$storeLinePayload['line_qty'];
+                }
+
                 $linked_job_candidates = $linked_job_rows ?? [];
 
                 if (!empty($linked_job_candidates)) {

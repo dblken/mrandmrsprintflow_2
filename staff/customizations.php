@@ -3216,18 +3216,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 );
             },
 
-            getCorrectServiceType(jo) {
-                if (!jo) return '';
-                if (Array.isArray(jo.items)) {
-                    for (const item of jo.items) {
-                        const custom = item?.customization || {};
-                        const explicit = String(custom?.service_type || custom?.product_type || '').trim();
-                        if (explicit) return explicit;
-                    }
-                }
-                const raw = String(jo.service_type || jo.job_title || '').trim();
-                return raw || 'Custom Service';
-            },
             getRowDisplayName(jo) {
                 if (!jo) return 'Custom Service';
                 const resolvedService = String(this.getCorrectServiceType(jo) || '').trim();

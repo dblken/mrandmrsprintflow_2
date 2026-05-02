@@ -1276,8 +1276,8 @@ function printflow_format_customization_code($customization_id): string {
  * Resolve the visible reference label used for job-linked inventory entries.
  *
  * Priority:
- * 1. Store order code (e.g. MER-0001-2501) when the job is linked to an order with product SKU(s)
- * 2. Customization code when the job is linked to a customization-only flow
+ * 1. Store order code (e.g. ORD-6097 or MER-0001-2501) whenever the job is linked to orders.order_id
+ * 2. Customization code when the job is not linked to a store order but has a customization row
  * 3. Raw job code fallback
  *
  * @return array{type:string,id:int,code:string,label:string}
@@ -1309,10 +1309,9 @@ function printflow_get_job_inventory_reference(int $job_id): array {
     );
 
     $order_id = (int)($row[0]['order_id'] ?? 0);
-    $order_sku = trim((string)($row[0]['order_sku'] ?? ''));
-    if ($order_id > 0 && $order_sku !== '') {
-        $code = printflow_format_order_code($order_id, $order_sku);
-        return ['type' => 'order', 'id' => $order_id, 'code' => $code, 'label' => 'Order #' . $code];
+    if ($order_id > 0) {
+        // Match customer-facing order codes (ORD-… or SKU-…), including service rows with no product SKU.
+        return printflow_get_order_inventory_reference($order_id);
     }
 
     $customization_id = (int)($row[0]['customization_id'] ?? 0);
