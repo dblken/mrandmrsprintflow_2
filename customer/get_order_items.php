@@ -273,6 +273,46 @@ $job_orders_list = db_query(
     [$order_id]
 ) ?: [];
 
+// Some legacy or interrupted checkouts leave an orders row (and customizations / jobs) with no order_items.
+// Without a line, the customer modal renders an empty table; synthesize one row from order-level data.
+if ($items === []) {
+    $order_type_lc = strtolower(trim((string)($order['order_type'] ?? '')));
+    if (
+        $is_service_order
+        || $order_type_lc === 'custom'
+        || $customization_rows !== []
+        || $first_item_customization !== []
+        || $job_orders_list !== []
+    ) {
+        $synthName = '';
+        $synthCat = '';
+        $ref = (int)($order['reference_id'] ?? 0);
+        if ($ref > 0) {
+            $sv = db_query('SELECT name, category FROM services WHERE service_id = ? LIMIT 1', 'i', [$ref]);
+            if (!empty($sv)) {
+                $synthName = (string)($sv[0]['name'] ?? '');
+                $synthCat = (string)($sv[0]['category'] ?? '');
+            }
+        }
+        $ta = (float)($order['total_amount'] ?? 0);
+        $est = (float)($order['estimated_price'] ?? 0);
+        $synthUnit = $ta > 0 ? $ta : ($est > 0 ? $est : 0.0);
+        $items = [[
+            'order_item_id' => 0,
+            'product_id' => $ref,
+            'quantity' => 1,
+            'unit_price' => $synthUnit,
+            'customization_data' => null,
+            'product_name' => $synthName,
+            'category' => $synthCat,
+            'design_image' => null,
+            'design_image_mime' => null,
+            'design_file' => null,
+            'reference_image_file' => null,
+        ]];
+    }
+}
+
 $first_order_item_id = null;
 foreach ($items as $it) {
     $oid = (int)($it['order_item_id'] ?? 0);
@@ -330,6 +370,12 @@ foreach ($items as $lineIndex => $item) {
     if ($raw_subtotal <= 0 && $item_count === 1 && $order_total_amount > 0) {
         $raw_subtotal = $order_total_amount;
         $raw_unit_price = $order_total_amount / $raw_quantity;
+    } elseif ($raw_subtotal <= 0 && $item_count === 1) {
+        $est_order = (float)($order['estimated_price'] ?? 0);
+        if ($est_order > 0) {
+            $raw_subtotal = $est_order;
+            $raw_unit_price = $est_order / $raw_quantity;
+        }
     }
 
     $use_job_line_fallback = ($item_count === 1) || ($first_order_item_id !== null && (int)($item['order_item_id'] ?? 0) === (int)$first_order_item_id);
