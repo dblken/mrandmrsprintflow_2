@@ -2690,10 +2690,33 @@ function customer_orders_primary_customization(array $order): array {
 }
 
 /**
+ * Legacy souvenir cart / order_souvenirs lines use souvenir_type (and service_type "Souvenirs").
+ * Checkout stores placeholder product_id → JOIN products.name can be unrelated (e.g. "Mugs") and must not drive catalog resolution.
+ */
+function printflow_custom_order_line_looks_like_souvenir_cart(array $custom_data): bool {
+    if (!empty($custom_data['souvenir_type'])) {
+        return true;
+    }
+
+    return strcasecmp(trim((string)($custom_data['service_type'] ?? '')), 'Souvenirs') === 0;
+}
+
+/**
  * Apply service_id / orders.reference_id resolution to an already-merged per-line customization array.
  */
 function customer_orders_enrich_line_customization(array $merged, array $order): array {
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+
+    if (printflow_custom_order_line_looks_like_souvenir_cart($merged)) {
+        $sidSouv = printflow_resolve_service_catalog_service_id('Souvenirs');
+        if ($sidSouv > 0) {
+            $merged['service_id'] = $sidSouv;
+        }
+        $merged['service_type'] = 'Souvenirs';
+
+        return $merged;
+    }
+
     $sid = (int)($merged['service_id'] ?? 0);
     if ($sid > 0) {
         $byId = customer_orders_resolve_service_name_by_id($sid);
@@ -2883,12 +2906,19 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
         return $try;
     }
 
-    foreach ([
-        trim((string)($custom_data['service_type'] ?? '')),
-        trim((string)($item['product_name'] ?? '')),
-        trim((string)($order['first_job_title'] ?? '')),
-        trim((string)($order['first_job_service_type'] ?? '')),
-    ] as $hint) {
+    $souvenirLine = printflow_custom_order_line_looks_like_souvenir_cart($custom_data);
+    $hints = [];
+    if ($souvenirLine) {
+        $hints[] = 'Souvenirs';
+    }
+    $hints[] = trim((string)($custom_data['service_type'] ?? ''));
+    $hints[] = trim((string)($order['first_job_title'] ?? ''));
+    $hints[] = trim((string)($order['first_job_service_type'] ?? ''));
+    if (!$souvenirLine) {
+        $hints[] = trim((string)($item['product_name'] ?? ''));
+    }
+
+    foreach ($hints as $hint) {
         if ($hint === '') {
             continue;
         }
@@ -2907,6 +2937,10 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
         }
     }
 
+    if ($souvenirLine) {
+        return printflow_resolve_service_catalog_service_id('Souvenirs');
+    }
+
     return 0;
 }
 
@@ -2920,11 +2954,14 @@ function printflow_resolve_service_catalog_service_id_from_cart_line(array $item
         $custom = is_array($decoded) ? $decoded : [];
     }
 
-    foreach ([
+    $candidates = [
         (int)($custom['service_id'] ?? 0),
         (int)($item['service_id'] ?? 0),
-        (int)($item['product_id'] ?? 0),
-    ] as $cand) {
+    ];
+    if (!printflow_custom_order_line_looks_like_souvenir_cart($custom)) {
+        $candidates[] = (int)($item['product_id'] ?? 0);
+    }
+    foreach ($candidates as $cand) {
         if ($cand > 0) {
             return $cand;
         }
@@ -4243,6 +4280,11 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
     if (!$custom) return $fallback;
     $custom = is_string($custom) ? json_decode($custom, true) : $custom;
     if (!is_array($custom)) return $fallback;
+
+    $souvItem = trim((string)($custom['souvenir_type'] ?? ''));
+    if ($souvItem !== '') {
+        return 'Souvenir: ' . $souvItem;
+    }
 
     $sidEarly = (int)($custom['service_id'] ?? 0);
     if ($sidEarly > 0) {

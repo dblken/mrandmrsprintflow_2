@@ -1514,7 +1514,9 @@ function openItemsModal(orderId, event) {
             let longFormHtml = '';
             if (item.customization) {
                 const entries = Object.entries(item.customization).filter(([k, v]) => {
-                    if (v === null || v === undefined || v === '' || v === 'No' || v === 'None') return false;
+                    if (v === null || v === undefined || v === '') return false;
+                    const nk = String(k).toLowerCase().replace(/\s+/g, '_');
+                    if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
                     if (['design_upload', 'reference_upload'].includes(k) || String(k).startsWith('_')) return false;
                     return true;
                 });

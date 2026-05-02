@@ -662,6 +662,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                         $rev_h = round($rev_h / 12, 6);
                                     }
                                 }
+                                $job_notes = trim((string)($notes_summary ?? ''));
+                                if (function_exists('printflow_custom_order_line_looks_like_souvenir_cart')
+                                    && printflow_custom_order_line_looks_like_souvenir_cart($rev_custom)) {
+                                    $specLines = [];
+                                    foreach (
+                                        [
+                                            'souvenir_type' => 'Souvenir type',
+                                            'needed_date' => 'Needed date',
+                                            'lamination' => 'Lamination',
+                                            'custom_print' => 'Custom print',
+                                        ] as $fk => $lbl
+                                    ) {
+                                        $vv = trim((string)($rev_custom[$fk] ?? ''));
+                                        if ($vv !== '') {
+                                            $specLines[] = $lbl . ': ' . $vv;
+                                        }
+                                    }
+                                    $cn = trim((string)($rev_custom['notes'] ?? ''));
+                                    if ($cn !== '') {
+                                        $specLines[] = 'Notes: ' . $cn;
+                                    }
+                                    if ($specLines !== []) {
+                                        $job_notes = trim($job_notes . ($job_notes !== '' ? "\n\n" : '') . implode("\n", $specLines));
+                                    }
+                                }
                                 try {
                                     JobOrderService::createOrder([
                                         'order_id'        => $order_id,
@@ -675,7 +700,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                         'price_per_sqft'  => null,
                                         'price_per_piece' => null,
                                         'estimated_total' => review_item_estimated_total($rev_item),
-                                        'notes'           => $notes_summary,
+                                        'notes'           => $job_notes,
                                         'due_date'        => null,
                                         'priority'        => 'NORMAL',
                                         'artwork_path'    => null,
