@@ -149,7 +149,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
             $dParams = [$toEnd];
         }
 
-        return db_query(
+        $rows = db_query(
             "SELECT {$label} AS category,
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
@@ -162,10 +162,12 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
                )
                {$datePart} {$b}
              GROUP BY {$bucket}
-             ORDER BY total DESC",
+            ORDER BY total DESC",
             $dTypes . $bt,
             array_merge($dParams, $bp)
         ) ?: [];
+
+        return pf_reports_fold_product_category_slices($rows, 8);
     } catch (Throwable $e) {
         return [];
     }
@@ -178,6 +180,48 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
  */
 function pf_dashboard_sales_by_product_category($branchId): array {
     return pf_reports_sales_by_product_category('', '', $branchId);
+}
+
+/**
+ * Keep the largest product-category slices visible and fold the rest into "Other".
+ *
+ * @param array<int, array<string,mixed>> $rows
+ * @return array<int, array<string,mixed>>
+ */
+function pf_reports_fold_product_category_slices(array $rows, int $maxVisible = 8): array {
+    if ($rows === []) {
+        return [];
+    }
+
+    $maxVisible = max(2, $maxVisible);
+    if (count($rows) <= $maxVisible) {
+        return $rows;
+    }
+
+    usort($rows, static function ($a, $b) {
+        return ((float)($b['total'] ?? 0) <=> (float)($a['total'] ?? 0));
+    });
+
+    $keepCount = max(1, $maxVisible - 1);
+    $keep = array_slice($rows, 0, $keepCount);
+    $fold = array_slice($rows, $keepCount);
+
+    $otherTotal = 0.0;
+    $otherItems = 0;
+    foreach ($fold as $r) {
+        $otherTotal += (float)($r['total'] ?? 0);
+        $otherItems += (int)($r['items_sold'] ?? 0);
+    }
+
+    if ($otherTotal > 0 || $otherItems > 0) {
+        $keep[] = [
+            'category' => 'Other',
+            'items_sold' => $otherItems,
+            'total' => $otherTotal,
+        ];
+    }
+
+    return $keep;
 }
 
 /**
