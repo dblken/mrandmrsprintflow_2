@@ -9,6 +9,17 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/runtime_config.php';
+
+// Load GCash QR from admin payment settings
+$_pos_payment_cfg = printflow_load_runtime_config('payment_methods');
+$_pos_gcash_qr = '';
+foreach ($_pos_payment_cfg as $_pm) {
+    if (strcasecmp(trim((string)($_pm['provider'] ?? '')), 'gcash') === 0 && !empty($_pm['file']) && !empty($_pm['enabled'])) {
+        $_pos_gcash_qr = BASE_PATH . '/public/assets/uploads/qr/' . htmlspecialchars($_pm['file']);
+        break;
+    }
+}
 
 // Require staff or admin role
 require_role(['Admin', 'Staff']);
@@ -1235,7 +1246,6 @@ try {
                                     onchange="toggleReferenceField()">
                                     <option value="Cash">Cash</option>
                                     <option value="GCash">GCash</option>
-                                    <option value="Maya">Maya</option>
                                 </select>
                             </div>
 
@@ -1275,6 +1285,18 @@ try {
             </main>
         </div>
     </div>
+
+    <!-- GCash QR Modal -->
+    <?php if (!empty($_pos_gcash_qr)): ?>
+    <div id="gcash-qr-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:20px; padding:28px 24px; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); position:relative; max-width:320px; width:90%;">
+            <button onclick="closeGcashQr()" style="position:absolute; top:12px; right:14px; background:none; border:none; font-size:22px; cursor:pointer; color:#94a3b8; line-height:1;" onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
+            <div style="font-size:13px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">GCash QR Code</div>
+            <img src="<?php echo $_pos_gcash_qr; ?>" alt="GCash QR" style="width:220px; height:220px; object-fit:contain; border:1px solid #e2e8f0; border-radius:12px; display:block; margin:0 auto 16px;">
+            <button onclick="closeGcashQr()" style="width:100%; padding:11px; background:#00232b; color:#fff; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Close</button>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Service Order Modal (DB-driven fields) -->
     <div id="service-modal-overlay"
@@ -2574,7 +2596,17 @@ try {
                 refGroup.style.display = 'none';
                 document.getElementById('pos-reference').value = '';
             }
+            // Show GCash QR modal when GCash is selected
+            if (pm === 'GCash') {
+                const qrModal = document.getElementById('gcash-qr-modal');
+                if (qrModal) qrModal.style.display = 'flex';
+            }
             updateCheckoutState();
+        }
+
+        function closeGcashQr() {
+            const qrModal = document.getElementById('gcash-qr-modal');
+            if (qrModal) qrModal.style.display = 'none';
         }
 
         function calculateChange() {
