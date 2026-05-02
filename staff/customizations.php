@@ -2748,6 +2748,10 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             getDynamicProductName(item) {
                 const custom = item.customization || {};
+                const productName = String(item?.product_name || '').trim();
+                if (productName && !/^order item$/i.test(productName)) {
+                    return productName;
+                }
                 const explicitService = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();
                 if (explicitService) {
                     return explicitService;
@@ -2792,7 +2796,17 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             getCorrectServiceType(jo) {
                 if (!jo) return '';
+                const head = String(jo.service_type || jo.job_title || '').trim();
+                if (head && !/^order item$/i.test(head)) {
+                    return head;
+                }
                 if (jo.items && jo.items.length > 0) {
+                    for (const item of jo.items) {
+                        const pn = String(item?.product_name || '').trim();
+                        if (pn && !/^order item$/i.test(pn)) {
+                            return pn;
+                        }
+                    }
                     for (const item of jo.items) {
                         const custom = item.customization || {};
                         const explicit = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();

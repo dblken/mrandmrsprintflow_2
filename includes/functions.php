@@ -3091,6 +3091,14 @@ function customer_orders_primary_item_name(array $order): string {
     $useJobTitleFallback = !array_key_exists('_use_job_title_fallback', $order) || $order['_use_job_title_fallback'];
 
     if ($orderType === 'custom') {
+        $svcFromCustom = trim((string)($custom['service_type'] ?? ''));
+        if ($svcFromCustom !== '' && !customer_orders_is_generic_item_name($svcFromCustom)) {
+            return normalize_service_name($svcFromCustom, $svcFromCustom);
+        }
+        $ptFromCustom = trim((string)($custom['product_type'] ?? ''));
+        if ($ptFromCustom !== '' && !customer_orders_is_generic_item_name($ptFromCustom)) {
+            return normalize_service_name($ptFromCustom, $ptFromCustom);
+        }
         $jobTitle = trim((string)($order['first_job_title'] ?? ''));
         if ($useJobTitleFallback && $jobTitle !== '' && !customer_orders_is_generic_item_name($jobTitle)) {
             return normalize_service_name($jobTitle, $jobTitle);
@@ -3521,6 +3529,76 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
  */
 function printflow_flatten_customization_for_customer_order_modal(array $custom, ?int $lineQuantity = null): array {
     return printflow_flatten_order_customization_for_customer_modal($custom, $lineQuantity);
+}
+
+/**
+ * Wider flatten for staff/production modals when the customer-modal flatten drops too many rows
+ * (aggressive skips + qty dedupe) but merged customization still has usable scalar specs.
+ *
+ * @return array<string, string>
+ */
+function printflow_modal_customization_fallback_flatten_for_staff(array $custom, ?int $lineQuantity = null): array {
+    $custom = printflow_normalize_customization_for_modal($custom);
+    $skip = [
+        'design_upload',
+        'reference_upload',
+        'design_tmp_path',
+        'reference_tmp_path',
+        'reference_mime',
+        'design_mime',
+        'cart_key',
+        '_cart_key',
+        'Branch_ID',
+        'branch_id',
+        'install_province',
+        'install_city',
+        'install_barangay',
+        'install_street',
+    ];
+    $out = [];
+    $unnamed = 0;
+    foreach ($custom as $k => $v) {
+        if (is_int($k)) {
+            $unnamed++;
+            $k = $unnamed === 1 ? 'Details' : ('Details ' . $unnamed);
+        } elseif (!is_string($k)) {
+            continue;
+        }
+        if ($k === '') {
+            $unnamed++;
+            $k = $unnamed === 1 ? 'Details' : ('Details ' . $unnamed);
+        }
+        if (($k !== '' && $k[0] === '_') || in_array($k, $skip, true)) {
+            continue;
+        }
+        if ($v === null || $v === '') {
+            continue;
+        }
+        $text = function_exists('pf_order_ui_value_to_text')
+            ? pf_order_ui_value_to_text($v)
+            : (is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : (string)$v);
+        if (trim((string)$text) === '') {
+            continue;
+        }
+        $keyLower = strtolower((string)$k);
+        $trimText = trim((string)$text);
+        if (
+            (str_contains($keyLower, 'date') || str_contains($keyLower, 'needed'))
+            && preg_match('/^\d{4}-\d{2}-\d{2}/', $trimText)
+            && function_exists('format_date')
+        ) {
+            $rawD = substr($trimText, 0, 10);
+            $ts = strtotime($rawD);
+            if ($ts !== false) {
+                $text = format_date($rawD);
+            }
+        }
+        $out[$k] = $text;
+    }
+
+    $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
+
+    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity);
 }
 
 /**

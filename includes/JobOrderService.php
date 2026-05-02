@@ -1789,6 +1789,15 @@ class JobOrderService {
             $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
                 ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity)
                 : $custom;
+            if (is_array($custom) && $custom !== []) {
+                $flatCount = is_array($customForPayload) ? count($customForPayload) : 0;
+                if ($flatCount < 2) {
+                    $fallbackFlat = printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity);
+                    if (count($fallbackFlat) > $flatCount) {
+                        $customForPayload = $fallbackFlat;
+                    }
+                }
+            }
 
             $items_out[] = array_merge([
                 'order_item_id' => (int)($item['order_item_id'] ?? 0),
