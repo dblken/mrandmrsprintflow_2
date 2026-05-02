@@ -68,7 +68,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     if ($field_key === 'branch') {
         $saved_value = $existing_data['branch_id'] ?? '';
     } elseif (($config['type'] ?? '') === 'quantity') {
-        $saved_value = $existing_data[$field_key] ?? $existing_data['quantity'] ?? 1;
+        $saved_value = $existing_data[$field_key] ?? $existing_data['quantity'] ?? 2;
     } elseif (($config['type'] ?? '') === 'date') {
         $saved_value = $saved_customization[$field_key]
             ?? $saved_customization[$field_label]
@@ -406,7 +406,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'quantity':
-            $saved_qty = (int)($saved_value !== '' && $saved_value !== null ? $saved_value : 1);
+            $saved_qty = (int)($saved_value !== '' && $saved_value !== null ? $saved_value : 2);
             if ($saved_qty < 1) {
                 $saved_qty = 1;
             }

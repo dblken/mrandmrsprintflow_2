@@ -295,7 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             break;
         }
     }
-    $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 1)));
+    $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 2)));
     $has_design_field = false;
     
     // Validate branch
@@ -1673,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Get quantity (field name comes from admin service_field_configs)
         const qtyInput = form.querySelector('.pf-service-quantity-input');
-        const quantity = parseInt(qtyInput?.value || 1);
+        const quantity = parseInt(qtyInput?.value || 2);
         
         // Calculate totals
         const unitPrice = basePrice + optionsTotal;
