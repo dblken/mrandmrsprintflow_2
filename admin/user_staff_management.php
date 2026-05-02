@@ -274,7 +274,6 @@ $branches = db_query("SELECT id, branch_name FROM branches WHERE status != 'Arch
 
 // Summary statistics (exclude archived from active directory counts)
 $stat_total    = db_query("SELECT COUNT(*) as c FROM users WHERE status != 'Archived'")[0]['c'];
-$stat_admins   = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Admin' AND status != 'Archived'")[0]['c'];
 $stat_managers = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Manager' AND status != 'Archived'")[0]['c'];
 $stat_staff    = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Staff' AND status != 'Archived'")[0]['c'];
 $stat_active   = db_query("SELECT COUNT(*) as c FROM users WHERE status = 'Activated'")[0]['c'];
@@ -747,9 +746,9 @@ if (isset($_GET['ajax'])) {
                     <div class="kpi-sub">Excluding archived</div>
                 </div>
                 <div class="kpi-card rose">
-                    <div class="kpi-label">Admins</div>
-                    <div class="kpi-value"><?php echo $stat_admins; ?></div>
-                    <div class="kpi-sub">Administrator roles</div>
+                    <div class="kpi-label">Staff</div>
+                    <div class="kpi-value"><?php echo $stat_staff; ?></div>
+                    <div class="kpi-sub">Staff accounts</div>
                 </div>
                 <div class="kpi-card amber">
                     <div class="kpi-label">Managers</div>

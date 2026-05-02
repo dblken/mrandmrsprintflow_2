@@ -66,6 +66,36 @@ if (isset($_SESSION['pf_products_flash_error'])) {
 }
 
 /**
+ * Product categories shown in add/edit modal and filter (Tarpaulin, Apparel, Print excluded from picker).
+ * "General" kept for legacy rows and auto-recover flows.
+ */
+function printflow_allowed_product_categories(): array {
+    return ['T-Shirt', 'Stickers', 'Sintraboard', 'Signage', 'Merchandise', 'General'];
+}
+
+function printflow_product_category_is_allowed(string $category): bool {
+    $category = trim($category);
+    if ($category === '' || strcasecmp($category, 'system') === 0) {
+        return false;
+    }
+    foreach (printflow_allowed_product_categories() as $a) {
+        if (strcasecmp($category, $a) === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function printflow_canonical_product_category(string $category): ?string {
+    foreach (printflow_allowed_product_categories() as $a) {
+        if (strcasecmp(trim($category), $a) === 0) {
+            return $a;
+        }
+    }
+    return null;
+}
+
+/**
  * Handle product photo upload
  * @param array $file The $_FILES array element
  * @param int|null $product_id For updating existing photo
@@ -301,11 +331,19 @@ function printflow_restore_build_payload(int $productId): array {
     if ($payload['category'] === '') {
         $skuUpper = strtoupper($payload['sku']);
         if (strpos($skuUpper, 'TARP') !== false) {
-            $payload['category'] = 'Tarpaulin';
-        } elseif (strpos($skuUpper, 'TSHIRT') !== false || strpos($skuUpper, 'SHIRT') !== false) {
-            $payload['category'] = 'Apparel';
+            $payload['category'] = 'Signage';
+        } elseif (strpos($skuUpper, 'TSH') !== false || strpos($skuUpper, 'TSHIRT') !== false || strpos($skuUpper, 'SHIRT') !== false) {
+            $payload['category'] = 'T-Shirt';
         } elseif (strpos($skuUpper, 'STICK') !== false) {
             $payload['category'] = 'Stickers';
+        } elseif (strpos($skuUpper, 'SNB') !== false || strpos($skuUpper, 'SINTRA') !== false) {
+            $payload['category'] = 'Sintraboard';
+        } elseif (strpos($skuUpper, 'SGN') !== false || strpos($skuUpper, 'SIGN') !== false) {
+            $payload['category'] = 'Signage';
+        } elseif (strpos($skuUpper, 'MER') !== false) {
+            $payload['category'] = 'Merchandise';
+        } elseif (strpos($skuUpper, 'PRT') !== false || strpos($skuUpper, 'PRINT') !== false) {
+            $payload['category'] = 'Merchandise';
         } else {
             $payload['category'] = 'General';
         }
@@ -354,6 +392,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Low stock level cannot exceed quantity.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
+        } elseif (!printflow_product_category_is_allowed($category)) {
+            $error = 'Invalid category.';
         } elseif (empty($_FILES['photo']['name']) || ($_FILES['photo']['error'] ?? 0) === UPLOAD_ERR_NO_FILE) {
             $error = 'Product photo is required.';
         } else {
@@ -369,6 +409,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
             if (!$error) {
                 try {
+                    $category = printflow_canonical_product_category($category);
                     // Handle photo upload
                     $photo_path = handle_product_photo_upload($_FILES['photo'] ?? null);
                     
@@ -562,6 +603,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Low stock level cannot exceed quantity.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
+        } elseif (!printflow_product_category_is_allowed($category)) {
+            $error = 'Invalid category.';
         } else {
             if ($sku_val !== null && $sku_val !== '') {
                 $exists = db_query("SELECT product_id FROM products WHERE sku = ? AND product_id != ?", 'si', [$sku_val, $product_id]);
@@ -573,6 +616,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
         if (!$error) {
         try {
+            $category = printflow_canonical_product_category($category);
             $existingProduct = db_query(
                 "SELECT product_id, name, stock_quantity FROM products WHERE product_id = ? LIMIT 1",
                 'i',
@@ -716,6 +760,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 if ($targetCategory === '' || strtolower($targetCategory) === 'system') {
                     $targetCategory = 'General';
                 }
+                if (!printflow_product_category_is_allowed($targetCategory)) {
+                    $targetCategory = 'General';
+                }
+                $targetCategory = printflow_canonical_product_category($targetCategory) ?? 'General';
                 if ($targetPrice < 0) {
                     $targetPrice = 0;
                 }
@@ -840,6 +888,10 @@ $sort_by       = $_GET['sort'] ?? 'newest';
 $date_from     = $_GET['date_from'] ?? '';
 $date_to       = $_GET['date_to'] ?? '';
 
+if ($cat_filter !== '' && !printflow_product_category_is_allowed($cat_filter)) {
+    $cat_filter = '';
+}
+
 $branchJoin = '';
 $stockExpr  = 'p.stock_quantity';
 $lowExpr    = 'COALESCE(p.low_stock_level, 10)';
@@ -944,8 +996,29 @@ if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
     $stat_low_stock = db_query("SELECT COUNT(*) as c FROM products WHERE status != 'Archived' AND stock_quantity <= COALESCE(low_stock_level, 10)")[0]['c'] ?? 0;
 }
 
-// Distinct categories for filter
-$categories = db_query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+// Distinct categories for filter (only allowed labels present on non-archived products)
+$categories_raw = db_query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND TRIM(category) != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+$categories = [];
+$seen_pf_cat = [];
+foreach ($categories_raw as $crow) {
+    $raw_cat = trim((string)($crow['category'] ?? ''));
+    if ($raw_cat === '') {
+        continue;
+    }
+    if (!printflow_product_category_is_allowed($raw_cat)) {
+        continue;
+    }
+    $canon = printflow_canonical_product_category($raw_cat);
+    if ($canon === null) {
+        continue;
+    }
+    $lk = strtolower($canon);
+    if (isset($seen_pf_cat[$lk])) {
+        continue;
+    }
+    $seen_pf_cat[$lk] = true;
+    $categories[] = ['category' => $canon];
+}
 
 // AJAX response
 if (isset($_GET['ajax'])) {
@@ -2087,14 +2160,9 @@ if (isset($_GET['ajax'])) {
                         <label for="modal-category">Category <span style="color:red">*</span></label>
                         <select id="modal-category" name="category">
                             <option value="">-- Select Category --</option>
-                            <option value="Tarpaulin">Tarpaulin</option>
-                            <option value="T-Shirt">T-Shirt</option>
-                            <option value="Stickers">Stickers</option>
-                            <option value="Sintraboard">Sintraboard</option>
-                            <option value="Apparel">Apparel</option>
-                            <option value="Signage">Signage</option>
-                            <option value="Merchandise">Merchandise</option>
-                            <option value="Print">Print</option>
+                            <?php foreach (printflow_allowed_product_categories() as $pf_prod_cat): ?>
+                            <option value="<?php echo htmlspecialchars($pf_prod_cat); ?>"><?php echo htmlspecialchars($pf_prod_cat); ?></option>
+                            <?php endforeach; ?>
                         </select>
                         <span id="err-category" class="field-error"></span>
                     </div>
@@ -2275,6 +2343,7 @@ if (isset($_GET['ajax'])) {
 
 <script>
 window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
+window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_allowed_product_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
 function pfGetProductModalSubmitBtn() {
     return document.getElementById('modal-submit-products-mgr') || document.getElementById('modal-submit-btn');
@@ -2492,6 +2561,8 @@ window.openProductModal = function openProductModal(mode, product) {
     var pti = document.getElementById('modal-photo');
     if (pti) pti.disabled = false;
     form.reset();
+    var catSelPfInit = document.getElementById('modal-category');
+    if (catSelPfInit) catSelPfInit.querySelectorAll('option[data-pf-legacy-cat]').forEach(function(o) { o.remove(); });
     var title = document.getElementById('modal-title');
     var modeInput = document.getElementById('modal-mode-input');
     var submitBtn = pfGetProductModalSubmitBtn();
@@ -2528,7 +2599,21 @@ window.openProductModal = function openProductModal(mode, product) {
             var skuEl = document.getElementById('modal-sku');
             if (skuEl) skuEl.value = product.sku || '';
             var catEl = document.getElementById('modal-category');
-            if (catEl) catEl.value = product.category || '';
+            if (catEl) {
+                catEl.querySelectorAll('option[data-pf-legacy-cat]').forEach(function(o) { o.remove(); });
+                var catVal = product.category || '';
+                var allow = window.PF_PRODUCT_CATEGORY_ALLOWLIST || [];
+                var catNorm = String(catVal).toLowerCase();
+                var allowedPick = allow.some(function(a) { return String(a).toLowerCase() === catNorm; });
+                if (catVal && !allowedPick) {
+                    var o = document.createElement('option');
+                    o.value = catVal;
+                    o.textContent = catVal + ' (legacy — pick an allowed category to save)';
+                    o.setAttribute('data-pf-legacy-cat', '1');
+                    catEl.appendChild(o);
+                }
+                catEl.value = catVal;
+            }
             var priceEl = document.getElementById('modal-price');
             if (priceEl) priceEl.value = product.price != null ? String(product.price) : '';
             var descEl = document.getElementById('modal-description');
@@ -2852,14 +2937,12 @@ function printflowInitProductsPage() {
             // Generate SKU prefix from category
             var prefix = '';
             switch(category) {
-                case 'Tarpaulin': prefix = 'TARP'; break;
                 case 'T-Shirt': prefix = 'TSH'; break;
                 case 'Stickers': prefix = 'STK'; break;
                 case 'Sintraboard': prefix = 'SNB'; break;
-                case 'Apparel': prefix = 'APP'; break;
                 case 'Signage': prefix = 'SGN'; break;
                 case 'Merchandise': prefix = 'MER'; break;
-                case 'Print': prefix = 'PRT'; break;
+                case 'General': prefix = 'GEN'; break;
                 default: prefix = 'PROD'; break;
             }
             
