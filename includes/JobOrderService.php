@@ -2094,6 +2094,9 @@ class JobOrderService {
         if (!empty($payload['items']) && is_array($payload['items'])) {
             $jo['items'] = $payload['items'];
         }
+        if (!empty($payload['customization_details']) && is_array($payload['customization_details'])) {
+            $jo['customization_details'] = $payload['customization_details'];
+        }
         if (trim((string)($payload['service_type'] ?? '')) !== ''
             && strcasecmp(trim((string)($payload['service_type'] ?? '')), 'Custom Order') !== 0) {
             $jo['service_type'] = trim((string)$payload['service_type']);
@@ -2150,6 +2153,12 @@ class JobOrderService {
         if ($storeOid > 0) {
             $payload = self::getStoreOrderItemsPayload($storeOid, false, true);
             self::enrichStaffJobRowFromStorePayload($order, $payload);
+            $order['customization_details'] = is_array($payload['customization_details'] ?? null)
+                ? $payload['customization_details']
+                : [];
+            if (empty($order['order_item_id']) && !empty($payload['items']) && count($payload['items']) === 1) {
+                $order['order_item_id'] = (int)($payload['items'][0]['order_item_id'] ?? 0);
+            }
             self::cleanupLegacyAutoAssignedMaterials((int)$id, $storeOid, (string)($payload['service_type'] ?? $order['service_type'] ?? ''));
             $st = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$storeOid]);
             if (!empty($st)) {

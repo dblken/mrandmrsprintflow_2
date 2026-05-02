@@ -2917,8 +2917,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 } else if (
                     fallbackCustom &&
                     !Array.isArray(fallbackCustom) &&
-                    Object.keys(fallbackCustom).length > 0 &&
-                    String(this.currentJo?.order_type || '').toUpperCase() === 'CUSTOMIZATION'
+                    Object.keys(fallbackCustom).length > 0
                 ) {
                     const targetOrderItemId = Number(this.currentJo?.order_item_id || 0);
                     const itemOrderItemId = Number(item?.order_item_id || 0);
