@@ -225,7 +225,10 @@ if (!$gaBranchEmpty) {
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
              LEFT JOIN products p ON p.product_id = oi.product_id
+             LEFT JOIN product_variants pv ON pv.variant_id = oi.variant_id
              JOIN orders o ON oi.order_id = o.order_id
+             LEFT JOIN products pr ON pr.product_id = o.reference_id
+             LEFT JOIN services sr ON sr.service_id = o.reference_id
              WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
                AND {$pf_product_chart_scope}
                {$dwpc} {$bpc}
