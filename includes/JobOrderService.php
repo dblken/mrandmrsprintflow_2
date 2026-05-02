@@ -1374,6 +1374,36 @@ class JobOrderService {
             $custom[$quantityLabel] = (string)$quantityValue;
         }
 
+        $neededDate = trim((string)($order['due_date'] ?? ''));
+        if ($neededDate !== '' && $neededDate !== '0000-00-00' && $neededDate !== '0000-00-00 00:00:00') {
+            $hasNeededDate = false;
+            foreach (array_keys($custom) as $key) {
+                $kL = strtolower(trim((string)$key));
+                if (str_contains($kL, 'needed') || str_contains($kL, 'due date')) {
+                    $hasNeededDate = true;
+                    break;
+                }
+            }
+            if (!$hasNeededDate) {
+                $custom['Needed Date'] = $neededDate;
+            }
+        }
+
+        $notes = trim((string)($order['store_order_notes'] ?? $order['notes'] ?? ''));
+        if ($notes !== '' && $notes !== 'No specific instructions.') {
+            $hasNotes = false;
+            foreach (array_keys($custom) as $key) {
+                $kL = strtolower(trim((string)$key));
+                if ($kL === 'notes' || $kL === 'additional notes' || $kL === 'customer notes' || $kL === 'job_notes') {
+                    $hasNotes = true;
+                    break;
+                }
+            }
+            if (!$hasNotes) {
+                $custom['Notes'] = $notes;
+            }
+        }
+
         return $custom;
     }
 

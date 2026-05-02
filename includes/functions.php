@@ -2001,7 +2001,7 @@ function printflow_notification_normalize_media_url(string $path): string {
         $path = '/' . ltrim($path, '/');
     }
 
-    if ($base !== '' && strpos($path, $base . '/') !== 0) {
+    if ($base !== '' && strpos($path, $base . '/') !== 0 && strcasecmp($path, $base) !== 0) {
         $path = $base . $path;
     }
 
@@ -2473,7 +2473,7 @@ function printflow_job_notification_preview(int $job_id): array {
     }
     if (isset($cache[$job_id])) return $cache[$job_id];
 
-    $base = defined('BASE_URL') ? BASE_URL : '/printflow';
+    $base = printflow_notification_base_path();
     $row = db_query("SELECT id, job_title, service_type, artwork_path FROM job_orders WHERE id = ? LIMIT 1", 'i', [$job_id]);
     
     $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => 'Service'];
@@ -3742,7 +3742,7 @@ function printflow_order_notification_preview(int $order_id): array {
         return $cache[$order_id];
     }
 
-    $base = defined('BASE_URL') ? BASE_URL : '/printflow';
+    $base = printflow_notification_base_path();
     $has_product_image = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_image'"));
     $has_photo_path = !empty(db_query("SHOW COLUMNS FROM products LIKE 'photo_path'"));
     $product_image_expr = "'' AS product_image";
@@ -4828,7 +4828,7 @@ function get_services_image_map() {
         'signage'     => $base . '/public/images/products/signage.jpg',
         'sintraboard' => $base . '/public/images/products/standeeflat.jpg',
         'standee'     => $base . '/public/images/products/standeeflat.jpg',
-        'souvenir'    => $base . '/assets/images/services/default.png',
+        'souvenir'    => $base . '/public/assets/images/services/default.png',
     ];
 }
 
