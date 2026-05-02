@@ -665,7 +665,32 @@ try {
             }
         }
 
-        // Deduct stock is removed here as per user request to deduct only when status is COMPLETED
+        // Deduct product stock for actual product items immediately for POS sales.
+        // Services/custom items skip deduction (handled via job/material flow).
+        $current_user_id = (int)($_SESSION['user_id'] ?? 0);
+        if (!$is_service && $is_actual_product) {
+            // Reduce branch/product stock atomically (will fail if insufficient)
+            $deducted = printflow_product_deduct_stock_for_branch($product_id, $branch_id, $qty);
+            if ($deducted === false) {
+                $conn->rollback();
+                echo json_encode(['success' => false, 'message' => 'Failed to deduct stock for ' . $prod_name]);
+                exit;
+            }
+
+            // Record product movement in shared inventory ledger
+            $note = 'POS sale: Order #' . $order_id;
+            printflow_record_product_inventory_transaction(
+                $product_id,
+                'OUT',
+                $qty,
+                'ORDER',
+                $order_id,
+                $note,
+                $current_user_id,
+                date('Y-m-d'),
+                $branch_id
+            );
+        }
     }
 
     $conn->commit();
