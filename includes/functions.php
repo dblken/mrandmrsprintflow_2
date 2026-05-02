@@ -2797,6 +2797,67 @@ function customer_orders_merge_job_order_row_into_customization(array $custom, ?
 }
 
 /**
+ * Resolve services.service_id from a display/cart service name (legacy forms omit service_id).
+ * Uses normalize_service_name() when available so shorthand labels still match the catalog.
+ */
+function printflow_resolve_service_catalog_service_id(?string $serviceName): int {
+    $serviceName = trim((string)$serviceName);
+    if ($serviceName === '' || !function_exists('db_query')) {
+        return 0;
+    }
+
+    $candidates = [$serviceName];
+    if (function_exists('normalize_service_name')) {
+        $norm = normalize_service_name($serviceName, '');
+        if (is_string($norm) && trim($norm) !== '' && strcasecmp(trim($norm), $serviceName) !== 0) {
+            $candidates[] = trim($norm);
+        }
+    }
+
+    foreach (array_unique($candidates) as $cand) {
+        $cand = trim((string)$cand);
+        if ($cand === '') {
+            continue;
+        }
+        $rows = db_query(
+            "SELECT service_id FROM services WHERE LOWER(TRIM(COALESCE(name,''))) = LOWER(?)
+             AND LOWER(TRIM(COALESCE(status,''))) <> 'archived'
+             ORDER BY service_id ASC LIMIT 2",
+            's',
+            [$cand]
+        );
+        if (is_array($rows) && count($rows) === 1) {
+            return (int)($rows[0]['service_id'] ?? 0);
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Prefer explicit IDs on the cart line/customization; otherwise resolve catalog service_id from names (legacy flows).
+ */
+function printflow_resolve_service_catalog_service_id_from_cart_line(array $item): int {
+    $custom = $item['customization'] ?? [];
+    if (is_string($custom)) {
+        $decoded = json_decode($custom, true);
+        $custom = is_array($decoded) ? $decoded : [];
+    }
+
+    foreach ([
+        (int)($custom['service_id'] ?? 0),
+        (int)($item['service_id'] ?? 0),
+        (int)($item['product_id'] ?? 0),
+    ] as $cand) {
+        if ($cand > 0) {
+            return $cand;
+        }
+    }
+
+    return printflow_resolve_service_catalog_service_id((string)($custom['service_type'] ?? $item['name'] ?? ''));
+}
+
+/**
  * Merge cart/session `dynamic_form_data` into the customization array before persisting to order_items.
  * Dynamic catalog items store answers alongside `customization`; without this merge only metadata (form_type, config_id, …) is saved.
  */
@@ -3086,7 +3147,6 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
         'Branch_ID',
         'service_type',
         'product_type',
-        'unit',
         'install_province',
         'install_city',
         'install_barangay',

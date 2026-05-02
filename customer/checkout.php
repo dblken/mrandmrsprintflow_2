@@ -138,16 +138,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             $skip_order_insert = false;
         }
         
-        // Determine order type based on cart items
+        // Determine order type based on cart items; resolve reference_id for pure-service carts (legacy pages omit product_id).
         $order_type = 'product';
-        $reference_id = null;
         foreach ($cart_items as $item) {
-            if ($reference_id === null && !empty($item['product_id'])) {
-                $reference_id = $item['product_id'];
-            }
             if (checkout_item_is_service($item)) {
                 $order_type = 'custom';
                 break;
+            }
+        }
+
+        $reference_id = null;
+        foreach ($cart_items as $item) {
+            if (!empty($item['product_id'])) {
+                $reference_id = (int)$item['product_id'];
+                break;
+            }
+        }
+        if (($reference_id === null || $reference_id <= 0) && $order_type === 'custom') {
+            foreach ($cart_items as $item) {
+                if (!checkout_item_is_service($item)) {
+                    continue;
+                }
+                $rid = printflow_resolve_service_catalog_service_id_from_cart_line($item);
+                if ($rid > 0) {
+                    $reference_id = $rid;
+                    break;
+                }
             }
         }
         
@@ -182,7 +198,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 }
 
                 $custom = printflow_merge_dynamic_form_data_into_customization($custom, $item);
-                
+
+                if (checkout_item_is_service($item)) {
+                    $tmpLine = $item;
+                    $tmpLine['customization'] = $custom;
+                    $resolvedSid = printflow_resolve_service_catalog_service_id_from_cart_line($tmpLine);
+                    if ($resolvedSid > 0 && (int)($custom['service_id'] ?? 0) <= 0) {
+                        $custom['service_id'] = $resolvedSid;
+                    }
+                }
+
                 $custom_data    = json_encode($custom);
                 $design_binary  = null;
                 $design_mime    = $item['design_mime']   ?? null;

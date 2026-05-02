@@ -210,6 +210,10 @@ function customer_order_items_sort_customization_by_service_config(array $custom
         return $custom_data;
     }
 
+    $nf = static function (string $s): string {
+        return strtolower(preg_replace('/[\s_\-]+/', '', trim($s)));
+    };
+
     $ordered = [];
     $used = [];
     foreach ($configs as $fk => $cfg) {
@@ -218,11 +222,19 @@ function customer_order_items_sort_customization_by_service_config(array $custom
         }
         $l = trim((string)($cfg['label'] ?? ''));
         $label = $l !== '' ? $l : trim((string)$fk);
+        $labelNorm = $nf($label);
+        $fkNorm = $nf((string)$fk);
         foreach ($custom_data as $ck => $cv) {
             if (!empty($used[$ck])) {
                 continue;
             }
-            if (strcasecmp(trim((string)$ck), $label) === 0) {
+            $ckStr = trim((string)$ck);
+            $ckNorm = $nf($ckStr);
+            if (
+                strcasecmp($ckStr, $label) === 0
+                || ($labelNorm !== '' && $ckNorm === $labelNorm)
+                || ($fkNorm !== '' && $ckNorm === $fkNorm)
+            ) {
                 $ordered[$ck] = $cv;
                 $used[$ck] = true;
                 break;
@@ -550,6 +562,11 @@ foreach ($items as $lineIndex => $item) {
         $sidForSort = (int)($custom_data['service_id'] ?? 0);
         if ($sidForSort <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
             $sidForSort = (int)($order['reference_id'] ?? 0);
+        }
+        if ($sidForSort <= 0) {
+            $sidForSort = function_exists('printflow_resolve_service_catalog_service_id')
+                ? printflow_resolve_service_catalog_service_id((string)($custom_data['service_type'] ?? ''))
+                : 0;
         }
         $custom_data = customer_order_items_sort_customization_by_service_config($custom_data, $sidForSort);
     }

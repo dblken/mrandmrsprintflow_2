@@ -361,7 +361,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     if ($note) $all_notes[] = function_exists('pf_order_ui_value_to_text') ? pf_order_ui_value_to_text($note) : (string)$note;
                 }
             }
-            
+
+            if (($reference_id === null || (int)$reference_id <= 0) && $order_type === 'custom') {
+                foreach ($items_to_review as $item) {
+                    if (!review_item_is_service($item)) {
+                        continue;
+                    }
+                    $rid = printflow_resolve_service_catalog_service_id_from_cart_line($item);
+                    if ($rid > 0) {
+                        $reference_id = $rid;
+                        break;
+                    }
+                }
+            }
+
             $notes_summary = !empty($all_notes) ? implode('; ', $all_notes) : null;
 
             if (false) {
@@ -476,6 +489,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $custom['product_type'] = $item['name'];
                         }
                         $custom = printflow_merge_dynamic_form_data_into_customization($custom, $item);
+                        if (review_item_is_service($item)) {
+                            $tmpLine = $item;
+                            $tmpLine['customization'] = $custom;
+                            $resolvedSid = printflow_resolve_service_catalog_service_id_from_cart_line($tmpLine);
+                            if ($resolvedSid > 0 && (int)($custom['service_id'] ?? 0) <= 0) {
+                                $custom['service_id'] = $resolvedSid;
+                            }
+                        }
                         $custom_data   = json_encode($custom);
                         $design_binary = null;
                         $design_mime   = $item['design_mime']   ?? null;
