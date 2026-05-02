@@ -569,8 +569,29 @@ function printflow_notification_target_url_for_user(string $userType, array $not
  */
 function notify_staff_new_order(int $order_id, string $customer_first_name, int $customer_id = 0): void {
     $preview = printflow_order_notification_preview($order_id);
-    $service_name = $preview['display_name'] ?? 'Product Order';
-    $kind_label = trim((string)($preview['item_kind'] ?? ''));
+    $service_name = trim((string)($preview['display_name'] ?? ''));
+    if ($service_name === '') {
+        $snap = printflow_notification_order_snapshot($order_id);
+        $service_name = trim((string)($snap['service_name'] ?? ''));
+    }
+    if ($service_name === '') {
+        $oRow = db_query('SELECT order_type, reference_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]);
+        if (!empty($oRow[0])) {
+            $ot = strtolower(trim((string)($oRow[0]['order_type'] ?? '')));
+            $ref = (int)($oRow[0]['reference_id'] ?? 0);
+            if ($ref > 0) {
+                if ($ot === 'custom') {
+                    $service_name = customer_orders_resolve_service_name_by_id($ref);
+                } else {
+                    $pn = db_query('SELECT name FROM products WHERE product_id = ? LIMIT 1', 'i', [$ref]);
+                    $service_name = trim((string)($pn[0]['name'] ?? ''));
+                }
+            }
+        }
+    }
+    if ($service_name === '') {
+        $service_name = trim((string)($preview['item_kind'] ?? '')) === 'Product' ? 'a product order' : 'a service order';
+    }
     $name = trim($customer_first_name) !== '' ? trim($customer_first_name) : 'A customer';
     $msg = "{$name} sent an inquiry for {$service_name}";
 
@@ -2303,9 +2324,6 @@ function printflow_notification_item_kind(array $notification): string {
     if (str_contains($message, 'product order')) {
         return 'Product';
     }
-    if (str_contains($message, 'service')) {
-        return 'Service';
-    }
 
     $snapshot = printflow_notification_order_snapshot($data_id);
     $orderType = strtolower(trim((string)($snapshot['order_type'] ?? '')));
@@ -3044,6 +3062,54 @@ function printflow_order_notification_preview(int $order_id): array {
 
     $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => ''];
     if (empty($item[0])) {
+        $snap = printflow_notification_order_snapshot($order_id);
+        $preview['display_name'] = trim((string)($snap['service_name'] ?? ''));
+        $oRow = db_query('SELECT order_type, reference_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+        $ot = '';
+        if (!empty($oRow[0])) {
+            $ot = strtolower(trim((string)($oRow[0]['order_type'] ?? '')));
+            $ref = (int)($oRow[0]['reference_id'] ?? 0);
+            if ($preview['display_name'] === '' && $ref > 0) {
+                if ($ot === 'custom') {
+                    $preview['display_name'] = customer_orders_resolve_service_name_by_id($ref);
+                } else {
+                    $pn = db_query('SELECT name FROM products WHERE product_id = ? LIMIT 1', 'i', [$ref]);
+                    $preview['display_name'] = trim((string)($pn[0]['name'] ?? ''));
+                }
+            }
+            if ($ot === 'product') {
+                $preview['item_kind'] = 'Product';
+            } elseif ($ot === 'custom') {
+                $preview['item_kind'] = 'Service';
+            }
+        }
+        if (trim($preview['display_name']) === '') {
+            if ($preview['item_kind'] === 'Product') {
+                $preview['display_name'] = 'Product order';
+            } elseif ($preview['item_kind'] === 'Service') {
+                $preview['display_name'] = 'Service order';
+            } else {
+                $preview['display_name'] = 'Order';
+            }
+        }
+        if ($preview['image_url'] === '' && $preview['display_name'] !== '') {
+            if ($preview['item_kind'] === 'Product' && !empty($oRow[0]) && (int)($oRow[0]['reference_id'] ?? 0) > 0 && $ot === 'product') {
+                $refPid = (int)$oRow[0]['reference_id'];
+                foreach (['jpg', 'png', 'jpeg', 'webp'] as $ext) {
+                    $candidateRel = '/public/images/products/product_' . $refPid . '.' . $ext;
+                    if (file_exists(__DIR__ . '/..' . $candidateRel)) {
+                        $preview['image_url'] = printflow_notification_normalize_media_url($base . $candidateRel);
+                        break;
+                    }
+                }
+            }
+            if ($preview['image_url'] === '' && $preview['item_kind'] !== 'Product') {
+                $preview['image_url'] = printflow_notification_service_image_from_name($preview['display_name']) ?: '';
+            }
+        }
+        if ($preview['image_url'] === '') {
+            $preview['image_url'] = printflow_notification_normalize_media_url($base . '/public/assets/images/services/default.png');
+        }
         $cache[$order_id] = $preview;
         return $preview;
     }
@@ -3053,14 +3119,29 @@ function printflow_order_notification_preview(int $order_id): array {
     $custom = is_array($custom) ? $custom : [];
     $order_type = strtolower(trim((string)($row['order_type'] ?? '')));
     $is_pos_placeholder = printflow_is_pos_service_placeholder_row($row);
+    $linePid = (int)($row['product_id'] ?? 0);
+    $lineServiceId = (int)($custom['service_id'] ?? 0);
+    $srcPage = strtolower(trim((string)($custom['source_page'] ?? '')));
 
     if ($order_type === 'product' && !$is_pos_placeholder) {
         $preview['item_kind'] = 'Product';
-    } elseif ($is_pos_placeholder || $order_type === 'custom') {
+    } elseif ($is_pos_placeholder) {
         $preview['item_kind'] = 'Service';
+    } elseif ($lineServiceId > 0 || $srcPage === 'services') {
+        $preview['item_kind'] = 'Service';
+    } elseif ($linePid > 0 && in_array($srcPage, ['products', 'product'], true)) {
+        $preview['item_kind'] = 'Product';
+    } elseif ($order_type === 'custom') {
+        if ($linePid > 0 && in_array($srcPage, ['products', 'product'], true)) {
+            $preview['item_kind'] = 'Product';
+        } elseif (printflow_order_item_has_service_marker($custom)) {
+            $preview['item_kind'] = 'Service';
+        } else {
+            $preview['item_kind'] = $linePid > 0 ? 'Product' : 'Service';
+        }
     } elseif (printflow_order_item_has_service_marker($custom)) {
         $preview['item_kind'] = 'Service';
-    } elseif (!empty($row['product_id'])) {
+    } elseif ($linePid > 0) {
         $preview['item_kind'] = 'Product';
     }
 
