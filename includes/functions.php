@@ -3866,7 +3866,7 @@ function printflow_order_notification_preview(int $order_id): array {
         $preview['item_kind'] = 'Product';
     } elseif ($is_pos_placeholder) {
         $preview['item_kind'] = 'Service';
-    } elseif ($lineServiceId > 0 || $srcPage === 'services') {
+    } elseif ($lineServiceId > 0 || in_array($srcPage, ['services', 'service', 'dynamic_form'], true)) {
         $preview['item_kind'] = 'Service';
     } elseif ($linePid > 0 && in_array($srcPage, ['products', 'product'], true)) {
         $preview['item_kind'] = 'Product';
@@ -3911,6 +3911,29 @@ function printflow_order_notification_preview(int $order_id): array {
 
     if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
+        $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
+        $cache[$order_id] = $preview;
+        return $preview;
+    }
+
+    $fallbackDesignRow = db_query(
+        "SELECT order_item_id, design_image, design_image_mime, design_image_name, design_file
+         FROM order_items
+         WHERE order_id = ?
+           AND (
+               design_image IS NOT NULL
+               OR (
+                   design_file IS NOT NULL
+                   AND TRIM(COALESCE(design_file, '')) <> ''
+               )
+           )
+         ORDER BY order_item_id ASC
+         LIMIT 1",
+        'i',
+        [$order_id]
+    );
+    if (!empty($fallbackDesignRow[0]) && printflow_order_item_has_previewable_design($fallbackDesignRow[0])) {
+        $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$fallbackDesignRow[0]['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
         $cache[$order_id] = $preview;
         return $preview;
