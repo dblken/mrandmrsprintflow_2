@@ -1121,9 +1121,19 @@ class JobOrderService {
     private static function isServiceStoreOrderItem(array $item, array $custom): bool {
         $productType = strtolower(trim((string)($item['product_type'] ?? '')));
         $category = strtolower(trim((string)($item['category'] ?? '')));
+        $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
+        $formType = strtolower(trim((string)($custom['form_type'] ?? '')));
         
         // If category contains 'service', it's a service order
         if (strpos($category, 'service') !== false) {
+            return true;
+        }
+
+        if (in_array($sourcePage, ['services', 'service', 'dynamic_form'], true)) {
+            return true;
+        }
+
+        if ($formType === 'dynamic') {
             return true;
         }
 
@@ -1551,7 +1561,8 @@ class JobOrderService {
             !empty($firstItemCustomization['service_type'])
             || $firstTableSvc !== ''
             || (int)($firstItemCustomization['service_id'] ?? 0) > 0
-            || in_array($firstSourcePage, ['services', 'service'], true)
+            || in_array($firstSourcePage, ['services', 'service', 'dynamic_form'], true)
+            || strtolower(trim((string)($firstItemCustomization['form_type'] ?? ''))) === 'dynamic'
             || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($firstItemCustomization));
         if (!$isServiceOrder && $orderTypeNormalized === 'custom') {
             $isServiceOrder = !(
@@ -1576,7 +1587,8 @@ class JobOrderService {
                 if (
                     !empty($probeCustom['service_type'])
                     || (int)($probeCustom['service_id'] ?? 0) > 0
-                    || in_array($probeSourcePage, ['services', 'service'], true)
+                    || in_array($probeSourcePage, ['services', 'service', 'dynamic_form'], true)
+                    || strtolower(trim((string)($probeCustom['form_type'] ?? ''))) === 'dynamic'
                     || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($probeCustom))
                 ) {
                     $isServiceOrder = true;
