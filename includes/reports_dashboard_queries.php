@@ -90,6 +90,15 @@ function pf_product_sales_chart_item_label_sql(
                 NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_name'))), ''),
                 NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_type'))), ''),
                 NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_type'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.name'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.item_name'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_name'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.job_title'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.title'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.variant_name'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.variant_label'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.Sintra_Type'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.sintra_type'))), ''),
                 NULLIF(TRIM({$itemAlias}.sku), ''),
                 CASE
                     WHEN COALESCE({$itemAlias}.product_id, 0) > 0 THEN CONCAT('Product #', {$itemAlias}.product_id)
