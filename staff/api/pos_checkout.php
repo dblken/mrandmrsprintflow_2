@@ -49,102 +49,31 @@ function pos_table_has_column(string $table, string $column): bool {
     return $cache[$key] = !empty($rows);
 }
 
-function pos_last_db_error_message(): string {
-    if (!function_exists('printflow_db_errors')) {
-        return '';
-    }
-    $errors = printflow_db_errors();
-    if (empty($errors) || !is_array($errors)) {
-        return '';
-    }
-    $last = end($errors);
-    $message = trim((string)($last['error'] ?? ''));
-    if ($message === '') {
-        return '';
-    }
-    // Keep API responses concise and safe for staff-facing UI.
-    $message = preg_replace('/\s+/', ' ', $message);
-    return substr((string)$message, 0, 200);
-}
-
-function pos_encode_customization_json($payload): string {
-    $flags = JSON_UNESCAPED_UNICODE;
-    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
-        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
-    }
-    $json = json_encode($payload ?: new stdClass(), $flags);
-    if ($json === false || $json === null) {
-        return '{}';
-    }
-    return $json;
-}
-
-function pos_ensure_service_placeholder_stock(int $productId, int $branchId = 0): void {
-    if ($productId <= 0) {
-        return;
-    }
-
-    $row = db_query(
-        "SELECT sku FROM products WHERE product_id = ? LIMIT 1",
-        'i',
-        [$productId]
-    ) ?: [];
-    $sku = strtoupper(trim((string)($row[0]['sku'] ?? '')));
-    if ($sku !== 'POS-SERVICE') {
-        return;
-    }
-
-    $safeStock = 1000000;
-    db_execute(
-        "UPDATE products
-         SET stock_quantity = GREATEST(COALESCE(stock_quantity, 0), ?),
-             status = 'Activated',
-             updated_at = NOW()
-         WHERE product_id = ?",
-        'ii',
-        [$safeStock, $productId]
-    );
-
-    if ($branchId > 0 && function_exists('printflow_ensure_product_branch_stock_table')) {
-        printflow_ensure_product_branch_stock_table();
-        if (function_exists('printflow_product_branch_uses_base_stock') && !printflow_product_branch_uses_base_stock($branchId)) {
-            db_execute(
-                "INSERT INTO product_branch_stock (product_id, branch_id, stock_quantity, low_stock_level)
-                 VALUES (?, ?, ?, 1)
-                 ON DUPLICATE KEY UPDATE stock_quantity = GREATEST(stock_quantity, VALUES(stock_quantity)),
-                                         low_stock_level = LEAST(low_stock_level, VALUES(low_stock_level))",
-                'iii',
-                [$productId, $branchId, $safeStock]
-            );
-        }
-    }
-}
-
-function pos_get_service_placeholder_product_id(int $branchId = 0): int {
+function pos_get_service_placeholder_product_id(): int {
     $existing = db_query("SELECT product_id FROM products WHERE sku = 'POS-SERVICE' LIMIT 1") ?: [];
     if (!empty($existing)) {
-        $existingId = (int)$existing[0]['product_id'];
-        pos_ensure_service_placeholder_stock($existingId, $branchId);
-        return $existingId;
+        return (int)$existing[0]['product_id'];
     }
 
     global $conn;
     $created = db_execute(
         "INSERT INTO products (sku, name, category, description, price, stock_quantity, status)
-         VALUES ('POS-SERVICE', 'POS Service Item', 'Service', 'Placeholder product for POS service-only order items.', 0, 1000000, 'Activated')"
+         VALUES ('POS-SERVICE', 'POS Service Item', 'Service', 'Placeholder product for POS service-only order items.', 0, 0, 'Activated')"
     );
 
     if ($created) {
-        $createdId = (int)$conn->insert_id;
-        pos_ensure_service_placeholder_stock($createdId, $branchId);
-        return $createdId;
+        return (int)$conn->insert_id;
     }
 
     $existing = db_query("SELECT product_id FROM products WHERE sku = 'POS-SERVICE' LIMIT 1") ?: [];
     if (!empty($existing)) {
-        $existingId = (int)$existing[0]['product_id'];
-        pos_ensure_service_placeholder_stock($existingId, $branchId);
-        return $existingId;
+        return (int)$existing[0]['product_id'];
+    }
+
+    $fallback = db_query("SELECT product_id FROM products ORDER BY product_id ASC LIMIT 1") ?: [];
+    if (!empty($fallback)) {
+        error_log('PrintFlow POS checkout: using first available product as service placeholder fallback.');
+        return (int)$fallback[0]['product_id'];
     }
 
     return 0;
@@ -391,35 +320,21 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $_SESSION['pos_pending_orders'][$product_id] = $order_id;
         
         // Create order item with price = 0
-        $pending_item_product_id = pos_get_service_placeholder_product_id($branch_id);
+        $pending_item_product_id = pos_get_service_placeholder_product_id();
         if ($pending_item_product_id <= 0) {
             // Last fallback: use service ID when placeholder setup is unavailable.
             $pending_item_product_id = $product_id;
         }
-        $customization_json = pos_encode_customization_json($customization ?: new stdClass());
+        $customization_json = json_encode($customization ?: new stdClass());
         $item_result = db_execute(
             "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, 0, ?)",
             'iiis',
             [$order_id, $pending_item_product_id, $qty, $customization_json]
         );
-        if (!$item_result) {
-            // Some production DBs enforce stock checks at order_items insert time.
-            // Ensure placeholder stock and retry once for POS service drafts.
-            pos_ensure_service_placeholder_stock($pending_item_product_id, $branch_id);
-            $item_result = db_execute(
-                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, 0, ?)",
-                'iiis',
-                [$order_id, $pending_item_product_id, $qty, $customization_json]
-            );
-        }
         
         if (!$item_result) {
-            $dbErr = pos_last_db_error_message();
             $conn->rollback();
-            echo json_encode([
-                'success' => false,
-                'message' => 'Failed to add order item.' . ($dbErr !== '' ? ' ' . $dbErr : '')
-            ]);
+            echo json_encode(['success' => false, 'message' => 'Failed to add order item.']);
             exit;
         }
         
@@ -601,7 +516,7 @@ try {
         $order_item_product_id = $is_actual_product ? $product_id : 0;
         if ($order_item_product_id <= 0) {
             if ($service_placeholder_product_id <= 0) {
-                $service_placeholder_product_id = pos_get_service_placeholder_product_id($branch_id);
+                $service_placeholder_product_id = pos_get_service_placeholder_product_id();
             }
             $order_item_product_id = $service_placeholder_product_id;
             if ($order_item_product_id <= 0 && isset($actual_product_ids[$product_id])) {
@@ -620,30 +535,17 @@ try {
             $custom_details['service_type'] = $name;
         }
         
-        $customization_json = pos_encode_customization_json($custom_details ?: new stdClass());
+        $customization_json = json_encode($custom_details ?: new stdClass());
 
         $item_result = db_execute(
             "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, ?, ?)",
             'iiids',
             [$order_id, $order_item_product_id, $qty, $price, $customization_json]
         );
-        if (!$item_result && $is_service) {
-            // Retry once after syncing placeholder stock for DB-level stock guards.
-            pos_ensure_service_placeholder_stock($order_item_product_id, $branch_id);
-            $item_result = db_execute(
-                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, ?, ?)",
-                'iiids',
-                [$order_id, $order_item_product_id, $qty, $price, $customization_json]
-            );
-        }
 
         if (!$item_result) {
-            $dbErr = pos_last_db_error_message();
             $conn->rollback();
-            echo json_encode([
-                'success' => false,
-                'message' => 'Failed to add order items.' . ($dbErr !== '' ? ' ' . $dbErr : '')
-            ]);
+            echo json_encode(['success' => false, 'message' => 'Failed to add order items.']);
             exit;
         }
         
