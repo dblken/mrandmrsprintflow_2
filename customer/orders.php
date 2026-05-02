@@ -85,6 +85,68 @@ function customer_orders_display_status(string $status, string $order_type = '')
     return $status;
 }
 
+function customer_orders_decode_customization_payload($raw): array {
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function customer_orders_is_generic_item_name(string $name): bool {
+    $normalized = strtolower(trim((string)preg_replace('/\s+/', ' ', $name)));
+    if ($normalized === '') {
+        return true;
+    }
+    $generic = [
+        'order item',
+        'service order',
+        'service item',
+        'custom order',
+        'customer order',
+        'merchandise',
+        'sticker pack',
+        'pos service item',
+        'pos-service item',
+        'pos service',
+        'pos-service',
+    ];
+    return in_array($normalized, $generic, true);
+}
+
+function customer_orders_primary_customization(array $order): array {
+    $itemCustom = customer_orders_decode_customization_payload((string)($order['first_item_customization'] ?? ''));
+    $tableCustom = customer_orders_decode_customization_payload((string)($order['first_customization_details'] ?? ''));
+
+    // Prefer order_items customization data, but fill gaps from customizations table.
+    $merged = array_replace($tableCustom, $itemCustom);
+
+    $serviceType = trim((string)($order['first_customization_service_type'] ?? ''));
+    if ($serviceType !== '' && empty($merged['service_type'])) {
+        $merged['service_type'] = $serviceType;
+    }
+
+    return $merged;
+}
+
+function customer_orders_primary_item_name(array $order): string {
+    $custom = customer_orders_primary_customization($order);
+    $serviceFallback = trim((string)($order['first_customization_service_type'] ?? ($custom['service_type'] ?? '')));
+    $rawName = trim((string)($order['first_product_name'] ?? ''));
+
+    if ($rawName === '' || customer_orders_is_generic_item_name($rawName)) {
+        $rawName = $serviceFallback !== '' ? $serviceFallback : $rawName;
+    }
+
+    $fallback = $serviceFallback !== '' ? $serviceFallback : 'Order Item';
+    $resolved = printflow_resolve_order_item_name($rawName !== '' ? $rawName : $fallback, $custom, $fallback);
+
+    if (customer_orders_is_generic_item_name($resolved) && $serviceFallback !== '') {
+        return normalize_service_name($serviceFallback, $serviceFallback);
+    }
+    return $resolved;
+}
+
 // Statuses where price is hidden from customer
 $HIDDEN_PRICE_STATUSES = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
 
@@ -141,6 +203,8 @@ $sql = "SELECT o.*,
         (SELECT p.product_id FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_product_id,
         (SELECT {$first_product_image_expr} FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_product_image,
         (SELECT oi.customization_data FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_customization,
+        (SELECT c.customization_details FROM customizations c WHERE c.order_id = o.order_id ORDER BY c.customization_id ASC LIMIT 1) as first_customization_details,
+        (SELECT c.service_type FROM customizations c WHERE c.order_id = o.order_id ORDER BY c.customization_id ASC LIMIT 1) as first_customization_service_type,
         (SELECT oi.order_item_id FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_id,
         (SELECT IF(oi.design_image IS NOT NULL AND oi.design_image != '', 1, 0) FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_has_design,
         (SELECT COALESCE(SUM(oi.quantity), 0) FROM order_items oi WHERE oi.order_id = o.order_id) as total_quantity,
@@ -207,6 +271,8 @@ $orders_raw = db_query($sql, $types, $params);
 $orders = is_array($orders_raw) ? $orders_raw : [];
 foreach ($orders as &$order) {
     $order['order_code'] = printflow_format_order_code($order['order_id'] ?? 0, $order['order_sku'] ?? '');
+    $order['_first_item_customization_resolved'] = customer_orders_primary_customization($order);
+    $order['_first_item_display_name'] = customer_orders_primary_item_name($order);
     $order['_display_timestamp_meta'] = printflow_customer_order_timestamp_meta($order);
     $order['_display_ts'] = !empty($order['_display_timestamp_meta']['datetime'])
         ? (strtotime((string)$order['_display_timestamp_meta']['datetime']) ?: 0)
@@ -1081,8 +1147,8 @@ require_once __DIR__ . '/../includes/header.php';
                             elseif (strpos($s, 'rejected') !== false) $st_cls = 'st-cancelled';
                             elseif (strpos($s, 'cancelled') !== false) $st_cls = 'st-cancelled';
                             
-                            $c_json = !empty($order['first_item_customization']) ? json_decode($order['first_item_customization'], true) : [];
-                            $d_name = printflow_resolve_order_item_name($order['first_product_name'] ?? 'Order Item', $c_json, 'Order Item');
+                            $c_json = (array)($order['_first_item_customization_resolved'] ?? customer_orders_primary_customization($order));
+                            $d_name = (string)($order['_first_item_display_name'] ?? customer_orders_primary_item_name($order));
                             $preview_url = get_preview_image_for_order_ui($order, $d_name);
                             $timestamp_meta = $order['_display_timestamp_meta'] ?? printflow_customer_order_timestamp_meta($order);
                         ?>
@@ -1161,11 +1227,9 @@ require_once __DIR__ . '/../includes/header.php';
 <?php 
 // Inline helper for this specific page theme
 function get_preview_image_for_order_ui($order, $display_name) {
-    $custom = [];
-    if (!empty($order['first_item_customization'])) {
-        $decoded = json_decode((string)$order['first_item_customization'], true);
-        $custom = is_array($decoded) ? $decoded : [];
-    }
+    $custom = function_exists('customer_orders_primary_customization')
+        ? customer_orders_primary_customization((array)$order)
+        : [];
 
     $is_service_order = !empty($custom['service_type']);
 
@@ -1212,7 +1276,7 @@ function get_preview_image_for_order_ui($order, $display_name) {
         }
     }
 
-    $service_name = trim((string)($custom['service_type'] ?? $display_name));
+    $service_name = trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? $display_name)));
     if ($service_name !== '') {
         $service_rows = db_query(
             "SELECT display_image, hero_image FROM services WHERE name = ? LIMIT 1",

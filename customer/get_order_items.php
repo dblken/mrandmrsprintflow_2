@@ -70,6 +70,44 @@ function pf_asset_kind(?string $mime, ?string $path): string {
     return 'image';
 }
 
+function customer_order_items_decode_customization_payload($raw): array {
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function customer_order_items_merge_customization_payload(array $primary, array $fallback, string $fallbackServiceType = ''): array {
+    // Keep explicit order_item values, fill the missing keys from customizations table.
+    $merged = array_replace($fallback, $primary);
+    if ($fallbackServiceType !== '' && empty($merged['service_type'])) {
+        $merged['service_type'] = $fallbackServiceType;
+    }
+    return $merged;
+}
+
+function customer_order_items_is_generic_name(string $name): bool {
+    $normalized = strtolower(trim((string)preg_replace('/\s+/', ' ', $name)));
+    if ($normalized === '') {
+        return true;
+    }
+    $generic = [
+        'order item',
+        'service order',
+        'service item',
+        'custom order',
+        'customer order',
+        'merchandise',
+        'sticker pack',
+        'pos service item',
+        'pos-service item',
+        'pos service',
+        'pos-service',
+    ];
+    return in_array($normalized, $generic, true);
+}
+
 $base_path = defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
 
 $order_id = (int)($_GET['id'] ?? 0);
@@ -128,6 +166,43 @@ if ($is_rejected_payment) {
 $service_final_price_pending_statuses = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
 $service_final_price_locked = in_array((string)($order['status'] ?? ''), $service_final_price_pending_statuses, true);
 
+$customization_rows = db_query(
+    "SELECT customization_id, order_item_id, service_type, customization_details
+     FROM customizations
+     WHERE order_id = ?
+     ORDER BY customization_id ASC",
+    'i',
+    [$order_id]
+) ?: [];
+
+$customization_by_item_id = [];
+$first_customization_payload = [];
+$first_customization_service_type = '';
+foreach ($customization_rows as $cRow) {
+    $serviceType = trim((string)($cRow['service_type'] ?? ''));
+    $details = customer_order_items_decode_customization_payload((string)($cRow['customization_details'] ?? ''));
+    if ($serviceType !== '' && empty($details['service_type'])) {
+        $details['service_type'] = $serviceType;
+    }
+
+    if ((empty($first_customization_payload) && !empty($details)) || ($first_customization_service_type === '' && $serviceType !== '')) {
+        if (!empty($details)) {
+            $first_customization_payload = $details;
+        }
+        if ($serviceType !== '') {
+            $first_customization_service_type = $serviceType;
+        }
+    }
+
+    $orderItemId = (int)($cRow['order_item_id'] ?? 0);
+    if ($orderItemId > 0 && !isset($customization_by_item_id[$orderItemId])) {
+        $customization_by_item_id[$orderItemId] = [
+            'details' => $details,
+            'service_type' => $serviceType,
+        ];
+    }
+}
+
 $first_item_customization = [];
 $first_item_raw_customization = db_query(
     "SELECT customization_data FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1",
@@ -135,10 +210,15 @@ $first_item_raw_customization = db_query(
     [$order_id]
 );
 if (!empty($first_item_raw_customization[0]['customization_data'])) {
-    $first_item_customization = json_decode((string)$first_item_raw_customization[0]['customization_data'], true) ?: [];
+    $first_item_customization = customer_order_items_decode_customization_payload((string)$first_item_raw_customization[0]['customization_data']);
 }
+$first_item_customization = customer_order_items_merge_customization_payload(
+    $first_item_customization,
+    $first_customization_payload,
+    $first_customization_service_type
+);
 
-$is_service_order = !empty($first_item_customization['service_type']);
+$is_service_order = !empty($first_item_customization['service_type']) || $first_customization_service_type !== '';
 if (!$is_service_order) {
     $order_type_normalized = strtolower(trim((string)($order['order_type'] ?? '')));
     $is_service_order = $order_type_normalized === 'custom' && empty($first_item_customization['product_type']);
@@ -171,7 +251,16 @@ $service_items_raw = [];
 $order_total_amount = (float)($order['total_amount'] ?? 0);
 $item_count = is_array($items) ? count($items) : 0;
 foreach ($items as $item) {
-    $custom_data = json_decode($item['customization_data'] ?? '{}', true) ?: [];
+    $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
+    $itemCustomizationFallback = $customization_by_item_id[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
+    $custom_data = customer_order_items_merge_customization_payload(
+        $custom_data,
+        (array)($itemCustomizationFallback['details'] ?? []),
+        (string)($itemCustomizationFallback['service_type'] ?? '')
+    );
+    if (empty($custom_data['service_type']) && !empty($first_item_customization['service_type'])) {
+        $custom_data['service_type'] = (string)$first_item_customization['service_type'];
+    }
     unset($custom_data['design_upload'], $custom_data['reference_upload']);
 
     $raw_quantity = max(1, (int)($item['quantity'] ?? 0));
@@ -184,11 +273,21 @@ foreach ($items as $item) {
         $raw_unit_price = $order_total_amount / $raw_quantity;
     }
 
+    $fallback_item_name = trim((string)($itemCustomizationFallback['service_type'] ?? ($first_item_customization['service_type'] ?? 'Order Item')));
+    $resolved_item_name = printflow_resolve_order_item_name(
+        $item['product_name'] ?? $fallback_item_name,
+        $custom_data,
+        $fallback_item_name !== '' ? $fallback_item_name : 'Order Item'
+    );
+    if (customer_order_items_is_generic_name($resolved_item_name) && $fallback_item_name !== '') {
+        $resolved_item_name = normalize_service_name($fallback_item_name, $fallback_item_name);
+    }
+
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
         'payload' => [
         'order_item_id' => (int)$item['order_item_id'],
-        'product_name'  => printflow_resolve_order_item_name($item['product_name'] ?? 'Order Item', $custom_data, 'Order Item'),
+        'product_name'  => $resolved_item_name,
         'category'      => (strtolower($item['category'] ?? '') === 'merchandise') ? '' : ($item['category'] ?? ''),
         'quantity'      => $raw_quantity,
         'unit_price'    => format_currency($raw_unit_price),
