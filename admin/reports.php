@@ -206,14 +206,31 @@ if (!$gaBranchEmpty) {
 $period_has_activity = ($total_orders > 0);
 
 // ── 2b. Sales by product category & service category (report date range + branch) ──
+// Buckets are data-driven: use catalog category when set, else fall back to fields on the row / job
+// so legacy transactions still split meaningfully (not one giant "Uncategorized").
 $report_product_category_sales = [];
 $report_service_category_sales = [];
+$pf_reports_products_has_type = false;
+try {
+    $pf_reports_products_has_type = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_type'"));
+} catch (Throwable $e) {
+    $pf_reports_products_has_type = false;
+}
+$pf_pt_bucket = '';
+if ($pf_reports_products_has_type) {
+    // Skip generic ENUM labels — they are not a merchandising "category"
+    $pf_pt_bucket = "IF(LOWER(TRIM(COALESCE(p.product_type,''))) IN ('fixed','custom'), NULL, NULLIF(TRIM(p.product_type), '')), ";
+}
+$pf_product_cat_bucket = 'COALESCE(NULLIF(TRIM(p.category), \'\'), '
+    . $pf_pt_bucket
+    . 'NULLIF(TRIM(p.material), \'\'), NULLIF(TRIM(p.printing_type), \'\'), NULLIF(TRIM(p.name), \'\'), \'Store items\')';
+
 if (!$gaBranchEmpty) {
     try {
         [$bpc, $btpc, $bppc] = branch_where_parts('o', $globalAnalyticsBranchId);
         [$dwpc, $dtpc, $dppc] = $getDateWhere('o', 'order_date');
         $report_product_category_sales = db_query(
-            "SELECT COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized') AS category,
+            "SELECT {$pf_product_cat_bucket} AS category,
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
@@ -221,7 +238,7 @@ if (!$gaBranchEmpty) {
              JOIN orders o ON oi.order_id = o.order_id
              WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
                {$dwpc} {$bpc}
-             GROUP BY COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized')
+             GROUP BY {$pf_product_cat_bucket}
              ORDER BY total DESC",
             $dtpc . $btpc,
             array_merge($dppc, $bppc)
@@ -232,8 +249,10 @@ if (!$gaBranchEmpty) {
     try {
         [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', $globalAnalyticsBranchId);
         [$dwjsc, $dtjsc, $dpjsc] = $getDateWhere('jo', 'created_at');
+        // Include archived services in lookup so old jobs still resolve catalog category by name.
+        $pf_service_cat_bucket = "COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')";
         $report_service_category_sales = db_query(
-            "SELECT COALESCE(NULLIF(TRIM(sc.category), ''), 'Uncategorized') AS category,
+            "SELECT {$pf_service_cat_bucket} AS category,
                     SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
                              THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total,
                     SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
@@ -243,11 +262,10 @@ if (!$gaBranchEmpty) {
                  SELECT LOWER(TRIM(name)) AS name_key,
                         MAX(NULLIF(TRIM(category), '')) AS category
                  FROM services
-                 WHERE status != 'Archived'
                  GROUP BY LOWER(TRIM(name))
              ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
              WHERE 1=1 {$dwjsc} {$bjsc}
-             GROUP BY COALESCE(NULLIF(TRIM(sc.category), ''), 'Uncategorized')
+             GROUP BY {$pf_service_cat_bucket}
              ORDER BY total DESC",
             $dtjsc . $btjsc,
             array_merge($dpjsc, $bpjsc)
@@ -1972,14 +1990,14 @@ $dashData = [
     }, $rev_donut),
     'productCategorySales' => array_map(static function ($r) {
         return [
-            'category' => (string)($r['category'] ?? 'Uncategorized'),
+            'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Store items',
             'revenue'  => round((float)($r['total'] ?? 0), 2),
             'items'    => (int)($r['items_sold'] ?? 0),
         ];
     }, $report_product_category_sales),
     'serviceCategorySales' => array_map(static function ($r) {
         return [
-            'category' => (string)($r['category'] ?? 'Uncategorized'),
+            'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Customization',
             'revenue'  => round((float)($r['total'] ?? 0), 2),
             'jobs'     => (int)($r['qty_sold'] ?? 0),
         ];
