@@ -183,7 +183,6 @@ if ($sold_count >= 1000) {
                 <div class="shopee-form-row">
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" class="input-field shopee-form-field" required>
-                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>

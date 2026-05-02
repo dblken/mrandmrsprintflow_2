@@ -196,7 +196,6 @@ if ($display_img !== '' && strpos($display_img, 'http') === false && $display_im
                 <div class="mb-4" id="card-branch">
                     <label class="block text-sm font-medium text-gray-700 mb-1"><?php echo htmlspecialchars(get_field_label('branch', 'Branch', $field_configs)); ?> *</label>
                     <select name="branch_id" class="input-field" required>
-                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>

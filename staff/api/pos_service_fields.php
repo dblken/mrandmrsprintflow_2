@@ -44,7 +44,7 @@ if (service_has_field_config($service_id)) {
         <div class="shopee-form-label">Branch *</div>
         <div class="shopee-form-field">
             <select name="branch_id" class="shopee-opt-btn" required style="width:175px;cursor:pointer;">
-                <option value="">Select Branch</option>' . $branch_options . '
+                ' . $branch_options . '
             </select>
         </div>
     </div>

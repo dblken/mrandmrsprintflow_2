@@ -273,7 +273,6 @@ if ($display_img !== '' && strpos($display_img, 'http') === false && $display_im
                 <div class="shopee-form-row">
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" class="input-field shopee-form-field" required>
-                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>" <?php echo ((string)($b['id']) === (string)($_POST['branch_id'] ?? '')) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($b['branch_name']); ?>
@@ -620,7 +619,7 @@ function checkFormValid() {
     const isLogoOnly = designType && designType.value === 'Logo Only';
     const hasFile = !!(file && file.files && file.files.length > 0);
 
-    let ok = !!branch?.value && !!shirtSource && !!designType && !!shirtType && !!shirtColor && !!placement && !!lamination && qty >= 1 && neededDate?.value.trim() !== '';
+    let ok = !!shirtSource && !!designType && !!shirtType && !!shirtColor && !!placement && !!lamination && qty >= 1 && neededDate?.value.trim() !== '';
     
     // Conditional validation for Logo Only
     if (isLogoOnly && !TSHIRT_IS_EDIT_MODE) {
@@ -633,7 +632,7 @@ function checkFormValid() {
     }
 
     if (showErrors) {
-        setFieldError(cBranch, branch && !branch.value ? 'Please select a branch' : '');
+        setFieldError(cBranch, '');
         setFieldError(cShirtSource, !shirtSource ? 'Please select shirt source' : '');
         setFieldError(cDesignType, !designType ? 'Please select design type' : '');
         setFieldError(cShirtType, !shirtType ? 'Please select shirt type' : '');

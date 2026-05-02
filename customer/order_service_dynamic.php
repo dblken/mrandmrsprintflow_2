@@ -298,8 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 1)));
     $has_design_field = false;
     
-    // Validate branch
-    if ($branch_id < 1) {
+    // Branch validation removed - automatically selected by default
+    if (false && $branch_id < 1) {
         $error = 'Please select a branch for pickup.';
     }
     

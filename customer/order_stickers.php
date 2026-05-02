@@ -166,7 +166,6 @@ if ($stickers_lam_val !== '' && !in_array($stickers_lam_val, ['With Laminate', '
                 <div class="shopee-form-row" id="card-branch-stickers">
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" id="stickers_branch_id" class="input-field shopee-form-field" required>
-                        <option value="" selected disabled>Select Branch</option>
                         <?php foreach($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                         <?php endforeach; ?>
@@ -378,7 +377,7 @@ function checkStickersFormValid() {
     var cUpload = document.getElementById('card-upload-stickers');
     var cNotes = document.getElementById('card-notes-stickers');
 
-    var okBranch = branch && branch.value;
+    var okBranch = true;
     var okDim = w && h && w.value.trim() !== '' && h.value.trim() !== '';
     var okFinish = !!finish;
     var okLam = !!lam;

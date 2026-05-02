@@ -85,7 +85,6 @@ $dimension_presets = [
                     <div class="shopee-form-row">
                         <label class="shopee-form-label">Branch *</label>
                         <select name="branch_id" class="input-field shopee-form-field" required>
-                            <option value="" selected disabled>Select Branch</option>
                             <?php foreach($branches as $b): ?>
                                 <option value="<?php echo $b['id']; ?>"><?php echo htmlspecialchars($b['branch_name']); ?></option>
                             <?php endforeach; ?>
@@ -416,10 +415,9 @@ function reflCheckFormValid() {
     const cBranch = branch.closest('.shopee-form-row');
     const cType = document.getElementById('refl_product_type').closest('.shopee-form-row');
 
-    let ok = !!(branch.value && type);
-
+    let ok = !!type;
     if (show) {
-        reflSetFieldError(cBranch, !branch.value ? 'This field is required' : '');
+        reflSetFieldError(cBranch, '');
         reflSetFieldError(cType, !type ? 'This field is required' : '');
     }
 

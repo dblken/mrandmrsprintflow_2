@@ -217,7 +217,6 @@ if (!empty($_POST['dimensions']) && preg_match('/^(\d+(?:\.\d+)?)\s*[x×]\s*(\d+
                     <label class="shopee-form-label">Branch *</label>
                     <select name="branch_id" id="sintra_branch_id" class="input-field shopee-form-field" required>
                         <?php $branch_post = $_POST['branch_id'] ?? ''; ?>
-                        <option value="" disabled <?php echo ($branch_post === '' || $branch_post === null) ? 'selected' : ''; ?>>Select Branch</option>
                         <?php foreach ($branches as $b): ?>
                             <option value="<?php echo $b['id']; ?>" <?php echo ((string)($b['id']) === (string)$branch_post) ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($b['branch_name']); ?>
@@ -463,10 +462,10 @@ function sintraCheckFormValid() {
     var cFile = file && file.closest('.mb-4');
     var cNeedQty = document.getElementById('sintra-need-qty-card');
 
-    var ok = !!(branch && branch.value && sintraType && dim && (!othersOpen || (wv && hv)) && unit && lamination && layout && thickness && file && file.files && file.files.length > 0 && neededDate && neededDate.value.trim() !== '' && qty >= 1);
+    var ok = !!(sintraType && dim && (!othersOpen || (wv && hv)) && unit && lamination && layout && thickness && file && file.files && file.files.length > 0 && neededDate && neededDate.value.trim() !== '' && qty >= 1);
 
     if (showErrors) {
-        sintraSetFieldError(cBranch, (branch && !branch.value) ? 'This field is required' : '');
+        sintraSetFieldError(cBranch, '');
         sintraSetFieldError(cType, !sintraType ? 'This field is required' : '');
         var dimMsg = '';
         if (!dim) dimMsg = 'This field is required';
