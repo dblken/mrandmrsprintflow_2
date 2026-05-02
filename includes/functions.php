@@ -2191,6 +2191,86 @@ function printflow_job_notification_preview(int $job_id): array {
     return $preview;
 }
 
+function printflow_known_service_labels(): array {
+    return [
+        'Tarpaulin Printing',
+        'T-Shirt Printing',
+        'T-Shirt Printing (Vinyl)',
+        'Decals/Stickers (Print/Cut)',
+        'Sintraboard Standees',
+        'Glass/Wall Stickers',
+        'Transparent Stickers',
+        'Reflectorized',
+        'Souvenirs',
+        'Layouts',
+    ];
+}
+
+function printflow_order_item_has_service_marker(array $custom): bool {
+    if (empty($custom)) {
+        return false;
+    }
+
+    $serviceType = trim((string)($custom['service_type'] ?? ''));
+    if ($serviceType !== '') {
+        $blocked = [
+            'service',
+            'service order',
+            'service item',
+            'product order',
+            'order item',
+            'custom order',
+            'custom service',
+            'pos service item',
+            'pos-service',
+            'pos_service',
+            'pos',
+        ];
+        $normalizedRaw = strtolower(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $serviceType)));
+        if (!in_array($normalizedRaw, $blocked, true)) {
+            return true;
+        }
+    }
+
+    if ((int)($custom['service_id'] ?? 0) > 0) {
+        return true;
+    }
+
+    $source = strtolower(trim((string)($custom['source'] ?? '')));
+    if ($source === 'service' || $source === 'services') {
+        return true;
+    }
+
+    $productType = trim((string)($custom['product_type'] ?? ''));
+    if ($productType !== '') {
+        $normalizedProductType = normalize_service_name($productType, '');
+        if (in_array($normalizedProductType, printflow_known_service_labels(), true)) {
+            return true;
+        }
+    }
+
+    // Service-specific field signatures commonly present in customization payloads.
+    $serviceMarkers = [
+        'sintra_type',
+        'tarp_size',
+        'vinyl_type',
+        'sticker_type',
+        'cut_type',
+        'with_eyelets',
+        'temp_plate_number',
+        'gate_pass_number',
+        'reflective_color',
+        'installation_fee',
+    ];
+    foreach ($serviceMarkers as $marker) {
+        if (!empty($custom[$marker])) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 
 function printflow_order_notification_preview(int $order_id): array {
     static $cache = [];
@@ -2249,15 +2329,19 @@ function printflow_order_notification_preview(int $order_id): array {
     $custom = !empty($row['customization_data']) ? json_decode((string)$row['customization_data'], true) : [];
     $custom = is_array($custom) ? $custom : [];
     $order_type = strtolower(trim((string)($row['order_type'] ?? '')));
-    $product_type = strtolower(trim((string)($row['product_type'] ?? '')));
-    $service_name = get_service_name_from_customization($custom, '');
-    if ($order_type === 'custom' || $service_name !== '' || ($product_type !== 'fixed' && $product_type !== '')) {
+    $is_service_item = printflow_order_item_has_service_marker($custom);
+    if ($is_service_item) {
         $preview['item_kind'] = 'Service';
-    } elseif ($order_type === 'product' || $product_type === 'fixed') {
+    } elseif ($order_type === 'product' || $order_type === 'custom' || !empty($row['product_id'])) {
         $preview['item_kind'] = 'Product';
     }
+    $service_name = $is_service_item ? get_service_name_from_customization($custom, '') : '';
+    $display_name_source = $service_name !== '' ? $service_name : (string)($row['product_name'] ?? 'Order Item');
+    if (!$is_service_item && trim($display_name_source) === '') {
+        $display_name_source = (string)($custom['product_type'] ?? 'Order Item');
+    }
     $preview['display_name'] = printflow_resolve_order_item_name(
-        $service_name !== '' ? $service_name : (string)($row['product_name'] ?? 'Order Item'),
+        $display_name_source,
         $custom,
         'Order Item'
     );
