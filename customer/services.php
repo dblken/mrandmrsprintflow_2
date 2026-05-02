@@ -36,7 +36,7 @@ function pf_normalize_service_image_path($path, $base_path, $default_img) {
         $path = substr($path, $public_pos);
     }
     $uploads_pos = strpos($path, '/uploads/');
-    if ($uploads_pos !== false && $uploads_pos < $public_pos) {
+    if ($uploads_pos !== false && ($public_pos === false || $uploads_pos < $public_pos)) {
         $path = substr($path, $uploads_pos);
     }
     if ($base_path === '' && strpos($path, '/printflow/') === 0) {
@@ -49,6 +49,41 @@ function pf_normalize_service_image_path($path, $base_path, $default_img) {
         $path = $base_path . $path;
     }
     return $path;
+}
+
+function pf_service_local_asset_exists($urlPath, $base_path): bool {
+    $urlPath = trim((string)$urlPath);
+    if ($urlPath === '' || preg_match('#^https?://#i', $urlPath)) {
+        return true;
+    }
+
+    $clean = str_replace('\\', '/', $urlPath);
+    $clean = strtok($clean, '?#');
+    if (!is_string($clean) || $clean === '') {
+        return false;
+    }
+
+    $base = rtrim((string)$base_path, '/');
+    if ($base !== '' && strpos($clean, $base . '/') === 0) {
+        $clean = substr($clean, strlen($base));
+    }
+    if ($clean === false) {
+        return false;
+    }
+    $clean = '/' . ltrim((string)$clean, '/');
+
+    $local = realpath(__DIR__ . '/..' . $clean);
+    if ($local === false) {
+        return false;
+    }
+
+    $appRoot = realpath(__DIR__ . '/..');
+    if ($appRoot === false) {
+        return is_file($local);
+    }
+
+    // Keep checks inside app directory only.
+    return strpos($local, $appRoot) === 0 && is_file($local);
 }
 
 function pf_service_media_is_video($path) {
@@ -115,12 +150,9 @@ function render_service_card($srv) {
     global $base_path, $default_service_img;
     $img = pf_normalize_service_image_path($srv['img'], $base_path, $default_service_img);
     $is_video = pf_service_media_is_video($img);
-    if (strpos($img, 'http') === false) {
-        $img_path = $_SERVER['DOCUMENT_ROOT'] . $img;
-        if (!file_exists($img_path)) {
-            $img = $default_service_img;
-            $is_video = false;
-        }
+    if (!pf_service_local_asset_exists($img, $base_path)) {
+        $img = $default_service_img;
+        $is_video = false;
     }
     
     $json_name = htmlspecialchars(json_encode($srv['name']), ENT_QUOTES, 'UTF-8');
@@ -137,7 +169,10 @@ function render_service_card($srv) {
         foreach ($images as $imgPath) {
             $imgPath = trim($imgPath);
             if ($imgPath !== '') {
-                $display_images[] = pf_normalize_service_image_path($imgPath, $base_path, $default_service_img);
+                $normalized = pf_normalize_service_image_path($imgPath, $base_path, $default_service_img);
+                if (pf_service_local_asset_exists($normalized, $base_path)) {
+                    $display_images[] = $normalized;
+                }
             }
         }
     }
