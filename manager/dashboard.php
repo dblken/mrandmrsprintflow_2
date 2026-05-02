@@ -113,16 +113,7 @@ try {
 
 // ── Sales by Product Category ──────────────────────────────────
 try {
-    [$bSqlFrag_cs, $bT_cs, $bP_cs] = branch_where_parts('o', $branchId);
-    $category_sales = db_query(
-        "SELECT p.category, COUNT(oi.order_item_id) as items_sold, SUM(oi.quantity * oi.unit_price) as total
-         FROM order_items oi
-         JOIN products p ON oi.product_id = p.product_id
-         JOIN orders o ON oi.order_id = o.order_id
-         WHERE o.payment_status = 'Paid' {$bSqlFrag_cs}
-         GROUP BY p.category ORDER BY total DESC",
-        $bT_cs ?: null, $bP_cs ?: null
-    ) ?: [];
+    $category_sales = pf_dashboard_sales_by_product_category($branchId);
 } catch (Exception $e) { $category_sales = []; }
 
 // ── Top Customers (by spending) ────────────────────────────────
@@ -998,7 +989,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
             var cv = document.getElementById('categoryChart');
             var w = cv ? cv.parentElement : null;
             var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
-            var catLabels = <?php echo json_encode(array_map(fn($c) => $c['category'] ?? 'Uncategorized', $category_sales)); ?>;
+            var catLabels = <?php echo json_encode(array_map(fn($c) => $c['category'] ?? 'Store items', $category_sales)); ?>;
             bindWhenVisible(w, function () {
                 window.__pfDashCategoryChart = new Chart(cv.getContext('2d'), {
                     type: 'doughnut',

@@ -210,20 +210,7 @@ $period_has_activity = ($total_orders > 0);
 // so legacy transactions still split meaningfully (not one giant "Uncategorized").
 $report_product_category_sales = [];
 $report_service_category_sales = [];
-$pf_reports_products_has_type = false;
-try {
-    $pf_reports_products_has_type = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_type'"));
-} catch (Throwable $e) {
-    $pf_reports_products_has_type = false;
-}
-$pf_pt_bucket = '';
-if ($pf_reports_products_has_type) {
-    // Skip generic ENUM labels — they are not a merchandising "category"
-    $pf_pt_bucket = "IF(LOWER(TRIM(COALESCE(p.product_type,''))) IN ('fixed','custom'), NULL, NULLIF(TRIM(p.product_type), '')), ";
-}
-$pf_product_cat_bucket = 'COALESCE(NULLIF(TRIM(p.category), \'\'), '
-    . $pf_pt_bucket
-    . 'NULLIF(TRIM(p.material), \'\'), NULLIF(TRIM(p.printing_type), \'\'), NULLIF(TRIM(p.name), \'\'), \'Store items\')';
+$pf_product_cat_bucket = pf_product_category_bucket_expr();
 
 if (!$gaBranchEmpty) {
     try {
