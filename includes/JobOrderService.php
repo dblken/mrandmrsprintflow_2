@@ -1765,11 +1765,11 @@ class JobOrderService {
                 $height_ft = (string)$custom['height'];
             } elseif (!empty($custom['dimensions'])) {
                 $d = $custom['dimensions'];
-                if (is_string($d) && preg_match('/^(\d+)\s*[xÃ—]\s*(\d+)$/i', $d, $m)) {
+                if (is_string($d) && preg_match('/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/iu', $d, $m)) {
                     $width_ft = $m[1];
                     $height_ft = $m[2];
                 } else {
-                    $width_ft = (string)$d;
+                    $width_ft = is_string($d) ? (string)$d : '';
                     $height_ft = '';
                 }
             } elseif (!empty($custom['width_ft']) && !empty($custom['height_ft'])) {
@@ -1793,6 +1793,16 @@ class JobOrderService {
             $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
                 ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity)
                 : $custom;
+            if (is_array($custom) && $custom !== [] && function_exists('printflow_modal_customization_fallback_flatten_for_staff')) {
+                $staffExtra = printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity);
+                if (is_array($staffExtra) && $staffExtra !== []) {
+                    foreach ($staffExtra as $k => $v) {
+                        if (!array_key_exists($k, $customForPayload) || trim((string)($customForPayload[$k] ?? '')) === '') {
+                            $customForPayload[$k] = $v;
+                        }
+                    }
+                }
+            }
             if (is_array($custom) && $custom !== []) {
                 $flatCount = is_array($customForPayload) ? count($customForPayload) : 0;
                 if ($flatCount < 2) {

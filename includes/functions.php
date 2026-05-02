@@ -2761,8 +2761,6 @@ function printflow_custom_order_line_looks_like_souvenir_cart(array $custom_data
  * Apply service_id / orders.reference_id resolution to an already-merged per-line customization array.
  */
 function customer_orders_enrich_line_customization(array $merged, array $order): array {
-    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
-
     if (printflow_custom_order_line_looks_like_souvenir_cart($merged)) {
         $sidSouv = printflow_resolve_service_catalog_service_id('Souvenirs');
         if ($sidSouv > 0) {
@@ -2779,15 +2777,17 @@ function customer_orders_enrich_line_customization(array $merged, array $order):
         if ($byId !== '') {
             $merged['service_type'] = $byId;
         }
-    } elseif ($orderType === 'custom') {
-        $ref = (int)($order['reference_id'] ?? 0);
-        if ($ref > 0) {
-            $byRef = customer_orders_resolve_service_name_by_id($ref);
-            if ($byRef !== '') {
-                $merged['service_type'] = $byRef;
-                if ((int)($merged['service_id'] ?? 0) <= 0) {
-                    $merged['service_id'] = $ref;
-                }
+    }
+
+    // Service checkout often stores orders.order_type as "product" (SKU line) while orders.reference_id
+    // points at services.service_id — same as custom orders.
+    $ref = (int)($order['reference_id'] ?? 0);
+    if ($ref > 0 && trim((string)($merged['service_type'] ?? '')) === '') {
+        $byRef = customer_orders_resolve_service_name_by_id($ref);
+        if ($byRef !== '') {
+            $merged['service_type'] = $byRef;
+            if ((int)($merged['service_id'] ?? 0) <= 0) {
+                $merged['service_id'] = $ref;
             }
         }
     }
@@ -3080,7 +3080,8 @@ function customer_orders_primary_item_name(array $order): string {
     $rawName = trim((string)($order['first_product_name'] ?? ''));
 
     // Custom orders may use a placeholder/unrelated product_id; do not trust products.name for the label.
-    if ($orderType === 'custom' && !customer_orders_custom_order_is_catalog_product($custom)) {
+    $serviceLikeCheckout = in_array($orderType, ['custom', 'product'], true) && !customer_orders_custom_order_is_catalog_product($custom);
+    if ($serviceLikeCheckout && ($orderType === 'custom' || customer_orders_is_generic_item_name($rawName))) {
         $rawName = '';
     }
 
@@ -3090,7 +3091,7 @@ function customer_orders_primary_item_name(array $order): string {
 
     $useJobTitleFallback = !array_key_exists('_use_job_title_fallback', $order) || $order['_use_job_title_fallback'];
 
-    if ($orderType === 'custom') {
+    if (in_array($orderType, ['custom', 'product'], true)) {
         $svcFromCustom = trim((string)($custom['service_type'] ?? ''));
         if ($svcFromCustom !== '' && !customer_orders_is_generic_item_name($svcFromCustom)) {
             return normalize_service_name($svcFromCustom, $svcFromCustom);
@@ -3120,7 +3121,7 @@ function customer_orders_primary_item_name(array $order): string {
         return normalize_service_name($serviceFallback, $serviceFallback);
     }
     if (customer_orders_is_generic_item_name($resolved)) {
-        if ($orderType === 'custom') {
+        if (in_array($orderType, ['custom', 'product'], true)) {
             $ref = (int)($order['reference_id'] ?? 0);
             if ($ref > 0) {
                 $nm = customer_orders_resolve_service_name_by_id($ref);

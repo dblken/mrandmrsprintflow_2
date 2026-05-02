@@ -2770,10 +2770,21 @@ window.pfCustomizationPreloadedOrders = (() => {
                 'L130': { 'BLUE': 32, 'RED': 33, 'BLACK': 34, 'YELLOW': 35 }
             },
 
+            isGenericServiceLabel(value) {
+                const t = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                if (!t) return true;
+                if (['order item', 'custom order', 'customer order', 'service order', 'custom service', 'standard product', 'service item'].includes(t)) {
+                    return true;
+                }
+                if (t.startsWith('order item ') || t.startsWith('order item-')) {
+                    return true;
+                }
+                return false;
+            },
             getDynamicProductName(item) {
                 const custom = item.customization || {};
                 const productName = String(item?.product_name || '').trim();
-                if (productName && !/^order item$/i.test(productName)) {
+                if (productName && !this.isGenericServiceLabel(productName)) {
                     return productName;
                 }
                 const explicitService = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();
@@ -2821,13 +2832,13 @@ window.pfCustomizationPreloadedOrders = (() => {
             getCorrectServiceType(jo) {
                 if (!jo) return '';
                 const head = String(jo.service_type || jo.job_title || '').trim();
-                if (head && !/^order item$/i.test(head)) {
+                if (head && !this.isGenericServiceLabel(head)) {
                     return head;
                 }
                 if (jo.items && jo.items.length > 0) {
                     for (const item of jo.items) {
                         const pn = String(item?.product_name || '').trim();
-                        if (pn && !/^order item$/i.test(pn)) {
+                        if (pn && !this.isGenericServiceLabel(pn)) {
                             return pn;
                         }
                     }
