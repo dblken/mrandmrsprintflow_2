@@ -665,6 +665,30 @@ try {
             error_log('PrintFlow POS checkout sync warning for order #' . $syncOrderId . ': ' . $syncError->getMessage());
         }
     }
+
+    // Safety net: always enforce production-stage sync for custom POS sales.
+    // This guards against flag mismatches that could skip per-item sync and
+    // accidentally postpone deduction until Completed.
+    if (($order_type ?? '') === 'custom' && !empty($order_id)) {
+        try {
+            JobOrderService::syncStoreOrderToStatus((int)$order_id, 'IN_PRODUCTION', null, '', true);
+        } catch (Throwable $forceSyncError) {
+            if ($sync_warning === '') {
+                $sync_warning = 'Sale completed, but production sync needs follow-up.';
+            }
+            error_log('PrintFlow POS forced production sync warning for order #' . (int)$order_id . ': ' . $forceSyncError->getMessage());
+        }
+
+        try {
+            JobOrderService::ensureStoreOrderProductionDeductions((int)$order_id);
+        } catch (Throwable $forceDeductError) {
+            if ($sync_warning === '') {
+                $sync_warning = 'Sale completed, but production sync needs follow-up.';
+            }
+            error_log('PrintFlow POS forced deduction sync warning for order #' . (int)$order_id . ': ' . $forceDeductError->getMessage());
+        }
+    }
+
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
