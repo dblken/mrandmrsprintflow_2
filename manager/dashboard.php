@@ -172,16 +172,9 @@ try {
 
 $customer_locations = [];
 try {
-    [$b,$bt,$bp] = branch_where_parts('o', $branchId);
-    $customer_locations = db_query(
-        "SELECT TRIM(c.city) as city, COUNT(DISTINCT o.order_id) as orders
-         FROM orders o JOIN customers c ON o.customer_id=c.customer_id
-         WHERE o.order_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-           AND c.city IS NOT NULL AND TRIM(c.city) != ''{$b}
-         GROUP BY c.city HAVING LENGTH(TRIM(c.city)) > 2
-         ORDER BY orders DESC LIMIT 8",
-        $bt ?: null, $bp ?: null
-    ) ?: [];
+    $locFrom = date('Y-m-d', strtotime('-30 days'));
+    $locTo = date('Y-m-d') . ' 23:59:59';
+    $customer_locations = pf_reports_customer_locations_merged($locFrom, $locTo, $branchId, 8, false);
 } catch (Exception $e) {}
 
 $statusColors = [

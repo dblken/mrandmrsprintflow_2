@@ -271,7 +271,15 @@ try {
         $heatmap_months = pf_reports_heatmap_month_short_labels();
     }
     if ($show_locations) {
-        $locations = db_query("SELECT TRIM(c.city) as city, COUNT(*) as cnt, SUM(o.total_amount) as spent FROM orders o JOIN customers c ON o.customer_id=c.customer_id WHERE o.order_date BETWEEN ? AND ? AND c.city IS NOT NULL AND TRIM(c.city) != ''$bSql GROUP BY c.city ORDER BY cnt DESC LIMIT 10", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
+        $locRows = pf_reports_customer_locations_merged($from, $toEnd, $branchId, 10, true);
+        $locations = [];
+        foreach ($locRows as $r) {
+            $locations[] = [
+                'city' => $r['city'],
+                'cnt' => $r['orders'],
+                'spent' => (float)($r['revenue'] ?? 0),
+            ];
+        }
     }
     if ($show_customization) {
         $custom_usage = db_query("SELECT COALESCE(NULLIF(TRIM(p.name), ''), 'Customization') as product, SUM(CASE WHEN (COALESCE(CHAR_LENGTH(oi.design_image),0) > 0 OR COALESCE(CHAR_LENGTH(oi.design_file),0) > 0) THEN 1 ELSE 0 END) as custom_count, SUM(CASE WHEN (COALESCE(CHAR_LENGTH(oi.design_image),0) = 0 AND COALESCE(CHAR_LENGTH(oi.design_file),0) = 0) THEN 1 ELSE 0 END) as template_count FROM orders o JOIN order_items oi ON o.order_id=oi.order_id JOIN products p ON oi.product_id=p.product_id WHERE o.order_date BETWEEN ? AND ?$bSql GROUP BY p.product_id LIMIT 10", 'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)) ?: [];
@@ -298,15 +306,7 @@ try {
             array_merge([$from, $toEnd], $bParams)
         )[0] ?? null;
 
-        $customer_locations = db_query(
-            "SELECT TRIM(c.city) as city, COUNT(DISTINCT o.order_id) as orders
-             FROM orders o JOIN customers c ON o.customer_id=c.customer_id
-             WHERE c.city IS NOT NULL AND TRIM(c.city) != ''{$bSql}
-             GROUP BY c.city HAVING LENGTH(TRIM(c.city)) > 2
-             ORDER BY orders DESC LIMIT 12",
-            $bTypes,
-            $bParams
-        ) ?: [];
+        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $branchId, 12, false);
 
         $insight_custom_usage = db_query(
             "SELECT p.name AS product,
@@ -350,7 +350,7 @@ try {
             $insights[] = "<strong>" . htmlspecialchars((string)$top_products_insight[0]['product_name']) . "</strong> is the top-selling service with <strong>" . number_format((int)$top_products_insight[0]['qty_sold']) . "</strong> units to date.";
         }
         if (!empty($customer_locations)) {
-            $insights[] = "Most orders originate from <strong>" . htmlspecialchars(trim((string)$customer_locations[0]['city'])) . "</strong> (" . number_format((int)$customer_locations[0]['orders']) . " orders).";
+            $insights[] = "Most transactions (store + custom jobs) map to <strong>" . htmlspecialchars(trim((string)$customer_locations[0]['city'])) . "</strong> (" . number_format((int)$customer_locations[0]['orders']) . " in period).";
         }
         if ($forecast_revenue > 0) {
             $insights[] = "Next month (<strong>" . htmlspecialchars($next_month_label) . "</strong>) revenue forecast: <strong>&#8369;" . number_format($forecast_revenue, 0) . "</strong> based on 12-month trend.";

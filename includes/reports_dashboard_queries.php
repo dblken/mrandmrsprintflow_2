@@ -320,6 +320,155 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
     return array_slice($list, 0, $limit);
 }
 
+/** @return array<string,bool> */
+function pf_reports_customer_table_columns(): array {
+    static $cache = null;
+    if ($cache !== null) {
+        return $cache;
+    }
+    $cache = [];
+    foreach (db_query('SHOW COLUMNS FROM customers') ?: [] as $row) {
+        if (!empty($row['Field'])) {
+            $cache[(string)$row['Field']] = true;
+        }
+    }
+    return $cache;
+}
+
+/**
+ * SQL expression (customers alias `c`) for city/municipality: structured columns first,
+ * then second-to-last comma segment of composite `address` (typical PH layout).
+ */
+function pf_reports_customer_city_sql_expr(string $alias = 'c'): string {
+    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $alias);
+    if ($a === '') {
+        $a = 'c';
+    }
+    $cols = pf_reports_customer_table_columns();
+    $parts = [];
+    foreach (['city', 'municipality', 'town'] as $col) {
+        if (!empty($cols[$col])) {
+            $parts[] = "NULLIF(TRIM(`{$a}`.`{$col}`), '')";
+        }
+    }
+    $structured = $parts !== []
+        ? 'COALESCE(' . implode(', ', $parts) . ')'
+        : null;
+
+    $parsedAddress = null;
+    if (!empty($cols['address'])) {
+        $parsedAddress = "NULLIF(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(CONCAT(',', REPLACE(TRIM(`{$a}`.`address`), ', ', ',')), ',', -2), ',', 1)), '')";
+    }
+
+    if ($structured !== null && $parsedAddress !== null) {
+        return "COALESCE({$structured}, {$parsedAddress})";
+    }
+    if ($structured !== null) {
+        return $structured;
+    }
+    if ($parsedAddress !== null) {
+        return $parsedAddress;
+    }
+    return 'CAST(NULL AS CHAR)';
+}
+
+/**
+ * Roll up customer locality from transaction rows: each store order and each job order counts once.
+ * Uses the customer's address fields linked to that transaction (best available city label).
+ *
+ * @return list<array{city:string, orders:int, revenue?:float}>
+ */
+function pf_reports_customer_locations_merged(
+    string $from,
+    string $toEnd,
+    $branchId,
+    int $limit = 12,
+    bool $includeRevenue = false
+): array {
+    $limit = max(1, min(100, $limit));
+    $cityExpr = pf_reports_customer_city_sql_expr('c');
+
+    $oDate = '';
+    $joDate = '';
+    $dateTypes = '';
+    $dateParams = [];
+    if ($from !== '' && $toEnd !== '') {
+        $oDate = ' AND o.order_date BETWEEN ? AND ? ';
+        $joDate = ' AND jo.created_at BETWEEN ? AND ? ';
+        $dateTypes = 'ss';
+        $dateParams = [$from, $toEnd];
+    } elseif ($from !== '') {
+        $oDate = ' AND o.order_date >= ? ';
+        $joDate = ' AND jo.created_at >= ? ';
+        $dateTypes = 's';
+        $dateParams = [$from];
+    } elseif ($toEnd !== '') {
+        $oDate = ' AND o.order_date <= ? ';
+        $joDate = ' AND jo.created_at <= ? ';
+        $dateTypes = 's';
+        $dateParams = [$toEnd];
+    }
+
+    [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+    [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+
+    $revO = $includeRevenue ? 'CAST(o.total_amount AS DECIMAL(14,2))' : '0';
+    $revJ = $includeRevenue
+        ? 'CAST(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS DECIMAL(14,2))'
+        : '0';
+
+    $outerAgg = $includeRevenue
+        ? 'COUNT(*) AS orders, COALESCE(SUM(x.line_rev), 0) AS revenue'
+        : 'COUNT(*) AS orders';
+
+    $sql = "
+SELECT TRIM(x.city_raw) AS city, {$outerAgg}
+FROM (
+    SELECT {$cityExpr} AS city_raw, {$revO} AS line_rev
+    FROM orders o
+    INNER JOIN customers c ON c.customer_id = o.customer_id
+    WHERE o.customer_id IS NOT NULL
+      {$oDate}
+      {$bo}
+    UNION ALL
+    SELECT {$cityExpr} AS city_raw, {$revJ} AS line_rev
+    FROM job_orders jo
+    INNER JOIN customers c ON c.customer_id = jo.customer_id
+    WHERE jo.customer_id IS NOT NULL
+      {$joDate}
+      {$bj}
+) x
+WHERE x.city_raw IS NOT NULL
+  AND TRIM(x.city_raw) <> ''
+  AND CHAR_LENGTH(TRIM(x.city_raw)) > 2
+GROUP BY TRIM(x.city_raw)
+ORDER BY orders DESC
+LIMIT {$limit}
+";
+
+    $types = $dateTypes . $bto . $dateTypes . $btj;
+    $params = array_merge($dateParams, $bpo, $dateParams, $bpj);
+
+    try {
+        $rows = db_query($sql, $types !== '' ? $types : null, $params !== [] ? $params : null) ?: [];
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    $out = [];
+    foreach ($rows as $r) {
+        $item = [
+            'city' => (string)($r['city'] ?? ''),
+            'orders' => (int)($r['orders'] ?? 0),
+        ];
+        if ($includeRevenue) {
+            $item['revenue'] = (float)($r['revenue'] ?? 0);
+        }
+        $out[] = $item;
+    }
+    return $out;
+}
+
 /**
  * @return list<array{
  *   branch_name:string,

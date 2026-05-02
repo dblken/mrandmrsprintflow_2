@@ -259,17 +259,11 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 
     try {
-        [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$dw,$dt,$dp] = $getDateWhere('o', 'order_date'); // Use filtered date range
-        $top_kpi_location = db_query(
-            "SELECT TRIM(c.city) as city, COUNT(*) as cnt
-             FROM orders o JOIN customers c ON o.customer_id=c.customer_id
-             WHERE 1=1 {$dw}
-               AND c.city IS NOT NULL AND TRIM(c.city) != ''$b
-             GROUP BY c.city HAVING LENGTH(TRIM(c.city)) > 2
-             ORDER BY cnt DESC LIMIT 1",
-            $dt . $bt, array_merge($dp, $bp)
-        )[0] ?? null;
+        $topRows = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 1, false);
+        $top_kpi_location = $topRows[0] ?? null;
+        if ($top_kpi_location !== null) {
+            $top_kpi_location['cnt'] = (int)($top_kpi_location['orders'] ?? 0);
+        }
     } catch(Exception $e){}
 }
 
@@ -487,24 +481,16 @@ if (!$gaBranchEmpty) {
     }
 }
 
-// ── 10. Customer locations ────────────────────────────────────────────────────
+// ── 10. Customer locations (store + job transactions; customer address linked per transaction) ──
 $customer_locations = [];
 if (!$gaBranchEmpty) {
     try {
-        [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$dw,$dt,$dp] = ["", "", []]; // Locations All Time
-        $customer_locations = db_query(
-            "SELECT TRIM(c.city) as city,
-                    COUNT(DISTINCT o.order_id) as orders
-             FROM orders o JOIN customers c ON o.customer_id=c.customer_id
-             WHERE 1=1 {$dw}
-               AND c.city IS NOT NULL AND TRIM(c.city) != ''$b
-             GROUP BY c.city HAVING LENGTH(TRIM(c.city)) > 2
-             ORDER BY orders DESC LIMIT 12",
-            $dt . $bt, array_merge($dp, $bp)
-        ) ?: [];
-        if ($chart_sort === 'value_asc') $customer_locations = array_reverse($customer_locations);
-    } catch(Exception $e){}
+        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 12, false);
+        if ($chart_sort === 'value_asc') {
+            $customer_locations = array_reverse($customer_locations);
+        }
+    } catch (Exception $e) {
+    }
 }
 
 // ── 11. Customization usage ───────────────────────────────────────────────────
@@ -722,7 +708,7 @@ if (!$gaBranchEmpty) {
     if (!empty($top_products))
         $insights[] = "<strong>{$top_products[0]['product_name']}</strong> is the top-selling service with <strong>".number_format((int)$top_products[0]['qty_sold'])."</strong> units to date.";
     if (!empty($customer_locations))
-        $insights[] = "Most orders originate from <strong>".htmlspecialchars(trim($customer_locations[0]['city']))."</strong> ({$customer_locations[0]['orders']} orders).";
+        $insights[] = "Most transactions (store + custom jobs) map to <strong>".htmlspecialchars(trim($customer_locations[0]['city']))."</strong> ({$customer_locations[0]['orders']} in period).";
     if ($forecast_revenue > 0)
         $insights[] = "Next month (<strong>$next_month_label</strong>) revenue forecast: <strong>₱".number_format($forecast_revenue,0)."</strong> based on 12-month trend.";
     if (!empty($custom_usage) && (int)$custom_usage[0]['custom_count'] > (int)$custom_usage[0]['template_count'])
@@ -2065,7 +2051,7 @@ $dashData = [
                     <div class="kpi-val" style="font-size:15px;margin-top:4px;line-height:1.3;">
                         <?php echo $top_kpi_location ? htmlspecialchars(mb_substr(trim($top_kpi_location['city']),0,20)) : '—'; ?>
                     </div>
-                    <div class="kpi-sub"><?php echo $top_kpi_location ? $top_kpi_location['cnt'].' orders' : 'No location data for period'; ?></div>
+                    <div class="kpi-sub"><?php echo $top_kpi_location ? $top_kpi_location['cnt'].' transactions' : 'No location data for period'; ?></div>
                 </div>
             </div>
 
@@ -2324,7 +2310,7 @@ $dashData = [
                 <div class="ana-card">
                     <div class="ana-hd">
                         <h3><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Locations
-                        <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
                     </h3>
                         <div style="display:flex;align-items:center;gap:12px;" class="no-print">
                             <?php if (!empty($customer_locations)): ?>
