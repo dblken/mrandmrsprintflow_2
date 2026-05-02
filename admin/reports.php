@@ -206,26 +206,27 @@ if (!$gaBranchEmpty) {
 $period_has_activity = ($total_orders > 0);
 
 // ── 2b. Sales by product category & service category (report date range + branch) ──
-// Buckets are data-driven: use catalog category when set, else fall back to fields on the row / job
-// so legacy transactions still split meaningfully (not one giant "Uncategorized").
+// Product chart: aggregate by catalog category when set; otherwise each product_id is its own slice
+// (no merging unrelated legacy lines via material/name). Service chart: service-category + row fallbacks.
 $report_product_category_sales = [];
 $report_service_category_sales = [];
-$pf_product_cat_bucket = pf_product_category_bucket_expr();
+$pf_product_chart_bucket = pf_product_sales_chart_bucket_sql();
+$pf_product_chart_label = pf_product_sales_chart_label_sql();
 
 if (!$gaBranchEmpty) {
     try {
         [$bpc, $btpc, $bppc] = branch_where_parts('o', $globalAnalyticsBranchId);
         [$dwpc, $dtpc, $dppc] = $getDateWhere('o', 'order_date');
         $report_product_category_sales = db_query(
-            "SELECT {$pf_product_cat_bucket} AS category,
+            "SELECT {$pf_product_chart_label} AS category,
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
-             JOIN products p ON oi.product_id = p.product_id
+             LEFT JOIN products p ON p.product_id = oi.product_id
              JOIN orders o ON oi.order_id = o.order_id
              WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
                {$dwpc} {$bpc}
-             GROUP BY {$pf_product_cat_bucket}
+             GROUP BY {$pf_product_chart_bucket}
              ORDER BY total DESC",
             $dtpc . $btpc,
             array_merge($dppc, $bppc)

@@ -55,45 +55,36 @@ function pf_reports_branch_has_activity($branchId): bool {
 }
 
 /**
- * SQL expression for grouping paid store lines into a display "category"
- * (catalog category → optional product_type → material → printing_type → product name → fallback).
+ * SQL GROUP BY expression for "Sales by Product Category" charts:
+ * — Rows with a non-empty catalog `products.category` aggregate under that category.
+ * — Uncategorized rows stay under each `product_id` so unrelated products are never merged
+ *   via material/name fallbacks (legacy / retired SKUs stay on their own product).
  */
-function pf_product_category_bucket_expr(): string {
-    static $expr = null;
-    if ($expr !== null) {
-        return $expr;
-    }
-    $hasPt = false;
-    try {
-        $hasPt = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_type'"));
-    } catch (Throwable $e) {
-        $hasPt = false;
-    }
-    $pt = '';
-    if ($hasPt) {
-        $pt = "IF(LOWER(TRIM(COALESCE(p.product_type,''))) IN ('fixed','custom'), NULL, NULLIF(TRIM(p.product_type), '')), ";
-    }
-    $expr = 'COALESCE(NULLIF(TRIM(p.category), \'\'), '
-        . $pt
-        . 'NULLIF(TRIM(p.material), \'\'), NULLIF(TRIM(p.printing_type), \'\'), NULLIF(TRIM(p.name), \'\'), \'Store items\')';
-    return $expr;
+function pf_product_sales_chart_bucket_sql(): string {
+    return "CASE WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN CONCAT('cat:', TRIM(p.category)) ELSE CONCAT('pid:', oi.product_id) END";
+}
+
+/** SELECT list expression for the human-readable slice label (paired with bucket SQL). */
+function pf_product_sales_chart_label_sql(): string {
+    return "MAX(CASE WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN TRIM(p.category) ELSE COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(oi.sku), ''), CONCAT('Product #', oi.product_id)) END)";
 }
 
 /**
- * Dashboard: branch-filtered paid store revenue by product category bucket (all-time on dashboards).
+ * Dashboard: branch-filtered paid store revenue by category-or-product bucket (all-time).
  *
  * @return list<array{category:string,items_sold:int|string,total:float|string}>
  */
 function pf_dashboard_sales_by_product_category($branchId): array {
-    $bucket = pf_product_category_bucket_expr();
+    $bucket = pf_product_sales_chart_bucket_sql();
+    $label = pf_product_sales_chart_label_sql();
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         return db_query(
-            "SELECT {$bucket} AS category,
+            "SELECT {$label} AS category,
                     COUNT(oi.order_item_id) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
-             JOIN products p ON oi.product_id = p.product_id
+             LEFT JOIN products p ON p.product_id = oi.product_id
              JOIN orders o ON oi.order_id = o.order_id
              WHERE o.payment_status = 'Paid' {$b}
              GROUP BY {$bucket}
