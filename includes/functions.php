@@ -2715,16 +2715,104 @@ function customer_orders_primary_item_name(array $order): string {
 }
 
 /**
+ * True when $arr is a non-empty list with keys 0..count-1 (JSON array).
+ */
+function printflow_is_sequential_list_array(array $arr): bool {
+    if ($arr === []) {
+        return false;
+    }
+    $i = 0;
+    foreach ($arr as $k => $_) {
+        if ($k !== $i) {
+            return false;
+        }
+        $i++;
+    }
+    return true;
+}
+
+/**
+ * Unwrap nested containers and list-shaped payloads so modal specs are not dropped (numeric PHP keys are skipped by flatten).
+ */
+function printflow_normalize_customization_for_modal(array $custom, int $depth = 0): array {
+    if ($custom === [] || $depth > 8) {
+        return $custom;
+    }
+
+    foreach (
+        ['customization', 'specs', 'specifications', 'form_data', 'form_values', 'fields', 'responses', 'answers']
+        as $wrap
+    ) {
+        if (!isset($custom[$wrap]) || !is_array($custom[$wrap])) {
+            continue;
+        }
+        $inner = $custom[$wrap];
+        unset($custom[$wrap]);
+        $innerNorm = printflow_normalize_customization_for_modal($inner, $depth + 1);
+        $custom = array_replace($innerNorm, $custom);
+    }
+
+    if (printflow_is_sequential_list_array($custom)) {
+        $merged = [];
+        $scalar_i = 0;
+        foreach ($custom as $row) {
+            if (!is_array($row)) {
+                $scalar_i++;
+                $merged['Item ' . $scalar_i] = $row;
+                continue;
+            }
+            $lk = isset($row['label']) ? trim((string)$row['label']) : '';
+            if ($lk === '' && isset($row['name'])) {
+                $lk = trim((string)$row['name']);
+            }
+            $vk = $row['value'] ?? $row['val'] ?? null;
+            if ($lk !== '' && $vk !== null && $vk !== '') {
+                $merged[$lk] = $vk;
+                continue;
+            }
+            foreach ($row as $sk => $sv) {
+                if ($sk === 'value' || $sk === 'val') {
+                    continue;
+                }
+                if (!is_string($sk) && !is_int($sk)) {
+                    continue;
+                }
+                $skStr = trim((string)$sk);
+                if ($skStr === '') {
+                    continue;
+                }
+                if ($sv === null || $sv === '') {
+                    continue;
+                }
+                $merged[$skStr] = $sv;
+            }
+        }
+        return printflow_normalize_customization_for_modal($merged, $depth + 1);
+    }
+
+    return $custom;
+}
+
+/**
  * Prepare customization key/values for customer order details modal (human-readable strings, no binary/temp fields).
  */
 function printflow_flatten_order_customization_for_customer_modal(array $custom): array {
+    $custom = printflow_normalize_customization_for_modal($custom);
     $skip = ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime'];
     $out = [];
+    $unnamed = 0;
     foreach ($custom as $k => $v) {
-        if (!is_string($k) || $k === '') {
+        if (is_int($k)) {
+            $k = (string)$k;
+        }
+        if (!is_string($k)) {
             continue;
         }
-        if ($k[0] === '_' || in_array($k, $skip, true)) {
+        if ($k === '') {
+            $unnamed++;
+            $k = $unnamed === 1 ? 'Details' : ('Details ' . $unnamed);
+        }
+        if (($k !== '' && $k[0] === '_') || in_array($k, $skip, true)) {
             continue;
         }
         if ($v === null || $v === '') {

@@ -419,6 +419,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         if (empty($error)) {
             // Collect all custom fields dynamically
             $customization = [];
+            $spec_label = static function (array $cfg, string $fieldKey): string {
+                $l = trim((string)($cfg['label'] ?? ''));
+                if ($l !== '') {
+                    return $l;
+                }
+                $fk = trim($fieldKey);
+                return $fk !== '' ? $fk : 'Specification';
+            };
             foreach ($field_configs as $key => $config) {
                 if (!$config['visible']) continue;
                 
@@ -440,16 +448,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $width = trim($_POST[$key . '_width'] ?? $_POST['width'] ?? '');
                     $height = trim($_POST[$key . '_height'] ?? $_POST['height'] ?? '');
                     if ($width !== '' && $height !== '') {
-                        $customization[$config['label']] = $width . '×' . $height . ' ' . ($config['unit'] ?? 'ft');
+                        $customization[$spec_label($config, $key)] = $width . '×' . $height . ' ' . ($config['unit'] ?? 'ft');
                     }
                 } else {
                     if (isset($_POST[$key]) && $_POST[$key] !== '') {
                         $val = $_POST[$key];
                         if ($val === 'Others' && !empty($_POST[$key . '_other'])) {
                             $val = $_POST[$key . '_other'];
-                            $customization[$config['label'] . ' (Other)'] = $_POST[$key . '_other'];
+                            $customization[$spec_label($config, $key) . ' (Other)'] = $_POST[$key . '_other'];
                         }
-                        $customization[$config['label']] = $val;
+                        $customization[$spec_label($config, $key)] = $val;
                     }
                 }
             }
