@@ -252,10 +252,6 @@ $logoPath = '../public/images/logo.jpg';
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
         Print Report
     </button>
-    <button id="download-btn" class="btn btn-download">
-        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-        Download PDF
-    </button>
 </div>
 
 <div class="report-wrapper">
@@ -332,21 +328,7 @@ $logoPath = '../public/images/logo.jpg';
     </div>
 </div>
 
-<script>
-    document.getElementById('download-btn').addEventListener('click', function() {
-        const element = document.getElementById('report-content');
-        const opt = {
-            margin:       [10, 10, 10, 10],
-            filename:     'Order_Summary_<?php echo date('Ymd'); ?>.pdf',
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
 
-        // New Promise-based usage:
-        html2pdf().set(opt).from(element).save();
-    });
-</script>
 
 </body>
 </html>
