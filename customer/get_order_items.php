@@ -52,6 +52,7 @@ register_shutdown_function(function() {
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/order_ui_helper.php';
 
 require_role('Customer');
 
@@ -87,27 +88,6 @@ function customer_order_items_merge_customization_payload(array $primary, array 
     return $merged;
 }
 
-function customer_order_items_is_generic_name(string $name): bool {
-    $normalized = strtolower(trim((string)preg_replace('/\s+/', ' ', $name)));
-    if ($normalized === '') {
-        return true;
-    }
-    $generic = [
-        'order item',
-        'service order',
-        'service item',
-        'custom order',
-        'customer order',
-        'merchandise',
-        'sticker pack',
-        'pos service item',
-        'pos-service item',
-        'pos service',
-        'pos-service',
-    ];
-    return in_array($normalized, $generic, true);
-}
-
 $base_path = defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
 
 $order_id = (int)($_GET['id'] ?? 0);
@@ -137,7 +117,15 @@ $order_result = db_query("
               AND jo.payment_rejection_reason != ''
             ORDER BY jo.payment_verified_at DESC, jo.id DESC
             LIMIT 1) as payment_rejection_reason,
-           (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku
+           (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
+           IFNULL((
+                SELECT jo.job_title FROM job_orders jo
+                WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1
+            ), '') as first_job_title,
+           IFNULL((
+                SELECT jo.service_type FROM job_orders jo
+                WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1
+            ), '') as first_job_service_type
     FROM orders o 
     LEFT JOIN branches b ON o.branch_id = b.id 
     WHERE o.order_id = ? AND o.customer_id = ?
@@ -195,11 +183,20 @@ foreach ($customization_rows as $cRow) {
     }
 
     $orderItemId = (int)($cRow['order_item_id'] ?? 0);
-    if ($orderItemId > 0 && !isset($customization_by_item_id[$orderItemId])) {
-        $customization_by_item_id[$orderItemId] = [
-            'details' => $details,
-            'service_type' => $serviceType,
-        ];
+    if ($orderItemId > 0) {
+        if (!isset($customization_by_item_id[$orderItemId])) {
+            $customization_by_item_id[$orderItemId] = [
+                'details' => [],
+                'service_type' => '',
+            ];
+        }
+        $customization_by_item_id[$orderItemId]['details'] = array_replace(
+            $customization_by_item_id[$orderItemId]['details'],
+            $details
+        );
+        if ($serviceType !== '' && trim((string)$customization_by_item_id[$orderItemId]['service_type']) === '') {
+            $customization_by_item_id[$orderItemId]['service_type'] = $serviceType;
+        }
     }
 }
 
@@ -246,10 +243,19 @@ $items = db_query("
     WHERE oi.order_id = ?
 ", 'i', [$order_id]);
 
+$items = is_array($items) ? $items : [];
+$first_order_item_id = null;
+foreach ($items as $it) {
+    $oid = (int)($it['order_item_id'] ?? 0);
+    if ($oid > 0) {
+        $first_order_item_id = $first_order_item_id === null ? $oid : min($first_order_item_id, $oid);
+    }
+}
+
 $items_out = [];
 $service_items_raw = [];
 $order_total_amount = (float)($order['total_amount'] ?? 0);
-$item_count = is_array($items) ? count($items) : 0;
+$item_count = count($items);
 foreach ($items as $item) {
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
     $itemCustomizationFallback = $customization_by_item_id[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
@@ -261,6 +267,7 @@ foreach ($items as $item) {
     if (empty($custom_data['service_type']) && !empty($first_item_customization['service_type'])) {
         $custom_data['service_type'] = (string)$first_item_customization['service_type'];
     }
+    $custom_data = customer_orders_enrich_line_customization($custom_data, $order);
     unset($custom_data['design_upload'], $custom_data['reference_upload']);
 
     $raw_quantity = max(1, (int)($item['quantity'] ?? 0));
@@ -274,14 +281,21 @@ foreach ($items as $item) {
     }
 
     $fallback_item_name = trim((string)($itemCustomizationFallback['service_type'] ?? ($first_item_customization['service_type'] ?? 'Order Item')));
-    $resolved_item_name = printflow_resolve_order_item_name(
-        $item['product_name'] ?? $fallback_item_name,
-        $custom_data,
-        $fallback_item_name !== '' ? $fallback_item_name : 'Order Item'
-    );
-    if (customer_order_items_is_generic_name($resolved_item_name) && $fallback_item_name !== '') {
-        $resolved_item_name = normalize_service_name($fallback_item_name, $fallback_item_name);
-    }
+    $use_job_line_fallback = ($item_count === 1) || ($first_order_item_id !== null && (int)($item['order_item_id'] ?? 0) === (int)$first_order_item_id);
+    $orderLike = [
+        'order_type' => $order['order_type'] ?? '',
+        'reference_id' => $order['reference_id'] ?? null,
+        'first_product_name' => (string)($item['product_name'] ?? ''),
+        'first_customization_service_type' => (string)($itemCustomizationFallback['service_type'] ?? ''),
+        'first_job_title' => (string)($order['first_job_title'] ?? ''),
+        'first_job_service_type' => (string)($order['first_job_service_type'] ?? ''),
+        '_merged_customization' => $custom_data,
+        '_use_job_title_fallback' => $use_job_line_fallback,
+    ];
+    $resolved_item_name = customer_orders_primary_item_name($orderLike);
+    $customForPayload = function_exists('printflow_flatten_order_customization_for_customer_modal')
+        ? printflow_flatten_order_customization_for_customer_modal($custom_data)
+        : $custom_data;
 
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
@@ -294,7 +308,7 @@ foreach ($items as $item) {
         'subtotal'      => format_currency($raw_subtotal),
         'estimated_price' => format_currency($raw_subtotal),
         'final_price'   => format_currency($raw_subtotal),
-        'customization' => $custom_data,
+        'customization' => $customForPayload,
         'has_design'    => !empty($item['design_image']) || !empty($item['design_file']),
         'has_reference' => !empty($item['reference_image_file']),
         'design_kind'   => pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? ''),

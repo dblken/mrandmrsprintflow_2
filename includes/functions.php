@@ -2542,6 +2542,33 @@ function customer_orders_primary_customization(array $order): array {
     return $merged;
 }
 
+/**
+ * Apply service_id / orders.reference_id resolution to an already-merged per-line customization array.
+ */
+function customer_orders_enrich_line_customization(array $merged, array $order): array {
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    $sid = (int)($merged['service_id'] ?? 0);
+    if ($sid > 0) {
+        $byId = customer_orders_resolve_service_name_by_id($sid);
+        if ($byId !== '' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+            $merged['service_type'] = $byId;
+        }
+    }
+    if ($orderType === 'custom' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+        $ref = (int)($order['reference_id'] ?? 0);
+        if ($ref > 0) {
+            $byRef = customer_orders_resolve_service_name_by_id($ref);
+            if ($byRef !== '') {
+                $merged['service_type'] = $byRef;
+                if ((int)($merged['service_id'] ?? 0) <= 0) {
+                    $merged['service_id'] = $ref;
+                }
+            }
+        }
+    }
+    return $merged;
+}
+
 function customer_orders_custom_order_is_catalog_product(array $custom): bool {
     $src = strtolower(trim((string)($custom['source_page'] ?? '')));
     if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {
@@ -2557,7 +2584,10 @@ function customer_orders_custom_order_is_catalog_product(array $custom): bool {
 }
 
 function customer_orders_primary_item_name(array $order): string {
-    $custom = customer_orders_primary_customization($order);
+    $custom = isset($order['_merged_customization']) && is_array($order['_merged_customization'])
+        ? customer_orders_enrich_line_customization($order['_merged_customization'], $order)
+        : customer_orders_primary_customization($order);
+
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
     $serviceFallback = trim((string)($order['first_customization_service_type'] ?? ($custom['service_type'] ?? '')));
     $rawName = trim((string)($order['first_product_name'] ?? ''));
@@ -2571,9 +2601,11 @@ function customer_orders_primary_item_name(array $order): string {
         $rawName = $serviceFallback !== '' ? $serviceFallback : $rawName;
     }
 
+    $useJobTitleFallback = !array_key_exists('_use_job_title_fallback', $order) || $order['_use_job_title_fallback'];
+
     if ($orderType === 'custom') {
         $jobTitle = trim((string)($order['first_job_title'] ?? ''));
-        if ($jobTitle !== '' && !customer_orders_is_generic_item_name($jobTitle)) {
+        if ($useJobTitleFallback && $jobTitle !== '' && !customer_orders_is_generic_item_name($jobTitle)) {
             return normalize_service_name($jobTitle, $jobTitle);
         }
         $fromFields = trim((string)get_service_name_from_customization($custom, ''));
@@ -2602,7 +2634,7 @@ function customer_orders_primary_item_name(array $order): string {
                 }
             }
             $jst = trim((string)($order['first_job_service_type'] ?? ''));
-            if ($jst !== '' && !customer_orders_is_generic_item_name($jst)) {
+            if ($useJobTitleFallback && $jst !== '' && !customer_orders_is_generic_item_name($jst)) {
                 return normalize_service_name($jst, $jst);
             }
         }
@@ -2612,6 +2644,33 @@ function customer_orders_primary_item_name(array $order): string {
         }
     }
     return $resolved;
+}
+
+/**
+ * Prepare customization key/values for customer order details modal (human-readable strings, no binary/temp fields).
+ */
+function printflow_flatten_order_customization_for_customer_modal(array $custom): array {
+    $skip = ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime'];
+    $out = [];
+    foreach ($custom as $k => $v) {
+        if (!is_string($k) || $k === '') {
+            continue;
+        }
+        if ($k[0] === '_' || in_array($k, $skip, true)) {
+            continue;
+        }
+        if ($v === null || $v === '') {
+            continue;
+        }
+        $text = function_exists('pf_order_ui_value_to_text')
+            ? pf_order_ui_value_to_text($v)
+            : (is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : (string)$v);
+        if (trim((string)$text) === '') {
+            continue;
+        }
+        $out[$k] = $text;
+    }
+    return $out;
 }
 
 /**

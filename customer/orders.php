@@ -1481,13 +1481,23 @@ function openItemsModal(orderId, event) {
             let specs = '';
             if (item.customization) {
                 const specItems = Object.entries(item.customization)
-                    .filter(([k,v]) => v && v !== 'No' && v !== 'None' && !['service_type','product_type','quantity','notes','design_upload','reference_upload'].includes(k))
-                    .map(([k,v]) => `
+                    .filter(([k,v]) => {
+                        if (v === null || v === undefined || v === '' || v === 'No' || v === 'None') return false;
+                        if (['design_upload','reference_upload'].includes(k) || String(k).startsWith('_')) return false;
+                        return true;
+                    })
+                    .map(([k,v]) => {
+                        let disp = v;
+                        if (typeof v === 'object' && v !== null) {
+                            try { disp = JSON.stringify(v); } catch (e) { disp = String(v); }
+                        }
+                        return `
                         <div class="im-spec-card">
                             <span class="im-spec-label capitalize-first">${k.replace(/_/g,' ')}</span>
-                            <span class="im-spec-value">${escIM(v)}</span>
+                            <span class="im-spec-value">${escIM(disp)}</span>
                         </div>
-                    `)
+                    `;
+                    })
                     .join('');
                 if (specItems) specs = `<div class="im-spec-grid">${specItems}</div>`;
             }
