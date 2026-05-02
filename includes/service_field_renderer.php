@@ -447,13 +447,41 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
         return '<p style="color:#ef4444; padding:20px; text-align:center;">No field configuration found. Please contact administrator.</p>';
     }
 
-    // Single ordering: admin display_order only (no hardcoded branch / "footer" buckets).
-    uasort($configs, function ($a, $b) {
+    // Separate fields into categories (restores classic layout: branch → specs → needed date / qty / notes).
+    $branch_field = [];
+    $custom_fields = [];
+    $default_bottom_fields = [];
+
+    foreach ($configs as $key => $config) {
+        if ($key === 'branch') {
+            $branch_field[$key] = $config;
+        } elseif (in_array($key, ['needed_date', 'quantity', 'notes'], true)) {
+            $default_bottom_fields[$key] = $config;
+        } else {
+            $custom_fields[$key] = $config;
+        }
+    }
+
+    uasort($custom_fields, function ($a, $b) {
         return ((int)($a['order'] ?? 0)) <=> ((int)($b['order'] ?? 0));
     });
 
+    $bottom_order = ['needed_date' => 1, 'quantity' => 2, 'notes' => 3];
+    uasort($default_bottom_fields, function ($a, $b) use ($bottom_order, $default_bottom_fields) {
+        $key_a = array_search($a, $default_bottom_fields);
+        $key_b = array_search($b, $default_bottom_fields);
+        return ($bottom_order[$key_a] ?? 999) - ($bottom_order[$key_b] ?? 999);
+    });
+
     $html = '';
-    foreach ($configs as $key => $config) {
+
+    foreach ($branch_field as $key => $config) {
+        $html .= render_service_field($key, $config, $branches, $existing_data);
+    }
+    foreach ($custom_fields as $key => $config) {
+        $html .= render_service_field($key, $config, $branches, $existing_data);
+    }
+    foreach ($default_bottom_fields as $key => $config) {
         $html .= render_service_field($key, $config, $branches, $existing_data);
     }
 
