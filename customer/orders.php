@@ -169,13 +169,49 @@ function customer_orders_primary_customization(array $order): array {
     return $merged;
 }
 
+function customer_orders_custom_order_is_catalog_product(array $custom): bool {
+    $src = strtolower(trim((string)($custom['source_page'] ?? '')));
+    if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {
+        return true;
+    }
+    if (isset($custom['form_type']) && strtolower(trim((string)$custom['form_type'])) === 'dynamic') {
+        return true;
+    }
+    if (!empty($custom['config_id'])) {
+        return true;
+    }
+    return false;
+}
+
 function customer_orders_primary_item_name(array $order): string {
     $custom = customer_orders_primary_customization($order);
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
     $serviceFallback = trim((string)($order['first_customization_service_type'] ?? ($custom['service_type'] ?? '')));
     $rawName = trim((string)($order['first_product_name'] ?? ''));
 
+    // Custom/service orders often point order_items.product_id at a placeholder or unrelated product row.
+    // Using that JOINed products.name makes the card show the wrong label (e.g. catalog SKU) instead of the service.
+    if ($orderType === 'custom' && !customer_orders_custom_order_is_catalog_product($custom)) {
+        $rawName = '';
+    }
+
     if ($rawName === '' || customer_orders_is_generic_item_name($rawName)) {
         $rawName = $serviceFallback !== '' ? $serviceFallback : $rawName;
+    }
+
+    if ($orderType === 'custom') {
+        $jobTitle = trim((string)($order['first_job_title'] ?? ''));
+        if ($jobTitle !== '' && !customer_orders_is_generic_item_name($jobTitle)) {
+            return normalize_service_name($jobTitle, $jobTitle);
+        }
+        $fromFields = trim((string)get_service_name_from_customization($custom, ''));
+        if ($fromFields !== '' && !customer_orders_is_generic_item_name($fromFields)) {
+            $resolvedEarly = printflow_resolve_order_item_name($fromFields, $custom, $fromFields);
+            if (!customer_orders_is_generic_item_name($resolvedEarly)) {
+                return $resolvedEarly;
+            }
+            return normalize_service_name($fromFields, $fromFields);
+        }
     }
 
     $fallback = $serviceFallback !== '' ? $serviceFallback : 'Order Item';
@@ -185,7 +221,6 @@ function customer_orders_primary_item_name(array $order): string {
         return normalize_service_name($serviceFallback, $serviceFallback);
     }
     if (customer_orders_is_generic_item_name($resolved)) {
-        $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
         if ($orderType === 'custom') {
             $ref = (int)($order['reference_id'] ?? 0);
             if ($ref > 0) {
@@ -193,6 +228,10 @@ function customer_orders_primary_item_name(array $order): string {
                 if ($nm !== '') {
                     return normalize_service_name($nm, $nm);
                 }
+            }
+            $jst = trim((string)($order['first_job_service_type'] ?? ''));
+            if ($jst !== '' && !customer_orders_is_generic_item_name($jst)) {
+                return normalize_service_name($jst, $jst);
             }
         }
         $fromFields = trim((string)get_service_name_from_customization($custom, ''));
@@ -283,7 +322,9 @@ $sql = "SELECT o.*,
            AND jo.payment_rejection_reason IS NOT NULL
            AND jo.payment_rejection_reason != ''
          ORDER BY jo.payment_verified_at DESC, jo.id DESC
-         LIMIT 1) as payment_rejection_reason
+         LIMIT 1) as payment_rejection_reason,
+        (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_title,
+        (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_service_type
         FROM orders o WHERE o.customer_id = ?";
 $count_sql = "SELECT COUNT(*) as total FROM orders o WHERE o.customer_id = ?";
 $params = [$customer_id];
