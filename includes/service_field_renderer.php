@@ -168,27 +168,64 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'radio':
+            $allowRadioOthers = !empty($config['allow_others']);
+            $rawOptions = array_values($config['options'] ?? []);
+            $presetValues = [];
+            foreach ($rawOptions as $opt) {
+                $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
+                if ($ov !== '') {
+                    $presetValues[$ov] = true;
+                }
+            }
+            $hasOthersInList = isset($presetValues['Others']);
+            $radioOptions = $rawOptions;
+            if ($allowRadioOthers && !$hasOthersInList) {
+                $radioOptions[] = ['value' => 'Others', 'price' => 0];
+            }
+            $othersAvailable = $hasOthersInList || $allowRadioOthers;
+
+            $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
+            $radioSaved = trim((string)$saved_value);
+            if ($othersAvailable && $radioSaved !== '' && $radioSaved !== 'Others' && !isset($presetValues[$radioSaved])) {
+                $radioSaved = 'Others';
+                if ($savedOtherText === '') {
+                    $savedOtherText = trim((string)$saved_value);
+                }
+            }
+
             $html .= '<div class="shopee-opt-group">';
-            foreach ($config['options'] ?? [] as $idx => $option) {
+            foreach ($radioOptions as $idx => $option) {
                 $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                 $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
-                
-                if ($optionValue === '') continue;
-                if (empty($nestedFields) && isset($nestedValuesSet[strtolower(trim($optionValue))])) continue;
-                
-                $value = htmlspecialchars($optionValue);
-                $displayValue = htmlspecialchars(pf_service_option_label($optionValue));
-                $is_checked = ($saved_value == $optionValue) ? ' checked' : '';
+
+                if ($optionValue === '') {
+                    continue;
+                }
+                if (empty($nestedFields) && isset($nestedValuesSet[strtolower(trim((string)$optionValue))])) {
+                    continue;
+                }
+
+                $value = htmlspecialchars((string)$optionValue);
+                $displayValue = htmlspecialchars(pf_service_option_label((string)$optionValue));
+                $is_checked = ($radioSaved === (string)$optionValue) ? ' checked' : '';
                 $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                 $html .= '<label class="shopee-opt-btn' . ($is_checked ? ' active' : '') . '">';
-                $html .= '<input type="radio" name="' . htmlspecialchars($field_key) . '" value="' . $value . '"' . $is_checked . ' style="display:none;" class="pricing-field" data-price="' . htmlspecialchars((string)$optionPrice) . '" ' . $required_attr . ' onchange="updateOptVisual(this); handleNestedFields(this, \'' . htmlspecialchars($field_key) . '\', ' . $idx . ')">';
+                $html .= '<input type="radio" name="' . htmlspecialchars($field_key) . '" value="' . $value . '"' . $is_checked . ' style="display:none;" class="pricing-field" data-pf-radio-option-index="' . (int)$idx . '" data-price="' . htmlspecialchars((string)$optionPrice) . '" ' . $required_attr . '>';
                 $html .= '<span>' . $displayValue . '</span>';
                 $html .= '</label>';
             }
             $html .= '</div>';
-            
+
+            if ($othersAvailable) {
+                $showOthersInput = ($radioSaved === 'Others');
+                $html .= '<div class="radio-others-wrap" id="radio-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
+                $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field radio-others-input" placeholder="Please specify..." value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
+                $html .= '</div>';
+            }
+
             // Render nested fields containers (initially hidden)
-            foreach ($config['options'] ?? [] as $idx => $option) {
+            foreach ($rawOptions as $idx => $option) {
+                $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                 $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
                 if (!empty($nestedFields)) {
                     $html .= '<div id="nested-' . htmlspecialchars($field_key) . '-' . $idx . '" class="nested-fields-container" style="display:none; margin-top:16px; padding:16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">';
@@ -528,6 +565,21 @@ function handleNestedFields(radio, fieldKey, optionIndex) {
             nestedContainer.style.display = 'block';
         }
     }
+}
+
+function pfSyncRadioOthersWrap(radio) {
+    if (!radio || !radio.name) return;
+    const wrap = document.getElementById('radio-others-' + radio.name);
+    if (!wrap) return;
+    const row = radio.closest('.shopee-form-row[data-field-key]');
+    if (!row || row.getAttribute('data-field-key') !== radio.name) return;
+    let val = '';
+    row.querySelectorAll('input[type="radio"].pricing-field').forEach(function(r) {
+        if (r.name === radio.name && r.checked) {
+            val = r.value;
+        }
+    });
+    wrap.style.display = val === 'Others' ? 'block' : 'none';
 }
 
 function selectNestedDimension(key, w, h, e) {
@@ -931,11 +983,25 @@ function initServiceFieldRenderer() {
     document.querySelectorAll('.shopee-opt-btn input[type="radio"]').forEach(radio => {
         if (radio.checked) {
             updateOptVisual(radio);
+            if (radio.classList.contains('pricing-field')) {
+                const idx = parseInt(radio.getAttribute('data-pf-radio-option-index') || '', 10);
+                if (!Number.isNaN(idx)) {
+                    handleNestedFields(radio, radio.name, idx);
+                }
+                pfSyncRadioOthersWrap(radio);
+            }
         }
         if (radio.dataset.pfServiceFieldBound === '1') return;
         radio.dataset.pfServiceFieldBound = '1';
         radio.addEventListener('change', function() {
             updateOptVisual(this);
+            if (this.classList.contains('pricing-field')) {
+                const idx = parseInt(this.getAttribute('data-pf-radio-option-index') || '', 10);
+                if (!Number.isNaN(idx)) {
+                    handleNestedFields(this, this.name, idx);
+                }
+                pfSyncRadioOthersWrap(this);
+            }
             updateConditionalFields();
         });
     });
