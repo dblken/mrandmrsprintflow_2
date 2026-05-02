@@ -1372,13 +1372,13 @@ $page_title = 'Review Management - Staff';
                                         ?>
                                             <div class="review-media" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap:12px; max-width:600px;">
                                                 <?php if ($vpath !== ''): ?>
-                                                    <div class="media-thumb video-thumb" style="width:100%; aspect-ratio:1;" onclick='openReviewMediaCarousel(<?php echo $media_items_json ?: "[]"; ?>, 0)'>
+                                                    <div class="media-thumb video-thumb" style="width:100%; aspect-ratio:1; cursor:pointer;" onclick='openReviewMediaCarousel(<?php echo $media_items_json ?: "[]"; ?>, 0)'>
                                                         <video
                                                             muted
                                                             playsinline
                                                             preload="metadata"
                                                             onloadedmetadata="try{this.currentTime=0.1;}catch(e){}"
-                                                            onclick="event.stopPropagation();">
+                                                            style="pointer-events:none;">
                                                             <?php echo pf_render_review_video_sources($video_sources); ?>
                                                         </video>
                                                     </div>
@@ -1525,7 +1525,9 @@ $page_title = 'Review Management - Staff';
                     .filter(Boolean)
                     .map((src) => `<source src="${src}" type="${String(src).toLowerCase().includes('.webm') ? 'video/webm' : 'video/mp4'}">`)
                     .join('');
-                content.innerHTML = `<video controls autoplay playsinline preload="metadata" style="max-height: 80vh; max-width: 100%; border-radius: 12px; background:#000;">${sourcesHtml}</video>`;
+                content.innerHTML = `<video controls autoplay playsinline preload="auto" style="max-height: 80vh; max-width: 100%; border-radius: 12px; background:#000;">${sourcesHtml}</video>`;
+                const vid = content.querySelector('video');
+                if (vid) { vid.load(); vid.play().catch(() => {}); }
             } else {
                 content.innerHTML = `<img src="${item.src || ''}" style="max-height: 80vh; max-width: 100%; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);">`;
             }
