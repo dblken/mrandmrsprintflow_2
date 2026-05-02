@@ -131,6 +131,41 @@ function pf_product_sales_chart_label_sql(): string {
                END)";
 }
 
+/** Best-effort family/category inference for legacy product rows with weak labels. */
+function pf_product_sales_chart_family_sql(string $productAlias = 'p', string $itemAlias = 'oi'): string {
+    $productAlias = pf_reports_sql_alias($productAlias, 'p');
+    $itemAlias = pf_reports_sql_alias($itemAlias, 'oi');
+
+    $signalSql = "LOWER(CONCAT_WS(' ',
+        COALESCE({$productAlias}.category, ''),
+        COALESCE({$productAlias}.name, ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_name')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_type')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_type')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.name')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.item_name')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_name')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.job_title')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.title')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.Sintra_Type')), ''),
+        COALESCE(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.sintra_type')), '')
+    ))";
+
+    return "COALESCE(
+                NULLIF(TRIM({$productAlias}.category), ''),
+                CASE
+                    WHEN {$signalSql} LIKE '%sticker%' OR {$signalSql} LIKE '%decal%' THEN 'Stickers'
+                    WHEN {$signalSql} LIKE '%sintra%' OR {$signalSql} LIKE '%standee%' THEN 'Sintraboard'
+                    WHEN {$signalSql} LIKE '%signage%' OR {$signalSql} LIKE '%reflectorized%' OR {$signalSql} LIKE '%sign%' THEN 'Signage'
+                    WHEN {$signalSql} LIKE '%t-shirt%' OR {$signalSql} LIKE '%tshirt%' OR {$signalSql} LIKE '%shirt%' THEN 'T-Shirt'
+                    WHEN {$signalSql} LIKE '%tarpaulin%' OR {$signalSql} LIKE '%tarp%' THEN 'Tarpaulin'
+                    WHEN {$signalSql} LIKE '%souvenir%' THEN 'Souvenirs'
+                    WHEN {$signalSql} LIKE '%layout%' THEN 'Layouts'
+                    ELSE ''
+                END
+           )";
+}
+
 /**
  * Branch/date-filtered paid store revenue by category-or-product bucket.
  *
@@ -139,6 +174,7 @@ function pf_product_sales_chart_label_sql(): string {
 function pf_reports_sales_by_product_category(string $from, string $toEnd, $branchId): array {
     $bucket = pf_product_sales_chart_bucket_sql();
     $label = pf_product_sales_chart_label_sql();
+    $family = pf_product_sales_chart_family_sql('p', 'oi');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $datePart = '';
@@ -160,6 +196,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
 
         $rows = db_query(
             "SELECT {$label} AS category,
+                    MAX({$family}) AS family_category,
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
@@ -176,6 +213,7 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
             array_merge($dParams, $bp)
         ) ?: [];
 
+        $rows = pf_reports_merge_unknown_product_categories($rows);
         return pf_reports_fold_product_category_slices($rows, 8);
     } catch (Throwable $e) {
         return [];
@@ -231,6 +269,112 @@ function pf_reports_fold_product_category_slices(array $rows, int $maxVisible = 
     }
 
     return $keep;
+}
+
+/**
+ * Merge legacy "Order Item #..." rows into the nearest active catalog category.
+ *
+ * @param array<int, array<string,mixed>> $rows
+ * @return array<int, array<string,mixed>>
+ */
+function pf_reports_merge_unknown_product_categories(array $rows): array {
+    if ($rows === []) {
+        return [];
+    }
+
+    $catalogCategories = [];
+    try {
+        $catRows = db_query(
+            "SELECT DISTINCT TRIM(category) AS category
+             FROM products
+             WHERE status = 'Activated'
+               AND NULLIF(TRIM(category), '') IS NOT NULL
+             ORDER BY category ASC"
+        ) ?: [];
+        foreach ($catRows as $r) {
+            $cat = trim((string)($r['category'] ?? ''));
+            if ($cat !== '') {
+                $catalogCategories[] = $cat;
+            }
+        }
+    } catch (Throwable $e) {
+    }
+
+    $resolveCategory = static function (string $family) use ($catalogCategories): string {
+        $family = trim($family);
+        if ($family === '') {
+            return '';
+        }
+        $familyLower = mb_strtolower($family, 'UTF-8');
+        foreach ($catalogCategories as $cat) {
+            if (mb_strtolower(trim($cat), 'UTF-8') === $familyLower) {
+                return $cat;
+            }
+        }
+
+        $keywordMap = [
+            'stickers' => ['sticker', 'decal'],
+            'sintraboard' => ['sintra', 'standee'],
+            'signage' => ['signage', 'reflectorized', 'sign'],
+            't-shirt' => ['t-shirt', 'tshirt', 'shirt'],
+            'tarpaulin' => ['tarpaulin', 'tarp'],
+            'souvenirs' => ['souvenir'],
+            'layouts' => ['layout'],
+        ];
+
+        foreach ($catalogCategories as $cat) {
+            $catLower = mb_strtolower(trim($cat), 'UTF-8');
+            foreach ($keywordMap as $familyKey => $keywords) {
+                if ($familyLower !== $familyKey && !in_array($familyLower, $keywords, true)) {
+                    continue;
+                }
+                foreach ($keywords as $kw) {
+                    if (str_contains($catLower, $kw)) {
+                        return $cat;
+                    }
+                }
+            }
+        }
+
+        return $family;
+    };
+
+    $merged = [];
+    $order = [];
+    foreach ($rows as $row) {
+        $label = trim((string)($row['category'] ?? ''));
+        $family = trim((string)($row['family_category'] ?? ''));
+        $key = $label;
+
+        if (preg_match('/^(Order Item|Product) #\d+$/i', $label) && $family !== '') {
+            $resolved = $resolveCategory($family);
+            if ($resolved !== '') {
+                $label = $resolved;
+                $key = $resolved;
+            }
+        }
+
+        if (!isset($merged[$key])) {
+            $row['category'] = $label;
+            $merged[$key] = $row;
+            $order[] = $key;
+            continue;
+        }
+
+        $merged[$key]['total'] = (float)($merged[$key]['total'] ?? 0) + (float)($row['total'] ?? 0);
+        $merged[$key]['items_sold'] = (int)($merged[$key]['items_sold'] ?? 0) + (int)($row['items_sold'] ?? 0);
+    }
+
+    $out = [];
+    foreach ($order as $key) {
+        $out[] = $merged[$key];
+    }
+
+    usort($out, static function ($a, $b) {
+        return ((float)($b['total'] ?? 0) <=> (float)($a['total'] ?? 0));
+    });
+
+    return $out;
 }
 
 /**
