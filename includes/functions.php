@@ -2041,6 +2041,82 @@ function printflow_notification_local_media_exists(string $urlPath): bool {
     return strpos($local, $root) === 0 && is_file($local);
 }
 
+/**
+ * Build ordered image path candidates from a services table row (display_image may be comma-separated).
+ *
+ * @param array<string,mixed> $svcRow
+ * @return list<string>
+ */
+function printflow_notification_service_image_candidates_from_service_row(array $svcRow): array {
+    $candidates = [];
+    $display = trim((string)($svcRow['display_image'] ?? ''));
+    if ($display !== '') {
+        foreach (explode(',', $display) as $img) {
+            $img = trim((string)$img);
+            if ($img !== '') {
+                $candidates[] = $img;
+            }
+        }
+    }
+    foreach (['hero_image', 'image_path'] as $field) {
+        $v = trim((string)($svcRow[$field] ?? ''));
+        if ($v !== '') {
+            $candidates[] = $v;
+        }
+    }
+
+    return $candidates;
+}
+
+/**
+ * Pick a usable URL for notifications/push: prefer verified local files or absolute URLs, otherwise first normalized path (browser may still resolve it).
+ *
+ * @param list<string> $candidates
+ */
+function printflow_notification_resolve_service_media_candidates(array $candidates): string {
+    $normalized = [];
+    foreach ($candidates as $candidate) {
+        $url = printflow_notification_normalize_media_url($candidate);
+        if ($url !== '') {
+            $normalized[] = $url;
+        }
+    }
+    if ($normalized === []) {
+        return '';
+    }
+    foreach ($normalized as $url) {
+        if (preg_match('#^https?://#i', $url) || printflow_notification_local_media_exists($url)) {
+            return $url;
+        }
+    }
+
+    return $normalized[0];
+}
+
+function printflow_notification_service_image_from_id(int $serviceId): string {
+    $serviceId = (int)$serviceId;
+    if ($serviceId <= 0) {
+        return '';
+    }
+
+    $rows = db_query(
+        "SELECT display_image, hero_image, image_path
+         FROM services
+         WHERE service_id = ?
+           AND status = 'Activated'
+         LIMIT 1",
+        'i',
+        [$serviceId]
+    ) ?: [];
+    if (empty($rows)) {
+        return '';
+    }
+
+    return printflow_notification_resolve_service_media_candidates(
+        printflow_notification_service_image_candidates_from_service_row($rows[0])
+    );
+}
+
 function printflow_notification_service_image_from_name(string $serviceName): string {
     $serviceName = trim($serviceName);
     if ($serviceName === '') {
@@ -2073,31 +2149,9 @@ function printflow_notification_service_image_from_name(string $serviceName): st
         return '';
     }
 
-    $candidates = [];
-    $display = trim((string)($rows[0]['display_image'] ?? ''));
-    if ($display !== '') {
-        foreach (explode(',', $display) as $img) {
-            $img = trim((string)$img);
-            if ($img !== '') {
-                $candidates[] = $img;
-            }
-        }
-    }
-    foreach (['hero_image', 'image_path'] as $field) {
-        $v = trim((string)($rows[0][$field] ?? ''));
-        if ($v !== '') {
-            $candidates[] = $v;
-        }
-    }
-
-    foreach ($candidates as $candidate) {
-        $url = printflow_notification_normalize_media_url($candidate);
-        if ($url !== '' && printflow_notification_local_media_exists($url)) {
-            return $url;
-        }
-    }
-
-    return '';
+    return printflow_notification_resolve_service_media_candidates(
+        printflow_notification_service_image_candidates_from_service_row($rows[0])
+    );
 }
 
 
@@ -3135,7 +3189,13 @@ function printflow_order_notification_preview(int $order_id): array {
                 }
             }
             if ($preview['image_url'] === '' && $preview['item_kind'] !== 'Product') {
-                $preview['image_url'] = printflow_notification_service_image_from_name($preview['display_name']) ?: '';
+                $refSid = (!empty($oRow[0]) && $ot === 'custom') ? (int)($oRow[0]['reference_id'] ?? 0) : 0;
+                if ($refSid > 0) {
+                    $preview['image_url'] = printflow_notification_service_image_from_id($refSid) ?: '';
+                }
+                if ($preview['image_url'] === '') {
+                    $preview['image_url'] = printflow_notification_service_image_from_name($preview['display_name']) ?: '';
+                }
             }
         }
         if ($preview['image_url'] === '') {
@@ -3153,6 +3213,10 @@ function printflow_order_notification_preview(int $order_id): array {
     $linePid = (int)($row['product_id'] ?? 0);
     $lineServiceId = (int)($custom['service_id'] ?? 0);
     $srcPage = strtolower(trim((string)($custom['source_page'] ?? '')));
+    $resolvedServiceIdForImage = $lineServiceId;
+    if ($resolvedServiceIdForImage <= 0 && $order_type === 'custom') {
+        $resolvedServiceIdForImage = (int)($row['reference_id'] ?? 0);
+    }
 
     if ($order_type === 'product' && !$is_pos_placeholder) {
         $preview['item_kind'] = 'Product';
@@ -3234,9 +3298,14 @@ function printflow_order_notification_preview(int $order_id): array {
     }
 
     if ($preview['image_url'] === '' && $preview['item_kind'] === 'Service') {
-        $serviceImage = printflow_notification_service_image_from_name($preview['display_name']);
-        if ($serviceImage !== '') {
-            $preview['image_url'] = $serviceImage;
+        if ($resolvedServiceIdForImage > 0) {
+            $preview['image_url'] = printflow_notification_service_image_from_id($resolvedServiceIdForImage);
+        }
+        if ($preview['image_url'] === '') {
+            $serviceImage = printflow_notification_service_image_from_name($preview['display_name']);
+            if ($serviceImage !== '') {
+                $preview['image_url'] = $serviceImage;
+            }
         }
     }
 
