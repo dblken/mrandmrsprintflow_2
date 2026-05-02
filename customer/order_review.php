@@ -459,6 +459,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     // 3. Process each item and insert into order_items
                     foreach ($items_to_review as $key => $item) {
                         $custom = review_item_customization($item);
+                        if (review_item_is_product($item)) {
+                            $sp = trim((string)($item['source_page'] ?? ''));
+                            if ($sp !== '' && empty($custom['source_page'])) {
+                                $custom['source_page'] = $sp;
+                            }
+                        }
                         if (review_item_is_service($item)) {
                             if (empty($custom['service_type']) && !empty($item['name'])) {
                                 $custom['service_type'] = $item['name'];

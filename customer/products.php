@@ -44,7 +44,18 @@ $category = $_GET['category'] ?? '';
 // Build query — restore activated catalog items
 $sql = "SELECT p.*, 
     (SELECT COUNT(*) FROM product_variants pv WHERE pv.product_id = p.product_id AND pv.status = 'Active') as variant_count,
-    (SELECT COALESCE(SUM(oi.quantity),0) FROM order_items oi JOIN orders o ON oi.order_id = o.order_id WHERE oi.product_id = p.product_id AND o.status != 'Cancelled' AND LOWER(TRIM(COALESCE(o.order_type, ''))) != 'custom') as sold_count,
+    (SELECT COALESCE(SUM(oi.quantity),0) FROM order_items oi JOIN orders o ON oi.order_id = o.order_id WHERE oi.product_id = p.product_id AND o.status != 'Cancelled' AND (
+        LOWER(TRIM(COALESCE(o.order_type, ''))) != 'custom'
+        OR oi.customization_data LIKE '%\"config_id\"%'
+        OR oi.customization_data LIKE '%\"form_type\":\"dynamic\"%'
+        OR oi.customization_data LIKE '%\"form_type\": \"dynamic\"%'
+        OR oi.customization_data LIKE '%\"source_page\":\"products\"%'
+        OR oi.customization_data LIKE '%\"source_page\":\"product\"%'
+        OR oi.customization_data LIKE '%\"source_page\":\"dynamic_form\"%'
+        OR oi.customization_data LIKE '%\"source_page\": \"products\"%'
+        OR oi.customization_data LIKE '%\"source_page\": \"product\"%'
+        OR oi.customization_data LIKE '%\"source_page\": \"dynamic_form\"%'
+    )) as sold_count,
     {$avg_rating_sql},
     {$review_count_sql}
     FROM products p 

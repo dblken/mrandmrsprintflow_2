@@ -166,6 +166,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             foreach ($cart_items as $pid => $item) {
                 // Determine service_type for better display in history/notifications
                 $custom = $item['customization'] ?? [];
+                if (!is_array($custom)) {
+                    $custom = [];
+                }
+                if (!checkout_item_is_service($item)) {
+                    $sp = trim((string)($item['source_page'] ?? ''));
+                    if ($sp !== '' && empty($custom['source_page'])) {
+                        $custom['source_page'] = $sp;
+                    }
+                }
                 if (checkout_item_is_service($item) && empty($custom['service_type']) && !empty($item['name'])) {
                     $custom['service_type'] = $item['name'];
                 } elseif (!checkout_item_is_service($item) && empty($custom['product_type']) && !empty($item['name'])) {

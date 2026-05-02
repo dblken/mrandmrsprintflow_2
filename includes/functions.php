@@ -2615,7 +2615,9 @@ function customer_orders_primary_item_name(array $order): string {
 }
 
 /**
- * Sum of quantities for catalog product orders (excludes custom/service order rows, even if they share a product_id).
+ * Sum of quantities for catalog product sales (non-cancelled). Counts product-type and legacy orders;
+ * custom rows that are catalog/dynamic products (config_id / dynamic form / products source);
+ * and custom checkout/review orders once source_page is stored in customization_data (see order_review/checkout).
  */
 function printflow_product_units_sold(int $product_id): int {
     $product_id = (int)$product_id;
@@ -2628,7 +2630,18 @@ function printflow_product_units_sold(int $product_id): int {
          INNER JOIN orders o ON o.order_id = oi.order_id
          WHERE oi.product_id = ?
            AND o.status != 'Cancelled'
-           AND LOWER(TRIM(COALESCE(o.order_type, ''))) != 'custom'",
+           AND (
+                LOWER(TRIM(COALESCE(o.order_type, ''))) != 'custom'
+                OR oi.customization_data LIKE '%\"config_id\"%'
+                OR oi.customization_data LIKE '%\"form_type\":\"dynamic\"%'
+                OR oi.customization_data LIKE '%\"form_type\": \"dynamic\"%'
+                OR oi.customization_data LIKE '%\"source_page\":\"products\"%'
+                OR oi.customization_data LIKE '%\"source_page\":\"product\"%'
+                OR oi.customization_data LIKE '%\"source_page\":\"dynamic_form\"%'
+                OR oi.customization_data LIKE '%\"source_page\": \"products\"%'
+                OR oi.customization_data LIKE '%\"source_page\": \"product\"%'
+                OR oi.customization_data LIKE '%\"source_page\": \"dynamic_form\"%'
+           )",
         'i',
         [$product_id]
     );
