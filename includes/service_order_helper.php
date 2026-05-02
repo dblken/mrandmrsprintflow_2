@@ -312,3 +312,121 @@ function service_order_get_page_stats($keyword, $resolved_service_id = 0) {
         'service_id'   => $s_id,
     ];
 }
+
+/**
+ * Merge radio/select option nested_fields into customization (same nestedKey scheme as service_field_renderer.php).
+ * Without this, POST keys like poster_type_nested_0_1 never reach order_items.customization_data or the customer modal.
+ */
+function printflow_nested_service_field_label(array $nestedField): string {
+    $l = trim((string)($nestedField['label'] ?? ''));
+    return $l !== '' ? $l : 'Specification';
+}
+
+function printflow_format_nested_dimension_display(string $raw, array $nestedField): string {
+    $raw = trim($raw);
+    if ($raw === '') {
+        return '';
+    }
+    $norm = preg_replace('/\s*[xX*]\s*/u', '×', $raw);
+    $unit = trim((string)($nestedField['unit'] ?? 'ft'));
+    if ($unit !== '') {
+        $norm = trim($norm . ' ' . $unit);
+    }
+    return $norm;
+}
+
+function printflow_read_nested_service_post_value(string $nestedKey, array $nestedField, array $post, array $files): ?string {
+    $type = $nestedField['type'] ?? 'text';
+    if ($type === 'file') {
+        $f = $files[$nestedKey] ?? null;
+        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        $name = trim((string)($f['name'] ?? ''));
+        return $name !== '' ? $name : 'Uploaded file';
+    }
+    if ($type === 'dimension') {
+        $raw = trim((string)($post[$nestedKey] ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+        return printflow_format_nested_dimension_display($raw, $nestedField);
+    }
+
+    $val = $post[$nestedKey] ?? null;
+    if ($val === null || $val === '') {
+        return null;
+    }
+    if (is_array($val)) {
+        $parts = [];
+        foreach ($val as $v) {
+            $v = trim((string)$v);
+            if ($v !== '') {
+                $parts[] = $v;
+            }
+        }
+        return $parts === [] ? null : implode(', ', $parts);
+    }
+
+    return is_string($val) ? $val : (string)$val;
+}
+
+function printflow_merge_nested_service_fields_into_customization(array $field_configs, array &$customization, ?array $post = null, ?array $files = null): void {
+    $post = $post ?? $_POST;
+    $files = $files ?? $_FILES;
+
+    foreach ($field_configs as $field_key => $config) {
+        if (empty($config['visible'])) {
+            continue;
+        }
+        $ftype = $config['type'] ?? '';
+        if ($ftype !== 'radio' && $ftype !== 'select') {
+            continue;
+        }
+        if ($field_key === 'branch') {
+            continue;
+        }
+
+        if (!empty($config['parent_field_key']) && !empty($config['parent_value'])) {
+            $parent_key = $config['parent_field_key'];
+            $trigger_value = $config['parent_value'];
+            $parent_submitted_value = $post[$parent_key] ?? null;
+            if ($parent_key === 'branch') {
+                $parent_submitted_value = $post['branch_id'] ?? null;
+            }
+            if ((string)$parent_submitted_value !== (string)$trigger_value) {
+                continue;
+            }
+        }
+
+        $selected = trim((string)($post[$field_key] ?? ''));
+        if ($selected === '') {
+            continue;
+        }
+
+        foreach (($config['options'] ?? []) as $idx => $option) {
+            $optionValue = is_array($option) ? trim((string)($option['value'] ?? '')) : trim((string)$option);
+            if ($optionValue === '') {
+                continue;
+            }
+            if ((string)$selected !== (string)$optionValue) {
+                continue;
+            }
+
+            $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
+            foreach ($nestedFields as $nIdx => $nestedField) {
+                if (!is_array($nestedField)) {
+                    continue;
+                }
+                $nestedKey = $field_key . '_nested_' . $idx . '_' . $nIdx;
+                $label = printflow_nested_service_field_label($nestedField);
+                $text = printflow_read_nested_service_post_value($nestedKey, $nestedField, $post, $files);
+                if ($text === null || trim((string)$text) === '') {
+                    continue;
+                }
+                $customization[$label] = $text;
+            }
+            break;
+        }
+    }
+}

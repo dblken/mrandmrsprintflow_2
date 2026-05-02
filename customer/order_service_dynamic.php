@@ -489,6 +489,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     }
                 }
             }
+            printflow_merge_nested_service_fields_into_customization($field_configs, $customization, $_POST, $_FILES);
             if ($branch_id > 0) {
                 $branch_row = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$branch_id]);
                 if (!empty($branch_row) && trim((string)($branch_row[0]['branch_name'] ?? '')) !== '') {
