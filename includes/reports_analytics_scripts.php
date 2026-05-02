@@ -54,6 +54,12 @@ window.printflowResizeAllReportsCharts = function () {
             if (c && typeof c.resize === 'function') c.resize();
         } catch (e) {}
     });
+    ;['__pfReportsProductCategoryChart', '__pfReportsServiceCategoryChart', '__pfDashSalesChart'].forEach(function (ref) {
+        var ch = window[ref];
+        if (ch && typeof ch.resize === 'function') {
+            try { ch.resize(); } catch (e2) {}
+        }
+    });
 };
 window.printflowAttachReportsChartLayoutHooks = function () {
     if (!document.getElementById('reportsFilterForm')) return;
@@ -1399,6 +1405,40 @@ window.printflowInitReportsCharts = function () {
 
             var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
 
+            function pfReportsMountCategoryChartWhenVisible(chartElWrap, fn) {
+                if (!chartElWrap || typeof fn !== 'function') return;
+                var fired = false;
+                function once() {
+                    if (fired) return;
+                    fired = true;
+                    fn();
+                }
+                if (typeof IntersectionObserver === 'undefined') {
+                    requestAnimationFrame(once);
+                    return;
+                }
+                var root = document.querySelector('.main-content');
+                var io = new IntersectionObserver(function (entries) {
+                    entries.forEach(function (entry) {
+                        if (!entry.isIntersecting) return;
+                        try { io.disconnect(); } catch (e0) {}
+                        once();
+                    });
+                }, { root: root || null, threshold: 0, rootMargin: '120px 0px 180px 0px' });
+                io.observe(chartElWrap);
+                requestAnimationFrame(function () {
+                    try {
+                        var r = chartElWrap.getBoundingClientRect();
+                        var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+                        var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+                        if (r.width > 0 && r.height > 0 && r.bottom > -80 && r.top < vh + 160 && r.right > 0 && r.left < vw + 80) {
+                            try { io.disconnect(); } catch (e1) {}
+                            once();
+                        }
+                    } catch (e2) {}
+                });
+            }
+
             function destroyChart(ref) {
                 if (window[ref]) {
                     try { window[ref].destroy(); } catch (e2) {}
@@ -1461,10 +1501,23 @@ window.printflowInitReportsCharts = function () {
                         }
                     }
                 });
+                requestAnimationFrame(function () {
+                    var ch = window[chartRef];
+                    if (ch && typeof ch.resize === 'function') {
+                        try { ch.resize(); } catch (e3) {}
+                    }
+                });
             }
 
-            buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
-            buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', rData.serviceCategorySales || [], '__pfReportsServiceCategoryChart', 'jobs');
+            var pcCanvas = document.getElementById('reportsProductCategoryChart');
+            pfReportsMountCategoryChartWhenVisible(pcCanvas ? pcCanvas.parentElement : null, function () {
+                buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
+            });
+
+            var scCanvas = document.getElementById('reportsServiceCategoryChart');
+            pfReportsMountCategoryChartWhenVisible(scCanvas ? scCanvas.parentElement : null, function () {
+                buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', rData.serviceCategorySales || [], '__pfReportsServiceCategoryChart', 'jobs');
+            });
         } catch (e) { console.error('ReportsCategoryDonuts error:', e); }
     })();
 

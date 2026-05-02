@@ -73,7 +73,8 @@ if (empty($GLOBALS['__printflow_shell_core_js'])) {
     $__pf_admin_mobile_js_file = __DIR__ . '/../public/assets/js/admin-mobile.js';
     $__pf_admin_mobile_js_ver = file_exists($__pf_admin_mobile_js_file) ? (string) filemtime($__pf_admin_mobile_js_file) : '1';
     ?>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <?php /* Single pinned UMD bundle — avoids unstable "latest" and duplicate loads breaking doughnut charts. */ ?>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js" defer></script>
     <script src="<?php echo $__pf_asset_js; ?>/alpine.min.js" defer></script>
     <script src="<?php echo $__pf_asset_js; ?>/admin-mobile.js?v=<?php echo $__pf_admin_mobile_js_ver; ?>" defer></script>
     <?php

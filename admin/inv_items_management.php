@@ -290,7 +290,6 @@ if (isset($_GET['ajax'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <?php render_branch_css(); ?>
     <style>

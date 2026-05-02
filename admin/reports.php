@@ -264,6 +264,10 @@ if (!$gaBranchEmpty) {
             $dtjsc . $btjsc,
             array_merge($dpjsc, $bpjsc)
         ) ?: [];
+        $report_service_category_sales = pf_reports_fold_demo_service_categories(
+            $report_service_category_sales,
+            ['Eunsoyaaaaa', 'Ink']
+        );
     } catch (Throwable $e) {
         $report_service_category_sales = [];
     }
@@ -850,7 +854,7 @@ if (!$gaBranchEmpty && !empty($top_products)) {
 <?php require_once __DIR__ . '/../includes/favicon_links.php'; ?>
 <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
 <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/dist/apexcharts.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<?php /* Chart.js: loaded once via includes/admin_style.php (pinned v3.9.1 UMD). */ ?>
 <script>
 function reportsPrintInPlace(url) {
     const iframe = document.createElement('iframe');

@@ -218,6 +218,75 @@ function pf_dashboard_sales_by_product_category($branchId): array {
 }
 
 /**
+ * Merge specific demo service-category rows into one "Other" bucket for dashboards,
+ * preserving total revenue and job counts (overall sums stay unchanged).
+ *
+ * @param array<int, array<string,mixed>> $rows
+ * @param array<int, string>              $exactNames case-insensitive match after trim()
+ * @return array<int, array<string,mixed>>
+ */
+function pf_reports_fold_demo_service_categories(array $rows, array $exactNames): array {
+    if ($rows === [] || $exactNames === []) {
+        return $rows;
+    }
+
+    $keySet = [];
+    foreach ($exactNames as $n) {
+        $k = mb_strtolower(trim((string) $n), 'UTF-8');
+        if ($k !== '') {
+            $keySet[$k] = true;
+        }
+    }
+    if ($keySet === []) {
+        return $rows;
+    }
+
+    $mergedRev = 0.0;
+    $mergedQty = 0;
+    $out = [];
+
+    foreach ($rows as $r) {
+        $catRaw = trim((string) ($r['category'] ?? ''));
+        if ($catRaw !== '' && isset($keySet[mb_strtolower($catRaw, 'UTF-8')])) {
+            $mergedRev += (float) ($r['total'] ?? 0);
+            $mergedQty += (int) ($r['qty_sold'] ?? 0);
+            continue;
+        }
+        $out[] = $r;
+    }
+
+    if ($mergedRev == 0.0 && $mergedQty === 0) {
+        return $out;
+    }
+
+    $otherIdx = null;
+    foreach ($out as $i => $r) {
+        $lbl = mb_strtolower(trim((string) ($r['category'] ?? '')), 'UTF-8');
+        if ($lbl === 'other') {
+            $otherIdx = $i;
+            break;
+        }
+    }
+
+    if ($otherIdx !== null) {
+        $out[$otherIdx]['total'] = (float) ($out[$otherIdx]['total'] ?? 0) + $mergedRev;
+        $out[$otherIdx]['qty_sold'] = (int) ($out[$otherIdx]['qty_sold'] ?? 0) + $mergedQty;
+    } else {
+        $out[] = [
+            'category' => 'Other',
+            'total' => $mergedRev,
+            'qty_sold' => $mergedQty,
+        ];
+    }
+
+    usort($out, static function ($a, $b) {
+        return ((float) ($b['total'] ?? 0) <=> (float) ($a['total'] ?? 0));
+    });
+
+    return $out;
+}
+
+/**
  * Calendar years (≤ current year) that have at least one paid order line or job order.
  *
  * @return list<int> newest first
