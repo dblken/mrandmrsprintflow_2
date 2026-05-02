@@ -476,16 +476,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         $customization[$spec_label($config, $key)] = $width . '×' . $height . ' ' . ($config['unit'] ?? 'ft');
                     }
                 } else {
-                    if (isset($_POST[$key]) && $_POST[$key] !== '') {
-                        $val = $_POST[$key];
-                        if ($val === 'Others' && !empty($_POST[$key . '_other'])) {
-                            $val = $_POST[$key . '_other'];
-                            $customization[$spec_label($config, $key) . ' (Other)'] = $_POST[$key . '_other'];
+                    if (!isset($_POST[$key])) {
+                        continue;
+                    }
+                    $val = $_POST[$key];
+                    if ($val === '' || $val === null) {
+                        continue;
+                    }
+                    if (is_array($val)) {
+                        $parts = [];
+                        foreach ($val as $vx) {
+                            if ($vx === '' || $vx === null) {
+                                continue;
+                            }
+                            $parts[] = is_scalar($vx) ? (string)$vx : (string)json_encode($vx, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
                         }
-                        $customization[$spec_label($config, $key)] = $val;
-                        if (($config['type'] ?? '') === 'textarea' && $key === 'notes') {
-                            $customization['notes'] = is_string($val) ? $val : (string)$val;
+                        if ($parts === []) {
+                            continue;
                         }
+                        $val = implode(', ', $parts);
+                    }
+                    if ($val === 'Others' && !empty($_POST[$key . '_other'])) {
+                        $val = $_POST[$key . '_other'];
+                        $customization[$spec_label($config, $key) . ' (Other)'] = $_POST[$key . '_other'];
+                    }
+                    $customization[$spec_label($config, $key)] = $val;
+                    if (($config['type'] ?? '') === 'textarea' && $key === 'notes') {
+                        $customization['notes'] = is_string($val) ? $val : (string)$val;
                     }
                 }
             }

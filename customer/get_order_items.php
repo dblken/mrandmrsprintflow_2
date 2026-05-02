@@ -82,12 +82,28 @@ function customer_order_items_decode_customization_payload($raw): array {
     return is_array($decoded) ? $decoded : [];
 }
 
+function customer_order_items_overlay_nonempty_specs(array $base, array $overlay): array {
+    $out = $base;
+    foreach ($overlay as $k => $v) {
+        if ($v === null || $v === '') {
+            continue;
+        }
+        if (is_array($v) && $v === []) {
+            continue;
+        }
+        $out[$k] = $v;
+    }
+
+    return $out;
+}
+
 function customer_order_items_merge_customization_payload(array $primary, array $fallback, string $fallbackServiceType = ''): array {
-    // Keep explicit order_item values, fill the missing keys from customizations table.
-    $merged = array_replace($fallback, $primary);
+    // Prefer non-empty order_item keys; keep customization-table keys when the line only has blanks or sparse JSON.
+    $merged = customer_order_items_overlay_nonempty_specs($fallback, $primary);
     if ($fallbackServiceType !== '' && empty($merged['service_type'])) {
         $merged['service_type'] = $fallbackServiceType;
     }
+
     return $merged;
 }
 
@@ -365,7 +381,7 @@ if ($any_design_order_item_id > 0) {
 foreach ($items as $lineIndex => $item) {
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
     $itemCustomizationFallback = $customization_by_item_id[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
-    $mergedTableDetails = array_replace(
+    $mergedTableDetails = customer_order_items_overlay_nonempty_specs(
         $orphan_customization_details,
         (array)($itemCustomizationFallback['details'] ?? [])
     );
@@ -430,6 +446,13 @@ foreach ($items as $lineIndex => $item) {
     $customForPayload = function_exists('printflow_flatten_order_customization_for_customer_modal')
         ? printflow_flatten_order_customization_for_customer_modal($custom_data)
         : $custom_data;
+    if (is_array($customForPayload) && isset($customForPayload['service_type'])) {
+        $dn = strtolower(trim((string)$resolved_item_name));
+        $stv = strtolower(trim((string)$customForPayload['service_type']));
+        if ($dn !== '' && $stv === $dn) {
+            unset($customForPayload['service_type']);
+        }
+    }
 
     $line_oid = (int)($item['order_item_id'] ?? 0);
     $has_own_design = !empty($item['design_image']) || (isset($item['design_file']) && trim((string)$item['design_file']) !== '');
