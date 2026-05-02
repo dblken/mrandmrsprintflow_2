@@ -3113,11 +3113,17 @@ window.pfCustomizationPreloadedOrders = (() => {
                         }
                     });
                     const refreshToken = Date.now();
-                    const joRes = await fetch(`../admin/job_orders_api.php?action=list_orders&service_only=1&per_page=200&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r));
+                    const [joRes, pendingRes] = await Promise.all([
+                        fetch(`../admin/job_orders_api.php?action=list_orders&service_only=1&per_page=200&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r)),
+                        fetch(`../admin/job_orders_api.php?action=list_pending_orders&service_only=1&per_page=250&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r)),
+                    ]);
 
                     const jobOrders = joRes.success ? joRes.data : [];
-                    const jobOnlyRows = jobOrders.filter(row => String(row?.order_type || 'JOB').toUpperCase() === 'JOB');
-                    const preparedRows = this.prepareOrderRows(jobOnlyRows);
+                    const pendingOrders = pendingRes.success ? pendingRes.data : [];
+                    // Include JOB rows plus store/service rows (ORDER, CUSTOMIZATION, SERVICE) so customer service
+                    // checkout always appears even when job_orders is missing or filtered differently per API.
+                    const combinedRows = [...jobOrders, ...pendingOrders];
+                    const preparedRows = this.prepareOrderRows(combinedRows);
                     const visibleRows = <?php echo $showLatestCustomizationOnly ? 'preparedRows.slice(0, 1)' : 'preparedRows'; ?>;
                     this.orders = visibleRows;
                     this.bumpOrdersVersion();
@@ -3317,13 +3323,18 @@ window.pfCustomizationPreloadedOrders = (() => {
                     }
                 }
 
-                const searchLower = this.search.toLowerCase();
+                const searchRaw = (this.search || '').trim();
+                const searchLower = searchRaw.toLowerCase();
+                const codeMatch = searchRaw.match(/^(?:ORD|JO|CUST|SRV)[-#\s]*(\d+)$/i);
+                const searchOrderIdNum = codeMatch ? codeMatch[1] : '';
+
                 const matchSearch = !this.search ||
                     ((this.getDisplayOrderCode(jo) || '').toLowerCase().includes(searchLower)) ||
                     (jo.job_title && jo.job_title.toLowerCase().includes(searchLower)) ||
                     (jo.service_type && jo.service_type.toLowerCase().includes(searchLower)) ||
                     (((jo.first_name || '') + ' ' + (jo.last_name || '')).toLowerCase().includes(searchLower)) ||
-                    (jo.id && jo.id.toString().includes(searchLower));
+                    (jo.id != null && jo.id.toString().includes(searchLower)) ||
+                    (searchOrderIdNum && jo.order_id != null && String(jo.order_id) === searchOrderIdNum);
                 return matchSearch;
             },
 

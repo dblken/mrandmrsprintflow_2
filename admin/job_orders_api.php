@@ -161,6 +161,8 @@ try {
                 $types .= 'i';
             }
             if ($serviceOnly) {
+                // Match staff/customizations.php job scope: custom + product checkouts with non–fixed-price lines
+                // (service/placeholder lines use product rows that are often typed "fixed" in inventory).
                 $sql .= " AND (
                     jo.order_id IS NULL
                     OR EXISTS (
@@ -169,11 +171,8 @@ try {
                         JOIN order_items oi_scope ON oi_scope.order_id = o_scope.order_id
                         LEFT JOIN products p_scope ON p_scope.product_id = oi_scope.product_id
                         WHERE o_scope.order_id = jo.order_id
-                          AND o_scope.order_type = 'custom'
-                          AND (
-                              COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
-                              OR LOWER(TRIM(p_scope.category)) LIKE '%service%'
-                          )
+                          AND o_scope.order_type IN ('custom', 'product')
+                          AND COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
                     )
                 )";
             }
@@ -347,6 +346,7 @@ try {
             break;
 
         case 'list_pending_orders':
+            $dashboardListLimit = min(500, max(50, (int)($_GET['per_page'] ?? 250)));
             // Fetch regular product orders with pending status for staff customization dashboard
             $sql = "SELECT 
                         o.order_id as id,
@@ -410,7 +410,7 @@ try {
                     . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                     GROUP BY o.order_id
                     ORDER BY o.order_date DESC
-                    LIMIT 50";
+                    LIMIT " . (int)$dashboardListLimit;
 
             $pending_orders = $joStaffBranch !== null
                 ? (db_query($sql, 'i', [$joStaffBranch]) ?: [])
@@ -506,7 +506,7 @@ try {
                 AND COALESCE(o.order_source, '') <> 'pos_merged'"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
-                LIMIT 50";
+                LIMIT " . (int)$dashboardListLimit;
 
             $custom_orders = $joStaffBranch !== null
                 ? (db_query($custom_sql, 'i', [$joStaffBranch]) ?: [])
@@ -573,7 +573,7 @@ try {
                     'Completed', 'Rejected', 'Cancelled'
                 )
                 ORDER BY so.created_at DESC
-                LIMIT 50";
+                LIMIT " . (int)$dashboardListLimit;
 
             $svc_orders = db_query($svc_sql) ?: [];
             foreach ($svc_orders as &$so) {
