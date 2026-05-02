@@ -262,7 +262,7 @@ function pf_reports_fold_product_category_slices(array $rows, int $maxVisible = 
 
     if ($otherTotal > 0 || $otherItems > 0) {
         $keep[] = [
-            'category' => 'Other',
+            'category' => 'More Available Products',
             'items_sold' => $otherItems,
             'total' => $otherTotal,
         ];
@@ -283,20 +283,30 @@ function pf_reports_merge_unknown_product_categories(array $rows): array {
     }
 
     $catalogCategories = [];
+    $catalogProductsByCategory = [];
     try {
         $catRows = db_query(
-            "SELECT DISTINCT TRIM(category) AS category
+            "SELECT TRIM(category) AS category, TRIM(name) AS name
              FROM products
              WHERE status = 'Activated'
                AND NULLIF(TRIM(category), '') IS NOT NULL
-             ORDER BY category ASC"
+               AND NULLIF(TRIM(name), '') IS NOT NULL
+             ORDER BY category ASC, name ASC"
         ) ?: [];
         foreach ($catRows as $r) {
             $cat = trim((string)($r['category'] ?? ''));
+            $name = trim((string)($r['name'] ?? ''));
             if ($cat !== '') {
                 $catalogCategories[] = $cat;
+                if (!isset($catalogProductsByCategory[$cat])) {
+                    $catalogProductsByCategory[$cat] = [];
+                }
+                if ($name !== '' && !in_array($name, $catalogProductsByCategory[$cat], true)) {
+                    $catalogProductsByCategory[$cat][] = $name;
+                }
             }
         }
+        $catalogCategories = array_values(array_unique($catalogCategories));
     } catch (Throwable $e) {
     }
 
@@ -339,6 +349,18 @@ function pf_reports_merge_unknown_product_categories(array $rows): array {
         return $family;
     };
 
+    $labelForResolvedCategory = static function (string $category) use ($catalogProductsByCategory): string {
+        $category = trim($category);
+        if ($category === '') {
+            return 'Available Products';
+        }
+        $names = $catalogProductsByCategory[$category] ?? [];
+        if (count($names) === 1) {
+            return (string)$names[0];
+        }
+        return $category;
+    };
+
     $merged = [];
     $order = [];
     foreach ($rows as $row) {
@@ -349,9 +371,14 @@ function pf_reports_merge_unknown_product_categories(array $rows): array {
         if (preg_match('/^(Order Item|Product) #\d+$/i', $label) && $family !== '') {
             $resolved = $resolveCategory($family);
             if ($resolved !== '') {
-                $label = $resolved;
-                $key = $resolved;
+                $label = $labelForResolvedCategory($resolved);
+                $key = $label;
             }
+        }
+
+        if (preg_match('/^(Order Item|Product) #\d+$/i', $label)) {
+            $label = 'Available Products';
+            $key = $label;
         }
 
         if (!isset($merged[$key])) {
