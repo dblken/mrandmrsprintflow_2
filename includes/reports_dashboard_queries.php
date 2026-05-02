@@ -853,7 +853,10 @@ function pf_reports_customer_city_sql_expr(string $alias = 'c'): string {
  * @param string $rawCol SQL column reference (e.g. z.city_raw)
  */
 function pf_reports_customer_location_city_map_sql(string $rawCol): string {
-    return "CASE WHEN LOWER(TRIM({$rawCol})) IN ('calauan') THEN 'Cabuyao' ELSE TRIM({$rawCol}) END";
+    return "CASE
+                WHEN LOWER(TRIM({$rawCol})) IN ('city of cabuyao', 'cabuyao', 'calauan') THEN 'Cabuyao'
+                ELSE TRIM({$rawCol})
+            END";
 }
 
 /**
