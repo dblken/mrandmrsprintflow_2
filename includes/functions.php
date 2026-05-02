@@ -3130,9 +3130,115 @@ function printflow_modal_spec_value_is_empty_noise(string $key, $rawVal, string 
 }
 
 /**
+ * Normalize spec keys so "Needed Date", "needed_date", and "needed-date" collapse together.
+ */
+function printflow_customer_modal_nf_spec_key(string $k): string {
+    return strtolower(preg_replace('/[\s_\-]+/', '', trim($k)));
+}
+
+/**
+ * Prefer human labels (with spaces) over snake_case internal keys when collapsing duplicates.
+ */
+function printflow_customer_modal_spec_key_display_score(string $k): int {
+    $k = trim($k);
+    if ($k === '') {
+        return 0;
+    }
+    if (preg_match('/^[a-z][a-z0-9_]*$/', $k)) {
+        return 0;
+    }
+    if (preg_match('/\s/', $k)) {
+        return 2;
+    }
+
+    return 1;
+}
+
+/**
+ * Compare display values for duplicate detection (ISO dates vs formatted dates vs plain text).
+ */
+function printflow_customer_modal_normalize_value_bucket(string $text): string {
+    $t = trim($text);
+    if ($t === '') {
+        return '';
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}/', $t, $m)) {
+        return 'dt:' . substr($m[0], 0, 10);
+    }
+    $ts = strtotime($t);
+    if ($ts !== false) {
+        return 'dt:' . date('Y-m-d', $ts);
+    }
+
+    return 'v:' . strtolower(preg_replace('/\s+/', ' ', $t));
+}
+
+/**
+ * Collapse duplicate rows (e.g. Needed Date + needed_date from order_service_dynamic) and drop quantity
+ * when it only repeats the table Qty column.
+ *
+ * @param array<string, string> $flat
+ * @return array<string, string>
+ */
+function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuantity = null): array {
+    if ($flat === []) {
+        return $flat;
+    }
+
+    $groups = [];
+    foreach ($flat as $k => $v) {
+        if (!is_string($k)) {
+            continue;
+        }
+        $nk = printflow_customer_modal_nf_spec_key($k);
+        if ($nk === '') {
+            continue;
+        }
+        $groups[$nk][] = [$k, (string)$v];
+    }
+
+    $out = [];
+    foreach ($groups as $rows) {
+        if (count($rows) === 1) {
+            $out[$rows[0][0]] = $rows[0][1];
+            continue;
+        }
+
+        $bucketCounts = [];
+        foreach ($rows as $row) {
+            $b = printflow_customer_modal_normalize_value_bucket($row[1]);
+            $bucketCounts[$b] = ($bucketCounts[$b] ?? 0) + 1;
+        }
+
+        if (count($bucketCounts) === 1) {
+            usort($rows, static function ($a, $b) {
+                return printflow_customer_modal_spec_key_display_score($b[0]) <=> printflow_customer_modal_spec_key_display_score($a[0]);
+            });
+            $out[$rows[0][0]] = $rows[0][1];
+        } else {
+            foreach ($rows as $row) {
+                $out[$row[0]] = $row[1];
+            }
+        }
+    }
+
+    if ($lineQuantity !== null && $lineQuantity > 0) {
+        $qtyStr = (string)$lineQuantity;
+        foreach (array_keys($out) as $k) {
+            $nk = printflow_customer_modal_nf_spec_key($k);
+            if (($nk === 'quantity' || $nk === 'qty') && trim((string)$out[$k]) === $qtyStr) {
+                unset($out[$k]);
+            }
+        }
+    }
+
+    return $out;
+}
+
+/**
  * Prepare customization key/values for customer order details modal (human-readable strings, no binary/temp fields).
  */
-function printflow_flatten_order_customization_for_customer_modal(array $custom): array {
+function printflow_flatten_order_customization_for_customer_modal(array $custom, ?int $lineQuantity = null): array {
     $custom = printflow_normalize_customization_for_modal($custom);
     // Match render_order_item_clean skips where sensible; omit note-* keys so the modal can render long-form blocks.
     // Strip job_orders-derived ft/sqft rows when they are all-zero placeholders (see printflow_customer_modal_strip_placeholder_job_dimensions).
@@ -3199,14 +3305,16 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
         $out[$k] = $text;
     }
 
-    return printflow_customer_modal_strip_placeholder_job_dimensions($out);
+    $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
+
+    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity);
 }
 
 /**
  * Flatten customization for the customer “View order” modal (normalized + human-readable; no dimension “noise” stripping).
  */
-function printflow_flatten_customization_for_customer_order_modal(array $custom): array {
-    return printflow_flatten_order_customization_for_customer_modal($custom);
+function printflow_flatten_customization_for_customer_order_modal(array $custom, ?int $lineQuantity = null): array {
+    return printflow_flatten_order_customization_for_customer_modal($custom, $lineQuantity);
 }
 
 /**

@@ -600,9 +600,9 @@ foreach ($items as $lineIndex => $item) {
     ];
     $resolved_item_name = customer_orders_primary_item_name($orderLike);
     $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
-        ? printflow_flatten_customization_for_customer_order_modal($custom_data)
+        ? printflow_flatten_customization_for_customer_order_modal($custom_data, $raw_quantity)
         : (function_exists('printflow_flatten_order_customization_for_customer_modal')
-            ? printflow_flatten_order_customization_for_customer_modal($custom_data)
+            ? printflow_flatten_order_customization_for_customer_modal($custom_data, $raw_quantity)
             : $custom_data);
     if (is_array($customForPayload) && isset($customForPayload['service_type'])) {
         $dn = strtolower(trim((string)$resolved_item_name));
