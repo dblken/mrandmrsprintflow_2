@@ -597,12 +597,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 elseif (strpos($rev_cat_lower, 'reflectorized') !== false)    $rev_service_type = 'Reflectorized (Subdivision Stickers/Signages)';
                                 elseif (strpos($rev_cat_lower, 'souvenir') !== false)         $rev_service_type = 'Souvenirs';
                                 elseif (strpos($rev_cat_lower, 'layout') !== false)           $rev_service_type = 'Layouts';
-                                $rev_dim = $rev_custom['dimensions'] ?? $rev_custom['Size'] ?? '';
-                                $rev_w = 0; $rev_h = 0;
-                                if ($rev_dim && (strpos($rev_dim, 'x') !== false || strpos($rev_dim, '×') !== false)) {
+                                $rev_dim = trim((string)($rev_custom['dimensions'] ?? ''));
+                                if ($rev_dim === '') {
+                                    $rev_dim = trim((string)($rev_custom['Size'] ?? ''));
+                                }
+                                foreach (['Poster Size', 'Print Size', 'Exact Size', 'exact size', 'Tarp Size', 'size'] as $dimFieldKey) {
+                                    if ($rev_dim !== '') {
+                                        break;
+                                    }
+                                    $cand = $rev_custom[$dimFieldKey] ?? null;
+                                    if ($cand !== null && trim((string)$cand) !== '') {
+                                        $rev_dim = trim((string)$cand);
+                                    }
+                                }
+                                if ($rev_dim === '' && is_array($rev_custom)) {
+                                    foreach ($rev_custom as $rk => $rv) {
+                                        if (!is_string($rk) || !is_scalar($rv)) {
+                                            continue;
+                                        }
+                                        $rkl = strtolower($rk);
+                                        if (
+                                            (str_contains($rkl, 'size') || str_contains($rkl, 'dimension'))
+                                            && trim((string)$rv) !== ''
+                                        ) {
+                                            $rev_dim = trim((string)$rv);
+                                            break;
+                                        }
+                                    }
+                                }
+                                $rev_w = 0;
+                                $rev_h = 0;
+                                if ($rev_dim !== '' && (strpos($rev_dim, 'x') !== false || strpos($rev_dim, '×') !== false)) {
                                     $dp = preg_split('/[x×]/', strtolower($rev_dim));
-                                    $rev_w = (float)(trim($dp[0] ?? 0));
-                                    $rev_h = (float)(trim($dp[1] ?? 0));
+                                    $rev_w = (float)(trim((string)($dp[0] ?? '0')));
+                                    $rev_h = (float)(trim((string)($dp[1] ?? '0')));
+                                    $dimLc = strtolower($rev_dim);
+                                    $has_inch = (bool)preg_match('/\b(in|inch|inches|")\b/', $dimLc);
+                                    $has_ft = (bool)preg_match('/\b(ft|feet|foot)\b/', $dimLc);
+                                    $ambiguous = !$has_inch && !$has_ft;
+                                    $posterish = strpos($rev_cat_lower, 'poster') !== false;
+                                    if (($has_inch && !$has_ft) || ($ambiguous && $posterish)) {
+                                        $rev_w = round($rev_w / 12, 6);
+                                        $rev_h = round($rev_h / 12, 6);
+                                    }
                                 }
                                 try {
                                     JobOrderService::createOrder([

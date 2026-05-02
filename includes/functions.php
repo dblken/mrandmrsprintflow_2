@@ -2724,15 +2724,27 @@ function customer_orders_merge_job_order_row_into_customization(array $custom, ?
         return $custom;
     }
 
+    // Treat numeric strings ("0", "0.00") as numbers so job_orders placeholders do not overwrite real line specs
+    // or inject meaningless ft/sqft rows for inch-only services (e.g. posters).
     $nonEmpty = static function ($v): bool {
         if ($v === null) {
             return false;
         }
+        if (is_bool($v)) {
+            return $v;
+        }
         if (is_string($v)) {
-            return trim($v) !== '';
+            $t = trim($v);
+            if ($t === '') {
+                return false;
+            }
+            if (is_numeric($t)) {
+                return abs((float)$t) >= 1e-8;
+            }
+            return true;
         }
         if (is_numeric($v)) {
-            return (float)$v != 0.0;
+            return abs((float)$v) >= 1e-8;
         }
         return !empty($v);
     };
@@ -2987,6 +2999,38 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
 }
 
 /**
+ * Keys synced from job_orders width/height/total_sqft into merged customization — not customer-facing specs.
+ */
+function printflow_is_job_orders_derived_dimension_key(string $key): bool {
+    $k = strtolower(preg_replace('/[\s-]+/', '_', trim($key)));
+
+    return $k === 'dimensions_ft'
+        || $k === 'width_ft'
+        || $k === 'height_ft'
+        || $k === 'total_sqft';
+}
+
+/**
+ * Remove zero placeholders from job_orders so the customer modal matches real order line specs (inches, poster size, etc.).
+ *
+ * @param array<string, string> $flat
+ * @return array<string, string>
+ */
+function printflow_customer_modal_strip_placeholder_job_dimensions(array $flat): array {
+    foreach ($flat as $k => $text) {
+        if (!is_string($k) || !printflow_is_job_orders_derived_dimension_key($k)) {
+            continue;
+        }
+        if (!printflow_modal_spec_value_is_empty_noise($k, $text, (string)$text)) {
+            continue;
+        }
+        unset($flat[$k]);
+    }
+
+    return $flat;
+}
+
+/**
  * Hide all-zero dimension noise from customer order modal (job placeholders / unused ft fields on inch-based forms).
  */
 function printflow_modal_spec_value_is_empty_noise(string $key, $rawVal, string $displayText): bool {
@@ -3030,8 +3074,7 @@ function printflow_modal_spec_value_is_empty_noise(string $key, $rawVal, string 
 function printflow_flatten_order_customization_for_customer_modal(array $custom): array {
     $custom = printflow_normalize_customization_for_modal($custom);
     // Match render_order_item_clean skips where sensible; omit note-* keys so the modal can render long-form blocks.
-    // Do not apply printflow_modal_spec_value_is_empty_noise here — it drops legitimate poster/dimension specs when keys
-    // contain substrings like "width"/"height" or values were saved as "0" placeholders beside real inch measurements.
+    // Strip job_orders-derived ft/sqft rows when they are all-zero placeholders (see printflow_customer_modal_strip_placeholder_job_dimensions).
     $skip = [
         'design_upload',
         'reference_upload',
@@ -3095,7 +3138,8 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
         }
         $out[$k] = $text;
     }
-    return $out;
+
+    return printflow_customer_modal_strip_placeholder_job_dimensions($out);
 }
 
 /**
