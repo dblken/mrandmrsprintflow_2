@@ -3599,6 +3599,38 @@ function printflow_service_units_sold(int $service_id): int {
     return (int)(($rows[0]['cnt'] ?? 0));
 }
 
+function printflow_media_path_looks_like_image(string $path, string $fallbackName = ''): bool {
+    $candidate = trim($path);
+    if ($candidate === '' && trim($fallbackName) === '') {
+        return false;
+    }
+
+    if ($candidate !== '') {
+        $parsedPath = parse_url($candidate, PHP_URL_PATH);
+        if (is_string($parsedPath) && $parsedPath !== '') {
+            $candidate = $parsedPath;
+        }
+    } else {
+        $candidate = $fallbackName;
+    }
+
+    $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'], true);
+}
+
+function printflow_order_item_has_previewable_design(array $item): bool {
+    $hasBlob = !empty($item['has_design_blob']) || !empty($item['design_image']);
+    if ($hasBlob) {
+        $mime = strtolower(trim((string)($item['design_image_mime'] ?? '')));
+        return $mime === '' || strpos($mime, 'image/') === 0;
+    }
+
+    return printflow_media_path_looks_like_image(
+        (string)($item['design_file'] ?? ''),
+        (string)($item['design_image_name'] ?? '')
+    );
+}
+
 
 function printflow_order_notification_preview(int $order_id): array {
     static $cache = [];
@@ -3625,12 +3657,10 @@ function printflow_order_notification_preview(int $order_id): array {
 
     $item = db_query(
         "SELECT oi.order_item_id,
-                IF(
-                    (oi.design_image IS NOT NULL AND oi.design_image != '')
-                    OR (oi.design_file IS NOT NULL AND oi.design_file != ''),
-                    1,
-                    0
-                ) AS has_design,
+                IF(oi.design_image IS NOT NULL AND oi.design_image != '', 1, 0) AS has_design_blob,
+                oi.design_image_mime,
+                oi.design_image_name,
+                oi.design_file,
                 oi.customization_data,
                 p.name AS product_name,
                 p.sku AS product_sku,
@@ -3784,7 +3814,7 @@ function printflow_order_notification_preview(int $order_id): array {
         );
     }
 
-    if (!empty($row['has_design']) && !empty($row['order_item_id'])) {
+    if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
         $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
         $cache[$order_id] = $preview;
@@ -3792,7 +3822,7 @@ function printflow_order_notification_preview(int $order_id): array {
     }
 
     $product_image = trim((string)($row['product_image'] ?? ''));
-    if ($product_image !== '') {
+    if ($product_image !== '' && $preview['item_kind'] !== 'Service') {
         $normalizedProductImage = printflow_notification_normalize_media_url($product_image);
         if ($normalizedProductImage !== '' && printflow_notification_local_media_exists($normalizedProductImage)) {
             $preview['image_url'] = $normalizedProductImage;

@@ -85,15 +85,41 @@ foreach ($items as $item) {
         }
     }
     $name = printflow_resolve_order_item_name($item['product_name'] ?? 'Custom Order', $custom, 'Custom Order');
+    $designOpenUrl = (!empty($item['design_image']) || !empty($item['design_file']))
+        ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id']
+        : null;
+    $referenceOpenUrl = !empty($item['reference_image_file'])
+        ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference'
+        : null;
+    $designIsImage = function_exists('printflow_order_item_has_previewable_design')
+        ? printflow_order_item_has_previewable_design($item)
+        : false;
+    $referenceIsImage = function_exists('printflow_media_path_looks_like_image')
+        ? printflow_media_path_looks_like_image((string)($item['reference_image_file'] ?? ''))
+        : false;
+    $designName = trim((string)($item['design_image_name'] ?? ''));
+    if ($designName === '' && !empty($item['design_file'])) {
+        $designPath = parse_url((string)$item['design_file'], PHP_URL_PATH);
+        $designName = basename(is_string($designPath) && $designPath !== '' ? $designPath : (string)$item['design_file']);
+    }
+    $referenceName = '';
+    if (!empty($item['reference_image_file'])) {
+        $referencePath = parse_url((string)$item['reference_image_file'], PHP_URL_PATH);
+        $referenceName = basename(is_string($referencePath) && $referencePath !== '' ? $referencePath : (string)$item['reference_image_file']);
+    }
     $items_out[] = [
         'order_item_id'   => $item['order_item_id'],
         'product_name'    => $name,
         'quantity'        => (int)$item['quantity'],
         'customization'   => $custom,
-        'design_url'      => (!empty($item['design_image']) || !empty($item['design_file']))
-            ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] : null,
-        'reference_url'   => !empty($item['reference_image_file'])
-            ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference' : null,
+        'design_url'      => $designIsImage ? $designOpenUrl : null,
+        'design_open_url' => $designOpenUrl,
+        'design_is_image' => $designIsImage,
+        'design_name'     => $designName !== '' ? $designName : null,
+        'reference_url'   => $referenceIsImage ? $referenceOpenUrl : null,
+        'reference_open_url' => $referenceOpenUrl,
+        'reference_is_image' => $referenceIsImage,
+        'reference_name'  => $referenceName !== '' ? $referenceName : null,
     ];
 }
 
