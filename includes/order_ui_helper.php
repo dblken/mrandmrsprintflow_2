@@ -81,12 +81,9 @@ if (!function_exists('pf_order_ui_asset_url')) {
         $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : '');
         $path = str_replace('\\', '/', $path);
 
+        // Keep absolute URLs intact (CDN / full host) so thumbnails actually load in the browser.
         if (preg_match('#^https?://#i', $path)) {
-            $parts = parse_url($path);
-            if (empty($parts['path'])) {
-                return $path;
-            }
-            $path = $parts['path'];
+            return $path;
         }
 
         if (preg_match('#^[A-Za-z]:/#', $path)) {

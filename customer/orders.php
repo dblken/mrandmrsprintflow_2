@@ -114,16 +114,56 @@ function customer_orders_is_generic_item_name(string $name): bool {
     return in_array($normalized, $generic, true);
 }
 
+function customer_orders_resolve_service_name_by_id(int $service_id): string {
+    static $cache = [];
+    if ($service_id <= 0) {
+        return '';
+    }
+    if (array_key_exists($service_id, $cache)) {
+        return $cache[$service_id];
+    }
+    $rows = db_query('SELECT name FROM services WHERE service_id = ? LIMIT 1', 'i', [$service_id]);
+    return $cache[$service_id] = trim((string)($rows[0]['name'] ?? ''));
+}
+
 function customer_orders_primary_customization(array $order): array {
     $itemCustom = customer_orders_decode_customization_payload((string)($order['first_item_customization'] ?? ''));
     $tableCustom = customer_orders_decode_customization_payload((string)($order['first_customization_details'] ?? ''));
 
-    // Prefer order_items customization data, but fill gaps from customizations table.
     $merged = array_replace($tableCustom, $itemCustom);
 
     $serviceType = trim((string)($order['first_customization_service_type'] ?? ''));
     if ($serviceType !== '' && empty($merged['service_type'])) {
         $merged['service_type'] = $serviceType;
+    }
+
+    $sid = (int)($merged['service_id'] ?? 0);
+    if ($sid <= 0) {
+        $sid = (int)($itemCustom['service_id'] ?? $tableCustom['service_id'] ?? 0);
+        if ($sid > 0) {
+            $merged['service_id'] = $sid;
+        }
+    }
+
+    if ($sid > 0) {
+        $byId = customer_orders_resolve_service_name_by_id($sid);
+        if ($byId !== '' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+            $merged['service_type'] = $byId;
+        }
+    }
+
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    if ($orderType === 'custom' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+        $ref = (int)($order['reference_id'] ?? 0);
+        if ($ref > 0) {
+            $byRef = customer_orders_resolve_service_name_by_id($ref);
+            if ($byRef !== '') {
+                $merged['service_type'] = $byRef;
+                if ((int)($merged['service_id'] ?? 0) <= 0) {
+                    $merged['service_id'] = $ref;
+                }
+            }
+        }
     }
 
     return $merged;
@@ -143,6 +183,22 @@ function customer_orders_primary_item_name(array $order): string {
 
     if (customer_orders_is_generic_item_name($resolved) && $serviceFallback !== '') {
         return normalize_service_name($serviceFallback, $serviceFallback);
+    }
+    if (customer_orders_is_generic_item_name($resolved)) {
+        $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+        if ($orderType === 'custom') {
+            $ref = (int)($order['reference_id'] ?? 0);
+            if ($ref > 0) {
+                $nm = customer_orders_resolve_service_name_by_id($ref);
+                if ($nm !== '') {
+                    return normalize_service_name($nm, $nm);
+                }
+            }
+        }
+        $fromFields = trim((string)get_service_name_from_customization($custom, ''));
+        if ($fromFields !== '' && !customer_orders_is_generic_item_name($fromFields)) {
+            return normalize_service_name($fromFields, $fromFields);
+        }
     }
     return $resolved;
 }
@@ -203,8 +259,20 @@ $sql = "SELECT o.*,
         (SELECT p.product_id FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_product_id,
         (SELECT {$first_product_image_expr} FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_product_image,
         (SELECT oi.customization_data FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_customization,
-        (SELECT c.customization_details FROM customizations c WHERE c.order_id = o.order_id ORDER BY c.customization_id ASC LIMIT 1) as first_customization_details,
-        (SELECT c.service_type FROM customizations c WHERE c.order_id = o.order_id ORDER BY c.customization_id ASC LIMIT 1) as first_customization_service_type,
+        (SELECT COALESCE(
+            (SELECT c1.customization_details FROM customizations c1
+             WHERE c1.order_id = o.order_id
+               AND c1.order_item_id = (SELECT oi.order_item_id FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1)
+             ORDER BY c1.customization_id ASC LIMIT 1),
+            (SELECT c2.customization_details FROM customizations c2 WHERE c2.order_id = o.order_id ORDER BY c2.customization_id ASC LIMIT 1)
+        )) as first_customization_details,
+        (SELECT COALESCE(
+            (SELECT c1.service_type FROM customizations c1
+             WHERE c1.order_id = o.order_id
+               AND c1.order_item_id = (SELECT oi.order_item_id FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1)
+             ORDER BY c1.customization_id ASC LIMIT 1),
+            (SELECT c2.service_type FROM customizations c2 WHERE c2.order_id = o.order_id ORDER BY c2.customization_id ASC LIMIT 1)
+        )) as first_customization_service_type,
         (SELECT oi.order_item_id FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_id,
         (SELECT IF(oi.design_image IS NOT NULL AND oi.design_image != '', 1, 0) FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_has_design,
         (SELECT COALESCE(SUM(oi.quantity), 0) FROM order_items oi WHERE oi.order_id = o.order_id) as total_quantity,
@@ -1231,7 +1299,11 @@ function get_preview_image_for_order_ui($order, $display_name) {
         ? customer_orders_primary_customization((array)$order)
         : [];
 
-    $is_service_order = !empty($custom['service_type']);
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    $is_service_order = ($orderType === 'custom')
+        || !empty($custom['service_type'])
+        || (int)($custom['service_id'] ?? 0) > 0
+        || in_array(strtolower(trim((string)($custom['source_page'] ?? ''))), ['services', 'service'], true);
 
     if (!empty($order['first_item_has_design']) && !empty($order['first_item_id'])) {
         return BASE_URL . "/public/serve_design.php?type=order_item&id=" . (int)$order['first_item_id'];
@@ -1276,7 +1348,40 @@ function get_preview_image_for_order_ui($order, $display_name) {
         }
     }
 
-    $service_name = trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? $display_name)));
+    $service_name = trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? '')));
+    if ($service_name === '' || customer_orders_is_generic_item_name($service_name)) {
+        $service_name = trim((string)(get_service_name_from_customization($custom, '') ?: ''));
+    }
+    if (($service_name === '' || customer_orders_is_generic_item_name($service_name)) && trim((string)$display_name) !== '') {
+        $service_name = trim((string)$display_name);
+    }
+
+    $sid = (int)($custom['service_id'] ?? 0);
+    if ($sid <= 0 && $orderType === 'custom') {
+        $sid = (int)($order['reference_id'] ?? 0);
+    }
+    if ($sid > 0) {
+        $service_rows = db_query(
+            "SELECT name, display_image, hero_image FROM services WHERE service_id = ? LIMIT 1",
+            'i',
+            [$sid]
+        );
+        if (!empty($service_rows)) {
+            if ($service_name === '' || customer_orders_is_generic_item_name($service_name)) {
+                $service_name = trim((string)($service_rows[0]['name'] ?? $service_name));
+            }
+            $display_image = trim((string)($service_rows[0]['display_image'] ?? ''));
+            $hero_image = trim((string)($service_rows[0]['hero_image'] ?? ''));
+            $candidate = $display_image !== '' ? trim(explode(',', $display_image)[0]) : $hero_image;
+            if ($candidate !== '') {
+                $resolved = pf_order_ui_asset_url($candidate);
+                if (!empty($resolved)) {
+                    return $resolved;
+                }
+            }
+        }
+    }
+
     if ($service_name !== '') {
         $service_rows = db_query(
             "SELECT display_image, hero_image FROM services WHERE name = ? LIMIT 1",
