@@ -115,6 +115,209 @@ function handle_product_photo_upload($file, $product_id = null) {
     return $base . '/uploads/products/' . $filename;
 }
 
+function printflow_is_system_deleted_product(array $product): bool {
+    $sku = strtolower(trim((string)($product['sku'] ?? '')));
+    $name = strtolower(trim((string)($product['name'] ?? '')));
+
+    if ($sku !== '' && strpos($sku, 'sys-deleted') !== false) {
+        return true;
+    }
+
+    if ($name !== '' && (
+        strpos($name, '[system] deleted product') !== false ||
+        $name === 'deleted product'
+    )) {
+        return true;
+    }
+
+    return false;
+}
+
+function printflow_restore_is_valid_name(string $name): bool {
+    $candidate = strtolower(trim($name));
+    if ($candidate === '' || strlen($candidate) < 2) {
+        return false;
+    }
+
+    $blocked = [
+        '[system] deleted product',
+        'deleted product',
+        'product',
+        'order item',
+        'pos service item',
+    ];
+
+    return !in_array($candidate, $blocked, true);
+}
+
+function printflow_restore_is_valid_sku(string $sku): bool {
+    $candidate = strtolower(trim($sku));
+    if ($candidate === '') {
+        return false;
+    }
+    if (strpos($candidate, 'sys-deleted') !== false) {
+        return false;
+    }
+    if (strpos($candidate, 'pos-service') !== false || strpos($candidate, 'pos_service') !== false) {
+        return false;
+    }
+    return true;
+}
+
+function printflow_restore_extract_name_from_note(string $notes): string {
+    $text = trim($notes);
+    if ($text === '') {
+        return '';
+    }
+
+    $patterns = [
+        '/\badd stock for\s+(.+?):\s*[-+]?\d+/i',
+        '/\bstock update for\s+(.+?):\s*[-+]?\d+/i',
+        '/\bbranch stock update for\s+(.+?):\s*[-+]?\d+/i',
+        '/\border\s*#\d+\s*completed\s*-\s*(.+)$/i',
+    ];
+
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $text, $m)) {
+            $candidate = trim((string)($m[1] ?? ''));
+            $candidate = preg_replace('/\s+/', ' ', $candidate ?? '');
+            if (printflow_restore_is_valid_name((string)$candidate)) {
+                return (string)$candidate;
+            }
+        }
+    }
+
+    return '';
+}
+
+function printflow_restore_guess_name_from_sku(string $sku): string {
+    $value = preg_replace('/[^A-Za-z0-9]+/', ' ', trim($sku));
+    if ($value === null || $value === '') {
+        return '';
+    }
+    $value = preg_replace('/\s+\d+\s*$/', '', $value);
+    $value = trim((string)$value);
+    if ($value === '') {
+        return '';
+    }
+    $value = ucwords(strtolower($value));
+    return printflow_restore_is_valid_name($value) ? $value : '';
+}
+
+function printflow_restore_build_payload(int $productId): array {
+    $payload = [
+        'name' => '',
+        'sku' => '',
+        'category' => '',
+        'price' => 0.0,
+        'description' => '',
+        'low_stock_level' => 10,
+    ];
+
+    $currentRows = db_query(
+        "SELECT name, sku, category, price, description, low_stock_level
+         FROM products
+         WHERE product_id = ?
+         LIMIT 1",
+        'i',
+        [$productId]
+    ) ?: [];
+    $current = $currentRows[0] ?? [];
+
+    $existingName = trim((string)($current['name'] ?? ''));
+    $existingSku = trim((string)($current['sku'] ?? ''));
+    $existingCategory = trim((string)($current['category'] ?? ''));
+    $existingDescription = trim((string)($current['description'] ?? ''));
+    $existingPrice = (float)($current['price'] ?? 0);
+    $existingLowStock = (int)($current['low_stock_level'] ?? 10);
+
+    if (printflow_restore_is_valid_name($existingName)) {
+        $payload['name'] = $existingName;
+    }
+    if (printflow_restore_is_valid_sku($existingSku)) {
+        $payload['sku'] = $existingSku;
+    }
+    if ($existingCategory !== '' && strtolower($existingCategory) !== 'system') {
+        $payload['category'] = $existingCategory;
+    }
+    if ($existingDescription !== '' && stripos($existingDescription, 'deleted') === false) {
+        $payload['description'] = $existingDescription;
+    }
+    if ($existingPrice > 0) {
+        $payload['price'] = $existingPrice;
+    }
+    if ($existingLowStock > 0) {
+        $payload['low_stock_level'] = $existingLowStock;
+    }
+
+    $skuRows = db_query(
+        "SELECT sku, unit_price
+         FROM order_items
+         WHERE product_id = ? AND sku IS NOT NULL AND sku <> ''
+         ORDER BY order_item_id DESC
+         LIMIT 100",
+        'i',
+        [$productId]
+    ) ?: [];
+
+    foreach ($skuRows as $row) {
+        $candidateSku = trim((string)($row['sku'] ?? ''));
+        if ($payload['sku'] === '' && printflow_restore_is_valid_sku($candidateSku)) {
+            $payload['sku'] = $candidateSku;
+        }
+        if ($payload['price'] <= 0) {
+            $candidatePrice = (float)($row['unit_price'] ?? 0);
+            if ($candidatePrice > 0) {
+                $payload['price'] = $candidatePrice;
+            }
+        }
+        if ($payload['sku'] !== '' && $payload['price'] > 0) {
+            break;
+        }
+    }
+
+    $noteRows = db_query(
+        "SELECT notes
+         FROM inventory_transactions
+         WHERE product_id = ? AND notes IS NOT NULL AND notes <> ''
+         ORDER BY transaction_date DESC
+         LIMIT 120",
+        'i',
+        [$productId]
+    ) ?: [];
+
+    foreach ($noteRows as $noteRow) {
+        $candidateName = printflow_restore_extract_name_from_note((string)($noteRow['notes'] ?? ''));
+        if ($candidateName !== '') {
+            $payload['name'] = $candidateName;
+            break;
+        }
+    }
+
+    if ($payload['name'] === '' && $payload['sku'] !== '') {
+        $payload['name'] = printflow_restore_guess_name_from_sku($payload['sku']);
+    }
+
+    if ($payload['category'] === '') {
+        $skuUpper = strtoupper($payload['sku']);
+        if (strpos($skuUpper, 'TARP') !== false) {
+            $payload['category'] = 'Tarpaulin';
+        } elseif (strpos($skuUpper, 'TSHIRT') !== false || strpos($skuUpper, 'SHIRT') !== false) {
+            $payload['category'] = 'Apparel';
+        } elseif (strpos($skuUpper, 'STICK') !== false) {
+            $payload['category'] = 'Stickers';
+        } else {
+            $payload['category'] = 'General';
+        }
+    }
+
+    if ($payload['description'] === '') {
+        $payload['description'] = 'Restored from historical product records.';
+    }
+
+    return $payload;
+}
+
 // Handle product creation/update/delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     if (isset($_POST['create_product'])) {
@@ -461,6 +664,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     db_execute("UPDATE products SET status = 'Activated', updated_at = NOW() WHERE product_id = ?", 'i', [$product_id]);
     $success = 'Product restored successfully!';
     }
+} elseif (isset($_POST['recover_system_deleted_product'])) {
+    if ($is_manager) {
+        $error = 'Only administrators can recover deleted product placeholders.';
+    } else {
+    $product_id = (int)($_POST['product_id'] ?? 0);
+    if ($product_id < 1) {
+        $error = 'Invalid product.';
+    } else {
+        $productRows = db_query(
+            "SELECT product_id, name, sku, category, description, price, low_stock_level
+             FROM products
+             WHERE product_id = ?
+             LIMIT 1",
+            'i',
+            [$product_id]
+        ) ?: [];
+
+        if (empty($productRows)) {
+            $error = 'Product not found.';
+        } else {
+            $currentProduct = $productRows[0];
+            if (!printflow_is_system_deleted_product($currentProduct)) {
+                $error = 'This product is not marked as a system-deleted placeholder.';
+            } else {
+                $payload = printflow_restore_build_payload($product_id);
+
+                $targetName = trim((string)($payload['name'] ?? ''));
+                $targetSku = trim((string)($payload['sku'] ?? ''));
+                $targetCategory = trim((string)($payload['category'] ?? 'General'));
+                $targetDescription = trim((string)($payload['description'] ?? 'Restored from historical product records.'));
+                $targetPrice = (float)($payload['price'] ?? 0);
+                $targetLowStock = (int)($payload['low_stock_level'] ?? 10);
+
+                if (!printflow_restore_is_valid_name($targetName)) {
+                    $targetName = 'Restored Product #' . $product_id;
+                }
+                if ($targetSku !== '' && !printflow_restore_is_valid_sku($targetSku)) {
+                    $targetSku = '';
+                }
+                if ($targetSku !== '') {
+                    $skuConflict = db_query(
+                        "SELECT product_id FROM products WHERE sku = ? AND product_id != ? LIMIT 1",
+                        'si',
+                        [$targetSku, $product_id]
+                    ) ?: [];
+                    if (!empty($skuConflict)) {
+                        $targetSku = 'RESTORED-' . $product_id;
+                    }
+                }
+                if ($targetCategory === '' || strtolower($targetCategory) === 'system') {
+                    $targetCategory = 'General';
+                }
+                if ($targetPrice < 0) {
+                    $targetPrice = 0;
+                }
+                if ($targetLowStock < 1) {
+                    $targetLowStock = 10;
+                }
+
+                $updated = db_execute(
+                    "UPDATE products
+                     SET name = ?, sku = ?, category = ?, description = ?, price = ?, low_stock_level = ?, status = 'Activated', updated_at = NOW()
+                     WHERE product_id = ?",
+                    'ssssdii',
+                    [$targetName, ($targetSku !== '' ? $targetSku : null), $targetCategory, $targetDescription, $targetPrice, $targetLowStock, $product_id]
+                );
+
+                if ($updated) {
+                    $success = "Product #{$product_id} was restored. Please review details and update if needed.";
+                } else {
+                    global $conn;
+                    $error = 'Failed to recover product placeholder.' . (!empty($conn->error) ? ' (' . $conn->error . ')' : '');
+                }
+            }
+        }
+    }
+    }
 } elseif (isset($_POST['delete_product'])) {
     if ($is_manager) {
         $error = 'Only administrators can change product status or delete products.';
@@ -699,6 +979,7 @@ if (isset($_GET['ajax'])) {
                     $low = (int)($product['low_stock_level'] ?? 10);
                     $stockStatus = get_stock_status($product['stock_quantity'], $low);
                     $isLowOrOut = in_array($stockStatus, ['Low Stock','Out of Stock']);
+                    $isSystemDeletedProduct = printflow_is_system_deleted_product($product);
                     $stockBadge = match($stockStatus) {
                         'In Stock' => 'background:#dcfce7;color:#166534;',
                         'Low Stock' => 'background:#fef9c3;color:#854d0e;',
@@ -724,6 +1005,13 @@ if (isset($_GET['ajax'])) {
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                             <button class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
+                            <?php if (!$is_manager && $isSystemDeletedProduct): ?>
+                                <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
+                                    <?php echo csrf_field(); ?>
+                                    <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
+                                    <button type="submit" name="recover_system_deleted_product" class="btn-action teal">Auto Recover</button>
+                                </form>
+                            <?php endif; ?>
                             <?php if (!$is_manager): ?>
                             <?php if ($product['status'] !== 'Archived'): ?>
                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="<?php echo $product['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
@@ -1603,6 +1891,7 @@ if (isset($_GET['ajax'])) {
                                     $low = (int)($product['low_stock_level'] ?? 10);
                                     $stockStatus = get_stock_status($product['stock_quantity'], $low);
                                     $isLowOrOut = in_array($stockStatus, ['Low Stock','Out of Stock']);
+                                    $isSystemDeletedProduct = printflow_is_system_deleted_product($product);
                                     $stockBadge = match($stockStatus) {
                                         'In Stock' => 'background:#dcfce7;color:#166534;',
                                         'Low Stock' => 'background:#fef9c3;color:#854d0e;',
@@ -1642,6 +1931,13 @@ if (isset($_GET['ajax'])) {
                                             <?php endif; ?>
                                             <button class="btn-action blue"
                                                 onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
+                                            <?php if (!$is_manager && $isSystemDeletedProduct): ?>
+                                                <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
+                                                    <?php echo csrf_field(); ?>
+                                                    <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
+                                                    <button type="submit" name="recover_system_deleted_product" class="btn-action teal">Auto Recover</button>
+                                                </form>
+                                            <?php endif; ?>
                                             <?php if (!$is_manager): ?>
                                             <?php if ($product['status'] !== 'Archived'): ?>
                                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="<?php echo $product['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
