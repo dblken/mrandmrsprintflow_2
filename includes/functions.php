@@ -3029,7 +3029,32 @@ function printflow_modal_spec_value_is_empty_noise(string $key, $rawVal, string 
  */
 function printflow_flatten_order_customization_for_customer_modal(array $custom): array {
     $custom = printflow_normalize_customization_for_modal($custom);
-    $skip = ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime', 'service_id'];
+    // Match render_order_item_clean skips where sensible; omit note-* keys so the modal can render long-form blocks.
+    // Do not apply printflow_modal_spec_value_is_empty_noise here — it drops legitimate poster/dimension specs when keys
+    // contain substrings like "width"/"height" or values were saved as "0" placeholders beside real inch measurements.
+    $skip = [
+        'design_upload',
+        'reference_upload',
+        'design_tmp_path',
+        'reference_tmp_path',
+        'reference_mime',
+        'design_mime',
+        'service_id',
+        'Branch_ID',
+        'service_type',
+        'product_type',
+        'unit',
+        'install_province',
+        'install_city',
+        'install_barangay',
+        'install_street',
+        'form_type',
+        'config_id',
+        'source_page',
+        'source',
+        'cart_key',
+        '_cart_key',
+    ];
     $out = [];
     $unnamed = 0;
     foreach ($custom as $k => $v) {
@@ -3068,75 +3093,16 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
                 $text = format_date($rawD);
             }
         }
-        if (printflow_modal_spec_value_is_empty_noise($k, $v, (string)$text)) {
-            continue;
-        }
         $out[$k] = $text;
     }
     return $out;
 }
 
 /**
- * Whether a customization label should be shown as long-form text (matches order review card “notes” patterns).
- */
-function printflow_customization_key_is_long_form_customer_visible(string $key): bool {
-    $k = trim($key);
-    if ($k === '' || ($k[0] === '_')) {
-        return false;
-    }
-    if (stripos($k, 'description') !== false) {
-        return true;
-    }
-
-    return (bool) preg_match('/\bnotes\b|instructions?\b|remarks?\b|specifications?\b|memo\b/i', $k);
-}
-
-/**
- * Flatten customization for the customer “View order” modal and merge back any fields visible on
- * order_review (render_order_item_clean) that the generic flattener omitted (e.g. noise filter edge cases).
+ * Flatten customization for the customer “View order” modal (normalized + human-readable; no dimension “noise” stripping).
  */
 function printflow_flatten_customization_for_customer_order_modal(array $custom): array {
-    $flat = printflow_flatten_order_customization_for_customer_modal($custom);
-    $norm = printflow_normalize_customization_for_modal($custom);
-
-    $reviewSkipTiles = ['design_upload', 'reference_upload', 'notes', 'additional_notes', 'other_instructions', 'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit', 'install_province', 'install_city', 'install_barangay', 'install_street'];
-
-    foreach ($norm as $ck => $cv) {
-        if (!is_string($ck) || $ck === '') {
-            continue;
-        }
-        if ($ck[0] === '_') {
-            continue;
-        }
-        if (in_array($ck, ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime', 'service_id'], true)) {
-            continue;
-        }
-        if ($cv === null || $cv === '') {
-            continue;
-        }
-        if (is_string($cv) && trim($cv) === '') {
-            continue;
-        }
-
-        $text = function_exists('pf_order_ui_value_to_text')
-            ? pf_order_ui_value_to_text($cv)
-            : (is_array($cv) ? json_encode($cv, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : (string) $cv);
-        if (trim((string) $text) === '') {
-            continue;
-        }
-        if (printflow_modal_spec_value_is_empty_noise($ck, $cv, (string) $text)) {
-            continue;
-        }
-
-        $wouldShowTile = !in_array($ck, $reviewSkipTiles, true) && stripos($ck, 'description') === false;
-        $wouldShowLong = printflow_customization_key_is_long_form_customer_visible($ck);
-
-        if (($wouldShowTile || $wouldShowLong) && !array_key_exists($ck, $flat)) {
-            $flat[$ck] = $text;
-        }
-    }
-
-    return $flat;
+    return printflow_flatten_order_customization_for_customer_modal($custom);
 }
 
 /**
