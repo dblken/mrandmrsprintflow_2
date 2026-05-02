@@ -2569,6 +2569,74 @@ function customer_orders_enrich_line_customization(array $merged, array $order):
     return $merged;
 }
 
+/**
+ * Fill gaps in per-line customization from a job_orders row (staff POS / job workflow).
+ * Does not overwrite keys already present in $custom.
+ */
+function customer_orders_merge_job_order_row_into_customization(array $custom, ?array $jobRow): array {
+    if ($jobRow === null || $jobRow === []) {
+        return $custom;
+    }
+
+    $nonEmpty = static function ($v): bool {
+        if ($v === null) {
+            return false;
+        }
+        if (is_string($v)) {
+            return trim($v) !== '';
+        }
+        if (is_numeric($v)) {
+            return (float)$v != 0.0;
+        }
+        return !empty($v);
+    };
+
+    $setIfMissing = static function (array &$target, string $key, $val) use ($nonEmpty): void {
+        if (!$nonEmpty($val)) {
+            return;
+        }
+        if (!array_key_exists($key, $target)) {
+            $target[$key] = $val;
+            return;
+        }
+        $cur = $target[$key];
+        if ($cur === null || $cur === '' || !$nonEmpty($cur)) {
+            $target[$key] = $val;
+        }
+    };
+
+    $wt = $jobRow['width_ft'] ?? null;
+    $ht = $jobRow['height_ft'] ?? null;
+    if ($nonEmpty($wt) && $nonEmpty($ht)) {
+        $combo = trim((string)$wt) . ' × ' . trim((string)$ht) . ' ft';
+        $setIfMissing($custom, 'dimensions_ft', $combo);
+    }
+    $setIfMissing($custom, 'width_ft', $wt);
+    $setIfMissing($custom, 'height_ft', $ht);
+
+    $setIfMissing($custom, 'total_sqft', $jobRow['total_sqft'] ?? null);
+
+    $jn = $jobRow['notes'] ?? '';
+    if (is_string($jn)) {
+        $jn = trim($jn);
+    }
+    if ($jn !== '') {
+        $setIfMissing($custom, 'job_notes', $jn);
+    }
+
+    $jst = isset($jobRow['service_type']) ? trim((string)$jobRow['service_type']) : '';
+    if ($jst !== '') {
+        $setIfMissing($custom, 'service_type', $jst);
+    }
+
+    $jt = isset($jobRow['job_title']) ? trim((string)$jobRow['job_title']) : '';
+    if ($jt !== '' && (empty($custom['service_type']) || customer_orders_is_generic_item_name((string)$custom['service_type']))) {
+        $setIfMissing($custom, 'service_type', $jt);
+    }
+
+    return $custom;
+}
+
 function customer_orders_custom_order_is_catalog_product(array $custom): bool {
     $src = strtolower(trim((string)($custom['source_page'] ?? '')));
     if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {

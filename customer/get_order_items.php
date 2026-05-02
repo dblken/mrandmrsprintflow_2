@@ -164,6 +164,7 @@ $customization_rows = db_query(
 ) ?: [];
 
 $customization_by_item_id = [];
+$orphan_customization_details = [];
 $first_customization_payload = [];
 $first_customization_service_type = '';
 foreach ($customization_rows as $cRow) {
@@ -183,20 +184,26 @@ foreach ($customization_rows as $cRow) {
     }
 
     $orderItemId = (int)($cRow['order_item_id'] ?? 0);
-    if ($orderItemId > 0) {
-        if (!isset($customization_by_item_id[$orderItemId])) {
-            $customization_by_item_id[$orderItemId] = [
-                'details' => [],
-                'service_type' => '',
-            ];
+    if ($orderItemId <= 0) {
+        $orphan_customization_details = array_replace($orphan_customization_details, $details);
+        if ($serviceType !== '' && trim((string)($orphan_customization_details['service_type'] ?? '')) === '') {
+            $orphan_customization_details['service_type'] = $serviceType;
         }
-        $customization_by_item_id[$orderItemId]['details'] = array_replace(
-            $customization_by_item_id[$orderItemId]['details'],
-            $details
-        );
-        if ($serviceType !== '' && trim((string)$customization_by_item_id[$orderItemId]['service_type']) === '') {
-            $customization_by_item_id[$orderItemId]['service_type'] = $serviceType;
-        }
+        continue;
+    }
+
+    if (!isset($customization_by_item_id[$orderItemId])) {
+        $customization_by_item_id[$orderItemId] = [
+            'details' => [],
+            'service_type' => '',
+        ];
+    }
+    $customization_by_item_id[$orderItemId]['details'] = array_replace(
+        $customization_by_item_id[$orderItemId]['details'],
+        $details
+    );
+    if ($serviceType !== '' && trim((string)$customization_by_item_id[$orderItemId]['service_type']) === '') {
+        $customization_by_item_id[$orderItemId]['service_type'] = $serviceType;
     }
 }
 
@@ -211,8 +218,10 @@ if (!empty($first_item_raw_customization[0]['customization_data'])) {
 }
 $first_item_customization = customer_order_items_merge_customization_payload(
     $first_item_customization,
-    $first_customization_payload,
-    $first_customization_service_type
+    array_replace($orphan_customization_details, $first_customization_payload),
+    $first_customization_service_type !== ''
+        ? $first_customization_service_type
+        : trim((string)($orphan_customization_details['service_type'] ?? ''))
 );
 
 $is_service_order = !empty($first_item_customization['service_type']) || $first_customization_service_type !== '';
@@ -244,6 +253,13 @@ $items = db_query("
 ", 'i', [$order_id]);
 
 $items = is_array($items) ? $items : [];
+$job_orders_list = db_query(
+    'SELECT job_title, service_type, width_ft, height_ft, notes, total_sqft
+     FROM job_orders WHERE order_id = ? ORDER BY id ASC',
+    'i',
+    [$order_id]
+) ?: [];
+
 $first_order_item_id = null;
 foreach ($items as $it) {
     $oid = (int)($it['order_item_id'] ?? 0);
@@ -256,17 +272,40 @@ $items_out = [];
 $service_items_raw = [];
 $order_total_amount = (float)($order['total_amount'] ?? 0);
 $item_count = count($items);
-foreach ($items as $item) {
+foreach ($items as $lineIndex => $item) {
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
     $itemCustomizationFallback = $customization_by_item_id[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
+    $mergedTableDetails = array_replace(
+        $orphan_customization_details,
+        (array)($itemCustomizationFallback['details'] ?? [])
+    );
+    $orphanSvc = trim((string)($orphan_customization_details['service_type'] ?? ''));
+    $itemTblSvc = trim((string)($itemCustomizationFallback['service_type'] ?? ''));
+    $fallbackSvc = $itemTblSvc !== '' ? $itemTblSvc : $orphanSvc;
     $custom_data = customer_order_items_merge_customization_payload(
         $custom_data,
-        (array)($itemCustomizationFallback['details'] ?? []),
-        (string)($itemCustomizationFallback['service_type'] ?? '')
+        $mergedTableDetails,
+        $fallbackSvc
     );
     if (empty($custom_data['service_type']) && !empty($first_item_customization['service_type'])) {
         $custom_data['service_type'] = (string)$first_item_customization['service_type'];
     }
+
+    if ($is_service_order && $job_orders_list !== []) {
+        $jc = count($job_orders_list);
+        $jobRow = null;
+        if ($item_count === 1 && $jc >= 1) {
+            $jobRow = $job_orders_list[0];
+        } elseif ($jc === $item_count && isset($job_orders_list[$lineIndex])) {
+            $jobRow = $job_orders_list[$lineIndex];
+        } elseif (isset($job_orders_list[$lineIndex])) {
+            $jobRow = $job_orders_list[$lineIndex];
+        }
+        if (is_array($jobRow)) {
+            $custom_data = customer_orders_merge_job_order_row_into_customization($custom_data, $jobRow);
+        }
+    }
+
     $custom_data = customer_orders_enrich_line_customization($custom_data, $order);
     unset($custom_data['design_upload'], $custom_data['reference_upload']);
 
@@ -280,13 +319,12 @@ foreach ($items as $item) {
         $raw_unit_price = $order_total_amount / $raw_quantity;
     }
 
-    $fallback_item_name = trim((string)($itemCustomizationFallback['service_type'] ?? ($first_item_customization['service_type'] ?? 'Order Item')));
     $use_job_line_fallback = ($item_count === 1) || ($first_order_item_id !== null && (int)($item['order_item_id'] ?? 0) === (int)$first_order_item_id);
     $orderLike = [
         'order_type' => $order['order_type'] ?? '',
         'reference_id' => $order['reference_id'] ?? null,
         'first_product_name' => (string)($item['product_name'] ?? ''),
-        'first_customization_service_type' => (string)($itemCustomizationFallback['service_type'] ?? ''),
+        'first_customization_service_type' => (string)$fallbackSvc,
         'first_job_title' => (string)($order['first_job_title'] ?? ''),
         'first_job_service_type' => (string)($order['first_job_service_type'] ?? ''),
         '_merged_customization' => $custom_data,
