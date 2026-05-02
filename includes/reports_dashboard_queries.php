@@ -162,21 +162,38 @@ function pf_product_sales_chart_label_sql(): string {
 }
 
 /**
- * Dashboard: branch-filtered paid store revenue by category-or-product bucket (all-time).
+ * Branch/date-filtered paid store revenue by category-or-product bucket.
  *
  * @return list<array{category:string,items_sold:int|string,total:float|string}>
  */
-function pf_dashboard_sales_by_product_category($branchId): array {
+function pf_reports_sales_by_product_category(string $from, string $toEnd, $branchId): array {
     $bucket = pf_product_sales_chart_bucket_sql();
     $label = pf_product_sales_chart_label_sql();
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
+        $datePart = '';
+        $dTypes = '';
+        $dParams = [];
+        if ($from !== '' && $toEnd !== '') {
+            $datePart = ' AND o.order_date BETWEEN ? AND ?';
+            $dTypes = 'ss';
+            $dParams = [$from, $toEnd];
+        } elseif ($from !== '') {
+            $datePart = ' AND o.order_date >= ?';
+            $dTypes = 's';
+            $dParams = [$from];
+        } elseif ($toEnd !== '') {
+            $datePart = ' AND o.order_date <= ?';
+            $dTypes = 's';
+            $dParams = [$toEnd];
+        }
+
         return db_query(
             "SELECT {$label} AS category,
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
-             INNER JOIN products p ON p.product_id = oi.product_id
+             LEFT JOIN products p ON p.product_id = oi.product_id
              LEFT JOIN product_variants pv ON pv.variant_id = oi.variant_id
              JOIN orders o ON oi.order_id = o.order_id
              LEFT JOIN products pr ON pr.product_id = o.reference_id
@@ -185,15 +202,24 @@ function pf_dashboard_sales_by_product_category($branchId): array {
                  LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
                  OR o.status = 'Completed'
                )
-               {$b}
+               {$datePart} {$b}
              GROUP BY {$bucket}
              ORDER BY total DESC",
-            $bt ?: null,
-            $bp ?: null
+            $dTypes . $bt,
+            array_merge($dParams, $bp)
         ) ?: [];
     } catch (Throwable $e) {
         return [];
     }
+}
+
+/**
+ * Dashboard: branch-filtered paid store revenue by category-or-product bucket (all-time).
+ *
+ * @return list<array{category:string,items_sold:int|string,total:float|string}>
+ */
+function pf_dashboard_sales_by_product_category($branchId): array {
+    return pf_reports_sales_by_product_category('', '', $branchId);
 }
 
 /**

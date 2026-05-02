@@ -211,33 +211,13 @@ $period_has_activity = ($total_orders > 0);
 // Service chart: service-category + row fallbacks.
 $report_product_category_sales = [];
 $report_service_category_sales = [];
-$pf_product_chart_bucket = pf_product_sales_chart_bucket_sql();
-$pf_product_chart_label = pf_product_sales_chart_label_sql();
-
 if (!$gaBranchEmpty) {
     try {
-        [$bpc, $btpc, $bppc] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$dwpc, $dtpc, $dppc] = $getDateWhere('o', 'order_date');
-        $report_product_category_sales = db_query(
-            "SELECT {$pf_product_chart_label} AS category,
-                    SUM(oi.quantity) AS items_sold,
-                    SUM(oi.quantity * oi.unit_price) AS total
-             FROM order_items oi
-             INNER JOIN products p ON p.product_id = oi.product_id
-             LEFT JOIN product_variants pv ON pv.variant_id = oi.variant_id
-             JOIN orders o ON oi.order_id = o.order_id
-             LEFT JOIN products pr ON pr.product_id = o.reference_id
-             LEFT JOIN services sr ON sr.service_id = o.reference_id
-             WHERE (
-                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
-                 OR o.status = 'Completed'
-               )
-               {$dwpc} {$bpc}
-             GROUP BY {$pf_product_chart_bucket}
-             ORDER BY total DESC",
-            $dtpc . $btpc,
-            array_merge($dppc, $bppc)
-        ) ?: [];
+        $report_product_category_sales = pf_reports_sales_by_product_category(
+            $from,
+            $toEnd,
+            $globalAnalyticsBranchId
+        );
     } catch (Throwable $e) {
         $report_product_category_sales = [];
     }
