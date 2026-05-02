@@ -9,6 +9,25 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 
+function pos_payload_item_is_service(array $item): bool {
+    if (!empty($item['is_service'])) {
+        return true;
+    }
+
+    $customization = $item['customization'] ?? null;
+    if (is_array($customization)) {
+        if (!empty($customization['service_id']) || !empty($customization['service_type'])) {
+            return true;
+        }
+        $source = strtoupper(trim((string)($customization['source'] ?? '')));
+        if ($source === 'POS') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function pos_table_has_column(string $table, string $column): bool {
     static $cache = [];
     $key = $table . '.' . $column;
@@ -404,7 +423,7 @@ $actual_product_ids = [];
 foreach ($items as $item) {
     $product_id = (int)$item['id'];
     $qty = (int)$item['qty'];
-    $is_service_item = isset($item['is_service']) && $item['is_service'];
+    $is_service_item = pos_payload_item_is_service((array)$item);
 
     $product = db_query("SELECT price, name FROM products WHERE product_id = ?", 'i', [$product_id]);
     if (!$product) {
@@ -450,7 +469,7 @@ try {
     // Determine order_type based on cart content
     $has_service = false;
     foreach ($items as $item) {
-        if (isset($item['is_service']) && $item['is_service']) {
+        if (pos_payload_item_is_service((array)$item)) {
             $has_service = true;
             break;
         }
@@ -485,7 +504,7 @@ try {
         $name = $item['name'] ?? $prod_name;
         
         // Detect if this specific item is a service or customized product
-        $is_service = (isset($item['is_service']) && $item['is_service']);
+        $is_service = pos_payload_item_is_service((array)$item);
         
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];

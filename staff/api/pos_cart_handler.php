@@ -205,6 +205,20 @@ try {
             break;
     }
 
+    // Normalize legacy cart rows so service items never hit product stock checks.
+    $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+    foreach ($_SESSION['pos_cart'] as &$cartItem) {
+        $isServiceItem = pos_cart_item_is_service((array)$cartItem);
+        $cartItem['is_service'] = $isServiceItem;
+        if ($isServiceItem) {
+            $cartItem['stock'] = null;
+            continue;
+        }
+        [$latestStock] = printflow_product_effective_stock((int)($cartItem['product_id'] ?? 0), $pos_branch_id);
+        $cartItem['stock'] = (int)$latestStock;
+    }
+    unset($cartItem);
+
     session_write_close();
     echo json_encode([
         'success' => true,
