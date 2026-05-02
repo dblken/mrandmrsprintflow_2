@@ -394,7 +394,8 @@ function printflow_merge_nested_service_fields_into_customization(array $field_c
             if ($parent_key === 'branch') {
                 $parent_submitted_value = $post['branch_id'] ?? null;
             }
-            if ((string)$parent_submitted_value !== (string)$trigger_value) {
+            // Match order_service_dynamic.php (uses !=) so numeric/string branch & option values still align.
+            if ($parent_submitted_value != $trigger_value) {
                 continue;
             }
         }
@@ -409,7 +410,7 @@ function printflow_merge_nested_service_fields_into_customization(array $field_c
             if ($optionValue === '') {
                 continue;
             }
-            if ((string)$selected !== (string)$optionValue) {
+            if (strcasecmp((string)$selected, (string)$optionValue) !== 0) {
                 continue;
             }
 

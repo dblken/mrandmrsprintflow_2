@@ -448,7 +448,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     }
                 }
                 
-                if ($key === 'branch' || $key === $quantity_field_key) {
+                if ($key === 'branch') {
+                    continue;
+                }
+                if ($key === $quantity_field_key && ($config['type'] ?? '') === 'quantity') {
+                    $customization[$spec_label($config, $key)] = (string)$quantity;
                     continue;
                 }
 
@@ -510,7 +514,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             if ($branch_id > 0) {
                 $branch_row = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$branch_id]);
                 if (!empty($branch_row) && trim((string)($branch_row[0]['branch_name'] ?? '')) !== '') {
-                    $customization['branch'] = $branch_row[0]['branch_name'];
+                    $branchLabel = 'Branch';
+                    foreach ($field_configs as $bk => $bc) {
+                        if ($bk === 'branch' && !empty($bc['visible'])) {
+                            $branchLabel = $spec_label($bc, $bk);
+                            break;
+                        }
+                    }
+                    $customization[$branchLabel] = $branch_row[0]['branch_name'];
                 }
             }
             $customization['service_id'] = $service_id;

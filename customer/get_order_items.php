@@ -53,6 +53,7 @@ register_shutdown_function(function() {
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
+require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
 require_role('Customer');
 
@@ -107,7 +108,132 @@ function customer_order_items_merge_customization_payload(array $primary, array 
     return $merged;
 }
 
-$base_path = defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
+/**
+ * Align branch / quantity labels with admin-configured service_field_configs (no hardcoded service-specific labels).
+ * Fills branch from orders.branch_name when specs omit it (legacy rows).
+ */
+function customer_order_items_normalize_service_specs_for_modal(array $custom_data, array $order, array $item, bool $is_service_order): array {
+    if (!$is_service_order) {
+        return $custom_data;
+    }
+
+    $sid = (int)($custom_data['service_id'] ?? 0);
+    if ($sid <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+        $sid = (int)($order['reference_id'] ?? 0);
+    }
+
+    $branchLabel = 'Branch';
+    $quantityLabel = 'Quantity';
+    if ($sid > 0 && function_exists('get_service_field_config')) {
+        $configs = get_service_field_config($sid);
+        if (is_array($configs)) {
+            foreach ($configs as $fk => $cfg) {
+                if (!is_array($cfg)) {
+                    continue;
+                }
+                $l = trim((string)($cfg['label'] ?? ''));
+                $disp = $l !== '' ? $l : trim((string)$fk);
+                if ($fk === 'branch') {
+                    $branchLabel = $disp;
+                }
+                if (($cfg['type'] ?? '') === 'quantity') {
+                    $quantityLabel = $disp;
+                }
+            }
+        }
+    }
+
+    if (array_key_exists('branch', $custom_data)) {
+        $legacyBranch = trim((string)$custom_data['branch']);
+        unset($custom_data['branch']);
+        if ($legacyBranch !== '') {
+            $already = false;
+            foreach ($custom_data as $k => $v) {
+                if (strcasecmp(trim((string)$k), $branchLabel) === 0 && trim((string)$v) !== '') {
+                    $already = true;
+                    break;
+                }
+            }
+            if (!$already) {
+                $custom_data[$branchLabel] = $legacyBranch;
+            }
+        }
+    }
+
+    $hasBranchSpec = false;
+    foreach ($custom_data as $k => $v) {
+        $kk = strtolower(trim((string)$k));
+        $vv = is_scalar($v) || $v === null ? trim((string)$v) : '';
+        if ($vv === '') {
+            continue;
+        }
+        if (strcasecmp($kk, strtolower($branchLabel)) === 0 || str_contains($kk, 'branch') || str_contains($kk, 'pickup')) {
+            $hasBranchSpec = true;
+            break;
+        }
+    }
+    $orderBranch = trim((string)($order['branch_name'] ?? ''));
+    if (!$hasBranchSpec && $orderBranch !== '') {
+        $custom_data[$branchLabel] = $orderBranch;
+    }
+
+    $qtyVal = max(1, (int)($item['quantity'] ?? 0));
+    $hasQty = false;
+    foreach (array_keys($custom_data) as $k) {
+        $kk = trim((string)$k);
+        if (strcasecmp($kk, $quantityLabel) === 0 || strcasecmp($kk, 'quantity') === 0) {
+            $hasQty = true;
+            break;
+        }
+    }
+    if (!$hasQty && $qtyVal > 0) {
+        $custom_data[$quantityLabel] = (string)$qtyVal;
+    }
+
+    return $custom_data;
+}
+
+/**
+ * Reorder customization keys to match service_field_configs display order (labels only; extras appended).
+ */
+function customer_order_items_sort_customization_by_service_config(array $custom_data, int $serviceId): array {
+    $serviceId = (int)$serviceId;
+    if ($serviceId <= 0 || !function_exists('get_service_field_config')) {
+        return $custom_data;
+    }
+
+    $configs = get_service_field_config($serviceId);
+    if (!is_array($configs) || $configs === []) {
+        return $custom_data;
+    }
+
+    $ordered = [];
+    $used = [];
+    foreach ($configs as $fk => $cfg) {
+        if (!is_array($cfg) || empty($cfg['visible'])) {
+            continue;
+        }
+        $l = trim((string)($cfg['label'] ?? ''));
+        $label = $l !== '' ? $l : trim((string)$fk);
+        foreach ($custom_data as $ck => $cv) {
+            if (!empty($used[$ck])) {
+                continue;
+            }
+            if (strcasecmp(trim((string)$ck), $label) === 0) {
+                $ordered[$ck] = $cv;
+                $used[$ck] = true;
+                break;
+            }
+        }
+    }
+    foreach ($custom_data as $ck => $cv) {
+        if (empty($used[$ck])) {
+            $ordered[$ck] = $cv;
+        }
+    }
+
+    return $ordered;
+}
 
 $order_id = (int)($_GET['id'] ?? 0);
 $customer_id = get_user_id();
@@ -414,6 +540,16 @@ foreach ($items as $lineIndex => $item) {
 
     $custom_data = customer_orders_enrich_line_customization($custom_data, $order);
     unset($custom_data['design_upload'], $custom_data['reference_upload']);
+
+    $custom_data = customer_order_items_normalize_service_specs_for_modal($custom_data, $order, $item, $is_service_order);
+
+    if ($is_service_order) {
+        $sidForSort = (int)($custom_data['service_id'] ?? 0);
+        if ($sidForSort <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+            $sidForSort = (int)($order['reference_id'] ?? 0);
+        }
+        $custom_data = customer_order_items_sort_customization_by_service_config($custom_data, $sidForSort);
+    }
 
     $raw_quantity = max(1, (int)($item['quantity'] ?? 0));
     $raw_unit_price = (float)($item['unit_price'] ?? 0);
