@@ -2000,28 +2000,10 @@ class JobOrderService {
                 '_use_job_title_fallback' => $useJobLineFallback,
             ];
             $name = customer_orders_primary_item_name($orderLike);
-            $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
-                ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity, true)
-                : $custom;
-            if (is_array($custom) && $custom !== [] && function_exists('printflow_modal_customization_fallback_flatten_for_staff')) {
-                $staffExtra = printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity);
-                if (is_array($staffExtra) && $staffExtra !== []) {
-                    foreach ($staffExtra as $k => $v) {
-                        if (!array_key_exists($k, $customForPayload) || trim((string)($customForPayload[$k] ?? '')) === '') {
-                            $customForPayload[$k] = $v;
-                        }
-                    }
-                }
-            }
-            if (is_array($custom) && $custom !== []) {
-                $flatCount = is_array($customForPayload) ? count($customForPayload) : 0;
-                if ($flatCount < 2) {
-                    $fallbackFlat = printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity);
-                    if (count($fallbackFlat) > $flatCount) {
-                        $customForPayload = $fallbackFlat;
-                    }
-                }
-            }
+            // Staff view: preserve ALL customization fields so dynamic service orders
+            // (Brochure, Stickers, Mugs, Poster, Raffle, Reflectorized, T-shirt) show
+            // the same specs as the customer side. Only strip truly internal/temp keys.
+            $customForPayload = self::buildStaffCustomizationPayload($custom, $quantity);
 
             $items_out[] = array_merge([
                 'order_item_id' => (int)($item['order_item_id'] ?? 0),
@@ -2458,5 +2440,97 @@ class JobOrderService {
             $conn->rollback();
             throw $e;
         }
+    }
+
+    /**
+     * Build the customization payload for the staff modal.
+     * Unlike the customer-facing flatten, this preserves ALL non-internal fields
+     * so dynamic service orders (Brochure, Stickers, Mugs, Poster, Raffle,
+     * Reflectorized, T-shirt) display the same specs as the customer side.
+     *
+     * @param array<string,mixed> $custom  Merged customization array
+     * @param int                 $quantity Line quantity
+     * @return array<string,string>
+     */
+    public static function buildStaffCustomizationPayload(array $custom, int $quantity): array
+    {
+        if ($custom === []) {
+            return $quantity > 0 ? ['Quantity' => (string)$quantity] : [];
+        }
+
+        // Keys that are purely internal/temp and must never be shown to staff.
+        static $internalKeys = [
+            'design_tmp_path', 'reference_tmp_path',
+            'design_mime',     'reference_mime',
+            'cart_key',        '_cart_key',
+            'config_id',       'form_type',
+            'source_page',     'source',
+            'layout_file',     'reference_file',
+            'install_province','install_city',
+            'install_barangay','install_street',
+        ];
+
+        $out = [];
+        foreach ($custom as $k => $v) {
+            if (!is_string($k) && !is_int($k)) {
+                continue;
+            }
+            $k = (string)$k;
+            if ($k === '' || $k[0] === '_') {
+                continue;
+            }
+            if (in_array($k, $internalKeys, true)) {
+                continue;
+            }
+            if ($v === null || $v === '') {
+                continue;
+            }
+            if (is_string($v) && trim($v) === '') {
+                continue;
+            }
+            if (is_array($v)) {
+                // Convert arrays to a readable string
+                $v = function_exists('pf_order_ui_value_to_text')
+                    ? pf_order_ui_value_to_text($v)
+                    : implode(', ', array_filter(array_map('strval', $v)));
+                if (trim((string)$v) === '') {
+                    continue;
+                }
+            }
+            // Format date values
+            $kLower = strtolower($k);
+            $text   = (string)$v;
+            if ((str_contains($kLower, 'date') || str_contains($kLower, 'needed'))
+                && preg_match('/^\d{4}-\d{2}-\d{2}/', $text)
+                && function_exists('format_date')
+            ) {
+                $ts = strtotime(substr($text, 0, 10));
+                if ($ts !== false) {
+                    $text = format_date(substr($text, 0, 10));
+                }
+            }
+            $out[$k] = $text;
+        }
+
+        // Deduplicate keys that differ only in casing/spacing (keep the more human-readable one)
+        $seen  = [];
+        $final = [];
+        foreach ($out as $k => $v) {
+            $norm = strtolower(preg_replace('/[\s_\-]+/', '', $k));
+            if (isset($seen[$norm])) {
+                // Prefer the key with spaces (display label) over snake_case
+                $prev = $seen[$norm];
+                if (strlen($k) > strlen($prev) || preg_match('/\s/', $k)) {
+                    unset($final[$prev]);
+                    $final[$k]    = $v;
+                    $seen[$norm]  = $k;
+                }
+                continue;
+            }
+            $seen[$norm] = $k;
+            $final[$k]   = $v;
+        }
+
+        return $final;
     }
 }
