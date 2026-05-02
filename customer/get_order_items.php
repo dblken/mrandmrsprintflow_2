@@ -76,6 +76,9 @@ function customer_order_items_decode_customization_payload($raw): array {
         return [];
     }
     $decoded = json_decode($raw, true);
+    if (is_string($decoded)) {
+        $decoded = json_decode($decoded, true);
+    }
     return is_array($decoded) ? $decoded : [];
 }
 
@@ -154,6 +157,15 @@ if ($is_rejected_payment) {
 $service_final_price_pending_statuses = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
 $service_final_price_locked = in_array((string)($order['status'] ?? ''), $service_final_price_pending_statuses, true);
 
+$valid_order_item_ids = [];
+$valid_line_rows = db_query('SELECT order_item_id FROM order_items WHERE order_id = ?', 'i', [$order_id]) ?: [];
+foreach ($valid_line_rows as $vr) {
+    $lid = (int)($vr['order_item_id'] ?? 0);
+    if ($lid > 0) {
+        $valid_order_item_ids[$lid] = true;
+    }
+}
+
 $customization_rows = db_query(
     "SELECT customization_id, order_item_id, service_type, customization_details
      FROM customizations
@@ -184,7 +196,8 @@ foreach ($customization_rows as $cRow) {
     }
 
     $orderItemId = (int)($cRow['order_item_id'] ?? 0);
-    if ($orderItemId <= 0) {
+    // Order-level rows, or stale/wrong order_item_id (specs still need to show on every line).
+    if ($orderItemId <= 0 || !isset($valid_order_item_ids[$orderItemId])) {
         $orphan_customization_details = array_replace($orphan_customization_details, $details);
         if ($serviceType !== '' && trim((string)($orphan_customization_details['service_type'] ?? '')) === '') {
             $orphan_customization_details['service_type'] = $serviceType;

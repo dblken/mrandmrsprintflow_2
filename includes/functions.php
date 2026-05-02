@@ -2463,6 +2463,9 @@ function customer_orders_decode_customization_payload($raw): array {
         return [];
     }
     $decoded = json_decode($raw, true);
+    if (is_string($decoded)) {
+        $decoded = json_decode($decoded, true);
+    }
     return is_array($decoded) ? $decoded : [];
 }
 
@@ -2740,7 +2743,22 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
     }
 
     foreach (
-        ['customization', 'specs', 'specifications', 'form_data', 'form_values', 'fields', 'responses', 'answers']
+        [
+            'customization',
+            'customization_details',
+            'specs',
+            'specifications',
+            'form_data',
+            'form_values',
+            'fields',
+            'responses',
+            'answers',
+            'data',
+            'details',
+            'values',
+            'payload',
+            'order_spec',
+        ]
         as $wrap
     ) {
         if (!isset($custom[$wrap]) || !is_array($custom[$wrap])) {
