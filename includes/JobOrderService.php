@@ -1146,22 +1146,32 @@ class JobOrderService {
         return get_service_name_from_customization($custom, '') !== '';
     }
 
-    private static function buildStoreOrderItemAssetMeta(array $item, int $fallbackDesignOrderItemId = 0, ?array $fallbackDesignMeta = null): array {
+    private static function buildStoreOrderItemAssetMeta(array $item, int $fallbackDesignOrderItemId = 0, ?array $fallbackDesignMeta = null, array $custom = []): array {
         $lineOrderItemId = (int)($item['order_item_id'] ?? 0);
-        $hasOwnDesign = !empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '';
+        $hasOwnDesign = !empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '' || !empty($custom['design_upload']);
         $designServeId = $hasOwnDesign
             ? $lineOrderItemId
             : (($lineOrderItemId === 0 && $fallbackDesignOrderItemId > 0) ? $fallbackDesignOrderItemId : 0);
-        $designOpenUrl = $designServeId > 0
-            ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $designServeId
-            : null;
+        $designOpenUrl = null;
+        if (!empty($custom['design_upload'])) {
+            $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
+        } elseif ($designServeId > 0) {
+            $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $designServeId;
+        }
 
         $designName = trim((string)($item['design_image_name'] ?? ''));
+        if ($designName === '' && !empty($custom['design_upload']) && is_string($custom['design_upload'])) {
+            $designName = basename($custom['design_upload']);
+        }
         $designIsImage = false;
         if ($hasOwnDesign) {
-            $designIsImage = function_exists('printflow_order_item_has_previewable_design')
-                ? printflow_order_item_has_previewable_design($item)
-                : false;
+            if (!empty($custom['design_upload'])) {
+                $designIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image((string)$custom['design_upload']) : false;
+            } else {
+                $designIsImage = function_exists('printflow_order_item_has_previewable_design')
+                    ? printflow_order_item_has_previewable_design($item)
+                    : false;
+            }
             if ($designName === '' && !empty($item['design_file'])) {
                 $designPath = parse_url((string)$item['design_file'], PHP_URL_PATH);
                 $designName = basename(is_string($designPath) && $designPath !== '' ? $designPath : (string)$item['design_file']);
@@ -1183,14 +1193,25 @@ class JobOrderService {
             }
         }
 
-        $referenceOpenUrl = ($lineOrderItemId > 0 && !empty($item['reference_image_file']))
-            ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId . '&field=reference'
-            : null;
-        $referenceIsImage = !empty($item['reference_image_file']) && function_exists('printflow_media_path_looks_like_image')
-            ? printflow_media_path_looks_like_image((string)($item['reference_image_file'] ?? ''))
-            : false;
+        $referenceOpenUrl = null;
+        if (!empty($custom['reference_upload'])) {
+            $referenceOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId . '&field=reference';
+        } elseif ($lineOrderItemId > 0 && !empty($item['reference_image_file'])) {
+            $referenceOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId . '&field=reference';
+        }
+        
+        $referenceIsImage = false;
+        if (!empty($custom['reference_upload'])) {
+             $referenceIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image((string)$custom['reference_upload']) : false;
+        } elseif (!empty($item['reference_image_file'])) {
+             $referenceIsImage = function_exists('printflow_media_path_looks_like_image')
+                ? printflow_media_path_looks_like_image((string)($item['reference_image_file'] ?? ''))
+                : false;
+        }
         $referenceName = '';
-        if (!empty($item['reference_image_file'])) {
+        if (!empty($custom['reference_upload']) && is_string($custom['reference_upload'])) {
+            $referenceName = basename($custom['reference_upload']);
+        } elseif (!empty($item['reference_image_file'])) {
             $referencePath = parse_url((string)$item['reference_image_file'], PHP_URL_PATH);
             $referenceName = basename(is_string($referencePath) && $referencePath !== '' ? $referencePath : (string)$item['reference_image_file']);
         }
@@ -1753,7 +1774,8 @@ class JobOrderService {
             }
 
             $custom = customer_orders_enrich_line_customization($custom, $order);
-            unset($custom['design_upload'], $custom['reference_upload']);
+            // Preserving design_upload/reference_upload for asset metadata resolution below
+
 
             $custom = self::normalizeStoreOrderModalServiceSpecs($custom, $order, $item, $isServiceOrder);
 
@@ -1857,7 +1879,7 @@ class JobOrderService {
                 'category' => $item['category'] ?? '',
                 'quantity' => $quantity,
                 'customization' => $customForPayload,
-            ], self::buildStoreOrderItemAssetMeta($item, $anyDesignOrderItemId, $fallbackDesignMeta));
+            ], self::buildStoreOrderItemAssetMeta($item, $anyDesignOrderItemId, $fallbackDesignMeta, $custom));
         }
 
         $service_name = '';

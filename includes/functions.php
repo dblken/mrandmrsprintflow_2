@@ -3497,6 +3497,8 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
         $skip[] = 'Branch_ID';
         $skip[] = 'service_type';
         $skip[] = 'product_type';
+        $skip[] = 'notes';
+        $skip[] = 'additional_notes';
     }
     $out = [];
     $unnamed = 0;
