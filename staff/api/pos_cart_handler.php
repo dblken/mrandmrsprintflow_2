@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
+require_once __DIR__ . '/../../includes/product_branch_stock.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -20,6 +21,26 @@ header('Content-Type: application/json');
 // Initialize cart if not exists
 if (!isset($_SESSION['pos_cart'])) {
     $_SESSION['pos_cart'] = [];
+}
+
+function pos_cart_item_is_service(array $item): bool
+{
+    if (!empty($item['is_service'])) {
+        return true;
+    }
+
+    $customization = $item['customization'] ?? null;
+    if (is_array($customization)) {
+        if (!empty($customization['service_id']) || !empty($customization['service_type'])) {
+            return true;
+        }
+        $source = strtoupper(trim((string)($customization['source'] ?? '')));
+        if ($source === 'POS') {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 $json = file_get_contents('php://input');
@@ -44,18 +65,27 @@ try {
             $customization = $data['customization'] ?? null;
             $custom_json = $customization ? json_encode($customization) : null;
             $is_service = !empty($data['is_service']);
+            $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
 
-            // Fetch product info if missing price or name
-            if ($price === null || $name === null) {
-                $product = db_query("SELECT name, price, stock_quantity FROM products WHERE product_id = ?", 'i', [$product_id]);
-                if (empty($product)) throw new Exception('Product not found.');
-                if ($name === null) $name = $product[0]['name'];
-                if ($price === null) $price = (float)$product[0]['price'];
-                $stock = ($product[0]['stock_quantity'] !== null) ? (int)$product[0]['stock_quantity'] : null;
-            } else {
-                // For custom items, we might not have stock info easily without a lookup
-                $product = db_query("SELECT stock_quantity FROM products WHERE product_id = ?", 'i', [$product_id]);
-                $stock = (!empty($product) && $product[0]['stock_quantity'] !== null) ? (int)$product[0]['stock_quantity'] : null;
+            $product = db_query("SELECT name, price FROM products WHERE product_id = ?", 'i', [$product_id]);
+
+            // Fill missing display values from catalog when available.
+            if ($name === null) {
+                $name = !empty($product) ? (string)$product[0]['name'] : 'Service';
+            }
+            if ($price === null) {
+                $price = !empty($product) ? (float)$product[0]['price'] : 0.0;
+            }
+
+            // Services do not consume products.stock_quantity.
+            // For products, always use branch-effective stock so POS checks are accurate.
+            $stock = null;
+            if (!$is_service) {
+                if (empty($product)) {
+                    throw new Exception('Product not found.');
+                }
+                [$effectiveStock] = printflow_product_effective_stock($product_id, $pos_branch_id);
+                $stock = (int)$effectiveStock;
             }
 
             // Check if item already exists in cart (match product_id, price, and customization)
@@ -68,13 +98,17 @@ try {
                     $item['name'] === $name) {
                     
                     // Stock check
-                    if ($stock !== null && ($item['qty'] + $qty) > $stock) {
+                    $existingIsService = pos_cart_item_is_service($item) || $is_service;
+                    if (!$existingIsService && $stock !== null && ($item['qty'] + $qty) > $stock) {
                         throw new Exception('Cannot add more. Insufficient stock.');
                     }
                     
                     $item['qty'] += $qty;
                     // Preserve service flag when legacy cart rows are missing it.
-                    $item['is_service'] = !empty($item['is_service']) || $is_service;
+                    $item['is_service'] = $existingIsService;
+                    if ($existingIsService) {
+                        $item['stock'] = null;
+                    }
                     $found = true;
                     break;
                 }
@@ -82,7 +116,7 @@ try {
 
             if (!$found) {
                 // Stock check for new item
-                if ($stock !== null && $qty > $stock) {
+                if (!$is_service && $stock !== null && $qty > $stock) {
                     throw new Exception('Insufficient stock.');
                 }
                 
@@ -109,7 +143,16 @@ try {
             } else {
                 if ($qty > 100) throw new Exception('Quantity cannot exceed 100.');
                 $item = &$_SESSION['pos_cart'][$index];
-                if ($item['stock'] !== null && $qty > $item['stock']) {
+                $isServiceItem = pos_cart_item_is_service($item);
+                $item['is_service'] = $isServiceItem;
+                if (!$isServiceItem) {
+                    $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+                    [$latestStock] = printflow_product_effective_stock((int)$item['product_id'], $pos_branch_id);
+                    $item['stock'] = (int)$latestStock;
+                } else {
+                    $item['stock'] = null;
+                }
+                if (!$isServiceItem && $item['stock'] !== null && $qty > $item['stock']) {
                     throw new Exception('Insufficient stock.');
                 }
                 $item['qty'] = $qty;

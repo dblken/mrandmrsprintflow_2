@@ -201,6 +201,60 @@ class JobOrderService {
         }
     }
 
+    /**
+     * Force production-stage deductions from the context of a linked job row.
+     * This bypasses stale order status text by trusting the live job status that
+     * currently drives staff "In Production" workflow.
+     */
+    public static function ensureProductionDeductionsForJob(int $jobId): void {
+        if ($jobId <= 0) {
+            return;
+        }
+
+        $jobRows = db_query(
+            "SELECT order_id, status
+             FROM job_orders
+             WHERE id = ?
+             LIMIT 1",
+            'i',
+            [$jobId]
+        ) ?: [];
+        if (empty($jobRows)) {
+            return;
+        }
+
+        $status = self::normalizeWorkflowStatus((string)($jobRows[0]['status'] ?? ''));
+        if (!in_array($status, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'COMPLETED'], true)) {
+            return;
+        }
+
+        // Deduct for the active job record itself.
+        self::processDeductions($jobId, ['materials' => true, 'inks' => false]);
+
+        $storeOrderId = (int)($jobRows[0]['order_id'] ?? 0);
+        if ($storeOrderId <= 0) {
+            return;
+        }
+
+        // Also run on sibling jobs for the same order to avoid split-row drift.
+        $siblingRows = db_query(
+            "SELECT id
+             FROM job_orders
+             WHERE order_id = ?
+               AND status <> 'CANCELLED'
+             ORDER BY id ASC",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+        foreach ($siblingRows as $sibling) {
+            $siblingId = (int)($sibling['id'] ?? 0);
+            if ($siblingId <= 0 || $siblingId === $jobId) {
+                continue;
+            }
+            self::processDeductions($siblingId, ['materials' => true, 'inks' => false]);
+        }
+    }
+
     private static function cleanupLegacyAutoAssignedMaterials(int $jobId, int $storeOrderId = 0, string $serviceType = ''): void {
         if ($jobId <= 0 || $storeOrderId <= 0 || $serviceType === '' || !self::tableHasColumn('job_order_materials', 'std_order_id')) {
             return;

@@ -843,6 +843,30 @@ try {
                     ));
                 }
             }
+            if ($mapped_status === 'IN_PRODUCTION') {
+                try {
+                    $linkedJobForDeduction = db_query(
+                        "SELECT id
+                         FROM job_orders
+                         WHERE order_id = ?
+                           AND status NOT IN ('COMPLETED', 'CANCELLED')
+                         ORDER BY id ASC
+                         LIMIT 1",
+                        'i',
+                        [(int)($cust['order_id'] ?? 0)]
+                    ) ?: [];
+                    $linkedJobId = (int)($linkedJobForDeduction[0]['id'] ?? 0);
+                    if ($linkedJobId > 0) {
+                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
+                    }
+                } catch (Throwable $syncErr) {
+                    error_log(sprintf(
+                        'PrintFlow customization job-level deduction sync failed for order %d: %s',
+                        (int)($cust['order_id'] ?? 0),
+                        $syncErr->getMessage()
+                    ));
+                }
+            }
 
             // Determine payment proof status
             $payment_proof_status = 'NONE';
@@ -1153,6 +1177,30 @@ try {
                 } catch (Throwable $syncErr) {
                     error_log(sprintf(
                         'PrintFlow order deduction sync failed for order %d: %s',
+                        $order_id,
+                        $syncErr->getMessage()
+                    ));
+                }
+            }
+            if ($order_id > 0 && $mapped_status === 'IN_PRODUCTION') {
+                try {
+                    $linkedJobRows = db_query(
+                        "SELECT id
+                         FROM job_orders
+                         WHERE order_id = ?
+                           AND status NOT IN ('COMPLETED', 'CANCELLED')
+                         ORDER BY id ASC
+                         LIMIT 1",
+                        'i',
+                        [$order_id]
+                    ) ?: [];
+                    $linkedJobId = (int)($linkedJobRows[0]['id'] ?? 0);
+                    if ($linkedJobId > 0) {
+                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
+                    }
+                } catch (Throwable $syncErr) {
+                    error_log(sprintf(
+                        'PrintFlow regular-order job-level deduction sync failed for order %d: %s',
                         $order_id,
                         $syncErr->getMessage()
                     ));
