@@ -62,8 +62,10 @@ function pf_reports_sql_alias(string $alias, string $fallback): string {
 
 /**
  * Product-order scope shared by analytics queries.
- * Excludes service/custom rows stored in order_items unless they came from
- * product/dynamic catalog flows that are treated as product sales.
+ * Excludes pure service lines on custom orders unless the line is tied to the
+ * product catalog (FK to `products`) or has product/dynamic-flow JSON markers.
+ * — Header `order_type = 'custom'` applies to whole orders (e.g. mixed cart, dynamic
+ *   product checkout), so we must not drop lines that still reference a real SKU.
  */
 function pf_product_sales_scope_sql(string $orderAlias = 'o', string $itemAlias = 'oi'): string {
     $orderAlias = pf_reports_sql_alias($orderAlias, 'o');
@@ -71,6 +73,13 @@ function pf_product_sales_scope_sql(string $orderAlias = 'o', string $itemAlias 
 
     return "(
                 LOWER(TRIM(COALESCE({$orderAlias}.order_type, ''))) != 'custom'
+                OR (
+                    COALESCE({$itemAlias}.product_id, 0) > 0
+                    AND EXISTS (
+                        SELECT 1 FROM products pf_line_is_product
+                        WHERE pf_line_is_product.product_id = {$itemAlias}.product_id
+                    )
+                )
                 OR {$itemAlias}.customization_data LIKE '%\"config_id\"%'
                 OR {$itemAlias}.customization_data LIKE '%\"form_type\":\"dynamic\"%'
                 OR {$itemAlias}.customization_data LIKE '%\"form_type\": \"dynamic\"%'
