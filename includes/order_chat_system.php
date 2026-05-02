@@ -29,7 +29,7 @@ function printflow_send_order_update($order_id, $message, $action_type = 'view_s
     }
 
     // Resolve base path for relative thumbnails
-    $base = (defined('BASE_PATH')) ? BASE_PATH : '';
+    $base = function_exists('printflow_notification_base_path') ? printflow_notification_base_path() : ((defined('BASE_PATH')) ? BASE_PATH : '');
 
     // Default thumbnails if not provided
     if (empty($thumbnail)) {

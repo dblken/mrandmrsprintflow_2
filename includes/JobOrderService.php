@@ -1291,10 +1291,7 @@ class JobOrderService {
     }
 
     private static function normalizeStoreOrderModalServiceSpecs(array $custom, array $order, array $item, bool $isServiceOrder): array {
-        if (!$isServiceOrder) {
-            return $custom;
-        }
-
+        // Apply normalization to all orders (including product-only checkouts) to ensure Branch, Needed Date, and Notes are visible to staff.
         require_once __DIR__ . '/service_field_config_helper.php';
 
         $serviceId = (int)($custom['service_id'] ?? 0);
@@ -1322,6 +1319,26 @@ class JobOrderService {
                     if (($cfg['type'] ?? '') === 'quantity') {
                         $quantityLabel = $display;
                     }
+                }
+            }
+        }
+
+        // Standardize keys from job-order merges or technical data
+        $keyMap = [
+            'due_date'    => 'Needed Date',
+            'branch_name' => $branchLabel,
+            'branch_id'   => 'Branch_ID',
+            'notes'       => 'Notes',
+            'job_notes'   => 'Notes',
+            'quantity'    => $quantityLabel,
+        ];
+        foreach ($keyMap as $technical => $human) {
+            if (isset($custom[$technical]) && trim((string)$custom[$technical]) !== '') {
+                if (!isset($custom[$human]) || trim((string)$custom[$human]) === '') {
+                    $custom[$human] = $custom[$technical];
+                }
+                if ($technical !== $human) {
+                    unset($custom[$technical]);
                 }
             }
         }
@@ -1713,10 +1730,12 @@ class JobOrderService {
         }
 
         $jobOrdersList = db_query(
-            "SELECT job_title, service_type, width_ft, height_ft, notes, total_sqft
-             FROM job_orders
-             WHERE order_id = ?
-             ORDER BY id ASC",
+            "SELECT jo.job_title, jo.service_type, jo.width_ft, jo.height_ft, jo.notes, jo.total_sqft,
+                    jo.due_date, b.branch_name
+             FROM job_orders jo
+             LEFT JOIN branches b ON b.id = jo.branch_id
+             WHERE jo.order_id = ?
+             ORDER BY jo.id ASC",
             'i',
             [$storeOrderId]
         ) ?: [];

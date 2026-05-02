@@ -2889,6 +2889,13 @@ function customer_orders_merge_job_order_row_into_customization(array $custom, ?
         $setIfMissing($custom, 'service_type', $jt);
     }
 
+    if (!empty($jobRow['due_date'])) {
+        $setIfMissing($custom, 'due_date', $jobRow['due_date']);
+    }
+    if (!empty($jobRow['branch_name'])) {
+        $setIfMissing($custom, 'branch_name', $jobRow['branch_name']);
+    }
+
     return $custom;
 }
 
@@ -4828,7 +4835,7 @@ function get_services_image_map() {
         'signage'     => $base . '/public/images/products/signage.jpg',
         'sintraboard' => $base . '/public/images/products/standeeflat.jpg',
         'standee'     => $base . '/public/images/products/standeeflat.jpg',
-        'souvenir'    => $base . '/public/assets/images/services/default.png',
+        'souvenir'   => $base . '/public/assets/images/services/souvenir.png',
     ];
 }
 
@@ -5190,7 +5197,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
     );
     $item = !empty($item) ? $item[0] : null;
 
-    $base          = rtrim(BASE_URL, '/');
+    $base          = printflow_notification_base_path();
     $customization = [];
     if (!empty($item['customization_data'])) {
         $customization = printflow_decode_modal_customization_payload((string)$item['customization_data']);
