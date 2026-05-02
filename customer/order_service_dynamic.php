@@ -469,7 +469,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             if (!empty($notes)) {
                 $customization['notes'] = $notes;
             }
-            
+            $customization['service_id'] = $service_id;
+            if (empty($customization['service_type'])) {
+                $customization['service_type'] = $service['name'];
+            }
+
             // Calculate estimated price dynamically based on selected options
             $base_price = (float)($service['base_price'] ?? 0);
             $options_total = 0;

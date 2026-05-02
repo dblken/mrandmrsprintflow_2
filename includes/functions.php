@@ -2523,13 +2523,13 @@ function customer_orders_primary_customization(array $order): array {
 
     if ($sid > 0) {
         $byId = customer_orders_resolve_service_name_by_id($sid);
-        if ($byId !== '' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+        if ($byId !== '') {
             $merged['service_type'] = $byId;
         }
     }
 
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
-    if ($orderType === 'custom' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+    if ($orderType === 'custom' && $sid <= 0) {
         $ref = (int)($order['reference_id'] ?? 0);
         if ($ref > 0) {
             $byRef = customer_orders_resolve_service_name_by_id($ref);
@@ -2553,11 +2553,10 @@ function customer_orders_enrich_line_customization(array $merged, array $order):
     $sid = (int)($merged['service_id'] ?? 0);
     if ($sid > 0) {
         $byId = customer_orders_resolve_service_name_by_id($sid);
-        if ($byId !== '' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+        if ($byId !== '') {
             $merged['service_type'] = $byId;
         }
-    }
-    if ($orderType === 'custom' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+    } elseif ($orderType === 'custom') {
         $ref = (int)($order['reference_id'] ?? 0);
         if ($ref > 0) {
             $byRef = customer_orders_resolve_service_name_by_id($ref);
@@ -2628,12 +2627,13 @@ function customer_orders_merge_job_order_row_into_customization(array $custom, ?
     }
 
     $jst = isset($jobRow['service_type']) ? trim((string)$jobRow['service_type']) : '';
-    if ($jst !== '') {
+    $lineServiceId = (int)($custom['service_id'] ?? 0);
+    if ($lineServiceId <= 0 && $jst !== '') {
         $setIfMissing($custom, 'service_type', $jst);
     }
 
     $jt = isset($jobRow['job_title']) ? trim((string)$jobRow['job_title']) : '';
-    if ($jt !== '' && (empty($custom['service_type']) || customer_orders_is_generic_item_name((string)$custom['service_type']))) {
+    if ($lineServiceId <= 0 && $jt !== '' && (empty($custom['service_type']) || customer_orders_is_generic_item_name((string)$custom['service_type']))) {
         $setIfMissing($custom, 'service_type', $jt);
     }
 
@@ -2812,11 +2812,49 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
 }
 
 /**
+ * Hide all-zero dimension noise from customer order modal (job placeholders / unused ft fields on inch-based forms).
+ */
+function printflow_modal_spec_value_is_empty_noise(string $key, $rawVal, string $displayText): bool {
+    $k = strtolower(preg_replace('/[\s-]+/', '_', $key));
+    $isDim =
+        str_contains($k, 'dimension')
+        || str_contains($k, 'width')
+        || str_contains($k, 'height')
+        || str_contains($k, 'sqft')
+        || str_contains($k, 'sq_ft')
+        || str_contains($k, 'size_'); // e.g. size_ft, not plain "size" (often "3×4 in")
+
+    if (!$isDim) {
+        return false;
+    }
+
+    if (is_numeric($rawVal) && abs((float)$rawVal) < 1e-8) {
+        return true;
+    }
+
+    $t = trim($displayText);
+    if ($t === '' || $t === '0' || $t === '0.0' || $t === '0.00' || $t === '0.000') {
+        return true;
+    }
+
+    if (is_numeric(str_replace([',', ' '], '', $t)) && abs((float)str_replace([',', ' '], '', $t)) < 1e-8) {
+        return true;
+    }
+
+    $collapse = preg_replace('/\s+/', ' ', $t);
+
+    return (bool)preg_match(
+        '/^(?:0+(?:\\.0+)?\\s*[×x]\\s*)+0+(?:\\.0+)?(?:\\s*(?:ft|in|cm|m))?$/iu',
+        $collapse
+    );
+}
+
+/**
  * Prepare customization key/values for customer order details modal (human-readable strings, no binary/temp fields).
  */
 function printflow_flatten_order_customization_for_customer_modal(array $custom): array {
     $custom = printflow_normalize_customization_for_modal($custom);
-    $skip = ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime'];
+    $skip = ['design_upload', 'reference_upload', 'design_tmp_path', 'reference_tmp_path', 'reference_mime', 'design_mime', 'service_id'];
     $out = [];
     $unnamed = 0;
     foreach ($custom as $k => $v) {
@@ -2840,6 +2878,9 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
             ? pf_order_ui_value_to_text($v)
             : (is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : (string)$v);
         if (trim((string)$text) === '') {
+            continue;
+        }
+        if (printflow_modal_spec_value_is_empty_noise($k, $v, (string)$text)) {
             continue;
         }
         $out[$k] = $text;
@@ -3621,6 +3662,14 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
     $custom = is_string($custom) ? json_decode($custom, true) : $custom;
     if (!is_array($custom)) return $fallback;
 
+    $sidEarly = (int)($custom['service_id'] ?? 0);
+    if ($sidEarly > 0) {
+        $fromCatalog = customer_orders_resolve_service_name_by_id($sidEarly);
+        if ($fromCatalog !== '') {
+            return $fromCatalog;
+        }
+    }
+
     $explicit_service_label = static function ($value): string {
         $raw = trim((string)$value);
         if ($raw === '') {
@@ -3708,8 +3757,8 @@ function get_service_name_from_customization($custom, $fallback = 'Custom Order'
     ) {
         return 'Reflectorized';
     }
-    // 4. Decals/Stickers
-    if (!empty($custom['sticker_type']) || !empty($custom['Sticker Type']) || !empty($custom['shape']) || !empty($custom['Cut_Type'])) {
+    // 4. Decals/Stickers — require sticker-specific fields; do not use `shape` alone (mug/merch forms reuse "shape").
+    if (!empty($custom['sticker_type']) || !empty($custom['Sticker Type']) || !empty($custom['Cut_Type'])) {
         return 'Decals/Stickers (Print/Cut)';
     }
 
