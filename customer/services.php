@@ -124,8 +124,7 @@ function pf_service_card_primary_image(string $display_csv, string $hero, string
 }
 
 function pf_service_media_is_video($path) {
-    $path = strtolower((string)$path);
-    return (bool)preg_match('/\.(mp4|webm|mov|m4v)(?:[\?#].*)?$/', $path);
+    return printflow_is_video_media_path((string) $path);
 }
 
 // Fetch services from DB

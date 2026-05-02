@@ -2009,6 +2009,18 @@ function printflow_notification_normalize_media_url(string $path): string {
     return $path;
 }
 
+/**
+ * Whether a path or URL points at video media (thumbnail URLs must skip these for <img>).
+ */
+function printflow_is_video_media_path(string $path): bool {
+    $path = strtolower(str_replace('\\', '/', trim($path)));
+    if ($path === '') {
+        return false;
+    }
+
+    return (bool) preg_match('/\.(mp4|webm|mov|m4v)(?:[\?#].*)?$/', $path);
+}
+
 function printflow_notification_local_media_exists(string $urlPath): bool {
     $urlPath = trim($urlPath);
     if ($urlPath === '') {
@@ -2031,38 +2043,69 @@ function printflow_notification_local_media_exists(string $urlPath): bool {
         return false;
     }
 
-    $clean = '/' . ltrim((string)$clean, '/');
-    $local = realpath(__DIR__ . '/..' . $clean);
+    $clean = '/' . ltrim((string) $clean, '/');
     $root = realpath(__DIR__ . '/..');
-
-    if ($local === false || $root === false) {
+    if ($root === false) {
         return false;
     }
-    return strpos($local, $root) === 0 && is_file($local);
+
+    // Same dual-path resolution as customer/services.php `pf_service_local_asset_exists`:
+    // uploads may live under project root or under /public/.
+    $diskCandidates = [$root . $clean];
+    if (strpos($clean, '/uploads/') === 0 || strpos($clean, '/public/') === 0) {
+        $suffix = strpos($clean, '/public/') === 0
+            ? substr($clean, strlen('/public'))
+            : $clean;
+        $diskCandidates[] = $root . '/public' . $suffix;
+    }
+
+    foreach ($diskCandidates as $full) {
+        $local = realpath($full);
+        if ($local !== false && strpos($local, $root) === 0 && is_file($local)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
  * Build ordered image path candidates from a services table row (display_image may be comma-separated).
+ * Order matches customer/services.php `pf_service_card_primary_image`: display CSV + hero, prefer still images over videos.
  *
  * @param array<string,mixed> $svcRow
  * @return list<string>
  */
 function printflow_notification_service_image_candidates_from_service_row(array $svcRow): array {
-    $candidates = [];
-    $display = trim((string)($svcRow['display_image'] ?? ''));
+    $ordered = [];
+    $display = trim((string) ($svcRow['display_image'] ?? ''));
     if ($display !== '') {
         foreach (explode(',', $display) as $img) {
-            $img = trim((string)$img);
+            $img = trim((string) $img);
             if ($img !== '') {
-                $candidates[] = $img;
+                $ordered[] = $img;
             }
         }
     }
-    foreach (['hero_image', 'image_path'] as $field) {
-        $v = trim((string)($svcRow[$field] ?? ''));
-        if ($v !== '') {
-            $candidates[] = $v;
+    $hero = trim((string) ($svcRow['hero_image'] ?? ''));
+    if ($hero !== '') {
+        $ordered[] = $hero;
+    }
+
+    $still = [];
+    $video = [];
+    foreach ($ordered as $p) {
+        if (printflow_is_video_media_path($p)) {
+            $video[] = $p;
+        } else {
+            $still[] = $p;
         }
+    }
+    $candidates = array_merge($still, $video);
+
+    $legacy = trim((string) ($svcRow['image_path'] ?? ''));
+    if ($legacy !== '') {
+        $candidates[] = $legacy;
     }
 
     return $candidates;
@@ -2084,13 +2127,20 @@ function printflow_notification_resolve_service_media_candidates(array $candidat
     if ($normalized === []) {
         return '';
     }
+    $firstStill = '';
     foreach ($normalized as $url) {
+        if (printflow_is_video_media_path($url)) {
+            continue;
+        }
+        if ($firstStill === '') {
+            $firstStill = $url;
+        }
         if (preg_match('#^https?://#i', $url) || printflow_notification_local_media_exists($url)) {
             return $url;
         }
     }
 
-    return $normalized[0];
+    return $firstStill;
 }
 
 function printflow_notification_service_image_from_id(int $serviceId): string {
