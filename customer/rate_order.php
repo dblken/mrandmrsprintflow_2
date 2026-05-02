@@ -186,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         $new_review_id = $review_id;
                     } else {
-                        $cols = ['order_id', $review_user_col, 'rating', $review_message_col, 'created_at'];
+                        $cols = ['order_id', $review_user_col, 'rating', $review_message_col];
                         $vals = [$order_id, $customer_id, $rating, $message];
                         $types = 'iiss';
 
@@ -211,7 +211,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $types .= 'i';
                         }
 
-                        $placeholders = implode(',', array_fill(0, count($cols) - 1, '?'));
+                        $placeholders = implode(',', array_fill(0, count($cols), '?'));
+                        $cols[] = 'created_at';
                         $insert_result = db_execute(
                             "INSERT INTO reviews (" . implode(', ', $cols) . ") VALUES ({$placeholders}, NOW())",
                             $types,
