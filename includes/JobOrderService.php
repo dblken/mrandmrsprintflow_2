@@ -14,6 +14,49 @@ require_once __DIR__ . '/NotificationService.php';
 class JobOrderService {
     private static array $columnExistsCache = [];
 
+    private static function firstNonEmptyScalar(array $source, array $keys): ?string {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $source)) {
+                continue;
+            }
+            $value = $source[$key];
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+        return null;
+    }
+
+    private static function resolveStoredMediaPathToUrl(string $path): ?string {
+        $path = trim($path);
+        if ($path === '') {
+            return null;
+        }
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+
+        $normalized = str_replace('\\', '/', $path);
+        $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '/printflow';
+
+        if (preg_match('#^[A-Za-z]:/#', $normalized)) {
+            $normalized = preg_replace('#^[A-Za-z]:#', '', $normalized);
+        }
+        if (strpos($normalized, '/public/') !== false) {
+            $normalized = substr($normalized, strpos($normalized, '/public/'));
+        } elseif (strpos($normalized, '/uploads/') !== false) {
+            $normalized = substr($normalized, strpos($normalized, '/uploads/'));
+        } elseif ($normalized !== '' && $normalized[0] !== '/') {
+            $normalized = '/uploads/orders/' . ltrim($normalized, '/');
+        }
+
+        return $base . $normalized;
+    }
+
     private static function tableHasColumn(string $table, string $column): bool {
         $cacheKey = $table . '.' . $column;
         if (array_key_exists($cacheKey, self::$columnExistsCache)) {
@@ -1148,25 +1191,42 @@ class JobOrderService {
 
     private static function buildStoreOrderItemAssetMeta(array $item, int $fallbackDesignOrderItemId = 0, ?array $fallbackDesignMeta = null, array $custom = []): array {
         $lineOrderItemId = (int)($item['order_item_id'] ?? 0);
-        $hasOwnDesign = !empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '' || !empty($custom['design_upload']);
+        $customDesignPath = self::firstNonEmptyScalar($custom, [
+            'design_upload',
+            'design_upload_path',
+            'upload_design',
+            'upload_design_path',
+            'design_file',
+            'layout_file',
+        ]);
+        $customReferencePath = self::firstNonEmptyScalar($custom, [
+            'reference_upload',
+            'reference_upload_path',
+            'upload_reference',
+            'upload_reference_path',
+            'reference_file',
+        ]);
+        $hasOwnDesign = !empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '' || $customDesignPath !== null;
         $designServeId = $hasOwnDesign
             ? $lineOrderItemId
             : (($lineOrderItemId === 0 && $fallbackDesignOrderItemId > 0) ? $fallbackDesignOrderItemId : 0);
         $designOpenUrl = null;
-        if (!empty($custom['design_upload'])) {
+        if ($customDesignPath !== null && $lineOrderItemId > 0) {
             $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
+        } elseif ($customDesignPath !== null) {
+            $designOpenUrl = self::resolveStoredMediaPathToUrl($customDesignPath);
         } elseif ($designServeId > 0) {
             $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $designServeId;
         }
 
         $designName = trim((string)($item['design_image_name'] ?? ''));
-        if ($designName === '' && !empty($custom['design_upload']) && is_string($custom['design_upload'])) {
-            $designName = basename($custom['design_upload']);
+        if ($designName === '' && $customDesignPath !== null) {
+            $designName = basename($customDesignPath);
         }
         $designIsImage = false;
         if ($hasOwnDesign) {
-            if (!empty($custom['design_upload'])) {
-                $designIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image((string)$custom['design_upload']) : false;
+            if ($customDesignPath !== null) {
+                $designIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image($customDesignPath) : false;
             } else {
                 $designIsImage = function_exists('printflow_order_item_has_previewable_design')
                     ? printflow_order_item_has_previewable_design($item)
@@ -1194,23 +1254,25 @@ class JobOrderService {
         }
 
         $referenceOpenUrl = null;
-        if (!empty($custom['reference_upload'])) {
+        if ($customReferencePath !== null && $lineOrderItemId > 0) {
             $referenceOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId . '&field=reference';
+        } elseif ($customReferencePath !== null) {
+            $referenceOpenUrl = self::resolveStoredMediaPathToUrl($customReferencePath);
         } elseif ($lineOrderItemId > 0 && !empty($item['reference_image_file'])) {
             $referenceOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId . '&field=reference';
         }
         
         $referenceIsImage = false;
-        if (!empty($custom['reference_upload'])) {
-             $referenceIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image((string)$custom['reference_upload']) : false;
+        if ($customReferencePath !== null) {
+             $referenceIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image($customReferencePath) : false;
         } elseif (!empty($item['reference_image_file'])) {
              $referenceIsImage = function_exists('printflow_media_path_looks_like_image')
                 ? printflow_media_path_looks_like_image((string)($item['reference_image_file'] ?? ''))
                 : false;
         }
         $referenceName = '';
-        if (!empty($custom['reference_upload']) && is_string($custom['reference_upload'])) {
-            $referenceName = basename($custom['reference_upload']);
+        if ($customReferencePath !== null) {
+            $referenceName = basename($customReferencePath);
         } elseif (!empty($item['reference_image_file'])) {
             $referencePath = parse_url((string)$item['reference_image_file'], PHP_URL_PATH);
             $referenceName = basename(is_string($referencePath) && $referencePath !== '' ? $referencePath : (string)$item['reference_image_file']);

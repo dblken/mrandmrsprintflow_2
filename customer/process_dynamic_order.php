@@ -230,6 +230,7 @@ if ($action === 'buy_now') {
             'Branch_ID' => $branch_id,
             'form_type' => 'dynamic',
             'config_id' => $config_id,
+            'source_page' => 'dynamic_form',
             'product_type' => $product['name']
         ];
         

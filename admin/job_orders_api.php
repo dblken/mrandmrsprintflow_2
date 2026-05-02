@@ -1129,6 +1129,13 @@ try {
                 'ink_usage'                => $linked_job_ink_usage,
                 'customization_details'    => $details,
             ];
+            if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
+                $data['_debug'] = [
+                    'customization_row' => $cust,
+                    'decoded_details' => $details,
+                    'store_line_payload' => $storeLinePayload ?? null,
+                ];
+            }
 
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;
@@ -1348,6 +1355,12 @@ try {
                 'materials'            => $linked_job_materials,
                 'ink_usage'            => $linked_job_ink_usage,
             ];
+            if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
+                $data['_debug'] = [
+                    'order_row' => $o,
+                    'payload' => $payload,
+                ];
+            }
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;
 

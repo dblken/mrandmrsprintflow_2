@@ -217,10 +217,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 $design_binary  = null;
                 $design_mime    = $item['design_mime']   ?? null;
                 $design_name    = $item['design_name']   ?? null;
+                $design_file_path = null;
+                $reference_file_path = null;
+
+                $upload_dir = __DIR__ . '/../uploads/orders';
+                if (!is_dir($upload_dir)) {
+                    mkdir($upload_dir, 0755, true);
+                }
 
                 // Read binary from temp file (session only stores path, not raw bytes)
                 if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
                     $design_binary = file_get_contents($item['design_tmp_path']);
+                    $ext = strtolower(pathinfo((string)$design_name, PATHINFO_EXTENSION));
+                    if ($ext === '') {
+                        $ext = 'bin';
+                    }
+                    $new_name = uniqid('design_') . '_' . time() . '.' . $ext;
+                    if (copy($item['design_tmp_path'], $upload_dir . '/' . $new_name)) {
+                        $design_file_path = '/printflow/uploads/orders/' . $new_name;
+                    }
+                }
+
+                if (!empty($item['reference_tmp_path']) && file_exists($item['reference_tmp_path'])) {
+                    $reference_name = $item['reference_name'] ?? 'reference';
+                    $ref_ext = strtolower(pathinfo((string)$reference_name, PATHINFO_EXTENSION));
+                    if ($ref_ext === '') {
+                        $ref_ext = 'bin';
+                    }
+                    $new_reference_name = uniqid('ref_') . '_' . time() . '.' . $ref_ext;
+                    if (copy($item['reference_tmp_path'], $upload_dir . '/' . $new_reference_name)) {
+                        $reference_file_path = '/printflow/uploads/orders/' . $new_reference_name;
+                    }
                 }
 
                 // Ensure unit_price is per item, not total
@@ -237,12 +264,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 if ($design_binary) {
                     // INSERT with BLOB using send_long_data
                     $item_stmt = $conn->prepare(
-                        "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_image, design_image_mime, design_image_name)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                        "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_image, design_image_mime, design_image_name, design_file, reference_image_file)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                     );
                     if ($item_stmt) {
                         $null = NULL;
-                        $item_stmt->bind_param('iiidsbss',
+                        $item_stmt->bind_param('iiidsbssss',
                             $order_id,
                             $item['product_id'],
                             $item['quantity'],
@@ -250,7 +277,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                             $custom_data,
                             $null,          // placeholder for BLOB
                             $design_mime,
-                            $design_name
+                            $design_name,
+                            $design_file_path,
+                            $reference_file_path
                         );
                         $item_stmt->send_long_data(5, $design_binary);
                         $item_stmt->execute();
@@ -260,10 +289,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 } else {
                     // No design uploaded — insert without BLOB
                     $inserted_order_item_ids[$pid] = db_execute(
-                        "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data)
-                         VALUES (?, ?, ?, ?, ?)",
-                        'iiids',
-                        [$order_id, $item['product_id'], $item['quantity'], $unit_price, $custom_data]
+                        "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        'iiidsss',
+                        [$order_id, $item['product_id'], $item['quantity'], $unit_price, $custom_data, $design_file_path, $reference_file_path]
                     );
                 }
             }
