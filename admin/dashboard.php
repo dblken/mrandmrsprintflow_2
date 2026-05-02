@@ -32,6 +32,8 @@ $kpiHrefCustomers = pf_admin_url('customers_management.php', $kpiBranchQs);
 $kpiHrefOrders    = pf_admin_url('orders_management.php', $kpiBranchQs);
 $kpiHrefPending   = pf_admin_url('orders_management.php', array_merge($kpiBranchQs, ['status' => 'Pending']));
 $kpiHrefRevenue   = pf_admin_url('reports.php', array_merge($kpiBranchQs, ['trend_metric' => 'revenue']), 'ch-trend');
+$kpiDateFrom      = date('Y-m-d 00:00:00', strtotime('-29 days'));
+$kpiDateToEnd     = date('Y-m-d 23:59:59');
 
 // Build reusable branch SQL parts
 $bTypes = ''; $bParams = [];
@@ -39,27 +41,26 @@ $bSql = branch_where('o', $branchId, $bTypes, $bParams);
 
 // ── KPI: Total Customers ──────────────────────────────
 try {
-    if ($branchId === 'all') {
-        $total_customers = db_query("SELECT COUNT(*) as cnt FROM customers")[0]['cnt'] ?? 0;
-    } else {
-        [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
-        [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
-        $customerTypes = ($bT ?: '') . ($jT ?: '');
-        $customerParams = array_merge($bP ?: [], $jP ?: []);
-        $total_customers = db_query(
-            "SELECT COUNT(DISTINCT src.customer_id) as cnt
-             FROM (
-                 SELECT o.customer_id
-                 FROM orders o
-                 WHERE o.customer_id IS NOT NULL {$bSqlFrag}
-                 UNION
-                 SELECT jo.customer_id
-                 FROM job_orders jo
-                 WHERE jo.customer_id IS NOT NULL {$jSqlFrag}
-             ) src",
-            $customerTypes ?: null, $customerParams ?: null
-        )[0]['cnt'] ?? 0;
-    }
+    [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
+    [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
+    $customerTypes = 'ss' . ($bT ?: '') . 'ss' . ($jT ?: '');
+    $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP ?: []);
+    $total_customers = db_query(
+        "SELECT COUNT(DISTINCT src.customer_id) as cnt
+         FROM (
+             SELECT o.customer_id
+             FROM orders o
+             WHERE o.customer_id IS NOT NULL
+               AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
+             UNION
+             SELECT jo.customer_id
+             FROM job_orders jo
+             WHERE jo.customer_id IS NOT NULL
+               AND jo.created_at BETWEEN ? AND ? {$jSqlFrag}
+         ) src",
+        $customerTypes,
+        $customerParams
+    )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $total_customers = 0; }
 
 // ── KPI: Total Revenue (Orders + customizations, branch-filtered) ─
@@ -69,16 +70,18 @@ try {
     $store_revenue = db_query(
         "SELECT COALESCE(SUM(o.total_amount),0) as total
          FROM orders o
-         WHERE (o.payment_status = 'Paid' OR o.status = 'Completed') {$bSqlO}",
-        $bTO ?: null,
-        $bPO ?: null
+         WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
+           AND o.order_date BETWEEN ? AND ? {$bSqlO}",
+        'ss' . ($bTO ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPO ?: [])
     )[0]['total'] ?? 0;
     $custom_revenue = db_query(
         "SELECT COALESCE(SUM(COALESCE(NULLIF(j.amount_paid,0), j.estimated_total, 0)),0) as total
          FROM job_orders j
-         WHERE (j.payment_status = 'PAID' OR j.status = 'COMPLETED') {$bSqlJ}",
-        $bTJ ?: null,
-        $bPJ ?: null
+         WHERE (j.payment_status = 'PAID' OR j.status = 'COMPLETED')
+           AND j.created_at BETWEEN ? AND ? {$bSqlJ}",
+        'ss' . ($bTJ ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPJ ?: [])
     )[0]['total'] ?? 0;
     $total_revenue = (float)$store_revenue + (float)$custom_revenue;
 } catch (Exception $e) { $total_revenue = 0; }
@@ -87,27 +90,28 @@ try {
 try {
     [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
     [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
-    $orderTypes = ($bT3 ?: '') . ($jT3 ?: '');
-    $orderParams = array_merge($bP3 ?: [], $jP3 ?: []);
+    $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
+    $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
     $total_orders = db_query(
         "SELECT (
-             (SELECT COUNT(*) FROM orders o WHERE 1=1 {$bSqlFrag}) +
-             (SELECT COUNT(*) FROM job_orders j WHERE 1=1 {$jSqlFrag})
+             (SELECT COUNT(*) FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag}) +
+             (SELECT COUNT(*) FROM job_orders j WHERE j.created_at BETWEEN ? AND ? {$jSqlFrag})
          ) AS cnt",
-        $orderTypes ?: null,
-        $orderParams ?: null
+        $orderTypes,
+        $orderParams
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $total_orders = 0; }
 
 // ── KPI: Pending Orders (branch-filtered) ────────────
 try {
-    $pend_types = $bTypes; $pend_params = $bParams;
-    $pend_sql = "SELECT COUNT(*) as cnt FROM orders o WHERE o.status = 'Pending'" . branch_where('o', $branchId, $pend_types, $pend_params);
-    // Re-build cleanly to avoid double-appending
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
     $pending_orders = db_query(
-        "SELECT COUNT(*) as cnt FROM orders o WHERE o.status = 'Pending'" . $bSqlFrag,
-        $bT ?: null, $bP ?: null
+        "SELECT COUNT(*) as cnt
+         FROM orders o
+         WHERE o.status = 'Pending'
+           AND o.order_date BETWEEN ? AND ? {$bSqlFrag}",
+        'ss' . ($bT ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [])
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $pending_orders = 0; }
 
@@ -177,8 +181,9 @@ try {
     ) ?: [];
     
     $low_stock = [];
+    $inventoryBranchId = ($branchId === 'all') ? 0 : (int)$branchId;
     foreach ($all_items as $item) {
-        $soh = InventoryManager::getStockOnHand($item['id']);
+        $soh = InventoryManager::getStockOnHand($item['id'], $inventoryBranchId);
         if ($soh <= $item['low_limit']) {
             $item['current_stock'] = $soh;
             // Calculate ratio so we can sort (lowest relative stock first)
@@ -721,7 +726,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Customers</span>
                         <span class="kpi-value"><?php echo number_format($total_customers); ?></span>
-                        <span class="kpi-sub">Registered accounts</span>
+                        <span class="kpi-sub">Active in last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -732,7 +737,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Revenue</span>
                         <span class="kpi-value">₱<?php echo number_format((float)$total_revenue, 2); ?></span>
-                        <span class="kpi-sub">From paid orders</span>
+                        <span class="kpi-sub">Last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -743,7 +748,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Orders</span>
                         <span class="kpi-value"><?php echo number_format($total_orders); ?></span>
-                        <span class="kpi-sub">All time</span>
+                        <span class="kpi-sub">Last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -754,7 +759,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
-                        <span class="kpi-sub">Awaiting processing</span>
+                        <span class="kpi-sub">Pending in last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -944,21 +949,14 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <?php endif; ?>
                 </div>
 
-                <!-- Top Performers (Interchangeable) -->
-                <div class="dash-card" x-data="{ tab: 'products' }">
-                    <div class="dash-card-title" style="justify-content: space-between;">
-                        <span style="display: flex; align-items: center; gap: 8px;">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-                            Top Performers
-                        </span>
-                        <div class="performer-toggle" role="tablist" aria-label="Top performers">
-                            <button type="button" class="performer-btn" :class="tab === 'products' ? 'is-active' : ''" @click="tab = 'products'" :aria-pressed="tab === 'products'">Products</button>
-                            <button type="button" class="performer-btn" :class="tab === 'customers' ? 'is-active' : ''" @click="tab = 'customers'" :aria-pressed="tab === 'customers'">Customers</button>
-                        </div>
+                <!-- Top Products -->
+                <div class="dash-card">
+                    <div class="dash-card-title">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+                        Top Products
                     </div>
 
-                    <!-- Products Tab -->
-                    <div x-show="tab === 'products'">
+                    <div>
                         <?php if (!empty($top_products)): ?>
                         <table class="mini-table">
                             <thead><tr><th>#</th><th>Product</th><th>Qty Sold</th><th style="text-align:right;">Revenue</th></tr></thead>
@@ -982,6 +980,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     </div>
 
                     <!-- Customers Tab -->
+                    <?php if (false): ?>
                     <div x-show="tab === 'customers'" style="display: none;">
                         <?php if (!empty($top_customers)): ?>
                         <table class="mini-table">
@@ -1001,6 +1000,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No customer data yet</div>
                         <?php endif; ?>
                     </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
