@@ -206,14 +206,13 @@ if (!$gaBranchEmpty) {
 $period_has_activity = ($total_orders > 0);
 
 // ── 2b. Sales by product category & service category (report date range + branch) ──
-// Product chart: aggregate by catalog category when set; otherwise keep each product_id on its own slice.
-// Legacy rows without a usable product_id fall back to a derived sold-item label instead of a generic bucket.
+// Product chart: real catalog SKUs only (inner join products — same grain as revenue from store lines).
+// Paid filter matches KPI/report norms and tolerates casing; no order_type exclusions (they hid valid lines).
 // Service chart: service-category + row fallbacks.
 $report_product_category_sales = [];
 $report_service_category_sales = [];
 $pf_product_chart_bucket = pf_product_sales_chart_bucket_sql();
 $pf_product_chart_label = pf_product_sales_chart_label_sql();
-$pf_product_chart_scope = pf_product_sales_scope_sql('o', 'oi');
 
 if (!$gaBranchEmpty) {
     try {
@@ -224,13 +223,15 @@ if (!$gaBranchEmpty) {
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
-             LEFT JOIN products p ON p.product_id = oi.product_id
+             INNER JOIN products p ON p.product_id = oi.product_id
              LEFT JOIN product_variants pv ON pv.variant_id = oi.variant_id
              JOIN orders o ON oi.order_id = o.order_id
              LEFT JOIN products pr ON pr.product_id = o.reference_id
              LEFT JOIN services sr ON sr.service_id = o.reference_id
-             WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
-               AND {$pf_product_chart_scope}
+             WHERE (
+                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
+                 OR o.status = 'Completed'
+               )
                {$dwpc} {$bpc}
              GROUP BY {$pf_product_chart_bucket}
              ORDER BY total DESC",

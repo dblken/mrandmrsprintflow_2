@@ -60,38 +60,6 @@ function pf_reports_sql_alias(string $alias, string $fallback): string {
     return $alias !== '' ? $alias : $fallback;
 }
 
-/**
- * Product-order scope shared by analytics queries.
- * Excludes pure service lines on custom orders unless the line is tied to the
- * product catalog (FK to `products`) or has product/dynamic-flow JSON markers.
- * — Header `order_type = 'custom'` applies to whole orders (e.g. mixed cart, dynamic
- *   product checkout), so we must not drop lines that still reference a real SKU.
- */
-function pf_product_sales_scope_sql(string $orderAlias = 'o', string $itemAlias = 'oi'): string {
-    $orderAlias = pf_reports_sql_alias($orderAlias, 'o');
-    $itemAlias = pf_reports_sql_alias($itemAlias, 'oi');
-
-    return "(
-                LOWER(TRIM(COALESCE({$orderAlias}.order_type, ''))) != 'custom'
-                OR (
-                    COALESCE({$itemAlias}.product_id, 0) > 0
-                    AND EXISTS (
-                        SELECT 1 FROM products pf_line_is_product
-                        WHERE pf_line_is_product.product_id = {$itemAlias}.product_id
-                    )
-                )
-                OR {$itemAlias}.customization_data LIKE '%\"config_id\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"form_type\":\"dynamic\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"form_type\": \"dynamic\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"source_page\":\"products\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"source_page\":\"product\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"source_page\":\"dynamic_form\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"source_page\": \"products\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"source_page\": \"product\"%'
-                OR {$itemAlias}.customization_data LIKE '%\"source_page\": \"dynamic_form\"%'
-           )";
-}
-
 /** Resolved sold-item label for product-category charts when no live category exists. */
 function pf_product_sales_chart_item_label_sql(
     string $productAlias = 'p',
@@ -201,7 +169,6 @@ function pf_product_sales_chart_label_sql(): string {
 function pf_dashboard_sales_by_product_category($branchId): array {
     $bucket = pf_product_sales_chart_bucket_sql();
     $label = pf_product_sales_chart_label_sql();
-    $scope = pf_product_sales_scope_sql('o', 'oi');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         return db_query(
@@ -209,13 +176,16 @@ function pf_dashboard_sales_by_product_category($branchId): array {
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
-             LEFT JOIN products p ON p.product_id = oi.product_id
+             INNER JOIN products p ON p.product_id = oi.product_id
              LEFT JOIN product_variants pv ON pv.variant_id = oi.variant_id
              JOIN orders o ON oi.order_id = o.order_id
              LEFT JOIN products pr ON pr.product_id = o.reference_id
              LEFT JOIN services sr ON sr.service_id = o.reference_id
-             WHERE o.payment_status = 'Paid'
-               AND {$scope} {$b}
+             WHERE (
+                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
+                 OR o.status = 'Completed'
+               )
+               {$b}
              GROUP BY {$bucket}
              ORDER BY total DESC",
             $bt ?: null,
