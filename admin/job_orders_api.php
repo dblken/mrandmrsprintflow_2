@@ -914,6 +914,9 @@ try {
                 if (!empty($storeLinePayload['items'])) {
                     $items = $storeLinePayload['items'];
                 }
+                if (!empty($storeLinePayload['customization_details']) && is_array($storeLinePayload['customization_details'])) {
+                    $details = printflow_overlay_nonempty_assoc($storeLinePayload['customization_details'], $details);
+                }
                 if (!empty($storeLinePayload['service_type'])) {
                     $summary['service_type'] = $storeLinePayload['service_type'];
                     $summary['job_title'] = $storeLinePayload['service_type'];
@@ -1246,6 +1249,9 @@ try {
             $height_ft = $payload['height_ft'];
             $total_qty = (int)($payload['line_qty'] ?? 0);
             $service_name = $payload['service_type'] ?: 'Custom Order';
+            $order_level_customization = is_array($payload['customization_details'] ?? null)
+                ? $payload['customization_details']
+                : [];
             $linked_job_id = 0;
             $linked_job = null;
             $linked_job_materials = [];
@@ -1352,6 +1358,7 @@ try {
                 'readiness'            => $linked_job['readiness'] ?? 'READY',
                 'order_source'         => jo_api_resolve_order_source($order_id, $o['order_source'] ?? null),
                 'items'                => $items_out,
+                'customization_details'=> $order_level_customization,
                 'materials'            => $linked_job_materials,
                 'ink_usage'            => $linked_job_ink_usage,
             ];

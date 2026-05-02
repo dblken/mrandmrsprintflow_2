@@ -1377,6 +1377,34 @@ class JobOrderService {
         return $custom;
     }
 
+    private static function backfillStaffItemCustomization(array $items, array $fallbackCustomization): array {
+        if ($fallbackCustomization === [] || $items === []) {
+            return $items;
+        }
+
+        foreach ($items as &$item) {
+            $lineCustom = $item['customization'] ?? [];
+            if (!is_array($lineCustom)) {
+                $lineCustom = [];
+            }
+
+            if ($lineCustom === []) {
+                $item['customization'] = $fallbackCustomization;
+                continue;
+            }
+
+            foreach ($fallbackCustomization as $key => $value) {
+                if (!array_key_exists($key, $lineCustom) || trim((string)($lineCustom[$key] ?? '')) === '') {
+                    $lineCustom[$key] = $value;
+                }
+            }
+            $item['customization'] = $lineCustom;
+        }
+        unset($item);
+
+        return $items;
+    }
+
     private static function sortStoreOrderModalCustomizationByServiceConfig(array $custom, int $serviceId): array {
         $serviceId = (int)$serviceId;
         if ($serviceId <= 0) {
@@ -1952,12 +1980,15 @@ class JobOrderService {
             $service_name = get_service_name_from_customization($first_custom, 'Custom Order');
         }
 
+        $items_out = self::backfillStaffItemCustomization($items_out, is_array($first_custom) ? $first_custom : []);
+
         return [
             'items' => $items_out,
             'width_ft' => $width_ft,
             'height_ft' => $height_ft,
             'service_type' => $service_name,
             'line_qty' => $total_qty,
+            'customization_details' => $first_custom,
         ];
     }
 

@@ -2782,7 +2782,13 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return false;
             },
             getDynamicProductName(item) {
-                const custom = item.customization || {};
+                const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
+                    ? this.currentJo.customization_details
+                    : {};
+                const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
+                    ? item.customization
+                    : {};
+                const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
                 const productName = String(item?.product_name || '').trim();
                 if (productName && !this.isGenericServiceLabel(productName)) {
                     return productName;
@@ -2842,8 +2848,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                             return pn;
                         }
                     }
+                    const fallbackCustom = jo.customization_details && typeof jo.customization_details === 'object'
+                        ? jo.customization_details
+                        : {};
                     for (const item of jo.items) {
-                        const custom = item.customization || {};
+                        const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
+                            ? item.customization
+                            : {};
+                        const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
                         const explicit = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();
                         if (explicit) return explicit;
                         const findKey = (searchKeys) => {
@@ -2893,13 +2905,22 @@ window.pfCustomizationPreloadedOrders = (() => {
                 'cart_key', '_cart_key', 'config_id', 'form_type'
             ],
             getDisplayableCustom(custom) {
-                if (!custom || typeof custom !== 'object') return [];
+                let sourceCustom = custom;
+                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0) {
+                    const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
+                        ? this.currentJo.customization_details
+                        : null;
+                    if (fallbackCustom && !Array.isArray(fallbackCustom) && Object.keys(fallbackCustom).length > 0) {
+                        sourceCustom = fallbackCustom;
+                    }
+                }
+                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
                 const isDetail = !!this.showDetailsModal;
                 const skip = isDetail 
                     ? ['design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime', 'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file', 'source_page', 'source'] 
                     : this.customFieldSkip;
                 
-                return Object.entries(custom).filter(([k, v]) => {
+                return Object.entries(sourceCustom).filter(([k, v]) => {
                     if (v === '' || v == null) return false;
                     if (skip.includes(k)) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
@@ -2937,7 +2958,13 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Priority 2: Item-specific customization notes
                 if (!note && j.items && j.items.length) {
                     for (const it of j.items) {
-                        const c = it.customization || {};
+                        const itemCustom = (it && it.customization && typeof it.customization === 'object' && !Array.isArray(it.customization))
+                            ? it.customization
+                            : {};
+                        const fallbackCustom = j.customization_details && typeof j.customization_details === 'object'
+                            ? j.customization_details
+                            : {};
+                        const c = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
                         const n = (c.notes || c.additional_notes || '').trim();
                         if (n) { 
                             note = n; 
