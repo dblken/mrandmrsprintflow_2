@@ -67,6 +67,33 @@ function service_name_exists(string $name, int $excludeId = 0): bool {
     return !empty($rows);
 }
 
+/** Categories allowed in admin add/edit and filters (legacy rows may still store other labels). */
+function printflow_allowed_service_categories(): array {
+    return ['Tarpaulin', 'T-Shirt', 'Stickers', 'Sintraboard Standees', 'Signage', 'Merchandise', 'Print'];
+}
+
+function printflow_service_category_is_allowed(string $category): bool {
+    $category = trim($category);
+    if ($category === '') {
+        return false;
+    }
+    foreach (printflow_allowed_service_categories() as $a) {
+        if (strcasecmp($category, $a) === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function printflow_canonical_service_category(string $category): ?string {
+    foreach (printflow_allowed_service_categories() as $a) {
+        if (strcasecmp(trim($category), $a) === 0) {
+            return $a;
+        }
+    }
+    return null;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     // Handle file uploads
     $uploaded_images = [];
@@ -139,6 +166,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Service name must not exceed 150 characters.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
+        } elseif (!printflow_service_category_is_allowed($category)) {
+            $error = 'Invalid category.';
         } elseif (strlen($description) > 2000) {
             $error = 'Description must not exceed 2000 characters.';
         } elseif (strlen($customer_modal_text) > 2000) {
@@ -148,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         } elseif (service_name_exists($name, 0)) {
             $error = 'A service with this name already exists.';
         } else {
+            $category = printflow_canonical_service_category($category);
             $result = db_execute(
                 'INSERT INTO services (name, category, description, price, duration, status, visible_to_customer, hero_image, display_image, video_url, customer_modal_text, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?, ?, ?, NOW(), NOW())',
                 'sssdsssss',
@@ -188,6 +218,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Service name must not exceed 150 characters.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
+        } elseif (!printflow_service_category_is_allowed($category)) {
+            $error = 'Invalid category.';
         } elseif (strlen($description) > 2000) {
             $error = 'Description must not exceed 2000 characters.';
         } elseif (strlen($customer_modal_text) > 2000) {
@@ -197,6 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         } elseif (service_name_exists($name, $service_id)) {
             $error = 'A service with this name already exists.';
         } else {
+            $category = printflow_canonical_service_category($category);
             $result = db_execute(
                 'UPDATE services SET name = ?, category = ?, description = ?, price = ?, duration = NULL, status = ?, hero_image = ?, display_image = ?, video_url = ?, customer_modal_text = ?, updated_at = NOW() WHERE service_id = ?',
                 'sssdsssssi',
@@ -287,6 +320,12 @@ $sort_by = $_GET['sort'] ?? 'newest';
 $date_from = $_GET['date_from'] ?? '';
 $date_to = $_GET['date_to'] ?? '';
 
+$category_options = printflow_allowed_service_categories();
+
+if ($cat_filter !== '' && !printflow_service_category_is_allowed($cat_filter)) {
+    $cat_filter = '';
+}
+
 $sql = "SELECT * FROM services WHERE status != 'Archived'";
 $params = [];
 $types = '';
@@ -341,7 +380,28 @@ $stat_active = db_query("SELECT COUNT(*) as c FROM services WHERE status='Activa
 $stat_inactive = db_query("SELECT COUNT(*) as c FROM services WHERE status='Deactivated'")[0]['c'] ?? 0;
 $stat_archived = db_query("SELECT COUNT(*) as c FROM services WHERE status='Archived'")[0]['c'] ?? 0;
 
-$categories = db_query("SELECT DISTINCT category FROM services WHERE category IS NOT NULL AND category != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+$categories_raw = db_query("SELECT DISTINCT category FROM services WHERE category IS NOT NULL AND TRIM(category) != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+$categories = [];
+$seen_cat = [];
+foreach ($categories_raw as $crow) {
+    $raw_cat = trim((string)($crow['category'] ?? ''));
+    if ($raw_cat === '') {
+        continue;
+    }
+    if (!printflow_service_category_is_allowed($raw_cat)) {
+        continue;
+    }
+    $canon = printflow_canonical_service_category($raw_cat);
+    if ($canon === null) {
+        continue;
+    }
+    $lk = strtolower($canon);
+    if (isset($seen_cat[$lk])) {
+        continue;
+    }
+    $seen_cat[$lk] = true;
+    $categories[] = ['category' => $canon];
+}
 
 function render_services_table_rows(array $services): void {
     ?>
@@ -431,7 +491,6 @@ if (isset($_GET['ajax'])) {
     exit;
 }
 
-$category_options = ['Tarpaulin', 'T-Shirt', 'Stickers', 'Sintraboard Standees', 'Apparel', 'Signage', 'Merchandise', 'Print', 'Service', 'Consulting', 'Design'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -838,6 +897,7 @@ $category_options = ['Tarpaulin', 'T-Shirt', 'Stickers', 'Sintraboard Standees',
 
 <script>
 window.PF_DEFAULT_SERVICE_MODAL_TEXT = <?php echo json_encode(printflow_default_customer_service_modal_text(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_SERVICE_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_allowed_service_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_BASE_PATH = <?php echo json_encode($base_path); ?>;
 /* var: Turbo re-runs inline scripts; let/const would throw "already been declared". */
 var activeSort = '<?php echo htmlspecialchars($sort_by); ?>';
@@ -1048,13 +1108,29 @@ function openServiceModal(mode, svc) {
     if (panel) panel.style.display = 'none';
     if (arrow) arrow.style.transform = 'rotate(0deg)';
 
+    document.getElementById('modal-category').querySelectorAll('option[data-pf-legacy-cat]').forEach(function (o) { o.remove(); });
+
     if (mode === 'edit' && svc) {
         title.textContent = 'Edit Service';
         modeInput.name = 'update_service';
         submitBtn.textContent = 'Save Changes';
         document.getElementById('modal-service-id').value = svc.service_id || '';
         document.getElementById('modal-name').value = svc.name || '';
-        document.getElementById('modal-category').value = svc.category || '';
+        const catSel = document.getElementById('modal-category');
+        const catVal = svc.category || '';
+        catSel.querySelectorAll('option[data-pf-legacy-cat]').forEach(function (o) { o.remove(); });
+        const allow = window.PF_SERVICE_CATEGORY_ALLOWLIST || [];
+        const catNorm = String(catVal).toLowerCase();
+        const allowedPick = allow.some(function (a) { return String(a).toLowerCase() === catNorm; });
+        if (catVal && !allowedPick) {
+            const o = document.createElement('option');
+            o.value = catVal;
+            o.textContent = catVal + ' (legacy — pick an allowed category to save)';
+            o.setAttribute('data-pf-legacy-cat', '1');
+            catSel.appendChild(o);
+        }
+        catSel.value = catVal;
+
         document.getElementById('modal-description').value = svc.description || '';
         
         // Load existing media files

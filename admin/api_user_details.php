@@ -38,4 +38,13 @@ if (empty($user)) {
     exit;
 }
 
+if (($user[0]['role'] ?? '') === 'Admin' && ($user[0]['status'] ?? '') !== 'Archived' && ($user[0]['status'] ?? '') !== 'Activated') {
+    try {
+        db_execute("UPDATE users SET status = 'Activated', updated_at = NOW() WHERE user_id = ? AND role = 'Admin'", 'i', [$user_id]);
+        $user[0]['status'] = 'Activated';
+    } catch (Throwable $e) {
+        $user[0]['status'] = 'Activated';
+    }
+}
+
 echo json_encode(['success' => true, 'user' => $user[0]]);

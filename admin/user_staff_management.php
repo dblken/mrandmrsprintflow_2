@@ -18,6 +18,12 @@ if (!isset($base_path)) {
     $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 }
 
+try {
+    db_execute("UPDATE users SET status = 'Activated', updated_at = NOW() WHERE role = 'Admin' AND status NOT IN ('Activated','Archived')");
+} catch (Throwable $e) {
+    // ignore migration failures
+}
+
 $current_user = get_logged_in_user();
 
 $error = '';
@@ -348,6 +354,11 @@ if (isset($_GET['ajax'])) {
         </tr></thead>
         <tbody>
         <?php foreach ($users as $user): ?>
+            <?php
+            $um_disp_status = (($user['role'] ?? '') === 'Admin' && ($user['status'] ?? '') !== 'Archived')
+                ? 'Activated'
+                : ($user['status'] ?? '');
+            ?>
             <tr class="border-b" onclick="window._viewUser && _viewUser(<?php echo $user['user_id']; ?>)">
                 <td class="py-3"><?php echo $user['user_id']; ?></td>
                 <td class="py-3 font-medium"><?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></td>
@@ -357,13 +368,13 @@ if (isset($_GET['ajax'])) {
                     ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $rs; ?>"><?php echo $user['role']; ?></span></td>
                 <td class="py-3"><?php echo $user['role']==='Admin' ? '<span class="text-gray-500 italic">All Branches</span>' : htmlspecialchars($user['branch_name'] ?? 'Unassigned'); ?></td>
                 <td class="py-3"><?php
-                    $sc = match($user['status']) {
+                    $sc = match($um_disp_status) {
                         'Activated' => 'background:#dcfce7;color:#166534;',
                         'Deactivated' => 'background:#fee2e2;color:#991b1b;',
                         'Archived' => 'background:#f3f4f6;color:#374151;',
                         default => 'background:#fef9c3;color:#854d0e;'
                     };
-                    ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $sc; ?>"><?php echo $user['status']; ?></span></td>
+                    ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $sc; ?>"><?php echo htmlspecialchars($um_disp_status); ?></span></td>
                 <td class="py-3 text-right" onclick="event.stopPropagation();">
                     <button type="button" class="btn-action blue" style="margin-right:4px;" onclick="window._viewUser && _viewUser(<?php echo $user['user_id']; ?>)">View</button>
                     <button type="button" class="btn-action teal" style="margin-right:4px;" onclick="window._editUser && _editUser(<?php echo $user['user_id']; ?>)">Edit</button>
@@ -371,7 +382,6 @@ if (isset($_GET['ajax'])) {
                     <?php if (($user['role'] ?? '') !== 'Admin'): ?>
                     <button type="button" class="btn-action gray" style="margin-right:4px;" onclick="window._archiveUser && window._archiveUser(<?php echo $user['user_id']; ?>)">Archive</button>
                     <?php endif; ?>
-                    <button type="button" class="btn-action red" onclick="window._deleteUser && _deleteUser(<?php echo $user['user_id']; ?>)">Delete</button>
                     <?php endif; ?>
                 </td>
             </tr>
@@ -907,6 +917,11 @@ if (isset($_GET['ajax'])) {
                         </thead>
                         <tbody>
                             <?php foreach ($users as $user): ?>
+                                <?php
+                                $um_disp_status = (($user['role'] ?? '') === 'Admin' && ($user['status'] ?? '') !== 'Archived')
+                                    ? 'Activated'
+                                    : ($user['status'] ?? '');
+                                ?>
                                 <tr class="border-b" @click="viewUser(<?php echo $user['user_id']; ?>)" style="cursor:pointer;">
                                     <td class="py-3"><?php echo $user['user_id']; ?></td>
                                     <td class="py-3 font-medium">
@@ -934,7 +949,7 @@ if (isset($_GET['ajax'])) {
                                     </td>
                                     <td class="py-3">
                                         <?php
-                                            $sc = match($user['status']) {
+                                            $sc = match($um_disp_status) {
                                                 'Activated'   => 'background:#dcfce7;color:#166534;',
                                                 'Deactivated' => 'background:#fee2e2;color:#991b1b;',
                                                 'Archived'    => 'background:#f3f4f6;color:#374151;',
@@ -942,7 +957,7 @@ if (isset($_GET['ajax'])) {
                                             };
                                         ?>
                                         <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $sc; ?>">
-                                            <?php echo $user['status']; ?>
+                                            <?php echo htmlspecialchars($um_disp_status); ?>
                                         </span>
                                     </td>
                                     <td class="py-3 text-right" @click.stop>
@@ -952,7 +967,6 @@ if (isset($_GET['ajax'])) {
                                         <?php if (($user['role'] ?? '') !== 'Admin'): ?>
                                         <button type="button" @click="showArchiveConfirm(<?php echo $user['user_id']; ?>)" class="btn-action gray" style="margin-right:4px;">Archive</button>
                                         <?php endif; ?>
-                                        <button type="button" @click="showDeleteConfirm(<?php echo $user['user_id']; ?>)" class="btn-action red">Delete</button>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -1086,14 +1100,11 @@ if (isset($_GET['ajax'])) {
             <template x-if="viewModal.user?.status === 'Pending'">
                 <button type="button" @click="openResendModal(viewModal.user.user_id)" class="mf-btn-outline teal">Resend Link</button>
             </template>
-            <template x-if="viewModal.user?.status === 'Activated'">
+            <template x-if="viewModal.user?.status === 'Activated' && viewModal.user?.role !== 'Admin'">
                 <button type="button" @click="showDeactivateConfirm(viewModal.user.user_id)" class="mf-btn-outline teal">Deactivate Account</button>
             </template>
             <template x-if="viewModal.user?.status === 'Deactivated' && viewModal.user?.role !== 'Admin'">
                 <button type="button" @click="showArchiveConfirm(viewModal.user.user_id)" class="mf-btn-outline gray">Archive Account</button>
-            </template>
-            <template x-if="viewModal.user?.status === 'Deactivated'">
-                <button type="button" @click="showDeleteConfirm(viewModal.user.user_id)" class="mf-btn-outline red">Delete Account</button>
             </template>
             <button type="button" @click="viewModal.isOpen = false; editUser(viewModal.user?.user_id)" class="mf-btn-outline teal">Edit</button>
         </div>
@@ -1202,7 +1213,7 @@ if (isset($_GET['ajax'])) {
                     <div class="mf-row">
                         <div class="mf-group">
                             <label>Role *</label>
-                            <select x-model="editModal.user.role" required>
+                            <select x-model="editModal.user.role" required @change="if (editModal.user.role === 'Admin') editModal.user.status = 'Activated'">
                                 <option value="Staff">Staff</option>
                                 <option value="Manager">Manager</option>
                                 <option value="Admin">Admin</option>
@@ -1222,11 +1233,16 @@ if (isset($_GET['ajax'])) {
                     <div class="mf-row">
                         <div class="mf-group">
                             <label>Account Status</label>
-                            <select x-model="editModal.user.status">
-                                <option value="Activated">Activated</option>
-                                <option value="Pending">Pending</option>
-                                <option value="Deactivated">Deactivated</option>
-                            </select>
+                            <template x-if="editModal.user.role === 'Admin'">
+                                <input type="text" value="Activated" disabled style="width:100%;padding:10px 14px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#374151;">
+                            </template>
+                            <template x-if="editModal.user.role !== 'Admin'">
+                                <select x-model="editModal.user.status">
+                                    <option value="Activated">Activated</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Deactivated">Deactivated</option>
+                                </select>
+                            </template>
                         </div>
                         <div class="mf-group"><label>Member Since</label><input type="text" :value="editModal.user.created_at ? new Date(editModal.user.created_at).toLocaleDateString('en-PH',{year:'numeric',month:'long',day:'numeric'}) : ''" disabled></div>
                     </div>
@@ -1286,23 +1302,6 @@ if (isset($_GET['ajax'])) {
             <div class="mf-footer" style="border:none; padding:0;">
                 <button type="button" @click="archiveConfirm.isOpen = false" class="mf-btn-outline blue">Cancel</button>
                 <button type="button" @click="confirmArchiveUser()" class="mf-btn-outline gray" :disabled="archiveConfirm.archiving" x-text="archiveConfirm.archiving ? 'Archiving...' : 'Archive'"></button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Delete Account Confirmation Modal -->
-<div x-show="deleteConfirm.isOpen" x-cloak class="modal-overlay" :class="{'is-open': deleteConfirm.isOpen}" @click.self="deleteConfirm.isOpen = false">
-    <div class="modal-box" style="max-width:400px;" @click.stop>
-        <div class="modal-hdr">
-            <h2>Delete Account</h2>
-            <button @click="deleteConfirm.isOpen = false">&times;</button>
-        </div>
-        <div class="modal-bdy">
-            <p style="margin:0 0 20px 0; color:#374151;">Delete this deactivated account? This cannot be undone.</p>
-            <div class="mf-footer" style="border:none; padding:0;">
-                <button type="button" @click="deleteConfirm.isOpen = false" class="mf-btn-outline blue">Cancel</button>
-                <button type="button" @click="confirmDeleteUser()" class="mf-btn-outline red" :disabled="deleteConfirm.deleting" x-text="deleteConfirm.deleting ? 'Deleting...' : 'Delete'"></button>
             </div>
         </div>
     </div>
@@ -1918,11 +1917,6 @@ function userManagement() {
             isOpen: false,
             userId: 0
         },
-        deleteConfirm: {
-            isOpen: false,
-            userId: 0,
-            deleting: false
-        },
         archiveConfirm: {
             isOpen: false,
             userId: 0,
@@ -2228,6 +2222,9 @@ function userManagement() {
                     u.address = originalAddress;
                     // Ensure branch_id is properly set (convert to string for select binding)
                     u.branch_id = u.branch_id ? String(u.branch_id) : '';
+                    if (u.role === 'Admin') {
+                        u.status = 'Activated';
+                    }
                     this.editModal.user = u;
                     if (!this.editModal.user.address && (u.address_line || u.address_barangay || u.address_city || u.address_province)) {
                         this.buildAddress();
@@ -2256,10 +2253,6 @@ function userManagement() {
         showDeactivateConfirm(userId) {
             this.deactivateConfirm.userId = userId;
             this.deactivateConfirm.isOpen = true;
-        },
-        showDeleteConfirm(userId) {
-            this.deleteConfirm.userId = userId;
-            this.deleteConfirm.isOpen = true;
         },
         showArchiveConfirm(userId) {
             this.archiveConfirm.userId = userId;
@@ -2345,34 +2338,6 @@ function userManagement() {
                 alert('Network error.');
             } finally {
                 this.pageSubmitting = false;
-            }
-        },
-        async confirmDeleteUser() {
-            const userId = this.deleteConfirm.userId;
-            if (!userId || this.deleteConfirm.deleting) return;
-            this.deleteConfirm.deleting = true;
-            try {
-                const res = await fetch('<?php echo $base_path; ?>/admin/api_update_user_status.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'delete_user',
-                        user_id: userId,
-                        csrf_token: '<?php echo $_SESSION["csrf_token"] ?? ""; ?>'
-                    })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    this.deleteConfirm.isOpen = false;
-                    this.viewModal.isOpen = false;
-                    location.reload();
-                } else {
-                    alert(data.error || 'Failed to delete account.');
-                }
-            } catch (e) {
-                alert('Network error.');
-            } finally {
-                this.deleteConfirm.deleting = false;
             }
         },
         openResendModal(userId) {
@@ -2462,7 +2427,7 @@ function userManagement() {
                     dob: this.editModal.user.dob || '',
                     role: this.editModal.user.role,
                     branch_id: this.editModal.user.branch_id || '',
-                    status: this.editModal.user.status,
+                    status: this.editModal.user.role === 'Admin' ? 'Activated' : this.editModal.user.status,
                     csrf_token: '<?php echo $_SESSION["csrf_token"] ?? ""; ?>'
                 };
 
@@ -2613,7 +2578,6 @@ function initAlpineGlobalBridge() {
     };
     window._viewUser = (id) => { const d = getData(); if (d) d.viewUser(id); };
     window._editUser = (id) => { const d = getData(); if (d) d.editUser(id); };
-    window._deleteUser = (id) => { const d = getData(); if (d) d.showDeleteConfirm(id); };
     window._archiveUser = (id) => { const d = getData(); if (d) d.showArchiveConfirm(id); };
 }
 

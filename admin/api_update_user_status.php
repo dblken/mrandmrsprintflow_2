@@ -36,10 +36,14 @@ if (!$user_id) {
 }
 
 if ($action === 'toggle_status') {
-    $row = db_query("SELECT status FROM users WHERE user_id = ?", 'i', [$user_id]);
-    $db_status = $row[0]['status'] ?? '';
-    if ($db_status === '' ) {
+    $row = db_query("SELECT status, role FROM users WHERE user_id = ?", 'i', [$user_id]);
+    if (empty($row)) {
         echo json_encode(['success' => false, 'error' => 'User not found.']);
+        exit;
+    }
+    $db_status = $row[0]['status'] ?? '';
+    if (($row[0]['role'] ?? '') === 'Admin') {
+        echo json_encode(['success' => false, 'error' => 'Administrator accounts remain activated and cannot be deactivated here.']);
         exit;
     }
     if ($db_status === 'Archived') {
@@ -144,7 +148,10 @@ if ($action === 'toggle_status') {
         exit;
     }
 
-    $status         = in_array($data['status'] ?? '', ['Activated','Pending','Deactivated']) ? $data['status'] : 'Pending';
+    $status = in_array($data['status'] ?? '', ['Activated','Pending','Deactivated']) ? $data['status'] : 'Pending';
+    if ($role === 'Admin') {
+        $status = 'Activated';
+    }
 
     $ok = db_execute(
         "UPDATE users SET first_name=?, middle_name=?, last_name=?, contact_number=?, address=?, gender=?, birthday=?, role=?, branch_id=?, status=? WHERE user_id=?",
@@ -231,71 +238,8 @@ if ($action === 'toggle_status') {
         echo json_encode(['success' => false, 'error' => 'Failed to restore account.']);
     }
 } elseif ($action === 'delete_user') {
-    if (($_SESSION['user_type'] ?? '') !== 'Admin') {
-        echo json_encode(['success' => false, 'error' => 'Only admins can delete team accounts.']);
-        exit;
-    }
-
-    if ($user_id === (int)($_SESSION['user_id'] ?? 0)) {
-        echo json_encode(['success' => false, 'error' => 'Cannot delete your own account.']);
-        exit;
-    }
-
-    $u = db_query("SELECT user_id, email, role, status FROM users WHERE user_id = ?", 'i', [$user_id]);
-    if (empty($u)) {
-        echo json_encode(['success' => false, 'error' => 'User not found.']);
-        exit;
-    }
-
-    if (($u[0]['status'] ?? '') !== 'Deactivated') {
-        echo json_encode(['success' => false, 'error' => 'Only deactivated accounts can be deleted.']);
-        exit;
-    }
-
-    global $conn;
-    try {
-        $conn->begin_transaction();
-
-        $tableExists = static function (string $table) use ($conn): bool {
-            $safe = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
-            $res = $conn->query("SHOW TABLES LIKE '" . $conn->real_escape_string($safe) . "'");
-            return $res && $res->num_rows > 0;
-        };
-
-        if ($tableExists('pos_transactions')) {
-            $pos = db_query("SELECT COUNT(*) AS c FROM pos_transactions WHERE user_id = ?", 'i', [$user_id]);
-            if ((int)($pos[0]['c'] ?? 0) > 0) {
-                throw new RuntimeException('This account has POS transaction history and cannot be hard-deleted. Keep it deactivated instead.');
-            }
-        }
-
-        if ($tableExists('notifications')) {
-            db_execute("DELETE FROM notifications WHERE user_id = ?", 'i', [$user_id]);
-        }
-        if ($tableExists('activity_logs')) {
-            db_execute("UPDATE activity_logs SET user_id = NULL WHERE user_id = ?", 'i', [$user_id]);
-        }
-        if ($tableExists('backups')) {
-            db_execute("UPDATE backups SET created_by = NULL WHERE created_by = ?", 'i', [$user_id]);
-        }
-        if ($tableExists('push_subscriptions')) {
-            db_execute("DELETE FROM push_subscriptions WHERE user_id = ? AND user_type IN ('Admin','Manager','Staff')", 'i', [$user_id]);
-        }
-
-        $deleted = db_execute("DELETE FROM users WHERE user_id = ? AND status = 'Deactivated'", 'i', [$user_id]);
-        $remaining = db_query("SELECT user_id FROM users WHERE user_id = ?", 'i', [$user_id]);
-        if (!$deleted || !empty($remaining)) {
-            throw new RuntimeException('Failed to delete account.');
-        }
-
-        $conn->commit();
-        echo json_encode(['success' => true, 'message' => 'Account deleted successfully.']);
-    } catch (Throwable $e) {
-        if ($conn instanceof mysqli) {
-            try { $conn->rollback(); } catch (Throwable $ignored) {}
-        }
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-    }
+    echo json_encode(['success' => false, 'error' => 'Deleting team accounts from this screen has been disabled.']);
+    exit;
 } elseif ($action === 'resend_completion_link') {
     $u = db_query("SELECT user_id, first_name, email FROM users WHERE user_id = ?", 'i', [$user_id]);
     if (empty($u)) {
