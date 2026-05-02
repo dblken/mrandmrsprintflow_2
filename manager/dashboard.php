@@ -21,72 +21,83 @@ $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id']; // always an int for Manager
 $basePath  = defined('BASE_PATH') ? BASE_PATH : '';
 
-// Build reusable branch SQL parts
-$bTypes = ''; $bParams = [];
-$bSql = branch_where('o', $branchId, $bTypes, $bParams);
+// Rolling 30-day window (aligned with admin/dashboard.php KPIs)
+$kpiDateFrom  = date('Y-m-d 00:00:00', strtotime('-29 days'));
+$kpiDateToEnd = date('Y-m-d 23:59:59');
 
-// ── KPI: Total Customers (branch-filtered via orders) ─────────
+// ── KPI: Total Customers (distinct, with activity in window) ───
 try {
     [$bSqlFrag, $bT, $bP] = branch_where_parts('o', $branchId);
     [$jSqlFrag, $jT, $jP] = branch_where_parts('jo', $branchId);
-    $customerTypes = ($bT ?: '') . ($jT ?: '');
-    $customerParams = array_merge($bP ?: [], $jP ?: []);
+    $customerTypes = 'ss' . ($bT ?: '') . 'ss' . ($jT ?: '');
+    $customerParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP ?: []);
     $total_customers = db_query(
         "SELECT COUNT(DISTINCT src.customer_id) as cnt
          FROM (
              SELECT o.customer_id
              FROM orders o
-             WHERE o.customer_id IS NOT NULL {$bSqlFrag}
+             WHERE o.customer_id IS NOT NULL
+               AND o.order_date BETWEEN ? AND ? {$bSqlFrag}
              UNION
              SELECT jo.customer_id
              FROM job_orders jo
-             WHERE jo.customer_id IS NOT NULL {$jSqlFrag}
+             WHERE jo.customer_id IS NOT NULL
+               AND jo.created_at BETWEEN ? AND ? {$jSqlFrag}
          ) src",
-        $customerTypes ?: null, $customerParams ?: null
+        $customerTypes,
+        $customerParams
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $total_customers = 0; }
 
-// ── KPI: Total Revenue (branch-filtered) ──────────────────────
+// ── KPI: Total Revenue (store + customizations, paid/completed in window) ─
 try {
     [$bSqlO, $bTO, $bPO] = branch_where_parts('o', $branchId);
     [$bSqlJ, $bTJ, $bPJ] = branch_where_parts('j', $branchId);
     $store_revenue = db_query(
-        "SELECT COALESCE(SUM(o.total_amount),0) as total FROM orders o WHERE (o.payment_status = 'Paid' OR o.status = 'Completed') {$bSqlO}",
-        $bTO ?: null,
-        $bPO ?: null
+        "SELECT COALESCE(SUM(o.total_amount),0) as total
+         FROM orders o
+         WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
+           AND o.order_date BETWEEN ? AND ? {$bSqlO}",
+        'ss' . ($bTO ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPO ?: [])
     )[0]['total'] ?? 0;
     $custom_revenue = db_query(
         "SELECT COALESCE(SUM(COALESCE(NULLIF(j.amount_paid,0), j.estimated_total, 0)),0) as total
          FROM job_orders j
-         WHERE (j.payment_status = 'PAID' OR j.status = 'COMPLETED') {$bSqlJ}",
-        $bTJ ?: null,
-        $bPJ ?: null
+         WHERE (j.payment_status = 'PAID' OR j.status = 'COMPLETED')
+           AND j.created_at BETWEEN ? AND ? {$bSqlJ}",
+        'ss' . ($bTJ ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPJ ?: [])
     )[0]['total'] ?? 0;
     $total_revenue = (float)$store_revenue + (float)$custom_revenue;
 } catch (Exception $e) { $total_revenue = 0; }
 
-// ── KPI: Total Orders (branch-filtered) ───────────────────────
+// ── KPI: Total Orders (count in window) ───────────────────────
 try {
     [$bSqlFrag, $bT3, $bP3] = branch_where_parts('o', $branchId);
     [$jSqlFrag, $jT3, $jP3] = branch_where_parts('j', $branchId);
-    $orderTypes = ($bT3 ?: '') . ($jT3 ?: '');
-    $orderParams = array_merge($bP3 ?: [], $jP3 ?: []);
+    $orderTypes = 'ss' . ($bT3 ?: '') . 'ss' . ($jT3 ?: '');
+    $orderParams = array_merge([$kpiDateFrom, $kpiDateToEnd], $bP3 ?: [], [$kpiDateFrom, $kpiDateToEnd], $jP3 ?: []);
     $total_orders = db_query(
         "SELECT (
-             (SELECT COUNT(*) FROM orders o WHERE 1=1 {$bSqlFrag}) +
-             (SELECT COUNT(*) FROM job_orders j WHERE 1=1 {$jSqlFrag})
+             (SELECT COUNT(*) FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag}) +
+             (SELECT COUNT(*) FROM job_orders j WHERE j.created_at BETWEEN ? AND ? {$jSqlFrag})
          ) AS cnt",
-        $orderTypes ?: null,
-        $orderParams ?: null
+        $orderTypes,
+        $orderParams
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $total_orders = 0; }
 
-// ── KPI: Pending Orders (branch-filtered) ────────────────────
+// ── KPI: Pending store orders (created in window, still Pending) ─
 try {
     [$bSqlFrag, $bT4, $bP4] = branch_where_parts('o', $branchId);
     $pending_orders = db_query(
-        "SELECT COUNT(*) as cnt FROM orders o WHERE o.status = 'Pending'" . $bSqlFrag,
-        $bT4 ?: null, $bP4 ?: null
+        "SELECT COUNT(*) as cnt
+         FROM orders o
+         WHERE o.status = 'Pending'
+           AND o.order_date BETWEEN ? AND ? {$bSqlFrag}",
+        'ss' . ($bT4 ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bP4 ?: [])
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $pending_orders = 0; }
 
@@ -347,7 +358,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Branch Customers</span>
                         <span class="kpi-value"><?php echo number_format($total_customers); ?></span>
-                        <span class="kpi-sub">Distinct customers</span>
+                        <span class="kpi-sub">Active in last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
@@ -358,7 +369,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Branch Revenue</span>
                         <span class="kpi-value">₱<?php echo number_format((float)$total_revenue, 2); ?></span>
-                        <span class="kpi-sub">Orders + customization</span>
+                        <span class="kpi-sub">Last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -369,7 +380,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Orders</span>
                         <span class="kpi-value"><?php echo number_format($total_orders); ?></span>
-                        <span class="kpi-sub">This branch</span>
+                        <span class="kpi-sub">Last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
@@ -380,7 +391,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
-                        <span class="kpi-sub">Awaiting processing</span>
+                        <span class="kpi-sub">Pending in last 30 days</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
