@@ -325,6 +325,43 @@ $items_out = [];
 $service_items_raw = [];
 $order_total_amount = (float)($order['total_amount'] ?? 0);
 $item_count = count($items);
+
+$any_design_order_item_id = 0;
+foreach ($items as $_it) {
+    $_oid = (int)($_it['order_item_id'] ?? 0);
+    if ($_oid <= 0) {
+        continue;
+    }
+    if (!empty($_it['design_image']) || (isset($_it['design_file']) && trim((string)$_it['design_file']) !== '')) {
+        $any_design_order_item_id = $_oid;
+        break;
+    }
+}
+if ($any_design_order_item_id <= 0) {
+    $design_row = db_query(
+        "SELECT order_item_id FROM order_items WHERE order_id = ?
+         AND (design_image IS NOT NULL OR (design_file IS NOT NULL AND TRIM(COALESCE(design_file, '')) != ''))
+         ORDER BY order_item_id ASC LIMIT 1",
+        'i',
+        [$order_id]
+    );
+    if (!empty($design_row)) {
+        $any_design_order_item_id = (int)$design_row[0]['order_item_id'];
+    }
+}
+
+$fallback_design_meta = null;
+if ($any_design_order_item_id > 0) {
+    $fm = db_query(
+        'SELECT design_image_mime, design_file FROM order_items WHERE order_item_id = ? LIMIT 1',
+        'i',
+        [$any_design_order_item_id]
+    );
+    if (!empty($fm)) {
+        $fallback_design_meta = $fm[0];
+    }
+}
+
 foreach ($items as $lineIndex => $item) {
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
     $itemCustomizationFallback = $customization_by_item_id[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
@@ -394,6 +431,13 @@ foreach ($items as $lineIndex => $item) {
         ? printflow_flatten_order_customization_for_customer_modal($custom_data)
         : $custom_data;
 
+    $line_oid = (int)($item['order_item_id'] ?? 0);
+    $has_own_design = !empty($item['design_image']) || (isset($item['design_file']) && trim((string)$item['design_file']) !== '');
+    $design_serve_id = $has_own_design
+        ? $line_oid
+        : (($line_oid === 0 && $any_design_order_item_id > 0) ? $any_design_order_item_id : 0);
+    $has_design_thumb = $design_serve_id > 0;
+
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
         'payload' => [
@@ -406,15 +450,19 @@ foreach ($items as $lineIndex => $item) {
         'estimated_price' => format_currency($raw_subtotal),
         'final_price'   => format_currency($raw_subtotal),
         'customization' => $customForPayload,
-        'has_design'    => !empty($item['design_image']) || !empty($item['design_file']),
+        'has_design'    => $has_design_thumb,
         'has_reference' => !empty($item['reference_image_file']),
-        'design_kind'   => pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? ''),
+        'design_kind'   => $has_own_design
+            ? pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')
+            : ($fallback_design_meta
+                ? pf_asset_kind($fallback_design_meta['design_image_mime'] ?? '', $fallback_design_meta['design_file'] ?? '')
+                : pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')),
         'reference_kind'=> pf_asset_kind('', $item['reference_image_file'] ?? ''),
-        'design_url'    => (!empty($item['design_image']) || !empty($item['design_file']))
-                            ? $base_path . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id']
+        'design_url'    => $has_design_thumb
+                            ? $base_path . '/public/serve_design.php?type=order_item&id=' . $design_serve_id
                             : null,
         'reference_url' => !empty($item['reference_image_file'])
-                            ? $base_path . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference'
+                            ? $base_path . '/public/serve_design.php?type=order_item&id=' . $line_oid . '&field=reference'
                             : null,
         ],
     ];

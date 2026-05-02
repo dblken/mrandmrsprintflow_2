@@ -2880,6 +2880,19 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom)
         if (trim((string)$text) === '') {
             continue;
         }
+        $keyLower = strtolower((string)$k);
+        $trimText = trim((string)$text);
+        if (
+            (str_contains($keyLower, 'date') || str_contains($keyLower, 'needed'))
+            && preg_match('/^\d{4}-\d{2}-\d{2}/', $trimText)
+            && function_exists('format_date')
+        ) {
+            $rawD = substr($trimText, 0, 10);
+            $ts = strtotime($rawD);
+            if ($ts !== false) {
+                $text = format_date($rawD);
+            }
+        }
         if (printflow_modal_spec_value_is_empty_noise($k, $v, (string)$text)) {
             continue;
         }

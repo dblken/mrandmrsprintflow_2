@@ -67,15 +67,18 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     // Try to find saved value
     if ($field_key === 'branch') {
         $saved_value = $existing_data['branch_id'] ?? '';
-    } elseif ($field_key === 'quantity') {
-        $saved_value = $existing_data['quantity'] ?? 1;
-    } elseif ($field_key === 'needed_date') {
-        $saved_value = $saved_customization['needed_date'] ?? '';
-    } elseif ($field_key === 'notes') {
-        $saved_value = $saved_customization['notes'] ?? '';
+    } elseif (($config['type'] ?? '') === 'quantity') {
+        $saved_value = $existing_data[$field_key] ?? $existing_data['quantity'] ?? 1;
+    } elseif (($config['type'] ?? '') === 'date') {
+        $saved_value = $saved_customization[$field_key]
+            ?? $saved_customization[$field_label]
+            ?? ($field_key === 'needed_date' ? ($saved_customization['needed_date'] ?? '') : '');
+    } elseif (($config['type'] ?? '') === 'textarea') {
+        $saved_value = $saved_customization[$field_key]
+            ?? $saved_customization[$field_label]
+            ?? ($field_key === 'notes' ? ($saved_customization['notes'] ?? '') : '');
     } else {
-        // For custom fields, check customization array by label
-        $saved_value = $saved_customization[$field_label] ?? '';
+        $saved_value = $saved_customization[$field_label] ?? $saved_customization[$field_key] ?? '';
     }
     
     $label = htmlspecialchars($config['label']);
@@ -403,12 +406,17 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'quantity':
-            $saved_qty = $existing_data['quantity'] ?? 1;
+            $saved_qty = (int)($saved_value !== '' && $saved_value !== null ? $saved_value : 1);
+            if ($saved_qty < 1) {
+                $saved_qty = 1;
+            }
+            $qty_name = htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8');
+            $qty_id = 'pf-qty-' . preg_replace('/[^a-zA-Z0-9_-]/', '_', (string)$field_key);
             $html .= '<div class="shopee-opt-group">';
             $html .= '<div class="quantity-container shopee-opt-btn" style="display: inline-flex; justify-content: space-between; gap: 1rem; width: 175px; cursor: default;">';
-            $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="const w=this.closest(\'.quantity-container\');const i=w?w.querySelector(\'input[name=quantity]\'):document.getElementById(\'quantity-input\');if(i&&parseInt(i.value)>1){i.value=parseInt(i.value)-1;if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();}">&minus;</button>';
-            $html .= '<input type="text" inputmode="numeric" id="quantity-input" name="quantity" class="qty-input-field" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . (int)$saved_qty . '" oninput="if(window.validateQuantity)window.validateQuantity(this);" onkeydown="return event.key === \'Backspace\' || event.key === \'Delete\' || event.key === \'ArrowLeft\' || event.key === \'ArrowRight\' || event.key === \'Tab\' || (event.key >= \'0\' && event.key <= \'9\');">';
-            $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="const w=this.closest(\'.quantity-container\');const i=w?w.querySelector(\'input[name=quantity]\'):document.getElementById(\'quantity-input\');if(i){const max=100;const v=parseInt(i.value)||1;if(v<max){i.value=v+1;if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();}}">+</button>';
+            $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="const w=this.closest(\'.quantity-container\');const i=w?w.querySelector(\'.pf-service-quantity-input\'):null;if(i&&parseInt(i.value)>1){i.value=parseInt(i.value)-1;if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();}">&minus;</button>';
+            $html .= '<input type="text" inputmode="numeric" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none;" value="' . $saved_qty . '" oninput="if(window.validateQuantity)window.validateQuantity(this);" onkeydown="return event.key === \'Backspace\' || event.key === \'Delete\' || event.key === \'ArrowLeft\' || event.key === \'ArrowRight\' || event.key === \'Tab\' || (event.key >= \'0\' && event.key <= \'9\');">';
+            $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="const w=this.closest(\'.quantity-container\');const i=w?w.querySelector(\'.pf-service-quantity-input\'):null;if(i){const max=100;const v=parseInt(i.value)||1;if(v<max){i.value=v+1;if(window.calculateEstimatedPrice)window.calculateEstimatedPrice();}}">+</button>';
             $html .= '</div>';
             $html .= '</div>';
             break;
@@ -438,53 +446,17 @@ function render_service_fields($service_id, $branches = [], $existing_data = [])
     if (empty($configs)) {
         return '<p style="color:#ef4444; padding:20px; text-align:center;">No field configuration found. Please contact administrator.</p>';
     }
-    
-    // Separate fields into categories
-    $branch_field = [];
-    $custom_fields = [];
-    $default_bottom_fields = [];
-    
-    foreach ($configs as $key => $config) {
-        if ($key === 'branch') {
-            $branch_field[$key] = $config;
-        } elseif (in_array($key, ['needed_date', 'quantity', 'notes'])) {
-            $default_bottom_fields[$key] = $config;
-        } else {
-            $custom_fields[$key] = $config;
-        }
-    }
-    
-    // Sort custom fields by display order
-    uasort($custom_fields, function($a, $b) {
-        return $a['order'] - $b['order'];
+
+    // Single ordering: admin display_order only (no hardcoded branch / "footer" buckets).
+    uasort($configs, function ($a, $b) {
+        return ((int)($a['order'] ?? 0)) <=> ((int)($b['order'] ?? 0));
     });
-    
-    // Sort default bottom fields in specific order: needed_date, quantity, notes
-    $bottom_order = ['needed_date' => 1, 'quantity' => 2, 'notes' => 3];
-    uasort($default_bottom_fields, function($a, $b) use ($bottom_order, $default_bottom_fields) {
-        $key_a = array_search($a, $default_bottom_fields);
-        $key_b = array_search($b, $default_bottom_fields);
-        return ($bottom_order[$key_a] ?? 999) - ($bottom_order[$key_b] ?? 999);
-    });
-    
-    // Render in order: branch -> custom fields -> default bottom fields
+
     $html = '';
-    
-    // 1. Branch field first
-    foreach ($branch_field as $key => $config) {
+    foreach ($configs as $key => $config) {
         $html .= render_service_field($key, $config, $branches, $existing_data);
     }
-    
-    // 2. Custom fields
-    foreach ($custom_fields as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data);
-    }
-    
-    // 3. Default bottom fields last
-    foreach ($default_bottom_fields as $key => $config) {
-        $html .= render_service_field($key, $config, $branches, $existing_data);
-    }
-    
+
     return $html;
 }
 
@@ -650,13 +622,13 @@ function selectDimensionOthers(e) {
 }
 
 function increaseQty() {
-    const i = document.getElementById('quantity-input');
+    const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
     if (i) i.value = Math.min(100, (parseInt(i.value) || 1) + 1);
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
 function decreaseQty() {
-    const i = document.getElementById('quantity-input');
+    const i = document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input');
     if (i && parseInt(i.value) > 1) i.value = parseInt(i.value) - 1;
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
@@ -674,7 +646,7 @@ function validateQuantity(input) {
 function pfChangeQty(btn, delta) {
     if (!btn) return;
     const container = btn.closest('.quantity-container') || btn.parentElement;
-    const input = container ? container.querySelector('#quantity-input') : document.getElementById('quantity-input');
+    const input = container ? container.querySelector('.pf-service-quantity-input') : (document.querySelector('#serviceForm .pf-service-quantity-input') || document.querySelector('.pf-service-quantity-input'));
     if (!input) return;
     let val = parseInt(input.value);
     if (isNaN(val) || val < 1) val = 1;
@@ -805,7 +777,7 @@ if (!window.__pfServiceFieldDelegatesBound) {
     document.addEventListener('input', function(e) {
         if (e.target.matches('.custom-dim-width, .custom-dim-height')) {
             validateDimensionInput(e.target);
-        } else if (e.target.matches('#quantity-input')) {
+        } else if (e.target.matches('.pf-service-quantity-input')) {
             validateQuantity(e.target);
         }
     }, true);

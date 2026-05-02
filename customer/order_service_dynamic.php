@@ -288,9 +288,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     
     // Extract values from POST based on field configuration
     $branch_id = (int)($_POST['branch_id'] ?? 0);
-    $quantity = max(1, min(999, (int)($_POST['quantity'] ?? 1)));
-    $notes = '';
-    $needed_date = '';
+    $quantity_field_key = 'quantity';
+    foreach ($field_configs as $qk => $qc) {
+        if (!empty($qc['visible']) && ($qc['type'] ?? '') === 'quantity') {
+            $quantity_field_key = $qk;
+            break;
+        }
+    }
+    $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 1)));
     $has_design_field = false;
     
     // Validate branch
@@ -325,16 +330,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             // --- End Conditional Logic Check ---
             
             if ($config['type'] === 'date') {
-                $needed_date = trim($_POST[$key] ?? '');
-                if ($config['required'] && empty($needed_date)) {
-                    $error = 'Please select when you need the order.';
+                $date_val = trim((string)($_POST[$key] ?? ''));
+                if ($config['required'] && $date_val === '') {
+                    $error = 'Please select ' . strtolower($config['label'] ?: 'a date') . '.';
                     break;
                 }
             } elseif ($config['type'] === 'textarea') {
-                $notes = trim($_POST[$key] ?? '');
-                // Notes field is optional, so only validate if required flag is true
-                if ($config['required'] && empty($notes)) {
-                    $error = 'Please provide ' . strtolower($config['label']) . '.';
+                $note_val = trim((string)($_POST[$key] ?? ''));
+                if ($config['required'] && $note_val === '') {
+                    $error = 'Please provide ' . strtolower($config['label'] ?: 'notes') . '.';
+                    break;
+                }
+            } elseif ($config['type'] === 'quantity') {
+                $qv = max(0, min(999, (int)($_POST[$key] ?? 0)));
+                if ($config['required'] && $qv < 1) {
+                    $error = 'Please enter a valid quantity.';
                     break;
                 }
             } elseif ($config['type'] === 'file') {
@@ -379,10 +389,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             }
         }
-    }
-    
-    if (empty($error) && $quantity < 1) {
-        $error = 'Please enter a valid quantity.';
     }
     
     if (empty($error)) {
@@ -442,8 +448,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     }
                 }
                 
-                if (in_array($key, ['branch', 'needed_date', 'quantity', 'notes'])) continue;
-                
+                if ($key === 'branch' || $key === $quantity_field_key) {
+                    continue;
+                }
+
+                if ($config['type'] === 'date') {
+                    $dv = trim((string)($_POST[$key] ?? ''));
+                    if ($dv !== '') {
+                        $customization[$spec_label($config, $key)] = $dv;
+                        if ($key === 'needed_date') {
+                            $customization['needed_date'] = $dv;
+                        }
+                    }
+                    continue;
+                }
+                if ($config['type'] === 'file') {
+                    if ($design_name !== null && $design_name !== '') {
+                        $customization[$spec_label($config, $key)] = $design_name;
+                    }
+                    continue;
+                }
+
                 if ($config['type'] === 'dimension') {
                     $width = trim($_POST[$key . '_width'] ?? $_POST['width'] ?? '');
                     $height = trim($_POST[$key . '_height'] ?? $_POST['height'] ?? '');
@@ -458,16 +483,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             $customization[$spec_label($config, $key) . ' (Other)'] = $_POST[$key . '_other'];
                         }
                         $customization[$spec_label($config, $key)] = $val;
+                        if (($config['type'] ?? '') === 'textarea' && $key === 'notes') {
+                            $customization['notes'] = is_string($val) ? $val : (string)$val;
+                        }
                     }
                 }
             }
-            
-            // Ensure needed_date is in customization
-            if (!empty($needed_date)) {
-                $customization['needed_date'] = $needed_date;
-            }
-            if (!empty($notes)) {
-                $customization['notes'] = $notes;
+            if ($branch_id > 0) {
+                $branch_row = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$branch_id]);
+                if (!empty($branch_row) && trim((string)($branch_row[0]['branch_name'] ?? '')) !== '') {
+                    $customization['branch'] = $branch_row[0]['branch_name'];
+                }
             }
             $customization['service_id'] = $service_id;
             if (empty($customization['service_type'])) {
@@ -1645,8 +1671,8 @@ document.addEventListener('DOMContentLoaded', function() {
             optionsTotal += price;
         }
         
-        // Get quantity
-        const qtyInput = form.querySelector('input[name="quantity"]');
+        // Get quantity (field name comes from admin service_field_configs)
+        const qtyInput = form.querySelector('.pf-service-quantity-input');
         const quantity = parseInt(qtyInput?.value || 1);
         
         // Calculate totals
@@ -1679,7 +1705,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Listen to all form changes
     form.addEventListener('change', window.calculateEstimatedPrice);
     form.addEventListener('input', function(e) {
-        if (e.target.name === 'quantity') {
+        if (e.target.classList && e.target.classList.contains('pf-service-quantity-input')) {
             window.calculateEstimatedPrice();
         }
     });
