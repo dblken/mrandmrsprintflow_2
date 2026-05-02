@@ -931,6 +931,39 @@ try {
                     $summary['quantity'] = (int)$storeLinePayload['line_qty'];
                 }
 
+                // When the modal is opened from a specific customization row, prefer that row's
+                // non-empty specs for the matching order item. Some online-service orders keep the
+                // fullest field set in customizations.customization_details while order_items
+                // contains only a partial payload.
+                $targetOrderItemId = (int)($cust['order_item_id'] ?? 0);
+                if (!empty($items)) {
+                    $matchedCustomizationItem = false;
+                    foreach ($items as &$itemRow) {
+                        $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
+                        $shouldMergeDetails =
+                            ($targetOrderItemId > 0 && $lineOrderItemId === $targetOrderItemId)
+                            || ($targetOrderItemId <= 0 && count($items) === 1);
+
+                        if (!$shouldMergeDetails) {
+                            continue;
+                        }
+
+                        $lineCustom = is_array($itemRow['customization'] ?? null)
+                            ? $itemRow['customization']
+                            : [];
+                        $itemRow['customization'] = printflow_overlay_nonempty_assoc($lineCustom, $details);
+                        $matchedCustomizationItem = true;
+                    }
+                    unset($itemRow);
+
+                    if (!$matchedCustomizationItem && count($items) === 1) {
+                        $lineCustom = is_array($items[0]['customization'] ?? null)
+                            ? $items[0]['customization']
+                            : [];
+                        $items[0]['customization'] = printflow_overlay_nonempty_assoc($lineCustom, $details);
+                    }
+                }
+
                 $linked_job_candidates = $linked_job_rows ?? [];
 
                 if (!empty($linked_job_candidates)) {
@@ -1098,6 +1131,7 @@ try {
             $data = [
                 'id'                       => $cust['customization_id'],
                 'order_id'                 => $cust['order_id'],
+                'order_item_id'            => (int)($cust['order_item_id'] ?? 0),
                 'order_type'               => 'CUSTOMIZATION',
                 'order_code'               => !empty($cust['order_id'])
                     ? (printflow_get_order_inventory_reference((int)$cust['order_id'])['code'] ?? '')

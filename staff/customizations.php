@@ -1474,7 +1474,7 @@ if ($showLatestCustomizationOnly) {
                                 <div style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
                                     <div class="modal-wrap-text modal-item-title" style="font-size:13px; font-weight:700; color:#1f2937; margin-bottom:10px;" x-text="getDynamicProductName(item) + ' × ' + item.quantity"></div>
                                     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px;">
-                                        <template x-for="([k, v]) in getDisplayableCustom(item.customization)" :key="k">
+                                        <template x-for="([k, v]) in getDisplayableCustom(item.customization, item)" :key="k">
                                             <div style="padding:8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; min-width:0; overflow-wrap:break-word;">
                                                 <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:2px;" x-text="getCustomLabel(k)"></div>
                                                 <div style="font-size:12px; font-weight:500; color:#1f2937; word-break:break-word; overflow-wrap:break-word;" x-text="formatCustomValuePlain(v)"></div>
@@ -2904,14 +2904,30 @@ window.pfCustomizationPreloadedOrders = (() => {
                 'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
                 'cart_key', '_cart_key', 'config_id', 'form_type'
             ],
-            getDisplayableCustom(custom) {
+            getDisplayableCustom(custom, item = null) {
                 let sourceCustom = custom;
+                const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
+                    ? this.currentJo.customization_details
+                    : null;
+
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0) {
-                    const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
-                        ? this.currentJo.customization_details
-                        : null;
                     if (fallbackCustom && !Array.isArray(fallbackCustom) && Object.keys(fallbackCustom).length > 0) {
                         sourceCustom = fallbackCustom;
+                    }
+                } else if (
+                    fallbackCustom &&
+                    !Array.isArray(fallbackCustom) &&
+                    Object.keys(fallbackCustom).length > 0 &&
+                    String(this.currentJo?.order_type || '').toUpperCase() === 'CUSTOMIZATION'
+                ) {
+                    const targetOrderItemId = Number(this.currentJo?.order_item_id || 0);
+                    const itemOrderItemId = Number(item?.order_item_id || 0);
+                    const shouldMergeFallback =
+                        (targetOrderItemId > 0 && itemOrderItemId > 0 && targetOrderItemId === itemOrderItemId)
+                        || (targetOrderItemId <= 0 && Array.isArray(this.currentJo?.items) && this.currentJo.items.length === 1);
+
+                    if (shouldMergeFallback) {
+                        sourceCustom = { ...fallbackCustom, ...sourceCustom };
                     }
                 }
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
