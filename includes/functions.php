@@ -2175,13 +2175,29 @@ function printflow_notification_display_message(array $notification): string {
         }
     }
 
+    if ($data_id > 0 && $type === 'payment' && preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
+        $jobPreview = printflow_job_notification_preview($data_id);
+        $jn = trim((string)($jobPreview['display_name'] ?? ''));
+        if ($jn !== '') {
+            return rtrim($pay[1]) . ' ' . $jn;
+        }
+    }
+
     if ($data_id > 0 && $type === 'order') {
         $preview = printflow_order_notification_preview($data_id);
-        if (!empty($preview['display_name'])) {
+        $dn = trim((string)($preview['display_name'] ?? ''));
+        if ($dn !== '') {
+            if (preg_match('/^(.+?\bsent an inquiry for)\s+.*$/iu', $message, $inq)) {
+                return rtrim($inq[1]) . ' ' . $dn;
+            }
+            if (preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
+                return rtrim($pay[1]) . ' ' . $dn;
+            }
+
             $replacements = [
-                '/placed an order for .+$/i' => 'placed an order for ' . $preview['display_name'],
-                '/order for .+? placed successfully!?$/i' => 'Order for ' . $preview['display_name'] . ' placed successfully!',
-                '/resubmitted a revised design for .+$/i' => 'resubmitted a revised design for ' . $preview['display_name'],
+                '/placed an order for .+$/i' => 'placed an order for ' . $dn,
+                '/order for .+? placed successfully!?$/i' => 'Order for ' . $dn . ' placed successfully!',
+                '/resubmitted a revised design for .+$/i' => 'resubmitted a revised design for ' . $dn,
             ];
 
             foreach ($replacements as $pattern => $replacement) {
@@ -2442,6 +2458,162 @@ function printflow_order_item_has_service_marker(array $custom): bool {
     return false;
 }
 
+function customer_orders_decode_customization_payload($raw): array {
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function customer_orders_is_generic_item_name(string $name): bool {
+    $normalized = strtolower(trim((string)preg_replace('/\s+/', ' ', $name)));
+    if ($normalized === '') {
+        return true;
+    }
+    $generic = [
+        'order item',
+        'service order',
+        'service item',
+        'custom order',
+        'customer order',
+        'merchandise',
+        'sticker pack',
+        'pos service item',
+        'pos-service item',
+        'pos service',
+        'pos-service',
+    ];
+    return in_array($normalized, $generic, true);
+}
+
+function customer_orders_resolve_service_name_by_id(int $service_id): string {
+    static $cache = [];
+    if ($service_id <= 0) {
+        return '';
+    }
+    if (array_key_exists($service_id, $cache)) {
+        return $cache[$service_id];
+    }
+    $rows = db_query('SELECT name FROM services WHERE service_id = ? LIMIT 1', 'i', [$service_id]);
+    return $cache[$service_id] = trim((string)($rows[0]['name'] ?? ''));
+}
+
+function customer_orders_primary_customization(array $order): array {
+    $itemCustom = customer_orders_decode_customization_payload((string)($order['first_item_customization'] ?? ''));
+    $tableCustom = customer_orders_decode_customization_payload((string)($order['first_customization_details'] ?? ''));
+
+    $merged = array_replace($tableCustom, $itemCustom);
+
+    $serviceType = trim((string)($order['first_customization_service_type'] ?? ''));
+    if ($serviceType !== '' && empty($merged['service_type'])) {
+        $merged['service_type'] = $serviceType;
+    }
+
+    $sid = (int)($merged['service_id'] ?? 0);
+    if ($sid <= 0) {
+        $sid = (int)($itemCustom['service_id'] ?? $tableCustom['service_id'] ?? 0);
+        if ($sid > 0) {
+            $merged['service_id'] = $sid;
+        }
+    }
+
+    if ($sid > 0) {
+        $byId = customer_orders_resolve_service_name_by_id($sid);
+        if ($byId !== '' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+            $merged['service_type'] = $byId;
+        }
+    }
+
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    if ($orderType === 'custom' && (empty($merged['service_type']) || customer_orders_is_generic_item_name((string)$merged['service_type']))) {
+        $ref = (int)($order['reference_id'] ?? 0);
+        if ($ref > 0) {
+            $byRef = customer_orders_resolve_service_name_by_id($ref);
+            if ($byRef !== '') {
+                $merged['service_type'] = $byRef;
+                if ((int)($merged['service_id'] ?? 0) <= 0) {
+                    $merged['service_id'] = $ref;
+                }
+            }
+        }
+    }
+
+    return $merged;
+}
+
+function customer_orders_custom_order_is_catalog_product(array $custom): bool {
+    $src = strtolower(trim((string)($custom['source_page'] ?? '')));
+    if (in_array($src, ['products', 'dynamic_form', 'product'], true)) {
+        return true;
+    }
+    if (isset($custom['form_type']) && strtolower(trim((string)$custom['form_type'])) === 'dynamic') {
+        return true;
+    }
+    if (!empty($custom['config_id'])) {
+        return true;
+    }
+    return false;
+}
+
+function customer_orders_primary_item_name(array $order): string {
+    $custom = customer_orders_primary_customization($order);
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    $serviceFallback = trim((string)($order['first_customization_service_type'] ?? ($custom['service_type'] ?? '')));
+    $rawName = trim((string)($order['first_product_name'] ?? ''));
+
+    // Custom orders may use a placeholder/unrelated product_id; do not trust products.name for the label.
+    if ($orderType === 'custom' && !customer_orders_custom_order_is_catalog_product($custom)) {
+        $rawName = '';
+    }
+
+    if ($rawName === '' || customer_orders_is_generic_item_name($rawName)) {
+        $rawName = $serviceFallback !== '' ? $serviceFallback : $rawName;
+    }
+
+    if ($orderType === 'custom') {
+        $jobTitle = trim((string)($order['first_job_title'] ?? ''));
+        if ($jobTitle !== '' && !customer_orders_is_generic_item_name($jobTitle)) {
+            return normalize_service_name($jobTitle, $jobTitle);
+        }
+        $fromFields = trim((string)get_service_name_from_customization($custom, ''));
+        if ($fromFields !== '' && !customer_orders_is_generic_item_name($fromFields)) {
+            $resolvedEarly = printflow_resolve_order_item_name($fromFields, $custom, $fromFields);
+            if (!customer_orders_is_generic_item_name($resolvedEarly)) {
+                return $resolvedEarly;
+            }
+            return normalize_service_name($fromFields, $fromFields);
+        }
+    }
+
+    $fallback = $serviceFallback !== '' ? $serviceFallback : 'Order Item';
+    $resolved = printflow_resolve_order_item_name($rawName !== '' ? $rawName : $fallback, $custom, $fallback);
+
+    if (customer_orders_is_generic_item_name($resolved) && $serviceFallback !== '') {
+        return normalize_service_name($serviceFallback, $serviceFallback);
+    }
+    if (customer_orders_is_generic_item_name($resolved)) {
+        if ($orderType === 'custom') {
+            $ref = (int)($order['reference_id'] ?? 0);
+            if ($ref > 0) {
+                $nm = customer_orders_resolve_service_name_by_id($ref);
+                if ($nm !== '') {
+                    return normalize_service_name($nm, $nm);
+                }
+            }
+            $jst = trim((string)($order['first_job_service_type'] ?? ''));
+            if ($jst !== '' && !customer_orders_is_generic_item_name($jst)) {
+                return normalize_service_name($jst, $jst);
+            }
+        }
+        $fromFields = trim((string)get_service_name_from_customization($custom, ''));
+        if ($fromFields !== '' && !customer_orders_is_generic_item_name($fromFields)) {
+            return normalize_service_name($fromFields, $fromFields);
+        }
+    }
+    return $resolved;
+}
+
 
 function printflow_order_notification_preview(int $order_id): array {
     static $cache = [];
@@ -2480,6 +2652,23 @@ function printflow_order_notification_preview(int $order_id): array {
                 p.product_id,
                 p.product_type,
                 o.order_type,
+                o.reference_id,
+                (SELECT COALESCE(
+                    (SELECT c1.customization_details FROM customizations c1
+                     WHERE c1.order_id = o.order_id
+                       AND c1.order_item_id = oi.order_item_id
+                     ORDER BY c1.customization_id ASC LIMIT 1),
+                    (SELECT c2.customization_details FROM customizations c2 WHERE c2.order_id = o.order_id ORDER BY c2.customization_id ASC LIMIT 1)
+                )) AS first_customization_details,
+                (SELECT COALESCE(
+                    (SELECT c1.service_type FROM customizations c1
+                     WHERE c1.order_id = o.order_id
+                       AND c1.order_item_id = oi.order_item_id
+                     ORDER BY c1.customization_id ASC LIMIT 1),
+                    (SELECT c2.service_type FROM customizations c2 WHERE c2.order_id = o.order_id ORDER BY c2.customization_id ASC LIMIT 1)
+                )) AS first_customization_service_type,
+                (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) AS first_job_title,
+                (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) AS first_job_service_type,
                 {$product_image_expr}
          FROM order_items oi
          LEFT JOIN products p ON oi.product_id = p.product_id
@@ -2513,17 +2702,30 @@ function printflow_order_notification_preview(int $order_id): array {
         $preview['item_kind'] = 'Product';
     }
 
-    $is_service_item = ($preview['item_kind'] === 'Service');
-    $service_name = $is_service_item ? get_service_name_from_customization($custom, '') : '';
-    $display_name_source = $service_name !== '' ? $service_name : (string)($row['product_name'] ?? 'Order Item');
-    if (!$is_service_item && trim($display_name_source) === '') {
-        $display_name_source = (string)($custom['product_type'] ?? 'Order Item');
+    $orderForDisplayName = [
+        'order_type' => $row['order_type'] ?? '',
+        'reference_id' => $row['reference_id'] ?? null,
+        'first_product_name' => $row['product_name'] ?? '',
+        'first_item_customization' => $row['customization_data'] ?? '',
+        'first_customization_details' => $row['first_customization_details'] ?? '',
+        'first_customization_service_type' => $row['first_customization_service_type'] ?? '',
+        'first_job_title' => $row['first_job_title'] ?? '',
+        'first_job_service_type' => $row['first_job_service_type'] ?? '',
+    ];
+    $preview['display_name'] = customer_orders_primary_item_name($orderForDisplayName);
+    if (trim($preview['display_name']) === '' || customer_orders_is_generic_item_name($preview['display_name'])) {
+        $is_service_item = ($preview['item_kind'] === 'Service');
+        $service_name = $is_service_item ? get_service_name_from_customization($custom, '') : '';
+        $display_name_source = $service_name !== '' ? $service_name : (string)($row['product_name'] ?? 'Order Item');
+        if (!$is_service_item && trim($display_name_source) === '') {
+            $display_name_source = (string)($custom['product_type'] ?? 'Order Item');
+        }
+        $preview['display_name'] = printflow_resolve_order_item_name(
+            $display_name_source,
+            $custom,
+            'Order Item'
+        );
     }
-    $preview['display_name'] = printflow_resolve_order_item_name(
-        $display_name_source,
-        $custom,
-        'Order Item'
-    );
 
     if (!empty($row['has_design']) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
