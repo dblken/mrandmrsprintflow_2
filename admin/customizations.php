@@ -47,11 +47,6 @@ $per_page       = 15;
 // ── Branch Context (operational page) ─────────────────
 $branchCtx = init_branch_context(false); // analytics-style — allow All
 $branchId  = $branchCtx['selected_branch_id'];
-$branch_filter = '';
-if ($branchId !== 'all') {
-    $branch_filter = (int)$branchId;
-}
-
 // Keep dataset aligned with staff/customizations.php
 $jobCustomizationScopeSql = " AND (
     jo.order_id IS NULL
@@ -77,11 +72,15 @@ $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.
         WHERE 1=1" . $jobCustomizationScopeSql;
 $params = []; $types = '';
 
-// ── Branch filter ──────────────────────────────────
-if ($branch_filter !== '') {
-    $sql .= " AND COALESCE(jo.branch_id, (SELECT ord2.branch_id FROM orders ord2 WHERE ord2.order_id = jo.order_id LIMIT 1)) = ?";
-    $params[] = $branch_filter;
+$joBranchExpr = "COALESCE(jo.branch_id, (SELECT ord2.branch_id FROM orders ord2 WHERE ord2.order_id = jo.order_id LIMIT 1))";
+
+// ── Branch filter (all = non-archived branches only; allow NULL effective branch) ──────────────────────────────────
+if ($branchId !== 'all') {
+    $sql .= " AND {$joBranchExpr} = ?";
+    $params[] = (int)$branchId;
     $types .= 'i';
+} else {
+    $sql .= " AND ({$joBranchExpr} IS NULL OR {$joBranchExpr} IN (SELECT id FROM branches WHERE status != 'Archived'))";
 }
 
 if (!empty($search)) {

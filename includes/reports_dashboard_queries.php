@@ -344,10 +344,10 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
         $branchParams = [$branchIdInt];
     }
 
-    // 1. Initialize map with ALL registered branches
+    // 1. Initialize map with registered branches (archived excluded from reporting)
     try {
         $allBranches = db_query(
-            'SELECT id, branch_name FROM branches WHERE 1=1' . $branchWhere . ' ORDER BY id',
+            'SELECT id, branch_name FROM branches WHERE status != \'Archived\'' . $branchWhere . ' ORDER BY id',
             $branchTypes ?: null,
             $branchParams ?: null
         ) ?: [];
@@ -387,6 +387,8 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             $oDatePart .= " AND o.branch_id = ?";
             $odParams[] = $branchIdInt;
             $odTypes .= "i";
+        } else {
+            $oDatePart .= " AND o.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
         }
 
         $oRows = db_query(
@@ -431,6 +433,8 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             $jDatePart .= " AND jo.branch_id = ?";
             $jdParams[] = $branchIdInt;
             $jdTypes .= "i";
+        } else {
+            $jDatePart .= " AND jo.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
         }
 
         $jRows = db_query(

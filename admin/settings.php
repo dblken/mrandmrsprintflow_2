@@ -51,8 +51,8 @@ $shop_cfg   = printflow_load_runtime_config('shop', $logo_dir . 'shop_config.jso
 $footer_cfg = printflow_load_runtime_config('footer', $logo_dir . 'footer_config.json');
 $about_cfg  = printflow_load_runtime_config('about', $logo_dir . 'about_config.json');
 
-// Load branches for address selector
-$branches = db_query("SELECT id, branch_name AS name FROM branches ORDER BY branch_name") ?: [];
+// Load branches for address selector (archived branches omitted)
+$branches = db_query("SELECT id, branch_name AS name FROM branches WHERE status != 'Archived' ORDER BY branch_name") ?: [];
 // Per-branch addresses stored in footer_cfg['branch_addresses'] = [['branch_id'=>1,'address'=>'...']]
 
 function settings_redirect_after_save($savedKey) {

@@ -12,7 +12,7 @@
  * Usage:
  *   require_once __DIR__ . '/../includes/branch_context.php';
  *   $ctx = init_branch_context();           // resolve + store in session
- *   [$bSql, $bTypes, $bParams] = branch_where_parts('o', $ctx['selected_branch_id']);
+ *   [$bSql, $bTypes, $bParams] = branch_where_parts('o', $ctx['selected_branch_id']); // 'all' omits archived branches
  *
  * Session key: $_SESSION['selected_branch_id']  — 'all' | int
  */
@@ -263,14 +263,23 @@ function branch_customers_report_list(int $branchId): array {
  *   $params[] = ...; // merge $wp
  *
  *  If $branchContext === 'all':
- *   Returns ['', '', []]
+ *   Restricts to orders/jobs whose branch_id refers to a row where status != 'Archived'
+ *   (archived branches are omitted from aggregates and operational filters).
  * ──────────────────────────────────────────────────── */
 function branch_where_parts(string $tableAlias, $branchContext): array {
+    $a = preg_replace('/[^a-zA-Z0-9_]/', '', $tableAlias);
+    if ($a === '') {
+        $a = 'o';
+    }
     if ($branchContext === 'all') {
-        return ['', '', []];
+        return [
+            " AND {$a}.branch_id IN (SELECT id FROM branches WHERE status != 'Archived') ",
+            '',
+            [],
+        ];
     }
     $branch_id = (int)$branchContext;
-    return [" AND {$tableAlias}.branch_id = ? ", 'i', [$branch_id]];
+    return [" AND {$a}.branch_id = ? ", 'i', [$branch_id]];
 }
 
 /**

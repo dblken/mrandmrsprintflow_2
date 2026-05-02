@@ -99,8 +99,8 @@ $salesTrendBranchId = $branchId;
 
 /**
  * Analytics filter context:
- * Use the selected branch from the report filter. When Admin selects "All",
- * branch_where_parts() intentionally applies no branch filter.
+ * Uses the selected branch from the report filter. When Admin selects "All",
+ * branch_where_parts() includes every non-archived branch (archived branches are excluded).
  */
 $globalAnalyticsFrom     = '';
 $globalAnalyticsTo       = '';

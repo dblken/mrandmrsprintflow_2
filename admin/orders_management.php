@@ -31,10 +31,6 @@ $search         = $_GET['search']   ?? '';
 $date_from      = $_GET['date_from'] ?? '';
 $date_to        = $_GET['date_to']   ?? '';
 $sort_by        = $_GET['sort']      ?? 'newest';
-$branch_filter  = '';
-if ($branchId !== 'all') {
-    $branch_filter = (int)$branchId;
-}
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 10;
 
@@ -89,11 +85,14 @@ $order_code_search_sql = "CONCAT(
     o.order_id
 )";
 
-// ── Branch filter ──────────────────────────────────
-if ($branch_filter !== '') {
-    $sql .= " AND o.branch_id = ?";
-    $params[] = $branch_filter;
-    $types .= 'i';
+// ── Branch filter (all = non-archived branches only) ──────────────────────────────────
+[$branchListFrag, $branchListTypes, $branchListParams] = branch_where_parts('o', $branchId);
+$sql .= $branchListFrag;
+if ($branchListTypes !== '') {
+    $types .= $branchListTypes;
+}
+foreach ($branchListParams as $p) {
+    $params[] = $p;
 }
 
 if ($status_filter !== '') {
@@ -145,8 +144,10 @@ $count_sql = "SELECT COUNT(*) as total FROM (
     WHERE 1=1
       AND o.order_type = 'product'";
 
-if ($branch_filter !== '') {
-    $count_sql .= " AND o.branch_id = " . (int)$branch_filter;
+if ($branchId !== 'all') {
+    $count_sql .= " AND o.branch_id = " . (int)$branchId;
+} else {
+    $count_sql .= " AND o.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
 }
 
 if ($status_filter !== '') {
