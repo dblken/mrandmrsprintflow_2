@@ -5,7 +5,15 @@
  * Admin may activate an account after login — session must reflect users.status
  * or the UI keeps showing "Pending" while the DB is Activated.
  */
-if (get_user_type() !== 'Staff') {
+printflow_guard_archived_staff_manager();
+
+$__pf_um_user_type = get_user_type();
+
+if ($__pf_um_user_type === 'Manager') {
+    return;
+}
+
+if ($__pf_um_user_type !== 'Staff') {
     return;
 }
 

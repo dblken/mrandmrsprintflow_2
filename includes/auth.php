@@ -1182,6 +1182,39 @@ function require_auth() {
 }
 
 /**
+ * Staff/Manager: if DB status is Archived, redirect to logout (session must not stay active).
+ * Safe to call multiple times per request (one DB read per user id).
+ */
+function printflow_guard_archived_staff_manager(): void {
+    static $checked_uid = null;
+    if (!function_exists('get_user_type') || !function_exists('get_user_id')) {
+        return;
+    }
+    $role = get_user_type();
+    if (!in_array($role, ['Manager', 'Staff'], true)) {
+        return;
+    }
+    $uid = (int) get_user_id();
+    if ($uid <= 0) {
+        return;
+    }
+    if ($checked_uid === $uid) {
+        return;
+    }
+    $checked_uid = $uid;
+    try {
+        $row = db_query('SELECT status FROM users WHERE user_id = ? LIMIT 1', 'i', [$uid]);
+        if (!empty($row) && ($row[0]['status'] ?? '') === 'Archived') {
+            $bp = defined('BASE_PATH') ? BASE_PATH : AUTH_REDIRECT_BASE;
+            header('Location: ' . rtrim((string) $bp, '/') . '/public/logout.php');
+            exit;
+        }
+    } catch (Throwable $e) {
+        // non-fatal
+    }
+}
+
+/**
  * Require specific role (redirect if user doesn't have the role)
  * @param string|array $roles Allowed roles (e.g., 'Admin' or ['Admin', 'Staff'])
  */
@@ -1199,6 +1232,8 @@ function require_role($roles) {
         redirect_to_dashboard();
         exit();
     }
+
+    printflow_guard_archived_staff_manager();
 }
 
 /**
@@ -1254,6 +1289,8 @@ function require_admin_or_staff() {
         redirect_to_dashboard();
         exit();
     }
+
+    printflow_guard_archived_staff_manager();
 }
 
 /**

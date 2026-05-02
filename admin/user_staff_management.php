@@ -61,6 +61,20 @@ if (!is_file($__pfUsersSchemaOk)) {
 }
 unset($__pfUsersSchemaOk);
 
+// Allow Archived status on users (safe one-time ENUM widen)
+$__pfUsersArchivedEnum = __DIR__ . '/../tmp/.printflow_users_archived_status_enum';
+if (!is_file($__pfUsersArchivedEnum)) {
+    try {
+        $col = db_query("SHOW COLUMNS FROM users LIKE 'status'");
+        $type = strtolower((string)(($col[0]['Type'] ?? '')));
+        if ($type !== '' && strpos($type, 'archived') === false) {
+            db_execute("ALTER TABLE users MODIFY COLUMN `status` ENUM('Activated','Pending','Deactivated','Archived') NOT NULL DEFAULT 'Pending'");
+        }
+        @file_put_contents($__pfUsersArchivedEnum, '1');
+    } catch (Throwable $e) { /* ignore */ }
+}
+unset($__pfUsersArchivedEnum);
+
 // Handle staff creation
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff']) && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     $first_name  = sanitize($_POST['first_name']);
@@ -213,7 +227,7 @@ $sort_col_sql = match($sort) {
     default  => 'u.created_at DESC',
 };
 
-$sql_base = "FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE 1=1";
+$sql_base = "FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE u.status != 'Archived'";
 $params = []; $types = '';
 
 if (!empty($search)) {
@@ -252,12 +266,13 @@ $users = db_query("SELECT u.*, b.branch_name $sql_base ORDER BY $sort_col_sql LI
 // Fetch available branches for the creation dropdown
 $branches = db_query("SELECT id, branch_name FROM branches WHERE status != 'Archived' ORDER BY id ASC");
 
-// Summary statistics
-$stat_total    = db_query("SELECT COUNT(*) as c FROM users")[0]['c'];
-$stat_admins   = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Admin'")[0]['c'];
-$stat_managers = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Manager'")[0]['c'];
-$stat_staff    = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Staff'")[0]['c'];
+// Summary statistics (exclude archived from active directory counts)
+$stat_total    = db_query("SELECT COUNT(*) as c FROM users WHERE status != 'Archived'")[0]['c'];
+$stat_admins   = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Admin' AND status != 'Archived'")[0]['c'];
+$stat_managers = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Manager' AND status != 'Archived'")[0]['c'];
+$stat_staff    = db_query("SELECT COUNT(*) as c FROM users WHERE role = 'Staff' AND status != 'Archived'")[0]['c'];
 $stat_active   = db_query("SELECT COUNT(*) as c FROM users WHERE status = 'Activated'")[0]['c'];
+$stat_archived = (int)(db_query("SELECT COUNT(*) as c FROM users WHERE status = 'Archived'")[0]['c'] ?? 0);
 
 // Sort helpers
 $build_sort_url = function(string $col) use ($sort, $dir, $search, $role_filter, $status_filter): string {
@@ -279,6 +294,43 @@ $max_birthday = date('Y-m-d', strtotime('-18 years'));
 $min_birthday = date('Y-m-d', strtotime('-70 years'));
 
 $page_title = 'Team Management - Admin';
+
+// Archived accounts (modal AJAX)
+if (isset($_GET['get_archived'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $archived = db_query(
+        "SELECT u.user_id, u.first_name, u.last_name, u.email, u.role, u.status, u.updated_at, b.branch_name
+         FROM users u
+         LEFT JOIN branches b ON u.branch_id = b.id
+         WHERE u.status = 'Archived'
+         ORDER BY u.updated_at DESC"
+    ) ?: [];
+    $csrf = $_SESSION['csrf_token'] ?? '';
+    $html = '<table class="w-full text-sm" style="width:100%;border-collapse:collapse;">';
+    $html .= '<thead><tr style="border-bottom:2px solid #e5e7eb;"><th class="text-left py-3">Name</th><th class="text-left py-3">Email</th><th class="text-left py-3">Role</th><th class="text-left py-3">Branch</th><th class="text-right py-3">Actions</th></tr></thead><tbody>';
+    if (empty($archived)) {
+        $html .= '<tr><td colspan="5" style="padding:40px;text-align:center;color:#9ca3af;">No archived accounts.</td></tr>';
+    } else {
+        foreach ($archived as $u) {
+            $name = htmlspecialchars(trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? '')), ENT_QUOTES, 'UTF-8');
+            $email = htmlspecialchars(strtolower((string)($u['email'] ?? '')), ENT_QUOTES, 'UTF-8');
+            $role = htmlspecialchars((string)($u['role'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $branch = htmlspecialchars((string)($u['branch_name'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $uid = (int)$u['user_id'];
+            $html .= '<tr style="border-bottom:1px solid #f3f4f6;">';
+            $html .= '<td class="py-3">' . $name . '</td>';
+            $html .= '<td class="py-3">' . $email . '</td>';
+            $html .= '<td class="py-3">' . $role . '</td>';
+            $html .= '<td class="py-3">' . (($u['role'] ?? '') === 'Admin' ? '<span style="color:#9ca3af;">All Branches</span>' : ($branch !== '' ? $branch : '—')) . '</td>';
+            $html .= '<td class="py-3 text-right">';
+            $html .= '<button type="button" class="btn-action teal pf-restore-archived-user" data-user-id="' . $uid . '" data-csrf="' . htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8') . '">Restore</button>';
+            $html .= '</td></tr>';
+        }
+    }
+    $html .= '</tbody></table>';
+    echo json_encode(['success' => true, 'html' => $html]);
+    exit;
+}
 
 // ── AJAX handler
 if (isset($_GET['ajax'])) {
@@ -305,12 +357,20 @@ if (isset($_GET['ajax'])) {
                     ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $rs; ?>"><?php echo $user['role']; ?></span></td>
                 <td class="py-3"><?php echo $user['role']==='Admin' ? '<span class="text-gray-500 italic">All Branches</span>' : htmlspecialchars($user['branch_name'] ?? 'Unassigned'); ?></td>
                 <td class="py-3"><?php
-                    $sc = match($user['status']) { 'Activated' => 'background:#dcfce7;color:#166534;', 'Deactivated' => 'background:#fee2e2;color:#991b1b;', default => 'background:#fef9c3;color:#854d0e;' };
+                    $sc = match($user['status']) {
+                        'Activated' => 'background:#dcfce7;color:#166534;',
+                        'Deactivated' => 'background:#fee2e2;color:#991b1b;',
+                        'Archived' => 'background:#f3f4f6;color:#374151;',
+                        default => 'background:#fef9c3;color:#854d0e;'
+                    };
                     ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $sc; ?>"><?php echo $user['status']; ?></span></td>
                 <td class="py-3 text-right" onclick="event.stopPropagation();">
                     <button type="button" class="btn-action blue" style="margin-right:4px;" onclick="window._viewUser && _viewUser(<?php echo $user['user_id']; ?>)">View</button>
                     <button type="button" class="btn-action teal" style="margin-right:4px;" onclick="window._editUser && _editUser(<?php echo $user['user_id']; ?>)">Edit</button>
                     <?php if (($user['status'] ?? '') === 'Deactivated'): ?>
+                    <?php if (($user['role'] ?? '') !== 'Admin'): ?>
+                    <button type="button" class="btn-action gray" style="margin-right:4px;" onclick="window._archiveUser && window._archiveUser(<?php echo $user['user_id']; ?>)">Archive</button>
+                    <?php endif; ?>
                     <button type="button" class="btn-action red" onclick="window._deleteUser && _deleteUser(<?php echo $user['user_id']; ?>)">Delete</button>
                     <?php endif; ?>
                 </td>
@@ -368,6 +428,8 @@ if (isset($_GET['ajax'])) {
         .btn-action.teal:hover { background:#0d9488; color:white; }
         .btn-action.red { color:#dc2626; border-color:#dc2626; }
         .btn-action.red:hover { background:#dc2626; color:white; }
+        .btn-action.gray { color:#6b7280; border-color:#d1d5db; }
+        .btn-action.gray:hover { background:#f3f4f6; color:#374151; }
 
         /* ===== VIEW MODAL - CUSTOMIZATION STYLE ===== */
         .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9900; align-items:center; justify-content:center; padding:16px; }
@@ -407,6 +469,8 @@ if (isset($_GET['ajax'])) {
         .mf-btn-outline.teal:hover { background:#0d9488; color:white; }
         .mf-btn-outline.red { color:#dc2626; border-color:#dc2626; }
         .mf-btn-outline.red:hover { background:#dc2626; color:white; }
+        .mf-btn-outline.gray { color:#6b7280; border-color:#d1d5db; }
+        .mf-btn-outline.gray:hover { background:#f3f4f6; color:#374151; }
         .mf-btn-outline:disabled { opacity:.5; cursor:not-allowed; }
         .mf-alert { padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:14px; }
         .mf-alert.ok { background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; }
@@ -669,8 +733,8 @@ if (isset($_GET['ajax'])) {
             <div class="kpi-row">
                 <div class="kpi-card indigo">
                     <div class="kpi-label">Total Users</div>
-                    <div class="kpi-value"><?php echo $stat_total; ?></div>
-                    <div class="kpi-sub">All accounts</div>
+                    <div class="kpi-value"><?php echo (int)$stat_total; ?></div>
+                    <div class="kpi-sub">Excluding archived</div>
                 </div>
                 <div class="kpi-card rose">
                     <div class="kpi-label">Admins</div>
@@ -710,6 +774,9 @@ if (isset($_GET['ajax'])) {
                         <!-- Add User Button -->
                         <button type="button" id="btn-open-user-modal" class="toolbar-btn-primary" style="height:38px;">
                             Add Team Member
+                        </button>
+                        <button type="button" id="btn-open-archived-users" class="toolbar-btn" style="height:38px;" onclick="window.openArchivedUsersModal && window.openArchivedUsersModal()">
+                            Archived<?php if ($stat_archived > 0): ?> <span style="display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;background:#e5e7eb;color:#374151;border-radius:999px;font-size:11px;font-weight:700;"><?php echo (int)$stat_archived; ?></span><?php endif; ?>
                         </button>
 
                         <!-- Sort Button -->
@@ -870,6 +937,7 @@ if (isset($_GET['ajax'])) {
                                             $sc = match($user['status']) {
                                                 'Activated'   => 'background:#dcfce7;color:#166534;',
                                                 'Deactivated' => 'background:#fee2e2;color:#991b1b;',
+                                                'Archived'    => 'background:#f3f4f6;color:#374151;',
                                                 default       => 'background:#fef9c3;color:#854d0e;'
                                             };
                                         ?>
@@ -881,6 +949,9 @@ if (isset($_GET['ajax'])) {
                                         <button type="button" @click="viewUser(<?php echo $user['user_id']; ?>)" class="btn-action blue" style="margin-right:4px;">View</button>
                                         <button type="button" @click="editUser(<?php echo $user['user_id']; ?>)" class="btn-action teal" style="margin-right:4px;">Edit</button>
                                         <?php if (($user['status'] ?? '') === 'Deactivated'): ?>
+                                        <?php if (($user['role'] ?? '') !== 'Admin'): ?>
+                                        <button type="button" @click="showArchiveConfirm(<?php echo $user['user_id']; ?>)" class="btn-action gray" style="margin-right:4px;">Archive</button>
+                                        <?php endif; ?>
                                         <button type="button" @click="showDeleteConfirm(<?php echo $user['user_id']; ?>)" class="btn-action red">Delete</button>
                                         <?php endif; ?>
                                     </td>
@@ -906,7 +977,7 @@ if (isset($_GET['ajax'])) {
             <div>
                 <h2 x-text="'Team Member #' + (viewModal.user?.user_id || '')"></h2>
                 <div x-show="viewModal.user" style="margin-top:4px;">
-                    <span :style="viewModal.user?.status === 'Activated' ? 'background:#dcfce7;color:#166534;' : (viewModal.user?.status === 'Deactivated' ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef9c3;color:#854d0e;')" style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;" x-text="viewModal.user?.status || '—'"></span>
+                    <span :style="viewModal.user?.status === 'Activated' ? 'background:#dcfce7;color:#166534;' : (viewModal.user?.status === 'Deactivated' ? 'background:#fee2e2;color:#991b1b;' : (viewModal.user?.status === 'Archived' ? 'background:#f3f4f6;color:#374151;' : 'background:#fef9c3;color:#854d0e;'))" style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;" x-text="viewModal.user?.status || '—'"></span>
                 </div>
             </div>
             <button @click="viewModal.isOpen = false">
@@ -984,7 +1055,7 @@ if (isset($_GET['ajax'])) {
                         </div>
                         <div class="detail-block">
                             <label>Account Status</label>
-                            <span :style="viewModal.user?.status === 'Activated' ? 'background:#dcfce7;color:#166534;' : (viewModal.user?.status === 'Deactivated' ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef9c3;color:#854d0e;')" style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;" x-text="viewModal.user?.status || '—'"></span>
+                            <span :style="viewModal.user?.status === 'Activated' ? 'background:#dcfce7;color:#166534;' : (viewModal.user?.status === 'Deactivated' ? 'background:#fee2e2;color:#991b1b;' : (viewModal.user?.status === 'Archived' ? 'background:#f3f4f6;color:#374151;' : 'background:#fef9c3;color:#854d0e;'))" style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;" x-text="viewModal.user?.status || '—'"></span>
                         </div>
                     </div>
                 </div>
@@ -1017,6 +1088,9 @@ if (isset($_GET['ajax'])) {
             </template>
             <template x-if="viewModal.user?.status === 'Activated'">
                 <button type="button" @click="showDeactivateConfirm(viewModal.user.user_id)" class="mf-btn-outline teal">Deactivate Account</button>
+            </template>
+            <template x-if="viewModal.user?.status === 'Deactivated' && viewModal.user?.role !== 'Admin'">
+                <button type="button" @click="showArchiveConfirm(viewModal.user.user_id)" class="mf-btn-outline gray">Archive Account</button>
             </template>
             <template x-if="viewModal.user?.status === 'Deactivated'">
                 <button type="button" @click="showDeleteConfirm(viewModal.user.user_id)" class="mf-btn-outline red">Delete Account</button>
@@ -1200,6 +1274,23 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
+<!-- Archive Account Confirmation Modal -->
+<div x-show="archiveConfirm.isOpen" x-cloak class="modal-overlay" :class="{'is-open': archiveConfirm.isOpen}" @click.self="archiveConfirm.isOpen = false">
+    <div class="modal-box" style="max-width:400px;" @click.stop>
+        <div class="modal-hdr">
+            <h2>Archive Account</h2>
+            <button @click="archiveConfirm.isOpen = false">&times;</button>
+        </div>
+        <div class="modal-bdy">
+            <p style="margin:0 0 20px 0; color:#374151;">Move this deactivated account to archive? It will be hidden from the team list until restored.</p>
+            <div class="mf-footer" style="border:none; padding:0;">
+                <button type="button" @click="archiveConfirm.isOpen = false" class="mf-btn-outline blue">Cancel</button>
+                <button type="button" @click="confirmArchiveUser()" class="mf-btn-outline gray" :disabled="archiveConfirm.archiving" x-text="archiveConfirm.archiving ? 'Archiving...' : 'Archive'"></button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Delete Account Confirmation Modal -->
 <div x-show="deleteConfirm.isOpen" x-cloak class="modal-overlay" :class="{'is-open': deleteConfirm.isOpen}" @click.self="deleteConfirm.isOpen = false">
     <div class="modal-box" style="max-width:400px;" @click.stop>
@@ -1259,6 +1350,27 @@ if (isset($_GET['ajax'])) {
 <!-- Image Viewer Modal - REMOVED -->
 
         </main>
+    </div>
+</div>
+
+<!-- Archived team accounts (outside Alpine main — opened via toolbar) -->
+<div id="um-archive-overlay" role="dialog" aria-modal="true" aria-labelledby="um-archive-title" onclick="if (event.target === this) window.closeArchivedUsersModal && window.closeArchivedUsersModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10090;align-items:center;justify-content:center;padding:16px;">
+    <div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 50px rgba(0,0,0,0.25);">
+        <div style="padding:20px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h3 id="um-archive-title" style="font-size:18px;font-weight:700;margin:0;color:#1f2937;">Archived Accounts</h3>
+                <p style="margin:4px 0 0;font-size:12px;color:#6b7280;">Deactivated accounts moved to archive. Restore returns them as deactivated.</p>
+            </div>
+            <button type="button" onclick="window.closeArchivedUsersModal && window.closeArchivedUsersModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:22px;line-height:1;">✕</button>
+        </div>
+        <div style="padding:0;overflow-y:auto;flex:1;">
+            <div id="archived-users-container" style="min-height:160px;padding:16px 24px;">
+                <p style="text-align:center;color:#9ca3af;">Loading…</p>
+            </div>
+        </div>
+        <div style="padding:16px 24px;border-top:1px solid #e5e7eb;text-align:right;">
+            <button type="button" class="mf-btn-cancel" onclick="window.closeArchivedUsersModal && window.closeArchivedUsersModal()">Close</button>
+        </div>
     </div>
 </div>
 
@@ -1811,6 +1923,11 @@ function userManagement() {
             userId: 0,
             deleting: false
         },
+        archiveConfirm: {
+            isOpen: false,
+            userId: 0,
+            archiving: false
+        },
         resendModal: {
             isOpen: false,
             userId: 0,
@@ -2144,6 +2261,38 @@ function userManagement() {
             this.deleteConfirm.userId = userId;
             this.deleteConfirm.isOpen = true;
         },
+        showArchiveConfirm(userId) {
+            this.archiveConfirm.userId = userId;
+            this.archiveConfirm.isOpen = true;
+        },
+        async confirmArchiveUser() {
+            const userId = this.archiveConfirm.userId;
+            if (!userId || this.archiveConfirm.archiving) return;
+            this.archiveConfirm.archiving = true;
+            try {
+                const res = await fetch('<?php echo $base_path; ?>/admin/api_update_user_status.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'archive_user',
+                        user_id: userId,
+                        csrf_token: '<?php echo $_SESSION["csrf_token"] ?? ""; ?>'
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.archiveConfirm.isOpen = false;
+                    this.viewModal.isOpen = false;
+                    location.reload();
+                } else {
+                    alert(data.error || 'Failed to archive.');
+                }
+            } catch (e) {
+                alert('Network error.');
+            } finally {
+                this.archiveConfirm.archiving = false;
+            }
+        },
         async confirmActivateUser() {
             const userId = this.activateConfirm.userId;
             if (!userId) return;
@@ -2395,6 +2544,67 @@ if (typeof Turbo !== 'undefined') {
     document.addEventListener('turbo:render', printflowInitUserStaffPage);
 }
 
+(function () {
+    var UM_API = <?php echo json_encode($base_path . '/admin/api_update_user_status.php', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    window.fetchArchivedUsersList = async function () {
+        var c = document.getElementById('archived-users-container');
+        if (!c) return;
+        c.innerHTML = '<p style="text-align:center;color:#9ca3af;">Loading…</p>';
+        try {
+            var path = window.location.pathname || '';
+            var sep = path.indexOf('?') >= 0 ? '&' : '?';
+            var r = await fetch(path + sep + 'get_archived=1');
+            var data = await r.json();
+            if (data.success) {
+                c.innerHTML = data.html;
+            } else {
+                c.innerHTML = '<p style="text-align:center;color:#ef4444;">Failed to load archived accounts.</p>';
+            }
+        } catch (e) {
+            c.innerHTML = '<p style="text-align:center;color:#ef4444;">Error loading archive.</p>';
+        }
+    };
+    window.openArchivedUsersModal = function () {
+        var el = document.getElementById('um-archive-overlay');
+        if (!el) return;
+        el.style.display = 'flex';
+        window.fetchArchivedUsersList();
+    };
+    window.closeArchivedUsersModal = function () {
+        var el = document.getElementById('um-archive-overlay');
+        if (el) el.style.display = 'none';
+    };
+    if (!window._pfArchivedUsersRestoreBound) {
+        window._pfArchivedUsersRestoreBound = true;
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('.pf-restore-archived-user');
+            if (!btn) return;
+            var uid = parseInt(btn.getAttribute('data-user-id') || '0', 10);
+            var csrf = btn.getAttribute('data-csrf') || '';
+            if (!(uid > 0)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (!window.confirm('Restore this account? It will return as deactivated.')) return;
+            btn.disabled = true;
+            fetch(UM_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'restore_archived_user', user_id: uid, csrf_token: csrf })
+            }).then(function (r) { return r.json(); }).then(function (data) {
+                btn.disabled = false;
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert(data.error || 'Restore failed.');
+                }
+            }).catch(function () {
+                btn.disabled = false;
+                alert('Network error.');
+            });
+        }, true);
+    }
+})();
+
 // Global expose to bridge AJAX table clicks to userManagement Alpine component
 function initAlpineGlobalBridge() {
     const getData = () => {
@@ -2404,6 +2614,7 @@ function initAlpineGlobalBridge() {
     window._viewUser = (id) => { const d = getData(); if (d) d.viewUser(id); };
     window._editUser = (id) => { const d = getData(); if (d) d.editUser(id); };
     window._deleteUser = (id) => { const d = getData(); if (d) d.showDeleteConfirm(id); };
+    window._archiveUser = (id) => { const d = getData(); if (d) d.showArchiveConfirm(id); };
 }
 
 // Initialize immediately and on all page events

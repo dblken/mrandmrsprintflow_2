@@ -36,12 +36,30 @@ if (!$user_id) {
 }
 
 if ($action === 'toggle_status') {
-    $current_status = $data['current_status'] ?? 'Activated';
-    $new_status = ($current_status === 'Activated') ? 'Deactivated' : 'Activated';
-    
+    $row = db_query("SELECT status FROM users WHERE user_id = ?", 'i', [$user_id]);
+    $db_status = $row[0]['status'] ?? '';
+    if ($db_status === '' ) {
+        echo json_encode(['success' => false, 'error' => 'User not found.']);
+        exit;
+    }
+    if ($db_status === 'Archived') {
+        echo json_encode(['success' => false, 'error' => 'This account is archived. Restore it from Archived accounts first.']);
+        exit;
+    }
+    if ($db_status === 'Pending') {
+        echo json_encode(['success' => false, 'error' => 'Use Activate Account for pending users.']);
+        exit;
+    }
+    if ($db_status !== 'Activated' && $db_status !== 'Deactivated') {
+        echo json_encode(['success' => false, 'error' => 'Cannot change status for this account.']);
+        exit;
+    }
+
+    $new_status = ($db_status === 'Activated') ? 'Deactivated' : 'Activated';
+
     // Prevent deactivating oneself
-    if ($user_id === $_SESSION['user_id']) {
-        echo json_encode(['success' => false, 'error' => 'Cannot deactivate your own account']); 
+    if ($new_status === 'Deactivated' && $user_id === $_SESSION['user_id']) {
+        echo json_encode(['success' => false, 'error' => 'Cannot deactivate your own account']);
         exit;
     }
 
@@ -65,6 +83,16 @@ if ($action === 'toggle_status') {
     if ($role === 'Admin') $branch_id = null;
     
     // Server-side validation
+    $row = db_query("SELECT status FROM users WHERE user_id = ?", 'i', [$user_id]);
+    if (empty($row)) {
+        echo json_encode(['success' => false, 'error' => 'User not found.']);
+        exit;
+    }
+    if (($row[0]['status'] ?? '') === 'Archived') {
+        echo json_encode(['success' => false, 'error' => 'Restore this account from Archived before editing.']);
+        exit;
+    }
+
     $errors = [];
     
     // Names
@@ -130,7 +158,15 @@ if ($action === 'toggle_status') {
         echo json_encode(['success' => false, 'error' => "Failed to update user information."]);
     }
 } elseif ($action === 'activate_account') {
-    $u = db_query("SELECT user_id, first_name, email FROM users WHERE user_id = ?", 'i', [$user_id]);
+    $u = db_query("SELECT user_id, first_name, email, status FROM users WHERE user_id = ?", 'i', [$user_id]);
+    if (empty($u)) {
+        echo json_encode(['success' => false, 'error' => 'User not found.']);
+        exit;
+    }
+    if (($u[0]['status'] ?? '') === 'Archived') {
+        echo json_encode(['success' => false, 'error' => 'Restore this account from Archived before activating.']);
+        exit;
+    }
     $ok = db_execute("UPDATE users SET status = 'Activated', profile_completion_token = NULL, profile_completion_expires = NULL WHERE user_id = ?", 'i', [$user_id]);
     if ($ok) {
         if (!empty($u)) {
@@ -140,6 +176,59 @@ if ($action === 'toggle_status') {
         echo json_encode(['success' => true, 'message' => 'Account activated successfully. Staff has been notified via email.']);
     } else {
         echo json_encode(['success' => false, 'error' => 'Failed to activate account.']);
+    }
+} elseif ($action === 'archive_user') {
+    if (($_SESSION['user_type'] ?? '') !== 'Admin') {
+        echo json_encode(['success' => false, 'error' => 'Only administrators can archive team accounts.']);
+        exit;
+    }
+
+    if ($user_id === (int)($_SESSION['user_id'] ?? 0)) {
+        echo json_encode(['success' => false, 'error' => 'Cannot archive your own account.']);
+        exit;
+    }
+
+    $u = db_query("SELECT user_id, role, status FROM users WHERE user_id = ?", 'i', [$user_id]);
+    if (empty($u)) {
+        echo json_encode(['success' => false, 'error' => 'User not found.']);
+        exit;
+    }
+    if (($u[0]['role'] ?? '') === 'Admin') {
+        echo json_encode(['success' => false, 'error' => 'Administrator accounts cannot be archived.']);
+        exit;
+    }
+    if (($u[0]['status'] ?? '') !== 'Deactivated') {
+        echo json_encode(['success' => false, 'error' => 'Only deactivated accounts can be archived.']);
+        exit;
+    }
+
+    $ok = db_execute("UPDATE users SET status = 'Archived', updated_at = NOW() WHERE user_id = ?", 'i', [$user_id]);
+    if ($ok) {
+        echo json_encode(['success' => true, 'message' => 'Account archived successfully.']);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Failed to archive account.']);
+    }
+} elseif ($action === 'restore_archived_user') {
+    if (($_SESSION['user_type'] ?? '') !== 'Admin') {
+        echo json_encode(['success' => false, 'error' => 'Only administrators can restore archived accounts.']);
+        exit;
+    }
+
+    $u = db_query("SELECT status FROM users WHERE user_id = ?", 'i', [$user_id]);
+    if (empty($u)) {
+        echo json_encode(['success' => false, 'error' => 'User not found.']);
+        exit;
+    }
+    if (($u[0]['status'] ?? '') !== 'Archived') {
+        echo json_encode(['success' => false, 'error' => 'This account is not archived.']);
+        exit;
+    }
+
+    $ok = db_execute("UPDATE users SET status = 'Deactivated', updated_at = NOW() WHERE user_id = ?", 'i', [$user_id]);
+    if ($ok) {
+        echo json_encode(['success' => true, 'message' => 'Account restored. It is deactivated until you activate it.']);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'Failed to restore account.']);
     }
 } elseif ($action === 'delete_user') {
     if (($_SESSION['user_type'] ?? '') !== 'Admin') {
