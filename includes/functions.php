@@ -1944,6 +1944,141 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     return $preview['image_url'] ?: $fallback;
 }
 
+function printflow_notification_normalize_media_url(string $path): string {
+    $path = trim(str_replace('\\', '/', $path));
+    if ($path === '') {
+        return '';
+    }
+
+    if (preg_match('#^https?://#i', $path)) {
+        $parts = parse_url($path);
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $currentHost = strtolower((string)($_SERVER['HTTP_HOST'] ?? ''));
+        if ($host !== '' && $currentHost !== '' && $host !== $currentHost) {
+            return $path;
+        }
+        $path = (string)($parts['path'] ?? '');
+    }
+
+    if (preg_match('#^[A-Za-z]:/#', $path)) {
+        $path = preg_replace('#^[A-Za-z]:#', '', $path);
+    }
+
+    $publicPos = strpos($path, '/public/');
+    $uploadsPos = strpos($path, '/uploads/');
+    if ($publicPos !== false && ($uploadsPos === false || $publicPos <= $uploadsPos)) {
+        $path = substr($path, $publicPos);
+    } elseif ($uploadsPos !== false) {
+        $path = substr($path, $uploadsPos);
+    }
+
+    $base = printflow_notification_base_path();
+    if ($base === '' && strpos($path, '/printflow/') === 0) {
+        $path = substr($path, strlen('/printflow'));
+    }
+
+    if ($path !== '' && $path[0] !== '/') {
+        $path = '/' . ltrim($path, '/');
+    }
+
+    if ($base !== '' && strpos($path, $base . '/') !== 0) {
+        $path = $base . $path;
+    }
+
+    return $path;
+}
+
+function printflow_notification_local_media_exists(string $urlPath): bool {
+    $urlPath = trim($urlPath);
+    if ($urlPath === '') {
+        return false;
+    }
+    if (preg_match('#^https?://#i', $urlPath)) {
+        return true;
+    }
+
+    $clean = strtok($urlPath, '?#');
+    if (!is_string($clean) || $clean === '') {
+        return false;
+    }
+
+    $base = printflow_notification_base_path();
+    if ($base !== '' && strpos($clean, $base . '/') === 0) {
+        $clean = substr($clean, strlen($base));
+    }
+    if ($clean === false || $clean === '') {
+        return false;
+    }
+
+    $clean = '/' . ltrim((string)$clean, '/');
+    $local = realpath(__DIR__ . '/..' . $clean);
+    $root = realpath(__DIR__ . '/..');
+
+    if ($local === false || $root === false) {
+        return false;
+    }
+    return strpos($local, $root) === 0 && is_file($local);
+}
+
+function printflow_notification_service_image_from_name(string $serviceName): string {
+    $serviceName = trim($serviceName);
+    if ($serviceName === '') {
+        return '';
+    }
+
+    $aliases = function_exists('printflow_service_name_aliases')
+        ? printflow_service_name_aliases($serviceName)
+        : [$serviceName];
+    $aliases = array_values(array_unique(array_filter(array_map(
+        static fn($v) => trim((string)$v),
+        $aliases
+    ))));
+    if (empty($aliases)) {
+        return '';
+    }
+
+    $placeholders = implode(',', array_fill(0, count($aliases), '?'));
+    $rows = db_query(
+        "SELECT display_image, hero_image, image_path
+         FROM services
+         WHERE status = 'Activated'
+           AND name IN ($placeholders)
+         ORDER BY FIELD(name, $placeholders)
+         LIMIT 1",
+        str_repeat('s', count($aliases) * 2),
+        array_merge($aliases, $aliases)
+    ) ?: [];
+    if (empty($rows)) {
+        return '';
+    }
+
+    $candidates = [];
+    $display = trim((string)($rows[0]['display_image'] ?? ''));
+    if ($display !== '') {
+        foreach (explode(',', $display) as $img) {
+            $img = trim((string)$img);
+            if ($img !== '') {
+                $candidates[] = $img;
+            }
+        }
+    }
+    foreach (['hero_image', 'image_path'] as $field) {
+        $v = trim((string)($rows[0][$field] ?? ''));
+        if ($v !== '') {
+            $candidates[] = $v;
+        }
+    }
+
+    foreach ($candidates as $candidate) {
+        $url = printflow_notification_normalize_media_url($candidate);
+        if ($url !== '' && printflow_notification_local_media_exists($url)) {
+            return $url;
+        }
+    }
+
+    return '';
+}
+
 
 function printflow_notification_order_snapshot(int $order_id): array {
     static $cache = [];
@@ -2139,8 +2274,33 @@ function printflow_notification_item_kind(array $notification): string {
         return '';
     }
 
+    if ($type === 'job order') {
+        return 'Service';
+    }
+
     $preview = printflow_order_notification_preview($data_id);
-    return trim((string)($preview['item_kind'] ?? ''));
+    $kind = trim((string)($preview['item_kind'] ?? ''));
+    if ($kind === 'Product' || $kind === 'Service') {
+        return $kind;
+    }
+
+    if (str_contains($message, 'product order')) {
+        return 'Product';
+    }
+    if (str_contains($message, 'service')) {
+        return 'Service';
+    }
+
+    $snapshot = printflow_notification_order_snapshot($data_id);
+    $orderType = strtolower(trim((string)($snapshot['order_type'] ?? '')));
+    if ($orderType === 'product') {
+        return 'Product';
+    }
+    if ($orderType === 'custom') {
+        return 'Service';
+    }
+
+    return '';
 }
 
 /**
@@ -2348,23 +2508,53 @@ function printflow_order_notification_preview(int $order_id): array {
 
     if (!empty($row['has_design']) && !empty($row['order_item_id'])) {
         $preview['image_url'] = $base . '/public/serve_design.php?type=order_item&id=' . (int)$row['order_item_id'];
+        $preview['image_url'] = printflow_notification_normalize_media_url($preview['image_url']);
         $cache[$order_id] = $preview;
         return $preview;
     }
 
     $product_image = trim((string)($row['product_image'] ?? ''));
     if ($product_image !== '') {
-        if (preg_match('#^https?://#i', $product_image) || $product_image[0] === '/') {
-            $preview['image_url'] = $product_image;
+        $normalizedProductImage = printflow_notification_normalize_media_url($product_image);
+        if ($normalizedProductImage !== '' && printflow_notification_local_media_exists($normalizedProductImage)) {
+            $preview['image_url'] = $normalizedProductImage;
         } elseif (file_exists(__DIR__ . '/../uploads/products/' . $product_image)) {
-            $preview['image_url'] = $base . '/uploads/products/' . $product_image;
+            $preview['image_url'] = printflow_notification_normalize_media_url($base . '/uploads/products/' . $product_image);
         } elseif (file_exists(__DIR__ . '/../public/images/products/' . $product_image)) {
-            $preview['image_url'] = $base . '/public/images/products/' . $product_image;
+            $preview['image_url'] = printflow_notification_normalize_media_url($base . '/public/images/products/' . $product_image);
+        }
+    }
+
+    if ($preview['image_url'] === '' && $preview['item_kind'] === 'Product') {
+        $prodId = (int)($row['product_id'] ?? 0);
+        if ($prodId > 0) {
+            foreach (['jpg', 'png', 'jpeg', 'webp'] as $ext) {
+                $candidateRel = '/public/images/products/product_' . $prodId . '.' . $ext;
+                if (file_exists(__DIR__ . '/..' . $candidateRel)) {
+                    $preview['image_url'] = printflow_notification_normalize_media_url($base . $candidateRel);
+                    break;
+                }
+            }
+        }
+    }
+
+    if ($preview['image_url'] === '' && $preview['item_kind'] === 'Service') {
+        $serviceImage = printflow_notification_service_image_from_name($preview['display_name']);
+        if ($serviceImage !== '') {
+            $preview['image_url'] = $serviceImage;
         }
     }
 
     if ($preview['image_url'] === '') {
-        $preview['image_url'] = get_service_image_url($preview['display_name']);
+        $fallbackImage = ($preview['item_kind'] === 'Product')
+            ? ($base . '/public/images/products/product_1.jpg')
+            : get_service_image_url($preview['display_name']);
+        $normalizedFallback = printflow_notification_normalize_media_url($fallbackImage);
+        if ($normalizedFallback !== '' && printflow_notification_local_media_exists($normalizedFallback)) {
+            $preview['image_url'] = $normalizedFallback;
+        } else {
+            $preview['image_url'] = printflow_notification_normalize_media_url($base . '/public/assets/images/services/default.png');
+        }
     }
 
     $cache[$order_id] = $preview;
