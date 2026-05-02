@@ -783,7 +783,7 @@ try {
             $cust = $cust_row[0];
 
             // Parse customization details
-            $details = printflow_decode_modal_customization_payload((string)($cust['customization_details'] ?? ''));
+            $details = customer_orders_decode_customization_payload((string)($cust['customization_details'] ?? ''));
             $design_name = '';
             $reference_name = '';
             foreach ($details as $detail_key => $detail_value) {

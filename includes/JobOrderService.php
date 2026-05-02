@@ -1364,7 +1364,7 @@ class JobOrderService {
         $width_ft = '1';
         $height_ft = '1';
         foreach ($items as $item) {
-            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
             if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
                 continue;
             }
@@ -1483,7 +1483,7 @@ class JobOrderService {
         $firstCustomizationServiceType = '';
         foreach ($customizationRows as $customizationRow) {
             $serviceType = trim((string)($customizationRow['service_type'] ?? ''));
-            $details = printflow_decode_modal_customization_payload((string)($customizationRow['customization_details'] ?? ''));
+            $details = customer_orders_decode_customization_payload((string)($customizationRow['customization_details'] ?? ''));
             if ($serviceType !== '' && empty($details['service_type'])) {
                 $details['service_type'] = $serviceType;
             }
@@ -1523,7 +1523,7 @@ class JobOrderService {
 
         $firstItemCustomization = [];
         if (!empty($items)) {
-            $firstItemCustomization = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
+            $firstItemCustomization = customer_orders_decode_customization_payload((string)($items[0]['customization_data'] ?? ''));
         }
         $firstItemCustomization = printflow_overlay_nonempty_assoc(
             printflow_overlay_nonempty_assoc($orphanCustomizationDetails, $firstCustomizationPayload),
@@ -1559,7 +1559,7 @@ class JobOrderService {
 
         if (!$isServiceOrder) {
             foreach ($items as $probeItem) {
-                $probeCustom = printflow_decode_modal_customization_payload((string)($probeItem['customization_data'] ?? ''));
+                $probeCustom = customer_orders_decode_customization_payload((string)($probeItem['customization_data'] ?? ''));
                 $probeSourcePage = strtolower(trim((string)($probeCustom['source_page'] ?? '')));
                 if (
                     !empty($probeCustom['service_type'])
@@ -1682,7 +1682,8 @@ class JobOrderService {
         $height_ft = '1';
         $itemCount = count($items);
         foreach ($items as $lineIndex => $item) {
-            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            // Match customer/get_order_items.php: decode without early printflow_normalize so merges match the storefront modal.
+            $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
             $itemCustomizationFallback = $customizationByItemId[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
             $mergedTableDetails = printflow_overlay_nonempty_assoc(
                 $orphanCustomizationDetails,
