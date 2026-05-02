@@ -2894,7 +2894,11 @@ window.pfCustomizationPreloadedOrders = (() => {
             ],
             getDisplayableCustom(custom) {
                 if (!custom || typeof custom !== 'object') return [];
-                const skip = this.customFieldSkip;
+                const isDetail = !!this.showDetailsModal;
+                const skip = isDetail 
+                    ? ['design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime', 'cart_key', '_cart_key', 'config_id', 'form_type', 'notes', 'additional_notes', 'layout_file', 'reference_file', 'source_page', 'source'] 
+                    : this.customFieldSkip;
+                
                 return Object.entries(custom).filter(([k, v]) => {
                     if (v === '' || v == null) return false;
                     if (skip.includes(k)) return false;

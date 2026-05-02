@@ -1828,7 +1828,7 @@ class JobOrderService {
             ];
             $name = customer_orders_primary_item_name($orderLike);
             $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
-                ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity)
+                ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity, true)
                 : $custom;
             if (is_array($custom) && $custom !== [] && function_exists('printflow_modal_customization_fallback_flatten_for_staff')) {
                 $staffExtra = printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity);

@@ -1945,7 +1945,7 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     $type = strtolower((string)($notification['type'] ?? ''));
     $message = strtolower((string)($notification['message'] ?? ''));
     if ($data_id <= 0) {
-        return $fallback;
+        return printflow_notification_normalize_media_url($fallback);
     }
     if ($type === 'system' && (
         strpos($message, 'submitted an id for verification') !== false ||
@@ -1954,14 +1954,14 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
         return printflow_customer_id_notification_image_url($data_id, $fallback);
     }
     if (!in_array($type, ['order', 'design', 'payment', 'payment issue', 'message', 'job order'], true)) {
-        return $fallback;
+        return printflow_notification_normalize_media_url($fallback);
     }
     if ($type === 'job order') {
         $preview = printflow_job_notification_preview($data_id);
     } else {
         $preview = printflow_order_notification_preview($data_id);
     }
-    return $preview['image_url'] ?: $fallback;
+    return printflow_notification_normalize_media_url($preview['image_url'] ?: $fallback);
 }
 
 function printflow_notification_normalize_media_url(string $path): string {
@@ -3412,7 +3412,7 @@ function printflow_customer_modal_normalize_value_bucket(string $text): string {
  * @param array<string, string> $flat
  * @return array<string, string>
  */
-function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuantity = null): array {
+function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuantity = null, bool $is_staff = false): array {
     if ($flat === []) {
         return $flat;
     }
@@ -3454,7 +3454,7 @@ function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuant
         }
     }
 
-    if ($lineQuantity !== null && $lineQuantity > 0) {
+    if (!$is_staff && $lineQuantity !== null && $lineQuantity > 0) {
         $qtyStr = (string)$lineQuantity;
         foreach (array_keys($out) as $k) {
             $nk = printflow_customer_modal_nf_spec_key($k);
@@ -3470,7 +3470,7 @@ function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuant
 /**
  * Prepare customization key/values for customer order details modal (human-readable strings, no binary/temp fields).
  */
-function printflow_flatten_order_customization_for_customer_modal(array $custom, ?int $lineQuantity = null): array {
+function printflow_flatten_order_customization_for_customer_modal(array $custom, ?int $lineQuantity = null, bool $is_staff = false): array {
     $custom = printflow_normalize_customization_for_modal($custom);
     // Match render_order_item_clean skips where sensible; omit note-* keys so the modal can render long-form blocks.
     // Strip job_orders-derived ft/sqft rows when they are all-zero placeholders (see printflow_customer_modal_strip_placeholder_job_dimensions).
@@ -3481,10 +3481,6 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
         'reference_tmp_path',
         'reference_mime',
         'design_mime',
-        'service_id',
-        'Branch_ID',
-        'service_type',
-        'product_type',
         'install_province',
         'install_city',
         'install_barangay',
@@ -3496,6 +3492,12 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
         'cart_key',
         '_cart_key',
     ];
+    if (!$is_staff) {
+        $skip[] = 'service_id';
+        $skip[] = 'Branch_ID';
+        $skip[] = 'service_type';
+        $skip[] = 'product_type';
+    }
     $out = [];
     $unnamed = 0;
     foreach ($custom as $k => $v) {
@@ -3539,14 +3541,14 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
 
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
-    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity);
+    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, $is_staff);
 }
 
 /**
  * Flatten customization for the customer “View order” modal (normalized + human-readable; no dimension “noise” stripping).
  */
-function printflow_flatten_customization_for_customer_order_modal(array $custom, ?int $lineQuantity = null): array {
-    return printflow_flatten_order_customization_for_customer_modal($custom, $lineQuantity);
+function printflow_flatten_customization_for_customer_order_modal(array $custom, ?int $lineQuantity = null, bool $is_staff = false): array {
+    return printflow_flatten_order_customization_for_customer_modal($custom, $lineQuantity, $is_staff);
 }
 
 /**
@@ -3616,7 +3618,7 @@ function printflow_modal_customization_fallback_flatten_for_staff(array $custom,
 
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
-    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity);
+    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, true);
 }
 
 /**
