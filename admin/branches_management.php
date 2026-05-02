@@ -70,7 +70,6 @@ $page_title = 'Branch Management - Admin';
 
 $branch_success = '';
 if (isset($_GET['restored']) && $_GET['restored'] === '1') $branch_success = 'Branch restored successfully!';
-if (isset($_GET['deleted']) && $_GET['deleted'] === '1') $branch_success = 'Branch deleted permanently!';
 
 // AJAX response for realtime filter/sort
 if (isset($_GET['ajax'])) {
@@ -223,7 +222,6 @@ if (isset($_GET['ajax'])) {
             archiveModal: { isOpen: false, loading: false, content: '', pagination: '', page: 1 },
             archiveConfirmModal: { isOpen: false, id: 0, name: '' },
             restoreConfirmModal: { isOpen: false, id: 0, name: '' },
-            deleteConfirmModal: { isOpen: false, id: 0, name: '' },
             modal: { isOpen: false, mode: 'create', isSubmitting: false, error: '' },
             form: { branch_id: 0, branch_name: '', email: '', address: '', address_province: '', address_city: '', address_barangay: '', address_line: '', contact_number: '09', status: 'Active' },
             errors: { email: '' },
@@ -235,9 +233,17 @@ if (isset($_GET['ajax'])) {
             
             checkUrlSuccess() {
                 const params = new URLSearchParams(window.location.search);
-                if (params.get('restored') === '1') { this.showToast('Branch restored successfully.', 'success'); params.delete('restored'); }
-                if (params.get('deleted') === '1') { this.showToast('Branch deleted permanently.', 'success'); params.delete('deleted'); }
-                if (params.get('restored') || params.get('deleted')) {
+                let strip = false;
+                if (params.get('restored') === '1') {
+                    this.showToast('Branch restored successfully.', 'success');
+                    params.delete('restored');
+                    strip = true;
+                }
+                if (params.get('deleted') === '1') {
+                    params.delete('deleted');
+                    strip = true;
+                }
+                if (strip) {
                     const qs = params.toString();
                     window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
                 }
@@ -400,17 +406,6 @@ if (isset($_GET['ajax'])) {
                 } catch (e) {}
             },
 
-            showDeleteConfirmModal(id, name) { this.deleteConfirmModal = { id, name, isOpen: true }; },
-            async confirmDeleteBranch() {
-                try {
-                    const r = await fetch('<?php echo $base_path; ?>/admin/api_branch.php', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'delete_permanent', branch_id: this.deleteConfirmModal.id, csrf_token: '<?php echo $_SESSION["csrf_token"] ?? ""; ?>' })
-                    });
-                    if ((await r.json()).success) window.location.href = 'branches_management.php?deleted=1';
-                } catch (e) {}
-            },
-
             handleArchiveAction(e) {
                 const btn = e.target.closest('button[data-action]');
                 if (!btn) return;
@@ -423,8 +418,6 @@ if (isset($_GET['ajax'])) {
                     this.openViewModal(data);
                 } else if (action === 'restore') {
                     this.showRestoreConfirmModal(id, name);
-                } else if (action === 'delete') {
-                    this.showDeleteConfirmModal(id, name);
                 }
             },
 
@@ -755,27 +748,6 @@ if (isset($_GET['ajax'])) {
             <div style="display:flex;gap:12px;justify-content:center;">
                 <button type="button" @click="restoreConfirmModal.isOpen = false" style="flex:1;padding:12px 16px;border:1px solid #e5e7eb;background:white;border-radius:10px;font-size:14px;font-weight:600;color:#4b5563;cursor:pointer;">Cancel</button>
                 <button type="button" @click="confirmRestoreBranch()" style="flex:1;padding:12px 16px;border:none;background:#14b8a6;border-radius:10px;font-size:14px;font-weight:600;color:white;cursor:pointer;">Confirm</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Delete Confirmation Modal -->
-<div x-show="deleteConfirmModal.isOpen" x-cloak>
-    <div class="modal-overlay" @click.self="deleteConfirmModal.isOpen = false">
-        <div style="background:white;border-radius:16px;padding:26px;max-width:420px;width:100%;box-shadow:0 25px 50px rgba(0,0,0,0.25);text-align:center;margin:16px;">
-            <div style="width:48px;height:48px;background:#fee2e2;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;color:#991b1b;">
-                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-            </div>
-            <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin:0 0 8px;">Confirm Delete</h3>
-            <p style="font-size:14px;color:#4b5563;margin:0 0 16px;line-height:1.5;" x-text="'Are you sure you want to PERMANENTLY delete branch \'' + (deleteConfirmModal.name || '') + '\'? This action cannot be undone.'"></p>
-            <div style="font-size:12px;color:#991b1b;background:#fff5f5;padding:12px;border-radius:10px;margin-bottom:24px;text-align:left;border:1px solid #fecaca;line-height:1.5;">
-                <div style="font-weight:700;margin-bottom:4px;color:#374151;">Warning</div>
-                <div>This action is permanent. All associated branch data will be removed.</div>
-            </div>
-            <div style="display:flex;gap:12px;justify-content:center;">
-                <button type="button" @click="deleteConfirmModal.isOpen = false" style="flex:1;padding:12px 16px;border:1px solid #e5e7eb;background:white;border-radius:10px;font-size:14px;font-weight:600;color:#4b5563;cursor:pointer;">Cancel</button>
-                <button type="button" @click="confirmDeleteBranch()" style="flex:1;padding:12px 16px;border:none;background:#ef4444;border-radius:10px;font-size:14px;font-weight:600;color:white;cursor:pointer;">Confirm</button>
             </div>
         </div>
     </div>

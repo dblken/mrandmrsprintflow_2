@@ -114,8 +114,7 @@ try {
                 $html .= '<td style="max-width:220px; word-break:break-all;">' . htmlspecialchars($b['email'] ?? '—') . '</td>';
                 $html .= '<td style="text-align:right;white-space:nowrap;">';
                 $html .= '<button type="button" data-action="view" data-branch="' . $viewDataAttr . '" class="btn-action blue" style="margin-right:4px;">View</button>';
-                $html .= '<button type="button" data-action="restore" data-id="' . (int)$b['id'] . '" data-name="' . htmlspecialchars($b['branch_name'], ENT_QUOTES) . '" class="btn-action teal" style="margin-right:4px;">Restore</button>';
-                $html .= '<button type="button" data-action="delete" data-id="' . (int)$b['id'] . '" data-name="' . htmlspecialchars($b['branch_name'], ENT_QUOTES) . '" class="btn-action red">Delete</button>';
+                $html .= '<button type="button" data-action="restore" data-id="' . (int)$b['id'] . '" data-name="' . htmlspecialchars($b['branch_name'], ENT_QUOTES) . '" class="btn-action teal">Restore</button>';
                 $html .= '</td></tr>';
             }
         }
@@ -309,21 +308,7 @@ try {
     }
 
     elseif ($action === 'delete_permanent') {
-        $branch_id = (int)($data['branch_id'] ?? 0);
-        if (!$branch_id) {
-            echo json_encode(['success' => false, 'error' => 'Branch ID is required']);
-            exit;
-        }
-
-        // Before deleting, ensure it IS archived
-        $check = db_query("SELECT status FROM branches WHERE id = ?", 'i', [$branch_id]);
-        if (empty($check) || $check[0]['status'] !== 'Archived') {
-            echo json_encode(['success' => false, 'error' => 'Only archived branches can be deleted permanently.']);
-            exit;
-        }
-
-        $result = db_execute("DELETE FROM branches WHERE id = ?", 'i', [$branch_id]);
-        echo json_encode(['success' => (bool)$result, 'message' => $result ? 'Branch deleted permanently.' : 'Failed to delete branch.']);
+        echo json_encode(['success' => false, 'error' => 'Permanent deletion of archived branches has been disabled. Restore a branch if you need it active again.']);
         exit;
     }
 
