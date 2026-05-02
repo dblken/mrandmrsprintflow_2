@@ -206,12 +206,14 @@ if (!$gaBranchEmpty) {
 $period_has_activity = ($total_orders > 0);
 
 // ── 2b. Sales by product category & service category (report date range + branch) ──
-// Product chart: aggregate by catalog category when set; otherwise each product_id is its own slice
-// (no merging unrelated legacy lines via material/name). Service chart: service-category + row fallbacks.
+// Product chart: aggregate by catalog category when set; otherwise keep each product_id on its own slice.
+// Legacy rows without a usable product_id fall back to a derived sold-item label instead of a generic bucket.
+// Service chart: service-category + row fallbacks.
 $report_product_category_sales = [];
 $report_service_category_sales = [];
 $pf_product_chart_bucket = pf_product_sales_chart_bucket_sql();
 $pf_product_chart_label = pf_product_sales_chart_label_sql();
+$pf_product_chart_scope = pf_product_sales_scope_sql('o', 'oi');
 
 if (!$gaBranchEmpty) {
     try {
@@ -225,6 +227,7 @@ if (!$gaBranchEmpty) {
              LEFT JOIN products p ON p.product_id = oi.product_id
              JOIN orders o ON oi.order_id = o.order_id
              WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
+               AND {$pf_product_chart_scope}
                {$dwpc} {$bpc}
              GROUP BY {$pf_product_chart_bucket}
              ORDER BY total DESC",
@@ -1978,7 +1981,7 @@ $dashData = [
     }, $rev_donut),
     'productCategorySales' => array_map(static function ($r) {
         return [
-            'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Store items',
+            'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Uncategorized product',
             'revenue'  => round((float)($r['total'] ?? 0), 2),
             'items'    => (int)($r['items_sold'] ?? 0),
         ];

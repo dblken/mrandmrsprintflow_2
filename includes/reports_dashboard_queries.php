@@ -54,6 +54,70 @@ function pf_reports_branch_has_activity($branchId): bool {
     }
 }
 
+/** Safe SQL identifier for pre-defined table aliases used in helper fragments. */
+function pf_reports_sql_alias(string $alias, string $fallback): string {
+    $alias = preg_replace('/[^A-Za-z0-9_]/', '', $alias);
+    return $alias !== '' ? $alias : $fallback;
+}
+
+/**
+ * Product-order scope shared by analytics queries.
+ * Excludes service/custom rows stored in order_items unless they came from
+ * product/dynamic catalog flows that are treated as product sales.
+ */
+function pf_product_sales_scope_sql(string $orderAlias = 'o', string $itemAlias = 'oi'): string {
+    $orderAlias = pf_reports_sql_alias($orderAlias, 'o');
+    $itemAlias = pf_reports_sql_alias($itemAlias, 'oi');
+
+    return "(
+                LOWER(TRIM(COALESCE({$orderAlias}.order_type, ''))) != 'custom'
+                OR {$itemAlias}.customization_data LIKE '%\"config_id\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"form_type\":\"dynamic\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"form_type\": \"dynamic\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"source_page\":\"products\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"source_page\":\"product\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"source_page\":\"dynamic_form\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"source_page\": \"products\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"source_page\": \"product\"%'
+                OR {$itemAlias}.customization_data LIKE '%\"source_page\": \"dynamic_form\"%'
+           )";
+}
+
+/** Resolved sold-item label for product-category charts when no live category exists. */
+function pf_product_sales_chart_item_label_sql(string $productAlias = 'p', string $itemAlias = 'oi'): string {
+    $productAlias = pf_reports_sql_alias($productAlias, 'p');
+    $itemAlias = pf_reports_sql_alias($itemAlias, 'oi');
+
+    $catalogNameSql = "CASE
+        WHEN LOWER(TRIM(COALESCE({$productAlias}.name, ''))) IN (
+            'custom order',
+            'customer order',
+            'service order',
+            'service item',
+            'order item',
+            'sticker pack',
+            'merchandise',
+            'pos service item',
+            'pos-service item',
+            'pos service',
+            'pos-service'
+        ) THEN NULL
+        ELSE NULLIF(TRIM({$productAlias}.name), '')
+    END";
+
+    return "COALESCE(
+                {$catalogNameSql},
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_name'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.service_type'))), ''),
+                NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT({$itemAlias}.customization_data, '$.product_type'))), ''),
+                NULLIF(TRIM({$itemAlias}.sku), ''),
+                CASE
+                    WHEN COALESCE({$itemAlias}.product_id, 0) > 0 THEN CONCAT('Product #', {$itemAlias}.product_id)
+                    ELSE CONCAT('Order Item #', {$itemAlias}.order_item_id)
+                END
+           )";
+}
+
 /**
  * SQL GROUP BY expression for "Sales by Product Category" charts:
  * — Rows with a non-empty catalog `products.category` aggregate under that category.
@@ -61,12 +125,21 @@ function pf_reports_branch_has_activity($branchId): bool {
  *   via material/name fallbacks (legacy / retired SKUs stay on their own product).
  */
 function pf_product_sales_chart_bucket_sql(): string {
-    return "CASE WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN CONCAT('cat:', TRIM(p.category)) ELSE CONCAT('pid:', oi.product_id) END";
+    $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi');
+    return "CASE
+                WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN CONCAT('cat:', TRIM(p.category))
+                WHEN COALESCE(oi.product_id, 0) > 0 THEN CONCAT('pid:', oi.product_id)
+                ELSE CONCAT('label:', {$itemLabel})
+            END";
 }
 
 /** SELECT list expression for the human-readable slice label (paired with bucket SQL). */
 function pf_product_sales_chart_label_sql(): string {
-    return "MAX(CASE WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN TRIM(p.category) ELSE COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(oi.sku), ''), CONCAT('Product #', oi.product_id)) END)";
+    $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi');
+    return "MAX(CASE
+                   WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN TRIM(p.category)
+                   ELSE {$itemLabel}
+               END)";
 }
 
 /**
@@ -77,16 +150,18 @@ function pf_product_sales_chart_label_sql(): string {
 function pf_dashboard_sales_by_product_category($branchId): array {
     $bucket = pf_product_sales_chart_bucket_sql();
     $label = pf_product_sales_chart_label_sql();
+    $scope = pf_product_sales_scope_sql('o', 'oi');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         return db_query(
             "SELECT {$label} AS category,
-                    COUNT(oi.order_item_id) AS items_sold,
+                    SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
              LEFT JOIN products p ON p.product_id = oi.product_id
              JOIN orders o ON oi.order_id = o.order_id
-             WHERE o.payment_status = 'Paid' {$b}
+             WHERE o.payment_status = 'Paid'
+               AND {$scope} {$b}
              GROUP BY {$bucket}
              ORDER BY total DESC",
             $bt ?: null,

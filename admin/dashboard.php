@@ -1416,7 +1416,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             var cv = document.getElementById('categoryChart');
             var w = cv ? cv.parentElement : null;
             var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
-            var catLabels = <?php echo json_encode(array_map(fn($c) => $c['category'] ?? 'Store items', $category_sales)); ?>;
+            var catLabels = <?php echo json_encode(array_map(fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales)); ?>;
             bindWhenVisible(w, function () {
                 window.__pfDashCategoryChart = new Chart(document.getElementById('categoryChart').getContext('2d'), {
                     type: 'doughnut',
