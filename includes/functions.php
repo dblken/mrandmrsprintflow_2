@@ -2603,14 +2603,47 @@ function printflow_order_item_has_service_marker(array $custom): bool {
 }
 
 function customer_orders_decode_customization_payload($raw): array {
+    if (is_array($raw)) {
+        return $raw;
+    }
     if (!is_string($raw) || trim($raw) === '') {
         return [];
     }
-    $decoded = json_decode($raw, true);
-    if (is_string($decoded)) {
-        $decoded = json_decode($decoded, true);
+
+    $trimmed = trim($raw);
+    $entityFlags = ENT_QUOTES | (defined('ENT_HTML5') ? ENT_HTML5 : 0);
+    $candidates = [];
+    $pushCandidate = static function ($value) use (&$candidates): void {
+        if (!is_string($value)) {
+            return;
+        }
+        $value = trim($value);
+        if ($value === '' || in_array($value, $candidates, true)) {
+            return;
+        }
+        $candidates[] = $value;
+    };
+
+    $pushCandidate($trimmed);
+    $entityDecoded = html_entity_decode($trimmed, $entityFlags, 'UTF-8');
+    $pushCandidate($entityDecoded);
+    $pushCandidate(stripslashes($trimmed));
+    $pushCandidate(stripslashes($entityDecoded));
+
+    foreach ($candidates as $candidate) {
+        $decoded = json_decode($candidate, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        if (is_string($decoded) && trim($decoded) !== '' && trim($decoded) !== $candidate) {
+            $decoded = customer_orders_decode_customization_payload($decoded);
+            if ($decoded !== []) {
+                return $decoded;
+            }
+        }
     }
-    return is_array($decoded) ? $decoded : [];
+
+    return [];
 }
 
 function customer_orders_is_generic_item_name(string $name): bool {
@@ -3134,6 +3167,8 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
             'customization_details',
             'specs',
             'specifications',
+            'order_info',
+            'order_information',
             'form_data',
             'form_values',
             'fields',
@@ -3144,6 +3179,8 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
             'values',
             'payload',
             'order_spec',
+            'order_specification',
+            'order_specifications',
             'dynamic_form_data',
             'service_specs',
             'item_specs',

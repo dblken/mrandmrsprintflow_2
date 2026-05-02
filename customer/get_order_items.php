@@ -73,6 +73,12 @@ function pf_asset_kind(?string $mime, ?string $path): string {
 }
 
 function customer_order_items_decode_customization_payload($raw): array {
+    if (function_exists('customer_orders_decode_customization_payload')) {
+        return customer_orders_decode_customization_payload($raw);
+    }
+    if (is_array($raw)) {
+        return $raw;
+    }
     if (!is_string($raw) || trim($raw) === '') {
         return [];
     }
@@ -380,14 +386,19 @@ $first_item_customization = customer_order_items_merge_customization_payload(
         : trim((string)($orphan_customization_details['service_type'] ?? ''))
 );
 
-$is_service_order = !empty($first_item_customization['service_type']) || $first_customization_service_type !== '';
+$order_type_normalized = strtolower(trim((string)($order['order_type'] ?? '')));
+$first_item_source_page = strtolower(trim((string)($first_item_customization['source_page'] ?? '')));
+$is_service_order =
+    !empty($first_item_customization['service_type'])
+    || $first_customization_service_type !== ''
+    || (int)($first_item_customization['service_id'] ?? 0) > 0
+    || in_array($first_item_source_page, ['services', 'service'], true)
+    || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($first_item_customization));
 if (!$is_service_order) {
-    $order_type_normalized = strtolower(trim((string)($order['order_type'] ?? '')));
     $is_service_order = $order_type_normalized === 'custom' && empty($first_item_customization['product_type']);
 }
 
 $display_status = (string)($order['status'] ?? '');
-$order_type_normalized = strtolower(trim((string)($order['order_type'] ?? '')));
 if ($order_type_normalized === 'product' && !$is_service_order) {
     if (in_array($display_status, ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved', 'To Pay', 'To Verify', 'Downpayment Submitted', 'Pending Verification'], true)) {
         $display_status = 'TO VERIFY';
@@ -415,6 +426,33 @@ $job_orders_list = db_query(
     'i',
     [$order_id]
 ) ?: [];
+
+if (!$is_service_order) {
+    foreach ($items as $probeItem) {
+        $probeCustom = customer_order_items_decode_customization_payload((string)($probeItem['customization_data'] ?? ''));
+        $probeSourcePage = strtolower(trim((string)($probeCustom['source_page'] ?? '')));
+        if (
+            !empty($probeCustom['service_type'])
+            || (int)($probeCustom['service_id'] ?? 0) > 0
+            || in_array($probeSourcePage, ['services', 'service'], true)
+            || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($probeCustom))
+        ) {
+            $is_service_order = true;
+            break;
+        }
+    }
+}
+if (
+    !$is_service_order
+    && $order_type_normalized === 'custom'
+    && $job_orders_list !== []
+    && (
+        !function_exists('customer_orders_custom_order_is_catalog_product')
+        || !customer_orders_custom_order_is_catalog_product($first_item_customization)
+    )
+) {
+    $is_service_order = true;
+}
 
 // Some legacy or interrupted checkouts leave an orders row (and customizations / jobs) with no order_items.
 // Without a line, the customer modal renders an empty table; synthesize one row from order-level data.
