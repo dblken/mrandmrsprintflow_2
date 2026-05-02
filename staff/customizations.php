@@ -181,10 +181,7 @@ foreach ($job_rows as $row) {
             continue;
         }
         $payload['items'] = $serviceItems;
-        if (!empty($payload['service_type'])) {
-            $row['service_type'] = $payload['service_type'];
-            $row['job_title'] = $payload['service_type'];
-        }
+        JobOrderService::enrichStaffJobRowFromStorePayload($row, $payload);
         $row['order_code'] = printflow_get_order_inventory_reference((int)$row['order_id'])['code'] ?? '';
     } else {
         $row['order_code'] = printflow_get_job_inventory_reference((int)($row['id'] ?? 0))['code'] ?? '';
@@ -2681,7 +2678,34 @@ window.pfCustomizationPreloadedOrders = (() => {
                     parts.push(`${quantity} pcs`);
                 }
 
-                return parts.join(' • ') || 'Custom service';
+                let base = parts.join(' • ') || 'Custom service';
+
+                const first = row.items && row.items[0];
+                const custom = first && first.customization && typeof first.customization === 'object' && !Array.isArray(first.customization)
+                    ? first.customization
+                    : null;
+                if (custom) {
+                    const noiseKeys = new Set([
+                        'width', 'height', 'width_ft', 'height_ft', 'dimensions', 'service_type', 'service_id', 'product_id',
+                        'source_page', 'source', 'branch_id', 'Branch_ID', 'notes', 'additional_notes'
+                    ]);
+                    const extras = [];
+                    for (const [k, v] of Object.entries(custom)) {
+                        if (v == null || v === '' || typeof v === 'object') continue;
+                        const kl = String(k).toLowerCase();
+                        if (noiseKeys.has(k) || noiseKeys.has(kl)) continue;
+                        if (kl.includes('upload') || kl.includes('mime') || kl.includes('tmp') || kl.includes('_path')) continue;
+                        const s = String(v).trim();
+                        if (!s || s.length > 120) continue;
+                        extras.push(s);
+                        if (extras.length >= 4) break;
+                    }
+                    if (extras.length) {
+                        base = [base, ...extras].filter(Boolean).join(' • ');
+                    }
+                }
+
+                return base;
             },
             normalizeOrderRow(row) {
                 const normalized = {
@@ -2844,13 +2868,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 sintra_type: 'Type',
                 cut_type: 'Cut Type', thickness: 'Thickness', installation_fee: 'Installation Fee',
                 design_upload: 'Design upload', reference_upload: 'Reference upload',
-                design_upload_path: 'Design file path', reference_upload_path: 'Reference file path'
+                design_upload_path: 'Design file path', reference_upload_path: 'Reference file path',
+                product_type: 'Product / variant'
             },
             // Redundant / internal keys to skip in the customization grid.
             // notes and additional_notes are handled separately in the yellow 'Order Notes' box.
             customFieldSkip: [
-                'Branch_ID', 'branch_id', 'service_type', 'product_type',
-                'service_id', 'product_id', 'source_page', 'source',
+                'Branch_ID', 'branch_id',
+                'service_type', 'service_id', 'product_id',
+                'source_page', 'source',
                 'notes', 'additional_notes', 'layout_file', 'reference_file',
                 'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
                 'cart_key', '_cart_key', 'config_id', 'form_type'

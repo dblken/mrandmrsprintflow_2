@@ -266,10 +266,7 @@ try {
                         if ($serviceOnly && empty($payload['items'])) {
                             continue;
                         }
-                        if (!empty($payload['service_type'])) {
-                            $jo['service_type'] = $payload['service_type'];
-                            $jo['job_title'] = $payload['service_type'];
-                        }
+                        JobOrderService::enrichStaffJobRowFromStorePayload($jo, $payload);
                         $jo['order_code'] = printflow_get_order_inventory_reference((int)$jo['order_id'])['code'] ?? '';
                     } else {
                         $jo['order_code'] = printflow_get_job_inventory_reference((int)($jo['id'] ?? 0))['code'] ?? '';
@@ -440,19 +437,7 @@ try {
                 if ($serviceOnly && empty($payload['items'])) {
                     continue;
                 }
-                if (!empty($payload['service_type']) && $payload['service_type'] !== 'Custom Order') {
-                    $order['service_type'] = $payload['service_type'];
-                }
-                $order['width_ft'] = $payload['width_ft'];
-                $order['height_ft'] = $payload['height_ft'];
-                
-                $title_parts = [];
-                foreach ($payload['items'] as $it) {
-                    $title_parts[] = $it['product_name'] . ' - ' . $it['quantity'] . 'pcs';
-                }
-                if (!empty($title_parts)) {
-                    $order['job_title'] = implode(', ', array_unique($title_parts));
-                }
+                JobOrderService::enrichStaffJobRowFromStorePayload($order, $payload);
                 $visiblePendingOrders[] = $order;
             }
             $pending_orders = $visiblePendingOrders;

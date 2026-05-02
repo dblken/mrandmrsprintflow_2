@@ -1830,6 +1830,81 @@ class JobOrderService {
         ];
     }
 
+    /**
+     * Prefer store-checkout dimensions and line quantity over job_orders placeholders (often 1×1).
+     *
+     * @param array<string,mixed> $targetRow
+     * @param array{items?:array,width_ft?:string,height_ft?:string,line_qty?:int} $payload
+     */
+    public static function overlayStorePayloadDisplayMetrics(array &$targetRow, array $payload): void {
+        $pw = trim((string)($payload['width_ft'] ?? ''));
+        $ph = trim((string)($payload['height_ft'] ?? ''));
+        $jw = trim((string)($targetRow['width_ft'] ?? ''));
+        $jh = trim((string)($targetRow['height_ft'] ?? ''));
+        $dimNonTrivial = static function (string $v): bool {
+            return $v !== '' && $v !== '0' && $v !== '1';
+        };
+        $payloadHasSize = $dimNonTrivial($pw) || $dimNonTrivial($ph);
+        $jobIsPlaceholder =
+            (!$dimNonTrivial($jw) || $jw === '1')
+            && (!$dimNonTrivial($jh) || $jh === '1');
+        if ($payloadHasSize || $jobIsPlaceholder) {
+            if ($pw !== '' && $pw !== '0') {
+                $targetRow['width_ft'] = $pw;
+            }
+            if ($ph !== '' && $ph !== '0') {
+                $targetRow['height_ft'] = $ph;
+            }
+        }
+        $lq = (int)($payload['line_qty'] ?? 0);
+        if ($lq > 0) {
+            $targetRow['quantity'] = $lq;
+            return;
+        }
+        if (!empty($payload['items']) && is_array($payload['items'])) {
+            $sum = 0;
+            foreach ($payload['items'] as $li) {
+                $sum += max(0, (int)($li['quantity'] ?? 0));
+            }
+            if ($sum > 0) {
+                $targetRow['quantity'] = $sum;
+            }
+        }
+    }
+
+    /**
+     * Staff list rows: match customer checkout summary (size, qty, line items, title).
+     *
+     * @param array<string,mixed> $jo
+     * @param array{items?:array,service_type?:string,width_ft?:string,height_ft?:string,line_qty?:int} $payload
+     */
+    public static function enrichStaffJobRowFromStorePayload(array &$jo, array $payload): void {
+        self::overlayStorePayloadDisplayMetrics($jo, $payload);
+        if (!empty($payload['items']) && is_array($payload['items'])) {
+            $jo['items'] = $payload['items'];
+        }
+        if (trim((string)($payload['service_type'] ?? '')) !== ''
+            && strcasecmp(trim((string)($payload['service_type'] ?? '')), 'Custom Order') !== 0) {
+            $jo['service_type'] = trim((string)$payload['service_type']);
+        }
+        $titleParts = [];
+        foreach ($payload['items'] ?? [] as $it) {
+            $name = trim((string)($it['product_name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $titleParts[] = $name . ' - ' . max(1, (int)($it['quantity'] ?? 0)) . 'pcs';
+        }
+        if ($titleParts !== []) {
+            $jo['job_title'] = implode(', ', array_unique($titleParts));
+        } elseif (
+            trim((string)($payload['service_type'] ?? '')) !== ''
+            && strcasecmp(trim((string)($payload['service_type'] ?? '')), 'Custom Order') !== 0
+        ) {
+            $jo['job_title'] = trim((string)$payload['service_type']);
+        }
+    }
+
     public static function getOrder($id) {
         $sql = "SELECT jo.*, 
                        c.customer_type, c.transaction_count,
@@ -1863,21 +1938,7 @@ class JobOrderService {
         $storeOid = (int)($order['order_id'] ?? 0);
         if ($storeOid > 0) {
             $payload = self::getStoreOrderItemsPayload($storeOid, false, true);
-            $order['items'] = $payload['items'];
-            $w = (string)($order['width_ft'] ?? '');
-            $h = (string)($order['height_ft'] ?? '');
-            if (($w === '' || $w === '0' || $w === '1') && ($h === '' || $h === '0' || $h === '1')) {
-                $order['width_ft'] = $payload['width_ft'];
-                $order['height_ft'] = $payload['height_ft'];
-            }
-            // Prefer store checkout line(s) for titles so staff modal matches the customer's order summary.
-            if (!empty($payload['service_type'])) {
-                $order['service_type'] = $payload['service_type'];
-            }
-            $firstLineTitle = trim((string)($payload['items'][0]['product_name'] ?? ''));
-            if ($firstLineTitle !== '') {
-                $order['job_title'] = $firstLineTitle;
-            }
+            self::enrichStaffJobRowFromStorePayload($order, $payload);
             self::cleanupLegacyAutoAssignedMaterials((int)$id, $storeOid, (string)($payload['service_type'] ?? $order['service_type'] ?? ''));
             $st = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$storeOid]);
             if (!empty($st)) {
