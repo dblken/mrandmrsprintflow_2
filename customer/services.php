@@ -146,6 +146,21 @@ $visible_rows = db_query(
 
 $core_services = [];
 foreach ($visible_rows as $row) {
+    $sid = (int)($row['service_id'] ?? 0);
+    if ($sid < 1) {
+        continue;
+    }
+
+    // Every catalog tile must hit order_service_dynamic.php so order_items.customization_data always carries
+    // service_id + the same field labels as admin service_field_configs (legacy customer_link flows omit these).
+    if (!service_has_field_config($sid)) {
+        $cl = trim((string)($row['customer_link'] ?? ''));
+        if ($cl !== '') {
+            $cl = basename(str_replace('\\', '/', $cl));
+        }
+        init_service_field_config($sid, $cl !== '' ? $cl : null);
+    }
+
     $img = pf_service_card_primary_image(
         (string)($row['display_image'] ?? ''),
         (string)($row['hero_image'] ?? ''),
@@ -154,15 +169,13 @@ foreach ($visible_rows as $row) {
     );
 
     $core_services[] = [
-        'id' => $row['service_id'],
+        'id' => $sid,
         'name' => $row['name'],
         'category' => $row['category'] ?? '',
         'img' => $img,
         'display_image_raw' => (string)($row['display_image'] ?? ''),
         'hero_image_raw' => (string)($row['hero_image'] ?? ''),
-        'link' => service_has_field_config($row['service_id']) 
-            ? 'order_service_dynamic.php?service_id=' . $row['service_id']
-            : ($row['customer_link'] ?: 'order_create.php'),
+        'link' => 'order_service_dynamic.php?service_id=' . $sid,
         'modal_text' => $row['customer_modal_text'] ?: printflow_default_customer_service_modal_text(),
         'sold_count' => (int)$row['sold_count'],
         'avg_rating' => (float)$row['avg_rating'],

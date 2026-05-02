@@ -3006,6 +3006,13 @@ function printflow_normalize_customization_for_modal(array $custom, int $depth =
             'payload',
             'order_spec',
             'dynamic_form_data',
+            'service_specs',
+            'item_specs',
+            'order_customization',
+            'cart_customization',
+            'saved_specs',
+            'selected_options',
+            'attributes',
         ]
         as $wrap
     ) {
@@ -3192,7 +3199,7 @@ function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuant
         }
         $nk = printflow_customer_modal_nf_spec_key($k);
         if ($nk === '') {
-            continue;
+            $nk = '_k_' . md5($k);
         }
         $groups[$nk][] = [$k, (string)$v];
     }
