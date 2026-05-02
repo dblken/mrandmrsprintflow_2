@@ -1205,8 +1205,11 @@ class JobOrderService {
         require_once __DIR__ . '/service_field_config_helper.php';
 
         $serviceId = (int)($custom['service_id'] ?? 0);
-        if ($serviceId <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
-            $serviceId = (int)($order['reference_id'] ?? 0);
+        if ($serviceId <= 0) {
+            $ot = strtolower(trim((string)($order['order_type'] ?? '')));
+            if (in_array($ot, ['custom', 'product'], true)) {
+                $serviceId = (int)($order['reference_id'] ?? 0);
+            }
         }
 
         $branchLabel = 'Branch';
@@ -1536,11 +1539,17 @@ class JobOrderService {
             $firstItemCustomization['service_type'] = $firstFallbackService;
         }
 
+        $firstItemCustomization = customer_orders_sanitize_generic_service_labels($firstItemCustomization);
+
         $orderTypeNormalized = strtolower(trim((string)($order['order_type'] ?? '')));
         $firstSourcePage = strtolower(trim((string)($firstItemCustomization['source_page'] ?? '')));
+        $firstTableSvc = trim((string)$firstCustomizationServiceType);
+        if (customer_orders_is_generic_item_name($firstTableSvc)) {
+            $firstTableSvc = '';
+        }
         $isServiceOrder =
             !empty($firstItemCustomization['service_type'])
-            || $firstCustomizationServiceType !== ''
+            || $firstTableSvc !== ''
             || (int)($firstItemCustomization['service_id'] ?? 0) > 0
             || in_array($firstSourcePage, ['services', 'service'], true)
             || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($firstItemCustomization));
@@ -1575,6 +1584,18 @@ class JobOrderService {
                 }
             }
         }
+        if (
+            !$isServiceOrder
+            && $orderTypeNormalized === 'product'
+            && (int)($order['reference_id'] ?? 0) > 0
+            && (
+                !function_exists('customer_orders_custom_order_is_catalog_product')
+                || !customer_orders_custom_order_is_catalog_product($firstItemCustomization)
+            )
+        ) {
+            $isServiceOrder = true;
+        }
+
         if (
             !$isServiceOrder
             && $orderTypeNormalized === 'custom'
@@ -1702,6 +1723,7 @@ class JobOrderService {
             if (empty($custom['service_type']) && !empty($firstItemCustomization['service_type'])) {
                 $custom['service_type'] = (string)$firstItemCustomization['service_type'];
             }
+            $custom = customer_orders_sanitize_generic_service_labels($custom);
 
             if ($isServiceOrder && $jobOrdersList !== []) {
                 $jobCount = count($jobOrdersList);
@@ -1741,8 +1763,11 @@ class JobOrderService {
 
             if ($isServiceOrder) {
                 $serviceIdForSort = (int)($custom['service_id'] ?? 0);
-                if ($serviceIdForSort <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
-                    $serviceIdForSort = (int)($order['reference_id'] ?? 0);
+                if ($serviceIdForSort <= 0) {
+                    $ot = strtolower(trim((string)($order['order_type'] ?? '')));
+                    if (in_array($ot, ['custom', 'product'], true)) {
+                        $serviceIdForSort = (int)($order['reference_id'] ?? 0);
+                    }
                 }
                 if ($serviceIdForSort <= 0 && function_exists('printflow_resolve_service_catalog_service_id')) {
                     $serviceIdForSort = printflow_resolve_service_catalog_service_id((string)($custom['service_type'] ?? ''));

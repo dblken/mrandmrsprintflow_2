@@ -134,8 +134,11 @@ function customer_order_items_normalize_service_specs_for_modal(array $custom_da
     }
 
     $sid = (int)($custom_data['service_id'] ?? 0);
-    if ($sid <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
-        $sid = (int)($order['reference_id'] ?? 0);
+    if ($sid <= 0) {
+        $ot = strtolower(trim((string)($order['order_type'] ?? '')));
+        if (in_array($ot, ['custom', 'product'], true)) {
+            $sid = (int)($order['reference_id'] ?? 0);
+        }
     }
 
     $branchLabel = 'Branch';
@@ -399,41 +402,46 @@ $first_item_raw_customization = db_query(
 if (!empty($first_item_raw_customization[0]['customization_data'])) {
     $first_item_customization = customer_order_items_decode_customization_payload((string)$first_item_raw_customization[0]['customization_data']);
 }
-$first_item_customization = customer_order_items_merge_customization_payload(
-    $first_item_customization,
-    printflow_overlay_nonempty_assoc($orphan_customization_details, $first_customization_payload),
-    $first_customization_service_type !== ''
-        ? $first_customization_service_type
-        : trim((string)($orphan_customization_details['service_type'] ?? ''))
-);
+    $first_item_customization = customer_order_items_merge_customization_payload(
+        $first_item_customization,
+        printflow_overlay_nonempty_assoc($orphan_customization_details, $first_customization_payload),
+        $first_customization_service_type !== ''
+            ? $first_customization_service_type
+            : trim((string)($orphan_customization_details['service_type'] ?? ''))
+    );
+    $first_item_customization = customer_orders_sanitize_generic_service_labels($first_item_customization);
 
-$order_type_normalized = strtolower(trim((string)($order['order_type'] ?? '')));
-$first_item_source_page = strtolower(trim((string)($first_item_customization['source_page'] ?? '')));
-$is_service_order =
-    !empty($first_item_customization['service_type'])
-    || $first_customization_service_type !== ''
-    || (int)($first_item_customization['service_id'] ?? 0) > 0
-    || in_array($first_item_source_page, ['services', 'service'], true)
-    || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($first_item_customization));
-if (!$is_service_order) {
-    $is_service_order = $order_type_normalized === 'custom' && empty($first_item_customization['product_type']);
-}
-
-$display_status = (string)($order['status'] ?? '');
-if ($order_type_normalized === 'product' && !$is_service_order) {
-    if (in_array($display_status, ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved', 'To Pay', 'To Verify', 'Downpayment Submitted', 'Pending Verification'], true)) {
-        $display_status = 'TO VERIFY';
-    } elseif (in_array($display_status, ['Ready for Pickup', 'Approved Design', 'To Receive', 'In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process'], true)) {
-        $display_status = 'TO PICK UP';
-    } elseif (in_array($display_status, ['Completed', 'To Rate', 'Rated'], true)) {
-        $display_status = 'COMPLETED';
-    } elseif ($display_status === 'Cancelled') {
-        $display_status = 'CANCELLED';
+    $order_type_normalized = strtolower(trim((string)($order['order_type'] ?? '')));
+    $first_item_source_page = strtolower(trim((string)($first_item_customization['source_page'] ?? '')));
+    $first_table_svc = trim((string)$first_customization_service_type);
+    if (customer_orders_is_generic_item_name($first_table_svc)) {
+        $first_table_svc = '';
     }
-}
+    $is_service_order =
+        !empty($first_item_customization['service_type'])
+        || $first_table_svc !== ''
+        || (int)($first_item_customization['service_id'] ?? 0) > 0
+        || in_array($first_item_source_page, ['services', 'service'], true)
+        || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($first_item_customization));
+    if (!$is_service_order) {
+        $is_service_order = $order_type_normalized === 'custom' && empty($first_item_customization['product_type']);
+    }
 
-// Get items with design info
-$items = db_query("
+    $display_status = (string)($order['status'] ?? '');
+    if ($order_type_normalized === 'product' && !$is_service_order) {
+        if (in_array($display_status, ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved', 'To Pay', 'To Verify', 'Downpayment Submitted', 'Pending Verification'], true)) {
+            $display_status = 'TO VERIFY';
+        } elseif (in_array($display_status, ['Ready for Pickup', 'Approved Design', 'To Receive', 'In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process'], true)) {
+            $display_status = 'TO PICK UP';
+        } elseif (in_array($display_status, ['Completed', 'To Rate', 'Rated'], true)) {
+            $display_status = 'COMPLETED';
+        } elseif ($display_status === 'Cancelled') {
+            $display_status = 'CANCELLED';
+        }
+    }
+
+    // Get items with design info
+    $items = db_query("
     SELECT oi.*, p.name as product_name, p.category
     FROM order_items oi
     LEFT JOIN products p ON oi.product_id = p.product_id
@@ -464,6 +472,18 @@ if (!$is_service_order) {
         }
     }
 }
+if (
+    !$is_service_order
+    && $order_type_normalized === 'product'
+    && (int)($order['reference_id'] ?? 0) > 0
+    && (
+        !function_exists('customer_orders_custom_order_is_catalog_product')
+        || !customer_orders_custom_order_is_catalog_product($first_item_customization)
+    )
+) {
+    $is_service_order = true;
+}
+
 if (
     !$is_service_order
     && $order_type_normalized === 'custom'
@@ -599,6 +619,7 @@ foreach ($items as $lineIndex => $item) {
     if (empty($custom_data['service_type']) && !empty($first_item_customization['service_type'])) {
         $custom_data['service_type'] = (string)$first_item_customization['service_type'];
     }
+    $custom_data = customer_orders_sanitize_generic_service_labels($custom_data);
 
     if ($is_service_order && $job_orders_list !== []) {
         $jc = count($job_orders_list);
@@ -640,8 +661,11 @@ foreach ($items as $lineIndex => $item) {
         }
 
         $sidForSort = (int)($custom_data['service_id'] ?? 0);
-        if ($sidForSort <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
-            $sidForSort = (int)($order['reference_id'] ?? 0);
+        if ($sidForSort <= 0) {
+            $ot = strtolower(trim((string)($order['order_type'] ?? '')));
+            if (in_array($ot, ['custom', 'product'], true)) {
+                $sidForSort = (int)($order['reference_id'] ?? 0);
+            }
         }
         if ($sidForSort <= 0) {
             $sidForSort = function_exists('printflow_resolve_service_catalog_service_id')

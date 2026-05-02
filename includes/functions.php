@@ -2758,6 +2758,21 @@ function printflow_custom_order_line_looks_like_souvenir_cart(array $custom_data
 }
 
 /**
+ * Strip placeholder service_type values (e.g. from products.name or legacy rows) so
+ * orders.reference_id and field-based inference can supply the real catalog name.
+ *
+ * @param array<string, mixed> $custom
+ * @return array<string, mixed>
+ */
+function customer_orders_sanitize_generic_service_labels(array $custom): array {
+    $st = trim((string)($custom['service_type'] ?? ''));
+    if ($st !== '' && customer_orders_is_generic_item_name($st)) {
+        unset($custom['service_type']);
+    }
+    return $custom;
+}
+
+/**
  * Apply service_id / orders.reference_id resolution to an already-merged per-line customization array.
  */
 function customer_orders_enrich_line_customization(array $merged, array $order): array {
@@ -2770,6 +2785,8 @@ function customer_orders_enrich_line_customization(array $merged, array $order):
 
         return $merged;
     }
+
+    $merged = customer_orders_sanitize_generic_service_labels($merged);
 
     $sid = (int)($merged['service_id'] ?? 0);
     if ($sid > 0) {
