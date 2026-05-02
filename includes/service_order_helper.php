@@ -261,33 +261,45 @@ function service_order_ensure_tables() {
 
 /**
  * Fetch real-time sold amount, average rating, and review count for a specific service page.
- * Uses the customer_link (e.g., 'order_stickers') to find the correct service.
+ * Pass $resolved_service_id when known (e.g. order_service_dynamic.php) so stats work even if customer_link is empty.
+ * Otherwise uses customer_link (e.g. 'order_stickers') to find the correct service row.
  */
-function service_order_get_page_stats($keyword) {
-    if (empty($keyword)) return ['sold_count' => 0, 'avg_rating' => 0, 'review_count' => 0];
-    
-    $exclude = "AND customer_link NOT LIKE '%order_glass_stickers%' AND customer_link NOT LIKE '%order_transparent%' AND customer_link NOT LIKE '%order_reflectorized%'";
-    if (strpos($keyword, 'order_glass') !== false || strpos($keyword, 'order_transparent') !== false || strpos($keyword, 'order_reflectorized') !== false) {
-        $exclude = "";
+function service_order_get_page_stats($keyword, $resolved_service_id = 0) {
+    $resolved_service_id = (int)$resolved_service_id;
+    if ($resolved_service_id > 0) {
+        $row = db_query("SELECT service_id, name FROM services WHERE service_id = ? LIMIT 1", 'i', [$resolved_service_id]);
+    } else {
+        if (empty($keyword)) {
+            return ['sold_count' => 0, 'avg_rating' => 0, 'review_count' => 0];
+        }
+
+        $exclude = "AND customer_link NOT LIKE '%order_glass_stickers%' AND customer_link NOT LIKE '%order_transparent%' AND customer_link NOT LIKE '%order_reflectorized%'";
+        if (strpos($keyword, 'order_glass') !== false || strpos($keyword, 'order_transparent') !== false || strpos($keyword, 'order_reflectorized') !== false) {
+            $exclude = "";
+        }
+
+        $row = db_query("SELECT service_id, name FROM services WHERE customer_link LIKE '%" . db_escape($keyword) . "%' $exclude LIMIT 1");
     }
-    
-    $row = db_query("SELECT service_id, name FROM services WHERE customer_link LIKE '%" . db_escape($keyword) . "%' $exclude LIMIT 1");
-    if (empty($row)) return ['sold_count' => 0, 'avg_rating' => 0, 'review_count' => 0];
-    
+
+    if (empty($row)) {
+        return ['sold_count' => 0, 'avg_rating' => 0, 'review_count' => 0];
+    }
+
     $s_id   = (int)$row[0]['service_id'];
     $s_name = $row[0]['name'];
 
-    // Count sold from orders + order_items, only service orders (have service_type in customization_data)
-    $sold_row = db_query(
-        "SELECT COALESCE(SUM(oi.quantity), 0) AS cnt
-         FROM order_items oi
-         JOIN orders o ON oi.order_id = o.order_id
-         WHERE o.status != 'Cancelled'
-           AND oi.customization_data LIKE '%\"service_type\"%'
-           AND oi.customization_data LIKE CONCAT('%', CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')",
-        's', [$s_name]
-    );
-    $sold_count = (int)(($sold_row[0]['cnt'] ?? 0));
+    $sold_count = function_exists('printflow_service_units_sold')
+        ? printflow_service_units_sold($s_id)
+        : (int)(db_query(
+            "SELECT COALESCE(SUM(oi.quantity), 0) AS cnt
+             FROM order_items oi
+             JOIN orders o ON oi.order_id = o.order_id
+             WHERE o.status != 'Cancelled'
+               AND oi.customization_data LIKE '%\"service_type\"%'
+               AND oi.customization_data LIKE CONCAT('%', CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')",
+            's',
+            [$s_name]
+        )[0]['cnt'] ?? 0);
 
     $review_stats = function_exists('printflow_get_service_review_stats')
         ? printflow_get_service_review_stats($s_name)

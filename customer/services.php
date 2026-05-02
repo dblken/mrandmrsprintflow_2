@@ -130,11 +130,17 @@ function pf_service_media_is_video($path) {
 
 // Fetch services from DB
 $visible_rows = db_query(
-    "SELECT s.*, 
-    (SELECT COALESCE(SUM(oi.quantity),0) FROM order_items oi JOIN orders o ON oi.order_id = o.order_id WHERE o.status != 'Cancelled' AND oi.customization_data LIKE '%\"service_type\"%' AND oi.customization_data LIKE CONCAT('%', CONVERT(s.name USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')) as sold_count,
+    'SELECT s.*, 
+    (SELECT COALESCE(SUM(oi.quantity),0) FROM order_items oi INNER JOIN orders o ON o.order_id = oi.order_id WHERE o.status != \'Cancelled\' AND (
+        (LOWER(TRIM(COALESCE(o.order_type, \'\'))) = \'custom\' AND o.reference_id = s.service_id)
+        OR oi.customization_data LIKE CONCAT(\'%"service_id":\', s.service_id, \'%\')
+        OR oi.customization_data LIKE CONCAT(\'%"service_id": \', s.service_id, \'%\')
+        OR oi.customization_data LIKE CONCAT(\'%"service_id":"\', s.service_id, \'"%\')
+        OR (oi.customization_data LIKE \'%"service_type"%\' AND oi.customization_data LIKE CONCAT(\'%\', CONVERT(s.name USING utf8mb4) COLLATE utf8mb4_unicode_ci, \'%\'))
+    )) as sold_count,
     (SELECT AVG(rating) FROM reviews r WHERE r.service_type COLLATE utf8mb4_unicode_ci = s.name COLLATE utf8mb4_unicode_ci) as avg_rating,
     (SELECT COUNT(*) FROM reviews r WHERE r.service_type COLLATE utf8mb4_unicode_ci = s.name COLLATE utf8mb4_unicode_ci) as review_count
-    FROM services s WHERE s.status = 'Activated' ORDER BY name ASC",
+    FROM services s WHERE s.status = \'Activated\' ORDER BY name ASC',
     '',
     []
 ) ?: [];
@@ -216,8 +222,7 @@ function render_service_card($srv) {
     $ravg = $srv['avg_rating'];
     $rcount = $srv['review_count'];
     $sold = $srv['sold_count'];
-    // If sold is 0 but there are reviews, use review_count as minimum sold
-    $display_sold = ($sold <= 0 && $rcount > 0) ? $rcount : $sold;
+    $display_sold = $sold;
     ?>
     <div class="shopee-card" onclick="window.location.href=<?php echo $json_link; ?>;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.href=<?php echo $json_link; ?>;}" role="link" tabindex="0" aria-label="Order <?php echo htmlspecialchars($srv['name']); ?>">
         <?php if ($is_video): ?>

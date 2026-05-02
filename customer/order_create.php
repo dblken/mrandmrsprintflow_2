@@ -252,11 +252,7 @@ foreach ($reviews as $idx => $r) {
     if (!empty($r_imgs) || !empty($r['video_path'])) $with_media++;
 }
 
-$sold_count = order_create_optional_query(
-    "SELECT COALESCE(SUM(oi.quantity),0) as cnt FROM order_items oi JOIN orders o ON oi.order_id = o.order_id WHERE oi.product_id = ? AND o.status != 'Cancelled' AND (oi.customization_data IS NULL OR oi.customization_data = '' OR oi.customization_data NOT LIKE '%\"service_type\"%')",
-    'i', [$product_id]
-);
-$sold_count = (int)($sold_count[0]['cnt'] ?? 0);
+$sold_count = printflow_product_units_sold((int)$product_id);
 $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k' : $sold_count;
 
 $page_title = 'Order ' . $product['name'] . ' - PrintFlow';

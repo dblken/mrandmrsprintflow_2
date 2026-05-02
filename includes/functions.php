@@ -2614,6 +2614,68 @@ function customer_orders_primary_item_name(array $order): string {
     return $resolved;
 }
 
+/**
+ * Sum of quantities for catalog product orders (excludes custom/service order rows, even if they share a product_id).
+ */
+function printflow_product_units_sold(int $product_id): int {
+    $product_id = (int)$product_id;
+    if ($product_id <= 0) {
+        return 0;
+    }
+    $rows = db_query(
+        "SELECT COALESCE(SUM(oi.quantity), 0) AS cnt
+         FROM order_items oi
+         INNER JOIN orders o ON o.order_id = oi.order_id
+         WHERE oi.product_id = ?
+           AND o.status != 'Cancelled'
+           AND LOWER(TRIM(COALESCE(o.order_type, ''))) != 'custom'",
+        'i',
+        [$product_id]
+    );
+    return (int)(($rows[0]['cnt'] ?? 0));
+}
+
+/**
+ * Sum of quantities for a configured service (services.service_id) from custom orders and legacy JSON matches.
+ */
+function printflow_service_units_sold(int $service_id): int {
+    $service_id = (int)$service_id;
+    if ($service_id <= 0) {
+        return 0;
+    }
+    $meta = db_query('SELECT name FROM services WHERE service_id = ? LIMIT 1', 'i', [$service_id]);
+    $sname = trim((string)($meta[0]['name'] ?? ''));
+
+    $likeColon = '%"service_id":' . $service_id . '%';
+    $likeColonSp = '%"service_id": ' . $service_id . '%';
+    $likeQuoted = '%"service_id":"' . $service_id . '"%';
+
+    $types = 'isss';
+    $params = [$service_id, $likeColon, $likeColonSp, $likeQuoted];
+
+    $sql = "SELECT COALESCE(SUM(oi.quantity), 0) AS cnt
+            FROM order_items oi
+            INNER JOIN orders o ON o.order_id = oi.order_id
+            WHERE o.status != 'Cancelled'
+              AND (
+                (LOWER(TRIM(COALESCE(o.order_type, ''))) = 'custom' AND o.reference_id = ?)
+                OR oi.customization_data LIKE ?
+                OR oi.customization_data LIKE ?
+                OR oi.customization_data LIKE ?";
+
+    if ($sname !== '') {
+        $sql .= " OR (oi.customization_data LIKE ? AND oi.customization_data LIKE ?)";
+        $types .= 'ss';
+        $params[] = '%"service_type"%';
+        $params[] = '%' . $sname . '%';
+    }
+
+    $sql .= "\n              )";
+
+    $rows = db_query($sql, $types, $params);
+    return (int)(($rows[0]['cnt'] ?? 0));
+}
+
 
 function printflow_order_notification_preview(int $order_id): array {
     static $cache = [];

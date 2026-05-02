@@ -584,7 +584,7 @@ $display_video_poster = !empty($service['hero_image'])
     ? pf_normalize_service_media_path($service['hero_image'], $base_path, $default_service_img)
     : (!empty($display_images) && $display_images[0]['type'] === 'image' ? $display_images[0]['src'] : $default_service_img);
 
-$stats = service_order_get_page_stats($service['customer_link'] ?? '');
+$stats = service_order_get_page_stats($service['customer_link'] ?? '', (int)($service['service_id'] ?? 0));
 $avg_rating = number_format((float)($stats['avg_rating'] ?? 0), 1);
 $review_count = (int)($stats['review_count'] ?? 0);
 $sold_count = (int)($stats['sold_count'] ?? 0);
