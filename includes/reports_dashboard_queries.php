@@ -221,6 +221,62 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
 }
 
 /**
+ * Branch/date-filtered service-category revenue and quantity using the same logic
+ * as the "Sales by Service Category" chart.
+ *
+ * @return list<array{category:string,total:float|string,qty_sold:int|string}>
+ */
+function pf_reports_sales_by_service_category(string $from, string $toEnd, $branchId): array {
+    try {
+        [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', $branchId);
+
+        $jDatePart = '';
+        $jdTypes = '';
+        $jdParams = [];
+        if ($from !== '' && $toEnd !== '') {
+            $jDatePart = ' AND jo.created_at BETWEEN ? AND ?';
+            $jdTypes = 'ss';
+            $jdParams = [$from, $toEnd];
+        } elseif ($from !== '') {
+            $jDatePart = ' AND jo.created_at >= ?';
+            $jdTypes = 's';
+            $jdParams = [$from];
+        } elseif ($toEnd !== '') {
+            $jDatePart = ' AND jo.created_at <= ?';
+            $jdTypes = 's';
+            $jdParams = [$toEnd];
+        }
+
+        $pfServiceCatBucket = "COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')";
+        return db_query(
+            "SELECT {$pfServiceCatBucket} AS category,
+                    SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
+                             THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total,
+                    SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
+                             THEN COALESCE(jo.quantity, 1) ELSE 0 END) AS qty_sold
+             FROM job_orders jo
+             LEFT JOIN (
+                 SELECT LOWER(TRIM(name)) AS name_key,
+                        MAX(NULLIF(TRIM(category), '')) AS category
+                 FROM services
+                 GROUP BY LOWER(TRIM(name))
+             ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
+             WHERE 1=1 {$jDatePart} {$bjsc}
+             GROUP BY {$pfServiceCatBucket}
+             HAVING SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
+                             THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) > 0
+                 OR SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
+                             THEN COALESCE(jo.quantity, 1) ELSE 0 END) > 0
+             ORDER BY total DESC",
+            $jdTypes . $btjsc,
+            array_merge($jdParams, $bpjsc)
+        ) ?: [];
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/**
  * Dashboard: branch-filtered paid store revenue by category-or-product bucket (all-time).
  *
  * @return list<array{category:string,items_sold:int|string,total:float|string}>

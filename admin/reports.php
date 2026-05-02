@@ -222,29 +222,11 @@ if (!$gaBranchEmpty) {
         $report_product_category_sales = [];
     }
     try {
-        [$bjsc, $btjsc, $bpjsc] = branch_where_parts('jo', $globalAnalyticsBranchId);
-        [$dwjsc, $dtjsc, $dpjsc] = $getDateWhere('jo', 'created_at');
-        // Include archived services in lookup so old jobs still resolve catalog category by name.
-        $pf_service_cat_bucket = "COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')";
-        $report_service_category_sales = db_query(
-            "SELECT {$pf_service_cat_bucket} AS category,
-                    SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
-                             THEN COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) ELSE 0 END) AS total,
-                    SUM(CASE WHEN (jo.payment_status = 'PAID' OR jo.status = 'COMPLETED')
-                             THEN COALESCE(jo.quantity, 1) ELSE 0 END) AS qty_sold
-             FROM job_orders jo
-             LEFT JOIN (
-                 SELECT LOWER(TRIM(name)) AS name_key,
-                        MAX(NULLIF(TRIM(category), '')) AS category
-                 FROM services
-                 GROUP BY LOWER(TRIM(name))
-             ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
-             WHERE 1=1 {$dwjsc} {$bjsc}
-             GROUP BY {$pf_service_cat_bucket}
-             ORDER BY total DESC",
-            $dtjsc . $btjsc,
-            array_merge($dpjsc, $bpjsc)
-        ) ?: [];
+        $report_service_category_sales = pf_reports_sales_by_service_category(
+            $globalAnalyticsFrom,
+            $globalAnalyticsTo,
+            $globalAnalyticsBranchId
+        );
         $report_service_category_sales = pf_reports_fold_demo_service_categories(
             $report_service_category_sales,
             ['Eunsoyaaaaa', 'Ink']
@@ -475,22 +457,17 @@ $can_forecast = $fc_total_history >= 20;
 
 // ── 6. Best selling services (products + customization jobs) ────────────────
 $top_products = [];
+$top_products_prev = [];
 if (!$gaBranchEmpty) {
-    // Top products use All Time (empty strings) and Global Branch (for admins)
-    $top_products = pf_reports_top_products_merged($globalAnalyticsFrom, $globalAnalyticsTo, $globalAnalyticsBranchId, 10);
+    $top_products = array_map(static function ($row) {
+        return [
+            'product_id' => null,
+            'product_name' => (string)($row['category'] ?? 'Customization'),
+            'qty_sold' => (int)($row['qty_sold'] ?? 0),
+            'revenue' => (float)($row['total'] ?? 0),
+        ];
+    }, $report_service_category_sales);
     
-    // Previous month context for trend % arrows (relative to today)
-    $top_products_prev = [];
-    if (!empty($top_products)) {
-        $prevMonthStart = date('Y-m-01', strtotime('-1 month'));
-        $prevMonthEnd   = date('Y-m-t', strtotime('-1 month')) . ' 23:59:59';
-        $pList = pf_reports_top_products_merged($prevMonthStart, $prevMonthEnd, $globalAnalyticsBranchId, 50);
-        foreach ($pList as $p) {
-            $k = ($p['product_id'] ?? 's') . ':' . (isset($p['product_id']) ? $p['product_name'] : mb_strtolower($p['product_name']));
-            $top_products_prev[$k] = (int)$p['qty_sold'];
-        }
-    }
-
     if ($chart_sort === 'value_asc') {
         $top_products = array_reverse($top_products);
     }
@@ -795,31 +772,12 @@ $period_empty = (!$branch_empty && !$period_has_activity);
 $top_products_prev = [];
 if (!$gaBranchEmpty && !empty($top_products)) {
     try {
-        [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
         $prevMonthStart = date('Y-m-01', strtotime('-1 month'));
         $prevMonthEnd   = date('Y-m-t', strtotime('-1 month')) . ' 23:59:59';
-        $prevRows = db_query(
-            "SELECT p.product_id, SUM(oi.quantity) as qty
-             FROM order_items oi JOIN products p ON oi.product_id=p.product_id
-             JOIN orders o ON oi.order_id=o.order_id
-             WHERE o.order_date BETWEEN ? AND ?$b
-             GROUP BY p.product_id",
-            'ss'.$bt, array_merge([$prevMonthStart,$prevMonthEnd],$bp)
-        ) ?: [];
+        $prevRows = pf_reports_sales_by_service_category($prevMonthStart, $prevMonthEnd, $globalAnalyticsBranchId);
+        $prevRows = pf_reports_fold_demo_service_categories($prevRows, ['Eunsoyaaaaa', 'Ink']);
         foreach ($prevRows as $r) {
-            $top_products_prev['p:' . (int) $r['product_id']] = (int) $r['qty'];
-        }
-        [$bj,$btj,$bpj] = branch_where_parts('jo', $globalAnalyticsBranchId);
-        $prevJobs = db_query(
-            "SELECT COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization') AS svc,
-                    SUM(COALESCE(jo.quantity, 1)) as qty
-             FROM job_orders jo
-             WHERE jo.created_at BETWEEN ? AND ?$bj
-             GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization')",
-            'ss'.$btj, array_merge([$prevMonthStart,$prevMonthEnd],$bpj)
-        ) ?: [];
-        foreach ($prevJobs as $r) {
-            $top_products_prev['s:' . mb_strtolower((string) $r['svc'])] = (int) $r['qty'];
+            $top_products_prev['s:' . mb_strtolower((string)($r['category'] ?? 'Customization'))] = (int)($r['qty_sold'] ?? 0);
         }
     } catch (Exception $e) {
     }
