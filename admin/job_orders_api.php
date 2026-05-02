@@ -1230,7 +1230,7 @@ try {
                 }
             }
 
-            $payload = JobOrderService::getStoreOrderItemsPayload($order_id, $serviceOnly);
+            $payload = JobOrderService::getStoreOrderItemsPayload($order_id, $serviceOnly, true);
             $items_out = $payload['items'];
             $width_ft = $payload['width_ft'];
             $height_ft = $payload['height_ft'];
@@ -1573,4 +1573,3 @@ try {
 
 // Flush clean JSON output
 ob_end_flush();
-

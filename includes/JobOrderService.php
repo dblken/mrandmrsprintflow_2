@@ -521,7 +521,8 @@ class JobOrderService {
             "SELECT oi.*, p.name AS product_name, p.category AS product_category
              FROM order_items oi
              LEFT JOIN products p ON oi.product_id = p.product_id
-             WHERE oi.order_id = ?",
+             WHERE oi.order_id = ?
+             ORDER BY oi.order_item_id ASC",
             'i',
             [$orderId]
         ) ?: [];
@@ -1135,10 +1136,214 @@ class JobOrderService {
         return get_service_name_from_customization($custom, '') !== '';
     }
 
+    private static function buildStoreOrderItemAssetMeta(array $item, int $fallbackDesignOrderItemId = 0, ?array $fallbackDesignMeta = null): array {
+        $lineOrderItemId = (int)($item['order_item_id'] ?? 0);
+        $hasOwnDesign = !empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '';
+        $designServeId = $hasOwnDesign
+            ? $lineOrderItemId
+            : (($lineOrderItemId === 0 && $fallbackDesignOrderItemId > 0) ? $fallbackDesignOrderItemId : 0);
+        $designOpenUrl = $designServeId > 0
+            ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $designServeId
+            : null;
+
+        $designName = trim((string)($item['design_image_name'] ?? ''));
+        $designIsImage = false;
+        if ($hasOwnDesign) {
+            $designIsImage = function_exists('printflow_order_item_has_previewable_design')
+                ? printflow_order_item_has_previewable_design($item)
+                : false;
+            if ($designName === '' && !empty($item['design_file'])) {
+                $designPath = parse_url((string)$item['design_file'], PHP_URL_PATH);
+                $designName = basename(is_string($designPath) && $designPath !== '' ? $designPath : (string)$item['design_file']);
+            }
+        } elseif ($designServeId > 0 && is_array($fallbackDesignMeta)) {
+            $fallbackDesignPath = (string)($fallbackDesignMeta['design_file'] ?? '');
+            $fallbackDesignName = trim((string)($fallbackDesignMeta['design_image_name'] ?? ''));
+            $designIsImage = function_exists('printflow_media_path_looks_like_image')
+                ? printflow_media_path_looks_like_image($fallbackDesignPath, $fallbackDesignName)
+                : false;
+            if ($designName === '') {
+                $designName = $fallbackDesignName;
+            }
+            if ($designName === '' && $fallbackDesignPath !== '') {
+                $fallbackDesignParsedPath = parse_url($fallbackDesignPath, PHP_URL_PATH);
+                $designName = basename(is_string($fallbackDesignParsedPath) && $fallbackDesignParsedPath !== ''
+                    ? $fallbackDesignParsedPath
+                    : $fallbackDesignPath);
+            }
+        }
+
+        $referenceOpenUrl = ($lineOrderItemId > 0 && !empty($item['reference_image_file']))
+            ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId . '&field=reference'
+            : null;
+        $referenceIsImage = !empty($item['reference_image_file']) && function_exists('printflow_media_path_looks_like_image')
+            ? printflow_media_path_looks_like_image((string)($item['reference_image_file'] ?? ''))
+            : false;
+        $referenceName = '';
+        if (!empty($item['reference_image_file'])) {
+            $referencePath = parse_url((string)$item['reference_image_file'], PHP_URL_PATH);
+            $referenceName = basename(is_string($referencePath) && $referencePath !== '' ? $referencePath : (string)$item['reference_image_file']);
+        }
+
+        return [
+            'design_url' => $designIsImage ? $designOpenUrl : null,
+            'design_open_url' => $designOpenUrl,
+            'design_is_image' => $designIsImage,
+            'design_name' => $designName !== '' ? $designName : null,
+            'reference_url' => $referenceIsImage ? $referenceOpenUrl : null,
+            'reference_open_url' => $referenceOpenUrl,
+            'reference_is_image' => $referenceIsImage,
+            'reference_name' => $referenceName !== '' ? $referenceName : null,
+        ];
+    }
+
+    private static function normalizeStoreOrderModalServiceSpecs(array $custom, array $order, array $item, bool $isServiceOrder): array {
+        if (!$isServiceOrder) {
+            return $custom;
+        }
+
+        require_once __DIR__ . '/service_field_config_helper.php';
+
+        $serviceId = (int)($custom['service_id'] ?? 0);
+        if ($serviceId <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+            $serviceId = (int)($order['reference_id'] ?? 0);
+        }
+
+        $branchLabel = 'Branch';
+        $quantityLabel = 'Quantity';
+        if ($serviceId > 0 && function_exists('get_service_field_config')) {
+            $configs = get_service_field_config($serviceId);
+            if (is_array($configs)) {
+                foreach ($configs as $fieldKey => $cfg) {
+                    if (!is_array($cfg)) {
+                        continue;
+                    }
+                    $label = trim((string)($cfg['label'] ?? ''));
+                    $display = $label !== '' ? $label : trim((string)$fieldKey);
+                    if ($fieldKey === 'branch') {
+                        $branchLabel = $display;
+                    }
+                    if (($cfg['type'] ?? '') === 'quantity') {
+                        $quantityLabel = $display;
+                    }
+                }
+            }
+        }
+
+        if (array_key_exists('branch', $custom)) {
+            $legacyBranch = trim((string)$custom['branch']);
+            unset($custom['branch']);
+            if ($legacyBranch !== '') {
+                $alreadyHasBranch = false;
+                foreach ($custom as $key => $value) {
+                    if (strcasecmp(trim((string)$key), $branchLabel) === 0 && trim((string)$value) !== '') {
+                        $alreadyHasBranch = true;
+                        break;
+                    }
+                }
+                if (!$alreadyHasBranch) {
+                    $custom[$branchLabel] = $legacyBranch;
+                }
+            }
+        }
+
+        $hasBranchSpec = false;
+        foreach ($custom as $key => $value) {
+            $keyText = strtolower(trim((string)$key));
+            $valueText = is_scalar($value) || $value === null ? trim((string)$value) : '';
+            if ($valueText === '') {
+                continue;
+            }
+            if (strcasecmp($keyText, strtolower($branchLabel)) === 0 || str_contains($keyText, 'branch') || str_contains($keyText, 'pickup')) {
+                $hasBranchSpec = true;
+                break;
+            }
+        }
+
+        $orderBranch = trim((string)($order['branch_name'] ?? ''));
+        if (!$hasBranchSpec && $orderBranch !== '') {
+            $custom[$branchLabel] = $orderBranch;
+        }
+
+        $quantityValue = max(1, (int)($item['quantity'] ?? 0));
+        $hasQuantity = false;
+        foreach (array_keys($custom) as $key) {
+            $keyText = trim((string)$key);
+            if (strcasecmp($keyText, $quantityLabel) === 0 || strcasecmp($keyText, 'quantity') === 0) {
+                $hasQuantity = true;
+                break;
+            }
+        }
+        if (!$hasQuantity && $quantityValue > 0) {
+            $custom[$quantityLabel] = (string)$quantityValue;
+        }
+
+        return $custom;
+    }
+
+    private static function sortStoreOrderModalCustomizationByServiceConfig(array $custom, int $serviceId): array {
+        $serviceId = (int)$serviceId;
+        if ($serviceId <= 0) {
+            return $custom;
+        }
+
+        require_once __DIR__ . '/service_field_config_helper.php';
+        if (!function_exists('get_service_field_config')) {
+            return $custom;
+        }
+
+        $configs = get_service_field_config($serviceId);
+        if (!is_array($configs) || $configs === []) {
+            return $custom;
+        }
+
+        $normalizeFieldName = static function (string $value): string {
+            return strtolower(preg_replace('/[\s_\-]+/', '', trim($value)));
+        };
+
+        $ordered = [];
+        $used = [];
+        foreach ($configs as $fieldKey => $cfg) {
+            if (!is_array($cfg) || empty($cfg['visible'])) {
+                continue;
+            }
+            $label = trim((string)($cfg['label'] ?? ''));
+            $displayLabel = $label !== '' ? $label : trim((string)$fieldKey);
+            $displayNorm = $normalizeFieldName($displayLabel);
+            $fieldNorm = $normalizeFieldName((string)$fieldKey);
+
+            foreach ($custom as $customKey => $customValue) {
+                if (!empty($used[$customKey])) {
+                    continue;
+                }
+
+                $customKeyText = trim((string)$customKey);
+                $customNorm = $normalizeFieldName($customKeyText);
+                if (
+                    strcasecmp($customKeyText, $displayLabel) === 0
+                    || ($displayNorm !== '' && $customNorm === $displayNorm)
+                    || ($fieldNorm !== '' && $customNorm === $fieldNorm)
+                ) {
+                    $ordered[$customKey] = $customValue;
+                    $used[$customKey] = true;
+                    break;
+                }
+            }
+        }
+
+        foreach ($custom as $customKey => $customValue) {
+            if (empty($used[$customKey])) {
+                $ordered[$customKey] = $customValue;
+            }
+        }
+
+        return $ordered;
+    }
+
     /**
      * Store order line items + design URLs for staff modal (same shape as job_orders_api get_regular_order).
      */
-    public static function getStoreOrderItemsPayload(int $storeOrderId, bool $serviceOnly = false): array {
+    public static function getStoreOrderItemsPayload(int $storeOrderId, bool $serviceOnly = false, bool $detailMode = false): array {
         if ($storeOrderId <= 0) {
             return ['items' => [], 'width_ft' => '1', 'height_ft' => '1', 'service_type' => ''];
         }
@@ -1146,11 +1351,13 @@ class JobOrderService {
             "SELECT oi.*, p.name as product_name, p.category, p.product_type
              FROM order_items oi
              LEFT JOIN products p ON oi.product_id = p.product_id
-             WHERE oi.order_id = ?",
+             WHERE oi.order_id = ?
+             ORDER BY oi.order_item_id ASC",
             'i',
             [$storeOrderId]
         ) ?: [];
         require_once __DIR__ . '/order_ui_helper.php';
+        if (!$detailMode) {
         $items_out = [];
         $first_custom = [];
         $total_qty = 0;
@@ -1216,6 +1423,398 @@ class JobOrderService {
             'service_type' => $service_name,
             'line_qty'     => $total_qty,
         ];
+        }
+
+        $orderRows = db_query(
+            "SELECT o.order_id, o.order_type, o.reference_id, o.total_amount, o.estimated_price,
+                    b.branch_name,
+                    IFNULL((
+                        SELECT jo.job_title
+                        FROM job_orders jo
+                        WHERE jo.order_id = o.order_id
+                        ORDER BY jo.id ASC
+                        LIMIT 1
+                    ), '') AS first_job_title,
+                    IFNULL((
+                        SELECT jo.service_type
+                        FROM job_orders jo
+                        WHERE jo.order_id = o.order_id
+                        ORDER BY jo.id ASC
+                        LIMIT 1
+                    ), '') AS first_job_service_type
+             FROM orders o
+             LEFT JOIN branches b ON b.id = o.branch_id
+             WHERE o.order_id = ?
+             LIMIT 1",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+        $order = $orderRows[0] ?? [
+            'order_id' => $storeOrderId,
+            'order_type' => '',
+            'reference_id' => 0,
+            'total_amount' => 0,
+            'estimated_price' => 0,
+            'branch_name' => '',
+            'first_job_title' => '',
+            'first_job_service_type' => '',
+        ];
+
+        $validOrderItemIds = [];
+        foreach ($items as $item) {
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($orderItemId > 0) {
+                $validOrderItemIds[$orderItemId] = true;
+            }
+        }
+
+        $customizationRows = db_query(
+            "SELECT customization_id, order_item_id, service_type, customization_details
+             FROM customizations
+             WHERE order_id = ?
+             ORDER BY customization_id ASC",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+
+        $customizationByItemId = [];
+        $orphanCustomizationDetails = [];
+        $firstCustomizationPayload = [];
+        $firstCustomizationServiceType = '';
+        foreach ($customizationRows as $customizationRow) {
+            $serviceType = trim((string)($customizationRow['service_type'] ?? ''));
+            $details = printflow_decode_modal_customization_payload((string)($customizationRow['customization_details'] ?? ''));
+            if ($serviceType !== '' && empty($details['service_type'])) {
+                $details['service_type'] = $serviceType;
+            }
+
+            if ((empty($firstCustomizationPayload) && !empty($details)) || ($firstCustomizationServiceType === '' && $serviceType !== '')) {
+                if (!empty($details)) {
+                    $firstCustomizationPayload = $details;
+                }
+                if ($serviceType !== '') {
+                    $firstCustomizationServiceType = $serviceType;
+                }
+            }
+
+            $orderItemId = (int)($customizationRow['order_item_id'] ?? 0);
+            if ($orderItemId <= 0 || !isset($validOrderItemIds[$orderItemId])) {
+                $orphanCustomizationDetails = printflow_overlay_nonempty_assoc($orphanCustomizationDetails, $details);
+                if ($serviceType !== '' && trim((string)($orphanCustomizationDetails['service_type'] ?? '')) === '') {
+                    $orphanCustomizationDetails['service_type'] = $serviceType;
+                }
+                continue;
+            }
+
+            if (!isset($customizationByItemId[$orderItemId])) {
+                $customizationByItemId[$orderItemId] = [
+                    'details' => [],
+                    'service_type' => '',
+                ];
+            }
+            $customizationByItemId[$orderItemId]['details'] = printflow_overlay_nonempty_assoc(
+                $customizationByItemId[$orderItemId]['details'],
+                $details
+            );
+            if ($serviceType !== '' && trim((string)$customizationByItemId[$orderItemId]['service_type']) === '') {
+                $customizationByItemId[$orderItemId]['service_type'] = $serviceType;
+            }
+        }
+
+        $firstItemCustomization = [];
+        if (!empty($items)) {
+            $firstItemCustomization = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
+        }
+        $firstItemCustomization = printflow_overlay_nonempty_assoc(
+            printflow_overlay_nonempty_assoc($orphanCustomizationDetails, $firstCustomizationPayload),
+            $firstItemCustomization
+        );
+        $firstFallbackService = $firstCustomizationServiceType !== ''
+            ? $firstCustomizationServiceType
+            : trim((string)($orphanCustomizationDetails['service_type'] ?? ''));
+        if ($firstFallbackService !== '' && empty($firstItemCustomization['service_type'])) {
+            $firstItemCustomization['service_type'] = $firstFallbackService;
+        }
+
+        $orderTypeNormalized = strtolower(trim((string)($order['order_type'] ?? '')));
+        $firstSourcePage = strtolower(trim((string)($firstItemCustomization['source_page'] ?? '')));
+        $isServiceOrder =
+            !empty($firstItemCustomization['service_type'])
+            || $firstCustomizationServiceType !== ''
+            || (int)($firstItemCustomization['service_id'] ?? 0) > 0
+            || in_array($firstSourcePage, ['services', 'service'], true)
+            || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($firstItemCustomization));
+        if (!$isServiceOrder) {
+            $isServiceOrder = $orderTypeNormalized === 'custom' && empty($firstItemCustomization['product_type']);
+        }
+
+        $jobOrdersList = db_query(
+            "SELECT job_title, service_type, width_ft, height_ft, notes, total_sqft
+             FROM job_orders
+             WHERE order_id = ?
+             ORDER BY id ASC",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+
+        if (!$isServiceOrder) {
+            foreach ($items as $probeItem) {
+                $probeCustom = printflow_decode_modal_customization_payload((string)($probeItem['customization_data'] ?? ''));
+                $probeSourcePage = strtolower(trim((string)($probeCustom['source_page'] ?? '')));
+                if (
+                    !empty($probeCustom['service_type'])
+                    || (int)($probeCustom['service_id'] ?? 0) > 0
+                    || in_array($probeSourcePage, ['services', 'service'], true)
+                    || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($probeCustom))
+                ) {
+                    $isServiceOrder = true;
+                    break;
+                }
+            }
+        }
+        if (
+            !$isServiceOrder
+            && $orderTypeNormalized === 'custom'
+            && $jobOrdersList !== []
+            && (
+                !function_exists('customer_orders_custom_order_is_catalog_product')
+                || !customer_orders_custom_order_is_catalog_product($firstItemCustomization)
+            )
+        ) {
+            $isServiceOrder = true;
+        }
+
+        if ($items === []) {
+            if (
+                $isServiceOrder
+                || $orderTypeNormalized === 'custom'
+                || $customizationRows !== []
+                || $firstItemCustomization !== []
+                || $jobOrdersList !== []
+            ) {
+                $serviceName = '';
+                $serviceCategory = '';
+                $referenceId = (int)($order['reference_id'] ?? 0);
+                if ($referenceId > 0) {
+                    $serviceRows = db_query(
+                        'SELECT name, category FROM services WHERE service_id = ? LIMIT 1',
+                        'i',
+                        [$referenceId]
+                    ) ?: [];
+                    if (!empty($serviceRows)) {
+                        $serviceName = (string)($serviceRows[0]['name'] ?? '');
+                        $serviceCategory = (string)($serviceRows[0]['category'] ?? '');
+                    }
+                }
+
+                $totalAmount = (float)($order['total_amount'] ?? 0);
+                $estimatedAmount = (float)($order['estimated_price'] ?? 0);
+                $unitPrice = $totalAmount > 0 ? $totalAmount : ($estimatedAmount > 0 ? $estimatedAmount : 0.0);
+                $items = [[
+                    'order_item_id' => 0,
+                    'product_id' => $referenceId,
+                    'quantity' => 1,
+                    'unit_price' => $unitPrice,
+                    'customization_data' => null,
+                    'product_name' => $serviceName,
+                    'category' => $serviceCategory,
+                    'product_type' => 'custom',
+                    'design_image' => null,
+                    'design_image_name' => null,
+                    'design_image_mime' => null,
+                    'design_file' => null,
+                    'reference_image_file' => null,
+                ]];
+            }
+        }
+
+        $firstOrderItemId = null;
+        foreach ($items as $item) {
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($orderItemId > 0) {
+                $firstOrderItemId = $firstOrderItemId === null ? $orderItemId : min($firstOrderItemId, $orderItemId);
+            }
+        }
+
+        $anyDesignOrderItemId = 0;
+        foreach ($items as $item) {
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($orderItemId <= 0) {
+                continue;
+            }
+            if (!empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '') {
+                $anyDesignOrderItemId = $orderItemId;
+                break;
+            }
+        }
+        if ($anyDesignOrderItemId <= 0) {
+            $designRow = db_query(
+                "SELECT order_item_id
+                 FROM order_items
+                 WHERE order_id = ?
+                   AND (design_image IS NOT NULL OR (design_file IS NOT NULL AND TRIM(COALESCE(design_file, '')) != ''))
+                 ORDER BY order_item_id ASC
+                 LIMIT 1",
+                'i',
+                [$storeOrderId]
+            ) ?: [];
+            if (!empty($designRow)) {
+                $anyDesignOrderItemId = (int)($designRow[0]['order_item_id'] ?? 0);
+            }
+        }
+
+        $fallbackDesignMeta = null;
+        if ($anyDesignOrderItemId > 0) {
+            $fallbackMetaRows = db_query(
+                'SELECT design_image_name, design_image_mime, design_file FROM order_items WHERE order_item_id = ? LIMIT 1',
+                'i',
+                [$anyDesignOrderItemId]
+            ) ?: [];
+            if (!empty($fallbackMetaRows)) {
+                $fallbackDesignMeta = $fallbackMetaRows[0];
+            }
+        }
+
+        $items_out = [];
+        $first_custom = [];
+        $total_qty = 0;
+        $width_ft = '1';
+        $height_ft = '1';
+        $itemCount = count($items);
+        foreach ($items as $lineIndex => $item) {
+            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            $itemCustomizationFallback = $customizationByItemId[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
+            $mergedTableDetails = printflow_overlay_nonempty_assoc(
+                $orphanCustomizationDetails,
+                (array)($itemCustomizationFallback['details'] ?? [])
+            );
+            $orphanServiceType = trim((string)($orphanCustomizationDetails['service_type'] ?? ''));
+            $itemTableServiceType = trim((string)($itemCustomizationFallback['service_type'] ?? ''));
+            $fallbackServiceType = $itemTableServiceType !== '' ? $itemTableServiceType : $orphanServiceType;
+            $custom = printflow_overlay_nonempty_assoc($mergedTableDetails, $custom);
+            if ($fallbackServiceType !== '' && empty($custom['service_type'])) {
+                $custom['service_type'] = $fallbackServiceType;
+            }
+            if (empty($custom['service_type']) && !empty($firstItemCustomization['service_type'])) {
+                $custom['service_type'] = (string)$firstItemCustomization['service_type'];
+            }
+
+            if ($isServiceOrder && $jobOrdersList !== []) {
+                $jobCount = count($jobOrdersList);
+                $jobRow = null;
+                if ($itemCount === 1 && $jobCount >= 1) {
+                    $jobRow = $jobOrdersList[0];
+                } elseif ($jobCount === $itemCount && isset($jobOrdersList[$lineIndex])) {
+                    $jobRow = $jobOrdersList[$lineIndex];
+                } elseif (isset($jobOrdersList[$lineIndex])) {
+                    $jobRow = $jobOrdersList[$lineIndex];
+                }
+                if (is_array($jobRow)) {
+                    $custom = customer_orders_merge_job_order_row_into_customization($custom, $jobRow);
+                }
+            }
+
+            $custom = customer_orders_enrich_line_customization($custom, $order);
+            unset($custom['design_upload'], $custom['reference_upload']);
+
+            $custom = self::normalizeStoreOrderModalServiceSpecs($custom, $order, $item, $isServiceOrder);
+
+            if ($isServiceOrder && function_exists('printflow_resolve_service_catalog_service_id_for_order_line')) {
+                $resolvedServiceId = printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item);
+                if ($resolvedServiceId > 0 && (int)($custom['service_id'] ?? 0) <= 0) {
+                    $custom['service_id'] = $resolvedServiceId;
+                }
+                if (trim((string)($custom['service_type'] ?? '')) === '') {
+                    $serviceId = (int)($custom['service_id'] ?? 0);
+                    if ($serviceId > 0 && function_exists('customer_orders_resolve_service_name_by_id')) {
+                        $resolvedServiceName = customer_orders_resolve_service_name_by_id($serviceId);
+                        if ($resolvedServiceName !== '') {
+                            $custom['service_type'] = $resolvedServiceName;
+                        }
+                    }
+                }
+            }
+
+            if ($isServiceOrder) {
+                $serviceIdForSort = (int)($custom['service_id'] ?? 0);
+                if ($serviceIdForSort <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+                    $serviceIdForSort = (int)($order['reference_id'] ?? 0);
+                }
+                if ($serviceIdForSort <= 0 && function_exists('printflow_resolve_service_catalog_service_id')) {
+                    $serviceIdForSort = printflow_resolve_service_catalog_service_id((string)($custom['service_type'] ?? ''));
+                }
+                $custom = self::sortStoreOrderModalCustomizationByServiceConfig($custom, $serviceIdForSort);
+            }
+
+            if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom) && !$isServiceOrder) {
+                continue;
+            }
+            if (empty($first_custom)) {
+                $first_custom = $custom;
+            }
+
+            $quantity = max(1, (int)($item['quantity'] ?? 0));
+            $total_qty += $quantity;
+
+            if (!empty($custom['width']) && !empty($custom['height'])) {
+                $width_ft = (string)$custom['width'];
+                $height_ft = (string)$custom['height'];
+            } elseif (!empty($custom['dimensions'])) {
+                $d = $custom['dimensions'];
+                if (is_string($d) && preg_match('/^(\d+)\s*[xÃ—]\s*(\d+)$/i', $d, $m)) {
+                    $width_ft = $m[1];
+                    $height_ft = $m[2];
+                } else {
+                    $width_ft = (string)$d;
+                    $height_ft = '';
+                }
+            } elseif (!empty($custom['width_ft']) && !empty($custom['height_ft'])) {
+                $width_ft = (string)$custom['width_ft'];
+                $height_ft = (string)$custom['height_ft'];
+            }
+
+            $useJobLineFallback = ($itemCount === 1)
+                || ($firstOrderItemId !== null && (int)($item['order_item_id'] ?? 0) === (int)$firstOrderItemId);
+            $orderLike = [
+                'order_type' => $order['order_type'] ?? '',
+                'reference_id' => $order['reference_id'] ?? null,
+                'first_product_name' => (string)($item['product_name'] ?? ''),
+                'first_customization_service_type' => (string)$fallbackServiceType,
+                'first_job_title' => (string)($order['first_job_title'] ?? ''),
+                'first_job_service_type' => (string)($order['first_job_service_type'] ?? ''),
+                '_merged_customization' => $custom,
+                '_use_job_title_fallback' => $useJobLineFallback,
+            ];
+            $name = customer_orders_primary_item_name($orderLike);
+            $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
+                ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity)
+                : $custom;
+
+            $items_out[] = array_merge([
+                'order_item_id' => (int)($item['order_item_id'] ?? 0),
+                'product_name' => $name,
+                'product_type' => $item['product_type'] ?? 'custom',
+                'category' => $item['category'] ?? '',
+                'quantity' => $quantity,
+                'customization' => $customForPayload,
+            ], self::buildStoreOrderItemAssetMeta($item, $anyDesignOrderItemId, $fallbackDesignMeta));
+        }
+
+        $service_name = '';
+        if (!empty($items_out[0]['product_name'])) {
+            $service_name = (string)$items_out[0]['product_name'];
+        }
+        if ($service_name === '') {
+            $service_name = get_service_name_from_customization($first_custom, 'Custom Order');
+        }
+
+        return [
+            'items' => $items_out,
+            'width_ft' => $width_ft,
+            'height_ft' => $height_ft,
+            'service_type' => $service_name,
+            'line_qty' => $total_qty,
+        ];
     }
 
     public static function getOrder($id) {
@@ -1250,7 +1849,7 @@ class JobOrderService {
 
         $storeOid = (int)($order['order_id'] ?? 0);
         if ($storeOid > 0) {
-            $payload = self::getStoreOrderItemsPayload($storeOid);
+            $payload = self::getStoreOrderItemsPayload($storeOid, false, true);
             $order['items'] = $payload['items'];
             $w = (string)($order['width_ft'] ?? '');
             $h = (string)($order['height_ft'] ?? '');
