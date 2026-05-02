@@ -68,7 +68,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
     if ($field_key === 'branch') {
         $saved_value = $existing_data['branch_id'] ?? '';
     } elseif (($config['type'] ?? '') === 'quantity') {
-        $saved_value = $existing_data[$field_key] ?? $existing_data['quantity'] ?? 2;
+        $saved_value = $existing_data[$field_key] ?? $existing_data['quantity'] ?? 1;
     } elseif (($config['type'] ?? '') === 'date') {
         $saved_value = $saved_customization[$field_key]
             ?? $saved_customization[$field_label]
@@ -254,12 +254,13 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                         switch ($nestedType) {
                             case 'select':
                                 $html .= '<select name="' . htmlspecialchars($nestedKey) . '" class="shopee-opt-btn" ' . $nestedRequired . ' style="width:175px;cursor:pointer;">';
-                                $html .= '<option value="">Select ' . $nestedLabel . '</option>';
+                                $html .= '<option value="" data-price="0">Select ' . $nestedLabel . '</option>';
                                 foreach ($nestedField['options'] ?? [] as $nOpt) {
                                     $nOptVal = is_array($nOpt) ? ($nOpt['value'] ?? '') : $nOpt;
+                                    $nOptPrice = is_array($nOpt) ? (float)($nOpt['price'] ?? 0) : 0;
                                     $nVal = htmlspecialchars($nOptVal);
                                     $nDisplay = htmlspecialchars(pf_service_option_label($nOptVal));
-                                    $html .= '<option value="' . $nVal . '">' . $nDisplay . '</option>';
+                                    $html .= '<option value="' . $nVal . '" data-price="' . htmlspecialchars((string)$nOptPrice) . '">' . $nDisplay . '</option>';
                                 }
                                 $html .= '</select>';
                                 break;
@@ -268,10 +269,11 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                                 $html .= '<div class="shopee-opt-group">';
                                 foreach ($nestedField['options'] ?? [] as $nOpt) {
                                     $nOptVal = is_array($nOpt) ? ($nOpt['value'] ?? '') : $nOpt;
+                                    $nOptPrice = is_array($nOpt) ? (float)($nOpt['price'] ?? 0) : 0;
                                     $nVal = htmlspecialchars($nOptVal);
                                     $nDisplay = htmlspecialchars(pf_service_option_label($nOptVal));
                                     $html .= '<label class="shopee-opt-btn">';
-                                    $html .= '<input type="radio" name="' . htmlspecialchars($nestedKey) . '" value="' . $nVal . '" style="display:none;" ' . $nestedRequired . ' onchange="updateOptVisual(this)">';
+                                    $html .= '<input type="radio" name="' . htmlspecialchars($nestedKey) . '" value="' . $nVal . '" style="display:none;" data-price="' . htmlspecialchars((string)$nOptPrice) . '" ' . $nestedRequired . ' onchange="updateOptVisual(this)">';
                                     $html .= '<span>' . $nDisplay . '</span>';
                                     $html .= '</label>';
                                 }
@@ -285,19 +287,20 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                                 $html .= '<div class="shopee-opt-group mb-3">';
                                 foreach ($nestedField['options'] ?? [] as $nOpt) {
                                     $nOptValue = is_array($nOpt) ? ($nOpt['value'] ?? '') : $nOpt;
+                                    $nOptPrice = is_array($nOpt) ? (float)($nOpt['price'] ?? 0) : 0;
                                     $nOptValue = trim((string)$nOptValue);
                                     if ($nOptValue === '') {
                                         continue;
                                     }
-                                    $parts = explode('×', $nOptValue);
+                                    $parts = preg_split('/[×xX*\-\s]+/', $nOptValue, 2);
                                     if (count($parts) === 2) {
                                         $w = trim($parts[0]);
                                         $h = trim($parts[1]);
-                                        $html .= '<button type="button" class="shopee-opt-btn" onclick="selectNestedDimension(\'' . $nestedKey . '\', ' . $w . ', ' . $h . ', event)">' . $w . '×' . $h . '</button>';
+                                        $html .= '<button type="button" class="shopee-opt-btn" data-price="' . htmlspecialchars((string)$nOptPrice) . '" onclick="selectNestedDimension(\'' . $nestedKey . '\', ' . $w . ', ' . $h . ', event)">' . $w . '×' . $h . '</button>';
                                     }
                                 }
                                 if ($nAllowOthers) {
-                                    $html .= '<button type="button" class="shopee-opt-btn" onclick="selectNestedDimensionOthers(\'' . $nestedKey . '\', event)">Others</button>';
+                                    $html .= '<button type="button" class="shopee-opt-btn" data-price="0" onclick="selectNestedDimensionOthers(\'' . $nestedKey . '\', event)">Others</button>';
                                 }
                                 $html .= '</div>';
                                 
@@ -443,7 +446,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'quantity':
-            $saved_qty = (int)($saved_value !== '' && $saved_value !== null ? $saved_value : 2);
+            $saved_qty = (int)($saved_value !== '' && $saved_value !== null ? $saved_value : 1);
             if ($saved_qty < 1) {
                 $saved_qty = 1;
             }
@@ -565,6 +568,7 @@ function handleNestedFields(radio, fieldKey, optionIndex) {
             nestedContainer.style.display = 'block';
         }
     }
+    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
 function pfSyncRadioOthersWrap(radio) {
@@ -595,6 +599,7 @@ function selectNestedDimension(key, w, h, e) {
     
     const othersDiv = document.getElementById('nested-dim-others-' + key);
     if (othersDiv) othersDiv.style.display = 'none';
+    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
 function selectNestedDimensionOthers(key, e) {
@@ -607,6 +612,7 @@ function selectNestedDimensionOthers(key, e) {
     
     const othersDiv = document.getElementById('nested-dim-others-' + key);
     if (othersDiv) othersDiv.style.display = 'block';
+    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
 function syncNestedDimension(key) {
@@ -616,6 +622,7 @@ function syncNestedDimension(key) {
     if (hidden && w && h) {
         hidden.value = w + 'x' + h;
     }
+    if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
 }
 
 function validateDimensionInput(input) {

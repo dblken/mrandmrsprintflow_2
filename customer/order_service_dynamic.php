@@ -295,7 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             break;
         }
     }
-    $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 2)));
+    $quantity = max(1, min(999, (int)($_POST[$quantity_field_key] ?? $_POST['quantity'] ?? 1)));
     $has_design_field = false;
     
     // Validate branch
@@ -562,6 +562,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     }
                 }
             }
+
+            $options_total += printflow_nested_service_options_price_total($_POST, $field_configs);
 
             $unit_price = $base_price + $options_total;
             $estimated_price = $unit_price * $quantity;
@@ -1699,10 +1701,33 @@ document.addEventListener('DOMContentLoaded', function() {
             const price = parseFloat(activeDimensionBtn.getAttribute('data-price') || 0);
             optionsTotal += price;
         }
+
+        // Nested fields under radio/select options (only when container is visible)
+        form.querySelectorAll('.nested-fields-container').forEach(function(container) {
+            var cs = window.getComputedStyle(container);
+            if (cs.display === 'none' || cs.visibility === 'hidden') return;
+            if (!container.offsetParent) return;
+
+            container.querySelectorAll('select').forEach(function(sel) {
+                var opt = sel.options[sel.selectedIndex];
+                if (opt && opt.value) {
+                    optionsTotal += parseFloat(opt.getAttribute('data-price') || '0') || 0;
+                }
+            });
+            container.querySelectorAll('input[type="radio"]:checked').forEach(function(radio) {
+                optionsTotal += parseFloat(radio.getAttribute('data-price') || '0') || 0;
+            });
+            container.querySelectorAll('.shopee-opt-group').forEach(function(grp) {
+                var btn = grp.querySelector('button.shopee-opt-btn.active[data-price]');
+                if (btn) {
+                    optionsTotal += parseFloat(btn.getAttribute('data-price') || '0') || 0;
+                }
+            });
+        });
         
         // Get quantity (field name comes from admin service_field_configs)
         const qtyInput = form.querySelector('.pf-service-quantity-input');
-        const quantity = parseInt(qtyInput?.value || 2);
+        const quantity = parseInt(qtyInput?.value || 1);
         
         // Calculate totals
         const unitPrice = basePrice + optionsTotal;

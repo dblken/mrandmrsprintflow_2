@@ -431,3 +431,84 @@ function printflow_merge_nested_service_fields_into_customization(array $field_c
         }
     }
 }
+
+/**
+ * Normalize dimension strings for price matching (e.g. 2x3 vs 2×3).
+ */
+function printflow_normalize_service_dim_compare(string $s): string {
+    $s = trim($s);
+    $s = preg_replace('/\s+/u', '', $s);
+    $s = preg_replace('/[xX*]/u', '×', $s);
+    return strtolower($s);
+}
+
+/**
+ * Sum option prices from nested fields under the selected parent radio/select option.
+ * Legacy nested options stored as plain strings are matched with price 0.
+ */
+function printflow_nested_service_options_price_total(array $post, array $field_configs): float {
+    $total = 0.0;
+    foreach ($field_configs as $field_key => $config) {
+        if (empty($config['visible'])) {
+            continue;
+        }
+        $ftype = $config['type'] ?? '';
+        if ($ftype !== 'radio' && $ftype !== 'select') {
+            continue;
+        }
+        if ($field_key === 'branch') {
+            continue;
+        }
+
+        $selected = trim((string)($post[$field_key] ?? ''));
+        if ($selected === '' || strcasecmp($selected, 'Others') === 0) {
+            continue;
+        }
+
+        foreach (($config['options'] ?? []) as $idx => $option) {
+            $optionValue = is_array($option) ? trim((string)($option['value'] ?? '')) : trim((string)$option);
+            if ($optionValue === '') {
+                continue;
+            }
+            if (strcasecmp($selected, $optionValue) !== 0) {
+                continue;
+            }
+
+            $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
+            foreach ($nestedFields as $nIdx => $nestedField) {
+                if (!is_array($nestedField)) {
+                    continue;
+                }
+                $nType = $nestedField['type'] ?? '';
+                if (!in_array($nType, ['select', 'radio', 'dimension'], true)) {
+                    continue;
+                }
+                $nestedKey = $field_key . '_nested_' . $idx . '_' . $nIdx;
+                $raw = isset($post[$nestedKey]) ? trim((string)$post[$nestedKey]) : '';
+                if ($raw === '') {
+                    continue;
+                }
+
+                foreach (($nestedField['options'] ?? []) as $nOpt) {
+                    $nv = is_array($nOpt) ? trim((string)($nOpt['value'] ?? '')) : trim((string)$nOpt);
+                    $np = is_array($nOpt) ? (float)($nOpt['price'] ?? 0) : 0.0;
+                    if ($nv === '') {
+                        continue;
+                    }
+                    if ($nType === 'dimension') {
+                        if (printflow_normalize_service_dim_compare($raw) === printflow_normalize_service_dim_compare($nv)) {
+                            $total += max(0.0, $np);
+                            break;
+                        }
+                    } elseif (strcasecmp($raw, $nv) === 0) {
+                        $total += max(0.0, $np);
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    return $total;
+}

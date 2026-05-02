@@ -81,16 +81,19 @@ window.addNestedFieldItem = function(btn) {
         <div class="nested-options-container" style="display:none;margin-bottom:16px;">
             <label class="field-label">Options (Choices shown to customer)</label>
             <div class="nested-options-list option-list">
-                <div class="option-item">
-                    <input type="text" class="nested-option-input option-input" placeholder="e.g., Small, Red, Matte">
+                <div class="option-item" style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" class="nested-option-input option-input" placeholder="e.g., Small, Red, Matte (32 MAX)" maxlength="32" style="flex:2;">
+                    <input type="number" class="nested-option-price-input option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                     <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
                 </div>
-                <div class="option-item">
-                    <input type="text" class="nested-option-input option-input" placeholder="e.g., Medium, Blue, Glossy">
+                <div class="option-item" style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" class="nested-option-input option-input" placeholder="e.g., Medium, Blue, Glossy" maxlength="32" style="flex:2;">
+                    <input type="number" class="nested-option-price-input option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                     <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
                 </div>
-                <div class="option-item">
-                    <input type="text" class="nested-option-input option-input" placeholder="e.g., Large, Green, Vinyl">
+                <div class="option-item" style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" class="nested-option-input option-input" placeholder="e.g., Large, Green, Vinyl" maxlength="32" style="flex:2;">
+                    <input type="number" class="nested-option-price-input option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                     <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
                 </div>
             </div>
@@ -112,18 +115,21 @@ window.addNestedFieldItem = function(btn) {
                         <input type="text" class="nested-dimension-width option-input dimension-w" placeholder="Width" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                         <span style="color: #cbd5e1; font-weight: bold;">×</span>
                         <input type="text" class="nested-dimension-height option-input dimension-h" placeholder="Height" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                        <input type="number" class="nested-dimension-price-input dimension-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex: 1; padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px;" title="Price for this dimension">
                         <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
                     </div>
                     <div class="option-item" style="display: flex; gap: 8px; align-items: center;">
                         <input type="text" class="nested-dimension-width option-input dimension-w" placeholder="Width" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                         <span style="color: #cbd5e1; font-weight: bold;">×</span>
                         <input type="text" class="nested-dimension-height option-input dimension-h" placeholder="Height" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                        <input type="number" class="nested-dimension-price-input dimension-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex: 1; padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px;" title="Price for this dimension">
                         <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
                     </div>
                     <div class="option-item" style="display: flex; gap: 8px; align-items: center;">
                         <input type="text" class="nested-dimension-width option-input dimension-w" placeholder="Width" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
                         <span style="color: #cbd5e1; font-weight: bold;">×</span>
                         <input type="text" class="nested-dimension-height option-input dimension-h" placeholder="Height" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                        <input type="number" class="nested-dimension-price-input dimension-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex: 1; padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px;" title="Price for this dimension">
                         <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
                     </div>
                 </div>
@@ -182,8 +188,10 @@ window.addNestedOption = function(btn) {
     const list = btn.previousElementSibling;
     const div = document.createElement('div');
     div.className = 'option-item';
+    div.style.cssText = 'display:flex;gap:8px;align-items:center;';
     div.innerHTML = `
-        <input type="text" class="nested-option-input option-input" placeholder="Enter option">
+        <input type="text" class="nested-option-input option-input" placeholder="Enter option" maxlength="32" style="flex:2;">
+        <input type="number" class="nested-option-price-input option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
         <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
     `;
     list.appendChild(div);
@@ -198,6 +206,7 @@ window.addNestedDimensionOption = function(btn) {
         <input type="text" class="nested-dimension-width option-input dimension-w" placeholder="Width" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
         <span style="color: #cbd5e1; font-weight: bold;">×</span>
         <input type="text" class="nested-dimension-height option-input dimension-h" placeholder="Height" maxlength="2" pattern="[0-9]*" style="flex: 1; text-align: center;" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        <input type="number" class="nested-dimension-price-input dimension-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex: 1; padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 6px; font-size: 13px;" title="Price for this dimension">
         <button type="button" class="btn-remove" onclick="this.parentElement.remove()">Remove</button>
     `;
     list.appendChild(div);
@@ -238,7 +247,7 @@ window.collectNestedFieldConfigurations = function() {
                     // Check if this option has a nested field panel
                     const nestedPanel = optionItem.querySelector('.nested-field-panel');
                     
-                    if (nestedPanel && nestedPanel.style.display !== 'none') {
+                    if (nestedPanel) {
                         // Has nested field panel - collect all nested fields directly
                         const nestedFieldItems = nestedPanel.querySelectorAll('.nested-field-item');
                         const nestedFields = [];
@@ -256,14 +265,35 @@ window.collectNestedFieldConfigurations = function() {
                                     required: nRequired
                                 };
                                 
-                                // Collect options for select/radio
                                 if (['select', 'radio'].includes(nType)) {
                                     const nOptions = [];
-                                    nestedFieldItem.querySelectorAll('.nested-option-input').forEach(nOptInput => {
-                                        const nOptVal = nOptInput.value.trim();
-                                        if (nOptVal) nOptions.push(nOptVal);
+                                    nestedFieldItem.querySelectorAll('.nested-options-list .option-item').forEach(nOptRow => {
+                                        const nOptInput = nOptRow.querySelector('.nested-option-input');
+                                        const nOptVal = nOptInput ? nOptInput.value.trim() : '';
+                                        if (!nOptVal) return;
+                                        const nPriceInput = nOptRow.querySelector('.nested-option-price-input');
+                                        const nPrice = nPriceInput ? parseFloat(nPriceInput.value) || 0 : 0;
+                                        nOptions.push({ value: nOptVal, price: nPrice });
                                     });
                                     if (nOptions.length > 0) nField.options = nOptions;
+                                }
+
+                                if (nType === 'dimension') {
+                                    const nUnitSelect = nestedFieldItem.querySelector('.nested-unit-select');
+                                    const nAllowOthers = nestedFieldItem.querySelector('.nested-allow-others');
+                                    const nDims = [];
+                                    nestedFieldItem.querySelectorAll('.nested-dimension-list .option-item').forEach(nDimItem => {
+                                        const wEl = nDimItem.querySelector('.nested-dimension-width') || nDimItem.querySelector('.dimension-w');
+                                        const hEl = nDimItem.querySelector('.nested-dimension-height') || nDimItem.querySelector('.dimension-h');
+                                        const w = wEl ? wEl.value.trim() : '';
+                                        const h = hEl ? hEl.value.trim() : '';
+                                        const priceInput = nDimItem.querySelector('.nested-dimension-price-input');
+                                        const price = priceInput ? parseFloat(priceInput.value) || 0 : 0;
+                                        if (w && h) nDims.push({ value: w + '×' + h, price });
+                                    });
+                                    if (nDims.length > 0) nField.options = nDims;
+                                    nField.unit = nUnitSelect ? nUnitSelect.value : 'ft';
+                                    nField.allow_others = nAllowOthers ? nAllowOthers.checked : true;
                                 }
                                 
                                 nestedFields.push(nField);

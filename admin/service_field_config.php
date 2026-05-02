@@ -1019,7 +1019,7 @@ window.addNewField = function() {
             
             // Check for nested fields (they are in the NEXT sibling div if it's radio)
             const nestedPanel = optionItem.nextElementSibling;
-            if (nestedPanel && nestedPanel.classList.contains('nested-field-panel') && nestedPanel.style.display !== 'none') {
+            if (nestedPanel && nestedPanel.classList.contains('nested-field-panel')) {
                 const nestedFieldItems = nestedPanel.querySelectorAll('.nested-field-item');
                 const nestedFields = [];
                 
@@ -1035,9 +1035,13 @@ window.addNewField = function() {
                         // Collect options for nested select/radio
                         if (['select', 'radio'].includes(nType)) {
                             const nOptions = [];
-                            nItem.querySelectorAll('.nested-option-input').forEach(nOptInput => {
-                                const nOptVal = nOptInput.value.trim();
-                                if (nOptVal) nOptions.push(nOptVal);
+                            nItem.querySelectorAll('.nested-options-list .option-item').forEach(nOptRow => {
+                                const inp = nOptRow.querySelector('.nested-option-input');
+                                const nOptVal = inp ? inp.value.trim() : '';
+                                if (!nOptVal) return;
+                                const nPriceInput = nOptRow.querySelector('.nested-option-price-input');
+                                const nPrice = nPriceInput ? parseFloat(nPriceInput.value) || 0 : 0;
+                                nOptions.push({ value: nOptVal, price: nPrice });
                             });
                             if (nOptions.length > 0) nField.options = nOptions;
                         }
@@ -1050,7 +1054,9 @@ window.addNewField = function() {
                             nItem.querySelectorAll('.nested-dimension-list .option-item').forEach(nDimItem => {
                                 const w = nDimItem.querySelector('.dimension-w')?.value.trim();
                                 const h = nDimItem.querySelector('.dimension-h')?.value.trim();
-                                if (w && h) nDims.push(w + '×' + h);
+                                const priceInput = nDimItem.querySelector('.nested-dimension-price-input');
+                                const price = priceInput ? parseFloat(priceInput.value) || 0 : 0;
+                                if (w && h) nDims.push({ value: w + '×' + h, price });
                             });
                             if (nDims.length > 0) nField.options = nDims;
                             nField.unit = nUnitSelect ? nUnitSelect.value : 'ft';
