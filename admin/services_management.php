@@ -322,8 +322,25 @@ $date_to = $_GET['date_to'] ?? '';
 
 $category_options = printflow_allowed_service_categories();
 
-if ($cat_filter !== '' && !printflow_service_category_is_allowed($cat_filter)) {
-    $cat_filter = '';
+$service_filter_category_map = [];
+$categories_raw_sv = db_query("SELECT DISTINCT category FROM services WHERE category IS NOT NULL AND TRIM(category) != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+foreach ($categories_raw_sv as $crow) {
+    $c = trim((string)($crow['category'] ?? ''));
+    if ($c === '') {
+        continue;
+    }
+    $lk = strtolower($c);
+    if (!isset($service_filter_category_map[$lk])) {
+        $service_filter_category_map[$lk] = $c;
+    }
+}
+if ($cat_filter !== '') {
+    $lkf = strtolower($cat_filter);
+    if (!isset($service_filter_category_map[$lkf])) {
+        $cat_filter = '';
+    } else {
+        $cat_filter = $service_filter_category_map[$lkf];
+    }
 }
 
 $sql = "SELECT * FROM services WHERE status != 'Archived'";
@@ -380,28 +397,13 @@ $stat_active = db_query("SELECT COUNT(*) as c FROM services WHERE status='Activa
 $stat_inactive = db_query("SELECT COUNT(*) as c FROM services WHERE status='Deactivated'")[0]['c'] ?? 0;
 $stat_archived = db_query("SELECT COUNT(*) as c FROM services WHERE status='Archived'")[0]['c'] ?? 0;
 
-$categories_raw = db_query("SELECT DISTINCT category FROM services WHERE category IS NOT NULL AND TRIM(category) != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
 $categories = [];
-$seen_cat = [];
-foreach ($categories_raw as $crow) {
-    $raw_cat = trim((string)($crow['category'] ?? ''));
-    if ($raw_cat === '') {
-        continue;
-    }
-    if (!printflow_service_category_is_allowed($raw_cat)) {
-        continue;
-    }
-    $canon = printflow_canonical_service_category($raw_cat);
-    if ($canon === null) {
-        continue;
-    }
-    $lk = strtolower($canon);
-    if (isset($seen_cat[$lk])) {
-        continue;
-    }
-    $seen_cat[$lk] = true;
-    $categories[] = ['category' => $canon];
+foreach ($service_filter_category_map as $c) {
+    $categories[] = ['category' => $c];
 }
+usort($categories, static function ($a, $b) {
+    return strcasecmp($a['category'], $b['category']);
+});
 
 function render_services_table_rows(array $services): void {
     ?>

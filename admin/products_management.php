@@ -66,11 +66,26 @@ if (isset($_SESSION['pf_products_flash_error'])) {
 }
 
 /**
- * Product categories shown in add/edit modal and filter (Tarpaulin, Apparel, Print excluded from picker).
- * "General" kept for legacy rows and auto-recover flows.
+ * Categories shown in add/edit product modal (General excluded; legacy General rows use JS legacy option).
+ */
+function printflow_product_modal_categories(): array {
+    return ['T-Shirt', 'Stickers', 'Sintraboard', 'Signage', 'Merchandise'];
+}
+
+/**
+ * Categories accepted on POST — modal list plus General for legacy/recover updates.
  */
 function printflow_allowed_product_categories(): array {
-    return ['T-Shirt', 'Stickers', 'Sintraboard', 'Signage', 'Merchandise', 'General'];
+    return array_merge(printflow_product_modal_categories(), ['General']);
+}
+
+function printflow_product_category_valid_for_create(string $category): bool {
+    foreach (printflow_product_modal_categories() as $a) {
+        if (strcasecmp(trim($category), $a) === 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function printflow_product_category_is_allowed(string $category): bool {
@@ -392,7 +407,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Low stock level cannot exceed quantity.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
-        } elseif (!printflow_product_category_is_allowed($category)) {
+        } elseif (!printflow_product_category_valid_for_create($category)) {
             $error = 'Invalid category.';
         } elseif (empty($_FILES['photo']['name']) || ($_FILES['photo']['error'] ?? 0) === UPLOAD_ERR_NO_FILE) {
             $error = 'Product photo is required.';
@@ -888,8 +903,25 @@ $sort_by       = $_GET['sort'] ?? 'newest';
 $date_from     = $_GET['date_from'] ?? '';
 $date_to       = $_GET['date_to'] ?? '';
 
-if ($cat_filter !== '' && !printflow_product_category_is_allowed($cat_filter)) {
-    $cat_filter = '';
+$product_filter_category_map = [];
+$categories_raw_pf = db_query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND TRIM(category) != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+foreach ($categories_raw_pf as $crow) {
+    $c = trim((string)($crow['category'] ?? ''));
+    if ($c === '' || strcasecmp($c, 'system') === 0) {
+        continue;
+    }
+    $lk = strtolower($c);
+    if (!isset($product_filter_category_map[$lk])) {
+        $product_filter_category_map[$lk] = $c;
+    }
+}
+if ($cat_filter !== '') {
+    $lkf = strtolower($cat_filter);
+    if (!isset($product_filter_category_map[$lkf])) {
+        $cat_filter = '';
+    } else {
+        $cat_filter = $product_filter_category_map[$lkf];
+    }
 }
 
 $branchJoin = '';
@@ -996,29 +1028,14 @@ if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
     $stat_low_stock = db_query("SELECT COUNT(*) as c FROM products WHERE status != 'Archived' AND stock_quantity <= COALESCE(low_stock_level, 10)")[0]['c'] ?? 0;
 }
 
-// Distinct categories for filter (only allowed labels present on non-archived products)
-$categories_raw = db_query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND TRIM(category) != '' AND status != 'Archived' ORDER BY category ASC") ?: [];
+// Filter dropdown: categories that exist on at least one non-archived product
 $categories = [];
-$seen_pf_cat = [];
-foreach ($categories_raw as $crow) {
-    $raw_cat = trim((string)($crow['category'] ?? ''));
-    if ($raw_cat === '') {
-        continue;
-    }
-    if (!printflow_product_category_is_allowed($raw_cat)) {
-        continue;
-    }
-    $canon = printflow_canonical_product_category($raw_cat);
-    if ($canon === null) {
-        continue;
-    }
-    $lk = strtolower($canon);
-    if (isset($seen_pf_cat[$lk])) {
-        continue;
-    }
-    $seen_pf_cat[$lk] = true;
-    $categories[] = ['category' => $canon];
+foreach ($product_filter_category_map as $c) {
+    $categories[] = ['category' => $c];
 }
+usort($categories, static function ($a, $b) {
+    return strcasecmp($a['category'], $b['category']);
+});
 
 // AJAX response
 if (isset($_GET['ajax'])) {
@@ -2160,7 +2177,7 @@ if (isset($_GET['ajax'])) {
                         <label for="modal-category">Category <span style="color:red">*</span></label>
                         <select id="modal-category" name="category">
                             <option value="">-- Select Category --</option>
-                            <?php foreach (printflow_allowed_product_categories() as $pf_prod_cat): ?>
+                            <?php foreach (printflow_product_modal_categories() as $pf_prod_cat): ?>
                             <option value="<?php echo htmlspecialchars($pf_prod_cat); ?>"><?php echo htmlspecialchars($pf_prod_cat); ?></option>
                             <?php endforeach; ?>
                         </select>
@@ -2343,7 +2360,7 @@ if (isset($_GET['ajax'])) {
 
 <script>
 window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
-window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_allowed_product_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_modal_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
 function pfGetProductModalSubmitBtn() {
     return document.getElementById('modal-submit-products-mgr') || document.getElementById('modal-submit-btn');
