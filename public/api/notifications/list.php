@@ -47,7 +47,12 @@ try {
         $rows = printflow_filter_notifications_for_user($rows ?: [], (string)$user_type, $branchId > 0 ? (int)$branchId : null);
     }
 
-    $rows = printflow_dedupe_notifications($rows ?: [], 120);
+    $rows = $rows ?: [];
+    if ($user_type === 'Customer') {
+        $rows = printflow_collapse_duplicate_notifications_latest($rows);
+    } else {
+        $rows = printflow_dedupe_notifications($rows, 120);
+    }
 
     // Return rows with unread count
     foreach ($rows as &$row) {
@@ -61,7 +66,10 @@ try {
         $row['target_url'] = printflow_notification_target_url_for_user((string)$user_type, $row);
         if ($user_type === 'Customer') {
             $base = defined('BASE_URL') ? BASE_URL : '/printflow';
-            $fallback = $base . '/public/assets/images/services/default.png';
+            $fallback = printflow_notification_placeholder_image_url();
+            if ($fallback === '') {
+                $fallback = printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
+            }
             $row['message'] = printflow_notification_display_message($row);
             $row['title'] = customer_notification_title((string)($row['type'] ?? ''), (string)($row['message'] ?? ''), $row);
             $row['image'] = customer_notification_image_url($row, $fallback);

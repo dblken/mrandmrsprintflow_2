@@ -1586,7 +1586,7 @@ function get_unread_notification_count($user_id, $user_type) {
             'i',
             [$user_id]
         ) ?: [];
-        $rows = printflow_dedupe_notifications($rows, 300);
+        $rows = printflow_collapse_duplicate_notifications_latest($rows);
         return count($rows);
     } else {
         $rows = db_query(
@@ -1620,7 +1620,10 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
     $limit = max(1, (int)$limit);
     $offset = max(0, (int)$offset);
     $base = defined('BASE_URL') ? BASE_URL : '/printflow';
-    $default_image = $base . '/public/assets/images/services/default.png';
+    $default_image = printflow_notification_placeholder_image_url();
+    if ($default_image === '') {
+        $default_image = printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
+    }
 
     $rows = db_query(
         "SELECT notification_id, customer_id, message, type, data_id, is_read, created_at
@@ -1636,7 +1639,7 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
         return [];
     }
 
-    $rows = printflow_dedupe_notifications($rows, 120);
+    $rows = printflow_collapse_duplicate_notifications_latest($rows);
 
     $notifications = [];
     foreach ($rows as $row) {
@@ -1671,6 +1674,18 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
     return $notifications;
 }
 
+function printflow_notification_row_signature(array $row): string {
+    $type = strtolower(trim((string)($row['type'] ?? '')));
+    $displayMessage = printflow_notification_display_message($row);
+    $message = strtolower(trim(preg_replace('/\s+/', ' ', (string)$displayMessage)));
+    $dataId = (int)($row['data_id'] ?? 0);
+    if ($dataId <= 0 && preg_match('/order\s*#?(\d+)/i', (string)$displayMessage, $m)) {
+        $dataId = (int)($m[1] ?? 0);
+    }
+
+    return $type . '|' . $dataId . '|' . $message;
+}
+
 /**
  * Remove near-identical duplicate notifications generated within a short window.
  * Keeps the most recent row for each duplicate signature.
@@ -1686,19 +1701,12 @@ function printflow_dedupe_notifications(array $rows, int $windowSeconds = 300): 
     $out = [];
 
     foreach ($rows as $row) {
-        $type = strtolower(trim((string)($row['type'] ?? '')));
-        $displayMessage = printflow_notification_display_message($row);
-        $message = strtolower(trim(preg_replace('/\s+/', ' ', (string)$displayMessage)));
-        $dataId = (int)($row['data_id'] ?? 0);
-        if ($dataId <= 0 && preg_match('/order\s*#?(\d+)/i', (string)$displayMessage, $m)) {
-            $dataId = (int)($m[1] ?? 0);
-        }
+        $signature = printflow_notification_row_signature($row);
         $tsRaw = $row['ts'] ?? null;
         $ts = is_numeric($tsRaw)
             ? (int)$tsRaw
             : (strtotime((string)($row['created_at'] ?? '')) ?: 0);
         $nid = (int)($row['notification_id'] ?? ($row['id'] ?? 0));
-        $signature = $type . '|' . $dataId . '|' . $message;
 
         if (isset($seen[$signature])) {
             $prevIdx = $seen[$signature];
@@ -1718,6 +1726,42 @@ function printflow_dedupe_notifications(array $rows, int $windowSeconds = 300): 
         }
 
         $seen[$signature] = count($out);
+        $out[] = $row;
+    }
+
+    return $out;
+}
+
+/**
+ * Collapse duplicate notification rows (same type + inferred order id + normalized message).
+ * Keeps the newest occurrence; used so repeated system messages do not clutter the customer UI.
+ */
+function printflow_collapse_duplicate_notifications_latest(array $rows): array {
+    if (empty($rows)) {
+        return [];
+    }
+
+    usort($rows, static function (array $a, array $b): int {
+        $tsRawA = $a['ts'] ?? null;
+        $tsA = is_numeric($tsRawA) ? (int)$tsRawA : (strtotime((string)($a['created_at'] ?? '')) ?: 0);
+        $tsRawB = $b['ts'] ?? null;
+        $tsB = is_numeric($tsRawB) ? (int)$tsRawB : (strtotime((string)($b['created_at'] ?? '')) ?: 0);
+        if ($tsB !== $tsA) {
+            return $tsB <=> $tsA;
+        }
+        $idA = (int)($a['notification_id'] ?? ($a['id'] ?? 0));
+        $idB = (int)($b['notification_id'] ?? ($b['id'] ?? 0));
+        return $idB <=> $idA;
+    });
+
+    $seen = [];
+    $out = [];
+    foreach ($rows as $row) {
+        $signature = printflow_notification_row_signature($row);
+        if (isset($seen[$signature])) {
+            continue;
+        }
+        $seen[$signature] = true;
         $out[] = $row;
     }
 
@@ -1841,17 +1885,27 @@ function customer_notification_target_url(array $notification) {
 }
 
 function customer_notification_image_url(array $notification, string $fallback) {
+    $resolved_fallback = trim($fallback);
+    if ($resolved_fallback === '') {
+        $resolved_fallback = printflow_notification_placeholder_image_url();
+    }
+    if ($resolved_fallback === '') {
+        $resolved_fallback = printflow_notification_normalize_media_url(
+            printflow_notification_base_path() . '/public/assets/uploads/profiles/default.png'
+        );
+    }
+
     $data_id = (int)($notification['data_id'] ?? 0);
     $type = strtolower((string)($notification['type'] ?? ''));
     if ($data_id <= 0) {
-        return $fallback;
+        return $resolved_fallback;
     }
     if ($type === 'job order') {
         $preview = printflow_job_notification_preview($data_id);
     } else {
         $preview = printflow_order_notification_preview($data_id);
     }
-    return $preview['image_url'] ?: $fallback;
+    return ($preview['image_url'] ?: '') ?: $resolved_fallback;
 }
 
 
@@ -2004,6 +2058,25 @@ function printflow_notification_normalize_media_url(string $path): string {
     }
 
     return $path;
+}
+
+/**
+ * Readable file-backed placeholder thumbnail for notifications (avoids missing /services/default.png).
+ */
+function printflow_notification_placeholder_image_url(): string {
+    static $memo = null;
+    if ($memo !== null) {
+        return $memo;
+    }
+    $base = printflow_notification_base_path();
+    foreach (['/public/assets/uploads/profiles/default.png', '/public/assets/images/services/default.png'] as $suffix) {
+        $url = printflow_notification_normalize_media_url($base . $suffix);
+        if ($url !== '' && printflow_notification_local_media_exists($url)) {
+            return $memo = $url;
+        }
+    }
+
+    return $memo = '';
 }
 
 /**
@@ -4017,7 +4090,8 @@ function printflow_order_notification_preview(int $order_id): array {
             }
         }
         if ($preview['image_url'] === '') {
-            $preview['image_url'] = printflow_notification_normalize_media_url($base . '/public/assets/images/services/default.png');
+            $preview['image_url'] = printflow_notification_placeholder_image_url()
+                ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
         }
         $cache[$order_id] = $preview;
         return $preview;
@@ -4157,7 +4231,8 @@ function printflow_order_notification_preview(int $order_id): array {
         if ($normalizedFallback !== '' && printflow_notification_local_media_exists($normalizedFallback)) {
             $preview['image_url'] = $normalizedFallback;
         } else {
-            $preview['image_url'] = printflow_notification_normalize_media_url($base . '/public/assets/images/services/default.png');
+            $preview['image_url'] = printflow_notification_placeholder_image_url()
+                ?: printflow_notification_normalize_media_url($base . '/public/assets/uploads/profiles/default.png');
         }
     }
 
