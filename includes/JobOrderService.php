@@ -1300,6 +1300,29 @@ class JobOrderService {
             }
         }
 
+        // If BLOB/length flags were false but the line has a design filename and an order_item id, still
+        // expose the serve URL (e.g. BLOB not bound in $item, or name-only state after bad sync).
+        if ($designOpenUrl === null && $lineOrderItemId > 0) {
+            $nameProbe = trim((string)($item['design_image_name'] ?? ''));
+            $mimeProbe = strtolower(trim((string)($item['design_image_mime'] ?? '')));
+            $bytesProbe = (int)($item['pf_design_image_bytes'] ?? 0);
+            $nameLooksImage = $nameProbe !== '' && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $nameProbe);
+            $looksFile = $bytesProbe > 0 || $nameLooksImage
+                || ($mimeProbe !== '' && strpos($mimeProbe, 'image/') === 0);
+            if ($looksFile) {
+                $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
+            }
+        }
+        if ($designOpenUrl !== null && !$designIsImage) {
+            $nameProbe = trim((string)($item['design_image_name'] ?? ''));
+            $mimeProbe = strtolower(trim((string)($item['design_image_mime'] ?? '')));
+            if ($mimeProbe !== '' && strpos($mimeProbe, 'image/') === 0) {
+                $designIsImage = true;
+            } elseif ($nameProbe !== '' && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $nameProbe)) {
+                $designIsImage = true;
+            }
+        }
+
         return [
             'design_url' => $designIsImage ? $designOpenUrl : null,
             'design_open_url' => $designOpenUrl,

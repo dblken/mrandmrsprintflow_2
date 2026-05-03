@@ -1478,21 +1478,21 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </template>
                                     </div>
-                                    <template x-if="item.design_open_url && staffDesignShowsAsImage(item)">
+                                    <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
-                                                <img :src="item.design_url || item.design_open_url" 
-                                                     @click="previewFile = item.design_url || item.design_open_url"
+                                                <img :src="staffEffectiveDesignOpenUrl(item)" 
+                                                     @click="previewFile = staffEffectiveDesignOpenUrl(item)"
                                                      style="width:140px; height:auto; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);" 
                                                      onerror="this.src='<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/images/services/default.png', ENT_QUOTES, 'UTF-8'); ?>'">
                                             </div>
                                         </div>
                                     </template>
-                                    <template x-if="item.design_open_url && !staffDesignShowsAsImage(item)">
+                                    <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
-                                            <a :href="item.design_open_url"
+                                            <a :href="staffEffectiveDesignOpenUrl(item)"
                                                target="_blank"
                                                rel="noopener noreferrer"
                                                style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
@@ -1501,7 +1501,7 @@ if ($showLatestCustomizationOnly) {
                                             </a>
                                         </div>
                                     </template>
-                                    <template x-if="!item.design_open_url && item.design_name">
+                                    <template x-if="!staffEffectiveDesignOpenUrl(item) && item.design_name">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
                                             <div style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere;">
@@ -1913,10 +1913,10 @@ if ($showLatestCustomizationOnly) {
                                 <div style="font-size:12px; color:#075985;">The customer has uploaded a new design file. Please review and approve.</div>
                             </div>
                             <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">
-                                <div x-show="staffDesignShowsAsImage(revItem) && (revItem.design_url || revItem.design_open_url)"
-                                     @click="previewFile = revItem.design_url || revItem.design_open_url"
+                                <div x-show="staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)"
+                                     @click="previewFile = staffEffectiveDesignOpenUrl(revItem)"
                                      style="flex-shrink:0; cursor:zoom-in;">
-                                    <img :src="revItem.design_url || revItem.design_open_url"
+                                    <img :src="staffEffectiveDesignOpenUrl(revItem)"
                                          alt="Revised design preview"
                                          style="display:block; max-width:min(100%, 220px); max-height:140px; object-fit:contain; border-radius:10px; border:1px solid #bae6fd; background:#fff; box-shadow:0 2px 8px rgba(2,132,199,0.12);"
                                          onerror="this.style.display='none'">
@@ -2964,7 +2964,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
                         const dupDesignKeys = ['design_upload', 'design_upload_path', 'upload_design', 'upload_design_path', 'design_file'];
-                        if (dupDesignKeys.includes(k) && (item.design_open_url || item.design_url)) {
+                        if (dupDesignKeys.includes(k) && this.staffEffectiveDesignOpenUrl(item)) {
                             return false;
                         }
                         const lk = String(k).toLowerCase().replace(/\s+/g, '_');
@@ -3018,6 +3018,26 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!item) return false;
                 if (item.design_is_image) return true;
                 return this.staffFilenameLooksLikeImage(item.design_name);
+            },
+            /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
+            staffOrderItemDesignServeUrl(item) {
+                if (!item || !item.order_item_id) return '';
+                const id = Number(item.order_item_id);
+                if (!id) return '';
+                const base = document.body.getAttribute('data-base-url') || '';
+                return base + '/public/serve_design.php?type=order_item&id=' + id;
+            },
+            staffEffectiveDesignOpenUrl(item) {
+                if (!item) return '';
+                const fromApi = (item.design_open_url || item.design_url || '').trim();
+                if (fromApi) return this.staffResolveMediaUrl(fromApi);
+                if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {
+                    return this.staffOrderItemDesignServeUrl(item);
+                }
+                if (item.order_item_id && item.design_name) {
+                    return this.staffOrderItemDesignServeUrl(item);
+                }
+                return '';
             },
             combinedCustomerNotes() {
                 const j = this.currentJo;
