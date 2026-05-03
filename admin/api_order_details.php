@@ -20,6 +20,21 @@ function pf_order_details_json(array $payload, int $status = 200): void
     exit;
 }
 
+function pf_order_details_clean_notes($notes): string
+{
+    $raw = trim((string)$notes);
+    if ($raw === '') {
+        return '';
+    }
+
+    $lines = preg_split('/\R/u', $raw) ?: [$raw];
+    $lines = array_values(array_filter($lines, static function ($line): bool {
+        return stripos((string)$line, 'synthetic_demo_order') === false;
+    }));
+
+    return trim(implode("\n", $lines));
+}
+
 if (!is_logged_in()) {
     pf_order_details_json(['success' => false, 'error' => 'Authentication required'], 401);
 }
@@ -199,7 +214,7 @@ try {
             'branch_name' => $order['branch_name'] ?? 'Main Branch',
             'payment_status' => $order['payment_status'] ?? '',
             'payment_reference' => $order['payment_reference'] ?? '',
-            'notes' => $order['notes'] ?? '',
+            'notes' => pf_order_details_clean_notes($order['notes'] ?? ''),
         ],
         'items' => $formatted_items
     ]);

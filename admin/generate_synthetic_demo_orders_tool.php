@@ -7,6 +7,10 @@ require_once __DIR__ . '/../includes/db.php';
 
 require_role('Admin');
 
+http_response_code(404);
+echo 'Not found';
+exit;
+
 const PF_SDO_TOOL_VERSION = '2026-05-03 v2';
 const PF_SDO_BATCH_TABLE = 'maintenance_synthetic_demo_order_batches';
 const PF_SDO_ROW_TABLE = 'maintenance_synthetic_demo_order_rows';
