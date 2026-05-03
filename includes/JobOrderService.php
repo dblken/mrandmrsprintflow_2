@@ -1206,7 +1206,11 @@ class JobOrderService {
             'upload_reference_path',
             'reference_file',
         ]);
-        $hasOwnDesign = !empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '' || $customDesignPath !== null;
+        $designBlobBytes = (int)($item['pf_design_image_bytes'] ?? 0);
+        $hasOwnDesign = $designBlobBytes > 0
+            || !empty($item['design_image'])
+            || trim((string)($item['design_file'] ?? '')) !== ''
+            || $customDesignPath !== null;
         $designServeId = $hasOwnDesign
             ? $lineOrderItemId
             : (($lineOrderItemId === 0 && $fallbackDesignOrderItemId > 0) ? $fallbackDesignOrderItemId : 0);
@@ -1276,6 +1280,18 @@ class JobOrderService {
         } elseif (!empty($item['reference_image_file'])) {
             $referencePath = parse_url((string)$item['reference_image_file'], PHP_URL_PATH);
             $referenceName = basename(is_string($referencePath) && $referencePath !== '' ? $referencePath : (string)$item['reference_image_file']);
+        }
+
+        // Customer revisions often store only BLOB + mime/name; some drivers omit blob in the row.
+        // Treat known image mime / filename as previewable when we already have a serve URL.
+        if ($designOpenUrl && !$designIsImage && ($hasOwnDesign || $designServeId > 0)) {
+            $mimeCheck = strtolower(trim((string)($item['design_image_mime'] ?? '')));
+            $nameCheck = strtolower((string)($item['design_image_name'] ?? ''));
+            if ($mimeCheck !== '' && strpos($mimeCheck, 'image/') === 0) {
+                $designIsImage = true;
+            } elseif ($nameCheck !== '' && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $nameCheck)) {
+                $designIsImage = true;
+            }
         }
 
         return [
@@ -1519,7 +1535,9 @@ class JobOrderService {
             return ['items' => [], 'width_ft' => '1', 'height_ft' => '1', 'service_type' => ''];
         }
         $items = db_query(
-            "SELECT oi.*, p.name as product_name, p.category, p.product_type
+            "SELECT oi.*, p.name as product_name, p.category, p.product_type,
+                    IFNULL(LENGTH(oi.design_image), 0) AS pf_design_image_bytes,
+                    IFNULL(LENGTH(oi.design_file), 0) AS pf_design_file_bytes
              FROM order_items oi
              LEFT JOIN products p ON oi.product_id = p.product_id
              WHERE oi.order_id = ?
@@ -1580,7 +1598,9 @@ class JobOrderService {
                 'product_type'    => $item['product_type'] ?? 'custom',
                 'quantity'        => (int)$item['quantity'],
                 'customization'   => $custom,
-                'design_url'      => (!empty($item['design_image']) || !empty($item['design_file']))
+                'design_url'      => ((int)($item['pf_design_image_bytes'] ?? 0) > 0
+                    || !empty($item['design_image'])
+                    || !empty($item['design_file']))
                     ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] : null,
                 'reference_url'   => !empty($item['reference_image_file'])
                     ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference' : null,
@@ -1838,7 +1858,9 @@ class JobOrderService {
             if ($orderItemId <= 0) {
                 continue;
             }
-            if (!empty($item['design_image']) || trim((string)($item['design_file'] ?? '')) !== '') {
+            if ((int)($item['pf_design_image_bytes'] ?? 0) > 0
+                || !empty($item['design_image'])
+                || trim((string)($item['design_file'] ?? '')) !== '') {
                 $anyDesignOrderItemId = $orderItemId;
                 break;
             }

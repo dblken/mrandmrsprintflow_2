@@ -4202,10 +4202,18 @@ function printflow_media_path_looks_like_image(string $path, string $fallbackNam
 }
 
 function printflow_order_item_has_previewable_design(array $item): bool {
-    $hasBlob = !empty($item['has_design_blob']) || !empty($item['design_image']);
+    $byteLen = (int)($item['pf_design_image_bytes'] ?? 0);
+    $hasBlob = !empty($item['has_design_blob']) || !empty($item['design_image']) || $byteLen > 0;
     if ($hasBlob) {
         $mime = strtolower(trim((string)($item['design_image_mime'] ?? '')));
-        return $mime === '' || strpos($mime, 'image/') === 0;
+        if ($mime !== '' && strpos($mime, 'image/') !== 0) {
+            $name = strtolower((string)($item['design_image_name'] ?? ''));
+            if ($name !== '' && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $name)) {
+                return true;
+            }
+            return false;
+        }
+        return true;
     }
 
     return printflow_media_path_looks_like_image(

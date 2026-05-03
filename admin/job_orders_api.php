@@ -744,8 +744,12 @@ try {
             $cust_id = (int)($_GET['id'] ?? 0);
             if (!$cust_id) throw new Exception("Customization ID required.");
 
-            $cust_row = db_query("
-                SELECT cust.*,
+            $revisionCountSelect = (function_exists('db_table_has_column') && db_table_has_column('orders', 'revision_count'))
+                ? 'o.revision_count AS store_revision_count'
+                : '0 AS store_revision_count';
+
+            $cust_row = db_query(
+                "SELECT cust.*,
                        c.first_name, c.last_name, c.customer_type, c.contact_number, c.email, c.transaction_count,
                        c.profile_picture AS customer_profile_picture,
                        CONCAT(c.first_name, ' ', c.last_name) AS customer_full_name,
@@ -754,15 +758,20 @@ try {
                        o.total_amount AS order_total,
                        COALESCE(NULLIF(o.payment_proof_path,''), NULLIF(o.payment_proof,''), NULLIF(jo.payment_proof_path,'')) AS payment_proof_path,
                        COALESCE(jo.payment_submitted_amount, o.downpayment_amount, 0) AS downpayment_amount,
-                       o.order_source
+                       o.order_source,
+                       o.design_status AS store_design_status,
+                       o.revision_reason AS store_revision_reason,
+                       " . $revisionCountSelect . "
                 FROM customizations cust
                 LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
                 LEFT JOIN job_orders jo ON jo.order_id = o.order_id AND jo.status NOT IN ('CANCELLED')
                 WHERE cust.customization_id = ?
                 ORDER BY jo.id ASC
-                LIMIT 1
-            ", 'i', [$cust_id]);
+                LIMIT 1",
+                'i',
+                [$cust_id]
+            );
 
             if (empty($cust_row)) throw new Exception("Customization not found.");
             $cust = $cust_row[0];
@@ -1161,6 +1170,12 @@ try {
                 'payment_status'           => 'NO',
                 'readiness'                => $linked_job['readiness'] ?? 'READY',
                 'order_source'             => $resolvedOrderSource,
+                'design_status'            => (string)($cust['store_design_status'] ?? ''),
+                'revision_reason'          => (string)($cust['store_revision_reason'] ?? ''),
+                'revision_count'           => (int)($cust['store_revision_count'] ?? 0),
+                'files'                    => ($linked_job_id > 0 && is_array($linked_job) && isset($linked_job['files']))
+                    ? $linked_job['files']
+                    : [],
                 'items'                    => $items,
                 'materials'                => $linked_job_materials,
                 'ink_usage'                => $linked_job_ink_usage,
@@ -1382,7 +1397,9 @@ try {
                 'job_order_id'         => $linked_job_id > 0 ? $linked_job_id : null,
                 'notes'                => $o['notes'] ?? '',
                 'store_order_notes'    => $o['notes'] ?? '',
+                'design_status'        => (string)($o['design_status'] ?? ''),
                 'revision_reason'      => $o['revision_reason'] ?? '',
+                'revision_count'       => (int)($o['revision_count'] ?? 0),
                 'customer_address'     => $o['customer_address'] ?? '',
                 'payment_proof_status' => $payment_proof_status,
                 'payment_proof_path'   => $payment_proof_url,

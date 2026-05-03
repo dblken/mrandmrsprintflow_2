@@ -1478,12 +1478,12 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </template>
                                     </div>
-                                    <template x-if="item.design_is_image && item.design_url">
+                                    <template x-if="item.design_is_image && (item.design_url || item.design_open_url)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
-                                                <img :src="item.design_url" 
-                                                     @click="previewFile = item.design_url"
+                                                <img :src="item.design_url || item.design_open_url" 
+                                                     @click="previewFile = item.design_url || item.design_open_url"
                                                      style="width:140px; height:auto; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);" 
                                                      onerror="this.src='<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/images/services/default.png', ENT_QUOTES, 'UTF-8'); ?>'">
                                             </div>
@@ -1891,14 +1891,24 @@ if ($showLatestCustomizationOnly) {
 
                     <!-- Design Status / Revision Alert -->
                     <template x-if="currentJo.design_status === 'Revision Submitted'">
-                        <div style="margin-bottom:20px; padding:12px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:10px; display:flex; align-items:center; gap:10px;">
+                        <div style="margin-bottom:20px; padding:12px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:10px; display:flex; flex-wrap:wrap; align-items:flex-start; gap:12px;">
                              <div style="background:#0284c7; color:#fff; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 4px 6px -1px rgba(2, 132, 199, 0.4);">
                                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 11l5 5m0 0l-5 5m5-5H6"/></svg>
                              </div>
-                            <div>
+                            <div style="flex:1; min-width:0;">
                                 <div style="font-size:13px; font-weight:700; color:#0369a1;">Revision Re-submitted</div>
                                 <div style="font-size:12px; color:#075985;">The customer has uploaded a new design file. Please review and approve.</div>
                             </div>
+                            <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">
+                                <div x-show="revItem.design_is_image && (revItem.design_url || revItem.design_open_url)"
+                                     @click="previewFile = revItem.design_url || revItem.design_open_url"
+                                     style="flex-shrink:0; cursor:zoom-in;">
+                                    <img :src="revItem.design_url || revItem.design_open_url"
+                                         alt="Revised design preview"
+                                         style="display:block; max-width:min(100%, 220px); max-height:140px; object-fit:contain; border-radius:10px; border:1px solid #bae6fd; background:#fff; box-shadow:0 2px 8px rgba(2,132,199,0.12);"
+                                         onerror="this.style.display='none'">
+                                </div>
+                            </template>
                         </div>
                     </template>
 
