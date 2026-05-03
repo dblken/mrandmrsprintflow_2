@@ -157,6 +157,13 @@ function pf_dco_quote_identifier(string $identifier): string
     return '`' . str_replace('`', '``', $identifier) . '`';
 }
 
+function pf_dco_quote_sql_string(string $value): string
+{
+    global $conn;
+
+    return "'" . $conn->real_escape_string($value) . "'";
+}
+
 function pf_dco_ensure_backup_table(): void
 {
     $sql = "CREATE TABLE IF NOT EXISTS " . PF_DCO_BACKUP_TABLE . " (
@@ -514,6 +521,7 @@ function pf_dco_select_rows_for_backup(array $scope): array
 function pf_dco_capture_backup_batch(string $batchId, int $adminId): array
 {
     $captured = [];
+    $rowsSaved = 0;
 
     foreach (pf_dco_sorted_scopes(false) as $scope) {
         $table = (string)$scope['table'];
@@ -524,17 +532,24 @@ function pf_dco_capture_backup_batch(string $batchId, int $adminId): array
         foreach ($rows as $row) {
             $position++;
             $payload = base64_encode(serialize($row));
-            pf_dco_exec_affected(
+            $result = db_execute(
                 "INSERT INTO " . PF_DCO_BACKUP_TABLE . "
                     (batch_id, customer_id, table_name, row_position, payload, deleted_by)
                  VALUES (?, ?, ?, ?, ?, ?)",
                 'sisisi',
                 [$batchId, PF_DELETE_CUSTOMER_ID, $table, $position, $payload, $adminId]
             );
+            if ($result === false) {
+                throw new RuntimeException('Backup insert failed for table ' . $table . ' row ' . $position . '.');
+            }
+            $rowsSaved++;
         }
     }
 
-    return $captured;
+    return [
+        'counts' => $captured,
+        'rows_saved' => $rowsSaved,
+    ];
 }
 
 function pf_dco_quote_sql_value($value): string
@@ -710,7 +725,9 @@ function pf_dco_delete_customer_orders(): array
         global $conn;
         pf_dco_begin_transaction();
 
-        $backupCounts = pf_dco_capture_backup_batch($batchId, $adminId);
+        $backup = pf_dco_capture_backup_batch($batchId, $adminId);
+        $backupCounts = (array)($backup['counts'] ?? []);
+        $backupRowsSaved = (int)($backup['rows_saved'] ?? 0);
 
         foreach (pf_dco_sorted_scopes(true) as $scope) {
             $table = (string)$scope['table'];
@@ -733,17 +750,17 @@ function pf_dco_delete_customer_orders(): array
             throw new RuntimeException('Delete verification failed. Remaining rows: ' . implode(', ', $parts));
         }
 
-        $backupRows = db_query(
-            "SELECT COUNT(*) AS c
+        $backupRowCheckSql = "SELECT COUNT(*) AS c
              FROM " . PF_DCO_BACKUP_TABLE . "
-             WHERE batch_id = ?
-               AND customer_id = ?",
-            'si',
-            [$batchId, PF_DELETE_CUSTOMER_ID]
-        );
+             WHERE batch_id = " . pf_dco_quote_sql_string($batchId) . "
+               AND customer_id = " . PF_DELETE_CUSTOMER_ID;
+        $backupRows = db_query($backupRowCheckSql);
         $backupRowCount = (int)($backupRows[0]['c'] ?? 0);
         if ($backupRowCount <= 0) {
-            throw new RuntimeException('Delete verification failed. No backup rows were saved for batch ' . $batchId . '.');
+            throw new RuntimeException(
+                'Delete verification failed. No backup rows were saved for batch ' . $batchId
+                . '. Insert attempts: ' . $backupRowsSaved . '.'
+            );
         }
 
         pf_dco_commit_transaction();
