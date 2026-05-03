@@ -7,13 +7,34 @@ require_once __DIR__ . '/../includes/db.php';
 
 require_role('Admin');
 
-const PF_DELETE_CUSTOMER_ID = 25;
+const PF_DELETE_CUSTOMER_IDS = [25, 296, 295, 288, 3, 1];
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
 const PF_DCO_TOOL_VERSION = '2026-05-03 v6';
 
 function pf_dco_h($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
+function pf_dco_target_customer_ids(): array
+{
+    $ids = array_values(array_unique(array_map('intval', PF_DELETE_CUSTOMER_IDS)));
+    return array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+}
+
+function pf_dco_primary_customer_id(): int
+{
+    return pf_dco_target_customer_ids()[0] ?? 0;
+}
+
+function pf_dco_target_customer_id_csv(): string
+{
+    return implode(', ', pf_dco_target_customer_ids());
+}
+
+function pf_dco_target_customer_label(): string
+{
+    return implode(', ', pf_dco_target_customer_ids());
 }
 
 function pf_dco_table_exists(string $table): bool
@@ -198,7 +219,7 @@ function pf_dco_ensure_backup_table(): void
 
 function pf_dco_order_id_select_sql(): string
 {
-    return 'SELECT order_id FROM orders WHERE customer_id = ' . PF_DELETE_CUSTOMER_ID;
+    return 'SELECT order_id FROM orders WHERE customer_id IN (' . pf_dco_target_customer_id_csv() . ')';
 }
 
 function pf_dco_order_item_id_select_sql(): string
@@ -213,11 +234,12 @@ function pf_dco_review_id_select_sql(): string
 
 function pf_dco_service_order_id_select_sql(): string
 {
-    return 'SELECT id FROM service_orders WHERE customer_id = ' . PF_DELETE_CUSTOMER_ID;
+    return 'SELECT id FROM service_orders WHERE customer_id IN (' . pf_dco_target_customer_id_csv() . ')';
 }
 
 function pf_dco_base_scopes(): array
 {
+    $customerCsv = pf_dco_target_customer_id_csv();
     $orderSql = pf_dco_order_id_select_sql();
     $orderItemSql = pf_dco_order_item_id_select_sql();
     $reviewSql = pf_dco_review_id_select_sql();
@@ -228,21 +250,21 @@ function pf_dco_base_scopes(): array
             'table' => 'orders',
             'depth' => 0,
             'conditions' => [
-                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+                'customer_id IN (' . $customerCsv . ')',
             ],
         ],
         'service_orders' => [
             'table' => 'service_orders',
             'depth' => 0,
             'conditions' => [
-                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+                'customer_id IN (' . $customerCsv . ')',
             ],
         ],
         'job_orders' => [
             'table' => 'job_orders',
             'depth' => 1,
             'conditions' => [
-                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+                'customer_id IN (' . $customerCsv . ')',
                 'order_id IN (' . $orderSql . ')',
             ],
         ],
@@ -320,7 +342,7 @@ function pf_dco_base_scopes(): array
             'table' => 'customizations',
             'depth' => 2,
             'conditions' => [
-                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+                'customer_id IN (' . $customerCsv . ')',
                 'order_id IN (' . $orderSql . ')',
                 'order_item_id IN (' . $orderItemSql . ')',
             ],
@@ -530,6 +552,7 @@ function pf_dco_capture_backup_batch(string $batchId, int $adminId): array
 {
     $captured = [];
     $rowsSaved = 0;
+    $backupCustomerId = pf_dco_primary_customer_id();
 
     foreach (pf_dco_sorted_scopes(false) as $scope) {
         $table = (string)$scope['table'];
@@ -545,7 +568,7 @@ function pf_dco_capture_backup_batch(string $batchId, int $adminId): array
                     (batch_id, customer_id, table_name, row_position, payload, deleted_by)
                  VALUES (?, ?, ?, ?, ?, ?)",
                 'sisisi',
-                [$batchId, PF_DELETE_CUSTOMER_ID, $table, $position, $payload, $adminId]
+                [$batchId, $backupCustomerId, $table, $position, $payload, $adminId]
             );
             if ($result === false) {
                 throw new RuntimeException('Backup insert failed for table ' . $table . ' row ' . $position . '.');
@@ -608,6 +631,7 @@ function pf_dco_restore_row(string $table, array $row): void
 function pf_dco_latest_active_batch(): ?array
 {
     pf_dco_ensure_backup_table();
+    $customerCsv = pf_dco_target_customer_id_csv();
 
     $rows = db_query(
         "SELECT
@@ -615,13 +639,11 @@ function pf_dco_latest_active_batch(): ?array
             COUNT(*) AS row_count,
             MAX(deleted_at) AS deleted_at
          FROM " . PF_DCO_BACKUP_TABLE . "
-         WHERE customer_id = ?
+         WHERE customer_id IN ({$customerCsv})
            AND restored_at IS NULL
          GROUP BY batch_id
          ORDER BY MAX(deleted_at) DESC
-         LIMIT 1",
-        'i',
-        [PF_DELETE_CUSTOMER_ID]
+         LIMIT 1"
     ) ?: [];
 
     return $rows[0] ?? null;
@@ -630,6 +652,7 @@ function pf_dco_latest_active_batch(): ?array
 function pf_dco_recent_batches(): array
 {
     pf_dco_ensure_backup_table();
+    $customerCsv = pf_dco_target_customer_id_csv();
 
     return db_query(
         "SELECT
@@ -638,12 +661,10 @@ function pf_dco_recent_batches(): array
             MAX(deleted_at) AS deleted_at,
             MAX(restored_at) AS restored_at
          FROM " . PF_DCO_BACKUP_TABLE . "
-         WHERE customer_id = ?
+         WHERE customer_id IN ({$customerCsv})
          GROUP BY batch_id
          ORDER BY MAX(deleted_at) DESC
-         LIMIT 8",
-        'i',
-        [PF_DELETE_CUSTOMER_ID]
+         LIMIT 8"
     ) ?: [];
 }
 
@@ -675,22 +696,20 @@ function pf_dco_delete_verification_summary(): array
 
 function pf_dco_preview(): array
 {
-    $customer = db_query(
+    $customerCsv = pf_dco_target_customer_id_csv();
+
+    $customers = db_query(
         "SELECT customer_id, first_name, last_name, email, contact_number
          FROM customers
-         WHERE customer_id = ?
-         LIMIT 1",
-        'i',
-        [PF_DELETE_CUSTOMER_ID]
-    );
+         WHERE customer_id IN ({$customerCsv})
+         ORDER BY customer_id ASC"
+    ) ?: [];
 
     $orders = db_query(
-        "SELECT order_id, order_date, status, total_amount
+        "SELECT customer_id, order_id, order_date, status, total_amount
          FROM orders
-         WHERE customer_id = ?
+         WHERE customer_id IN ({$customerCsv})
          ORDER BY order_date DESC, order_id DESC",
-        'i',
-        [PF_DELETE_CUSTOMER_ID]
     ) ?: [];
 
     $counts = [
@@ -704,7 +723,7 @@ function pf_dco_preview(): array
         $counts[$table] = pf_dco_count_scope_rows($scope);
     }
     return [
-        'customer' => $customer[0] ?? null,
+        'customers' => $customers,
         'orders' => $orders,
         'counts' => $counts,
     ];
@@ -715,13 +734,12 @@ function pf_dco_delete_customer_orders(): array
     $deleted = array_fill_keys(pf_dco_scope_table_names(), 0);
     $backupCounts = [];
     $adminId = (int)get_user_id();
-    $batchId = 'dco25_' . date('Ymd_His') . '_' . substr(bin2hex(random_bytes(4)), 0, 8);
+    $batchId = 'dco_multi_' . date('Ymd_His') . '_' . substr(bin2hex(random_bytes(4)), 0, 8);
 
-    $orders = db_query("SELECT order_id FROM orders WHERE customer_id = ?", 'i', [PF_DELETE_CUSTOMER_ID]) ?: [];
-    if ($orders === []) {
+    if (pf_dco_delete_verification_summary() === []) {
         return [
             'success' => true,
-            'message' => 'Customer 25 has no regular orders to delete.',
+            'message' => 'The target customers currently have no order rows to delete.',
             'deleted' => $deleted,
             'backup_batch_id' => null,
             'backup_counts' => [],
@@ -761,7 +779,7 @@ function pf_dco_delete_customer_orders(): array
         $backupRowCheckSql = "SELECT COUNT(*) AS c
              FROM " . PF_DCO_BACKUP_TABLE . "
              WHERE batch_id = " . pf_dco_quote_sql_string($batchId) . "
-               AND customer_id = " . PF_DELETE_CUSTOMER_ID;
+               AND customer_id = " . pf_dco_primary_customer_id();
         $backupRows = db_query($backupRowCheckSql);
         $backupRowCount = (int)($backupRows[0]['c'] ?? 0);
         if ($backupRowCount <= 0) {
@@ -776,12 +794,12 @@ function pf_dco_delete_customer_orders(): array
         log_activity(
             $adminId,
             'Delete Customer Orders',
-            'Deleted order transaction data for customer ID 25. Backup batch: ' . $batchId
+            'Deleted order transaction data for customer IDs ' . pf_dco_target_customer_label() . '. Backup batch: ' . $batchId
         );
 
         return [
             'success' => true,
-            'message' => 'Deleted order transaction data for customer ID 25.',
+            'message' => 'Deleted order transaction data for customer IDs ' . pf_dco_target_customer_label() . '.',
             'deleted' => $deleted,
             'backup_batch_id' => $batchId,
             'backup_counts' => $backupCounts,
@@ -818,6 +836,7 @@ function pf_dco_rollback_latest_batch(): array
     }
 
     $batchId = (string)$batch['batch_id'];
+    $customerCsv = pf_dco_target_customer_id_csv();
 
     try {
         pf_dco_begin_transaction();
@@ -825,12 +844,10 @@ function pf_dco_rollback_latest_batch(): array
         $rows = db_query(
             "SELECT id, table_name, row_position, payload
              FROM " . PF_DCO_BACKUP_TABLE . "
-             WHERE batch_id = ?
-               AND customer_id = ?
+             WHERE batch_id = " . pf_dco_quote_sql_string($batchId) . "
+               AND customer_id IN ({$customerCsv})
                AND restored_at IS NULL
-             ORDER BY id ASC",
-            'si',
-            [$batchId, PF_DELETE_CUSTOMER_ID]
+             ORDER BY id ASC"
         ) ?: [];
 
         $rank = [];
@@ -876,7 +893,7 @@ function pf_dco_rollback_latest_batch(): array
                AND customer_id = ?
                AND restored_at IS NULL",
             'isi',
-            [$adminId, $batchId, PF_DELETE_CUSTOMER_ID]
+            [$adminId, $batchId, pf_dco_primary_customer_id()]
         );
 
         pf_dco_commit_transaction();
@@ -884,12 +901,12 @@ function pf_dco_rollback_latest_batch(): array
         log_activity(
             $adminId,
             'Rollback Customer Orders Delete',
-            'Rolled back deleted order transaction data for customer ID 25. Batch: ' . $batchId
+            'Rolled back deleted order transaction data for customer IDs ' . pf_dco_target_customer_label() . '. Batch: ' . $batchId
         );
 
         return [
             'success' => true,
-            'message' => 'Rollback completed for customer ID 25.',
+            'message' => 'Rollback completed for customer IDs ' . pf_dco_target_customer_label() . '.',
             'restored' => $restored,
             'batch_id' => $batchId,
         ];
@@ -924,14 +941,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $preview = pf_dco_preview();
-$customer = $preview['customer'];
+$customers = $preview['customers'];
 $orders = $preview['orders'];
 $counts = $preview['counts'];
 $hasDeleteTargets = (($counts['orders'] ?? 0) > 0) || (($counts['service_orders'] ?? 0) > 0);
 $activeBatch = pf_dco_latest_active_batch();
 $recentBatches = pf_dco_recent_batches();
 
-$page_title = 'Delete Customer 25 Orders Tool';
+$page_title = 'Delete Customer Orders Tool';
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -939,9 +956,9 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="max-w-5xl mx-auto">
         <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="px-6 py-5 border-b border-gray-200">
-                <h1 class="text-2xl font-bold text-gray-900">Delete Customer 25 Orders Tool</h1>
+                <h1 class="text-2xl font-bold text-gray-900">Delete Customer Orders Tool</h1>
                 <p class="text-sm text-gray-600 mt-2">
-                    Temporary admin maintenance page for removing the order transaction records of customer ID <strong>25</strong>, including regular and service order records.
+                    Temporary admin maintenance page for removing the order transaction records of customer IDs <strong><?php echo pf_dco_h(pf_dco_target_customer_label()); ?></strong>, including regular and service order records.
                 </p>
                 <p class="text-xs text-gray-500 mt-2">
                     Tool version: <span class="font-mono"><?php echo pf_dco_h(PF_DCO_TOOL_VERSION); ?></span>
@@ -978,22 +995,27 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4">
                     <div class="font-semibold text-amber-900">Warning</div>
                     <p class="text-sm text-amber-800 mt-1">
-                        Delete permanently removes customer 25 order rows from <code>orders</code> and <code>service_orders</code> plus linked records like order items, messages, notes, reviews, job orders, and service order files/details. The rollback button restores the latest saved delete batch from this page.
+                        Delete permanently removes order rows for customer IDs <?php echo pf_dco_h(pf_dco_target_customer_label()); ?> from <code>orders</code> and <code>service_orders</code> plus linked records like order items, messages, notes, reviews, job orders, and service order files/details. The rollback button restores the latest saved delete batch from this page.
                     </p>
                 </div>
 
                 <div class="grid md:grid-cols-2 gap-6">
                     <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
                         <h2 class="text-lg font-semibold text-gray-900 mb-3">Customer Preview</h2>
-                        <?php if ($customer): ?>
-                            <div class="space-y-1 text-sm text-gray-700">
-                                <div><strong>ID:</strong> <?php echo (int)$customer['customer_id']; ?></div>
-                                <div><strong>Name:</strong> <?php echo pf_dco_h(trim(($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? ''))); ?></div>
-                                <div><strong>Email:</strong> <?php echo pf_dco_h($customer['email'] ?? ''); ?></div>
-                                <div><strong>Contact:</strong> <?php echo pf_dco_h($customer['contact_number'] ?? ''); ?></div>
+                        <div class="text-sm text-gray-700 mb-3"><strong>Target IDs:</strong> <?php echo pf_dco_h(pf_dco_target_customer_label()); ?></div>
+                        <?php if (!empty($customers)): ?>
+                            <div class="space-y-3 text-sm text-gray-700">
+                                <?php foreach ($customers as $customer): ?>
+                                    <div class="border border-gray-200 rounded-lg px-3 py-2 bg-white">
+                                        <div><strong>ID:</strong> <?php echo (int)$customer['customer_id']; ?></div>
+                                        <div><strong>Name:</strong> <?php echo pf_dco_h(trim(($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? ''))); ?></div>
+                                        <div><strong>Email:</strong> <?php echo pf_dco_h($customer['email'] ?? ''); ?></div>
+                                        <div><strong>Contact:</strong> <?php echo pf_dco_h($customer['contact_number'] ?? ''); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
                             </div>
                         <?php else: ?>
-                            <div class="text-sm text-red-700">Customer ID 25 was not found.</div>
+                            <div class="text-sm text-red-700">None of the target customers were found.</div>
                         <?php endif; ?>
                     </div>
 
@@ -1042,14 +1064,15 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-3">Orders To Be Deleted</h2>
+                    <h2 class="text-lg font-semibold text-gray-900 mb-3">Regular Orders To Be Deleted</h2>
                     <?php if (empty($orders)): ?>
-                        <div class="text-sm text-gray-600">No regular <code>orders</code> currently found for customer 25.</div>
+                        <div class="text-sm text-gray-600">No regular <code>orders</code> currently found for the target customer IDs.</div>
                     <?php else: ?>
                         <div class="overflow-x-auto">
                             <table class="min-w-full text-sm">
                                 <thead>
                                     <tr class="text-left text-gray-500 border-b border-gray-200">
+                                        <th class="py-2 pr-4">Customer ID</th>
                                         <th class="py-2 pr-4">Order ID</th>
                                         <th class="py-2 pr-4">Date</th>
                                         <th class="py-2 pr-4">Status</th>
@@ -1059,6 +1082,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 <tbody>
                                     <?php foreach ($orders as $order): ?>
                                         <tr class="border-b border-gray-100">
+                                            <td class="py-2 pr-4 text-gray-700"><?php echo (int)($order['customer_id'] ?? 0); ?></td>
                                             <td class="py-2 pr-4 font-medium text-gray-900">#<?php echo (int)$order['order_id']; ?></td>
                                             <td class="py-2 pr-4 text-gray-700"><?php echo pf_dco_h($order['order_date'] ?? ''); ?></td>
                                             <td class="py-2 pr-4 text-gray-700"><?php echo pf_dco_h($order['status'] ?? ''); ?></td>
@@ -1072,19 +1096,19 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="flex flex-wrap gap-3">
-                    <form method="post" onsubmit="return confirm('Delete all regular and service order transaction data for customer ID 25? A rollback batch will be saved first.');">
+                    <form method="post" onsubmit="return confirm('Delete all regular and service order transaction data for customer IDs <?php echo pf_dco_h(pf_dco_target_customer_label()); ?>? A rollback batch will be saved first.');">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="delete_customer_25_orders" value="1">
                         <button
                             type="submit"
                             class="inline-flex items-center px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold transition"
-                            <?php echo (!$customer || !$hasDeleteTargets) ? 'disabled style="opacity:.6;cursor:not-allowed;"' : ''; ?>
+                            <?php echo (empty($customers) || !$hasDeleteTargets) ? 'disabled style="opacity:.6;cursor:not-allowed;"' : ''; ?>
                         >
-                            Delete Customer 25 Orders and Service Orders
+                            Delete Target Customer Orders
                         </button>
                     </form>
 
-                    <form method="post" onsubmit="return confirm('Rollback the latest delete batch for customer ID 25?');">
+                    <form method="post" onsubmit="return confirm('Rollback the latest delete batch for customer IDs <?php echo pf_dco_h(pf_dco_target_customer_label()); ?>?');">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="rollback_customer_25_orders" value="1">
                         <button
