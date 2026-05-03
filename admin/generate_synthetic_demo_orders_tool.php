@@ -11,7 +11,7 @@ const PF_SDO_TOOL_VERSION = '2026-05-03 v2';
 const PF_SDO_BATCH_TABLE = 'maintenance_synthetic_demo_order_batches';
 const PF_SDO_ROW_TABLE = 'maintenance_synthetic_demo_order_rows';
 const PF_SDO_DEFAULT_ORDER_COUNT = 120;
-const PF_SDO_MAX_ORDER_COUNT = 500;
+const PF_SDO_MAX_ORDER_COUNT = 1000;
 const PF_SDO_MARKER = 'synthetic_demo_order';
 
 function pf_sdo_h($value): string
