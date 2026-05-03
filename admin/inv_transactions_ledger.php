@@ -253,9 +253,6 @@ if (isset($_GET['ajax'])) {
                 <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
                 <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
                     <?php echo htmlspecialchars($t['item_name']); ?>
-                    <?php if ($t['roll_code']): ?>
-                        <span style="display:block;font-size:10px;color:#7c3aed;font-weight:600;margin-top:2px;text-transform:uppercase;">Roll: <?php echo htmlspecialchars($t['roll_code']); ?></span>
-                    <?php endif; ?>
                 </td>
                 <td><span class="<?php echo $typeBadgeClass; ?>" style="text-transform:capitalize;pointer-events:none;<?php echo $typeBadgeStyle; ?>"><?php echo $displayType; ?></span></td>
                 <td style="text-align:right;">
@@ -754,9 +751,6 @@ if (isset($_GET['ajax'])) {
                                         <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
                                         <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
                                             <?php echo htmlspecialchars($t['item_name']); ?>
-                                            <?php if ($t['roll_code']): ?>
-                                                <span style="display:block;font-size:10px;color:#7c3aed;font-weight:600;margin-top:2px;text-transform:uppercase;">Roll: <?php echo htmlspecialchars($t['roll_code']); ?></span>
-                                            <?php endif; ?>
                                         </td>
                                         <td><span class="<?php echo $typeBadgeClass; ?>" style="text-transform:capitalize;pointer-events:none;<?php echo $typeBadgeStyle; ?>"><?php echo $displayType; ?></span></td>
                                         <td style="text-align:right;">
@@ -1192,7 +1186,6 @@ if (isset($_GET['ajax'])) {
                 if (data.fifo_deductions && data.fifo_deductions.length > 0) {
                     let summary = 'FIFO Stock-Out Summary:\n\n';
                     data.fifo_deductions.forEach(d => {
-                        summary += `Roll: ${d.roll_code}\n`;
                         summary += `  Deducted: ${parseFloat(d.deducted).toFixed(2)} ft\n`;
                         summary += `  Was: ${parseFloat(d.was).toFixed(2)} ft → Now: ${parseFloat(d.now).toFixed(2)} ft`;
                         if (d.status === 'FINISHED') summary += ' (FINISHED)';

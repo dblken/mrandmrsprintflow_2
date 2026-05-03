@@ -345,7 +345,8 @@ function pf_product_sales_chart_family_sql(string $productAlias = 'p', string $i
 }
 
 /**
- * Branch/date-filtered paid store revenue by category-or-product bucket.
+ * Branch/date-filtered paid store revenue using only products that still exist
+ * on the Products Management list.
  *
  * @return list<array{category:string,items_sold:int|string,total:float|string}>
  */
@@ -378,12 +379,16 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
                     SUM(oi.quantity) AS items_sold,
                     SUM(oi.quantity * oi.unit_price) AS total
              FROM order_items oi
-             LEFT JOIN products p ON p.product_id = oi.product_id
+             JOIN products p
+               ON p.product_id = oi.product_id
+              AND p.status != 'Archived'
              JOIN orders o ON oi.order_id = o.order_id
              WHERE (
                  LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
                  OR o.status = 'Completed'
                )
+               AND NULLIF(TRIM(p.category), '') IS NOT NULL
+               AND LOWER(TRIM(p.category)) <> 'system'
                {$datePart} {$b}
              GROUP BY {$bucket}
             ORDER BY total DESC",
@@ -527,7 +532,7 @@ function pf_reports_merge_unknown_product_categories(array $rows): array {
         $catRows = db_query(
             "SELECT TRIM(category) AS category, TRIM(name) AS name
              FROM products
-             WHERE status = 'Activated'
+             WHERE status != 'Archived'
                AND NULLIF(TRIM(category), '') IS NOT NULL
                AND NULLIF(TRIM(name), '') IS NOT NULL
              ORDER BY category ASC, name ASC"
