@@ -265,7 +265,10 @@ function _ft_detect_social(string $url): array {
     }
     $chatbot_allowed_pages = ['index.php', 'about.php', 'services.php', 'products.php'];
     $is_customer_chatbot_page = $current_script_dir === 'customer';
-    $show_chatbot_widget = empty($hide_chatbot) && (
+    // Support chat is for customers / public site — not Manager panel or logged-in managers.
+    $is_manager_context = $current_script_dir === 'manager'
+        || (function_exists('is_manager') && is_manager());
+    $show_chatbot_widget = empty($hide_chatbot) && !$is_manager_context && (
         in_array($current_script_name, $chatbot_allowed_pages, true)
         || $is_customer_chatbot_page
     );
