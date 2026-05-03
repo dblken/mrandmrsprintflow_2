@@ -126,7 +126,9 @@ $params = [];
 $types = '';
 if ($branchId > 0) {
     if (InventoryManager::isMainBranch($branchId)) {
-        $sql .= " AND (t.branch_id = ? OR (t.branch_id IS NULL AND NOT {$productLikeExpr}))";
+        // Include rows with branch_id matching main OR unset branch_id. Omitting unset branch_id
+        // hid ORDER/ORDER_PRODUCT lines (still affecting stock); product #40 matched that path.
+        $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL)";
     } else {
         $sql .= " AND t.branch_id = ?";
     }

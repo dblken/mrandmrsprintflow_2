@@ -72,7 +72,7 @@ try {
             $types = '';
             if ($branchId > 0) {
                 if (InventoryManager::isMainBranch($branchId)) {
-                    $sql .= " AND (t.branch_id = ? OR (t.branch_id IS NULL AND NOT {$productLikeExpr}))";
+                    $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL)";
                 } else {
                     $sql .= " AND t.branch_id = ?";
                 }
