@@ -72,7 +72,7 @@ try {
             }
             $row['message'] = printflow_notification_display_message($row);
             $row['title'] = customer_notification_title((string)($row['type'] ?? ''), (string)($row['message'] ?? ''), $row);
-            $row['image'] = customer_notification_image_url($row, $fallback);
+            $row['image'] = customer_notification_image_url($row, $fallback, $user_id);
             $row['fallback'] = $fallback;
             $target = customer_notification_target_url($row);
             $row['link'] = ((int)($row['is_read'] ?? 0) === 0)

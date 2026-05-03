@@ -8,7 +8,7 @@
     var LAST_TOAST_ID_KEY      = 'pf_last_toast_notification_id';
     var AUTO_RESTORE_KEY       = 'pf_push_autorestore_attempted';
     var PROMPT_DISMISSED_KEY   = 'pf_push_prompt_dismissed';
-    var BADGE_SELECTOR         = '#sidebar-notif-badge, #nav-notif-badge, [data-notif-badge]';
+    var BADGE_SELECTOR         = '#sidebar-notif-badge, #nav-notif-badge';
 
     function normalizeBasePath(rawBase) {
         var base = String(rawBase || '').trim();
@@ -1279,6 +1279,8 @@
     }
 
     function reinit() {
+        clearTimeout(pollTimer);
+        pollTimer = null;
         initStarted = false;
         init();
     }

@@ -1584,10 +1584,9 @@ function get_unread_notification_count($user_id, $user_type) {
              WHERE customer_id = ? AND is_read = 0
              ORDER BY created_at DESC, notification_id DESC",
             'i',
-            [$user_id]
+            [(int)$user_id]
         ) ?: [];
-        $rows = printflow_collapse_duplicate_notifications_latest($rows);
-        return count($rows);
+        return count(printflow_collapse_duplicate_notifications_latest($rows));
     } else {
         $rows = db_query(
             "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
@@ -1654,7 +1653,7 @@ function get_customer_notifications_for_display($customer_id, $limit = 10, $offs
             $link = $base . '/customer/notifications.php?mark_read=' . (int)$row['notification_id'] . '&next=' . urlencode($target);
         }
 
-        $image = customer_notification_image_url($row, $default_image);
+        $image = customer_notification_image_url($row, $default_image, $customer_id);
 
         $notifications[] = [
             'notification_id' => (int)($row['notification_id'] ?? 0),
@@ -1884,7 +1883,12 @@ function customer_notification_target_url(array $notification) {
     return $base . '/customer/notifications.php';
 }
 
-function customer_notification_image_url(array $notification, string $fallback) {
+/**
+ * Resolve the thumbnail URL for a customer notification (order/design preview, uploaded ID photo, etc.).
+ *
+ * @param array<string,mixed> $notification
+ */
+function customer_notification_image_url(array $notification, string $fallback, ?int $viewer_customer_id = null): string {
     $resolved_fallback = trim($fallback);
     if ($resolved_fallback === '') {
         $resolved_fallback = printflow_notification_placeholder_image_url();
@@ -1897,15 +1901,47 @@ function customer_notification_image_url(array $notification, string $fallback) 
 
     $data_id = (int)($notification['data_id'] ?? 0);
     $type = strtolower((string)($notification['type'] ?? ''));
-    if ($data_id <= 0) {
-        return $resolved_fallback;
+    $message = (string)($notification['message'] ?? '');
+    $message_l = strtolower($message);
+
+    $order_hint = $data_id;
+    if ($order_hint <= 0 && preg_match('/order\s*#?(\d+)/i', $message, $om)) {
+        $order_hint = (int)$om[1];
     }
-    if ($type === 'job order') {
+
+    if ($type === 'job order' && $data_id > 0) {
         $preview = printflow_job_notification_preview($data_id);
-    } else {
-        $preview = printflow_order_notification_preview($data_id);
+        $img = trim((string)($preview['image_url'] ?? ''));
+        return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
     }
-    return ($preview['image_url'] ?: '') ?: $resolved_fallback;
+
+    if ($data_id > 0 || $order_hint > 0) {
+        $oid = $data_id > 0 ? $data_id : $order_hint;
+        $preview = printflow_order_notification_preview($oid);
+        $img = trim((string)($preview['image_url'] ?? ''));
+        return printflow_notification_normalize_media_url($img !== '' ? $img : $resolved_fallback);
+    }
+
+    $cid = $viewer_customer_id ?? (int)($notification['customer_id'] ?? 0);
+    if ($cid > 0 && customer_notification_should_use_id_image_thumbnail($message_l)) {
+        $id_thumb = trim((string)printflow_customer_id_notification_image_url($cid, ''));
+
+        return printflow_notification_normalize_media_url($id_thumb !== '' ? $id_thumb : $resolved_fallback);
+    }
+
+    return printflow_notification_normalize_media_url($resolved_fallback);
+}
+
+/**
+ * True when message is about customer ID verification (customer-facing); use uploaded ID thumbnail.
+ */
+function customer_notification_should_use_id_image_thumbnail(string $message_l): bool {
+    return str_contains($message_l, 'id verification')
+        || str_contains($message_l, 'id has been verified')
+        || str_contains($message_l, 'your id')
+        || str_contains($message_l, 'verified! you can now place orders')
+        || str_contains($message_l, 'submitted an id for verification')
+        || str_contains($message_l, 'resubmitted an id for verification');
 }
 
 
@@ -1979,17 +2015,18 @@ function printflow_push_media_payload(string $type, $data_id, string $message): 
 function printflow_customer_id_notification_image_url(int $customerId, string $fallback): string {
     $customerId = (int)$customerId;
     if ($customerId <= 0) {
-        return $fallback;
+        return trim($fallback);
     }
 
     $rows = db_query("SELECT id_image FROM customers WHERE customer_id = ? LIMIT 1", 'i', [$customerId]);
     $idImage = trim((string)($rows[0]['id_image'] ?? ''));
     if ($idImage === '') {
-        return $fallback;
+        return trim($fallback);
     }
 
     $base = printflow_notification_base_path();
-    return $base . '/uploads/ids/' . rawurlencode($idImage);
+
+    return printflow_notification_normalize_media_url($base . '/uploads/ids/' . rawurlencode($idImage));
 }
 
 function staff_admin_notification_image_url(array $notification, string $fallback): string {
