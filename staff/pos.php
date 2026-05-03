@@ -2592,6 +2592,12 @@ try {
             updateCheckoutState();
         }
 
+        /** Cash and GCash complete without a transaction reference (QR / over-the-counter flow). */
+        function posPaymentNeedsRefNumber(pm) {
+            const v = (pm || '').trim();
+            return v !== 'Cash' && v !== 'GCash';
+        }
+
         function closeGcashQr() {
             const qrModal = document.getElementById('gcash-qr-modal');
             if (qrModal) qrModal.style.display = 'none';
@@ -2655,9 +2661,9 @@ try {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const ref = '';
+            const ref = (document.getElementById('pos-payment-ref')?.value || '').trim();
 
-            if (pm !== 'Cash' && !ref) {
+            if (posPaymentNeedsRefNumber(pm) && !ref) {
                 canCheckout = false;
                 message = 'Enter Ref Number';
             }
@@ -2692,8 +2698,8 @@ try {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const ref = '';
-            if (pm !== 'Cash' && !ref) {
+            const ref = (document.getElementById('pos-payment-ref')?.value || '').trim();
+            if (posPaymentNeedsRefNumber(pm) && !ref) {
                 await showPOSAlert('Reference Required', "Reference number is required for " + pm, 'warning');
                 return;
             }
@@ -2721,7 +2727,7 @@ try {
                 action: 'walkin_checkout',
                 customer_id: $('#pos-customer').val(),
                 payment_method: pm,
-                reference_number: '',
+                reference_number: (document.getElementById('pos-payment-ref')?.value || '').trim(),
                 amount_tendered: tendered,
                 items: cart.map(i => ({
                     id: i.product_id,

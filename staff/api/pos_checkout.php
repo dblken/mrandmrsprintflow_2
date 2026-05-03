@@ -1,4 +1,4 @@
-Reference No. *<?php
+<?php
 /**
  * API: POS Checkout Process
  * Path: staff/api/pos_checkout.php
@@ -404,7 +404,9 @@ $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
 $items = $data['items'];
 
-if ($payment_method !== 'Cash' && empty($reference_number)) {
+$pm_lc = strtolower(trim($payment_method));
+$reference_required = ($pm_lc !== 'cash' && $pm_lc !== 'gcash');
+if ($reference_required && $reference_number === '') {
     echo json_encode(['success' => false, 'message' => "Reference number is required for $payment_method."]);
     exit;
 }
