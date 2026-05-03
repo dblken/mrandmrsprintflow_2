@@ -9,7 +9,7 @@ require_role('Admin');
 
 const PF_DELETE_CUSTOMER_ID = 25;
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
-const PF_DCO_TOOL_VERSION = '2026-05-03 v4';
+const PF_DCO_TOOL_VERSION = '2026-05-03 v5';
 
 function pf_dco_h($value): string
 {
@@ -169,15 +169,28 @@ function pf_dco_review_id_select_sql(): string
     return 'SELECT id FROM reviews WHERE order_id IN (' . pf_dco_order_id_select_sql() . ')';
 }
 
+function pf_dco_service_order_id_select_sql(): string
+{
+    return 'SELECT id FROM service_orders WHERE customer_id = ' . PF_DELETE_CUSTOMER_ID;
+}
+
 function pf_dco_base_scopes(): array
 {
     $orderSql = pf_dco_order_id_select_sql();
     $orderItemSql = pf_dco_order_item_id_select_sql();
     $reviewSql = pf_dco_review_id_select_sql();
+    $serviceOrderSql = pf_dco_service_order_id_select_sql();
 
     return [
         'orders' => [
             'table' => 'orders',
+            'depth' => 0,
+            'conditions' => [
+                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+            ],
+        ],
+        'service_orders' => [
+            'table' => 'service_orders',
             'depth' => 0,
             'conditions' => [
                 'customer_id = ' . PF_DELETE_CUSTOMER_ID,
@@ -245,6 +258,20 @@ function pf_dco_base_scopes(): array
             'depth' => 2,
             'conditions' => [
                 'review_id IN (' . $reviewSql . ')',
+            ],
+        ],
+        'service_order_details' => [
+            'table' => 'service_order_details',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $serviceOrderSql . ')',
+            ],
+        ],
+        'service_order_files' => [
+            'table' => 'service_order_files',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $serviceOrderSql . ')',
             ],
         ],
         'customizations' => [
@@ -614,10 +641,6 @@ function pf_dco_preview(): array
         }
         $counts[$table] = pf_dco_count_scope_rows($scope);
     }
-    $counts['service_orders'] = pf_dco_table_exists('service_orders')
-        ? (int)((db_query("SELECT COUNT(*) AS c FROM service_orders WHERE customer_id = ?", 'i', [PF_DELETE_CUSTOMER_ID])[0]['c'] ?? 0))
-        : 0;
-
     return [
         'customer' => $customer[0] ?? null,
         'orders' => $orders,
@@ -818,6 +841,7 @@ $preview = pf_dco_preview();
 $customer = $preview['customer'];
 $orders = $preview['orders'];
 $counts = $preview['counts'];
+$hasDeleteTargets = (($counts['orders'] ?? 0) > 0) || (($counts['service_orders'] ?? 0) > 0);
 $activeBatch = pf_dco_latest_active_batch();
 $recentBatches = pf_dco_recent_batches();
 
@@ -831,7 +855,7 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="px-6 py-5 border-b border-gray-200">
                 <h1 class="text-2xl font-bold text-gray-900">Delete Customer 25 Orders Tool</h1>
                 <p class="text-sm text-gray-600 mt-2">
-                    Temporary admin maintenance page for removing the regular order transaction records of customer ID <strong>25</strong>.
+                    Temporary admin maintenance page for removing the order transaction records of customer ID <strong>25</strong>, including regular and service order records.
                 </p>
                 <p class="text-xs text-gray-500 mt-2">
                     Tool version: <span class="font-mono"><?php echo pf_dco_h(PF_DCO_TOOL_VERSION); ?></span>
@@ -868,7 +892,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-4">
                     <div class="font-semibold text-amber-900">Warning</div>
                     <p class="text-sm text-amber-800 mt-1">
-                        Delete permanently removes regular <code>orders</code> rows for customer 25 plus linked records like order items, messages, notes, reviews, and job orders. The rollback button restores the latest saved delete batch from this page.
+                        Delete permanently removes customer 25 order rows from <code>orders</code> and <code>service_orders</code> plus linked records like order items, messages, notes, reviews, job orders, and service order files/details. The rollback button restores the latest saved delete batch from this page.
                     </p>
                 </div>
 
@@ -895,11 +919,6 @@ require_once __DIR__ . '/../includes/header.php';
                                 <div><?php echo (int)$count; ?></div>
                             <?php endforeach; ?>
                         </div>
-                        <?php if (($counts['service_orders'] ?? 0) > 0): ?>
-                            <p class="text-xs text-gray-500 mt-3">
-                                <code>service_orders</code> are shown for awareness only and are not deleted by this tool.
-                            </p>
-                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -939,7 +958,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
                     <h2 class="text-lg font-semibold text-gray-900 mb-3">Orders To Be Deleted</h2>
                     <?php if (empty($orders)): ?>
-                        <div class="text-sm text-gray-600">No regular orders currently found for customer 25.</div>
+                        <div class="text-sm text-gray-600">No regular <code>orders</code> currently found for customer 25.</div>
                     <?php else: ?>
                         <div class="overflow-x-auto">
                             <table class="min-w-full text-sm">
@@ -967,15 +986,15 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="flex flex-wrap gap-3">
-                    <form method="post" onsubmit="return confirm('Delete all regular order transaction data for customer ID 25? A rollback batch will be saved first.');">
+                    <form method="post" onsubmit="return confirm('Delete all regular and service order transaction data for customer ID 25? A rollback batch will be saved first.');">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="delete_customer_25_orders" value="1">
                         <button
                             type="submit"
                             class="inline-flex items-center px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold transition"
-                            <?php echo (!$customer || empty($orders)) ? 'disabled style="opacity:.6;cursor:not-allowed;"' : ''; ?>
+                            <?php echo (!$customer || !$hasDeleteTargets) ? 'disabled style="opacity:.6;cursor:not-allowed;"' : ''; ?>
                         >
-                            Delete Customer 25 Order Transactions
+                            Delete Customer 25 Orders and Service Orders
                         </button>
                     </form>
 
