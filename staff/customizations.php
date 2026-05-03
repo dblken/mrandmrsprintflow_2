@@ -1913,10 +1913,10 @@ if ($showLatestCustomizationOnly) {
                                 <div style="font-size:12px; color:#075985;">The customer has uploaded a new design file. Please review and approve.</div>
                             </div>
                             <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">
-                                <div x-show="staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)"
-                                     @click="previewFile = staffEffectiveDesignOpenUrl(revItem)"
+                                <div x-show="(staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)) || (revItem.revision_design_url && staffFilenameLooksLikeImage(revItem.revision_design_name))"
+                                     @click="previewFile = revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
                                      style="flex-shrink:0; cursor:zoom-in;">
-                                    <img :src="staffEffectiveDesignOpenUrl(revItem)"
+                                    <img :src="revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
                                          alt="Revised design preview"
                                          style="display:block; max-width:min(100%, 220px); max-height:140px; object-fit:contain; border-radius:10px; border:1px solid #bae6fd; background:#fff; box-shadow:0 2px 8px rgba(2,132,199,0.12);"
                                          onerror="this.style.display='none'">
@@ -3029,8 +3029,16 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             staffEffectiveDesignOpenUrl(item) {
                 if (!item) return '';
+                
+                // Priority 1: Check for revision design URL (newly uploaded revision)
+                const revisionUrl = (item.revision_design_url || '').trim();
+                if (revisionUrl) return this.staffResolveMediaUrl(revisionUrl);
+                
+                // Priority 2: Check for standard design URL from API
                 const fromApi = (item.design_open_url || item.design_url || '').trim();
                 if (fromApi) return this.staffResolveMediaUrl(fromApi);
+                
+                // Priority 3: Fallback to serve_design.php if we have order_item_id and filename
                 if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
