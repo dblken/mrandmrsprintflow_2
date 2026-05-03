@@ -217,17 +217,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
         $middle_name = ucwords(strtolower(trim($middle_name)));
         $last_name = ucwords(strtolower(trim($last_name)));
         
-        // Letters and spaces only; input length is capped by maxlength in the form
+        // Name validation: letters and spaces only
         $nameRegex = '/^[A-Za-z]+(?: [A-Za-z]+)*$/';
         $contactRegex = '/^09\d{9}$/';
         
         // Backend strong validation
-        if (empty($first_name) || !preg_match($nameRegex, $first_name)) {
+        if (empty($first_name)) {
+            $error = 'First name is required.';
+        } elseif (!preg_match($nameRegex, $first_name)) {
             $error = 'First name must contain letters only.';
+        } elseif (strlen($first_name) < 2 || strlen($first_name) > 50) {
+            $error = 'First name must be between 2 and 50 characters.';
         } elseif (!empty($middle_name) && !preg_match($nameRegex, $middle_name)) {
             $error = 'Middle name must contain letters only.';
-        } elseif (empty($last_name) || !preg_match($nameRegex, $last_name)) {
+        } elseif (!empty($middle_name) && (strlen($middle_name) < 1 || strlen($middle_name) > 50)) {
+            $error = 'Middle name must be between 1 and 50 characters.';
+        } elseif (empty($last_name)) {
+            $error = 'Last name is required.';
+        } elseif (!preg_match($nameRegex, $last_name)) {
             $error = 'Last name must contain letters only.';
+        } elseif (strlen($last_name) < 2 || strlen($last_name) > 50) {
+            $error = 'Last name must be between 2 and 50 characters.';
         } elseif (empty($contact_number) || !preg_match($contactRegex, $contact_number)) {
             $error = 'Contact number must follow format 09XXXXXXXXX.';
         } elseif (empty($dob) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob)) {
