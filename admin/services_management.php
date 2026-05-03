@@ -9,6 +9,9 @@ require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
 require_role(['Admin', 'Manager']);
 
+/** Manager: services list is read-only (view + filter/sort only). */
+$pf_manager_services_readonly = defined('MANAGER_PANEL') && MANAGER_PANEL;
+
 $base_path = pf_app_base_path();
 $current_user = get_logged_in_user();
 $error = '';
@@ -95,6 +98,11 @@ function printflow_canonical_service_category(string $category): ?string {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    if ($pf_manager_services_readonly) {
+        http_response_code(403);
+        exit('Forbidden');
+    }
+
     // Handle file uploads
     $uploaded_images = [];
     $uploaded_video = '';
@@ -283,6 +291,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
 // Archived list (modal)
 if (isset($_GET['get_archived'])) {
+    if ($pf_manager_services_readonly) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'html' => '', 'forbidden' => true]);
+        exit;
+    }
     header('Content-Type: application/json');
     $archived = db_query("SELECT * FROM services WHERE status = 'Archived' ORDER BY updated_at DESC") ?: [];
 
@@ -390,7 +403,7 @@ $order_clause = match ($sort_by) {
 $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $services = db_query($sql, $types ?: null, $params ?: null) ?: [];
 
-$page_title = 'Services Management - Admin';
+$page_title = $pf_manager_services_readonly ? 'Services' : 'Services Management - Admin';
 
 $stat_total = db_query("SELECT COUNT(*) as c FROM services WHERE status != 'Archived'")[0]['c'] ?? 0;
 $stat_active = db_query("SELECT COUNT(*) as c FROM services WHERE status='Activated'")[0]['c'] ?? 0;
@@ -429,6 +442,7 @@ function pf_admin_service_row_json(array $svc): string {
 }
 
 function render_services_table_rows(array $services): void {
+    $readonly = defined('MANAGER_PANEL') && MANAGER_PANEL;
     ?>
     <table class="orders-table">
         <thead>
@@ -462,6 +476,9 @@ function render_services_table_rows(array $services): void {
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo htmlspecialchars($svc['status']); ?></span>
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
+                            <?php if ($readonly): ?>
+                            <button type="button" class="btn-action blue" onclick="event.stopPropagation(); openViewModal(pfParseServiceRow(this))">View</button>
+                            <?php else: ?>
                             <button type="button" class="btn-action blue" onclick="event.stopPropagation(); openServiceModal(&quot;edit&quot;, pfParseServiceRow(this))">Edit</button>
                             <a href="service_field_config.php?service_id=<?php echo (int)$svc['service_id']; ?>" class="btn-action" style="color:#059669;border-color:#059669;text-decoration:none;" title="Configure service fields">Fields</a>
                             <?php if ($svc['status'] !== 'Archived'): ?>
@@ -485,6 +502,7 @@ function render_services_table_rows(array $services): void {
                                     <input type="hidden" name="service_id" value="<?php echo (int)$svc['service_id']; ?>">
                                     <button type="submit" name="restore_service" class="btn-action teal">Restore</button>
                                 </form>
+                            <?php endif; ?>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -612,7 +630,7 @@ if (isset($_GET['ajax'])) {
     }
     ?>
     <div class="main-content">
-        <header><h1 class="page-title">Services Management</h1></header>
+        <header><h1 class="page-title"><?php echo $pf_manager_services_readonly ? 'Services' : 'Services Management'; ?></h1></header>
         <main>
             <?php if ($success): ?>
                 <div style="background:#f0fdf4;border:1px solid #86efac;color:#166534;padding:12px 16px;border-radius:8px;margin-bottom:16px;">✓ <?php echo htmlspecialchars($success); ?></div>
@@ -621,7 +639,7 @@ if (isset($_GET['ajax'])) {
                 <div style="background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;padding:12px 16px;border-radius:8px;margin-bottom:16px;">✗ <?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <div class="kpi-row">
+            <div class="kpi-row" style="<?php echo $pf_manager_services_readonly ? 'grid-template-columns:repeat(3,1fr);' : ''; ?>">
                 <div class="kpi-card indigo">
                     <div class="kpi-label">Total Services</div>
                     <div class="kpi-value"><?php echo (int)$stat_total; ?></div>
@@ -637,22 +655,26 @@ if (isset($_GET['ajax'])) {
                     <div class="kpi-value"><?php echo (int)$stat_inactive; ?></div>
                     <div class="kpi-sub">Hidden from default flows</div>
                 </div>
+                <?php if (!$pf_manager_services_readonly): ?>
                 <div class="kpi-card slate">
                     <div class="kpi-label">Archived</div>
                     <div class="kpi-value"><?php echo (int)$stat_archived; ?></div>
                     <div class="kpi-sub">In archive storage</div>
                 </div>
+                <?php endif; ?>
             </div>
 
             <div class="card">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;" x-data="filterPanel()">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;" id="servicesListHeader">Service List</h3>
                     <div style="display:flex;align-items:center;gap:8px;">
+                        <?php if (!$pf_manager_services_readonly): ?>
                         <button class="toolbar-btn" type="button" onclick="openServiceModal('create')" style="height:38px;border-color:#3b82f6;color:#3b82f6;">Add Service</button>
                         <button class="toolbar-btn" type="button" onclick="window.openArchiveModal()" style="height:38px;border-color:#6b7280;color:#6b7280;display:flex;align-items:center;gap:6px;">
                             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
                             Archived
                         </button>
+                        <?php endif; ?>
                         <div style="position:relative;">
                             <button type="button" class="toolbar-btn" :class="{active: sortOpen || (activeSort !== 'newest')}" @click="sortOpen = !sortOpen; filterOpen = false" style="height:38px;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
@@ -746,6 +768,7 @@ if (isset($_GET['ajax'])) {
 </div>
 
 <!-- Confirm modal (z-index above printflow_form_guard overlays at 10030+) -->
+<?php if (!$pf_manager_services_readonly): ?>
 <div id="serviceStatusConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10100;align-items:center;justify-content:center;padding:16px;flex-wrap:wrap;">
     <div style="background:white;border-radius:16px;padding:26px;max-width:420px;width:100%;box-shadow:0 25px 50px rgba(0,0,0,0.25);text-align:center;position:relative;z-index:1;" role="dialog" aria-modal="true" aria-labelledby="serviceStatusConfirmTitle" onclick="event.stopPropagation();">
         <h3 id="serviceStatusConfirmTitle" style="font-size:18px;font-weight:700;margin:0 0 8px;">Confirm</h3>
@@ -759,8 +782,10 @@ if (isset($_GET['ajax'])) {
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <!-- Add/Edit -->
+<?php if (!$pf_manager_services_readonly): ?>
 <div id="service-modal-overlay" onclick="handleOverlayClick(event)">
     <div id="service-modal" onclick="event.stopPropagation();">
         <div class="modal-header">
@@ -876,6 +901,7 @@ if (isset($_GET['ajax'])) {
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <!-- View -->
 <div id="view-service-modal-overlay" onclick="handleViewOverlayClick(event)">
@@ -904,6 +930,7 @@ if (isset($_GET['ajax'])) {
 </div>
 
 <!-- Archive modal (z-index above form-guard / sidebar layers) -->
+<?php if (!$pf_manager_services_readonly): ?>
 <div id="archive-storage-overlay" role="dialog" aria-modal="true" aria-labelledby="archive-services-title" onclick="if (event.target === this) window.closeArchiveModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10090;align-items:center;justify-content:center;padding:16px;pointer-events:auto;">
     <div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 50px rgba(0,0,0,0.25);pointer-events:auto;">
         <div style="padding:20px 24px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
@@ -920,8 +947,10 @@ if (isset($_GET['ajax'])) {
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <script>
+window.PF_SERVICES_MANAGER_VIEW_ONLY = <?php echo $pf_manager_services_readonly ? 'true' : 'false'; ?>;
 window.PF_DEFAULT_SERVICE_MODAL_TEXT = <?php echo json_encode(printflow_default_customer_service_modal_text(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_SERVICE_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_allowed_service_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_BASE_PATH = <?php echo json_encode($base_path); ?>;
@@ -1146,6 +1175,7 @@ function toggleFieldConfig() {
 }
 
 function openServiceModal(mode, svc) {
+    if (window.PF_SERVICES_MANAGER_VIEW_ONLY) return;
     const overlay = document.getElementById('service-modal-overlay');
     const title = document.getElementById('modal-title');
     const modeInput = document.getElementById('modal-mode-input');
@@ -1383,12 +1413,14 @@ document.addEventListener('keydown', function (e) {
             if (typeof window.closeArchiveModal === 'function') window.closeArchiveModal();
             return;
         }
-        if (document.getElementById('serviceStatusConfirmModal').style.display === 'flex') closeServiceStatusModal();
+        var confirmModal = document.getElementById('serviceStatusConfirmModal');
+        if (confirmModal && confirmModal.style.display === 'flex') closeServiceStatusModal();
         else { closeServiceModal(); closeViewModal(); }
     }
 });
 
 window.openArchiveModal = function openArchiveModal() {
+    if (window.PF_SERVICES_MANAGER_VIEW_ONLY) return;
     var el = document.getElementById('archive-storage-overlay');
     if (!el) return;
     el.style.display = 'flex';
