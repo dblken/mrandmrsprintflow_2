@@ -9,7 +9,7 @@ require_role('Admin');
 
 const PF_DELETE_CUSTOMER_IDS = [25, 296, 295, 288, 3, 1];
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
-const PF_DCO_TOOL_VERSION = '2026-05-03 v6';
+const PF_DCO_TOOL_VERSION = '2026-05-03 v7';
 const PF_DCO_RESTORE_SINGLE_CUSTOMER_ID = 1;
 
 function pf_dco_h($value): string
@@ -17,9 +17,39 @@ function pf_dco_h($value): string
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }
 
+function pf_dco_parse_customer_ids(string $raw): array
+{
+    $parts = preg_split('/[^0-9]+/', $raw) ?: [];
+    $ids = [];
+    foreach ($parts as $part) {
+        $id = (int)$part;
+        if ($id > 0) {
+            $ids[] = $id;
+        }
+    }
+    $ids = array_values(array_unique($ids));
+    return $ids;
+}
+
+function pf_dco_set_runtime_targets(array $customerIds, ?int $restoreCustomerId = null): void
+{
+    $customerIds = array_values(array_unique(array_filter(array_map('intval', $customerIds), static fn(int $id): bool => $id > 0)));
+    if ($customerIds === []) {
+        $customerIds = PF_DELETE_CUSTOMER_IDS;
+    }
+
+    $GLOBALS['pf_dco_runtime_customer_ids'] = $customerIds;
+    if ($restoreCustomerId !== null && $restoreCustomerId > 0) {
+        $GLOBALS['pf_dco_runtime_restore_customer_id'] = $restoreCustomerId;
+    } else {
+        unset($GLOBALS['pf_dco_runtime_restore_customer_id']);
+    }
+}
+
 function pf_dco_target_customer_ids(): array
 {
-    $ids = array_values(array_unique(array_map('intval', PF_DELETE_CUSTOMER_IDS)));
+    $source = $GLOBALS['pf_dco_runtime_customer_ids'] ?? PF_DELETE_CUSTOMER_IDS;
+    $ids = array_values(array_unique(array_map('intval', is_array($source) ? $source : PF_DELETE_CUSTOMER_IDS)));
     return array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
 }
 
@@ -40,7 +70,8 @@ function pf_dco_target_customer_label(): string
 
 function pf_dco_restore_single_customer_id(): int
 {
-    return PF_DCO_RESTORE_SINGLE_CUSTOMER_ID;
+    $runtime = (int)($GLOBALS['pf_dco_runtime_restore_customer_id'] ?? 0);
+    return $runtime > 0 ? $runtime : PF_DCO_RESTORE_SINGLE_CUSTOMER_ID;
 }
 
 function pf_dco_table_exists(string $table): bool
@@ -1172,6 +1203,13 @@ function pf_dco_restore_single_customer_latest_batch(int $customerId): array
     }
 }
 
+$requestedCustomerIds = pf_dco_parse_customer_ids((string)($_POST['customer_ids'] ?? $_GET['customer_ids'] ?? ''));
+$requestedRestoreCustomerId = (int)($_POST['restore_customer_id'] ?? $_GET['restore_customer_id'] ?? 0);
+if ($requestedRestoreCustomerId > 0 && !in_array($requestedRestoreCustomerId, $requestedCustomerIds, true)) {
+    $requestedCustomerIds[] = $requestedRestoreCustomerId;
+}
+pf_dco_set_runtime_targets($requestedCustomerIds, $requestedRestoreCustomerId > 0 ? $requestedRestoreCustomerId : null);
+
 $result = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -1199,6 +1237,8 @@ $counts = $preview['counts'];
 $hasDeleteTargets = (($counts['orders'] ?? 0) > 0) || (($counts['service_orders'] ?? 0) > 0);
 $activeBatch = pf_dco_latest_active_batch();
 $recentBatches = pf_dco_recent_batches();
+$targetCustomerIdsField = pf_dco_target_customer_label();
+$restoreCustomerIdField = (string)pf_dco_restore_single_customer_id();
 
 $page_title = 'Delete Customer Orders Tool';
 require_once __DIR__ . '/../includes/header.php';
@@ -1248,6 +1288,43 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="font-semibold text-amber-900">Warning</div>
                     <p class="text-sm text-amber-800 mt-1">
                         Delete permanently removes order rows for customer IDs <?php echo pf_dco_h(pf_dco_target_customer_label()); ?> from <code>orders</code> and <code>service_orders</code> plus linked records like order items, messages, notes, reviews, job orders, and service order files/details. The rollback button restores the latest saved delete batch from this page.
+                    </p>
+                </div>
+
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <h2 class="text-lg font-semibold text-gray-900 mb-3">Target Controls</h2>
+                    <form method="get" class="grid md:grid-cols-3 gap-3 items-end">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Customer IDs</label>
+                            <input
+                                type="text"
+                                name="customer_ids"
+                                value="<?php echo pf_dco_h($targetCustomerIdsField); ?>"
+                                placeholder="e.g. 25 or 25,296,1"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            >
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Restore Customer ID</label>
+                            <input
+                                type="text"
+                                name="restore_customer_id"
+                                value="<?php echo pf_dco_h($restoreCustomerIdField); ?>"
+                                placeholder="e.g. 1"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            >
+                        </div>
+                        <div>
+                            <button
+                                type="submit"
+                                class="inline-flex items-center px-5 py-3 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 font-semibold transition"
+                            >
+                                Load IDs
+                            </button>
+                        </div>
+                    </form>
+                    <p class="text-xs text-gray-500 mt-3">
+                        Use one customer ID for a single customer, or comma-separated IDs for a batch delete. The restore action restores only the single restore ID from the latest batch for the currently loaded customer IDs.
                     </p>
                 </div>
 
@@ -1350,6 +1427,8 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="flex flex-wrap gap-3">
                     <form method="post" onsubmit="return confirm('Delete all regular and service order transaction data for customer IDs <?php echo pf_dco_h(pf_dco_target_customer_label()); ?>? A rollback batch will be saved first.');">
                         <?php echo csrf_field(); ?>
+                        <input type="hidden" name="customer_ids" value="<?php echo pf_dco_h($targetCustomerIdsField); ?>">
+                        <input type="hidden" name="restore_customer_id" value="<?php echo pf_dco_h($restoreCustomerIdField); ?>">
                         <input type="hidden" name="delete_customer_25_orders" value="1">
                         <button
                             type="submit"
@@ -1362,6 +1441,8 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <form method="post" onsubmit="return confirm('Rollback the latest delete batch for customer IDs <?php echo pf_dco_h(pf_dco_target_customer_label()); ?>?');">
                         <?php echo csrf_field(); ?>
+                        <input type="hidden" name="customer_ids" value="<?php echo pf_dco_h($targetCustomerIdsField); ?>">
+                        <input type="hidden" name="restore_customer_id" value="<?php echo pf_dco_h($restoreCustomerIdField); ?>">
                         <input type="hidden" name="rollback_customer_25_orders" value="1">
                         <button
                             type="submit"
@@ -1374,6 +1455,8 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <form method="post" onsubmit="return confirm('Restore only customer ID <?php echo (int)pf_dco_restore_single_customer_id(); ?> from the latest delete batch?');">
                         <?php echo csrf_field(); ?>
+                        <input type="hidden" name="customer_ids" value="<?php echo pf_dco_h($targetCustomerIdsField); ?>">
+                        <input type="hidden" name="restore_customer_id" value="<?php echo pf_dco_h($restoreCustomerIdField); ?>">
                         <input type="hidden" name="restore_customer_1_orders" value="1">
                         <button
                             type="submit"
