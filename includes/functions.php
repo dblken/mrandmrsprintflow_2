@@ -1768,6 +1768,50 @@ function printflow_collapse_duplicate_notifications_latest(array $rows): array {
 }
 
 /**
+ * Government ID / account verification copy (must run before loose "order" heuristics — "place orders" contains "order").
+ */
+function customer_notification_is_id_verification_message(string $message_l): bool {
+    if ($message_l === '') {
+        return false;
+    }
+
+    return str_contains($message_l, 'id verification')
+        || str_contains($message_l, 'id has been verified')
+        || str_contains($message_l, 'your id')
+        || str_contains($message_l, 'verified! you can now place orders')
+        || str_contains($message_l, 'submitted an id for verification')
+        || str_contains($message_l, 'resubmitted an id for verification')
+        || str_contains($message_l, 'id verification was rejected')
+        || (
+            str_contains($message_l, 'verification was rejected')
+            && (str_contains($message_l, 'your id') || str_contains($message_l, 'id verification'))
+        );
+}
+
+/**
+ * True when the body reads like an order lifecycle message (not generic "orders" wording).
+ */
+function customer_notification_message_suggests_order_topic(string $message_l): bool {
+    if ($message_l === '') {
+        return false;
+    }
+    if (customer_notification_is_id_verification_message($message_l)) {
+        return false;
+    }
+
+    return (bool) preg_match(
+        '/\border\s*#?\s*\d+|\border\s+\d+\b|\bnew\s+order\b|\byour\s+order\b|' .
+        '\bplaced\s+(?:an?\s+)?order\b|\border\s+(?:has|was|is|been)\b|' .
+        '\border\s+(?:confirmation|received|placed|updated|ready|completed|processing|shipped|delivered|cancel(?:led|ed))\b|' .
+        '\border\s+for\b|\bjob\s+order\b|\btrack\s+(?:your\s+)?order\b|\border\s+status\b|' .
+        '\border\s+(?:processing|picked|printed|waiting)\b|' .
+        '\bsubmit(?:ted)?\s+(?:an?\s+)?order\b|' .
+        '\border\s+(?:received|accepted)\b/iu',
+        $message_l
+    );
+}
+
+/**
  * Generate a customer-facing notification title.
  * Accepts an optional $notification array so we can enrich the title with
  * the real service/product name from the linked order.
@@ -1775,6 +1819,7 @@ function printflow_collapse_duplicate_notifications_latest(array $rows): array {
 function customer_notification_title($type, $message, array $notification = []) {
     $type    = (string)$type;
     $message_l = strtolower((string)$message);
+    $type_l  = strtolower($type);
 
     if (strpos($message_l, 'support chat') !== false || strpos($message_l, 'chatbot') !== false) {
         return 'Support chat update';
@@ -1808,7 +1853,15 @@ function customer_notification_title($type, $message, array $notification = []) 
     if ($type === 'Design' || strpos($message_l, 'design') !== false || strpos($message_l, 'revision') !== false) {
         return 'Design update';
     }
-    if ($type === 'Order' || $type === 'Job Order' || strpos($message_l, 'order') !== false) {
+
+    if (customer_notification_is_id_verification_message($message_l)) {
+        return 'ID verification';
+    }
+
+    $is_orderish_type = $type === 'Order' || $type === 'Job Order' || $type === 'Status'
+        || in_array($type_l, ['order', 'job order', 'status'], true);
+
+    if ($is_orderish_type || customer_notification_message_suggests_order_topic($message_l)) {
         // Also try to surface the service/product name for order status updates
         $data_id = (int)($notification['data_id'] ?? 0);
         if ($data_id > 0) {
@@ -1818,7 +1871,7 @@ function customer_notification_title($type, $message, array $notification = []) 
                 return $name;
             }
         }
-        return 'Order update';
+        return ($type === 'Status' || $type_l === 'status') ? 'Status update' : 'Order update';
     }
     if ($type === 'Status') {
         return 'Status update';
@@ -1936,12 +1989,7 @@ function customer_notification_image_url(array $notification, string $fallback, 
  * True when message is about customer ID verification (customer-facing); use uploaded ID thumbnail.
  */
 function customer_notification_should_use_id_image_thumbnail(string $message_l): bool {
-    return str_contains($message_l, 'id verification')
-        || str_contains($message_l, 'id has been verified')
-        || str_contains($message_l, 'your id')
-        || str_contains($message_l, 'verified! you can now place orders')
-        || str_contains($message_l, 'submitted an id for verification')
-        || str_contains($message_l, 'resubmitted an id for verification');
+    return customer_notification_is_id_verification_message($message_l);
 }
 
 
