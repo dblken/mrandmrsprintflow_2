@@ -172,6 +172,11 @@ try {
     $top_products_full = [];
 }
 
+$dashboard_sales_bar = !empty($category_sales)
+    ? array_slice($category_sales, 0, 8)
+    : array_slice($top_products_full, 0, 8);
+$dashboard_sales_bar_is_category = !empty($category_sales);
+
 $customer_locations = [];
 try {
     $locFrom = date('Y-m-d', strtotime('-30 days'));
@@ -496,7 +501,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
                         Best Selling Services
                     </div>
-                    <?php if (!empty($top_products_full)): ?>
+                    <?php if (!empty($dashboard_sales_bar)): ?>
                     <div class="products-chart"><div id="productsChart"></div></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product data</div>
@@ -1034,16 +1039,24 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         })();
         <?php endif; ?>
 
-        <?php if (!empty($top_products_full)): ?>
+        <?php if (!empty($dashboard_sales_bar)): ?>
         (function () {
             var el = document.getElementById('productsChart');
             if (!el || typeof ApexCharts === 'undefined') return;
             bindWhenVisible(el.parentElement, function () {
                 var chart = new ApexCharts(el, {
                     chart: { type: 'bar', height: 300, toolbar: { show: false } },
-                    series: [{ name: 'Sales (₱)', data: <?php echo json_encode(array_map(fn($p) => round((float)($p['revenue'] ?? 0), 2), array_slice($top_products_full, 0, 8))); ?> }],
+                    series: [{ name: 'Sales (₱)', data: <?php echo json_encode(array_map(function ($r) {
+                        return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2);
+                    }, $dashboard_sales_bar)); ?> }],
                     xaxis: {
-                        categories: <?php echo json_encode(array_map(fn($p) => mb_substr($p['product_name'], 0, 20), array_slice($top_products_full, 0, 8))); ?>,
+                        categories: <?php echo json_encode(array_map(function ($r) use ($dashboard_sales_bar_is_category) {
+                            if ($dashboard_sales_bar_is_category) {
+                                $label = trim((string)($r['category'] ?? ''));
+                                return mb_substr($label !== '' ? $label : 'Uncategorized product', 0, 20);
+                            }
+                            return mb_substr((string)($r['product_name'] ?? ''), 0, 20);
+                        }, $dashboard_sales_bar)); ?>,
                         labels: { style: { fontSize: '11px' } }
                     },
                     yaxis: { labels: { maxWidth: 160, style: { fontSize: '11px' } } },
