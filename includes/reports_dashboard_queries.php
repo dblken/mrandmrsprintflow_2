@@ -108,14 +108,29 @@ function pf_product_sales_chart_item_label_sql(
 }
 
 /**
+ * Catalog categories named only "Stickers" / "Sticker" often aggregate many SKUs into one
+ * chart wedge. Match those rows so we bucket by product line instead (totals unchanged).
+ */
+function pf_product_sales_chart_sticker_only_category_sql(string $productAlias = 'p'): string {
+    $p = pf_reports_sql_alias($productAlias, 'p');
+    return "(NULLIF(TRIM({$p}.category), '') IS NOT NULL
+              AND LOWER(TRIM({$p}.category)) IN ('stickers', 'sticker'))";
+}
+
+/**
  * SQL GROUP BY expression for "Sales by Product Category" charts:
  * — Rows with a non-empty catalog `products.category` aggregate under that category.
+ * — Generic "Stickers"/"Sticker" categories split per product so one sector is not inflated.
  * — Uncategorized rows stay under each `product_id` so unrelated products are never merged
  *   via material/name fallbacks (legacy / retired SKUs stay on their own product).
  */
 function pf_product_sales_chart_bucket_sql(): string {
     $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi');
+    $stickerCat = pf_product_sales_chart_sticker_only_category_sql('p');
     return "CASE
+                WHEN {$stickerCat}
+                    THEN CONCAT('stick:',
+                        COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('pid:', COALESCE(oi.product_id, 0))))
                 WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN CONCAT('cat:', TRIM(p.category))
                 WHEN COALESCE(oi.product_id, 0) > 0 THEN CONCAT('pid:', oi.product_id)
                 ELSE CONCAT('label:', {$itemLabel})
@@ -125,7 +140,10 @@ function pf_product_sales_chart_bucket_sql(): string {
 /** SELECT list expression for the human-readable slice label (paired with bucket SQL). */
 function pf_product_sales_chart_label_sql(): string {
     $itemLabel = pf_product_sales_chart_item_label_sql('p', 'oi');
+    $stickerCat = pf_product_sales_chart_sticker_only_category_sql('p');
     return "MAX(CASE
+                   WHEN {$stickerCat}
+                       THEN COALESCE(NULLIF(TRIM(p.name), ''), CONCAT('Product #', COALESCE(oi.product_id, 0)))
                    WHEN NULLIF(TRIM(p.category), '') IS NOT NULL THEN TRIM(p.category)
                    ELSE {$itemLabel}
                END)";
