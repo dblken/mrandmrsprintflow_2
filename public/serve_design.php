@@ -137,14 +137,21 @@ if ($type === 'order_item') {
     }
 
     // 2. Get data
-    $item = db_query("SELECT design_image, design_image_mime, design_file, reference_image_file FROM order_items WHERE order_item_id = ?", 'i', [$id])[0] ?? null;
+    $item = db_query("SELECT design_image, design_image_mime, design_file, reference_image_file, revision_design_name, revision_design_path FROM order_items WHERE order_item_id = ?", 'i', [$id])[0] ?? null;
 
     if (!$item) {
         http_response_code(404);
         die('Item not found');
     }
 
-    if ($field === 'reference') {
+    if ($field === 'revision_design') {
+        // Serve revision design if it exists
+        if (pf_serve_design_read_file($item['revision_design_path'] ?? '')) {
+            exit;
+        }
+        http_response_code(404);
+        die('Revision design not found');
+    } elseif ($field === 'reference') {
         if (pf_serve_design_read_file($item['reference_image_file'] ?? '')) {
             exit;
         }

@@ -914,6 +914,19 @@ try {
                 'reference_url' => $reference_name ? (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . (int)($cust['order_item_id'] ?? 0) . '&field=reference' : null,
             ]];
 
+            // Check for revision design
+            if (!empty($cust['order_item_id'])) {
+                $revisionDesignRow = db_query(
+                    "SELECT revision_design_name, revision_design_path FROM order_items WHERE order_item_id = ? LIMIT 1",
+                    'i',
+                    [(int)$cust['order_item_id']]
+                ) ?: [];
+                if (!empty($revisionDesignRow) && !empty($revisionDesignRow[0]['revision_design_name'])) {
+                    $items[0]['revision_design_name'] = $revisionDesignRow[0]['revision_design_name'];
+                    $items[0]['revision_design_url'] = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . (int)$cust['order_item_id'] . '&field=revision_design';
+                }
+            }
+
             $summary = printflow_customization_summary($details, $cust['service_type'] ?? 'Service');
             $items[0]['product_name'] = $summary['job_title'];
             $items[0]['quantity'] = $summary['quantity'];
