@@ -103,6 +103,33 @@ function pf_dco_exec_raw_affected(string $sql): int
     return (int)$conn->affected_rows;
 }
 
+function pf_dco_begin_transaction(): void
+{
+    global $conn;
+
+    if (!$conn->begin_transaction()) {
+        throw new RuntimeException('Could not start the delete transaction: ' . $conn->error);
+    }
+}
+
+function pf_dco_commit_transaction(): void
+{
+    global $conn;
+
+    if (!$conn->commit()) {
+        throw new RuntimeException('Could not commit the delete transaction: ' . $conn->error);
+    }
+}
+
+function pf_dco_rollback_transaction(): void
+{
+    global $conn;
+
+    if (!$conn->rollback()) {
+        error_log('delete_customer_25_orders_tool rollback warning: ' . $conn->error);
+    }
+}
+
 function pf_dco_prepare_temp_order_ids(array $orderIds): void
 {
     if ($orderIds === []) {
@@ -611,6 +638,18 @@ function pf_dco_count_scope_rows(array $scope): int
     return (int)($rows[0]['c'] ?? 0);
 }
 
+function pf_dco_delete_verification_summary(): array
+{
+    $remaining = [];
+    foreach (pf_dco_sorted_scopes(false) as $scope) {
+        $count = pf_dco_count_scope_rows($scope);
+        if ($count > 0) {
+            $remaining[(string)$scope['table']] = $count;
+        }
+    }
+    return $remaining;
+}
+
 function pf_dco_preview(): array
 {
     $customer = db_query(
@@ -669,7 +708,7 @@ function pf_dco_delete_customer_orders(): array
     try {
         pf_dco_ensure_backup_table();
         global $conn;
-        $conn->begin_transaction();
+        pf_dco_begin_transaction();
 
         $backupCounts = pf_dco_capture_backup_batch($batchId, $adminId);
 
@@ -685,23 +724,45 @@ function pf_dco_delete_customer_orders(): array
             );
         }
 
-        $conn->commit();
+        $remaining = pf_dco_delete_verification_summary();
+        if ($remaining !== []) {
+            $parts = [];
+            foreach ($remaining as $table => $count) {
+                $parts[] = $table . '=' . $count;
+            }
+            throw new RuntimeException('Delete verification failed. Remaining rows: ' . implode(', ', $parts));
+        }
+
+        $backupRows = db_query(
+            "SELECT COUNT(*) AS c
+             FROM " . PF_DCO_BACKUP_TABLE . "
+             WHERE batch_id = ?
+               AND customer_id = ?",
+            'si',
+            [$batchId, PF_DELETE_CUSTOMER_ID]
+        );
+        $backupRowCount = (int)($backupRows[0]['c'] ?? 0);
+        if ($backupRowCount <= 0) {
+            throw new RuntimeException('Delete verification failed. No backup rows were saved for batch ' . $batchId . '.');
+        }
+
+        pf_dco_commit_transaction();
 
         log_activity(
             $adminId,
             'Delete Customer Orders',
-            'Deleted regular order transaction data for customer ID 25. Backup batch: ' . $batchId
+            'Deleted order transaction data for customer ID 25. Backup batch: ' . $batchId
         );
 
         return [
             'success' => true,
-            'message' => 'Deleted regular order transaction data for customer ID 25.',
+            'message' => 'Deleted order transaction data for customer ID 25.',
             'deleted' => $deleted,
             'backup_batch_id' => $batchId,
             'backup_counts' => $backupCounts,
         ];
     } catch (Throwable $e) {
-        $conn->rollback();
+        pf_dco_rollback_transaction();
         error_log('delete_customer_25_orders_tool delete failed: ' . $e->getMessage());
 
         return [
@@ -734,7 +795,7 @@ function pf_dco_rollback_latest_batch(): array
     $batchId = (string)$batch['batch_id'];
 
     try {
-        $conn->begin_transaction();
+        pf_dco_begin_transaction();
 
         $rows = db_query(
             "SELECT id, table_name, row_position, payload
@@ -793,7 +854,7 @@ function pf_dco_rollback_latest_batch(): array
             [$adminId, $batchId, PF_DELETE_CUSTOMER_ID]
         );
 
-        $conn->commit();
+        pf_dco_commit_transaction();
 
         log_activity(
             $adminId,
@@ -808,7 +869,7 @@ function pf_dco_rollback_latest_batch(): array
             'batch_id' => $batchId,
         ];
     } catch (Throwable $e) {
-        $conn->rollback();
+        pf_dco_rollback_transaction();
         error_log('delete_customer_25_orders_tool rollback failed: ' . $e->getMessage());
 
         return [
