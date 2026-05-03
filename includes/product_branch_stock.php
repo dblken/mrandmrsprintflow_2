@@ -73,33 +73,117 @@ function printflow_ensure_product_branch_stock_table(): void {
  * inv_items IDs because product IDs and material IDs are different domains.
  */
 function printflow_ensure_product_inventory_transaction_schema(): void {
-    static $done = false;
-    if ($done) {
+    static $ddlDone = false;
+    if (!$ddlDone) {
+        InventoryManager::ensureBranchScopedSchema();
+
+        try {
+            $productCols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'product_id'") ?: [];
+            if (empty($productCols)) {
+                db_execute("ALTER TABLE inventory_transactions ADD COLUMN product_id INT NULL AFTER item_id");
+            }
+        } catch (Throwable $e) {
+            // Allow page logic to continue even if the schema is already being
+            // changed by another request.
+        }
+
+        try {
+            $productIdx = db_query("SHOW INDEX FROM inventory_transactions WHERE Key_name = 'idx_inv_tx_product_date'") ?: [];
+            if (empty($productIdx)) {
+                db_execute("ALTER TABLE inventory_transactions ADD INDEX idx_inv_tx_product_date (product_id, transaction_date)");
+            }
+        } catch (Throwable $e) {
+            // Non-fatal. Reads can still work without this index.
+        }
+
+        $ddlDone = true;
+    }
+
+    printflow_repair_orphan_catalog_inventory_branches();
+}
+
+/**
+ * Older catalog ledger rows skipped branch_id while still updating stock — they disappear on branch-filtered ledger views (e.g. only product #40).
+ * Runs at most once per request; skips when nothing is orphaned (COUNT probe).
+ */
+function printflow_repair_orphan_catalog_inventory_branches(): void {
+    static $ranThisRequest = false;
+    if ($ranThisRequest) {
+        return;
+    }
+    $ranThisRequest = true;
+
+    if (!function_exists('db_table_has_column')
+        || !db_table_has_column('inventory_transactions', 'product_id')
+        || !db_table_has_column('inventory_transactions', 'branch_id')) {
         return;
     }
 
-    InventoryManager::ensureBranchScopedSchema();
-
     try {
-        $productCols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'product_id'") ?: [];
-        if (empty($productCols)) {
-            db_execute("ALTER TABLE inventory_transactions ADD COLUMN product_id INT NULL AFTER item_id");
+        $cntRow = db_query(
+            "SELECT COUNT(*) AS c FROM inventory_transactions t
+             WHERE (t.branch_id IS NULL OR t.branch_id <= 0)
+               AND (
+                   (t.product_id IS NOT NULL AND t.product_id > 0)
+                   OR UPPER(TRIM(COALESCE(t.ref_type, ''))) = 'ORDER'
+               )"
+        ) ?: [];
+        if (((int)($cntRow[0]['c'] ?? 0)) < 1) {
+            return;
         }
     } catch (Throwable $e) {
-        // Allow page logic to continue even if the schema is already being
-        // changed by another request.
+        return;
+    }
+
+    $mainId = (int)(function_exists('printflow_get_default_admin_branch_id') ? printflow_get_default_admin_branch_id() : 0);
+    if ($mainId <= 0) {
+        $mainId = 1;
     }
 
     try {
-        $productIdx = db_query("SHOW INDEX FROM inventory_transactions WHERE Key_name = 'idx_inv_tx_product_date'") ?: [];
-        if (empty($productIdx)) {
-            db_execute("ALTER TABLE inventory_transactions ADD INDEX idx_inv_tx_product_date (product_id, transaction_date)");
-        }
+        db_execute(
+            "UPDATE inventory_transactions t
+             INNER JOIN orders o ON UPPER(TRIM(COALESCE(t.ref_type, ''))) = 'ORDER'
+               AND CAST(t.ref_id AS UNSIGNED) = o.order_id
+             SET t.branch_id = CASE
+                WHEN COALESCE(NULLIF(o.branch_id, 0), 0) > 0 THEN o.branch_id
+                ELSE ?
+             END
+             WHERE (t.branch_id IS NULL OR t.branch_id <= 0)",
+            'i',
+            [$mainId]
+        );
     } catch (Throwable $e) {
-        // Non-fatal. Reads can still work without this index.
+        error_log('printflow repair catalog inventory branches (ORDER join): ' . $e->getMessage());
     }
 
-    $done = true;
+    try {
+        db_execute(
+            'UPDATE inventory_transactions
+             SET branch_id = ?
+             WHERE product_id IS NOT NULL AND product_id > 0
+               AND (branch_id IS NULL OR branch_id <= 0)',
+            'i',
+            [$mainId]
+        );
+    } catch (Throwable $e) {
+        error_log('printflow repair catalog inventory branches (fallback product_id): ' . $e->getMessage());
+    }
+
+    try {
+        db_execute(
+            'UPDATE inventory_transactions
+             SET branch_id = ?
+             WHERE (branch_id IS NULL OR branch_id <= 0)
+               AND COALESCE(product_id, 0) = 0
+               AND item_id IS NOT NULL AND item_id > 0
+               AND UPPER(TRIM(COALESCE(ref_type, \'\'))) = \'ORDER_PRODUCT\'',
+            'i',
+            [$mainId]
+        );
+    } catch (Throwable $e) {
+        error_log('printflow repair catalog inventory branches (ORDER_PRODUCT legacy): ' . $e->getMessage());
+    }
 }
 
 /**

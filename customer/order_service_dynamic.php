@@ -459,9 +459,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 if ($config['type'] === 'date') {
                     $dv = trim((string)($_POST[$key] ?? ''));
                     if ($dv !== '') {
-                        $customization[$spec_label($config, $key)] = $dv;
+                        // Store once: duplicate keys ("Needed Date" label + needed_date) doubled on order_review.
                         if ($key === 'needed_date') {
                             $customization['needed_date'] = $dv;
+                        } else {
+                            $customization[$spec_label($config, $key)] = $dv;
                         }
                     }
                     continue;

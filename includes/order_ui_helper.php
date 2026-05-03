@@ -78,6 +78,58 @@ if (!function_exists('pf_order_ui_resolve_special_instructions_text')) {
     }
 }
 
+if (!function_exists('pf_order_ui_normalize_review_customization')) {
+    /**
+     * Order review / cart item cards: remove duplicate needed-date tiles and redundant
+     * "Upload Design" filename rows when the Reference Attachment preview already shows the file.
+     */
+    function pf_order_ui_normalize_review_customization(array $custom, array $item, bool $is_cart_item): array {
+        $ref_preview = $is_cart_item ? pf_order_ui_temp_preview_url($item, 'reference') : null;
+
+        $needed_val = null;
+        foreach ($custom as $ck => $cv) {
+            if ($cv === '' || $cv === null) {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$ck));
+            if (in_array($nk, ['neededdate', 'dateneeded', 'orderneededdate'], true)) {
+                $needed_val = $cv;
+                break;
+            }
+        }
+
+        $out = [];
+        $needed_written = false;
+        foreach ($custom as $ck => $cv) {
+            if ($cv === '' || $cv === null) {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$ck));
+            if (in_array($nk, ['neededdate', 'dateneeded', 'orderneededdate'], true)) {
+                if ($needed_written) {
+                    continue;
+                }
+                $needed_written = true;
+                $out['needed_date'] = $needed_val ?? $cv;
+                continue;
+            }
+            if ($ref_preview && is_string($ck) && preg_match('/upload\s*design/i', $ck)) {
+                continue;
+            }
+            if ($ref_preview && is_string($ck) && preg_match('/reference\s*(attachment|image|upload)/i', $ck)) {
+                continue;
+            }
+            $out[$ck] = $cv;
+        }
+
+        if (!$needed_written && $needed_val !== null) {
+            $out['needed_date'] = $needed_val;
+        }
+
+        return $out;
+    }
+}
+
 if (!function_exists('pf_order_ui_temp_preview_url')) {
     function pf_order_ui_temp_preview_url(array $item, string $field): ?string {
         $cart_key = (string)($item['_cart_key'] ?? '');
@@ -291,6 +343,7 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
     $custom = $is_cart_item
         ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
         : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+    $custom = pf_order_ui_normalize_review_customization($custom, $item, $is_cart_item);
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? null), $custom, 'Order Item');
     $category = $item['category'] ?? 'General';
     $is_service_item = pf_order_ui_is_service_item($item, $is_cart_item);
@@ -306,15 +359,22 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
     $ref_url = null;
     
     if ($is_cart_item) {
+        $tmp_design = pf_order_ui_temp_preview_url($item, 'design');
+        $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
+
         if ($is_service_item && !empty($item['product_image'])) {
             $design_url = pf_order_ui_asset_url($item['product_image']);
-            $ref_url = pf_order_ui_temp_preview_url($item, 'design');
         } else {
-            $design_url = pf_order_ui_temp_preview_url($item, 'design');
-            $ref_url = pf_order_ui_temp_preview_url($item, 'reference');
+            $design_url = $tmp_design;
+            if (!$design_url && !empty($item['product_image'])) {
+                $design_url = pf_order_ui_asset_url($item['product_image']);
+            }
         }
-        if (!$design_url && !empty($item['product_image'])) {
-            $design_url = pf_order_ui_asset_url($item['product_image']);
+
+        if ($tmp_reference) {
+            $ref_url = $tmp_reference;
+        } elseif ($tmp_design) {
+            $ref_url = $tmp_design;
         }
     } else {
         $has_design = !empty($item['design_image']) || !empty($item['design_file']);
@@ -469,6 +529,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $custom = $is_cart_item
         ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
         : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+    $custom = pf_order_ui_normalize_review_customization($custom, $item, $is_cart_item);
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? 'Order Item'), $custom, 'Order Item');
     
     $category = $item['category'] ?? 'General';
@@ -484,15 +545,22 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $ref_url = null;
     
     if ($is_cart_item) {
+        $tmp_design = pf_order_ui_temp_preview_url($item, 'design');
+        $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
+
         if ($is_service_item && !empty($item['product_image'])) {
             $design_url = pf_order_ui_asset_url($item['product_image']);
-            $ref_url = pf_order_ui_temp_preview_url($item, 'design');
         } else {
-            $design_url = pf_order_ui_temp_preview_url($item, 'design');
-            $ref_url = pf_order_ui_temp_preview_url($item, 'reference');
+            $design_url = $tmp_design;
+            if (!$design_url && !empty($item['product_image'])) {
+                $design_url = pf_order_ui_asset_url($item['product_image']);
+            }
         }
-        if (!$design_url && !empty($item['product_image'])) {
-            $design_url = pf_order_ui_asset_url($item['product_image']);
+
+        if ($tmp_reference) {
+            $ref_url = $tmp_reference;
+        } elseif ($tmp_design) {
+            $ref_url = $tmp_design;
         }
     } else {
         $has_design = !empty($item['design_image']) || !empty($item['design_file']);
