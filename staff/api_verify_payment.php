@@ -12,6 +12,25 @@ require_once __DIR__ . '/../includes/db.php';
 require_role(['Admin', 'Staff', 'Manager']);
 
 /**
+ * Ensure orders row can record "staff rejected payment proof, customer must resubmit".
+ * Scoped column so tabs do not rely on fragile order_messages/message_type quirks.
+ */
+function printflow_ensure_orders_payment_proof_needs_resubmit_column(): bool {
+    if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+        return true;
+    }
+    global $conn;
+    if (!($conn instanceof mysqli)) {
+        return false;
+    }
+    $ok = (bool)$conn->query(
+        'ALTER TABLE `orders` ADD COLUMN `payment_proof_needs_resubmit` TINYINT(1) NOT NULL DEFAULT 0'
+    );
+    db_table_has_column('orders', 'payment_proof_needs_resubmit', true);
+    return $ok;
+}
+
+/**
  * Clear payment submission on orders after rejection. Builds SET clauses from columns that exist
  * so missing migrations (e.g. rejection_reason) do not fail the whole update.
  *
@@ -19,6 +38,8 @@ require_role(['Admin', 'Staff', 'Manager']);
  * when branch_id is NULL/0 while access is granted via listings.
  */
 function printflow_staff_apply_orders_payment_proof_rejection(int $orderId, string $newStatus, string $reason): bool {
+    printflow_ensure_orders_payment_proof_needs_resubmit_column();
+
     $sets = ['status = ?'];
     $types = 's';
     $params = [$newStatus];
@@ -49,6 +70,9 @@ function printflow_staff_apply_orders_payment_proof_rejection(int $orderId, stri
         $sets[] = 'payment_status = ?';
         $types .= 's';
         $params[] = 'Unpaid';
+    }
+    if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+        $sets[] = 'payment_proof_needs_resubmit = 1';
     }
 
     $sql = 'UPDATE orders SET ' . implode(', ', $sets) . ' WHERE order_id = ?';
@@ -257,8 +281,9 @@ try {
             if (($order['order_type'] ?? '') === 'product') {
                 // Fixed product order: use specific rejection message from staff (marker type drives staff Rejected tab)
                 $prod_reject_msg = "Your payment has been rejected. Reason: {$reason}. Please resubmit your payment based on the feedback provided.";
+                // Keep short VARCHAR(10) safe; duplicates legacy staff_pay_rejected in SQL predicates.
                 db_execute(
-                    "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt) VALUES (?, 'Staff', ?, ?, 'staff_pay_rejected', 0)",
+                    "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt) VALUES (?, 'Staff', ?, ?, 'pay_reject', 0)",
                     'iis',
                     [$order_id, $staff_id, $prod_reject_msg]
                 );
@@ -310,9 +335,18 @@ try {
 }
 
 if ($success) {
+    if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+        if ($action === 'Approve') {
+            db_execute(
+                'UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ?',
+                'i',
+                [$order_id]
+            );
+        }
+    }
     if ($action === 'Approve') {
         db_execute(
-            "DELETE FROM order_messages WHERE order_id = ? AND message_type = 'staff_pay_rejected'",
+            "DELETE FROM order_messages WHERE order_id = ? AND message_type IN ('pay_reject','staff_pay_rejected')",
             'i',
             [$order_id]
         );

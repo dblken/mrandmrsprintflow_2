@@ -88,10 +88,17 @@ if (!$is_job) {
     $type_label = "Order";
     if ($update_success) {
         db_execute(
-            "DELETE FROM order_messages WHERE order_id = ? AND message_type = 'staff_pay_rejected'",
+            "DELETE FROM order_messages WHERE order_id = ? AND message_type IN ('pay_reject','staff_pay_rejected')",
             'i',
             [$order_id]
         );
+        if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+            db_execute(
+                'UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ?',
+                'i',
+                [$order_id]
+            );
+        }
     }
 } else {
     // 4. Update job order

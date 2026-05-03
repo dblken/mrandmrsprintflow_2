@@ -116,8 +116,14 @@ $active_filter_badge_count = count(array_filter([$status_filter, $customer_filte
 function staff_orders_sql_payment_proof_rejected(string $oAlias = 'o'): string {
     $parts = [];
 
-    // Durable anchor: reject API inserts staff_pay_rejected (works even when job_orders sync failed).
-    $parts[] = "EXISTS (SELECT 1 FROM order_messages om WHERE om.order_id = {$oAlias}.order_id AND om.message_type = 'staff_pay_rejected')";
+    // Primary signal: persisted on orders row when staff rejects (see staff/api_verify_payment.php).
+    if (function_exists('db_table_has_column') && db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+        $parts[] = "({$oAlias}.payment_proof_needs_resubmit = 1)";
+    }
+
+    // Durable anchor names must stay VARCHAR(10)-friendly: pay_reject
+    $parts[] = "EXISTS (SELECT 1 FROM order_messages om WHERE om.order_id = {$oAlias}.order_id "
+        . "AND om.message_type IN ('pay_reject','staff_pay_rejected'))";
 
     // Legacy rejects (before staff_pay_rejected): match product reject copy only while order is still awaiting payment again.
     $parts[] = "({$oAlias}.status = 'To Pay' AND EXISTS (SELECT 1 FROM order_messages om2 WHERE om2.order_id = {$oAlias}.order_id "
@@ -180,7 +186,8 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
 
     $staffPayRejected = [];
     $qr = db_query(
-        "SELECT DISTINCT order_id FROM order_messages WHERE order_id IN ($placeholders) AND message_type = 'staff_pay_rejected'",
+        "SELECT DISTINCT order_id FROM order_messages WHERE order_id IN ($placeholders) "
+            . "AND message_type IN ('pay_reject','staff_pay_rejected')",
         $types,
         $idList
     ) ?: [];
@@ -223,7 +230,8 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
         $oid = (int)($row['order_id'] ?? 0);
         $st = (string)($row['status'] ?? '');
 
-        $hit = isset($staffPayRejected[$oid]) || isset($fromJob[$oid]);
+        $hit = !empty((int)($row['payment_proof_needs_resubmit'] ?? 0));
+        $hit = $hit || isset($staffPayRejected[$oid]) || isset($fromJob[$oid]);
         if (!$hit && $st === 'To Pay') {
             if (isset($legacyRejectedMsg[$oid])) {
                 $hit = true;

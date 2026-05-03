@@ -339,7 +339,7 @@ function db_query($sql, $types = '', $params = []) {
 /**
  * Schema helper: check if a table has a specific column.
  */
-function db_table_has_column(string $table, string $column): bool {
+function db_table_has_column(string $table, string $column, bool $refresh = false): bool {
     static $cache = [];
 
     $t = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
@@ -347,6 +347,9 @@ function db_table_has_column(string $table, string $column): bool {
     if ($t === '' || $c === '') return false;
 
     $key = $t . '.' . $c;
+    if ($refresh) {
+        unset($cache[$key]);
+    }
     if (array_key_exists($key, $cache)) return (bool)$cache[$key];
 
     $rows = db_query("SHOW COLUMNS FROM `{$t}` LIKE ?", 's', [$c]);
