@@ -64,8 +64,21 @@ const PF_SPECIFIC_CUSTOMER_NAME_MAP = [
     ['customer_id' => 287, 'full_name' => 'Hazel Lopez'],
     ['customer_id' => 281, 'full_name' => 'Oliver Castillo'],
     ['customer_id' => 293, 'full_name' => 'Michelle Torres'],
-    ['customer_id' => 5,   'full_name' => 'Reynaldo Mercado'],
-    ['customer_id' => 6,   'full_name' => 'Charlene Fernandez'],
+    ['customer_id' => 5,   'full_name' => 'Reynaldo Mercado', 'update_email' => true],
+    ['customer_id' => 6,   'full_name' => 'Charlene Fernandez', 'update_email' => true],
+];
+
+const PF_DEMO_MOBILE_PREFIXES = [
+    '0905',
+    '0915',
+    '0927',
+    '0932',
+    '0945',
+    '0956',
+    '0967',
+    '0977',
+    '0981',
+    '0998',
 ];
 
 function pf_gcrt_h(?string $value): string
@@ -117,6 +130,52 @@ function pf_gcrt_contact_is_missing($value): bool
 function pf_gcrt_contact_is_valid_demo(string $value): bool
 {
     return (bool)preg_match('/^09\d{9}$/', trim($value));
+}
+
+function pf_gcrt_digits_are_step_sequence(string $digits, int $step): bool
+{
+    $length = strlen($digits);
+    if ($length < 2) {
+        return false;
+    }
+
+    for ($i = 1; $i < $length; $i++) {
+        $current = (int)$digits[$i];
+        $previous = (int)$digits[$i - 1];
+        if (($current - $previous) !== $step) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function pf_gcrt_contact_has_obvious_pattern(string $value): bool
+{
+    $digits = trim($value);
+    if (!pf_gcrt_contact_is_valid_demo($digits)) {
+        return true;
+    }
+
+    $suffix = substr($digits, 4);
+    if ($suffix === false || strlen($suffix) !== 7) {
+        return true;
+    }
+
+    if (substr($digits, -4) === '0000') {
+        return true;
+    }
+    if (preg_match('/^(.)\1{6}$/', $suffix)) {
+        return true;
+    }
+    if (preg_match('/(\d)\1{4,}/', $suffix)) {
+        return true;
+    }
+    if (pf_gcrt_digits_are_step_sequence($suffix, 1) || pf_gcrt_digits_are_step_sequence($suffix, -1)) {
+        return true;
+    }
+
+    return false;
 }
 
 function pf_gcrt_fetch_link_snapshot(array $ids): array
@@ -365,7 +424,23 @@ function pf_gcrt_build_specific_name_plan(): array
         $byId[(int)$row['customer_id']] = $row;
     }
 
+    $customerEmailOwner = [];
+    foreach (db_query("SELECT customer_id, LOWER(TRIM(email)) AS em FROM customers") as $row) {
+        $email = trim((string)($row['em'] ?? ''));
+        if ($email !== '') {
+            $customerEmailOwner[$email] = (int)$row['customer_id'];
+        }
+    }
+    $userEmailOwner = [];
+    foreach (db_query("SELECT user_id, role, LOWER(TRIM(email)) AS em FROM users") as $row) {
+        $email = trim((string)($row['em'] ?? ''));
+        if ($email !== '') {
+            $userEmailOwner[$email] = ['user_id' => (int)$row['user_id'], 'role' => (string)$row['role']];
+        }
+    }
+
     $seenFullNames = [];
+    $seenNewEmails = [];
     foreach ($mapping as $index => $item) {
         $cid = (int)$item['customer_id'];
         $fullName = trim((string)$item['full_name']);
@@ -383,6 +458,25 @@ function pf_gcrt_build_specific_name_plan(): array
         }
 
         $row = $byId[$cid];
+        $shouldUpdateEmail = !empty($item['update_email']);
+        $newEmail = $shouldUpdateEmail ? pf_gcrt_expected_email($fullName) : (string)$row['email'];
+        $newEmailKey = mb_strtolower(trim($newEmail), 'UTF-8');
+
+        if ($shouldUpdateEmail) {
+            if (isset($seenNewEmails[$newEmailKey])) {
+                $errors[] = 'Duplicate replacement email in specific-ID plan: ' . $newEmail;
+            }
+            $seenNewEmails[$newEmailKey] = true;
+
+            $owner = $customerEmailOwner[$newEmailKey] ?? null;
+            if ($owner !== null && $owner !== $cid) {
+                $errors[] = 'Planned specific-ID email already belongs to another customer: ' . $newEmail;
+            }
+            if (isset($userEmailOwner[$newEmailKey])) {
+                $errors[] = 'Planned specific-ID email already belongs to a user account: ' . $newEmail;
+            }
+        }
+
         $assignments[] = [
             'seq' => $index + 1,
             'customer_id' => $cid,
@@ -397,7 +491,7 @@ function pf_gcrt_build_specific_name_plan(): array
                 'first_name' => $first,
                 'middle_name' => $row['middle_name'] ?? null,
                 'last_name' => $last,
-                'email' => (string)$row['email'],
+                'email' => $newEmail,
                 'contact_number' => $row['contact_number'] ?? null,
                 'full_name' => $fullName,
             ],
@@ -415,22 +509,31 @@ function pf_gcrt_build_specific_name_plan(): array
     return $plan;
 }
 
-function pf_gcrt_next_demo_mobile(array &$usedNumbers, int &$seed): string
+function pf_gcrt_next_demo_mobile(array &$usedNumbers): string
 {
-    while ($seed <= 999999999) {
-        $candidate = '09' . str_pad((string)$seed, 9, '0', STR_PAD_LEFT);
-        $seed++;
+    $prefixes = PF_DEMO_MOBILE_PREFIXES;
+    $prefixCount = count($prefixes);
+
+    for ($attempt = 0; $attempt < 5000; $attempt++) {
+        $prefix = $prefixes[random_int(0, $prefixCount - 1)];
+        $suffix = str_pad((string)random_int(0, 9999999), 7, '0', STR_PAD_LEFT);
+        $candidate = $prefix . $suffix;
+
         if (!pf_gcrt_contact_is_valid_demo($candidate)) {
+            continue;
+        }
+        if (pf_gcrt_contact_has_obvious_pattern($candidate)) {
             continue;
         }
         if (isset($usedNumbers[$candidate])) {
             continue;
         }
+
         $usedNumbers[$candidate] = true;
         return $candidate;
     }
 
-    throw new RuntimeException('Ran out of synthetic demo phone numbers to assign.');
+    throw new RuntimeException('Could not generate enough unique synthetic demo phone numbers.');
 }
 
 function pf_gcrt_build_missing_contact_plan(): array
@@ -463,7 +566,6 @@ function pf_gcrt_build_missing_contact_plan(): array
         }
     }
 
-    $seed = 170000001;
     foreach ($rows as $index => $row) {
         $currentContact = $row['contact_number'] ?? null;
         if (!pf_gcrt_contact_is_missing($currentContact)) {
@@ -471,7 +573,7 @@ function pf_gcrt_build_missing_contact_plan(): array
             continue;
         }
 
-        $newContact = pf_gcrt_next_demo_mobile($usedNumbers, $seed);
+        $newContact = pf_gcrt_next_demo_mobile($usedNumbers);
         $assignments[] = [
             'seq' => $index + 1,
             'customer_id' => (int)$row['customer_id'],
@@ -498,6 +600,9 @@ function pf_gcrt_build_missing_contact_plan(): array
         $phone = (string)$assignment['new']['contact_number'];
         if (!pf_gcrt_contact_is_valid_demo($phone)) {
             $errors[] = 'Generated phone number is invalid for customer_id ' . (int)$assignment['customer_id'];
+        }
+        if (pf_gcrt_contact_has_obvious_pattern($phone)) {
+            $errors[] = 'Generated phone number has an obvious pattern for customer_id ' . (int)$assignment['customer_id'];
         }
         if (isset($seen[$phone])) {
             $errors[] = 'Generated phone number is duplicated: ' . $phone;
@@ -622,6 +727,9 @@ function pf_gcrt_execute_plan(array $plan, int $executedBy): array
                 }
                 if (!pf_gcrt_contact_is_valid_demo($phone)) {
                     throw new RuntimeException('A generated contact number is not in 09XXXXXXXXX format: ' . $phone);
+                }
+                if (pf_gcrt_contact_has_obvious_pattern($phone)) {
+                    throw new RuntimeException('A generated contact number still has an obvious pattern: ' . $phone);
                 }
                 if (isset($seenPhones[$phone])) {
                     throw new RuntimeException('A generated contact number is duplicated: ' . $phone);
@@ -901,9 +1009,9 @@ $page_title = 'Temporary Customer Maintenance Tool';
                             <?php if ($plan['scope'] === 'rename_generic'): ?>
                                 Changes only exact live <span class="mono">Customer</span> rows from the earlier email-based plan, including Gmail updates.
                             <?php elseif ($plan['scope'] === 'rename_specific_ids'): ?>
-                                Changes only the names for customer IDs <span class="mono">31, 287, 281, 293, 5, 6</span>. Emails and contact numbers stay untouched.
+                                Changes the names for customer IDs <span class="mono">31, 287, 281, 293, 5, 6</span>, and also updates the emails for IDs <span class="mono">5</span> and <span class="mono">6</span> to their matching Gmail format.
                             <?php else: ?>
-                                Fills only blank, NULL, empty, or <span class="mono">N/A</span> customer contact numbers with unique synthetic numbers in <span class="mono">09XXXXXXXXX</span> format.
+                                Fills only blank, NULL, empty, or <span class="mono">N/A</span> customer contact numbers with unique synthetic random-looking numbers in <span class="mono">09XXXXXXXXX</span> format.
                             <?php endif; ?>
                         </p>
 
