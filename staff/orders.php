@@ -116,6 +116,8 @@ $active_filter_badge_count = count(array_filter([$status_filter, $customer_filte
 function staff_orders_sql_payment_proof_rejected(string $oAlias = 'o'): string {
     $parts = [];
 
+    $parts[] = "({$oAlias}.status = 'Rejected')";
+
     // Primary signal: persisted on orders row when staff rejects (see staff/api_verify_payment.php).
     if (function_exists('db_table_has_column') && db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
         $parts[] = "({$oAlias}.payment_proof_needs_resubmit = 1)";
@@ -231,6 +233,7 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
         $st = (string)($row['status'] ?? '');
 
         $hit = !empty((int)($row['payment_proof_needs_resubmit'] ?? 0));
+        $hit = $hit || (strcasecmp($st, 'Rejected') === 0);
         $hit = $hit || isset($staffPayRejected[$oid]) || isset($fromJob[$oid]);
         if (!$hit && $st === 'To Pay') {
             if (isset($legacyRejectedMsg[$oid])) {
@@ -401,6 +404,7 @@ function staff_orders_display_status(string $status): string {
 
 function staff_orders_status_pill_style(string $displayStatus): string {
     return match (strtoupper(trim($displayStatus))) {
+        'REJECTED' => 'background:#fee2e2;color:#991b1b;border:1px solid #fecaca;',
         'TO VERIFY' => 'background:#fef9c3;color:#92400e;',
         'APPROVED' => 'background:#dbeafe;color:#1e40af;',
         'PAYMENT REJECTED' => 'background:#ffe4e6;color:#9f1239;border:1px solid #fecdd3;',
@@ -1380,12 +1384,14 @@ $page_title = 'Orders - Staff';
             'Unpaid':                'background: #fee2e2; color: #991b1b;',
             'Partially Paid':        'background: #fef3c7; color: #92400e;',
             'Partial':               'background: #fef3c7; color: #92400e;',
-            'To Rate':               'background: #f3e8ff; color: #6b21a8;',
-            'Rated':                 'background: #f3e8ff; color: #6b21a8;'
+            'To Rate':               'background:#f3e8ff;color:#6b21a8;',
+            'Rated':                 'background:#f3e8ff;color:#6b21a8;',
+            'Rejected':              'background:#fee2e2;color:#991b1b;',
         };
         var style = map[val] || 'background: #F3F4F6; color: #374151;';
         var display = val;
-        if (['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'].includes(val)) display = 'To Verify';
+        if (val === 'Rejected') display = 'Rejected';
+        else if (['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'].includes(val)) display = 'To Verify';
         else if (val === 'Ready for Pickup' || val === 'To Pickup') display = 'To Pickup';
         else if (val === 'Completed') display = 'Completed';
         else if (val === 'Cancelled') display = 'Cancelled';
@@ -2022,7 +2028,12 @@ $page_title = 'Orders - Staff';
         var verificationStatuses = ['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'TO VERIFY'];
         var completionStatuses   = ['Ready for Pickup', 'TO PICK UP', 'To Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design'];
 
-        if (verificationStatuses.includes(d.status)) {
+        if (d.status === 'Rejected') {
+            actionsHTML = '<div style="margin-top:24px;padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;">' +
+                '<div style="font-size:12px;font-weight:700;color:#b91c1c;text-transform:uppercase;margin-bottom:6px;">Payment rejected</div>' +
+                '<div style="font-size:13px;color:#991b1b;line-height:1.45;">The customer\'s proof was declined. They can upload a new proof from their account. Previous proof stays below for audit.</div>' +
+                '</div>';
+        } else if (verificationStatuses.includes(d.status)) {
             // Check if it's a POS order needing a price (total is 0 or very small)
             if (d.order_source === 'pos' && d.total_raw <= 0) {
                 actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc;">' +

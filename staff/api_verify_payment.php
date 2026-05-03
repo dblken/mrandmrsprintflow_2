@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/ensure_orders_status_schema.php';
 
 require_role(['Admin', 'Staff', 'Manager']);
 
@@ -44,15 +45,7 @@ function printflow_staff_apply_orders_payment_proof_rejection(int $orderId, stri
     $types = 's';
     $params = [$newStatus];
 
-    if (db_table_has_column('orders', 'payment_proof')) {
-        $sets[] = 'payment_proof = NULL';
-    }
-    if (db_table_has_column('orders', 'payment_submitted_at')) {
-        $sets[] = 'payment_submitted_at = NULL';
-    }
-    if (db_table_has_column('orders', 'payment_proof_path')) {
-        $sets[] = 'payment_proof_path = NULL';
-    }
+    // Keep the last uploaded proof path on file + in DB so staff/customer can audit and api_view_proof authorizes reliably.
 
     $reasonCol = null;
     if (db_table_has_column('orders', 'rejection_reason')) {
@@ -126,6 +119,9 @@ $payment_status = $order['payment_status'];
 $success = false;
 $error_message = '';
 $sync_warning = '';
+
+// ENUM/VARCHAR widen so statuses like Rejected save reliably (noop if already migrated).
+printflow_ensure_orders_status_schema();
 
 try {
     if ($action === 'Approve') {
@@ -253,8 +249,8 @@ try {
             throw $e;
         }
     } else {
-        // Rejected - move back to To Pay or Pending
-        $new_status = 'To Pay';
+        // Payment proof rejected — explicit status so lists/modals/customer flows recognize it (not "still verifying").
+        $new_status = 'Rejected';
         $reason = $_POST['reason'] ?? 'Payment proof rejected by staff.';
         
         // Get product name for better message context
@@ -264,7 +260,7 @@ try {
             $product_name = $items[0]['service_type'];
         }
         
-        // Clear proof so they can re-upload (SET list matches live schema columns)
+        // Persist Rejected status + markers; uploaded proof stays in DB/on disk until customer replaces it.
         $success = printflow_staff_apply_orders_payment_proof_rejection($order_id, $new_status, $reason);
         if ($success && db_table_has_column('orders', 'payment_status')) {
             $payment_status = 'Unpaid';
@@ -309,24 +305,14 @@ try {
             db_execute(
                 "UPDATE job_orders SET payment_proof_status = 'REJECTED', status = 'TO_PAY',
                  payment_rejection_reason = ?,
-                 payment_proof_path = NULL, payment_submitted_amount = 0, payment_proof_uploaded_at = NULL
+                 payment_submitted_amount = 0,
+                 payment_proof_uploaded_at = NULL
                  WHERE order_id = ? AND status NOT IN ('COMPLETED','CANCELLED')",
                 'si',
                 [$reason, $order_id]
             );
 
-            // Delete the file if it exists to save space (optional, but cleaner)
-            $proof = $order['payment_proof'] ?? '';
-            if ($proof !== '') {
-                $rel = ltrim(str_replace('\\', '/', $proof), '/');
-                if (strpos($rel, 'printflow/') === 0) {
-                    $rel = substr($rel, strlen('printflow/'));
-                }
-                $abs = __DIR__ . '/../' . $rel;
-                if (is_file($abs)) {
-                    @unlink($abs);
-                }
-            }
+            // Proof file intentionally retained — staff can reopen the rejected proof; clearing DB paths caused 403/404 churn.
         }
     }
 } catch (Exception $e) {

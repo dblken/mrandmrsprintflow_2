@@ -152,7 +152,7 @@ function staff_order_data_payment_proof_url(array $order): ?string {
     }
 
     $base = defined('BASE_PATH') ? BASE_PATH : '/printflow';
-    return rtrim($base, '/') . '/api_view_proof.php?file=' . rawurlencode($proof);
+    return rtrim($base, '/') . '/staff/api_view_proof.php?file=' . rawurlencode($proof);
 }
 
 try {
