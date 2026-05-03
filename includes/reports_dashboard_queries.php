@@ -405,6 +405,60 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
 }
 
 /**
+ * Branch/date-filtered paid store revenue using official product names from the
+ * live Products Management list (non-archived products only).
+ *
+ * @return list<array{category:string,items_sold:int|string,total:float|string}>
+ */
+function pf_reports_sales_by_official_product(string $from, string $toEnd, $branchId): array {
+    try {
+        [$b, $bt, $bp] = branch_where_parts('o', $branchId);
+        $datePart = '';
+        $dTypes = '';
+        $dParams = [];
+        if ($from !== '' && $toEnd !== '') {
+            $datePart = ' AND o.order_date BETWEEN ? AND ?';
+            $dTypes = 'ss';
+            $dParams = [$from, $toEnd];
+        } elseif ($from !== '') {
+            $datePart = ' AND o.order_date >= ?';
+            $dTypes = 's';
+            $dParams = [$from];
+        } elseif ($toEnd !== '') {
+            $datePart = ' AND o.order_date <= ?';
+            $dTypes = 's';
+            $dParams = [$toEnd];
+        }
+
+        $rows = db_query(
+            "SELECT p.product_id,
+                    TRIM(p.name) AS category,
+                    SUM(oi.quantity) AS items_sold,
+                    SUM(oi.quantity * oi.unit_price) AS total
+             FROM order_items oi
+             JOIN products p
+               ON p.product_id = oi.product_id
+              AND p.status != 'Archived'
+             JOIN orders o ON oi.order_id = o.order_id
+             WHERE (
+                 LOWER(TRIM(COALESCE(o.payment_status, ''))) IN ('paid', 'fully paid')
+                 OR o.status = 'Completed'
+               )
+               AND NULLIF(TRIM(p.name), '') IS NOT NULL
+               {$datePart} {$b}
+             GROUP BY p.product_id, TRIM(p.name)
+             ORDER BY total DESC",
+            $dTypes . $bt,
+            array_merge($dParams, $bp)
+        ) ?: [];
+
+        return pf_reports_fold_product_category_slices($rows, 8, 'More Products');
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/**
  * Branch/date-filtered service-category revenue and quantity using the same logic
  * as the "Sales by Service Category" chart.
  *
@@ -479,7 +533,7 @@ function pf_dashboard_sales_by_product_category($branchId): array {
  * @param array<int, array<string,mixed>> $rows
  * @return array<int, array<string,mixed>>
  */
-function pf_reports_fold_product_category_slices(array $rows, int $maxVisible = 8): array {
+function pf_reports_fold_product_category_slices(array $rows, int $maxVisible = 8, string $otherLabel = 'More Available Products'): array {
     if ($rows === []) {
         return [];
     }
@@ -506,7 +560,7 @@ function pf_reports_fold_product_category_slices(array $rows, int $maxVisible = 
 
     if ($otherTotal > 0 || $otherItems > 0) {
         $keep[] = [
-            'category' => 'More Available Products',
+            'category' => $otherLabel,
             'items_sold' => $otherItems,
             'total' => $otherTotal,
         ];

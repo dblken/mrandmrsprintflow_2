@@ -213,7 +213,7 @@ $report_product_category_sales = [];
 $report_service_category_sales = [];
 if (!$gaBranchEmpty) {
     try {
-        $report_product_category_sales = pf_reports_sales_by_product_category(
+        $report_product_category_sales = pf_reports_sales_by_official_product(
             $from,
             $toEnd,
             $globalAnalyticsBranchId
@@ -2286,7 +2286,7 @@ $dashData = [
                     <div class="ana-hd">
                         <h3 style="margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
-                            Sales by Product Category
+                            Sales by Product
                             <span style="margin-left:4px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
                         </h3>
                     </div>
@@ -2294,12 +2294,12 @@ $dashData = [
                         <?php if (!empty($report_product_category_sales)): ?>
                         <div class="ch-box" style="min-height:260px;">
                             <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
-                                <canvas id="reportsProductCategoryChart" aria-label="Sales by product category"></canvas>
+                                <canvas id="reportsProductCategoryChart" aria-label="Sales by official product"></canvas>
                             </div>
                         </div>
                         <div id="reports-product-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;padding:8px 10px 4px;"></div>
                         <?php else: ?>
-                        <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>No store sales by category for this period</div>
+                        <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>No official product sales for this period</div>
                         <?php endif; ?>
                     </div>
                 </div>
