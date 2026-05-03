@@ -9,7 +9,7 @@ require_role('Admin');
 
 const PF_DELETE_CUSTOMER_ID = 25;
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
-const PF_DCO_TOOL_VERSION = '2026-05-03 v3';
+const PF_DCO_TOOL_VERSION = '2026-05-03 v4';
 
 function pf_dco_h($value): string
 {
@@ -125,21 +125,9 @@ function pf_dco_prepare_temp_order_ids(array $orderIds): void
     );
 }
 
-function pf_dco_int_csv(array $ids): string
+function pf_dco_quote_identifier(string $identifier): string
 {
-    $ints = [];
-    foreach ($ids as $id) {
-        $id = (int)$id;
-        if ($id > 0) {
-            $ints[] = $id;
-        }
-    }
-
-    if ($ints === []) {
-        return '0';
-    }
-
-    return implode(', ', array_unique($ints));
+    return '`' . str_replace('`', '``', $identifier) . '`';
 }
 
 function pf_dco_ensure_backup_table(): void
@@ -166,98 +154,316 @@ function pf_dco_ensure_backup_table(): void
     }
 }
 
-function pf_dco_backup_tables(): array
+function pf_dco_order_id_select_sql(): string
 {
+    return 'SELECT order_id FROM orders WHERE customer_id = ' . PF_DELETE_CUSTOMER_ID;
+}
+
+function pf_dco_order_item_id_select_sql(): string
+{
+    return 'SELECT order_item_id FROM order_items WHERE order_id IN (' . pf_dco_order_id_select_sql() . ')';
+}
+
+function pf_dco_review_id_select_sql(): string
+{
+    return 'SELECT id FROM reviews WHERE order_id IN (' . pf_dco_order_id_select_sql() . ')';
+}
+
+function pf_dco_base_scopes(): array
+{
+    $orderSql = pf_dco_order_id_select_sql();
+    $orderItemSql = pf_dco_order_item_id_select_sql();
+    $reviewSql = pf_dco_review_id_select_sql();
+
     return [
-        'orders',
-        'job_orders',
-        'order_items',
-        'order_designs',
-        'order_messages',
-        'order_notes',
-        'order_status_history',
-        'reviews',
-        'review_images',
-        'review_replies',
+        'orders' => [
+            'table' => 'orders',
+            'depth' => 0,
+            'conditions' => [
+                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+            ],
+        ],
+        'job_orders' => [
+            'table' => 'job_orders',
+            'depth' => 1,
+            'conditions' => [
+                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'order_items' => [
+            'table' => 'order_items',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'order_designs' => [
+            'table' => 'order_designs',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'order_messages' => [
+            'table' => 'order_messages',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'order_notes' => [
+            'table' => 'order_notes',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'order_status_history' => [
+            'table' => 'order_status_history',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'reviews' => [
+            'table' => 'reviews',
+            'depth' => 1,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+            ],
+        ],
+        'review_images' => [
+            'table' => 'review_images',
+            'depth' => 2,
+            'conditions' => [
+                'review_id IN (' . $reviewSql . ')',
+            ],
+        ],
+        'review_replies' => [
+            'table' => 'review_replies',
+            'depth' => 2,
+            'conditions' => [
+                'review_id IN (' . $reviewSql . ')',
+            ],
+        ],
+        'customizations' => [
+            'table' => 'customizations',
+            'depth' => 2,
+            'conditions' => [
+                'customer_id = ' . PF_DELETE_CUSTOMER_ID,
+                'order_id IN (' . $orderSql . ')',
+                'order_item_id IN (' . $orderItemSql . ')',
+            ],
+        ],
+        'order_item_revisions' => [
+            'table' => 'order_item_revisions',
+            'depth' => 2,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+                'order_item_id IN (' . $orderItemSql . ')',
+            ],
+        ],
+        'order_tarp_details' => [
+            'table' => 'order_tarp_details',
+            'depth' => 2,
+            'conditions' => [
+                'order_item_id IN (' . $orderItemSql . ')',
+            ],
+        ],
+        'material_usage_logs' => [
+            'table' => 'material_usage_logs',
+            'depth' => 2,
+            'conditions' => [
+                'order_id IN (' . $orderSql . ')',
+                'order_item_id IN (' . $orderItemSql . ')',
+            ],
+        ],
     ];
 }
 
-function pf_dco_delete_tables(): array
+function pf_dco_fk_children(): array
 {
-    return [
-        'review_images',
-        'review_replies',
-        'reviews',
-        'order_status_history',
-        'order_notes',
-        'order_messages',
-        'order_designs',
-        'order_items',
-        'job_orders',
-        'orders',
-    ];
+    static $cache = null;
+
+    if ($cache !== null) {
+        return $cache;
+    }
+
+    $rows = db_query(
+        "SELECT
+            TABLE_NAME AS child_table,
+            COLUMN_NAME AS child_column,
+            REFERENCED_TABLE_NAME AS parent_table,
+            REFERENCED_COLUMN_NAME AS parent_column
+         FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND REFERENCED_TABLE_SCHEMA = DATABASE()
+           AND REFERENCED_TABLE_NAME IS NOT NULL
+         ORDER BY TABLE_NAME ASC, COLUMN_NAME ASC"
+    ) ?: [];
+
+    $grouped = [];
+    foreach ($rows as $row) {
+        $childTable = (string)($row['child_table'] ?? '');
+        $parentTable = (string)($row['parent_table'] ?? '');
+        if ($childTable === '' || $parentTable === '' || $childTable === $parentTable) {
+            continue;
+        }
+        $grouped[$parentTable][] = [
+            'child_table' => $childTable,
+            'child_column' => (string)($row['child_column'] ?? ''),
+            'parent_column' => (string)($row['parent_column'] ?? ''),
+        ];
+    }
+
+    $cache = $grouped;
+    return $cache;
 }
 
-function pf_dco_select_rows_for_backup(string $table): array
+function pf_dco_scope_where(array $conditions): string
 {
+    $conditions = array_values(array_unique(array_filter(array_map('strval', $conditions), static fn(string $value): bool => trim($value) !== '')));
+    if ($conditions === []) {
+        return '1 = 0';
+    }
+    if (count($conditions) === 1) {
+        return $conditions[0];
+    }
+    return '(' . implode(') OR (', $conditions) . ')';
+}
+
+function pf_dco_register_scope(array &$scopes, string $table, array $conditions, int $depth): bool
+{
+    if (!pf_dco_table_exists($table) || $table === PF_DCO_BACKUP_TABLE) {
+        return false;
+    }
+
+    $changed = false;
+    if (!isset($scopes[$table])) {
+        $scopes[$table] = [
+            'table' => $table,
+            'depth' => $depth,
+            'conditions' => [],
+            'where' => '1 = 0',
+        ];
+        $changed = true;
+    }
+
+    foreach ($conditions as $condition) {
+        $condition = trim((string)$condition);
+        if ($condition === '' || in_array($condition, $scopes[$table]['conditions'], true)) {
+            continue;
+        }
+        $scopes[$table]['conditions'][] = $condition;
+        $changed = true;
+    }
+
+    if ($depth > (int)$scopes[$table]['depth']) {
+        $scopes[$table]['depth'] = $depth;
+        $changed = true;
+    }
+
+    $where = pf_dco_scope_where($scopes[$table]['conditions']);
+    if ($where !== $scopes[$table]['where']) {
+        $scopes[$table]['where'] = $where;
+        $changed = true;
+    }
+
+    return $changed;
+}
+
+function pf_dco_scope_plan(): array
+{
+    static $cache = null;
+
+    if ($cache !== null) {
+        return $cache;
+    }
+
+    $scopes = [];
+    $queue = [];
+
+    foreach (pf_dco_base_scopes() as $table => $scope) {
+        if (pf_dco_register_scope($scopes, $table, $scope['conditions'], (int)$scope['depth'])) {
+            $queue[] = $table;
+        }
+    }
+
+    $fkChildren = pf_dco_fk_children();
+    while ($queue !== []) {
+        $parentTable = array_shift($queue);
+        $parentScope = $scopes[$parentTable] ?? null;
+        if ($parentScope === null) {
+            continue;
+        }
+
+        foreach ($fkChildren[$parentTable] ?? [] as $relation) {
+            $childTable = (string)$relation['child_table'];
+            $childColumn = (string)$relation['child_column'];
+            $parentColumn = (string)$relation['parent_column'];
+            if ($childTable === '' || $childColumn === '' || $parentColumn === '') {
+                continue;
+            }
+
+            $condition = pf_dco_quote_identifier($childColumn)
+                . ' IN (SELECT DISTINCT '
+                . pf_dco_quote_identifier($parentColumn)
+                . ' FROM '
+                . pf_dco_quote_identifier($parentTable)
+                . ' WHERE '
+                . $parentScope['where']
+                . ')';
+
+            if (pf_dco_register_scope($scopes, $childTable, [$condition], (int)$parentScope['depth'] + 1)) {
+                $queue[] = $childTable;
+            }
+        }
+    }
+
+    $cache = $scopes;
+    return $cache;
+}
+
+function pf_dco_sorted_scopes(bool $forDelete): array
+{
+    $scopes = array_values(pf_dco_scope_plan());
+    usort($scopes, static function (array $a, array $b) use ($forDelete): int {
+        $depthCompare = $forDelete
+            ? ((int)$b['depth'] <=> (int)$a['depth'])
+            : ((int)$a['depth'] <=> (int)$b['depth']);
+        if ($depthCompare !== 0) {
+            return $depthCompare;
+        }
+        return strcmp((string)$a['table'], (string)$b['table']);
+    });
+    return $scopes;
+}
+
+function pf_dco_scope_table_names(): array
+{
+    return array_map(static fn(array $scope): string => (string)$scope['table'], pf_dco_sorted_scopes(false));
+}
+
+function pf_dco_select_rows_for_backup(array $scope): array
+{
+    $table = (string)$scope['table'];
     if (!pf_dco_table_exists($table)) {
         return [];
     }
 
-    switch ($table) {
-        case 'orders':
-            return db_query(
-                "SELECT * FROM orders WHERE customer_id = ? ORDER BY order_id ASC",
-                'i',
-                [PF_DELETE_CUSTOMER_ID]
-            ) ?: [];
-
-        case 'job_orders':
-            return db_query(
-                "SELECT * FROM job_orders
-                 WHERE customer_id = ?
-                    OR order_id IN (SELECT order_id FROM orders WHERE customer_id = ?)
-                 ORDER BY id ASC",
-                'ii',
-                [PF_DELETE_CUSTOMER_ID, PF_DELETE_CUSTOMER_ID]
-            ) ?: [];
-
-        case 'review_images':
-        case 'review_replies':
-            if (!pf_dco_table_exists('reviews')) {
-                return [];
-            }
-            return db_query(
-                "SELECT * FROM `{$table}`
-                 WHERE review_id IN (
-                     SELECT id
-                     FROM reviews
-                     WHERE order_id IN (
-                         SELECT order_id FROM orders WHERE customer_id = ?
-                     )
-                 )",
-                'i',
-                [PF_DELETE_CUSTOMER_ID]
-            ) ?: [];
-
-        default:
-            return db_query(
-                "SELECT * FROM `{$table}`
-                 WHERE order_id IN (
-                     SELECT order_id FROM orders WHERE customer_id = ?
-                 )",
-                'i',
-                [PF_DELETE_CUSTOMER_ID]
-            ) ?: [];
-    }
+    return db_query(
+        'SELECT * FROM ' . pf_dco_quote_identifier($table) . ' WHERE ' . $scope['where']
+    ) ?: [];
 }
 
 function pf_dco_capture_backup_batch(string $batchId, int $adminId): array
 {
     $captured = [];
 
-    foreach (pf_dco_backup_tables() as $table) {
-        $rows = pf_dco_select_rows_for_backup($table);
+    foreach (pf_dco_sorted_scopes(false) as $scope) {
+        $table = (string)$scope['table'];
+        $rows = pf_dco_select_rows_for_backup($scope);
         $captured[$table] = count($rows);
         $position = 0;
 
@@ -364,60 +570,15 @@ function pf_dco_recent_batches(): array
     ) ?: [];
 }
 
-function pf_dco_count_orders_child(string $table, string $orderColumn = 'order_id'): int
+function pf_dco_count_scope_rows(array $scope): int
 {
+    $table = (string)$scope['table'];
     if (!pf_dco_table_exists($table)) {
         return 0;
     }
 
     $rows = db_query(
-        "SELECT COUNT(*) AS c
-         FROM `{$table}`
-         WHERE `{$orderColumn}` IN (
-             SELECT order_id FROM orders WHERE customer_id = ?
-         )",
-        'i',
-        [PF_DELETE_CUSTOMER_ID]
-    );
-
-    return (int)($rows[0]['c'] ?? 0);
-}
-
-function pf_dco_count_job_orders(): int
-{
-    if (!pf_dco_table_exists('job_orders')) {
-        return 0;
-    }
-
-    $rows = db_query(
-        "SELECT COUNT(*) AS c
-         FROM job_orders
-         WHERE customer_id = ?
-            OR order_id IN (SELECT order_id FROM orders WHERE customer_id = ?)",
-        'ii',
-        [PF_DELETE_CUSTOMER_ID, PF_DELETE_CUSTOMER_ID]
-    );
-
-    return (int)($rows[0]['c'] ?? 0);
-}
-
-function pf_dco_count_review_children(string $table): int
-{
-    if (!pf_dco_table_exists('reviews') || !pf_dco_table_exists($table)) {
-        return 0;
-    }
-
-    $rows = db_query(
-        "SELECT COUNT(*) AS c
-         FROM `{$table}`
-         WHERE review_id IN (
-             SELECT id FROM reviews
-             WHERE order_id IN (
-                 SELECT order_id FROM orders WHERE customer_id = ?
-             )
-         )",
-        'i',
-        [PF_DELETE_CUSTOMER_ID]
+        'SELECT COUNT(*) AS c FROM ' . pf_dco_quote_identifier($table) . ' WHERE ' . $scope['where']
     );
 
     return (int)($rows[0]['c'] ?? 0);
@@ -443,30 +604,30 @@ function pf_dco_preview(): array
         [PF_DELETE_CUSTOMER_ID]
     ) ?: [];
 
+    $counts = [
+        'orders' => count($orders),
+    ];
+    foreach (pf_dco_sorted_scopes(false) as $scope) {
+        $table = (string)$scope['table'];
+        if ($table === 'orders') {
+            continue;
+        }
+        $counts[$table] = pf_dco_count_scope_rows($scope);
+    }
+    $counts['service_orders'] = pf_dco_table_exists('service_orders')
+        ? (int)((db_query("SELECT COUNT(*) AS c FROM service_orders WHERE customer_id = ?", 'i', [PF_DELETE_CUSTOMER_ID])[0]['c'] ?? 0))
+        : 0;
+
     return [
         'customer' => $customer[0] ?? null,
         'orders' => $orders,
-        'counts' => [
-            'orders' => count($orders),
-            'order_items' => pf_dco_count_orders_child('order_items'),
-            'order_designs' => pf_dco_count_orders_child('order_designs'),
-            'order_messages' => pf_dco_count_orders_child('order_messages'),
-            'order_notes' => pf_dco_count_orders_child('order_notes'),
-            'order_status_history' => pf_dco_count_orders_child('order_status_history'),
-            'reviews' => pf_dco_count_orders_child('reviews'),
-            'review_images' => pf_dco_count_review_children('review_images'),
-            'review_replies' => pf_dco_count_review_children('review_replies'),
-            'job_orders' => pf_dco_count_job_orders(),
-            'service_orders' => pf_dco_table_exists('service_orders')
-                ? (int)((db_query("SELECT COUNT(*) AS c FROM service_orders WHERE customer_id = ?", 'i', [PF_DELETE_CUSTOMER_ID])[0]['c'] ?? 0))
-                : 0,
-        ],
+        'counts' => $counts,
     ];
 }
 
 function pf_dco_delete_customer_orders(): array
 {
-    $deleted = array_fill_keys(pf_dco_delete_tables(), 0);
+    $deleted = array_fill_keys(pf_dco_scope_table_names(), 0);
     $backupCounts = [];
     $adminId = (int)get_user_id();
     $batchId = 'dco25_' . date('Ymd_His') . '_' . substr(bin2hex(random_bytes(4)), 0, 8);
@@ -482,12 +643,6 @@ function pf_dco_delete_customer_orders(): array
         ];
     }
 
-    $orderIds = array_values(array_unique(array_map(static function (array $row): int {
-        return (int)($row['order_id'] ?? 0);
-    }, $orders)));
-    $orderIds = array_values(array_filter($orderIds, static fn(int $id): bool => $id > 0));
-    $orderIdCsv = pf_dco_int_csv($orderIds);
-
     try {
         pf_dco_ensure_backup_table();
         global $conn;
@@ -495,55 +650,16 @@ function pf_dco_delete_customer_orders(): array
 
         $backupCounts = pf_dco_capture_backup_batch($batchId, $adminId);
 
-        $reviewRows = pf_dco_table_exists('reviews')
-            ? (db_query("SELECT id FROM reviews WHERE order_id IN ({$orderIdCsv})") ?: [])
-            : [];
-        $reviewIds = array_values(array_filter(array_map(static function (array $row): int {
-            return (int)($row['id'] ?? 0);
-        }, $reviewRows), static fn(int $id): bool => $id > 0));
-        $reviewIdCsv = pf_dco_int_csv($reviewIds);
-
-        foreach (pf_dco_delete_tables() as $table) {
-            switch ($table) {
-                case 'review_images':
-                case 'review_replies':
-                    if (!pf_dco_table_exists($table) || $reviewIds === []) {
-                        $deleted[$table] = 0;
-                        break;
-                    }
-                    $deleted[$table] = pf_dco_exec_raw_affected(
-                        "DELETE FROM `{$table}` WHERE review_id IN ({$reviewIdCsv})"
-                    );
-                    break;
-
-                case 'job_orders':
-                    if (!pf_dco_table_exists('job_orders')) {
-                        $deleted[$table] = 0;
-                        break;
-                    }
-                    $deleted[$table] = pf_dco_exec_raw_affected(
-                        "DELETE FROM job_orders
-                         WHERE customer_id = " . PF_DELETE_CUSTOMER_ID . "
-                            OR order_id IN ({$orderIdCsv})"
-                    );
-                    break;
-
-                case 'orders':
-                    $deleted[$table] = pf_dco_exec_raw_affected(
-                        "DELETE FROM orders WHERE order_id IN ({$orderIdCsv})"
-                    );
-                    break;
-
-                default:
-                    if (!pf_dco_table_exists($table)) {
-                        $deleted[$table] = 0;
-                        break;
-                    }
-                    $deleted[$table] = pf_dco_exec_raw_affected(
-                        "DELETE FROM `{$table}` WHERE order_id IN ({$orderIdCsv})"
-                    );
-                    break;
+        foreach (pf_dco_sorted_scopes(true) as $scope) {
+            $table = (string)$scope['table'];
+            if (!pf_dco_table_exists($table)) {
+                $deleted[$table] = 0;
+                continue;
             }
+
+            $deleted[$table] = pf_dco_exec_raw_affected(
+                'DELETE FROM ' . pf_dco_quote_identifier($table) . ' WHERE ' . $scope['where']
+            );
         }
 
         $conn->commit();
@@ -579,7 +695,7 @@ function pf_dco_rollback_latest_batch(): array
 {
     global $conn;
 
-    $restored = array_fill_keys(pf_dco_backup_tables(), 0);
+    $restored = array_fill_keys(pf_dco_scope_table_names(), 0);
     $adminId = (int)get_user_id();
     $batch = pf_dco_latest_active_batch();
 
@@ -608,7 +724,10 @@ function pf_dco_rollback_latest_batch(): array
             [$batchId, PF_DELETE_CUSTOMER_ID]
         ) ?: [];
 
-        $rank = array_flip(pf_dco_backup_tables());
+        $rank = [];
+        foreach (pf_dco_sorted_scopes(false) as $index => $scope) {
+            $rank[(string)$scope['table']] = $index;
+        }
         usort($rows, static function (array $a, array $b) use ($rank): int {
             $ra = $rank[$a['table_name']] ?? 999;
             $rb = $rank[$b['table_name']] ?? 999;
@@ -622,6 +741,9 @@ function pf_dco_rollback_latest_batch(): array
             $table = (string)$row['table_name'];
             if (!pf_dco_table_exists($table)) {
                 continue;
+            }
+            if (!isset($restored[$table])) {
+                $restored[$table] = 0;
             }
 
             $payload = base64_decode((string)$row['payload'], true);
