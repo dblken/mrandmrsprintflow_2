@@ -10,6 +10,7 @@ require_role('Admin');
 const PF_DELETE_CUSTOMER_IDS = [25, 296, 295, 288, 3, 1];
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
 const PF_DCO_TOOL_VERSION = '2026-05-03 v6';
+const PF_DCO_RESTORE_SINGLE_CUSTOMER_ID = 1;
 
 function pf_dco_h($value): string
 {
@@ -35,6 +36,11 @@ function pf_dco_target_customer_id_csv(): string
 function pf_dco_target_customer_label(): string
 {
     return implode(', ', pf_dco_target_customer_ids());
+}
+
+function pf_dco_restore_single_customer_id(): int
+{
+    return PF_DCO_RESTORE_SINGLE_CUSTOMER_ID;
 }
 
 function pf_dco_table_exists(string $table): bool
@@ -412,6 +418,33 @@ function pf_dco_fk_children(): array
     return $cache;
 }
 
+function pf_dco_fk_parents(): array
+{
+    static $cache = null;
+
+    if ($cache !== null) {
+        return $cache;
+    }
+
+    $parents = [];
+    foreach (pf_dco_fk_children() as $parentTable => $relations) {
+        foreach ($relations as $relation) {
+            $childTable = (string)($relation['child_table'] ?? '');
+            if ($childTable === '') {
+                continue;
+            }
+            $parents[$childTable][] = [
+                'parent_table' => $parentTable,
+                'parent_column' => (string)($relation['parent_column'] ?? ''),
+                'child_column' => (string)($relation['child_column'] ?? ''),
+            ];
+        }
+    }
+
+    $cache = $parents;
+    return $cache;
+}
+
 function pf_dco_scope_where(array $conditions): string
 {
     $conditions = array_values(array_unique(array_filter(array_map('strval', $conditions), static fn(string $value): bool => trim($value) !== '')));
@@ -628,6 +661,171 @@ function pf_dco_restore_row(string $table, array $row): void
     }
 }
 
+function pf_dco_restore_row_matches_customer(
+    string $table,
+    array $data,
+    int $customerId,
+    array $selectedValues
+): bool {
+    switch ($table) {
+        case 'orders':
+        case 'service_orders':
+            return (int)($data['customer_id'] ?? 0) === $customerId;
+
+        case 'job_orders':
+            return (int)($data['customer_id'] ?? 0) === $customerId
+                || isset($selectedValues['orders']['order_id'][(string)((int)($data['order_id'] ?? 0))]);
+
+        case 'customizations':
+            return (int)($data['customer_id'] ?? 0) === $customerId
+                || isset($selectedValues['orders']['order_id'][(string)((int)($data['order_id'] ?? 0))])
+                || isset($selectedValues['order_items']['order_item_id'][(string)((int)($data['order_item_id'] ?? 0))]);
+
+        case 'order_items':
+        case 'order_designs':
+        case 'order_messages':
+        case 'order_notes':
+        case 'order_status_history':
+        case 'reviews':
+            return isset($selectedValues['orders']['order_id'][(string)((int)($data['order_id'] ?? 0))]);
+
+        case 'review_images':
+        case 'review_replies':
+            return isset($selectedValues['reviews']['id'][(string)((int)($data['review_id'] ?? 0))]);
+
+        case 'service_order_details':
+        case 'service_order_files':
+            return isset($selectedValues['service_orders']['id'][(string)((int)($data['order_id'] ?? 0))]);
+
+        case 'order_item_revisions':
+        case 'material_usage_logs':
+            return isset($selectedValues['orders']['order_id'][(string)((int)($data['order_id'] ?? 0))])
+                || isset($selectedValues['order_items']['order_item_id'][(string)((int)($data['order_item_id'] ?? 0))]);
+
+        case 'order_tarp_details':
+            return isset($selectedValues['order_items']['order_item_id'][(string)((int)($data['order_item_id'] ?? 0))]);
+    }
+
+    foreach (pf_dco_fk_parents()[$table] ?? [] as $relation) {
+        $parentTable = (string)($relation['parent_table'] ?? '');
+        $parentColumn = (string)($relation['parent_column'] ?? '');
+        $childColumn = (string)($relation['child_column'] ?? '');
+        if ($parentTable === '' || $parentColumn === '' || $childColumn === '') {
+            continue;
+        }
+        $childValue = $data[$childColumn] ?? null;
+        if ($childValue === null) {
+            continue;
+        }
+        if (isset($selectedValues[$parentTable][$parentColumn][(string)$childValue])) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function pf_dco_collect_selected_row_values(array &$selectedValues, string $table, array $data): void
+{
+    foreach ($data as $column => $value) {
+        if ($value === null) {
+            continue;
+        }
+        if (!isset($selectedValues[$table])) {
+            $selectedValues[$table] = [];
+        }
+        if (!isset($selectedValues[$table][$column])) {
+            $selectedValues[$table][$column] = [];
+        }
+        $selectedValues[$table][$column][(string)$value] = true;
+    }
+}
+
+function pf_dco_ranked_scope_index(): array
+{
+    $rank = [];
+    foreach (pf_dco_sorted_scopes(false) as $index => $scope) {
+        $rank[(string)$scope['table']] = $index;
+    }
+    return $rank;
+}
+
+function pf_dco_restore_rows_for_customer(array $rows, int $customerId): array
+{
+    $grouped = [];
+    foreach ($rows as $row) {
+        $table = (string)($row['table_name'] ?? '');
+        if ($table === '') {
+            continue;
+        }
+        $grouped[$table][] = $row;
+    }
+
+    $selectedRows = [];
+    $selectedValues = [];
+    $rank = pf_dco_ranked_scope_index();
+    uksort($grouped, static function (string $a, string $b) use ($rank): int {
+        return ($rank[$a] ?? 999) <=> ($rank[$b] ?? 999);
+    });
+
+    foreach ($grouped as $table => $tableRows) {
+        usort($tableRows, static function (array $a, array $b): int {
+            return ((int)($a['row_position'] ?? 0)) <=> ((int)($b['row_position'] ?? 0));
+        });
+
+        foreach ($tableRows as $row) {
+            $data = $row['_payload_data'] ?? null;
+            if (!is_array($data)) {
+                continue;
+            }
+            if (!pf_dco_restore_row_matches_customer($table, $data, $customerId, $selectedValues)) {
+                continue;
+            }
+            $selectedRows[] = $row;
+            pf_dco_collect_selected_row_values($selectedValues, $table, $data);
+        }
+    }
+
+    usort($selectedRows, static function (array $a, array $b) use ($rank): int {
+        $ra = $rank[$a['table_name']] ?? 999;
+        $rb = $rank[$b['table_name']] ?? 999;
+        if ($ra === $rb) {
+            return ((int)$a['row_position']) <=> ((int)$b['row_position']);
+        }
+        return $ra <=> $rb;
+    });
+
+    return $selectedRows;
+}
+
+function pf_dco_latest_batch_rows(string $batchId): array
+{
+    $rows = db_query(
+        "SELECT id, table_name, row_position, payload
+         FROM " . PF_DCO_BACKUP_TABLE . "
+         WHERE batch_id = ?
+           AND customer_id = ?
+           AND restored_at IS NULL
+         ORDER BY id ASC",
+        'si',
+        [$batchId, pf_dco_primary_customer_id()]
+    ) ?: [];
+
+    foreach ($rows as $index => $row) {
+        $payload = base64_decode((string)($row['payload'] ?? ''), true);
+        if ($payload === false) {
+            throw new RuntimeException('Rollback payload decode failed for batch ' . $batchId . '.');
+        }
+        $data = unserialize($payload);
+        if (!is_array($data)) {
+            throw new RuntimeException('Rollback payload data is invalid for batch ' . $batchId . '.');
+        }
+        $rows[$index]['_payload_data'] = $data;
+    }
+
+    return $rows;
+}
+
 function pf_dco_latest_active_batch(): ?array
 {
     pf_dco_ensure_backup_table();
@@ -841,27 +1039,7 @@ function pf_dco_rollback_latest_batch(): array
     try {
         pf_dco_begin_transaction();
 
-        $rows = db_query(
-            "SELECT id, table_name, row_position, payload
-             FROM " . PF_DCO_BACKUP_TABLE . "
-             WHERE batch_id = " . pf_dco_quote_sql_string($batchId) . "
-               AND customer_id IN ({$customerCsv})
-               AND restored_at IS NULL
-             ORDER BY id ASC"
-        ) ?: [];
-
-        $rank = [];
-        foreach (pf_dco_sorted_scopes(false) as $index => $scope) {
-            $rank[(string)$scope['table']] = $index;
-        }
-        usort($rows, static function (array $a, array $b) use ($rank): int {
-            $ra = $rank[$a['table_name']] ?? 999;
-            $rb = $rank[$b['table_name']] ?? 999;
-            if ($ra === $rb) {
-                return ((int)$a['row_position']) <=> ((int)$b['row_position']);
-            }
-            return $ra <=> $rb;
-        });
+        $rows = pf_dco_latest_batch_rows($batchId);
 
         foreach ($rows as $row) {
             $table = (string)$row['table_name'];
@@ -872,17 +1050,7 @@ function pf_dco_rollback_latest_batch(): array
                 $restored[$table] = 0;
             }
 
-            $payload = base64_decode((string)$row['payload'], true);
-            if ($payload === false) {
-                throw new RuntimeException('Rollback payload decode failed for batch ' . $batchId . '.');
-            }
-
-            $data = unserialize($payload);
-            if (!is_array($data)) {
-                throw new RuntimeException('Rollback payload data is invalid for batch ' . $batchId . '.');
-            }
-
-            pf_dco_restore_row($table, $data);
+            pf_dco_restore_row($table, $row['_payload_data']);
             $restored[$table] = ($restored[$table] ?? 0) + 1;
         }
 
@@ -923,6 +1091,87 @@ function pf_dco_rollback_latest_batch(): array
     }
 }
 
+function pf_dco_restore_single_customer_latest_batch(int $customerId): array
+{
+    global $conn;
+
+    $restored = array_fill_keys(pf_dco_scope_table_names(), 0);
+    $adminId = (int)get_user_id();
+    $batch = pf_dco_latest_active_batch();
+
+    if (!$batch) {
+        return [
+            'success' => false,
+            'message' => 'No rollback batch is currently available.',
+            'restored' => $restored,
+            'batch_id' => null,
+        ];
+    }
+
+    $batchId = (string)$batch['batch_id'];
+
+    try {
+        pf_dco_begin_transaction();
+
+        $rows = pf_dco_latest_batch_rows($batchId);
+        $rowsToRestore = pf_dco_restore_rows_for_customer($rows, $customerId);
+        if ($rowsToRestore === []) {
+            throw new RuntimeException('No saved rows for customer ID ' . $customerId . ' were found in batch ' . $batchId . '.');
+        }
+
+        $restoredIds = [];
+        foreach ($rowsToRestore as $row) {
+            $table = (string)$row['table_name'];
+            if (!pf_dco_table_exists($table)) {
+                continue;
+            }
+            if (!isset($restored[$table])) {
+                $restored[$table] = 0;
+            }
+
+            pf_dco_restore_row($table, $row['_payload_data']);
+            $restored[$table] = ($restored[$table] ?? 0) + 1;
+            $restoredIds[] = (int)($row['id'] ?? 0);
+        }
+
+        $restoredIds = array_values(array_filter($restoredIds, static fn(int $id): bool => $id > 0));
+        if ($restoredIds === []) {
+            throw new RuntimeException('Customer ID ' . $customerId . ' restore did not produce any backup row IDs to mark as restored.');
+        }
+
+        pf_dco_exec_raw_affected(
+            "UPDATE " . PF_DCO_BACKUP_TABLE . "
+             SET restored_at = NOW(), restored_by = " . $adminId . "
+             WHERE id IN (" . implode(', ', $restoredIds) . ")"
+        );
+
+        pf_dco_commit_transaction();
+
+        log_activity(
+            $adminId,
+            'Restore Single Customer Orders Delete',
+            'Restored deleted order transaction data for customer ID ' . $customerId . '. Batch: ' . $batchId
+        );
+
+        return [
+            'success' => true,
+            'message' => 'Restore completed for customer ID ' . $customerId . '.',
+            'restored' => $restored,
+            'batch_id' => $batchId,
+        ];
+    } catch (Throwable $e) {
+        pf_dco_rollback_transaction();
+        error_log('delete_customer_25_orders_tool single restore failed: ' . $e->getMessage());
+
+        return [
+            'success' => false,
+            'message' => 'Restore failed: ' . $e->getMessage(),
+            'restored' => $restored,
+            'batch_id' => $batchId,
+        ];
+    }
+}
+
 $result = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -934,6 +1183,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (isset($_POST['delete_customer_25_orders'])) {
         $result = pf_dco_delete_customer_orders();
         $result['mode'] = 'delete';
+    } elseif (isset($_POST['restore_customer_1_orders'])) {
+        $result = pf_dco_restore_single_customer_latest_batch(pf_dco_restore_single_customer_id());
+        $result['mode'] = 'restore_single';
     } elseif (isset($_POST['rollback_customer_25_orders'])) {
         $result = pf_dco_rollback_latest_batch();
         $result['mode'] = 'rollback';
@@ -1117,6 +1369,18 @@ require_once __DIR__ . '/../includes/header.php';
                             <?php echo !$activeBatch ? 'disabled style="opacity:.6;cursor:not-allowed;"' : ''; ?>
                         >
                             Rollback Latest Delete
+                        </button>
+                    </form>
+
+                    <form method="post" onsubmit="return confirm('Restore only customer ID <?php echo (int)pf_dco_restore_single_customer_id(); ?> from the latest delete batch?');">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="restore_customer_1_orders" value="1">
+                        <button
+                            type="submit"
+                            class="inline-flex items-center px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition"
+                            <?php echo !$activeBatch ? 'disabled style="opacity:.6;cursor:not-allowed;"' : ''; ?>
+                        >
+                            Restore Customer ID <?php echo (int)pf_dco_restore_single_customer_id(); ?>
                         </button>
                     </form>
                 </div>
