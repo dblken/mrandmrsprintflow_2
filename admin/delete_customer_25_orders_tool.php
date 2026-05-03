@@ -9,7 +9,7 @@ require_role('Admin');
 
 const PF_DELETE_CUSTOMER_ID = 25;
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
-const PF_DCO_TOOL_VERSION = '2026-05-03 v5';
+const PF_DCO_TOOL_VERSION = '2026-05-03 v6';
 
 function pf_dco_h($value): string
 {
@@ -29,7 +29,15 @@ function pf_dco_table_exists(string $table): bool
         return false;
     }
 
-    $rows = db_query("SHOW TABLES LIKE ?", 's', [$safe]);
+    $rows = db_query(
+        "SELECT 1
+         FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+         LIMIT 1",
+        's',
+        [$safe]
+    );
     $cache[$table] = !empty($rows);
     return $cache[$table];
 }
