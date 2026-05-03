@@ -289,9 +289,10 @@ $donut_palette = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A
 $rev_donut_total = 0.0;
 foreach ($rev_donut as $rd) $rev_donut_total += (float)($rd['revenue'] ?? 0);
 
-// Horizontal bar beside inventory: same grain as "Sales by Product Category" (sticker split, last 30 days)
+// Horizontal bar: same pipeline as category donut (sticker split). Omit "Available Products" / fold bucket
+// so the bar is not a misleading slice of the first eight rows (which hid smaller categories behind Stickers).
 $dashboard_sales_bar = !empty($category_sales)
-    ? array_slice($category_sales, 0, 8)
+    ? pf_reports_category_sales_for_dashboard_bar_chart($category_sales, 8)
     : array_slice($top_products_full, 0, 8);
 $dashboard_sales_bar_is_category = !empty($category_sales);
 

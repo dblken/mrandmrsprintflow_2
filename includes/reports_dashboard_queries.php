@@ -283,6 +283,32 @@ function pf_reports_split_sticker_sales_including_stickers_bucket(array $rows): 
     return $rest;
 }
 
+/**
+ * Category rows for the admin/manager horizontal bar: exclude catch-all buckets, then top N by revenue.
+ * Filtering before slicing avoids taking eight rows that include hidden buckets so other categories disappear.
+ *
+ * @param array<int, array<string,mixed>> $rows
+ * @return array<int, array<string,mixed>>
+ */
+function pf_reports_category_sales_for_dashboard_bar_chart(array $rows, int $limit = 8): array {
+    $exclude = [
+        'available products' => true,
+        'more available products' => true,
+    ];
+    $filtered = [];
+    foreach ($rows as $r) {
+        $n = pf_reports_product_category_norm((string)($r['category'] ?? ''));
+        if ($n !== '' && isset($exclude[$n])) {
+            continue;
+        }
+        $filtered[] = $r;
+    }
+    usort($filtered, static function ($a, $b) {
+        return ((float)($b['total'] ?? 0) <=> (float)($a['total'] ?? 0));
+    });
+    return array_slice($filtered, 0, max(1, $limit));
+}
+
 /** Best-effort family/category inference for legacy product rows with weak labels. */
 function pf_product_sales_chart_family_sql(string $productAlias = 'p', string $itemAlias = 'oi'): string {
     $productAlias = pf_reports_sql_alias($productAlias, 'p');

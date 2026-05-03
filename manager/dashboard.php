@@ -173,7 +173,7 @@ try {
 }
 
 $dashboard_sales_bar = !empty($category_sales)
-    ? array_slice($category_sales, 0, 8)
+    ? pf_reports_category_sales_for_dashboard_bar_chart($category_sales, 8)
     : array_slice($top_products_full, 0, 8);
 $dashboard_sales_bar_is_category = !empty($category_sales);
 
