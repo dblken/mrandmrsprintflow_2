@@ -1478,7 +1478,7 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </template>
                                     </div>
-                                    <template x-if="item.design_is_image && (item.design_url || item.design_open_url)">
+                                    <template x-if="item.design_open_url && staffDesignShowsAsImage(item)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
@@ -1489,7 +1489,7 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </div>
                                     </template>
-                                    <template x-if="!item.design_is_image && item.design_open_url">
+                                    <template x-if="item.design_open_url && !staffDesignShowsAsImage(item)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
                                             <a :href="item.design_open_url"
@@ -1510,18 +1510,18 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </div>
                                     </template>
-                                    <template x-if="item.reference_is_image && item.reference_url">
+                                    <template x-if="item.reference_open_url && (item.reference_is_image || staffFilenameLooksLikeImage(item.reference_name))">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Reference image</div>
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
-                                                <img :src="item.reference_url"
-                                                     @click="previewFile = item.reference_url"
+                                                <img :src="item.reference_url || item.reference_open_url"
+                                                     @click="previewFile = item.reference_url || item.reference_open_url"
                                                      style="width:140px; height:auto; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);"
                                                      onerror="this.style.display='none'">
                                             </div>
                                         </div>
                                     </template>
-                                    <template x-if="!item.reference_is_image && item.reference_open_url">
+                                    <template x-if="item.reference_open_url && !(item.reference_is_image || staffFilenameLooksLikeImage(item.reference_name))">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Reference File</div>
                                             <a :href="item.reference_open_url"
@@ -1547,6 +1547,19 @@ if ($showLatestCustomizationOnly) {
                         </div>
                     </template>
 
+                    <!-- Payment proof: show as image whenever uploaded (not only on TO VERIFY tab) -->
+                    <template x-if="staffPaymentProofSrc(currentJo) && !isVerifyStageRow(currentJo)">
+                        <div style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
+                            <label style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;display:block;margin-bottom:12px;">Payment proof (customer)</label>
+                            <div @click="previewFile = staffPaymentProofSrc(currentJo)"
+                                 style="display:block;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:hidden;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
+                                <img :src="staffPaymentProofSrc(currentJo)"
+                                     style="display:block;width:100%;max-height:420px;object-fit:contain;background:#fff;"
+                                     alt="Payment proof"
+                                     @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment+proof'; $el.style.opacity='0.4'">
+                            </div>
+                        </div>
+                    </template>
 
                     <!-- Notes -->
                     <div style="margin-bottom:20px;" x-show="combinedCustomerNotes().trim() !== '' && combinedCustomerNotes() !== 'No specific instructions.'">
@@ -1560,10 +1573,10 @@ if ($showLatestCustomizationOnly) {
                             <label style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;display:block;margin-bottom:16px;">Step 4: Verify Payment Proof</label>
                             
                             <div style="display:flex; flex-direction:column; gap:14px;">
-                                <template x-if="currentJo.payment_proof_path">
-                                        <div @click="previewFile = currentJo.payment_proof_path"
+                                <template x-if="staffPaymentProofSrc(currentJo)">
+                                        <div @click="previewFile = staffPaymentProofSrc(currentJo)"
                                              style="display:block;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:hidden;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
-                                            <img :src="currentJo.payment_proof_path"
+                                            <img :src="staffPaymentProofSrc(currentJo)"
                                                  style="display:block;width:100%;max-height:460px;object-fit:contain;background:#fff;"
                                                  alt="Payment Proof"
                                                  @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment Proof'; $el.style.opacity='0.4'">
@@ -1900,7 +1913,7 @@ if ($showLatestCustomizationOnly) {
                                 <div style="font-size:12px; color:#075985;">The customer has uploaded a new design file. Please review and approve.</div>
                             </div>
                             <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">
-                                <div x-show="revItem.design_is_image && (revItem.design_url || revItem.design_open_url)"
+                                <div x-show="staffDesignShowsAsImage(revItem) && (revItem.design_url || revItem.design_open_url)"
                                      @click="previewFile = revItem.design_url || revItem.design_open_url"
                                      style="flex-shrink:0; cursor:zoom-in;">
                                     <img :src="revItem.design_url || revItem.design_open_url"
@@ -2949,6 +2962,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (v === '' || v == null) return false;
                     if (skip.includes(k)) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
+                    if (isDetail && item) {
+                        const dupDesignKeys = ['design_upload', 'design_upload_path', 'upload_design', 'upload_design_path', 'design_file'];
+                        if (dupDesignKeys.includes(k) && (item.design_open_url || item.design_url)) {
+                            return false;
+                        }
+                        const lk = String(k).toLowerCase().replace(/\s+/g, '_');
+                        if ((lk.includes('payment') && lk.includes('proof')) || ['payment_proof', 'payment_upload', 'proof_of_payment'].includes(lk)) {
+                            if (this.staffPaymentProofSrc(this.currentJo)) return false;
+                        }
+                    }
                     return true;
                 });
             },
@@ -2972,6 +2995,29 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (/^https?:\/\//i.test(s)) return s;
                 if (s.startsWith('/')) return s;
                 return '#';
+            },
+            staffResolveMediaUrl(raw) {
+                if (raw == null || raw === '') return '';
+                const s = String(raw).trim();
+                if (!s) return '';
+                if (/^https?:\/\//i.test(s)) return s;
+                const base = document.body.getAttribute('data-base-url') || '';
+                if (s.startsWith('/')) return base + s;
+                return base + '/' + s.replace(/^\/+/, '');
+            },
+            staffPaymentProofSrc(jo) {
+                if (!jo) return '';
+                const raw = (jo.payment_proof_path || jo.payment_proof || '').trim();
+                return raw ? this.staffResolveMediaUrl(raw) : '';
+            },
+            staffFilenameLooksLikeImage(name) {
+                if (!name) return false;
+                return /\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i.test(String(name));
+            },
+            staffDesignShowsAsImage(item) {
+                if (!item) return false;
+                if (item.design_is_image) return true;
+                return this.staffFilenameLooksLikeImage(item.design_name);
             },
             combinedCustomerNotes() {
                 const j = this.currentJo;

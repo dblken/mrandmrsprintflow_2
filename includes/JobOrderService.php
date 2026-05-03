@@ -1229,12 +1229,18 @@ class JobOrderService {
         }
         $designIsImage = false;
         if ($hasOwnDesign) {
+            // JSON may store a non-path "design_file" label while the real file is BLOB + design_image_name (.jpg).
+            $nameForImageCheck = $designName;
             if ($customDesignPath !== null) {
-                $designIsImage = function_exists('printflow_media_path_looks_like_image') ? printflow_media_path_looks_like_image($customDesignPath) : false;
-            } else {
-                $designIsImage = function_exists('printflow_order_item_has_previewable_design')
-                    ? printflow_order_item_has_previewable_design($item)
+                $designIsImage = function_exists('printflow_media_path_looks_like_image')
+                    ? printflow_media_path_looks_like_image($customDesignPath, $nameForImageCheck)
                     : false;
+            }
+            if (!$designIsImage && function_exists('printflow_order_item_has_previewable_design')) {
+                $designIsImage = printflow_order_item_has_previewable_design($item);
+            }
+            if (!$designIsImage && $nameForImageCheck !== '' && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $nameForImageCheck)) {
+                $designIsImage = true;
             }
             if ($designName === '' && !empty($item['design_file'])) {
                 $designPath = parse_url((string)$item['design_file'], PHP_URL_PATH);

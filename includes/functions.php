@@ -4184,7 +4184,8 @@ function printflow_service_units_sold(int $service_id): int {
 
 function printflow_media_path_looks_like_image(string $path, string $fallbackName = ''): bool {
     $candidate = trim($path);
-    if ($candidate === '' && trim($fallbackName) === '') {
+    $fallback = trim($fallbackName);
+    if ($candidate === '' && $fallback === '') {
         return false;
     }
 
@@ -4194,11 +4195,23 @@ function printflow_media_path_looks_like_image(string $path, string $fallbackNam
             $candidate = $parsedPath;
         }
     } else {
-        $candidate = $fallbackName;
+        $candidate = $fallback;
     }
 
+    $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'];
     $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
-    return in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'], true);
+    if (in_array($ext, $imageExts, true)) {
+        return true;
+    }
+    // Path may be a label or URL without extension; use stored filename (e.g. customer uploads).
+    if ($fallback !== '') {
+        $ext2 = strtolower(pathinfo($fallback, PATHINFO_EXTENSION));
+        if (in_array($ext2, $imageExts, true)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function printflow_order_item_has_previewable_design(array $item): bool {
