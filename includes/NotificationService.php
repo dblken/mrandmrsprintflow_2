@@ -43,9 +43,11 @@ class NotificationService {
         $order = db_query("SELECT id, order_id, estimated_total FROM job_orders WHERE id = ?", 'i', [$jobOrderId]);
         if (!empty($order)) {
             $o = $order[0];
-            $amount = Number_Format((float)($o['estimated_total'] ?? 0), 2);
-            $orderNo = "#JO-" . str_pad((int)$o['id'], 5, '0', STR_PAD_LEFT);
-            
+            $amount = number_format((float)($o['estimated_total'] ?? 0), 2);
+            // One customer-facing reference (matches orders list / inventory labels), not mixed #JO + #ORD.
+            $refLabel = printflow_get_job_inventory_reference((int)$o['id']);
+            $orderNo = (string)($refLabel['label'] ?? '');
+
             $rev_reason = 'No reason provided';
             if (!empty($o['order_id'])) {
                 $st = db_query("SELECT revision_reason FROM orders WHERE order_id = ?", 'i', [$o['order_id']]);
@@ -56,10 +58,6 @@ class NotificationService {
             // Use standard order ID for linking if it exists, otherwise use job order ID
             $linkId = $o['order_id'] ?: $o['id'];
             $type = $o['order_id'] ? 'Order' : 'Job Order';
-
-            if (!empty($o['order_id'])) {
-                $orderNo .= " (#ORD-" . str_pad((int)$o['order_id'], 5, '0', STR_PAD_LEFT) . ")";
-            }
 
             $message = str_replace(
                 ['{amount}', '{order_no}', '{reason}'], 

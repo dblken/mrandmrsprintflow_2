@@ -348,7 +348,9 @@ elseif ($action === 'reject_payment') {
         }
         if (!empty($job['customer_id'])) {
             $data_id = (int)($job['order_id'] ?: $job_id);
-            $rejection_message = "Your payment proof for Custom Job #{$job_id} was rejected. Reason: {$reason}. Please review and re-upload.";
+            $ref = printflow_get_job_inventory_reference((int)$job_id);
+            $refLabel = (string)($ref['label'] ?? ('Job #' . printflow_format_job_code((int)$job_id)));
+            $rejection_message = "Your payment proof for {$refLabel} was rejected. Reason: {$reason}. Please review and re-upload.";
             create_notification((int)$job['customer_id'], 'Customer', $rejection_message, 'Payment Issue', true, true, $data_id);
         }
         

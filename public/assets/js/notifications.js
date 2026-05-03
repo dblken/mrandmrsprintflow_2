@@ -1048,6 +1048,22 @@
                         iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
                     }
 
+                    var isCustomerUi = (USER_TYPE || '').toLowerCase() === 'customer';
+                    var combinedMsg = ((n.message || '') + ' ' + (n.title || '')).toLowerCase();
+                    if (isCustomerUi && !n.image) {
+                        if (combinedMsg.indexOf('reject') !== -1 || type.indexOf('payment issue') !== -1) {
+                            iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                        } else if (combinedMsg.indexOf('picked up') !== -1 || combinedMsg.indexOf('successfully picked') !== -1 || (combinedMsg.indexOf('completed') !== -1 && combinedMsg.indexOf('order') !== -1)) {
+                            iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                        } else if ((combinedMsg.indexOf('payment') !== -1 && combinedMsg.indexOf('approved') !== -1) || combinedMsg.indexOf('proceed with processing') !== -1) {
+                            iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                        } else if (combinedMsg.indexOf('ready for pickup') !== -1 || combinedMsg.indexOf('ready for pick') !== -1) {
+                            iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>';
+                        } else if (combinedMsg.indexOf('verify') !== -1 || combinedMsg.indexOf('verification') !== -1) {
+                            iconSvg = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+                        }
+                    }
+
                     if (n.image) {
                         mediaHtml = '<img src="' + escAttr(n.image) + '" alt="" style="width:32px;height:32px;border-radius:8px;object-fit:cover;display:block;" onerror="this.onerror=null;this.src=\'' + escJsString(n.fallback || buildAppUrl('public/assets/images/icon-192.png')) + '\'">';
                     } else {

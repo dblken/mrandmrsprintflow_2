@@ -1413,7 +1413,7 @@ function printflow_notification_substitute_customer_order_numeric_ids(string $me
         $message
     );
 
-    return (string)preg_replace_callback(
+    $out = (string)preg_replace_callback(
         '/\b(your\s+order)\s*#\s*(\d+)\b/iu',
         static function (array $m): string {
             $code = printflow_notification_order_customer_code((int)$m[2]);
@@ -1426,6 +1426,55 @@ function printflow_notification_substitute_customer_order_numeric_ids(string $me
         },
         $out
     );
+
+    return printflow_notification_substitute_customer_job_phrases($out);
+}
+
+/**
+ * Normalize legacy job wording (#JO-…, "Custom Job #id") to the same labels as {@see customer/orders.php}.
+ */
+function printflow_notification_substitute_customer_job_phrases(string $message): string {
+    if ($message === '') {
+        return $message;
+    }
+    $out = $message;
+
+    if (stripos($out, 'custom job') !== false) {
+        $out = (string)preg_replace_callback(
+            '/\bCustom\s+Job\s*#\s*(\d+)\b/iu',
+            static function (array $m): string {
+                $jid = (int)$m[1];
+                if ($jid <= 0) {
+                    return $m[0];
+                }
+                $ref = printflow_get_job_inventory_reference($jid);
+
+                return (string)($ref['label'] ?? $m[0]);
+            },
+            $out
+        );
+    }
+
+    if (strpos($out, '#JO-') !== false) {
+        $out = (string)preg_replace_callback(
+            '/#JO-(\d+)/i',
+            static function (array $m): string {
+                $jid = (int)$m[1];
+                if ($jid <= 0) {
+                    return $m[0];
+                }
+                $ref = printflow_get_job_inventory_reference($jid);
+
+                return (string)($ref['label'] ?? $m[0]);
+            },
+            $out
+        );
+    }
+
+    // Strip redundant "(#ORD-…)" tails when the label already reflects the store order.
+    $out = (string)preg_replace('/\(\s*#ORD-\d+\s*\)/i', '', $out);
+
+    return $out;
 }
 
 /**
