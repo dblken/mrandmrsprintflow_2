@@ -262,9 +262,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
 
         if (!$error && contact_phone_in_use_across_accounts($contact_number, $customer_id, null)) {
             $error = 'This contact number is already used by another account.';
-        } elseif (strip_tags($first_name) !== $first_name || strip_tags($last_name) !== $last_name || strip_tags($middle_name) !== $middle_name) {
+        }
+        
+        if (!$error && (strip_tags($first_name) !== $first_name || strip_tags($last_name) !== $last_name || strip_tags($middle_name) !== $middle_name)) {
             $error = 'Invalid characters detected in name fields.';
-        } else {
+        }
+        
+        // Only proceed with database update if no errors
+        if (!$error) {
             $gender_val = in_array(trim($gender), ['Male', 'Female', 'Other'], true) ? $gender : null;
             
             $result = db_execute("UPDATE customers SET first_name = ?, middle_name = ?, last_name = ?, contact_number = ?, dob = ?, gender = ?, profile_picture = ? WHERE customer_id = ?",
