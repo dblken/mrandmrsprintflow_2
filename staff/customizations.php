@@ -1342,9 +1342,6 @@ if ($showLatestCustomizationOnly) {
                                     </td>
                                     <td class="px-4 py-4">
                                         <div class="table-text-main truncate-ellipsis" :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()" x-text="jo.first_name + ' ' + (jo.last_name || '')"></div>
-                                        <div style="margin-top:4px;">
-                                            <span style="min-width:100px;" class="pf-pill status-badge-pill" :class="normalizeCustomerType(jo.customer_type, jo.transaction_count) === 'NEW' ? 'badge-approved' : 'badge-fulfilled'" x-text="normalizeCustomerType(jo.customer_type, jo.transaction_count)"></span>
-                                        </div>
                                     </td>
                                     <td class="px-4 py-4 text-right">
                                         <div class="table-text-main truncate-ellipsis" :title="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
@@ -1458,7 +1455,6 @@ if ($showLatestCustomizationOnly) {
                         <div>
                             <div style="font-size:16px;font-weight:700;color:#1f2937;" x-text="currentJo.customer_full_name"></div>
                             <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">
-                                <span style="min-width:80px;" class="pf-pill status-badge-pill" :class="normalizeCustomerType(currentJo.customer_type, currentJo.transaction_count) === 'NEW' ? 'badge-approved' : 'badge-fulfilled'" x-text="normalizeCustomerType(currentJo.customer_type, currentJo.transaction_count)"></span>
                                 <span style="font-size:12px;color:#6b7280;" x-text="currentJo.customer_contact"></span>
                             </div>
                             <div x-show="currentJo.customer_address" style="font-size:12px;color:#6b7280;margin-top:8px;max-width:100%;word-break:break-word;" x-text="currentJo.customer_address"></div>
