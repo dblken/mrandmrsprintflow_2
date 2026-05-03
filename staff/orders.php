@@ -109,6 +109,84 @@ if ($customer_filter !== '')       $active_filters['customer']       = $customer
 if ($sort_by !== 'newest')         $active_filters['sort']           = $sort_by;
 $active_filter_badge_count = count(array_filter([$status_filter, $customer_filter, $date_from_filter, $date_to_filter], function($v) { return $v !== null && $v !== ''; }));
 
+/**
+ * SQL predicate: store order row is in "payment proof rejected — awaiting resubmission".
+ * Matches job_orders REJECTED and/or orders To Pay with a persisted rejection reason.
+ */
+function staff_orders_sql_payment_proof_rejected(string $oAlias = 'o'): string {
+    $parts = [];
+    if (function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_proof_status')) {
+        $parts[] = "EXISTS (SELECT 1 FROM job_orders jo WHERE jo.order_id = {$oAlias}.order_id "
+            . "AND jo.payment_proof_status = 'REJECTED' "
+            . "AND jo.status NOT IN ('COMPLETED','CANCELLED'))";
+    }
+    $reasonParts = [];
+    if (function_exists('db_table_has_column')) {
+        if (db_table_has_column('orders', 'rejection_reason')) {
+            $reasonParts[] = "(TRIM(COALESCE({$oAlias}.rejection_reason, '')) <> '')";
+        }
+        if (db_table_has_column('orders', 'payment_rejection_reason')) {
+            $reasonParts[] = "(TRIM(COALESCE({$oAlias}.payment_rejection_reason, '')) <> '')";
+        }
+    }
+    if ($reasonParts !== []) {
+        $parts[] = "({$oAlias}.status = 'To Pay' AND (" . implode(' OR ', $reasonParts) . '))';
+    }
+    return $parts === [] ? '(1 = 0)' : '(' . implode(' OR ', $parts) . ')';
+}
+
+/**
+ * Flag orders in the current result set whose payment proof was rejected (same rules as SQL predicate).
+ *
+ * @param array<int, array<string,mixed>> $orders
+ */
+function staff_orders_attach_payment_rejected_flags(array &$orders): void {
+    if ($orders === []) {
+        return;
+    }
+    $ids = [];
+    foreach ($orders as $row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        if ($oid > 0) {
+            $ids[$oid] = true;
+        }
+    }
+    $idList = array_keys($ids);
+    if ($idList === []) {
+        return;
+    }
+
+    $fromJob = [];
+    if (function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_proof_status')) {
+        $placeholders = implode(',', array_fill(0, count($idList), '?'));
+        $types = str_repeat('i', count($idList));
+        $rows = db_query(
+            "SELECT DISTINCT order_id FROM job_orders WHERE order_id IN ($placeholders) "
+            . "AND payment_proof_status = 'REJECTED' AND status NOT IN ('COMPLETED','CANCELLED')",
+            $types,
+            $idList
+        ) ?: [];
+        foreach ($rows as $r) {
+            $fromJob[(int)($r['order_id'] ?? 0)] = true;
+        }
+    }
+
+    foreach ($orders as &$row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        $hit = isset($fromJob[$oid]);
+        if (!$hit && ($row['status'] ?? '') === 'To Pay') {
+            foreach (['rejection_reason', 'payment_rejection_reason'] as $col) {
+                if (array_key_exists($col, $row) && trim((string)$row[$col]) !== '') {
+                    $hit = true;
+                    break;
+                }
+            }
+        }
+        $row['_staff_pay_rejected'] = $hit;
+    }
+    unset($row);
+}
+
 $sql_conditions = " AND o.order_type = 'product'";
 $params = [];
 $types = '';
@@ -127,8 +205,13 @@ $order_code_search_sql = "CONCAT(
 $sql_conditions .= branch_where('o', $staffBranchId, $types, $params);
 
 if ($status_filter !== '') {
+    $payRejectedSql = staff_orders_sql_payment_proof_rejected('o');
     if ($status_filter === 'Pending') {
         $sql_conditions .= " AND (o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'))";
+        // Payment-rejected orders (awaiting resubmission) belong in REJECTED tab, not TO VERIFY.
+        $sql_conditions .= ' AND NOT ' . $payRejectedSql;
+    } elseif ($status_filter === 'Rejected') {
+        $sql_conditions .= ' AND ' . $payRejectedSql;
     } elseif ($status_filter === 'Ready for Pickup') {
         // Include legacy production statuses so they appear in TO PICK UP tab
         $sql_conditions .= " AND (o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design'))";
@@ -198,6 +281,10 @@ $params[] = $offset;
 $types .= 'ii';
 
 $orders = db_query($sql, $types, $params);
+if (!is_array($orders)) {
+    $orders = [];
+}
+staff_orders_attach_payment_rejected_flags($orders);
 foreach ($orders as &$order) {
     $order['order_code'] = printflow_format_order_code($order['order_id'] ?? 0, $order['order_sku'] ?? '');
 }
@@ -211,7 +298,17 @@ $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
 $total_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$pending_count    = db_query("SELECT COUNT(*) as count FROM orders o WHERE (o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted')) {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
+$payRejectedKpiSql = staff_orders_sql_payment_proof_rejected('o');
+$pending_count    = db_query(
+    "SELECT COUNT(*) as count FROM orders o WHERE (o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted')) AND NOT {$payRejectedKpiSql} {$kpi_conditions}",
+    $kpi_types ?: null,
+    $kpi_params ?: null
+)[0]['count'] ?? 0;
+$rejected_count = db_query(
+    "SELECT COUNT(*) as count FROM orders o WHERE {$payRejectedKpiSql} {$kpi_conditions}",
+    $kpi_types ?: null,
+    $kpi_params ?: null
+)[0]['count'] ?? 0;
 $ready_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
 $completed_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
 $cancelled_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
@@ -221,6 +318,7 @@ $topay_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.sta
 $all_counts = [
     'ALL'              => $total_count,
     'Pending'          => $pending_count,
+    'Rejected'         => $rejected_count,
     'Ready for Pickup' => $ready_count,
     'Completed'        => $completed_count,
     'Cancelled'        => $cancelled_count
@@ -244,6 +342,7 @@ function staff_orders_status_pill_style(string $displayStatus): string {
     return match (strtoupper(trim($displayStatus))) {
         'TO VERIFY' => 'background:#fef9c3;color:#92400e;',
         'APPROVED' => 'background:#dbeafe;color:#1e40af;',
+        'PAYMENT REJECTED' => 'background:#ffe4e6;color:#9f1239;border:1px solid #fecdd3;',
         'TO PAY' => 'background:#fef3c7;color:#b45309;',
         'TO PICK UP' => 'background:#ede9fe;color:#5b21b6;',
         'IN PRODUCTION' => 'background:#d1fae5;color:#065f46;',
@@ -338,6 +437,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                     ?>
                     <div class="status-col-inner">
                         <?php echo staff_orders_status_pill_html($display_order_status); ?>
+                        <?php if (!empty($order['_staff_pay_rejected'])): ?>
+                            <div><?php echo staff_orders_status_pill_html('Payment rejected'); ?></div>
+                        <?php endif; ?>
                         <?php if (($order['design_status'] ?? '') === 'Revision Submitted'): ?>
                             <div>
                                 <?php echo staff_orders_status_pill_html('Revision Submitted'); ?>
@@ -1381,6 +1483,7 @@ $page_title = 'Orders - Staff';
             statusTabs: {
                 'ALL':              'All',
                 'Pending':          'TO VERIFY',
+                'Rejected':         'REJECTED',
                 'Ready for Pickup': 'TO PICK UP',
                 'Completed':        'COMPLETED',
                 'Cancelled':        'CANCELLED'
@@ -2133,6 +2236,7 @@ $page_title = 'Orders - Staff';
                                         <select id="fp_status" class="filter-select" @change="applyFilters()">
                                             <option value="">All statuses</option>
                                             <option value="Pending"               <?php echo $status_filter === 'Pending'               ? 'selected' : ''; ?>>TO VERIFY</option>
+                                            <option value="Rejected"               <?php echo $status_filter === 'Rejected'               ? 'selected' : ''; ?>>REJECTED PAYMENT</option>
                                             <option value="Ready for Pickup"      <?php echo $status_filter === 'Ready for Pickup'      ? 'selected' : ''; ?>>TO PICK UP</option>
                                             <option value="Completed"             <?php echo $status_filter === 'Completed'             ? 'selected' : ''; ?>>COMPLETED</option>
                                             <option value="Cancelled"             <?php echo $status_filter === 'Cancelled'             ? 'selected' : ''; ?>>CANCELLED</option>
@@ -2235,6 +2339,9 @@ $page_title = 'Orders - Staff';
                                         <?php $display_order_status2 = staff_orders_display_status((string)$order['status']); ?>
                                         <div class="status-col-inner">
                                             <?php echo staff_orders_status_pill_html($display_order_status2); ?>
+                                            <?php if (!empty($order['_staff_pay_rejected'])): ?>
+                                                <div><?php echo staff_orders_status_pill_html('Payment rejected'); ?></div>
+                                            <?php endif; ?>
                                             <?php if (($order['design_status'] ?? '') === 'Revision Submitted'): ?>
                                                 <div>
                                                     <?php echo staff_orders_status_pill_html('Revision Submitted'); ?>
