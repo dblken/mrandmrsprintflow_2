@@ -284,7 +284,7 @@ function pf_sdo_staff_overlap_emails(): array
     return $cache;
 }
 
-function pf_sdo_random_existing_customers(): array
+function pf_sdo_customer_pool_details(): array
 {
     $sql = "SELECT customer_id, first_name, last_name, email";
     if (pf_sdo_table_has_column('customers', 'status')) {
@@ -295,28 +295,57 @@ function pf_sdo_random_existing_customers(): array
             WHERE customer_id > 0";
 
     $rows = db_query($sql) ?: [];
-    $filtered = [];
+    $baseEligible = [];
+    $overlapEligible = [];
     $staffEmails = array_fill_keys(pf_sdo_staff_overlap_emails(), true);
+    $excludedWalkIn = 0;
+    $excludedStatus = 0;
+    $excludedOverlap = 0;
+
     foreach ($rows as $row) {
         $email = strtolower(trim((string)($row['email'] ?? '')));
         $name = strtolower(trim((string)(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''))));
         $status = trim((string)($row['status'] ?? ''));
         if ($status !== '' && strcasecmp($status, 'Activated') !== 0) {
+            $excludedStatus++;
             continue;
         }
         if ($email === 'walkin@pos.local' || str_ends_with($email, '@phone.local')) {
+            $excludedWalkIn++;
             continue;
         }
         if (str_contains($name, 'walk in') || str_contains($name, 'walk-in')) {
+            $excludedWalkIn++;
             continue;
         }
+
+        $baseEligible[] = $row;
+
         if ($email !== '' && isset($staffEmails[$email])) {
+            $excludedOverlap++;
             continue;
         }
-        $filtered[] = $row;
+
+        $overlapEligible[] = $row;
     }
 
-    return $filtered;
+    $usingFallback = ($overlapEligible === [] && $baseEligible !== []);
+
+    return [
+        'customers' => $usingFallback ? $baseEligible : $overlapEligible,
+        'base_eligible_count' => count($baseEligible),
+        'eligible_count' => $usingFallback ? count($baseEligible) : count($overlapEligible),
+        'excluded_walk_in' => $excludedWalkIn,
+        'excluded_status' => $excludedStatus,
+        'excluded_overlap' => $usingFallback ? 0 : $excludedOverlap,
+        'overlap_filter_fallback' => $usingFallback,
+    ];
+}
+
+function pf_sdo_random_existing_customers(): array
+{
+    $pool = pf_sdo_customer_pool_details();
+    return $pool['customers'] ?? [];
 }
 
 function pf_sdo_branch_ids(): array
@@ -945,7 +974,8 @@ function pf_sdo_rollback_latest_batch(): array
 
 function pf_sdo_preview_summary(): array
 {
-    $customers = pf_sdo_random_existing_customers();
+    $customerPool = pf_sdo_customer_pool_details();
+    $customers = $customerPool['customers'] ?? [];
     $products = pf_sdo_demo_products();
     [$from, $to] = pf_sdo_date_window();
     $totalCustomers = (int)(pf_sdo_scalar("SELECT COUNT(*) AS c FROM customers") ?? 0);
@@ -954,6 +984,11 @@ function pf_sdo_preview_summary(): array
         'total_customers' => $totalCustomers,
         'eligible_customers' => count($customers),
         'excluded_customers' => max(0, $totalCustomers - count($customers)),
+        'base_eligible_customers' => (int)($customerPool['base_eligible_count'] ?? count($customers)),
+        'excluded_walk_in' => (int)($customerPool['excluded_walk_in'] ?? 0),
+        'excluded_status' => (int)($customerPool['excluded_status'] ?? 0),
+        'excluded_overlap' => (int)($customerPool['excluded_overlap'] ?? 0),
+        'overlap_filter_fallback' => !empty($customerPool['overlap_filter_fallback']),
         'eligible_products' => count($products),
         'date_from' => $from->format('Y-m-d'),
         'date_to' => $to->format('Y-m-d'),
@@ -1047,6 +1082,11 @@ require_once __DIR__ . '/../includes/header.php';
                     <p class="text-sm text-amber-800 mt-1">
                         This tool inserts synthetic/demo product orders only. It does not modify existing orders, customers, products, payments, or inventory. Every generated row is marked with <code><?php echo pf_sdo_h(PF_SDO_MARKER); ?></code>, logged in a batch table, and inserted inside a transaction.
                     </p>
+                    <?php if (!empty($preview['overlap_filter_fallback'])): ?>
+                        <p class="text-sm text-amber-800 mt-2">
+                            Customer email overlap with shop-user accounts was detected across the whole pool, so the tool automatically fell back to normal activated customer rows instead of excluding everyone.
+                        </p>
+                    <?php endif; ?>
                 </div>
 
                 <div class="grid md:grid-cols-3 gap-6">
@@ -1055,7 +1095,11 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="space-y-1 text-sm text-gray-700">
                             <div><strong>Total customers:</strong> <?php echo (int)($preview['total_customers'] ?? 0); ?></div>
                             <div><strong>Eligible customers:</strong> <?php echo (int)$preview['eligible_customers']; ?></div>
+                            <div><strong>Base eligible before overlap filter:</strong> <?php echo (int)($preview['base_eligible_customers'] ?? 0); ?></div>
                             <div><strong>Excluded non-customer/staff-overlap rows:</strong> <?php echo (int)($preview['excluded_customers'] ?? 0); ?></div>
+                            <div><strong>Excluded walk-in placeholders:</strong> <?php echo (int)($preview['excluded_walk_in'] ?? 0); ?></div>
+                            <div><strong>Excluded inactive customers:</strong> <?php echo (int)($preview['excluded_status'] ?? 0); ?></div>
+                            <div><strong>Excluded email-overlap rows:</strong> <?php echo (int)($preview['excluded_overlap'] ?? 0); ?></div>
                             <div><strong>Eligible products:</strong> <?php echo (int)$preview['eligible_products']; ?></div>
                             <div><strong>Date window:</strong> <?php echo pf_sdo_h($preview['date_from']); ?> to <?php echo pf_sdo_h($preview['date_to']); ?></div>
                             <div><strong>Total range:</strong> PHP 200 to PHP 1,000</div>
