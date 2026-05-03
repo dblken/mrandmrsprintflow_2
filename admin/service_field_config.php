@@ -1313,8 +1313,11 @@ document.getElementById('configForm')?.addEventListener('submit', function(e) {
                 const allowOthersToggle = card.querySelector('.allow-others-toggle');
                 if (allowOthersToggle) config.allow_others = allowOthersToggle.checked;
             }
-            
-            configs[key] = config;
+
+            const prev = window.fieldConfigurations && window.fieldConfigurations[key]
+                ? window.fieldConfigurations[key]
+                : {};
+            configs[key] = { ...prev, ...config };
         });
         configsInput.value = JSON.stringify(configs);
     }

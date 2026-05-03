@@ -356,8 +356,14 @@ window.collectNestedFieldConfigurations = function() {
                 if (allowOthersToggle) config.allow_others = allowOthersToggle.checked;
             }
         }
-        
-        configs[key] = config;
+
+        // Merge with client-side state so fields only editable in the modal (e.g. select/radio
+        // "Allow Others") are not dropped when saving from the main form — otherwise PHP
+        // defaults missing allow_others to ON.
+        const prev = window.fieldConfigurations && window.fieldConfigurations[key]
+            ? window.fieldConfigurations[key]
+            : {};
+        configs[key] = { ...prev, ...config };
     });
     
     return configs;

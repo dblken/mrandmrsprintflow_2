@@ -118,7 +118,9 @@ function save_service_field_config($service_id, $field_key, $config) {
     
     $options_json = isset($config['options']) ? json_encode($config['options']) : null;
     $unit = $config['unit'] ?? 'ft';
-    $allow_others = isset($config['allow_others']) ? ($config['allow_others'] ? 1 : 0) : 1;
+    $allow_others = array_key_exists('allow_others', $config)
+        ? ($config['allow_others'] ? 1 : 0)
+        : 1;
     
     if (!empty($existing)) {
         db_execute(
