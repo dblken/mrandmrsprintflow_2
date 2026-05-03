@@ -62,7 +62,7 @@ const PF_GENERIC_CUSTOMER_RENAME_MAP = [
 const PF_SPECIFIC_CUSTOMER_NAME_MAP = [
     ['customer_id' => 31,  'full_name' => 'Edward Navarro'],
     ['customer_id' => 287, 'full_name' => 'Hazel Lopez'],
-    ['customer_id' => 281, 'full_name' => 'Oliver Castillo'],
+    ['customer_id' => 281, 'full_name' => 'Oliver Castillo', 'update_email' => true],
     ['customer_id' => 293, 'full_name' => 'Michelle Torres'],
     ['customer_id' => 5,   'full_name' => 'Reynaldo Mercado', 'update_email' => true],
     ['customer_id' => 6,   'full_name' => 'Charlene Fernandez', 'update_email' => true],
@@ -130,6 +130,23 @@ function pf_gcrt_contact_is_missing($value): bool
 function pf_gcrt_contact_is_valid_demo(string $value): bool
 {
     return (bool)preg_match('/^09\d{9}$/', trim($value));
+}
+
+function pf_gcrt_contact_is_plus63_mobile($value): bool
+{
+    return (bool)preg_match('/^\+639\d{9}$/', trim((string)$value));
+}
+
+function pf_gcrt_contact_to_canonical_mobile($value): ?string
+{
+    $trimmed = trim((string)$value);
+    if (pf_gcrt_contact_is_valid_demo($trimmed)) {
+        return $trimmed;
+    }
+    if (pf_gcrt_contact_is_plus63_mobile($trimmed)) {
+        return '0' . substr($trimmed, 3);
+    }
+    return null;
 }
 
 function pf_gcrt_digits_are_step_sequence(string $digits, int $step): bool
@@ -538,7 +555,7 @@ function pf_gcrt_next_demo_mobile(array &$usedNumbers): string
 
 function pf_gcrt_build_missing_contact_plan(): array
 {
-    $plan = pf_gcrt_plan_shell('fill_missing_contacts', 'Missing Contact Number Fill', 'FILL MISSING CONTACTS');
+    $plan = pf_gcrt_plan_shell('fill_missing_contacts', 'Customer Contact Number Cleanup', 'FILL MISSING CONTACTS');
 
     $errors = [];
     $assignments = [];
@@ -548,32 +565,64 @@ function pf_gcrt_build_missing_contact_plan(): array
          WHERE contact_number IS NULL
             OR TRIM(contact_number) = ''
             OR UPPER(TRIM(contact_number)) = 'N/A'
+            OR TRIM(contact_number) REGEXP '^\\\+639[0-9]{9}$'
          ORDER BY customer_id ASC"
     );
     $plan['target_count'] = count($rows);
 
+    $targetIds = array_map(static fn($row) => (int)$row['customer_id'], $rows);
     $usedNumbers = [];
-    foreach (db_query("SELECT LOWER(TRIM(contact_number)) AS phone FROM customers WHERE contact_number IS NOT NULL AND TRIM(contact_number) <> ''") as $row) {
-        $phone = trim((string)($row['phone'] ?? ''));
-        if ($phone !== '') {
-            $usedNumbers[$phone] = true;
+    if ($targetIds === []) {
+        $customerRows = db_query("SELECT contact_number FROM customers WHERE contact_number IS NOT NULL AND TRIM(contact_number) <> ''");
+    } else {
+        $customerRows = db_query(
+            "SELECT contact_number
+             FROM customers
+             WHERE contact_number IS NOT NULL
+               AND TRIM(contact_number) <> ''
+               AND customer_id NOT IN (" . implode(',', array_fill(0, count($targetIds), '?')) . ")",
+            str_repeat('i', count($targetIds)),
+            $targetIds
+        );
+    }
+    foreach ($customerRows as $row) {
+        $canonical = pf_gcrt_contact_to_canonical_mobile($row['contact_number'] ?? null);
+        if ($canonical !== null) {
+            $usedNumbers[$canonical] = true;
         }
     }
-    foreach (db_query("SELECT LOWER(TRIM(contact_number)) AS phone FROM users WHERE contact_number IS NOT NULL AND TRIM(contact_number) <> ''") as $row) {
-        $phone = trim((string)($row['phone'] ?? ''));
-        if ($phone !== '') {
-            $usedNumbers[$phone] = true;
+    foreach (db_query("SELECT contact_number FROM users WHERE contact_number IS NOT NULL AND TRIM(contact_number) <> ''") as $row) {
+        $canonical = pf_gcrt_contact_to_canonical_mobile($row['contact_number'] ?? null);
+        if ($canonical !== null) {
+            $usedNumbers[$canonical] = true;
         }
     }
 
     foreach ($rows as $index => $row) {
         $currentContact = $row['contact_number'] ?? null;
-        if (!pf_gcrt_contact_is_missing($currentContact)) {
-            $errors[] = 'Non-missing contact number slipped into target set for customer_id ' . (int)$row['customer_id'];
+        $newContact = null;
+        if (pf_gcrt_contact_is_missing($currentContact)) {
+            $newContact = pf_gcrt_next_demo_mobile($usedNumbers);
+        } elseif (pf_gcrt_contact_is_plus63_mobile($currentContact)) {
+            $newContact = pf_gcrt_contact_to_canonical_mobile($currentContact);
+            if ($newContact === null) {
+                $errors[] = 'Could not normalize +639 number for customer_id ' . (int)$row['customer_id'];
+                continue;
+            }
+            if (pf_gcrt_contact_has_obvious_pattern($newContact)) {
+                $errors[] = 'Normalized contact number still has an obvious pattern for customer_id ' . (int)$row['customer_id'];
+                continue;
+            }
+            if (isset($usedNumbers[$newContact])) {
+                $errors[] = 'Normalized contact number would duplicate an existing mobile number: ' . $newContact;
+                continue;
+            }
+            $usedNumbers[$newContact] = true;
+        } else {
+            $errors[] = 'Non-target contact number slipped into cleanup set for customer_id ' . (int)$row['customer_id'];
             continue;
         }
 
-        $newContact = pf_gcrt_next_demo_mobile($usedNumbers);
         $assignments[] = [
             'seq' => $index + 1,
             'customer_id' => (int)$row['customer_id'],
@@ -884,7 +933,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $genericPlan = pf_gcrt_plan_shell('rename_generic', 'Generic Customer Rename', 'RENAME 45 CUSTOMERS');
 $specificPlan = pf_gcrt_plan_shell('rename_specific_ids', 'Specific Customer ID Rename', 'RENAME SPECIFIC IDS');
-$contactPlan = pf_gcrt_plan_shell('fill_missing_contacts', 'Missing Contact Number Fill', 'FILL MISSING CONTACTS');
+$contactPlan = pf_gcrt_plan_shell('fill_missing_contacts', 'Customer Contact Number Cleanup', 'FILL MISSING CONTACTS');
 $recentBatches = [];
 
 try {
@@ -1009,9 +1058,9 @@ $page_title = 'Temporary Customer Maintenance Tool';
                             <?php if ($plan['scope'] === 'rename_generic'): ?>
                                 Changes only exact live <span class="mono">Customer</span> rows from the earlier email-based plan, including Gmail updates.
                             <?php elseif ($plan['scope'] === 'rename_specific_ids'): ?>
-                                Changes the names for customer IDs <span class="mono">31, 287, 281, 293, 5, 6</span>, and also updates the emails for IDs <span class="mono">5</span> and <span class="mono">6</span> to their matching Gmail format.
+                                Changes the names for customer IDs <span class="mono">31, 287, 281, 293, 5, 6</span>, and also updates the emails for IDs <span class="mono">281</span>, <span class="mono">5</span>, and <span class="mono">6</span> to their matching Gmail format.
                             <?php else: ?>
-                                Fills only blank, NULL, empty, or <span class="mono">N/A</span> customer contact numbers with unique synthetic random-looking numbers in <span class="mono">09XXXXXXXXX</span> format.
+                                Fills blank, NULL, empty, or <span class="mono">N/A</span> customer contact numbers with unique synthetic random-looking numbers, and converts customer numbers in <span class="mono">+639XXXXXXXXX</span> format into <span class="mono">09XXXXXXXXX</span> format.
                             <?php endif; ?>
                         </p>
 
