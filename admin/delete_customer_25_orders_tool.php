@@ -82,6 +82,37 @@ function pf_dco_exec_affected(string $sql, string $types = '', array $params = [
     return $affected;
 }
 
+function pf_dco_exec_raw(string $sql): void
+{
+    global $conn;
+
+    if (!$conn->query($sql)) {
+        throw new RuntimeException('SQL failed: ' . $conn->error);
+    }
+}
+
+function pf_dco_prepare_temp_order_ids(array $orderIds): void
+{
+    if ($orderIds === []) {
+        return;
+    }
+
+    $values = [];
+    foreach ($orderIds as $orderId) {
+        $values[] = '(' . (int)$orderId . ')';
+    }
+
+    pf_dco_exec_raw("DROP TEMPORARY TABLE IF EXISTS tmp_pf_dco_order_ids");
+    pf_dco_exec_raw(
+        "CREATE TEMPORARY TABLE tmp_pf_dco_order_ids (
+            order_id INT NOT NULL PRIMARY KEY
+        ) ENGINE=InnoDB"
+    );
+    pf_dco_exec_raw(
+        "INSERT INTO tmp_pf_dco_order_ids (order_id) VALUES " . implode(', ', $values)
+    );
+}
+
 function pf_dco_ensure_backup_table(): void
 {
     $sql = "CREATE TABLE IF NOT EXISTS " . PF_DCO_BACKUP_TABLE . " (
@@ -424,11 +455,17 @@ function pf_dco_delete_customer_orders(): array
         ];
     }
 
+    $orderIds = array_values(array_unique(array_map(static function (array $row): int {
+        return (int)($row['order_id'] ?? 0);
+    }, $orders)));
+    $orderIds = array_values(array_filter($orderIds, static fn(int $id): bool => $id > 0));
+
     try {
         pf_dco_ensure_backup_table();
         $conn->begin_transaction();
 
         $backupCounts = pf_dco_capture_backup_batch($batchId, $adminId);
+        pf_dco_prepare_temp_order_ids($orderIds);
 
         foreach (pf_dco_delete_tables() as $table) {
             switch ($table) {
@@ -441,16 +478,13 @@ function pf_dco_delete_customer_orders(): array
                     $deleted[$table] = pf_dco_exec_affected(
                         "DELETE FROM `{$table}`
                          WHERE review_id IN (
-                             SELECT id FROM (
-                                 SELECT id
-                                 FROM reviews
-                                 WHERE order_id IN (
-                                     SELECT order_id FROM orders WHERE customer_id = ?
-                                 )
+                             SELECT review_id FROM (
+                                 SELECT r.id AS review_id
+                                 FROM reviews r
+                                 INNER JOIN tmp_pf_dco_order_ids t
+                                     ON t.order_id = r.order_id
                              ) AS review_ids
-                         )",
-                        'i',
-                        [PF_DELETE_CUSTOMER_ID]
+                         )"
                     );
                     break;
 
@@ -463,20 +497,17 @@ function pf_dco_delete_customer_orders(): array
                         "DELETE FROM job_orders
                          WHERE customer_id = ?
                             OR order_id IN (
-                                SELECT order_id FROM (
-                                    SELECT order_id FROM orders WHERE customer_id = ?
-                                ) AS customer_orders
+                                SELECT order_id FROM tmp_pf_dco_order_ids
                             )",
-                        'ii',
-                        [PF_DELETE_CUSTOMER_ID, PF_DELETE_CUSTOMER_ID]
+                        'i',
+                        [PF_DELETE_CUSTOMER_ID]
                     );
                     break;
 
                 case 'orders':
                     $deleted[$table] = pf_dco_exec_affected(
-                        "DELETE FROM orders WHERE customer_id = ?",
-                        'i',
-                        [PF_DELETE_CUSTOMER_ID]
+                        "DELETE FROM orders
+                         WHERE order_id IN (SELECT order_id FROM tmp_pf_dco_order_ids)"
                     );
                     break;
 
@@ -487,18 +518,13 @@ function pf_dco_delete_customer_orders(): array
                     }
                     $deleted[$table] = pf_dco_exec_affected(
                         "DELETE FROM `{$table}`
-                         WHERE order_id IN (
-                             SELECT order_id FROM (
-                                 SELECT order_id FROM orders WHERE customer_id = ?
-                             ) AS customer_orders
-                         )",
-                        'i',
-                        [PF_DELETE_CUSTOMER_ID]
+                         WHERE order_id IN (SELECT order_id FROM tmp_pf_dco_order_ids)"
                     );
                     break;
             }
         }
 
+        pf_dco_exec_raw("DROP TEMPORARY TABLE IF EXISTS tmp_pf_dco_order_ids");
         $conn->commit();
 
         log_activity(
@@ -516,6 +542,10 @@ function pf_dco_delete_customer_orders(): array
         ];
     } catch (Throwable $e) {
         $conn->rollback();
+        try {
+            pf_dco_exec_raw("DROP TEMPORARY TABLE IF EXISTS tmp_pf_dco_order_ids");
+        } catch (Throwable $ignored) {
+        }
         error_log('delete_customer_25_orders_tool delete failed: ' . $e->getMessage());
 
         return [
