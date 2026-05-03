@@ -1365,6 +1365,70 @@ function printflow_get_order_inventory_reference(int $order_id): array {
 }
 
 /**
+ * Customer-facing order chip text (sku-id or ORD-id), identical to {@see printflow_format_order_code}
+ * over aggregated product SKUs for that order row.
+ */
+function printflow_notification_order_customer_code(int $order_id): string {
+    $order_id = (int)$order_id;
+    if ($order_id <= 0) {
+        return '';
+    }
+    static $memo = [];
+
+    if (isset($memo[$order_id])) {
+        return $memo[$order_id];
+    }
+
+    $rows = db_query(
+        'SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR \'-\') AS order_sku
+         FROM order_items oi
+         LEFT JOIN products p ON oi.product_id = p.product_id
+         WHERE oi.order_id = ?
+         GROUP BY oi.order_id',
+        'i',
+        [$order_id]
+    );
+    $sku = '';
+    if (!empty($rows[0])) {
+        $sku = trim((string)($rows[0]['order_sku'] ?? ''));
+    }
+
+    return $memo[$order_id] = printflow_format_order_code($order_id, $sku);
+}
+
+/**
+ * Rewrite "Order #12345" stored in notifications to "Order SKU-12345" codes shown on {@see customer/orders.php}.
+ */
+function printflow_notification_substitute_customer_order_numeric_ids(string $message): string {
+    if ($message === '' || strpos($message, '#') === false) {
+        return $message;
+    }
+
+    $out = (string)preg_replace_callback(
+        '/\border\s*#\s*(\d+)\b/i',
+        static function (array $m): string {
+            $code = printflow_notification_order_customer_code((int)$m[1]);
+            return $code !== '' ? ('Order ' . $code) : $m[0];
+        },
+        $message
+    );
+
+    return (string)preg_replace_callback(
+        '/\b(your\s+order)\s*#\s*(\d+)\b/iu',
+        static function (array $m): string {
+            $code = printflow_notification_order_customer_code((int)$m[2]);
+            if ($code === '') {
+                return $m[0];
+            }
+            $useTitle = preg_match('/\bYour\s+order\s*#\s*\d+/u', $m[0]);
+
+            return ($useTitle ? 'Your order ' : 'your order ') . $code;
+        },
+        $out
+    );
+}
+
+/**
  * Format date
  * @param string $date
  * @param string $format
@@ -2463,6 +2527,8 @@ function printflow_notification_display_message(array $notification): string {
     $data_id = (int)($notification['data_id'] ?? 0);
     $type = strtolower((string)($notification['type'] ?? ''));
 
+    $out = $message;
+
     if ($data_id > 0 && in_array($type, ['order', 'status'], true) && printflow_message_is_status_update($message)) {
         $snapshot = printflow_notification_order_snapshot($data_id);
         $current_status = printflow_notification_customer_status(
@@ -2472,45 +2538,41 @@ function printflow_notification_display_message(array $notification): string {
         if ($current_status !== '') {
             $payload = get_order_status_notification_payload($data_id, $current_status);
             if (!empty($payload['message'])) {
-                return (string)$payload['message'];
+                $out = (string)$payload['message'];
             }
         }
-    }
-
-    if ($data_id > 0 && $type === 'payment' && preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
+    } elseif ($data_id > 0 && $type === 'payment' && preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
         $jobPreview = printflow_job_notification_preview($data_id);
         $jn = trim((string)($jobPreview['display_name'] ?? ''));
         if ($jn !== '') {
-            return rtrim($pay[1]) . ' ' . $jn;
+            $out = rtrim($pay[1]) . ' ' . $jn;
         }
-    }
-
-    if ($data_id > 0 && $type === 'order') {
+    } elseif ($data_id > 0 && $type === 'order') {
         $preview = printflow_order_notification_preview($data_id);
         $dn = trim((string)($preview['display_name'] ?? ''));
         if ($dn !== '') {
             if (preg_match('/^(.+?\bsent an inquiry for)\s+.*$/iu', $message, $inq)) {
-                return rtrim($inq[1]) . ' ' . $dn;
-            }
-            if (preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
-                return rtrim($pay[1]) . ' ' . $dn;
-            }
+                $out = rtrim($inq[1]) . ' ' . $dn;
+            } elseif (preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
+                $out = rtrim($pay[1]) . ' ' . $dn;
+            } else {
+                $replacements = [
+                    '/placed an order for .+$/i' => 'placed an order for ' . $dn,
+                    '/order for .+? placed successfully!?$/i' => 'Order for ' . $dn . ' placed successfully!',
+                    '/resubmitted a revised design for .+$/i' => 'resubmitted a revised design for ' . $dn,
+                ];
 
-            $replacements = [
-                '/placed an order for .+$/i' => 'placed an order for ' . $dn,
-                '/order for .+? placed successfully!?$/i' => 'Order for ' . $dn . ' placed successfully!',
-                '/resubmitted a revised design for .+$/i' => 'resubmitted a revised design for ' . $dn,
-            ];
-
-            foreach ($replacements as $pattern => $replacement) {
-                if (preg_match($pattern, $message)) {
-                    return preg_replace($pattern, $replacement, $message) ?: $message;
+                foreach ($replacements as $pattern => $replacement) {
+                    if (preg_match($pattern, $message)) {
+                        $out = preg_replace($pattern, $replacement, $message) ?: $message;
+                        break;
+                    }
                 }
             }
         }
     }
 
-    return $message;
+    return printflow_notification_substitute_customer_order_numeric_ids($out);
 }
 
 function printflow_staff_order_management_url(int $orderId, bool $preferPendingStatus = false): string {

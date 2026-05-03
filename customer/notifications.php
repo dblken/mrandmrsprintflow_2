@@ -313,7 +313,10 @@ require_once __DIR__ . '/../includes/header.php';
                         stripos((string)$notif['message'], 'replied to your review') !== false
                     );
                     $msg = htmlspecialchars((string)$notif['message']);
-                    $msg = preg_replace('/(Order #\d+)/', '<b>$1</b>', $msg);
+                    $msg = preg_replace('/(Order\s+[A-Z0-9][A-Za-z0-9\-]*-\d+)/u', '<b>$1</b>', $msg);
+                    $msg = preg_replace('/(your\s+order\s+[A-Z0-9][A-Za-z0-9\-]*-\d+)/iu', '<b>$1</b>', $msg);
+                    $msg = preg_replace('/(Order\s*#\s*\d+)/iu', '<b>$1</b>', $msg);
+                    $msg = preg_replace('/(your\s+order\s*#\s*\d+)/iu', '<b>$1</b>', $msg);
                     ?>
                     <a href="<?php echo htmlspecialchars((string)$notif['link']); ?>" class="notif-card <?php echo !empty($notif['is_read']) ? '' : 'unread'; ?>">
                         <div class="notif-card-inner">
