@@ -2741,7 +2741,7 @@ function printflow_job_notification_preview(int $job_id): array {
     if (isset($cache[$job_id])) return $cache[$job_id];
 
     $base = printflow_notification_base_path();
-    $row = db_query("SELECT id, job_title, service_type, artwork_path FROM job_orders WHERE id = ? LIMIT 1", 'i', [$job_id]);
+    $row = db_query("SELECT id, job_title, service_type, artwork_path, order_id FROM job_orders WHERE id = ? LIMIT 1", 'i', [$job_id]);
     
     $preview = ['display_name' => '', 'image_url' => '', 'item_kind' => 'Service'];
     if (empty($row)) {
@@ -2750,6 +2750,18 @@ function printflow_job_notification_preview(int $job_id): array {
     }
     $r = $row[0];
     $preview['display_name'] = trim((string)($r['job_title'] ?? $r['service_type'] ?? 'Job Order'));
+
+    $linkedOid = (int)($r['order_id'] ?? 0);
+    if ($linkedOid > 0) {
+        $orderPv = printflow_order_notification_preview($linkedOid);
+        $ou = trim((string)($orderPv['image_url'] ?? ''));
+        if ($ou !== '' && !preg_match('#/(default\.png|services/default\.png|icon-\d+\.png)(\?|$)#i', $ou)) {
+            $preview['image_url'] = printflow_notification_normalize_media_url($ou);
+            $preview['item_kind'] = (string)($orderPv['item_kind'] ?? 'Service');
+            $cache[$job_id] = $preview;
+            return $preview;
+        }
+    }
     
     // Artwork path resolution
     $artwork = trim((string)($r['artwork_path'] ?? ''));
@@ -2770,7 +2782,17 @@ function printflow_job_notification_preview(int $job_id): array {
 
 
     if ($preview['image_url'] === '') {
-        $preview['image_url'] = get_service_image_url($r['service_type'] ?: $preview['display_name']);
+        $st = trim((string)($r['service_type'] ?? ''));
+        $sid = $st !== '' ? printflow_resolve_service_catalog_service_id($st) : 0;
+        if ($sid > 0) {
+            $u = printflow_notification_service_image_from_id($sid);
+            if ($u !== '') {
+                $preview['image_url'] = printflow_notification_normalize_media_url($u);
+            }
+        }
+        if ($preview['image_url'] === '') {
+            $preview['image_url'] = get_service_image_url($r['service_type'] ?: $preview['display_name']);
+        }
     }
 
     $cache[$job_id] = $preview;
@@ -4192,6 +4214,149 @@ function printflow_order_item_has_previewable_design(array $item): bool {
     );
 }
 
+/**
+ * Resolve storefront catalog imagery for notification thumbnails (real service hero / product photo),
+ * matching what customers see on Services and Products — not uploaded proof artwork.
+ *
+ * @param array<string,mixed> $row First order_items join row
+ * @param array<string,mixed> $custom Decoded customization_data JSON
+ */
+function printflow_order_notification_resolve_catalog_thumbnail(
+    array $row,
+    array $custom,
+    string $item_kind,
+    int $resolvedServiceIdForImage,
+    int $order_id
+): string {
+    $base = printflow_notification_base_path();
+    $item_kind = trim($item_kind);
+
+    if ($item_kind === 'Service') {
+        $sid = (int)$resolvedServiceIdForImage;
+        if ($sid <= 0) {
+            $sid = (int)($custom['service_id'] ?? 0);
+        }
+        if ($sid <= 0) {
+            $ot = strtolower(trim((string)($row['order_type'] ?? '')));
+            if ($ot === 'custom') {
+                $sid = (int)($row['reference_id'] ?? 0);
+            }
+        }
+        if ($sid <= 0) {
+            $jst = trim((string)($row['first_job_service_type'] ?? ''));
+            if ($jst !== '') {
+                $sid = printflow_resolve_service_catalog_service_id($jst);
+            }
+        }
+        if ($sid <= 0) {
+            $cst = trim((string)($row['first_customization_service_type'] ?? ''));
+            if ($cst !== '') {
+                $sid = printflow_resolve_service_catalog_service_id($cst);
+            }
+        }
+        if ($sid <= 0 && $order_id > 0) {
+            $custSvc = db_query(
+                "SELECT service_type FROM customizations WHERE order_id = ? ORDER BY customization_id ASC LIMIT 1",
+                'i',
+                [$order_id]
+            );
+            $st = trim((string)($custSvc[0]['service_type'] ?? ''));
+            if ($st !== '') {
+                $sid = printflow_resolve_service_catalog_service_id($st);
+            }
+        }
+        if ($sid <= 0 && $order_id > 0) {
+            $jo = db_query(
+                "SELECT service_type FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
+                'i',
+                [$order_id]
+            );
+            $st = trim((string)($jo[0]['service_type'] ?? ''));
+            if ($st !== '') {
+                $sid = printflow_resolve_service_catalog_service_id($st);
+            }
+        }
+
+        if ($sid > 0) {
+            $url = printflow_notification_service_image_from_id($sid);
+            if ($url !== '') {
+                return printflow_notification_normalize_media_url($url);
+            }
+        }
+
+        $names = array_unique(array_filter(array_map('trim', [
+            (string)($custom['service_type'] ?? ''),
+            (string)($row['first_customization_service_type'] ?? ''),
+            (string)($row['first_job_service_type'] ?? ''),
+        ])));
+        foreach ($names as $nm) {
+            if ($nm === '') {
+                continue;
+            }
+            $url = printflow_notification_service_image_from_name($nm);
+            if ($url !== '') {
+                return printflow_notification_normalize_media_url($url);
+            }
+            $url = get_service_image_url($nm);
+            if ($url !== '') {
+                return printflow_notification_normalize_media_url($url);
+            }
+        }
+
+        return '';
+    }
+
+    if ($item_kind === 'Product') {
+        $pid = (int)($row['product_id'] ?? 0);
+        if ($pid <= 0 || printflow_is_pos_service_placeholder_row($row)) {
+            $oref = db_query('SELECT reference_id, order_type FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]);
+            if (!empty($oref[0]) && strtolower(trim((string)($oref[0]['order_type'] ?? ''))) === 'product') {
+                $pid = (int)($oref[0]['reference_id'] ?? 0);
+            }
+        }
+        if ($pid <= 0) {
+            return '';
+        }
+
+        $pRows = db_query('SELECT * FROM products WHERE product_id = ? LIMIT 1', 'i', [$pid]);
+        if (empty($pRows[0])) {
+            return '';
+        }
+        $p = $pRows[0];
+        foreach (['photo_path', 'product_image'] as $col) {
+            if (!array_key_exists($col, $p)) {
+                continue;
+            }
+            $product_image = trim((string)($p[$col] ?? ''));
+            if ($product_image === '') {
+                continue;
+            }
+            $normalizedProductImage = printflow_notification_normalize_media_url($product_image);
+            if ($normalizedProductImage !== '' && printflow_notification_local_media_exists($normalizedProductImage)) {
+                return $normalizedProductImage;
+            }
+            if (file_exists(__DIR__ . '/../uploads/products/' . $product_image)) {
+                return printflow_notification_normalize_media_url($base . '/uploads/products/' . $product_image);
+            }
+            if (file_exists(__DIR__ . '/../public/images/products/' . $product_image)) {
+                return printflow_notification_normalize_media_url($base . '/public/images/products/' . $product_image);
+            }
+            if ($normalizedProductImage !== '') {
+                return $normalizedProductImage;
+            }
+        }
+
+        foreach (['jpg', 'png', 'jpeg', 'webp'] as $ext) {
+            $candidateRel = '/public/images/products/product_' . $pid . '.' . $ext;
+            if (file_exists(__DIR__ . '/..' . $candidateRel)) {
+                return printflow_notification_normalize_media_url($base . $candidateRel);
+            }
+        }
+    }
+
+    return '';
+}
+
 
 function printflow_order_notification_preview(int $order_id): array {
     static $cache = [];
@@ -4288,6 +4453,26 @@ function printflow_order_notification_preview(int $order_id): array {
                 $preview['display_name'] = 'Order';
             }
         }
+        $refOid = (int)($oRow[0]['reference_id'] ?? 0);
+        $synthRow = [
+            'order_type' => $oRow[0]['order_type'] ?? '',
+            'reference_id' => $refOid,
+            'product_id' => ($ot === 'product') ? $refOid : 0,
+            'first_job_service_type' => '',
+            'first_customization_service_type' => '',
+        ];
+        $synthCustom = ($ot === 'custom' && $refOid > 0) ? ['service_id' => $refOid] : [];
+        $resSvcPass = ($ot === 'custom') ? $refOid : 0;
+        $thumbEmpty = printflow_order_notification_resolve_catalog_thumbnail(
+            $synthRow,
+            $synthCustom,
+            (string)$preview['item_kind'],
+            $resSvcPass,
+            $order_id
+        );
+        if ($thumbEmpty !== '') {
+            $preview['image_url'] = $thumbEmpty;
+        }
         if ($preview['image_url'] === '' && $preview['display_name'] !== '') {
             if ($preview['item_kind'] === 'Product' && !empty($oRow[0]) && (int)($oRow[0]['reference_id'] ?? 0) > 0 && $ot === 'product') {
                 $refPid = (int)$oRow[0]['reference_id'];
@@ -4374,6 +4559,19 @@ function printflow_order_notification_preview(int $order_id): array {
             $custom,
             'Order Item'
         );
+    }
+
+    $catalogThumb = printflow_order_notification_resolve_catalog_thumbnail(
+        $row,
+        $custom,
+        (string)($preview['item_kind'] ?? ''),
+        (int)$resolvedServiceIdForImage,
+        (int)$order_id
+    );
+    if ($catalogThumb !== '') {
+        $preview['image_url'] = $catalogThumb;
+        $cache[$order_id] = $preview;
+        return $preview;
     }
 
     if (printflow_order_item_has_previewable_design($row) && !empty($row['order_item_id'])) {
