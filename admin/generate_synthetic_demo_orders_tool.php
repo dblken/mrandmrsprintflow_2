@@ -284,6 +284,12 @@ function pf_sdo_staff_overlap_emails(): array
     return $cache;
 }
 
+function pf_sdo_is_active_customer_status(string $status): bool
+{
+    $normalized = strtolower(trim($status));
+    return $normalized === '' || in_array($normalized, ['activated', 'active'], true);
+}
+
 function pf_sdo_customer_pool_details(): array
 {
     $sql = "SELECT customer_id, first_name, last_name, email";
@@ -305,8 +311,8 @@ function pf_sdo_customer_pool_details(): array
     foreach ($rows as $row) {
         $email = strtolower(trim((string)($row['email'] ?? '')));
         $name = strtolower(trim((string)(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? ''))));
-        $status = trim((string)($row['status'] ?? ''));
-        if ($status !== '' && strcasecmp($status, 'Activated') !== 0) {
+        $status = (string)($row['status'] ?? '');
+        if (!pf_sdo_is_active_customer_status($status)) {
             $excludedStatus++;
             continue;
         }

@@ -164,6 +164,12 @@ if (isset($_SESSION['user_id'])) {
                 </svg>
                 Activity Logs
             </a>
+            <a href="<?php echo $base_path; ?>/admin/generate_synthetic_demo_orders_tool.php" class="nav-item <?php echo $current_page === 'generate_synthetic_demo_orders_tool.php' ? 'active' : ''; ?>">
+                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Demo Orders Tool
+            </a>
         </div>
 
         <!-- Account -->
