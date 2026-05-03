@@ -9,6 +9,8 @@ require_role('Admin');
 $current_user = get_logged_in_user();
 $base_path = defined('BASE_PATH') ? BASE_PATH : '';
 
+const PF_GCRT_BACKUP_TABLE = 'maintenance_customer_profile_tool_backup';
+
 const PF_GENERIC_CUSTOMER_RENAME_MAP = [
     ['old_email' => 'lance@gmail.com',                     'full_name' => 'Maria Santos'],
     ['old_email' => 'direct_test_99@example.com',         'full_name' => 'Jose Reyes'],
@@ -57,6 +59,15 @@ const PF_GENERIC_CUSTOMER_RENAME_MAP = [
     ['old_email' => 'dumayasdenise9@gmail.com',           'full_name' => 'Maricel Cruz'],
 ];
 
+const PF_SPECIFIC_CUSTOMER_NAME_MAP = [
+    ['customer_id' => 31,  'full_name' => 'Edward Navarro'],
+    ['customer_id' => 287, 'full_name' => 'Hazel Lopez'],
+    ['customer_id' => 281, 'full_name' => 'Oliver Castillo'],
+    ['customer_id' => 293, 'full_name' => 'Michelle Torres'],
+    ['customer_id' => 5,   'full_name' => 'Reynaldo Mercado'],
+    ['customer_id' => 6,   'full_name' => 'Charlene Fernandez'],
+];
+
 function pf_gcrt_h(?string $value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
@@ -66,7 +77,7 @@ function pf_gcrt_split_full_name(string $full): array
 {
     $full = trim($full);
     if ($full === '') {
-        throw new InvalidArgumentException('Empty full name in rename map.');
+        throw new InvalidArgumentException('Empty full name in plan.');
     }
 
     $parts = preg_split('/\s+/u', $full) ?: [];
@@ -89,6 +100,23 @@ function pf_gcrt_expected_email(string $full): string
 function pf_gcrt_exact_customer_label(array $row): string
 {
     return trim((string)($row['first_name'] ?? '') . ' ' . (string)($row['last_name'] ?? ''));
+}
+
+function pf_gcrt_contact_is_missing($value): bool
+{
+    if ($value === null) {
+        return true;
+    }
+    $trimmed = trim((string)$value);
+    if ($trimmed === '') {
+        return true;
+    }
+    return strtoupper($trimmed) === 'N/A';
+}
+
+function pf_gcrt_contact_is_valid_demo(string $value): bool
+{
+    return (bool)preg_match('/^09\d{9}$/', trim($value));
 }
 
 function pf_gcrt_fetch_link_snapshot(array $ids): array
@@ -140,16 +168,19 @@ function pf_gcrt_fetch_link_snapshot(array $ids): array
 
 function pf_gcrt_ensure_backup_table(): void
 {
-    $sql = "CREATE TABLE IF NOT EXISTS maintenance_generic_customer_rename_backup (
+    $sql = "CREATE TABLE IF NOT EXISTS " . PF_GCRT_BACKUP_TABLE . " (
         batch_id VARCHAR(64) NOT NULL,
+        scope VARCHAR(64) NOT NULL,
         customer_id INT NOT NULL,
         first_name VARCHAR(100) NULL,
         middle_name VARCHAR(100) NULL,
         last_name VARCHAR(100) NULL,
         email VARCHAR(255) NULL,
+        contact_number VARCHAR(32) NULL,
         executed_by INT NULL,
         captured_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (batch_id, customer_id),
+        KEY idx_scope (scope),
         KEY idx_captured_at (captured_at),
         KEY idx_customer_id (customer_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
@@ -164,28 +195,46 @@ function pf_gcrt_recent_batches(): array
     pf_gcrt_ensure_backup_table();
 
     return db_query(
-        "SELECT batch_id, COUNT(*) AS row_count, MAX(captured_at) AS captured_at
-         FROM maintenance_generic_customer_rename_backup
+        "SELECT batch_id, MAX(scope) AS scope, COUNT(*) AS row_count, MAX(captured_at) AS captured_at
+         FROM " . PF_GCRT_BACKUP_TABLE . "
          GROUP BY batch_id
          ORDER BY MAX(captured_at) DESC
-         LIMIT 10"
+         LIMIT 12"
     );
 }
 
-function pf_gcrt_build_plan(): array
+function pf_gcrt_plan_shell(string $scope, string $label, string $confirmPhrase): array
 {
+    return [
+        'scope' => $scope,
+        'label' => $label,
+        'confirm_phrase' => $confirmPhrase,
+        'target_count' => 0,
+        'assignments' => [],
+        'errors' => [],
+        'ready' => false,
+    ];
+}
+
+function pf_gcrt_build_generic_rename_plan(): array
+{
+    $plan = pf_gcrt_plan_shell('rename_generic', 'Generic Customer Rename', 'RENAME 45 CUSTOMERS');
     $mapping = PF_GENERIC_CUSTOMER_RENAME_MAP;
     $expectedCount = count($mapping);
+    $plan['target_count'] = $expectedCount;
 
     $errors = [];
     $assignments = [];
+
     $exactMatches = db_query(
-        "SELECT customer_id, first_name, middle_name, last_name, email
+        "SELECT customer_id, first_name, middle_name, last_name, email, contact_number
          FROM customers
          WHERE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) = 'Customer'
          ORDER BY customer_id ASC"
     );
-    $exactCount = is_array($exactMatches) ? count($exactMatches) : 0;
+    if (count($exactMatches) !== $expectedCount) {
+        $errors[] = 'Exact "Customer" row count is ' . count($exactMatches) . ', expected ' . $expectedCount . '.';
+    }
 
     $oldEmails = [];
     $seenFullNames = [];
@@ -193,7 +242,6 @@ function pf_gcrt_build_plan(): array
     foreach ($mapping as $row) {
         $oldEmail = mb_strtolower(trim((string)$row['old_email']), 'UTF-8');
         $fullName = trim((string)$row['full_name']);
-        [$first, $last] = pf_gcrt_split_full_name($fullName);
         $newEmail = pf_gcrt_expected_email($fullName);
         $fullKey = mb_strtolower($fullName, 'UTF-8');
 
@@ -209,15 +257,13 @@ function pf_gcrt_build_plan(): array
         $oldEmails[] = $oldEmail;
     }
 
-    $placeholders = implode(',', array_fill(0, count($oldEmails), '?'));
     $rows = db_query(
-        "SELECT customer_id, first_name, middle_name, last_name, email
+        "SELECT customer_id, first_name, middle_name, last_name, email, contact_number
          FROM customers
-         WHERE LOWER(TRIM(email)) IN ($placeholders)",
+         WHERE LOWER(TRIM(email)) IN (" . implode(',', array_fill(0, count($oldEmails), '?')) . ")",
         str_repeat('s', count($oldEmails)),
         $oldEmails
     );
-
     $byOldEmail = [];
     foreach ($rows as $row) {
         $byOldEmail[mb_strtolower(trim((string)$row['email']), 'UTF-8')] = $row;
@@ -230,15 +276,11 @@ function pf_gcrt_build_plan(): array
             $customerEmailOwner[$email] = (int)$row['customer_id'];
         }
     }
-
     $userEmailOwner = [];
     foreach (db_query("SELECT user_id, role, LOWER(TRIM(email)) AS em FROM users") as $row) {
         $email = trim((string)($row['em'] ?? ''));
         if ($email !== '') {
-            $userEmailOwner[$email] = [
-                'user_id' => (int)$row['user_id'],
-                'role' => (string)$row['role'],
-            ];
+            $userEmailOwner[$email] = ['user_id' => (int)$row['user_id'], 'role' => (string)$row['role']];
         }
     }
 
@@ -254,9 +296,8 @@ function pf_gcrt_build_plan(): array
         }
 
         $row = $byOldEmail[$oldEmail];
-        $label = pf_gcrt_exact_customer_label($row);
-        if ($label !== 'Customer') {
-            $errors[] = 'Target email is no longer an exact "Customer" row: ' . $item['old_email'] . ' (' . $label . ')';
+        if (pf_gcrt_exact_customer_label($row) !== 'Customer') {
+            $errors[] = 'Target email is no longer an exact "Customer" row: ' . $item['old_email'];
             continue;
         }
 
@@ -277,38 +318,204 @@ function pf_gcrt_build_plan(): array
                 'middle_name' => $row['middle_name'] ?? null,
                 'last_name' => (string)$row['last_name'],
                 'email' => (string)$row['email'],
+                'contact_number' => $row['contact_number'] ?? null,
             ],
             'new' => [
                 'first_name' => $first,
                 'middle_name' => null,
                 'last_name' => $last,
                 'email' => $newEmail,
+                'contact_number' => $row['contact_number'] ?? null,
                 'full_name' => $fullName,
             ],
         ];
-    }
-
-    if ($exactCount !== $expectedCount) {
-        $errors[] = 'Exact "Customer" row count is ' . $exactCount . ', expected ' . $expectedCount . '.';
     }
 
     if (count($assignments) !== $expectedCount) {
         $errors[] = 'Prepared assignment count is ' . count($assignments) . ', expected ' . $expectedCount . '.';
     }
 
-    return [
-        'expected_count' => $expectedCount,
-        'exact_count' => $exactCount,
-        'assignments' => $assignments,
-        'errors' => array_values(array_unique($errors)),
-        'ready' => empty($errors),
-    ];
+    $plan['assignments'] = $assignments;
+    $plan['errors'] = array_values(array_unique($errors));
+    $plan['ready'] = empty($plan['errors']);
+
+    return $plan;
+}
+
+function pf_gcrt_build_specific_name_plan(): array
+{
+    $plan = pf_gcrt_plan_shell('rename_specific_ids', 'Specific Customer ID Rename', 'RENAME SPECIFIC IDS');
+    $mapping = PF_SPECIFIC_CUSTOMER_NAME_MAP;
+    $expectedCount = count($mapping);
+    $plan['target_count'] = $expectedCount;
+
+    $errors = [];
+    $assignments = [];
+    $ids = array_map(static fn($row) => (int)$row['customer_id'], $mapping);
+    $rows = db_query(
+        "SELECT customer_id, first_name, middle_name, last_name, email, contact_number
+         FROM customers
+         WHERE customer_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")
+         ORDER BY customer_id ASC",
+        str_repeat('i', count($ids)),
+        $ids
+    );
+    $byId = [];
+    foreach ($rows as $row) {
+        $byId[(int)$row['customer_id']] = $row;
+    }
+
+    $seenFullNames = [];
+    foreach ($mapping as $index => $item) {
+        $cid = (int)$item['customer_id'];
+        $fullName = trim((string)$item['full_name']);
+        [$first, $last] = pf_gcrt_split_full_name($fullName);
+        $fullKey = mb_strtolower($fullName, 'UTF-8');
+
+        if (isset($seenFullNames[$fullKey])) {
+            $errors[] = 'Duplicate replacement full name in specific-ID plan: ' . $fullName;
+        }
+        $seenFullNames[$fullKey] = true;
+
+        if (!isset($byId[$cid])) {
+            $errors[] = 'Customer ID not found: ' . $cid;
+            continue;
+        }
+
+        $row = $byId[$cid];
+        $assignments[] = [
+            'seq' => $index + 1,
+            'customer_id' => $cid,
+            'old' => [
+                'first_name' => (string)$row['first_name'],
+                'middle_name' => $row['middle_name'] ?? null,
+                'last_name' => (string)$row['last_name'],
+                'email' => (string)$row['email'],
+                'contact_number' => $row['contact_number'] ?? null,
+            ],
+            'new' => [
+                'first_name' => $first,
+                'middle_name' => $row['middle_name'] ?? null,
+                'last_name' => $last,
+                'email' => (string)$row['email'],
+                'contact_number' => $row['contact_number'] ?? null,
+                'full_name' => $fullName,
+            ],
+        ];
+    }
+
+    if (count($assignments) !== $expectedCount) {
+        $errors[] = 'Prepared specific-ID assignment count is ' . count($assignments) . ', expected ' . $expectedCount . '.';
+    }
+
+    $plan['assignments'] = $assignments;
+    $plan['errors'] = array_values(array_unique($errors));
+    $plan['ready'] = empty($plan['errors']);
+
+    return $plan;
+}
+
+function pf_gcrt_next_demo_mobile(array &$usedNumbers, int &$seed): string
+{
+    while ($seed <= 999999999) {
+        $candidate = '09' . str_pad((string)$seed, 9, '0', STR_PAD_LEFT);
+        $seed++;
+        if (!pf_gcrt_contact_is_valid_demo($candidate)) {
+            continue;
+        }
+        if (isset($usedNumbers[$candidate])) {
+            continue;
+        }
+        $usedNumbers[$candidate] = true;
+        return $candidate;
+    }
+
+    throw new RuntimeException('Ran out of synthetic demo phone numbers to assign.');
+}
+
+function pf_gcrt_build_missing_contact_plan(): array
+{
+    $plan = pf_gcrt_plan_shell('fill_missing_contacts', 'Missing Contact Number Fill', 'FILL MISSING CONTACTS');
+
+    $errors = [];
+    $assignments = [];
+    $rows = db_query(
+        "SELECT customer_id, first_name, middle_name, last_name, email, contact_number
+         FROM customers
+         WHERE contact_number IS NULL
+            OR TRIM(contact_number) = ''
+            OR UPPER(TRIM(contact_number)) = 'N/A'
+         ORDER BY customer_id ASC"
+    );
+    $plan['target_count'] = count($rows);
+
+    $usedNumbers = [];
+    foreach (db_query("SELECT LOWER(TRIM(contact_number)) AS phone FROM customers WHERE contact_number IS NOT NULL AND TRIM(contact_number) <> ''") as $row) {
+        $phone = trim((string)($row['phone'] ?? ''));
+        if ($phone !== '') {
+            $usedNumbers[$phone] = true;
+        }
+    }
+    foreach (db_query("SELECT LOWER(TRIM(contact_number)) AS phone FROM users WHERE contact_number IS NOT NULL AND TRIM(contact_number) <> ''") as $row) {
+        $phone = trim((string)($row['phone'] ?? ''));
+        if ($phone !== '') {
+            $usedNumbers[$phone] = true;
+        }
+    }
+
+    $seed = 170000001;
+    foreach ($rows as $index => $row) {
+        $currentContact = $row['contact_number'] ?? null;
+        if (!pf_gcrt_contact_is_missing($currentContact)) {
+            $errors[] = 'Non-missing contact number slipped into target set for customer_id ' . (int)$row['customer_id'];
+            continue;
+        }
+
+        $newContact = pf_gcrt_next_demo_mobile($usedNumbers, $seed);
+        $assignments[] = [
+            'seq' => $index + 1,
+            'customer_id' => (int)$row['customer_id'],
+            'old' => [
+                'first_name' => (string)$row['first_name'],
+                'middle_name' => $row['middle_name'] ?? null,
+                'last_name' => (string)$row['last_name'],
+                'email' => (string)$row['email'],
+                'contact_number' => $currentContact,
+            ],
+            'new' => [
+                'first_name' => (string)$row['first_name'],
+                'middle_name' => $row['middle_name'] ?? null,
+                'last_name' => (string)$row['last_name'],
+                'email' => (string)$row['email'],
+                'contact_number' => $newContact,
+                'full_name' => trim((string)$row['first_name'] . ' ' . (string)$row['last_name']),
+            ],
+        ];
+    }
+
+    $seen = [];
+    foreach ($assignments as $assignment) {
+        $phone = (string)$assignment['new']['contact_number'];
+        if (!pf_gcrt_contact_is_valid_demo($phone)) {
+            $errors[] = 'Generated phone number is invalid for customer_id ' . (int)$assignment['customer_id'];
+        }
+        if (isset($seen[$phone])) {
+            $errors[] = 'Generated phone number is duplicated: ' . $phone;
+        }
+        $seen[$phone] = true;
+    }
+
+    $plan['assignments'] = $assignments;
+    $plan['errors'] = array_values(array_unique($errors));
+    $plan['ready'] = empty($plan['errors']);
+
+    return $plan;
 }
 
 function pf_gcrt_execute_plan(array $plan, int $executedBy): array
 {
     if (empty($plan['ready'])) {
-        throw new RuntimeException('Plan is not safe to execute.');
+        throw new RuntimeException('This plan is not safe to execute.');
     }
 
     pf_gcrt_ensure_backup_table();
@@ -318,64 +525,57 @@ function pf_gcrt_execute_plan(array $plan, int $executedBy): array
     $ids = array_map(static fn($a) => (int)$a['customer_id'], $assignments);
     $preLinks = pf_gcrt_fetch_link_snapshot($ids);
     $preUserRoleSnapshot = db_query("SELECT role, COUNT(*) AS c FROM users GROUP BY role ORDER BY role ASC");
-    $batchId = 'web_generic_customer_rename_' . date('Ymd_His');
+    $batchId = $plan['scope'] . '_' . date('Ymd_His');
 
     $conn->begin_transaction();
     try {
         foreach ($assignments as $assignment) {
             $inserted = db_execute(
-                "INSERT INTO maintenance_generic_customer_rename_backup
-                 (batch_id, customer_id, first_name, middle_name, last_name, email, executed_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
-                'sissssi',
+                "INSERT INTO " . PF_GCRT_BACKUP_TABLE . "
+                 (batch_id, scope, customer_id, first_name, middle_name, last_name, email, contact_number, executed_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                'ssisssssi',
                 [
                     $batchId,
+                    $plan['scope'],
                     (int)$assignment['customer_id'],
                     $assignment['old']['first_name'],
                     $assignment['old']['middle_name'],
                     $assignment['old']['last_name'],
                     $assignment['old']['email'],
+                    $assignment['old']['contact_number'],
                     $executedBy,
                 ]
             );
             if (!$inserted) {
-                throw new RuntimeException('Backup insert failed for customer_id ' . $assignment['customer_id']);
+                throw new RuntimeException('Backup insert failed for customer_id ' . (int)$assignment['customer_id']);
             }
         }
 
         foreach ($assignments as $assignment) {
             $updated = db_execute(
                 "UPDATE customers
-                 SET first_name = ?, middle_name = ?, last_name = ?, email = ?
+                 SET first_name = ?, middle_name = ?, last_name = ?, email = ?, contact_number = ?
                  WHERE customer_id = ?",
-                'ssssi',
+                'sssssi',
                 [
                     $assignment['new']['first_name'],
                     $assignment['new']['middle_name'],
                     $assignment['new']['last_name'],
                     $assignment['new']['email'],
+                    $assignment['new']['contact_number'],
                     (int)$assignment['customer_id'],
                 ]
             );
             if (!$updated) {
-                throw new RuntimeException('Customer update failed for customer_id ' . $assignment['customer_id']);
+                throw new RuntimeException('Customer update failed for customer_id ' . (int)$assignment['customer_id']);
             }
         }
 
-        $remaining = db_query(
-            "SELECT COUNT(*) AS c
-             FROM customers
-             WHERE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) = 'Customer'"
-        );
-        if ((int)($remaining[0]['c'] ?? -1) !== 0) {
-            throw new RuntimeException('Some exact "Customer" rows still remain after update.');
-        }
-
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $updatedRows = db_query(
-            "SELECT customer_id, first_name, last_name, email
+            "SELECT customer_id, first_name, middle_name, last_name, email, contact_number
              FROM customers
-             WHERE customer_id IN ($placeholders)
+             WHERE customer_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")
              ORDER BY customer_id ASC",
             str_repeat('i', count($ids)),
             $ids
@@ -390,12 +590,43 @@ function pf_gcrt_execute_plan(array $plan, int $executedBy): array
             if ($expected === null) {
                 throw new RuntimeException('Verification could not find expected data for customer_id ' . $cid);
             }
+
             if (
-                trim((string)$row['first_name']) !== $expected['first_name'] ||
-                trim((string)$row['last_name']) !== $expected['last_name'] ||
-                mb_strtolower(trim((string)$row['email']), 'UTF-8') !== $expected['email']
+                trim((string)$row['first_name']) !== (string)$expected['first_name'] ||
+                trim((string)($row['middle_name'] ?? '')) !== trim((string)($expected['middle_name'] ?? '')) ||
+                trim((string)$row['last_name']) !== (string)$expected['last_name'] ||
+                mb_strtolower(trim((string)$row['email']), 'UTF-8') !== mb_strtolower(trim((string)$expected['email']), 'UTF-8') ||
+                trim((string)($row['contact_number'] ?? '')) !== trim((string)($expected['contact_number'] ?? ''))
             ) {
                 throw new RuntimeException('Verification mismatch for customer_id ' . $cid);
+            }
+        }
+
+        if ($plan['scope'] === 'rename_generic') {
+            $remaining = db_query(
+                "SELECT COUNT(*) AS c
+                 FROM customers
+                 WHERE TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) = 'Customer'"
+            );
+            if ((int)($remaining[0]['c'] ?? -1) !== 0) {
+                throw new RuntimeException('Some exact "Customer" rows still remain after generic rename.');
+            }
+        }
+
+        if ($plan['scope'] === 'fill_missing_contacts') {
+            $seenPhones = [];
+            foreach ($updatedRows as $row) {
+                $phone = trim((string)($row['contact_number'] ?? ''));
+                if (pf_gcrt_contact_is_missing($phone)) {
+                    throw new RuntimeException('A targeted contact number is still blank, NULL, empty, or N/A.');
+                }
+                if (!pf_gcrt_contact_is_valid_demo($phone)) {
+                    throw new RuntimeException('A generated contact number is not in 09XXXXXXXXX format: ' . $phone);
+                }
+                if (isset($seenPhones[$phone])) {
+                    throw new RuntimeException('A generated contact number is duplicated: ' . $phone);
+                }
+                $seenPhones[$phone] = true;
             }
         }
 
@@ -422,6 +653,7 @@ function pf_gcrt_execute_plan(array $plan, int $executedBy): array
     return [
         'batch_id' => $batchId,
         'updated_count' => count($assignments),
+        'label' => $plan['label'],
     ];
 }
 
@@ -434,8 +666,8 @@ function pf_gcrt_rollback_batch(string $batchId): array
 
     pf_gcrt_ensure_backup_table();
     $rows = db_query(
-        "SELECT customer_id, first_name, middle_name, last_name, email
-         FROM maintenance_generic_customer_rename_backup
+        "SELECT customer_id, first_name, middle_name, last_name, email, contact_number
+         FROM " . PF_GCRT_BACKUP_TABLE . "
          WHERE batch_id = ?
          ORDER BY customer_id ASC",
         's',
@@ -451,14 +683,15 @@ function pf_gcrt_rollback_batch(string $batchId): array
         foreach ($rows as $row) {
             $restored = db_execute(
                 "UPDATE customers
-                 SET first_name = ?, middle_name = ?, last_name = ?, email = ?
+                 SET first_name = ?, middle_name = ?, last_name = ?, email = ?, contact_number = ?
                  WHERE customer_id = ?",
-                'ssssi',
+                'sssssi',
                 [
                     (string)$row['first_name'],
                     $row['middle_name'] ?? null,
                     (string)$row['last_name'],
                     (string)$row['email'],
+                    $row['contact_number'] ?? null,
                     (int)$row['customer_id'],
                 ]
             );
@@ -497,15 +730,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = trim((string)($_POST['action'] ?? ''));
 
         try {
-            if ($action === 'execute') {
-                $confirm = trim((string)($_POST['confirm_phrase'] ?? ''));
-                if ($confirm !== 'RENAME 45 CUSTOMERS') {
-                    throw new RuntimeException('Type "RENAME 45 CUSTOMERS" exactly before executing.');
+            if ($action === 'execute_generic') {
+                $plan = pf_gcrt_build_generic_rename_plan();
+                $confirm = trim((string)($_POST['confirm_phrase_generic'] ?? ''));
+                if ($confirm !== $plan['confirm_phrase']) {
+                    throw new RuntimeException('Type "' . $plan['confirm_phrase'] . '" exactly before executing the generic rename.');
                 }
-                $plan = pf_gcrt_build_plan();
                 $result = pf_gcrt_execute_plan($plan, (int)($current_user['user_id'] ?? 0));
                 $lastBatchId = (string)$result['batch_id'];
-                $messages[] = 'Rename completed successfully. Batch ID: ' . $lastBatchId . '. Updated rows: ' . (int)$result['updated_count'] . '.';
+                $messages[] = $result['label'] . ' completed successfully. Batch ID: ' . $lastBatchId . '. Updated rows: ' . (int)$result['updated_count'] . '.';
+            } elseif ($action === 'execute_specific') {
+                $plan = pf_gcrt_build_specific_name_plan();
+                $confirm = trim((string)($_POST['confirm_phrase_specific'] ?? ''));
+                if ($confirm !== $plan['confirm_phrase']) {
+                    throw new RuntimeException('Type "' . $plan['confirm_phrase'] . '" exactly before executing the specific-ID rename.');
+                }
+                $result = pf_gcrt_execute_plan($plan, (int)($current_user['user_id'] ?? 0));
+                $lastBatchId = (string)$result['batch_id'];
+                $messages[] = $result['label'] . ' completed successfully. Batch ID: ' . $lastBatchId . '. Updated rows: ' . (int)$result['updated_count'] . '.';
+            } elseif ($action === 'execute_contacts') {
+                $plan = pf_gcrt_build_missing_contact_plan();
+                $confirm = trim((string)($_POST['confirm_phrase_contacts'] ?? ''));
+                if ($confirm !== $plan['confirm_phrase']) {
+                    throw new RuntimeException('Type "' . $plan['confirm_phrase'] . '" exactly before filling contact numbers.');
+                }
+                $result = pf_gcrt_execute_plan($plan, (int)($current_user['user_id'] ?? 0));
+                $lastBatchId = (string)$result['batch_id'];
+                $messages[] = $result['label'] . ' completed successfully. Batch ID: ' . $lastBatchId . '. Updated rows: ' . (int)$result['updated_count'] . '.';
             } elseif ($action === 'rollback') {
                 $rollbackBatchId = trim((string)($_POST['batch_id'] ?? ''));
                 $confirm = trim((string)($_POST['rollback_phrase'] ?? ''));
@@ -523,21 +774,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$plan = ['expected_count' => count(PF_GENERIC_CUSTOMER_RENAME_MAP), 'exact_count' => 0, 'assignments' => [], 'errors' => [], 'ready' => false];
-try {
-    $plan = pf_gcrt_build_plan();
-} catch (Throwable $e) {
-    $errors[] = $e->getMessage();
-}
-
+$genericPlan = pf_gcrt_plan_shell('rename_generic', 'Generic Customer Rename', 'RENAME 45 CUSTOMERS');
+$specificPlan = pf_gcrt_plan_shell('rename_specific_ids', 'Specific Customer ID Rename', 'RENAME SPECIFIC IDS');
+$contactPlan = pf_gcrt_plan_shell('fill_missing_contacts', 'Missing Contact Number Fill', 'FILL MISSING CONTACTS');
 $recentBatches = [];
+
 try {
+    $genericPlan = pf_gcrt_build_generic_rename_plan();
+    $specificPlan = pf_gcrt_build_specific_name_plan();
+    $contactPlan = pf_gcrt_build_missing_contact_plan();
     $recentBatches = pf_gcrt_recent_batches();
 } catch (Throwable $e) {
     $errors[] = $e->getMessage();
 }
 
-$page_title = 'Temporary Customer Rename Tool';
+$page_title = 'Temporary Customer Maintenance Tool';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -547,7 +798,7 @@ $page_title = 'Temporary Customer Rename Tool';
     <title><?php echo pf_gcrt_h($page_title); ?></title>
     <style>
         body { margin: 0; font-family: Arial, sans-serif; background: #f5f7fb; color: #18212f; }
-        .wrap { max-width: 1180px; margin: 0 auto; padding: 24px; }
+        .wrap { max-width: 1240px; margin: 0 auto; padding: 24px; }
         .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; }
         .card { background: #fff; border: 1px solid #dde4ee; border-radius: 14px; padding: 18px; margin-bottom: 18px; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05); }
         h1, h2, h3 { margin: 0 0 12px; }
@@ -565,21 +816,23 @@ $page_title = 'Temporary Customer Rename Tool';
         .btn.secondary { background: #e2e8f0; color: #1e293b; }
         .btn.danger { background: #991b1b; color: #fff; }
         .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+        .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
         .kpi { padding: 14px; border: 1px solid #e5eaf1; border-radius: 12px; background: #fbfcfe; }
         .kpi .label { font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 8px; }
         .kpi .value { font-size: 28px; font-weight: 800; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #edf2f7; vertical-align: top; font-size: 14px; }
-        th { font-size: 12px; text-transform: uppercase; color: #64748b; letter-spacing: 0.04em; }
-        code, .mono { font-family: Consolas, Monaco, monospace; font-size: 13px; }
-        input[type="text"] { width: 100%; max-width: 340px; padding: 11px 12px; border-radius: 10px; border: 1px solid #cbd5e1; }
-        .two-col { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+        .two-col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
         .small { font-size: 13px; }
         .list { margin: 0; padding-left: 18px; }
         .right-link { color: #0f4c5c; font-weight: 700; text-decoration: none; }
-        @media (max-width: 900px) {
-            .grid, .two-col { grid-template-columns: 1fr; }
+        .mono { font-family: Consolas, Monaco, monospace; font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #edf2f7; vertical-align: top; font-size: 14px; }
+        th { font-size: 12px; text-transform: uppercase; color: #64748b; letter-spacing: 0.04em; }
+        input[type="text"] { width: 100%; max-width: 360px; padding: 11px 12px; border-radius: 10px; border: 1px solid #cbd5e1; }
+        .plan-table { overflow: auto; margin-top: 14px; }
+        .section-gap { margin-top: 4px; }
+        @media (max-width: 960px) {
+            .grid3, .two-col { grid-template-columns: 1fr; }
             .topbar { align-items: flex-start; flex-direction: column; }
         }
     </style>
@@ -589,7 +842,7 @@ $page_title = 'Temporary Customer Rename Tool';
         <div class="topbar">
             <div>
                 <h1><?php echo pf_gcrt_h($page_title); ?></h1>
-                <div class="muted small">Admin-only temporary page for safely renaming exact live <span class="mono">Customer</span> accounts and backing them up first.</div>
+                <div class="muted small">Admin-only temporary page for safe, reversible customer maintenance on live data.</div>
             </div>
             <a class="right-link" href="<?php echo pf_gcrt_h($base_path . '/admin/dashboard.php'); ?>">Back to Dashboard</a>
         </div>
@@ -600,118 +853,144 @@ $page_title = 'Temporary Customer Rename Tool';
         <?php foreach ($errors as $error): ?>
             <div class="msg bad"><?php echo pf_gcrt_h($error); ?></div>
         <?php endforeach; ?>
-        <?php foreach ($plan['errors'] as $error): ?>
-            <div class="msg bad"><?php echo pf_gcrt_h($error); ?></div>
-        <?php endforeach; ?>
 
         <div class="card">
-            <h2>Safety Status</h2>
-            <div class="grid">
-                <div class="kpi">
-                    <div class="label">Expected Rename Rows</div>
-                    <div class="value"><?php echo (int)$plan['expected_count']; ?></div>
+            <h2>Refresh All Previews</h2>
+            <form method="post" class="actions">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="action" value="preview">
+                <button type="submit" class="btn secondary">Refresh Preview</button>
+            </form>
+        </div>
+
+        <?php
+        $plans = [$genericPlan, $specificPlan, $contactPlan];
+        foreach ($plans as $plan):
+        ?>
+            <?php foreach ($plan['errors'] as $error): ?>
+                <div class="msg bad"><?php echo pf_gcrt_h($plan['label'] . ': ' . $error); ?></div>
+            <?php endforeach; ?>
+            <div class="card">
+                <h2><?php echo pf_gcrt_h($plan['label']); ?></h2>
+                <div class="grid3">
+                    <div class="kpi">
+                        <div class="label">Target Rows</div>
+                        <div class="value"><?php echo (int)$plan['target_count']; ?></div>
+                    </div>
+                    <div class="kpi">
+                        <div class="label">Prepared Assignments</div>
+                        <div class="value"><?php echo count($plan['assignments']); ?></div>
+                    </div>
+                    <div class="kpi">
+                        <div class="label">Readiness</div>
+                        <div class="value" style="font-size:18px;padding-top:6px;">
+                            <?php if ($plan['ready']): ?>
+                                <span class="pill ok">Safe To Execute</span>
+                            <?php elseif ($plan['target_count'] > 0): ?>
+                                <span class="pill warn">Blocked Until Fixed</span>
+                            <?php else: ?>
+                                <span class="pill bad">No Targets Right Now</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                 </div>
-                <div class="kpi">
-                    <div class="label">Exact "Customer" Rows Now</div>
-                    <div class="value"><?php echo (int)$plan['exact_count']; ?></div>
-                </div>
-                <div class="kpi">
-                    <div class="label">Execution Readiness</div>
-                    <div class="value" style="font-size:18px;padding-top:6px;">
-                        <?php if ($plan['ready']): ?>
-                            <span class="pill ok">Safe To Execute</span>
-                        <?php elseif ($plan['exact_count'] > 0): ?>
-                            <span class="pill warn">Blocked Until Fixed</span>
-                        <?php else: ?>
-                            <span class="pill bad">Nothing To Rename</span>
-                        <?php endif; ?>
+
+                <div class="two-col section-gap">
+                    <div>
+                        <p class="muted small">
+                            <?php if ($plan['scope'] === 'rename_generic'): ?>
+                                Changes only exact live <span class="mono">Customer</span> rows from the earlier email-based plan, including Gmail updates.
+                            <?php elseif ($plan['scope'] === 'rename_specific_ids'): ?>
+                                Changes only the names for customer IDs <span class="mono">31, 287, 281, 293, 5, 6</span>. Emails and contact numbers stay untouched.
+                            <?php else: ?>
+                                Fills only blank, NULL, empty, or <span class="mono">N/A</span> customer contact numbers with unique synthetic numbers in <span class="mono">09XXXXXXXXX</span> format.
+                            <?php endif; ?>
+                        </p>
+
+                        <div class="plan-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Customer ID</th>
+                                        <th>Current</th>
+                                        <th>Planned</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (empty($plan['assignments'])): ?>
+                                        <tr><td colspan="4" class="muted">No rows currently targeted.</td></tr>
+                                    <?php else: ?>
+                                        <?php foreach ($plan['assignments'] as $assignment): ?>
+                                            <tr>
+                                                <td><?php echo (int)$assignment['seq']; ?></td>
+                                                <td><?php echo (int)$assignment['customer_id']; ?></td>
+                                                <td>
+                                                    <div><strong><?php echo pf_gcrt_h(trim($assignment['old']['first_name'] . ' ' . $assignment['old']['last_name'])); ?></strong></div>
+                                                    <div class="mono"><?php echo pf_gcrt_h($assignment['old']['email']); ?></div>
+                                                    <div class="mono"><?php echo pf_gcrt_h((string)($assignment['old']['contact_number'] ?? 'NULL')); ?></div>
+                                                </td>
+                                                <td>
+                                                    <div><strong><?php echo pf_gcrt_h(trim($assignment['new']['first_name'] . ' ' . $assignment['new']['last_name'])); ?></strong></div>
+                                                    <div class="mono"><?php echo pf_gcrt_h($assignment['new']['email']); ?></div>
+                                                    <div class="mono"><?php echo pf_gcrt_h((string)($assignment['new']['contact_number'] ?? 'NULL')); ?></div>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="card" style="margin-bottom:0;">
+                            <h3>Execute</h3>
+                            <p class="muted small">A full row backup is saved first to <span class="mono"><?php echo pf_gcrt_h(PF_GCRT_BACKUP_TABLE); ?></span>, then the update runs inside a transaction and verifies linked orders and user roles are unchanged.</p>
+                            <form method="post">
+                                <?php echo csrf_field(); ?>
+                                <?php if ($plan['scope'] === 'rename_generic'): ?>
+                                    <input type="hidden" name="action" value="execute_generic">
+                                    <label for="confirm_phrase_generic" class="small"><strong>Type exactly:</strong> <span class="mono"><?php echo pf_gcrt_h($plan['confirm_phrase']); ?></span></label>
+                                    <div style="margin:8px 0 14px;">
+                                        <input id="confirm_phrase_generic" name="confirm_phrase_generic" type="text" autocomplete="off" placeholder="<?php echo pf_gcrt_h($plan['confirm_phrase']); ?>">
+                                    </div>
+                                <?php elseif ($plan['scope'] === 'rename_specific_ids'): ?>
+                                    <input type="hidden" name="action" value="execute_specific">
+                                    <label for="confirm_phrase_specific" class="small"><strong>Type exactly:</strong> <span class="mono"><?php echo pf_gcrt_h($plan['confirm_phrase']); ?></span></label>
+                                    <div style="margin:8px 0 14px;">
+                                        <input id="confirm_phrase_specific" name="confirm_phrase_specific" type="text" autocomplete="off" placeholder="<?php echo pf_gcrt_h($plan['confirm_phrase']); ?>">
+                                    </div>
+                                <?php else: ?>
+                                    <input type="hidden" name="action" value="execute_contacts">
+                                    <label for="confirm_phrase_contacts" class="small"><strong>Type exactly:</strong> <span class="mono"><?php echo pf_gcrt_h($plan['confirm_phrase']); ?></span></label>
+                                    <div style="margin:8px 0 14px;">
+                                        <input id="confirm_phrase_contacts" name="confirm_phrase_contacts" type="text" autocomplete="off" placeholder="<?php echo pf_gcrt_h($plan['confirm_phrase']); ?>">
+                                    </div>
+                                <?php endif; ?>
+                                <button
+                                    type="submit"
+                                    class="btn primary"
+                                    <?php echo $plan['ready'] ? '' : 'disabled'; ?>
+                                    onclick="return confirm('Run <?php echo pf_gcrt_h($plan['label']); ?> now? A reversible backup batch will be created first.')"
+                                >Execute</button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        <?php endforeach; ?>
 
-        <div class="two-col">
-            <div class="card">
-                <h2>Preview</h2>
-                <p class="muted small">This uses the live database and only targets rows whose current display name is exactly <span class="mono">Customer</span>. It also checks for email collisions against both <span class="mono">customers</span> and <span class="mono">users</span>.</p>
-                <form method="post" class="actions">
-                    <?php echo csrf_field(); ?>
-                    <input type="hidden" name="action" value="preview">
-                    <button type="submit" class="btn secondary">Refresh Preview</button>
-                </form>
-
-                <div style="margin-top:16px; overflow:auto;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Customer ID</th>
-                                <th>Current Email</th>
-                                <th>New Name</th>
-                                <th>New Gmail</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($plan['assignments'])): ?>
-                                <tr><td colspan="5" class="muted">No assignments available.</td></tr>
-                            <?php else: ?>
-                                <?php foreach ($plan['assignments'] as $assignment): ?>
-                                    <tr>
-                                        <td><?php echo (int)$assignment['seq']; ?></td>
-                                        <td><?php echo (int)$assignment['customer_id']; ?></td>
-                                        <td class="mono"><?php echo pf_gcrt_h($assignment['old']['email']); ?></td>
-                                        <td><?php echo pf_gcrt_h($assignment['new']['full_name']); ?></td>
-                                        <td class="mono"><?php echo pf_gcrt_h($assignment['new']['email']); ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div>
-                <div class="card">
-                    <h2>Execute</h2>
-                    <p class="muted small">This creates a backup in <span class="mono">maintenance_generic_customer_rename_backup</span>, updates the customer rows in a transaction, and verifies no exact <span class="mono">Customer</span> names remain afterward.</p>
-                    <form method="post">
-                        <?php echo csrf_field(); ?>
-                        <input type="hidden" name="action" value="execute">
-                        <label for="confirm_phrase" class="small"><strong>Type exactly:</strong> <span class="mono">RENAME 45 CUSTOMERS</span></label>
-                        <div style="margin:8px 0 14px;">
-                            <input id="confirm_phrase" name="confirm_phrase" type="text" autocomplete="off" placeholder="RENAME 45 CUSTOMERS">
-                        </div>
-                        <button
-                            type="submit"
-                            class="btn primary"
-                            <?php echo $plan['ready'] ? '' : 'disabled'; ?>
-                            onclick="return confirm('Run the live customer rename now? A DB backup row set will be created first.')"
-                        >Execute Rename</button>
-                    </form>
-                </div>
-
-                <div class="card">
-                    <h2>Rollback</h2>
-                    <p class="muted small">If you need to restore a previous run, choose a batch from the recent history and roll it back.</p>
-                    <form method="post">
-                        <?php echo csrf_field(); ?>
-                        <input type="hidden" name="action" value="rollback">
-                        <label for="batch_id" class="small"><strong>Batch ID</strong></label>
-                        <div style="margin:8px 0 10px;">
-                            <input id="batch_id" name="batch_id" type="text" autocomplete="off" value="<?php echo pf_gcrt_h($lastBatchId !== '' ? $lastBatchId : $rollbackBatchId); ?>" placeholder="web_generic_customer_rename_YYYYMMDD_HHMMSS">
-                        </div>
-                        <label for="rollback_phrase" class="small"><strong>Type exactly:</strong> <span class="mono">ROLLBACK</span></label>
-                        <div style="margin:8px 0 14px;">
-                            <input id="rollback_phrase" name="rollback_phrase" type="text" autocomplete="off" placeholder="ROLLBACK">
-                        </div>
-                        <button
-                            type="submit"
-                            class="btn danger"
-                            onclick="return confirm('Rollback the selected batch and restore original customer names/emails?')"
-                        >Rollback Batch</button>
-                    </form>
-                </div>
-            </div>
+        <div class="card">
+            <h2>Rollback</h2>
+            <p class="muted small">Restore a previous batch from the backup table. This puts back the saved name, email, and contact number for each customer in that batch.</p>
+            <form method="post" class="actions">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="action" value="rollback">
+                <input name="batch_id" type="text" autocomplete="off" value="<?php echo pf_gcrt_h($lastBatchId !== '' ? $lastBatchId : $rollbackBatchId); ?>" placeholder="batch_id">
+                <input name="rollback_phrase" type="text" autocomplete="off" placeholder="ROLLBACK">
+                <button type="submit" class="btn danger" onclick="return confirm('Rollback the selected batch?')">Rollback Batch</button>
+            </form>
         </div>
 
         <div class="card">
@@ -723,6 +1002,7 @@ $page_title = 'Temporary Customer Rename Tool';
                     <thead>
                         <tr>
                             <th>Batch ID</th>
+                            <th>Scope</th>
                             <th>Rows</th>
                             <th>Captured At</th>
                         </tr>
@@ -731,6 +1011,7 @@ $page_title = 'Temporary Customer Rename Tool';
                         <?php foreach ($recentBatches as $batch): ?>
                             <tr>
                                 <td class="mono"><?php echo pf_gcrt_h((string)$batch['batch_id']); ?></td>
+                                <td class="mono"><?php echo pf_gcrt_h((string)$batch['scope']); ?></td>
                                 <td><?php echo (int)($batch['row_count'] ?? 0); ?></td>
                                 <td><?php echo pf_gcrt_h((string)($batch['captured_at'] ?? '')); ?></td>
                             </tr>
@@ -743,9 +1024,9 @@ $page_title = 'Temporary Customer Rename Tool';
         <div class="card">
             <h2>After You Finish</h2>
             <ul class="list small">
-                <li>Spot-check the customer list in admin and a few linked orders.</li>
-                <li>Delete this temporary page after use: <span class="mono">admin/generic_customer_rename_tool.php</span>.</li>
-                <li>Also remove public debug files like <span class="mono">public/tmp_check_customers.php</span>, <span class="mono">public/tmp_check_users.php</span>, and <span class="mono">public/setup_admin.php</span>.</li>
+                <li>Spot-check customers, linked orders, and a few contact numbers in admin.</li>
+                <li>Delete this temporary page from production: <span class="mono">admin/generic_customer_rename_tool.php</span>.</li>
+                <li>Remove exposed debug files from production such as <span class="mono">public/tmp_check_customers.php</span>, <span class="mono">public/tmp_check_users.php</span>, and <span class="mono">public/setup_admin.php</span>.</li>
             </ul>
         </div>
     </div>
