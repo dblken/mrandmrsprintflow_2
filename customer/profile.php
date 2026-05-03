@@ -1543,7 +1543,6 @@ require_once __DIR__ . '/../includes/header.php';
     loadProvinces();
 })();
 </script>
-
 <script>
 // Advanced Validations Logic
 (function() {
@@ -1953,3 +1952,4 @@ function previewIdImage(input) {
     }
 }
 </script>
+<?php require_once __DIR__ . '/../includes/footer.php'; ?>

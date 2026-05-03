@@ -59,7 +59,114 @@ function pf_customer_id_rejection_reason(string $selected, string $custom = ''):
 }
 
 // Handle ID verification approval/rejection
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id_action']) && verify_csrf_token($_POST['csrf_token'] ?? '')) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id_action'])) {
+    $isAjax = !empty($_POST['ajax']);
+    $respond = static function (array $payload, int $status = 200) use ($isAjax): void {
+        if ($isAjax) {
+            http_response_code($status);
+            header('Content-Type: application/json');
+            echo json_encode($payload);
+            exit;
+        }
+    };
+
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        $respond([
+            'success' => false,
+            'code' => 'csrf_mismatch',
+            'error' => 'Your session expired. Please refresh and try again.',
+            'csrf_token' => generate_csrf_token(),
+        ], 419);
+    }
+
+    if (($_SESSION['user_type'] ?? '') !== 'Admin') {
+        $respond(['success' => false, 'error' => 'Only admins can verify or reject customer IDs.'], 403);
+        http_response_code(403);
+        exit;
+    }
+
+    $cid = (int)($_POST['cid'] ?? 0);
+    $action = trim((string)($_POST['id_action'] ?? ''));
+    if ($cid <= 0 || !in_array($action, ['approve', 'reject'], true)) {
+        $respond(['success' => false, 'error' => 'Invalid verification request.'], 422);
+        header('Location: customers_management.php?id_reviewed=0');
+        exit;
+    }
+
+    $customerRows = db_query(
+        "SELECT customer_id, id_image
+         FROM customers
+         WHERE customer_id = ?
+         LIMIT 1",
+        'i',
+        [$cid]
+    );
+    if (empty($customerRows)) {
+        $respond(['success' => false, 'error' => 'Customer not found.'], 404);
+        header('Location: customers_management.php?id_reviewed=0');
+        exit;
+    }
+
+    if (trim((string)($customerRows[0]['id_image'] ?? '')) === '') {
+        $respond(['success' => false, 'error' => 'This customer has no uploaded ID image to review.'], 422);
+        header('Location: customers_management.php?id_reviewed=0');
+        exit;
+    }
+
+    $reason = '';
+    if ($action === 'approve') {
+        $updated = db_execute("UPDATE customers SET id_status='Verified', id_reject_reason=NULL WHERE customer_id=?", 'i', [$cid]) !== false;
+        if ($updated) {
+            try {
+                create_notification($cid, 'Customer', 'Your ID has been verified! You can now place orders.', 'System', false, false);
+            } catch (Throwable $e) {
+                error_log('ID approval notification failed for customer ' . $cid . ': ' . $e->getMessage());
+            }
+        }
+    } else {
+        $reason = pf_customer_id_rejection_reason(
+            (string)($_POST['reject_reason'] ?? ''),
+            (string)($_POST['reject_reason_other'] ?? '')
+        );
+        $updated = db_execute("UPDATE customers SET id_status='Rejected', id_reject_reason=? WHERE customer_id=?", 'si', [$reason, $cid]) !== false;
+        if ($updated) {
+            try {
+                create_notification($cid, 'Customer', 'Your ID verification was rejected: ' . $reason, 'System', false, false);
+            } catch (Throwable $e) {
+                error_log('ID rejection notification failed for customer ' . $cid . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    if (!$updated) {
+        $respond(['success' => false, 'error' => 'Failed to update the customer ID status.'], 500);
+        header('Location: customers_management.php?id_reviewed=0');
+        exit;
+    }
+
+    $verifyRows = db_query(
+        "SELECT customer_id, id_status, id_reject_reason
+         FROM customers
+         WHERE customer_id = ?
+         LIMIT 1",
+        'i',
+        [$cid]
+    );
+    $verifiedRow = $verifyRows[0] ?? [];
+    if ($isAjax) {
+        $respond([
+            'success' => true,
+            'customer_id' => $cid,
+            'id_status' => pf_customer_id_status_normalize($verifiedRow['id_status'] ?? ''),
+            'id_reject_reason' => (string)($verifiedRow['id_reject_reason'] ?? ''),
+        ]);
+    }
+
+    header('Location: customers_management.php?id_reviewed=1');
+    exit;
+}
+
+if (false && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id_action']) && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     if (($_SESSION['user_type'] ?? '') !== 'Admin') {
         if (!empty($_POST['ajax'])) {
             header('Content-Type: application/json');
@@ -760,6 +867,7 @@ $page_title = 'Customers Management - Admin';
                     loading: false,
                     errorMsg: '',
                     customer: null,
+                    idActionCsrfToken: <?php echo json_encode(generate_csrf_token()); ?>,
                     idActionSelection: '',
                     idRejectReason: '',
                     idRejectReasonOther: '',
@@ -897,7 +1005,7 @@ $page_title = 'Customers Management - Admin';
                         this.idRejectReasonOther = '';
                     },
 
-                    async submitIdAction(action) {
+                    async submitIdAction(action, attempt = 0) {
                         if (!<?php echo $can_manage_customer_verification ? 'true' : 'false'; ?>) return;
                         if (!this.customer?.customer_id) return;
                         const selectedReason = (this.idRejectReason || '').trim();
@@ -916,7 +1024,7 @@ $page_title = 'Customers Management - Admin';
                         fd.append('cid', this.customer.customer_id);
                         fd.append('reject_reason', selectedReason);
                         fd.append('reject_reason_other', otherReason);
-                        fd.append('csrf_token', '<?php echo generate_csrf_token(); ?>');
+                        fd.append('csrf_token', this.idActionCsrfToken);
                         try {
                             const data = await this.fetchJsonResponse('<?php echo $base_path; ?>/admin/customers_management.php', {
                                 method: 'POST',
@@ -930,14 +1038,25 @@ $page_title = 'Customers Management - Admin';
                                 if (this.customer) {
                                     this.customer = {
                                         ...this.customer,
-                                        id_status: action === 'approve' ? 'Verified' : 'Rejected',
-                                        id_reject_reason: action === 'approve' ? '' : rejectReason
+                                        id_status: data.id_status || (action === 'approve' ? 'Verified' : 'Rejected'),
+                                        id_reject_reason: typeof data.id_reject_reason === 'string'
+                                            ? data.id_reject_reason
+                                            : (action === 'approve' ? '' : rejectReason)
                                     };
                                 }
                                 this.resetIdActionForm();
                                 fetchUpdatedTable();
+                                return;
                             }
-                        } catch(e) { console.error('submitIdAction error', e); }
+                            if (data.code === 'csrf_mismatch' && data.csrf_token && attempt === 0) {
+                                this.idActionCsrfToken = data.csrf_token;
+                                return this.submitIdAction(action, attempt + 1);
+                            }
+                            alert(data.error || 'Failed to update customer ID status.');
+                        } catch(e) {
+                            console.error('submitIdAction error', e);
+                            alert('Failed to update customer ID status. Please refresh and try again.');
+                        }
                     },
 
                     async submitSelectedIdAction() {
