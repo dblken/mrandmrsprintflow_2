@@ -378,6 +378,15 @@ function printflow_ensure_customers_auth_provider_column() {
     }
 }
 
+function printflow_google_placeholder_password_hash(): string {
+    return '!google-oauth-only!';
+}
+
+function printflow_customer_has_usable_password_hash($passwordHash): bool {
+    $hash = trim((string)$passwordHash);
+    return $hash !== '' && $hash !== printflow_google_placeholder_password_hash();
+}
+
 // Helper functions for checking duplicate emails/phones
 if (!function_exists('email_in_use_across_accounts')) {
     function email_in_use_across_accounts($email) {
@@ -763,6 +772,10 @@ function login_customer($email, $password, $remember_me = false) {
         }
     }
 
+    if (!printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null)) {
+        return ['success' => false, 'message' => 'Invalid email or password'];
+    }
+
     if (!password_verify($password, $customer['password_hash'])) {
         return ['success' => false, 'message' => 'Invalid email or password'];
     }
@@ -831,7 +844,15 @@ function login_customer_by_google($email, $first_name, $last_name) {
                 'message' => 'This email is already registered. Please use Sign in with your email and password — Google sign-in is not available for this address (one email, one sign-in method).',
             ];
         }
-        db_execute("UPDATE customers SET auth_provider = 'google' WHERE customer_id = ?", 'i', [(int)$customer['customer_id']]);
+        if (!printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null)) {
+            db_execute(
+                "UPDATE customers SET auth_provider = 'google', password_hash = ? WHERE customer_id = ?",
+                'si',
+                [printflow_google_placeholder_password_hash(), (int)$customer['customer_id']]
+            );
+        } else {
+            db_execute("UPDATE customers SET auth_provider = 'google' WHERE customer_id = ?", 'i', [(int)$customer['customer_id']]);
+        }
         $_SESSION['user_id'] = $customer['customer_id'];
         $_SESSION['user_type'] = 'Customer';
         $_SESSION['user_name'] = ($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? '');
@@ -843,7 +864,7 @@ function login_customer_by_google($email, $first_name, $last_name) {
         SessionManager::commit();
         return ['success' => true, 'message' => 'Login successful', 'redirect' => AUTH_REDIRECT_BASE . '/customer/services.php'];
     }
-    $password_hash = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+    $password_hash = printflow_google_placeholder_password_hash();
     $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system) VALUES (?, '', ?, NULL, NULL, ?, NULL, ?, 'google', 1)";
     $cid = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $last_name, $email, $password_hash) {
         return db_execute($sql, 'ssss', [$first_name, $last_name, $email, $password_hash]);

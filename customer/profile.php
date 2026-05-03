@@ -157,7 +157,7 @@ if (function_exists('printflow_ensure_customers_auth_provider_column')) {
 // Get customer data
 $customer = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0];
 $customer_uses_google_signin = (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google');
-$omit_current_password_on_profile = $customer_uses_google_signin && empty($customer['password_hash']);
+$omit_current_password_on_profile = $customer_uses_google_signin && !printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
 
 function customer_profile_redirect_after_completion(string $return_to): void {
     if ($return_to === '' || !is_profile_complete()) {
@@ -326,7 +326,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
         $new_password = (string)($_POST['new_password'] ?? '');
         $confirm_password = (string)($_POST['confirm_password'] ?? '');
         $googleMode = (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google');
-        $has_stored_password = !empty($customer['password_hash']);
+        $has_stored_password = printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
         $google_set_password_first_time = $googleMode && !$has_stored_password;
 
         $validate_new_password = static function (string $pw) {
@@ -365,7 +365,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
                         $success = 'Password set successfully! You can now sign in with your email and this password, or continue using Google.';
                         $customer = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0];
                         $customer_uses_google_signin = (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google');
-                        $omit_current_password_on_profile = $customer_uses_google_signin && empty($customer['password_hash']);
+                        $omit_current_password_on_profile = $customer_uses_google_signin && !printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
                     } else {
                         $error = 'Failed to set password.';
                     }
@@ -389,7 +389,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
                         $success = 'Password changed successfully!';
                         $customer = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0];
                         $customer_uses_google_signin = (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google');
-                        $omit_current_password_on_profile = $customer_uses_google_signin && empty($customer['password_hash']);
+                        $omit_current_password_on_profile = $customer_uses_google_signin && !printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
                     } else {
                         $error = 'Failed to change password.';
                     }
