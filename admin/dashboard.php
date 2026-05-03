@@ -145,9 +145,13 @@ $statusColors = [
     'Design Approved' => '#6C5CE7',
 ];
 
-// ── Sales by Product Category ─────────────────────────
+// ── Sales by Product (official product list) ──────────
 try {
-    $category_sales = pf_dashboard_sales_by_product_category($branchId);
+    $category_sales = pf_reports_sales_by_official_product(
+        date('Y-m-d', strtotime('-30 days')),
+        date('Y-m-d') . ' 23:59:59',
+        $branchId
+    );
 } catch (Exception $e) { $category_sales = []; }
 
 $cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
@@ -289,12 +293,9 @@ $donut_palette = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A
 $rev_donut_total = 0.0;
 foreach ($rev_donut as $rd) $rev_donut_total += (float)($rd['revenue'] ?? 0);
 
-// Horizontal bar: same pipeline as category donut (sticker split). Omit "Available Products" / fold bucket
-// so the bar is not a misleading slice of the first eight rows (which hid smaller categories behind Stickers).
-$dashboard_sales_bar = !empty($category_sales)
-    ? pf_reports_category_sales_for_dashboard_bar_chart($category_sales, 8)
-    : array_slice($top_products_full, 0, 8);
-$dashboard_sales_bar_is_category = !empty($category_sales);
+// Keep the horizontal bar on the broader top-products/services pipeline.
+$dashboard_sales_bar = array_slice($top_products_full, 0, 8);
+$dashboard_sales_bar_is_category = false;
 
 // ── Customer Locations ────────────────────────────────
 $customer_locations = [];
@@ -942,17 +943,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
             <!-- Category Sales + Top Performers -->
             <div class="dash-grid">
-                <!-- Sales by Product Category -->
+                <!-- Sales by Product -->
                 <div class="dash-card">
                     <div class="dash-card-title">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
-                        Sales by Product Category
+                        Sales by Product
                     </div>
                     <?php if (!empty($category_sales)): ?>
                     <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;"><canvas id="categoryChart"></canvas></div>
                     <div id="category-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product sales data yet</div>
+                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No official product sales data yet</div>
                     <?php endif; ?>
                 </div>
 
