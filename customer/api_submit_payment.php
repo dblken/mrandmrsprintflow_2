@@ -86,6 +86,13 @@ if (!$is_job) {
             WHERE order_id = ?";
     $update_success = db_execute($sql, 'sdsi', [$payment_type, $amount, $file_path, $order_id]);
     $type_label = "Order";
+    if ($update_success) {
+        db_execute(
+            "DELETE FROM order_messages WHERE order_id = ? AND message_type = 'staff_pay_rejected'",
+            'i',
+            [$order_id]
+        );
+    }
 } else {
     // 4. Update job order
     $sql = "UPDATE job_orders SET 

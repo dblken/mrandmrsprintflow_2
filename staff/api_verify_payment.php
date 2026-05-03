@@ -255,11 +255,12 @@ try {
             // Send order update chat message for rejection
             require_once __DIR__ . '/../includes/order_chat_system.php';
             if (($order['order_type'] ?? '') === 'product') {
-                // Fixed product order: use specific rejection message from staff
+                // Fixed product order: use specific rejection message from staff (marker type drives staff Rejected tab)
                 $prod_reject_msg = "Your payment has been rejected. Reason: {$reason}. Please resubmit your payment based on the feedback provided.";
                 db_execute(
-                    "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt) VALUES (?, 'Staff', ?, ?, 'order_update', 0)",
-                    'iis', [$order_id, $staff_id, $prod_reject_msg]
+                    "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt) VALUES (?, 'Staff', ?, ?, 'staff_pay_rejected', 0)",
+                    'iis',
+                    [$order_id, $staff_id, $prod_reject_msg]
                 );
             } else {
                 $meta = [
@@ -275,6 +276,11 @@ try {
 
             
             log_activity($staff_id, 'Payment Rejected', "Rejected payment for Order #{$order_id}. Reason: {$reason}");
+
+            // Mirror checkout flow: guarantees at least one job row so payment flags persist (fixes empty Rejected tab).
+            require_once __DIR__ . '/../includes/JobOrderService.php';
+            JobOrderService::ensureJobsForStoreOrder($order_id);
+
             db_execute(
                 "UPDATE job_orders SET payment_proof_status = 'REJECTED', status = 'TO_PAY',
                  payment_rejection_reason = ?,
@@ -304,6 +310,13 @@ try {
 }
 
 if ($success) {
+    if ($action === 'Approve') {
+        db_execute(
+            "DELETE FROM order_messages WHERE order_id = ? AND message_type = 'staff_pay_rejected'",
+            'i',
+            [$order_id]
+        );
+    }
     echo json_encode([
         'success' => true,
         'new_status' => $new_status,

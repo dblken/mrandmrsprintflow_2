@@ -115,11 +115,29 @@ $active_filter_badge_count = count(array_filter([$status_filter, $customer_filte
  */
 function staff_orders_sql_payment_proof_rejected(string $oAlias = 'o'): string {
     $parts = [];
+
+    // Durable anchor: reject API inserts staff_pay_rejected (works even when job_orders sync failed).
+    $parts[] = "EXISTS (SELECT 1 FROM order_messages om WHERE om.order_id = {$oAlias}.order_id AND om.message_type = 'staff_pay_rejected')";
+
+    // Legacy rejects (before staff_pay_rejected): match product reject copy only while order is still awaiting payment again.
+    $parts[] = "({$oAlias}.status = 'To Pay' AND EXISTS (SELECT 1 FROM order_messages om2 WHERE om2.order_id = {$oAlias}.order_id "
+        . "AND om2.sender = 'Staff' AND om2.message_type = 'order_update' "
+        . "AND om2.message LIKE '%Your payment has been rejected%' LIMIT 1))";
+
+    $jobPieces = [];
     if (function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_proof_status')) {
-        $parts[] = "EXISTS (SELECT 1 FROM job_orders jo WHERE jo.order_id = {$oAlias}.order_id "
-            . "AND jo.payment_proof_status = 'REJECTED' "
-            . "AND jo.status NOT IN ('COMPLETED','CANCELLED'))";
+        $jobPieces[] = "jo.payment_proof_status IN ('REJECTED','Rejected')";
     }
+    if (function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_rejection_reason')) {
+        $jobPieces[] = "(TRIM(COALESCE(jo.payment_rejection_reason, '')) <> '' "
+            . "AND jo.status IN ('TO_PAY','TO PAY'))";
+    }
+    if ($jobPieces !== []) {
+        $parts[] = 'EXISTS (SELECT 1 FROM job_orders jo WHERE jo.order_id = ' . $oAlias . '.order_id '
+            . "AND jo.status NOT IN ('COMPLETED','CANCELLED') "
+            . 'AND (' . implode(' OR ', $jobPieces) . '))';
+    }
+
     $reasonParts = [];
     if (function_exists('db_table_has_column')) {
         if (db_table_has_column('orders', 'rejection_reason')) {
@@ -132,7 +150,8 @@ function staff_orders_sql_payment_proof_rejected(string $oAlias = 'o'): string {
     if ($reasonParts !== []) {
         $parts[] = "({$oAlias}.status = 'To Pay' AND (" . implode(' OR ', $reasonParts) . '))';
     }
-    return $parts === [] ? '(1 = 0)' : '(' . implode(' OR ', $parts) . ')';
+
+    return '(' . implode(' OR ', $parts) . ')';
 }
 
 /**
@@ -156,27 +175,61 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
         return;
     }
 
+    $placeholders = implode(',', array_fill(0, count($idList), '?'));
+    $types = str_repeat('i', count($idList));
+
+    $staffPayRejected = [];
+    $qr = db_query(
+        "SELECT DISTINCT order_id FROM order_messages WHERE order_id IN ($placeholders) AND message_type = 'staff_pay_rejected'",
+        $types,
+        $idList
+    ) ?: [];
+    foreach ($qr as $r) {
+        $staffPayRejected[(int)($r['order_id'] ?? 0)] = true;
+    }
+
+    $legacyRejectedMsg = [];
+    $qr = db_query(
+        "SELECT DISTINCT order_id FROM order_messages WHERE order_id IN ($placeholders) "
+            . "AND sender = 'Staff' AND message_type = 'order_update' AND message LIKE '%Your payment has been rejected%'",
+        $types,
+        $idList
+    ) ?: [];
+    foreach ($qr as $r) {
+        $legacyRejectedMsg[(int)($r['order_id'] ?? 0)] = true;
+    }
+
     $fromJob = [];
+    $jobPieces = [];
     if (function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_proof_status')) {
-        $placeholders = implode(',', array_fill(0, count($idList), '?'));
-        $types = str_repeat('i', count($idList));
-        $rows = db_query(
-            "SELECT DISTINCT order_id FROM job_orders WHERE order_id IN ($placeholders) "
-            . "AND payment_proof_status = 'REJECTED' AND status NOT IN ('COMPLETED','CANCELLED')",
+        $jobPieces[] = "payment_proof_status IN ('REJECTED','Rejected')";
+    }
+    if (function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_rejection_reason')) {
+        $jobPieces[] = "(TRIM(COALESCE(payment_rejection_reason, '')) <> '' AND status IN ('TO_PAY','TO PAY'))";
+    }
+    if ($jobPieces !== []) {
+        $qr = db_query(
+            'SELECT DISTINCT order_id FROM job_orders WHERE order_id IN (' . $placeholders . ') '
+                . "AND status NOT IN ('COMPLETED','CANCELLED') AND (" . implode(' OR ', $jobPieces) . ')',
             $types,
             $idList
         ) ?: [];
-        foreach ($rows as $r) {
+        foreach ($qr as $r) {
             $fromJob[(int)($r['order_id'] ?? 0)] = true;
         }
     }
 
     foreach ($orders as &$row) {
         $oid = (int)($row['order_id'] ?? 0);
-        $hit = isset($fromJob[$oid]);
-        if (!$hit && ($row['status'] ?? '') === 'To Pay') {
+        $st = (string)($row['status'] ?? '');
+
+        $hit = isset($staffPayRejected[$oid]) || isset($fromJob[$oid]);
+        if (!$hit && $st === 'To Pay') {
+            if (isset($legacyRejectedMsg[$oid])) {
+                $hit = true;
+            }
             foreach (['rejection_reason', 'payment_rejection_reason'] as $col) {
-                if (array_key_exists($col, $row) && trim((string)$row[$col]) !== '') {
+                if (!$hit && array_key_exists($col, $row) && trim((string)$row[$col]) !== '') {
                     $hit = true;
                     break;
                 }
