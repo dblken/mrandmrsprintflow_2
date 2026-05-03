@@ -9,6 +9,7 @@ require_role('Admin');
 
 const PF_DELETE_CUSTOMER_ID = 25;
 const PF_DCO_BACKUP_TABLE = 'maintenance_customer_25_order_delete_backup';
+const PF_DCO_TOOL_VERSION = '2026-05-03 v3';
 
 function pf_dco_h($value): string
 {
@@ -91,6 +92,17 @@ function pf_dco_exec_raw(string $sql): void
     }
 }
 
+function pf_dco_exec_raw_affected(string $sql): int
+{
+    global $conn;
+
+    if (!$conn->query($sql)) {
+        throw new RuntimeException('SQL failed: ' . $conn->error);
+    }
+
+    return (int)$conn->affected_rows;
+}
+
 function pf_dco_prepare_temp_order_ids(array $orderIds): void
 {
     if ($orderIds === []) {
@@ -111,6 +123,23 @@ function pf_dco_prepare_temp_order_ids(array $orderIds): void
     pf_dco_exec_raw(
         "INSERT INTO tmp_pf_dco_order_ids (order_id) VALUES " . implode(', ', $values)
     );
+}
+
+function pf_dco_int_csv(array $ids): string
+{
+    $ints = [];
+    foreach ($ids as $id) {
+        $id = (int)$id;
+        if ($id > 0) {
+            $ints[] = $id;
+        }
+    }
+
+    if ($ints === []) {
+        return '0';
+    }
+
+    return implode(', ', array_unique($ints));
 }
 
 function pf_dco_ensure_backup_table(): void
@@ -437,8 +466,6 @@ function pf_dco_preview(): array
 
 function pf_dco_delete_customer_orders(): array
 {
-    global $conn;
-
     $deleted = array_fill_keys(pf_dco_delete_tables(), 0);
     $backupCounts = [];
     $adminId = (int)get_user_id();
@@ -459,32 +486,33 @@ function pf_dco_delete_customer_orders(): array
         return (int)($row['order_id'] ?? 0);
     }, $orders)));
     $orderIds = array_values(array_filter($orderIds, static fn(int $id): bool => $id > 0));
+    $orderIdCsv = pf_dco_int_csv($orderIds);
 
     try {
         pf_dco_ensure_backup_table();
+        global $conn;
         $conn->begin_transaction();
 
         $backupCounts = pf_dco_capture_backup_batch($batchId, $adminId);
-        pf_dco_prepare_temp_order_ids($orderIds);
+
+        $reviewRows = pf_dco_table_exists('reviews')
+            ? (db_query("SELECT id FROM reviews WHERE order_id IN ({$orderIdCsv})") ?: [])
+            : [];
+        $reviewIds = array_values(array_filter(array_map(static function (array $row): int {
+            return (int)($row['id'] ?? 0);
+        }, $reviewRows), static fn(int $id): bool => $id > 0));
+        $reviewIdCsv = pf_dco_int_csv($reviewIds);
 
         foreach (pf_dco_delete_tables() as $table) {
             switch ($table) {
                 case 'review_images':
                 case 'review_replies':
-                    if (!pf_dco_table_exists($table) || !pf_dco_table_exists('reviews')) {
+                    if (!pf_dco_table_exists($table) || $reviewIds === []) {
                         $deleted[$table] = 0;
                         break;
                     }
-                    $deleted[$table] = pf_dco_exec_affected(
-                        "DELETE FROM `{$table}`
-                         WHERE review_id IN (
-                             SELECT review_id FROM (
-                                 SELECT r.id AS review_id
-                                 FROM reviews r
-                                 INNER JOIN tmp_pf_dco_order_ids t
-                                     ON t.order_id = r.order_id
-                             ) AS review_ids
-                         )"
+                    $deleted[$table] = pf_dco_exec_raw_affected(
+                        "DELETE FROM `{$table}` WHERE review_id IN ({$reviewIdCsv})"
                     );
                     break;
 
@@ -493,21 +521,16 @@ function pf_dco_delete_customer_orders(): array
                         $deleted[$table] = 0;
                         break;
                     }
-                    $deleted[$table] = pf_dco_exec_affected(
+                    $deleted[$table] = pf_dco_exec_raw_affected(
                         "DELETE FROM job_orders
-                         WHERE customer_id = ?
-                            OR order_id IN (
-                                SELECT order_id FROM tmp_pf_dco_order_ids
-                            )",
-                        'i',
-                        [PF_DELETE_CUSTOMER_ID]
+                         WHERE customer_id = " . PF_DELETE_CUSTOMER_ID . "
+                            OR order_id IN ({$orderIdCsv})"
                     );
                     break;
 
                 case 'orders':
-                    $deleted[$table] = pf_dco_exec_affected(
-                        "DELETE FROM orders
-                         WHERE order_id IN (SELECT order_id FROM tmp_pf_dco_order_ids)"
+                    $deleted[$table] = pf_dco_exec_raw_affected(
+                        "DELETE FROM orders WHERE order_id IN ({$orderIdCsv})"
                     );
                     break;
 
@@ -516,15 +539,13 @@ function pf_dco_delete_customer_orders(): array
                         $deleted[$table] = 0;
                         break;
                     }
-                    $deleted[$table] = pf_dco_exec_affected(
-                        "DELETE FROM `{$table}`
-                         WHERE order_id IN (SELECT order_id FROM tmp_pf_dco_order_ids)"
+                    $deleted[$table] = pf_dco_exec_raw_affected(
+                        "DELETE FROM `{$table}` WHERE order_id IN ({$orderIdCsv})"
                     );
                     break;
             }
         }
 
-        pf_dco_exec_raw("DROP TEMPORARY TABLE IF EXISTS tmp_pf_dco_order_ids");
         $conn->commit();
 
         log_activity(
@@ -542,10 +563,6 @@ function pf_dco_delete_customer_orders(): array
         ];
     } catch (Throwable $e) {
         $conn->rollback();
-        try {
-            pf_dco_exec_raw("DROP TEMPORARY TABLE IF EXISTS tmp_pf_dco_order_ids");
-        } catch (Throwable $ignored) {
-        }
         error_log('delete_customer_25_orders_tool delete failed: ' . $e->getMessage());
 
         return [
@@ -693,6 +710,9 @@ require_once __DIR__ . '/../includes/header.php';
                 <h1 class="text-2xl font-bold text-gray-900">Delete Customer 25 Orders Tool</h1>
                 <p class="text-sm text-gray-600 mt-2">
                     Temporary admin maintenance page for removing the regular order transaction records of customer ID <strong>25</strong>.
+                </p>
+                <p class="text-xs text-gray-500 mt-2">
+                    Tool version: <span class="font-mono"><?php echo pf_dco_h(PF_DCO_TOOL_VERSION); ?></span>
                 </p>
             </div>
 
