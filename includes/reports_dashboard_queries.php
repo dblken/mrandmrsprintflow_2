@@ -277,12 +277,16 @@ function pf_reports_sales_by_service_category(string $from, string $toEnd, $bran
 }
 
 /**
- * Dashboard: branch-filtered paid store revenue by category-or-product bucket (all-time).
+ * Dashboard: same query grain as Reports → "Sales by Product Category", using the
+ * default report window (last 30 calendar days through end of today).
+ * Matches admin/reports.php when `from`/`to` are not set in the query string.
  *
  * @return list<array{category:string,items_sold:int|string,total:float|string}>
  */
 function pf_dashboard_sales_by_product_category($branchId): array {
-    return pf_reports_sales_by_product_category('', '', $branchId);
+    $from = date('Y-m-d', strtotime('-30 days'));
+    $toEnd = date('Y-m-d') . ' 23:59:59';
+    return pf_reports_sales_by_product_category($from, $toEnd, $branchId);
 }
 
 /**
