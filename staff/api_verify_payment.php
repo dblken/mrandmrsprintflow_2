@@ -11,6 +11,53 @@ require_once __DIR__ . '/../includes/db.php';
 
 require_role(['Admin', 'Staff', 'Manager']);
 
+/**
+ * Clear payment submission on orders after rejection. Builds SET clauses from columns that exist
+ * so missing migrations (e.g. rejection_reason) do not fail the whole update.
+ *
+ * Branch was already enforced above; updating by order_id avoids AND branch_id = ? skipping rows
+ * when branch_id is NULL/0 while access is granted via listings.
+ */
+function printflow_staff_apply_orders_payment_proof_rejection(int $orderId, string $newStatus, string $reason): bool {
+    $sets = ['status = ?'];
+    $types = 's';
+    $params = [$newStatus];
+
+    if (db_table_has_column('orders', 'payment_proof')) {
+        $sets[] = 'payment_proof = NULL';
+    }
+    if (db_table_has_column('orders', 'payment_submitted_at')) {
+        $sets[] = 'payment_submitted_at = NULL';
+    }
+    if (db_table_has_column('orders', 'payment_proof_path')) {
+        $sets[] = 'payment_proof_path = NULL';
+    }
+
+    $reasonCol = null;
+    if (db_table_has_column('orders', 'rejection_reason')) {
+        $reasonCol = 'rejection_reason';
+    } elseif (db_table_has_column('orders', 'payment_rejection_reason')) {
+        $reasonCol = 'payment_rejection_reason';
+    }
+    if ($reasonCol !== null) {
+        $sets[] = "`{$reasonCol}` = ?";
+        $types .= 's';
+        $params[] = $reason;
+    }
+
+    if (db_table_has_column('orders', 'payment_status')) {
+        $sets[] = 'payment_status = ?';
+        $types .= 's';
+        $params[] = 'Unpaid';
+    }
+
+    $sql = 'UPDATE orders SET ' . implode(', ', $sets) . ' WHERE order_id = ?';
+    $types .= 'i';
+    $params[] = $orderId;
+
+    return (bool)db_execute($sql, $types, $params);
+}
+
 $staffBranchId = null;
 if (is_staff() || is_manager()) {
     $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
@@ -193,13 +240,10 @@ try {
             $product_name = $items[0]['service_type'];
         }
         
-        // Clear proof so they can re-upload
-        if ($staffBranchId !== null) {
-            $sql = "UPDATE orders SET status = ?, payment_proof = NULL, rejection_reason = ? WHERE order_id = ? AND branch_id = ?";
-            $success = db_execute($sql, 'ssii', [$new_status, $reason, $order_id, $staffBranchId]);
-        } else {
-            $sql = "UPDATE orders SET status = ?, payment_proof = NULL, rejection_reason = ? WHERE order_id = ?";
-            $success = db_execute($sql, 'ssi', [$new_status, $reason, $order_id]);
+        // Clear proof so they can re-upload (SET list matches live schema columns)
+        $success = printflow_staff_apply_orders_payment_proof_rejection($order_id, $new_status, $reason);
+        if ($success && db_table_has_column('orders', 'payment_status')) {
+            $payment_status = 'Unpaid';
         }
         
         if ($success) {
