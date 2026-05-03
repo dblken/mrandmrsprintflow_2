@@ -2062,9 +2062,6 @@ $page_title = 'Orders - Staff';
         var contentHTML = '';
 
         // 1. Customer Profile Header (Avatar first style)
-        var cType = d.cust_type || 'REGULAR';
-        var cTypeColor = (cType === 'NEW') ? 'background:#d1fae5; color:#065f46;' : 'background:#dbeafe; color:#1e40af;';
-        
         contentHTML += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #f3f4f6;">' +
             '<div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#06A1A1,#047676);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:22px;flex-shrink:0;overflow:hidden;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.1);">' + 
               ((d.cust_profile_picture && d.cust_profile_picture !== "null" && d.cust_profile_picture !== "undefined") ? '<img src="' + getProfileImage(d.cust_profile_picture) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.src=\'' + staffUrl('public/assets/uploads/profiles/default.png') + '\'">' : esc(d.cust_initial || '?')) + 
@@ -2072,7 +2069,6 @@ $page_title = 'Orders - Staff';
             '<div>' +
                 '<div style="font-size:16px;font-weight:700;color:#1f2937;">' + esc(d.cust_name) + '</div>' +
                 '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap;">' +
-                    '<span class="pf-pill" style="' + cTypeColor + '">' + cType + '</span>' +
                     '<span style="font-size:12px;color:#6b7280;">' + esc(d.cust_phone) + '</span>' +
                 '</div>' +
                 (d.cust_address ? '<div style="font-size:12px;color:#6b7280;margin-top:6px;max-width:100%;word-break:break-word;">' + esc(d.cust_address) + '</div>' : '') +
