@@ -149,6 +149,8 @@ function printflow_record_product_inventory_transaction(
             $branchId = (int)($_SESSION['branch_id'] ?? 0);
         }
     }
+    // Never omit branch_id: NULL branch hid catalog movements on branch-filtered ledger views (Products / POS).
+    $branchId = max(1, (int)$branchId);
 
     $storedRefType = $normalizedRefType;
     $storedRefId = $refId;
@@ -180,9 +182,7 @@ function printflow_record_product_inventory_transaction(
         $fields['product_id'] = ['type' => 'i', 'val' => $productId];
     }
 
-    if ($branchId > 0) {
-        $fields['branch_id'] = ['type' => 'i', 'val' => $branchId];
-    }
+    $fields['branch_id'] = ['type' => 'i', 'val' => $branchId];
     if ($storedRefId !== null) {
         $fields['ref_id'] = ['type' => 'i', 'val' => $storedRefId];
     }
@@ -218,9 +218,7 @@ function printflow_record_product_inventory_transaction(
         'transaction_date' => ['type' => 's', 'val' => $date],
     ];
 
-    if ($branchId > 0) {
-        $legacyFields['branch_id'] = ['type' => 'i', 'val' => $branchId];
-    }
+    $legacyFields['branch_id'] = ['type' => 'i', 'val' => $branchId];
     if ($storedRefId !== null) {
         $legacyFields['ref_id'] = ['type' => 'i', 'val' => $storedRefId];
     } elseif ($refId !== null) {

@@ -73,6 +73,7 @@ printflow_ensure_product_inventory_transaction_schema();
 $hasProductIdColumn = db_table_has_column('inventory_transactions', 'product_id');
 
 $item_id      = (int)($_GET['item_id'] ?? 0);
+$catalog_product_id = max(0, (int)($_GET['catalog_product_id'] ?? 0));
 $type_filter  = $_GET['type'] ?? '';
 $search       = trim($_GET['search'] ?? '');
 $start_date   = $_GET['start_date'] ?? '';
@@ -92,14 +93,13 @@ $productKindExpr = $hasProductIdColumn
     : "0";
 $productRefExpr = "NULLIF(TRIM(p_ref.name), '')";
 $legacyProductKindExpr = "(UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT') AND p_item.product_id IS NOT NULL)";
-$productLikeExpr = "({$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER'))";
-$itemNameSql = "COALESCE({$productNameExpr}, {$legacyProductNameExpr}, {$productRefExpr}, i.name, CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT') THEN CONCAT('Product #', COALESCE(t.ref_id, t.item_id)) ELSE CONCAT('Item #', t.item_id) END)";
+$itemNameSql = "COALESCE({$productNameExpr}, {$legacyProductNameExpr}, {$productRefExpr}, i.name, CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER') THEN CONCAT('Product #', COALESCE(NULLIF(t.product_id, 0), NULLIF(t.ref_id, 0), NULLIF(t.item_id, 0))) ELSE CONCAT('Item #', t.item_id) END)";
 
 $sql = "SELECT t.*, 
                {$itemNameSql} as item_name, 
-               CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT') THEN 'product' ELSE 'material' END as ledger_item_kind,
+               CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER') THEN 'product' ELSE 'material' END as ledger_item_kind,
                CASE
-                   WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT')
+                   WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER')
                        THEN 'pcs'
                    ELSE COALESCE(NULLIF(TRIM(i.unit_of_measure), ''), NULLIF(TRIM(t.uom), ''), 'pcs')
                END as unit, 
@@ -136,7 +136,27 @@ if ($branchId > 0) {
     $params[] = $branchId;
 }
 
-if ($item_id) {
+if ($catalog_product_id > 0) {
+    if ($hasProductIdColumn) {
+        $sql .= " AND (
+                (t.product_id IS NOT NULL AND t.product_id = ?)
+                OR (t.item_id = ? AND UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT'))
+                OR (UPPER(t.ref_type) = 'ORDER_PRODUCT' AND t.ref_id = ?)
+            )";
+        $types .= 'iii';
+        $params[] = $catalog_product_id;
+        $params[] = $catalog_product_id;
+        $params[] = $catalog_product_id;
+    } else {
+        $sql .= " AND (
+                (t.item_id = ? AND UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT'))
+                OR (UPPER(t.ref_type) = 'ORDER_PRODUCT' AND t.ref_id = ?)
+            )";
+        $types .= 'ii';
+        $params[] = $catalog_product_id;
+        $params[] = $catalog_product_id;
+    }
+} elseif ($item_id) {
     $sql .= " AND t.item_id = ?";
     $params[] = $item_id;
     $types .= 'i';
@@ -152,9 +172,19 @@ if ($type_filter) {
 }
 if ($search) {
     $st = '%' . $search . '%';
-    $sql .= " AND ({$itemNameSql} LIKE ? OR t.notes LIKE ? OR t.ref_type LIKE ? OR t.ref_id LIKE ? OR t.id LIKE ?)";
-    $params[] = $st; $params[] = $st; $params[] = $st; $params[] = $st; $params[] = $st;
+    $sql .= " AND ({$itemNameSql} LIKE ? OR t.notes LIKE ? OR t.ref_type LIKE ? OR CAST(t.ref_id AS CHAR) LIKE ? OR CAST(t.id AS CHAR) LIKE ?";
+    $params[] = $st;
+    $params[] = $st;
+    $params[] = $st;
+    $params[] = $st;
+    $params[] = $st;
     $types .= 'sssss';
+    if ($hasProductIdColumn) {
+        $sql .= " OR CAST(COALESCE(t.product_id, 0) AS CHAR) LIKE ?";
+        $params[] = $st;
+        $types .= 's';
+    }
+    $sql .= ")";
 }
 if ($start_date && $end_date) {
     $sql .= " AND t.transaction_date BETWEEN ? AND ?";
@@ -191,6 +221,9 @@ $transactions = array_map('pf_ledger_enrich_transaction_row', $transactions);
 
 // Get items for filters/forms
 $items = db_query("SELECT id, name, unit_of_measure as unit FROM inv_items ORDER BY name ASC") ?: [];
+$catalog_products = db_query(
+    "SELECT product_id, name FROM products WHERE status != 'Archived' ORDER BY name ASC LIMIT 4000"
+) ?: [];
 
 // AJAX Partial Response
 if (isset($_GET['ajax'])) {
@@ -241,11 +274,11 @@ if (isset($_GET['ajax'])) {
     $table_html = ob_get_clean();
 
     ob_start();
-    $p = array_filter(['branch_id'=>$selectedBranchParam, 'item_id'=>$item_id, 'type'=>$type_filter, 'search'=>$search, 'start_date'=>$start_date, 'end_date'=>$end_date, 'sort'=>$sort, 'dir'=>$dir], function($v) { return $v !== null && $v !== ''; });
+    $p = array_filter(['branch_id'=>$selectedBranchParam, 'item_id'=>($item_id > 0 ? $item_id : null), 'catalog_product_id'=>($catalog_product_id > 0 ? $catalog_product_id : null), 'type'=>$type_filter, 'search'=>$search, 'start_date'=>$start_date, 'end_date'=>$end_date, 'sort'=>$sort, 'dir'=>$dir], function($v) { return $v !== null && $v !== ''; });
     echo render_pagination($page, $total_pages, $p);
     $pagination_html = ob_get_clean();
 
-    $badge_count = count(array_filter([$item_id ?: '', $type_filter, $search, $start_date, $end_date], function($v) { return $v !== null && $v !== ''; }));
+    $badge_count = count(array_filter([$item_id ?: '', $catalog_product_id ?: '', $type_filter, $search, $start_date, $end_date], function($v) { return $v !== null && $v !== ''; }));
 
     echo json_encode([
         'success'    => true,
@@ -588,7 +621,7 @@ if (isset($_GET['ajax'])) {
                                 Filter
                                 <span id="filterBadgeContainer">
                                     <?php 
-                                        $initial_badge = count(array_filter([$item_id ?: '', $type_filter, $search, $start_date, $end_date], function($v) { return $v !== null && $v !== ''; }));
+                                        $initial_badge = count(array_filter([$item_id ?: '', $catalog_product_id ?: '', $type_filter, $search, $start_date, $end_date], function($v) { return $v !== null && $v !== ''; }));
                                         if ($initial_badge > 0): ?>
                                             <span class="filter-badge"><?php echo $initial_badge; ?></span>
                                         <?php endif; 
@@ -621,6 +654,24 @@ if (isset($_GET['ajax'])) {
                                         <?php foreach ($items as $item): ?>
                                             <option value="<?php echo $item['id']; ?>" <?php echo (isset($_GET['item_id']) && $_GET['item_id'] == $item['id']) ? 'selected' : ''; ?>>
                                                 <?php echo htmlspecialchars($item['name']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+
+                                <!-- Catalog product (Products Management / sales stock ledger uses product_id or legacy item_id/ref_id) -->
+                                <div class="filter-section">
+                                    <div class="filter-section-head">
+                                        <span class="filter-section-label">Catalog product</span>
+                                        <button type="button" class="filter-reset-link" onclick="resetFilterField(['catalog_product_id'])">Reset</button>
+                                    </div>
+                                    <select id="fp_catalog_product_id" class="filter-select">
+                                        <option value="">All catalog products</option>
+                                        <?php foreach ($catalog_products as $cp): ?>
+                                            <?php $cpid = (int)($cp['product_id'] ?? 0); ?>
+                                            <?php if ($cpid <= 0) { continue; } ?>
+                                            <option value="<?php echo $cpid; ?>" <?php echo ($catalog_product_id === $cpid) ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars((string)($cp['name'] ?? ('#' . $cpid))); ?>
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -725,7 +776,7 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="ledgerPagination">
                     <?php 
-                        $p = array_filter(['branch_id'=>$selectedBranchParam, 'item_id'=>$item_id, 'type'=>$type_filter, 'search'=>$search, 'start_date'=>$start_date, 'end_date'=>$end_date, 'sort'=>$sort, 'dir'=>$dir], function($v) { return $v !== null && $v !== ''; });
+                        $p = array_filter(['branch_id'=>$selectedBranchParam, 'item_id'=>($item_id > 0 ? $item_id : null), 'catalog_product_id'=>($catalog_product_id > 0 ? $catalog_product_id : null), 'type'=>$type_filter, 'search'=>$search, 'start_date'=>$start_date, 'end_date'=>$end_date, 'sort'=>$sort, 'dir'=>$dir], function($v) { return $v !== null && $v !== ''; });
                         echo render_pagination($page, $total_pages, $p); 
                     ?>
                 </div>
@@ -844,10 +895,11 @@ if (isset($_GET['ajax'])) {
                 const start = document.getElementById('fp_start_date')?.value || '';
                 const end = document.getElementById('fp_end_date')?.value || '';
                 const item = document.getElementById('fp_item_id')?.value || '';
+                const prod = document.getElementById('fp_catalog_product_id')?.value || '';
                 const type = document.getElementById('fp_type')?.value || '';
                 const search = document.getElementById('fp_search')?.value || '';
                 
-                return item || type || search || start || end;
+                return item || prod || type || search || start || end;
             }
         };
     }
@@ -870,7 +922,7 @@ if (isset($_GET['ajax'])) {
             panelSearchInput.addEventListener('input', () => { onSearchInput(panelSearchInput); });
         }
 
-        ['fp_item_id', 'fp_type', 'fp_start_date', 'fp_end_date'].forEach(id => {
+        ['fp_item_id', 'fp_catalog_product_id', 'fp_type', 'fp_start_date', 'fp_end_date'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
                 clearTimeout(searchTimer);
                 fetchUpdatedTable({ page: 1 });
@@ -912,6 +964,7 @@ if (isset($_GET['ajax'])) {
         
         const map = {
             'item_id': 'fp_item_id',
+            'catalog_product_id': 'fp_catalog_product_id',
             'type': 'fp_type',
             'search': 'fp_search',
             'start_date': 'fp_start_date',

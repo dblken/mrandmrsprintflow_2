@@ -25,6 +25,7 @@ try {
     switch ($action) {
         case 'get_transactions':
             $item_id = (int)($_GET['item_id'] ?? 0);
+            $catalog_product_id = max(0, (int)($_GET['catalog_product_id'] ?? 0));
             $type = sanitize($_GET['type'] ?? '');
             $start_date = sanitize($_GET['start_date'] ?? '');
             $end_date = sanitize($_GET['end_date'] ?? '');
@@ -50,11 +51,10 @@ try {
                 ? "(t.product_id IS NOT NULL AND t.product_id > 0)"
                 : "0";
             $legacyProductKindExpr = "(UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT') AND p_item.product_id IS NOT NULL)";
-            $productLikeExpr = "({$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER'))";
-            $itemNameSql = "COALESCE({$productNameExpr}, {$legacyProductNameExpr}, NULLIF(TRIM(p_ref.name), ''), i.name, CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT') THEN CONCAT('Product #', COALESCE(t.ref_id, t.item_id)) ELSE CONCAT('Item #', t.item_id) END)";
+            $itemNameSql = "COALESCE({$productNameExpr}, {$legacyProductNameExpr}, NULLIF(TRIM(p_ref.name), ''), i.name, CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER') THEN CONCAT('Product #', COALESCE(NULLIF(t.product_id, 0), NULLIF(t.ref_id, 0), NULLIF(t.item_id, 0))) ELSE CONCAT('Item #', t.item_id) END)";
 
             $sql = "SELECT t.*, {$itemNameSql} as item_name, CASE
-                           WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT')
+                           WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER')
                                THEN 'pcs'
                            ELSE COALESCE(NULLIF(TRIM(i.unit_of_measure), ''), NULLIF(TRIM(t.uom), ''), 'pcs')
                        END as unit, 
@@ -82,7 +82,27 @@ try {
             
             $search     = sanitize($_GET['search'] ?? '');
             
-            if ($item_id) {
+            if ($catalog_product_id > 0) {
+                if ($hasProductIdColumn) {
+                    $sql .= " AND (
+                            (t.product_id IS NOT NULL AND t.product_id = ?)
+                            OR (t.item_id = ? AND UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT'))
+                            OR (UPPER(t.ref_type) = 'ORDER_PRODUCT' AND t.ref_id = ?)
+                        )";
+                    $types .= 'iii';
+                    $params[] = $catalog_product_id;
+                    $params[] = $catalog_product_id;
+                    $params[] = $catalog_product_id;
+                } else {
+                    $sql .= " AND (
+                            (t.item_id = ? AND UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT'))
+                            OR (UPPER(t.ref_type) = 'ORDER_PRODUCT' AND t.ref_id = ?)
+                        )";
+                    $types .= 'ii';
+                    $params[] = $catalog_product_id;
+                    $params[] = $catalog_product_id;
+                }
+            } elseif ($item_id) {
                 $sql .= " AND t.item_id = ?";
                 $params[] = $item_id;
                 $types .= 'i';
@@ -99,9 +119,17 @@ try {
             }
             if ($search) {
                 $st = '%' . $search . '%';
-                $sql .= " AND ({$itemNameSql} LIKE ? OR t.notes LIKE ? OR CAST(t.ref_id AS CHAR) LIKE ?)";
-                $params[] = $st; $params[] = $st; $params[] = $st;
+                $sql .= " AND ({$itemNameSql} LIKE ? OR t.notes LIKE ? OR CAST(t.ref_id AS CHAR) LIKE ?";
+                $params[] = $st;
+                $params[] = $st;
+                $params[] = $st;
                 $types .= 'sss';
+                if ($hasProductIdColumn) {
+                    $sql .= " OR CAST(COALESCE(t.product_id, 0) AS CHAR) LIKE ?";
+                    $params[] = $st;
+                    $types .= 's';
+                }
+                $sql .= ")";
             }
             if ($start_date && $end_date) {
                 $sql .= " AND t.transaction_date BETWEEN ? AND ?";
