@@ -131,150 +131,6 @@ function pf_product_sales_chart_label_sql(): string {
                END)";
 }
 
-/**
- * Normalized label for matching store product-category chart rows.
- */
-function pf_reports_product_category_norm(string $label): string {
-    $label = trim($label);
-    if ($label === '') {
-        return '';
-    }
-    return mb_strtolower(preg_replace('/\s+/u', ' ', $label), 'UTF-8');
-}
-
-/**
- * True if this chart row should be treated as the overweight "Sticker(s)" bucket to blend away.
- */
-function pf_reports_row_is_sticker_sales_bucket(string $category): bool {
-    $n = pf_reports_product_category_norm($category);
-    return $n === 'sticker' || $n === 'stickers';
-}
-
-/**
- * Which marketing bucket an existing chart row belongs to (for blending sticker sales).
- *
- * @return string|null  one of: available, signage, sintraboard, tshirt, merchandise
- */
-function pf_reports_product_category_recipient_bucket(string $category): ?string {
-    $n = pf_reports_product_category_norm($category);
-    if ($n === '' || pf_reports_row_is_sticker_sales_bucket($category)) {
-        return null;
-    }
-    if ($n === 'available products') {
-        return 'available';
-    }
-    if (str_contains($n, 'merchandise')) {
-        return 'merchandise';
-    }
-    if (str_contains($n, 'sintra') || str_contains($n, 'sintraboard')) {
-        return 'sintraboard';
-    }
-    if (str_contains($n, 'signage') || str_contains($n, 'reflectorized')) {
-        return 'signage';
-    }
-    if (preg_match('/t[\s\-]?shirt|tshirt|apparel/', $n) || ($n !== 'sticker' && $n !== 'stickers' && preg_match('/\bshirt\b/', $n))) {
-        return 'tshirt';
-    }
-    return null;
-}
-
-/**
- * Split aggregated "Sticker(s)" store revenue across five fixed catalog buckets for the donut chart.
- * Totals are unchanged; the sticker slice is removed and that amount is split evenly into
- * Available Products, Signage, Sintraboard, T-Shirt, and Merchandise (creating a slice for any
- * bucket that had no sales row yet).
- *
- * @param array<int, array<string,mixed>> $rows
- * @return array<int, array<string,mixed>>
- */
-function pf_reports_blend_sticker_sales_into_product_buckets(array $rows): array {
-    if ($rows === []) {
-        return [];
-    }
-
-    $stickerTotal = 0.0;
-    $stickerItems = 0;
-    $rest = [];
-
-    foreach ($rows as $row) {
-        $cat = (string)($row['category'] ?? '');
-        if (pf_reports_row_is_sticker_sales_bucket($cat)) {
-            $stickerTotal += (float)($row['total'] ?? 0);
-            $stickerItems += (int)($row['items_sold'] ?? 0);
-            continue;
-        }
-        $rest[] = $row;
-    }
-
-    if ($stickerTotal == 0.0 && $stickerItems === 0) {
-        return $rows;
-    }
-
-    $allBuckets = ['available', 'signage', 'sintraboard', 'tshirt', 'merchandise'];
-    $labels = [
-        'available' => 'Available Products',
-        'signage' => 'Signage',
-        'sintraboard' => 'Sintraboard',
-        'tshirt' => 'T-Shirt',
-        'merchandise' => 'Merchandise',
-    ];
-
-    $k = count($allBuckets);
-    $shareTotal = $stickerTotal / $k;
-    $baseItems = intdiv($stickerItems, $k);
-    $rem = $stickerItems - ($baseItems * $k);
-
-    $perBucketTotal = [];
-    $perBucketItems = [];
-    foreach ($allBuckets as $i => $b) {
-        $perBucketTotal[$b] = $shareTotal;
-        $perBucketItems[$b] = $baseItems + ($i < $rem ? 1 : 0);
-    }
-
-    $indicesByBucket = [];
-    foreach ($allBuckets as $b) {
-        $indicesByBucket[$b] = [];
-    }
-    foreach ($rest as $idx => $row) {
-        $b = pf_reports_product_category_recipient_bucket((string)($row['category'] ?? ''));
-        if ($b !== null && isset($indicesByBucket[$b])) {
-            $indicesByBucket[$b][] = $idx;
-        }
-    }
-
-    foreach ($allBuckets as $b) {
-        $addT = (float)($perBucketTotal[$b] ?? 0);
-        $addI = (int)($perBucketItems[$b] ?? 0);
-        if ($addT == 0.0 && $addI === 0) {
-            continue;
-        }
-        $idxs = $indicesByBucket[$b];
-        if ($idxs !== []) {
-            $n = count($idxs);
-            $tEach = $addT / $n;
-            $iEach = intdiv($addI, $n);
-            $iRem = $addI - ($iEach * $n);
-            foreach ($idxs as $j => $idx) {
-                $rest[$idx]['total'] = (float)($rest[$idx]['total'] ?? 0) + $tEach;
-                $extra = $iEach + ($j < $iRem ? 1 : 0);
-                $rest[$idx]['items_sold'] = (int)($rest[$idx]['items_sold'] ?? 0) + $extra;
-            }
-        } else {
-            $rest[] = [
-                'category' => $labels[$b],
-                'items_sold' => $addI,
-                'total' => $addT,
-            ];
-        }
-    }
-
-    usort($rest, static function ($a, $b) {
-        return ((float)($b['total'] ?? 0) <=> (float)($a['total'] ?? 0));
-    });
-
-    return $rest;
-}
-
 /** Best-effort family/category inference for legacy product rows with weak labels. */
 function pf_product_sales_chart_family_sql(string $productAlias = 'p', string $itemAlias = 'oi'): string {
     $productAlias = pf_reports_sql_alias($productAlias, 'p');
@@ -358,7 +214,6 @@ function pf_reports_sales_by_product_category(string $from, string $toEnd, $bran
         ) ?: [];
 
         $rows = pf_reports_merge_unknown_product_categories($rows);
-        $rows = pf_reports_blend_sticker_sales_into_product_buckets($rows);
         return pf_reports_fold_product_category_slices($rows, 8);
     } catch (Throwable $e) {
         return [];
@@ -940,7 +795,10 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
     }
 
     $list = array_values($agg);
-    usort($list, static fn ($a, $b) => $b['qty_sold'] <=> $a['qty_sold']);
+    usort($list, static function ($a, $b) {
+        $rev = ($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0);
+        return $rev !== 0 ? $rev : (($b['qty_sold'] ?? 0) <=> ($a['qty_sold'] ?? 0));
+    });
     return array_slice($list, 0, $limit);
 }
 

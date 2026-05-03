@@ -218,7 +218,7 @@ try {
     ) ?: [];
 } catch (Exception $e) { $top_customers = []; }
 
-// ── Top Selling Products (by quantity sold) ────────────
+// ── Top Selling Products (by store revenue / sales) ───
 try {
     [$bSqlFrag_tp, $bT_tp, $bP_tp] = branch_where_parts('o', $branchId);
     $top_products = db_query(
@@ -230,7 +230,7 @@ try {
          JOIN orders o ON oi.order_id = o.order_id
          WHERE o.payment_status = 'Paid' {$bSqlFrag_tp}
          GROUP BY p.product_id, p.name, p.sku
-         ORDER BY qty_sold DESC LIMIT 5",
+         ORDER BY revenue DESC, qty_sold DESC LIMIT 5",
         $bT_tp ?: null, $bP_tp ?: null
     ) ?: [];
 } catch (Exception $e) { $top_products = []; }
@@ -1570,7 +1570,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 var mobileProducts = isDashMobile();
                 var chart = new ApexCharts(el, {
                     chart: { type: 'bar', height: mobileProducts ? 340 : 300, toolbar: { show: false } },
-                    series: [{ name: 'Quantity Sold', data: <?php echo json_encode(array_map(fn($p) => (int)$p['qty_sold'], array_slice($top_products_full, 0, 8))); ?> }],
+                    series: [{ name: 'Sales (₱)', data: <?php echo json_encode(array_map(fn($p) => round((float)($p['revenue'] ?? 0), 2), array_slice($top_products_full, 0, 8))); ?> }],
                     xaxis: {
                         categories: <?php echo json_encode(array_map(fn($p) => mb_substr($p['product_name'], 0, 20), array_slice($top_products_full, 0, 8))); ?>,
                         labels: { style: { fontSize: mobileProducts ? '10px' : '11px' } }
