@@ -3282,6 +3282,30 @@ function customer_orders_merge_job_order_row_into_customization(array $custom, ?
 }
 
 /**
+ * Align customization.service_type with services.name when service_id is set.
+ * POS store lines often reuse a placeholder product row whose name does not match the service
+ * (e.g. "T-Shirt Printing" on the line while service_id points to Tarpaulin).
+ *
+ * @param array<string, mixed> $custom
+ * @return array<string, mixed>
+ */
+function customer_orders_apply_catalog_service_name_for_id(array $custom): array {
+    $lineServiceId = (int)($custom['service_id'] ?? 0);
+    if ($lineServiceId <= 0 || !function_exists('customer_orders_resolve_service_name_by_id')) {
+        return $custom;
+    }
+    $catalogName = customer_orders_resolve_service_name_by_id($lineServiceId);
+    if ($catalogName === '') {
+        return $custom;
+    }
+    $cur = trim((string)($custom['service_type'] ?? ''));
+    if ($cur === '' || strcasecmp($cur, $catalogName) !== 0) {
+        $custom['service_type'] = $catalogName;
+    }
+    return $custom;
+}
+
+/**
  * Resolve services.service_id from a display/cart service name (legacy forms omit service_id).
  * Uses normalize_service_name() when available so shorthand labels still match the catalog.
  */

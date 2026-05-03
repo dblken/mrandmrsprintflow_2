@@ -1912,6 +1912,8 @@ class JobOrderService {
                 }
             }
 
+            $custom = customer_orders_apply_catalog_service_name_for_id($custom);
+
             $custom = customer_orders_enrich_line_customization($custom, $order);
             // Preserving design_upload/reference_upload for asset metadata resolution below
 

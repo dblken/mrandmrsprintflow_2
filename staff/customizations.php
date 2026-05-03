@@ -2785,6 +2785,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     ? item.customization
                     : {};
                 const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
+                const fromCustomLine = String(custom?.service_type || custom?.product_type || '').trim();
+                if (fromCustomLine && !this.isGenericServiceLabel(fromCustomLine)) {
+                    return fromCustomLine;
+                }
                 const productName = String(item?.product_name || '').trim();
                 if (productName && !this.isGenericServiceLabel(productName)) {
                     return productName;
