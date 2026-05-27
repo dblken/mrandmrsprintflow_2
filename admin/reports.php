@@ -30,6 +30,13 @@ $reports_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php';
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];   // 'all' | int
 $branchName = $branchCtx['branch_name'];
+// Reports for Admins always aggregate all branches (no per-branch filter on this page).
+if ($is_admin) {
+    $branchId = 'all';
+    $branchName = 'All Branches';
+    $branchCtx['selected_branch_id'] = 'all';
+    $branchCtx['branch_name'] = 'All Branches';
+}
 if ($is_manager) {
     $forcedBranch = (int)(printflow_branch_filter_for_user() ?? ($_SESSION['branch_id'] ?? 0));
     if ($forcedBranch > 0) {
@@ -98,9 +105,7 @@ $salesTrendToEnd    = $toEnd;
 $salesTrendBranchId = $branchId;
 
 /**
- * Analytics filter context:
- * Uses the selected branch from the report filter. When Admin selects "All",
- * branch_where_parts() includes every non-archived branch (archived branches are excluded).
+ * Analytics filter context (all active branches for Admin reports; manager stays on assigned branch).
  */
 $globalAnalyticsFrom     = '';
 $globalAnalyticsTo       = '';
@@ -581,11 +586,6 @@ if ($from !== '' && $to !== '') {
     $dash_period_label = 'Until ' . date('M j, Y', strtotime($to));
 }
 
-$branch_perf = pf_reports_branch_performance_merged('', '', $is_manager ? $globalAnalyticsBranchId : 'all');
-if ($chart_sort === 'value_asc') {
-    $branch_perf = array_reverse($branch_perf);
-}
-
 // ── 13. Top customers ─────────────────────────────────────────────────────────
 $top_customers = [];
 if (!$gaBranchEmpty) {
@@ -766,8 +766,8 @@ if (!$gaBranchEmpty) {
         $insights[] = "Next month (<strong>$next_month_label</strong>) revenue forecast: <strong>₱".number_format($forecast_revenue,0)."</strong> based on 12-month trend.";
     if (!empty($custom_usage) && (int)$custom_usage[0]['custom_count'] > (int)$custom_usage[0]['template_count'])
         $insights[] = "<strong>".htmlspecialchars($custom_usage[0]['product'])."</strong> shows the highest custom design upload rate.";
-    if (!empty($branch_perf) && count($branch_perf) > 1)
-        $insights[] = "<strong>".htmlspecialchars($branch_perf[0]['branch_name'])."</strong> leads all branches with ₱".number_format((float)$branch_perf[0]['revenue'],0)." revenue.";
+    if (!empty($dash_branch_perf) && count($dash_branch_perf) > 1)
+        $insights[] = "<strong>".htmlspecialchars($dash_branch_perf[0]['branch_name'])."</strong> leads all branches with ₱".number_format((float)$dash_branch_perf[0]['revenue'],0)." revenue.";
     if ($revenue_delta !== null) {
         if ($revenue_delta > 10)
             $insights[] = "Revenue is up <strong>{$revenue_delta}%</strong> vs. the previous period — strong growth momentum.";
@@ -1441,46 +1441,6 @@ a.export-dd-link:hover { background: #f9fafb; }
 .sk-warn     { background:#f59e0b; }
 .sk-danger   { background:#ef4444; }
 
-/* ── Branch Performance Comparison (Enhanced Unified Chart - No Scroll) ──────────── */
-.pf-brc-container { display: flex; align-items: flex-start; gap: 0; position: relative; width: 100%; border: 1px solid #f1f5f9; border-radius: 12px; padding: 16px 12px 24px; background: #fff; }
-.pf-brc-y-left { width: 70px; flex-shrink: 0; height: 320px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; font-weight: 800; color: #00232b; text-align: right; padding-right: 10px; border-right: 2px solid #e2e8f0; margin-top: 20px; margin-bottom: 65px; }
-.pf-brc-y-right { width: 45px; flex-shrink: 0; height: 320px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; font-weight: 800; color: #3b82f6; text-align: left; padding-left: 10px; border-left: 2px solid #e2e8f0; margin-top: 20px; margin-bottom: 65px; }
-.pf-brc-wrap { flex: 1; overflow: hidden; padding-top: 20px; position: relative; min-width: 0; }
-.pf-brc-legend { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; justify-content: center; padding: 0 20px; transition: all 0.2s ease; margin-bottom: 16px; }
-.pf-brc-leg { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; transition: all 0.2s ease; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #475569; }
-.pf-brc-leg:hover { background: #f1f5f9; transform: translateY(-1px); }
-.pf-brc-leg.is-hidden { opacity: 0.3; text-decoration: line-through; }
-.pf-brc-leg i { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(15,23,42,.08); }
-.pf-brc-grid { height: 320px; display: flex; align-items: stretch; position: relative; border-bottom: 2px solid #334155; width: 100%; }
-.pf-brc-gridline { position: absolute; left: 0; right: 0; border-top: 1px dashed #f1f5f9; pointer-events: none; }
-.pf-brc-cluster { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 4px; padding: 0 8px; height: 100%; transition: all 0.2s ease; border-right: 1px solid #f8fafc; position: relative; }
-.pf-brc-cluster:hover { background: rgba(241, 245, 249, 0.6); z-index: 10; }
-.pf-brc-names { display: flex; padding-left: 1px; margin-top: 8px; width: 100%; height: 75px; }
-.pf-brc-name { flex: 1; min-width: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: 15px; }
-.pf-brc-name-txt { font-size: 9px; font-weight: 800; color: #1e293b; white-space: nowrap; transform: rotate(-40deg); transform-origin: top center; display: inline-block; max-width: 80px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
-
-.pf-brc-cluster--empty { opacity: 0.5; }
-.pf-brc-bar { flex: 1; min-width: 8px; max-width: 16px; border-radius: 4px 4px 0 0; min-height: 1px; position: relative; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; transform-origin: bottom; }
-.pf-brc-bar.is-hidden { opacity: 0; transform: scaleY(0); pointer-events: none; }
-.pf-brc-bar:not(.is-hidden):hover { filter: brightness(1.15); transform: scaleY(1.05); z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-.pf-brc-val { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 800; white-space: nowrap; color: #475569; line-height: 1; pointer-events: none; }
-@media (max-width: 1200px) {
-    .pf-brc-cluster { gap: 3px; padding: 0 6px; }
-    .pf-brc-bar { min-width: 6px; max-width: 12px; }
-    .pf-brc-name-txt { font-size: 8px; max-width: 70px; }
-}
-
-/* ── Custom Card Tooltip ──────────────── */
-#pf-brc-card-tooltip {
-    position: fixed; z-index: 9999; pointer-events: none; visibility: hidden; opacity: 0;
-    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15); transition: opacity 0.15s ease, visibility 0.15s ease;
-    min-width: 180px; font-family: inherit;
-}
-.pf-tt-branch { font-weight: 800; font-size: 14px; color: #0f172a; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px; }
-.pf-tt-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 1.6; }
-.pf-tt-lbl { color: #64748b; font-weight: 600; }
-.pf-tt-val { color: #0f172a; font-weight: 700; text-align: right; }
 /* ── Customer Locations (Progress Bar Style - Match Customization Usage) ── */
 .pf-loc-list {
     display: flex;
@@ -1958,10 +1918,10 @@ a.export-dd-link:hover { background: #f9fafb; }
     <div class="main-content">
         <header class="pf-mobile-branch-inline">
             <h1 class="page-title">Reports <span class="pf-mobile-title-extra">& Analytics</span></h1>
-            <?php if (!defined('MANAGER_PANEL') || !MANAGER_PANEL) { render_branch_selector($branchCtx); } ?>
+            <?php if ($is_manager && (!defined('MANAGER_PANEL') || !MANAGER_PANEL)) { render_branch_selector($branchCtx); } ?>
         </header>
         <main>
-            <?php render_branch_context_banner($branchCtx['branch_name']); ?>
+            <?php if ($is_manager) { render_branch_context_banner($branchCtx['branch_name']); } ?>
 
             <!-- ── Print Report Header (visible only when printing) ── -->
             <div class="print-report-header">
@@ -2013,7 +1973,7 @@ a.export-dd-link:hover { background: #f9fafb; }
                         <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                             <div class="filter-panel-header">Filter</div>
                             <form method="GET" id="reportsFilterForm">
-                                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($branchId); ?>">
+                                <input type="hidden" name="branch_id" value="<?php echo $is_admin ? 'all' : htmlspecialchars((string)$branchId); ?>">
                                 <input type="hidden" name="chart_sort" value="<?php echo htmlspecialchars($chart_sort); ?>">
                                 <input type="hidden" name="trend_metric" value="<?php echo htmlspecialchars($trend_metric); ?>">
                                 <input type="hidden" name="txn_pay" value="<?php echo htmlspecialchars($txn_payment_filter); ?>">
@@ -2242,14 +2202,6 @@ $dashData = [
             'orders' => (int)$l['orders']
         ];
     }, $customer_locations),
-    'branchPerf' => array_map(function($b) {
-        return [
-            'branch_name' => $b['branch_name'],
-            'revenue' => (float)$b['revenue'],
-            'orders_store' => (int)($b['orders_store'] ?? 0),
-            'orders_jobs' => (int)($b['orders_jobs'] ?? 0)
-        ];
-    }, $branch_perf),
     'salesByBranch' => array_map(function($b) {
             return [
                 'branch_name' => $b['branch_name'],
@@ -2847,165 +2799,6 @@ $dashData = [
                 </div>
             </div>
 
-            <!-- ══ BRANCH PERFORMANCE COMPARISON (Dual-Axis) ══════════════════ -->
-            <?php if (!$is_manager && count($branch_perf) > 0): ?>
-            <?php
-                $perf_revArr = array_map(fn($b) => (float)$b['revenue'], $branch_perf);
-                $maxRev = max(100, ...$perf_revArr);
-                $pref_ordArr = [];
-                foreach ($branch_perf as $b) {
-                    $pref_ordArr[] = (int)($b['orders_store'] ?? 0);
-                    $pref_ordArr[] = (int)($b['orders_jobs'] ?? 0);
-                }
-                $maxOrd = max(5, ...$pref_ordArr);
-                $cH = 320; 
-                $fmtRev = function(float $v): string {
-                    if ($v >= 1e6) return '₱' . number_format($v / 1e6, 1) . 'M';
-                    if ($v >= 1e3) return '₱' . number_format($v / 1e3, 0) . 'k';
-                    return '₱' . number_format($v, 0);
-                };
-            ?>
-            <div class="ana-card">
-                <div class="ana-hd">
-                    <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg><?php echo $is_manager ? 'Current Branch Performance' : 'Branch Performance Comparison'; ?>
-                        <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo $is_manager ? 'This branch' : 'All branches'; ?></span>
-                    </h3>
-                    <div class="no-print">
-                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"branch_perf"]), $je); ?>)' title="Print Branch Performance Comparison Report">
-                            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
-                    </div>
-                </div>
-                <div class="ana-bd">
-                    <div class="pf-brc-legend" style="margin-bottom:20px;">
-                        <span class="pf-brc-leg" data-metric="revenue" role="button" tabindex="0" title="Click to toggle Revenue"><i style="background:#00232b"></i>Revenue (₱)</span>
-                        <span class="pf-brc-leg" data-metric="orders" role="button" tabindex="0" title="Click to toggle Store Orders"><i style="background:#3b82f6"></i>Store Orders</span>
-                        <span class="pf-brc-leg" data-metric="jobs" role="button" tabindex="0" title="Click to toggle Customization Jobs"><i style="background:#14b8a6"></i>Customization Jobs</span>
-                    </div>
-                    
-                    <div class="pf-brc-container">
-                        <!-- Left Y-Axis (Revenue) -->
-                        <div class="pf-brc-y-left">
-                            <div><?php echo $fmtRev($maxRev); ?></div>
-                            <div><?php echo $fmtRev($maxRev*0.75); ?></div>
-                            <div><?php echo $fmtRev($maxRev*0.5); ?></div>
-                            <div><?php echo $fmtRev($maxRev*0.25); ?></div>
-                            <div>₱0</div>
-                        </div>
-
-                        <!-- Main Chart Content (Scrollable) -->
-                        <div class="pf-brc-wrap">
-                            <div class="pf-brc-grid">
-                                <div class="pf-brc-gridline" style="bottom:25%"></div>
-                                <div class="pf-brc-gridline" style="bottom:50%"></div>
-                                <div class="pf-brc-gridline" style="bottom:75%"></div>
-                                <?php foreach ($branch_perf as $br):
-                                    $rev = (float)$br['revenue'];
-                                    $os  = (int)($br['orders_store'] ?? 0);
-                                    $oj  = (int)($br['orders_jobs'] ?? 0);
-                                    $hR  = $maxRev > 0 ? (int)round(($rev / $maxRev) * $cH) : 0;
-                                    $hO  = $maxOrd > 0 ? (int)round(($os / $maxOrd) * $cH) : 0;
-                                    $hC  = $maxOrd > 0 ? (int)round(($oj / $maxOrd) * $cH) : 0;
-                                    $isEmpty = ($rev == 0 && $os == 0 && $oj == 0);
-                                    $revFull = number_format($rev, 0);
-                                ?>
-                                <div class="pf-brc-cluster <?php echo $isEmpty ? 'pf-brc-cluster--empty' : ''; ?>"
-                                     data-branch="<?php echo htmlspecialchars($br['branch_name']); ?>"
-                                     data-rev="₱<?php echo $revFull; ?>"
-                                     data-os="<?php echo $os; ?>"
-                                     data-oj="<?php echo $oj; ?>"
-                                     data-empty="<?php echo $isEmpty ? '1' : '0'; ?>">
-                                    <!-- Revenue bar -->
-                                    <div class="pf-brc-bar pf-brc-bar--revenue" style="height:<?php echo max(1, $hR); ?>px; background:#00232b;">
-                                        <?php if ($hR > 25): ?><div class="pf-brc-val"><?php echo $fmtRev($rev); ?></div><?php endif; ?>
-                                    </div>
-                                    <!-- Store Orders bar -->
-                                    <div class="pf-brc-bar pf-brc-bar--orders" style="height:<?php echo max(1, $hO); ?>px; background:#3b82f6;">
-                                        <?php if ($hO > 20 && $os > 0): ?><div class="pf-brc-val"><?php echo $os; ?></div><?php endif; ?>
-                                    </div>
-                                    <!-- Customization bar -->
-                                    <div class="pf-brc-bar pf-brc-bar--jobs" style="height:<?php echo max(1, $hC); ?>px; background:#14b8a6;">
-                                        <?php if ($hC > 20 && $oj > 0): ?><div class="pf-brc-val"><?php echo $oj; ?></div><?php endif; ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-
-                            <!-- Branch Names (Horizontal Scrollable) -->
-                            <div class="pf-brc-names">
-                                <?php foreach ($branch_perf as $br): ?>
-                                <div class="pf-brc-name">
-                                    <span class="pf-brc-name-txt"><?php echo htmlspecialchars(mb_substr($br['branch_name'], 0, 18)); ?></span>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
-
-                        <!-- Right Y-Axis (Orders) -->
-                        <div class="pf-brc-y-right">
-                            <div><?php echo number_format($maxOrd); ?></div>
-                            <div><?php echo number_format($maxOrd*0.75); ?></div>
-                            <div><?php echo number_format($maxOrd*0.5); ?></div>
-                            <div><?php echo number_format($maxOrd*0.25); ?></div>
-                            <div>0</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Custom Tooltip Div -->
-            <div id="pf-brc-card-tooltip">
-                <div class="pf-tt-branch" id="pf-tt-branch-name">Branch Name</div>
-                <div class="pf-tt-row"><span class="pf-tt-lbl">Revenue</span> <span class="pf-tt-val" id="pf-tt-rev">₱0</span></div>
-                <div class="pf-tt-row"><span class="pf-tt-lbl">Store Orders</span> <span class="pf-tt-val" id="pf-tt-os">0</span></div>
-                <div class="pf-tt-row"><span class="pf-tt-lbl">Customization</span> <span class="pf-tt-val" id="pf-tt-oj">0</span></div>
-                <div class="pf-tt-empty" id="pf-tt-empty-msg" style="display:none;">No data available for this period</div>
-            </div>
-
-            <script>
-            (function(){
-                const tooltip = document.getElementById('pf-brc-card-tooltip');
-                if (!tooltip) return;
-                const ttName = document.getElementById('pf-tt-branch-name');
-                const ttRev  = document.getElementById('pf-tt-rev');
-                const ttOs   = document.getElementById('pf-tt-os');
-                const ttOj   = document.getElementById('pf-tt-oj');
-                const ttEmpty = document.getElementById('pf-tt-empty-msg');
-
-                const clusters = document.querySelectorAll('.pf-brc-cluster');
-                clusters.forEach(c => {
-                    c.addEventListener('mouseenter', (e) => {
-                        ttName.textContent = c.dataset.branch;
-                        ttRev.textContent  = c.dataset.rev;
-                        ttOs.textContent   = c.dataset.os;
-                        ttOj.textContent   = c.dataset.oj;
-                        ttEmpty.style.display = c.dataset.empty === '1' ? 'block' : 'none';
-                        
-                        tooltip.style.visibility = 'visible';
-                        tooltip.style.opacity = '1';
-                    });
-                    c.addEventListener('mousemove', (e) => {
-                        let x = e.clientX + 15;
-                        let y = e.clientY + 15;
-                        const winW = window.innerWidth;
-                        const winH = window.innerHeight;
-                        const ttW = tooltip.offsetWidth;
-                        const ttH = tooltip.offsetHeight;
-
-                        if (x + ttW > winW) x = e.clientX - ttW - 15;
-                        if (y + ttH > winH) y = e.clientY - ttH - 15;
-
-                        tooltip.style.left = x + 'px';
-                        tooltip.style.top  = y + 'px';
-                    });
-                    c.addEventListener('mouseleave', () => {
-                        tooltip.style.visibility = 'hidden';
-                        tooltip.style.opacity = '0';
-                    });
-                });
-            })();
-            </script>
-            <?php endif; ?>
-
             <!-- ══ TOP CUSTOMERS ══════════════════════════════════════════ -->
             <div class="ana-card print-hide" style="display:none;">
                 <div class="ana-hd">
@@ -3144,46 +2937,6 @@ $dashData = [
 
 <script>
 function printflowInitReportsPage() {
-    // ── BRANCH PERFORMANCE LEGEND TOGGLE (Interactive Buttons - Matches Heatmap) ──
-    const brcLegs = document.querySelectorAll('.pf-brc-leg');
-    
-    brcLegs.forEach(leg => {
-        if (leg.dataset.pfBound === '1') return;
-        leg.dataset.pfBound = '1';
-        
-        leg.addEventListener('click', function() {
-            const metric = this.getAttribute('data-metric');
-            if (!metric) return;
-            
-            // Toggle hidden state on legend item
-            this.classList.toggle('is-hidden');
-            const isHidden = this.classList.contains('is-hidden');
-            
-            // Find and toggle bars
-            let barSelector = '';
-            if (metric === 'revenue') barSelector = '.pf-brc-bar--revenue';
-            else if (metric === 'orders') barSelector = '.pf-brc-bar--orders';
-            else if (metric === 'jobs') barSelector = '.pf-brc-bar--jobs';
-            
-            const bars = document.querySelectorAll(barSelector);
-            bars.forEach(bar => {
-                if (isHidden) {
-                    bar.classList.add('is-hidden');
-                } else {
-                    bar.classList.remove('is-hidden');
-                }
-            });
-        });
-        
-        // Keyboard support
-        leg.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                leg.click();
-            }
-        });
-    });
-
     // ── CUSTOMER LOCATIONS TOOLTIP (REUSED FROM CUSTOMIZATION USAGE) ──
     let locTt = document.getElementById('pf-loc-tooltip');
     if (!locTt) {
