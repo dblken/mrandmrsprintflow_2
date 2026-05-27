@@ -583,7 +583,9 @@ window.printflowInitReportsCharts = function () {
                 branch_name: String(row.branch_name || 'Unknown Branch'),
                 revenue: Number(row.revenue) || 0,
                 orders_store: Number(row.orders_store) || 0,
-                orders_jobs: Number(row.orders_jobs) || 0
+                orders_jobs: Number(row.orders_jobs) || 0,
+                prev_revenue: typeof row.prev_revenue === 'number' ? row.prev_revenue : (row.prev_revenue ? Number(row.prev_revenue) : null),
+                growth_pct: typeof row.growth_pct === 'number' ? row.growth_pct : (row.growth_pct ? Number(row.growth_pct) : null)
             };
         }).filter(function (row) {
             return row.revenue > 0;
@@ -593,6 +595,8 @@ window.printflowInitReportsCharts = function () {
 
         var dsLabels = branchRows.map(function (row) { return row.branch_name; });
         var dsRevBranch = branchRows.map(function (row) { return row.revenue; });
+        var dsGrowth = branchRows.map(function (row) { return row.growth_pct; });
+        var dsPrevRev = branchRows.map(function (row) { return row.prev_revenue; });
         var totalRevenue = dsRevBranch.reduce(function (sum, value) { return sum + value; }, 0);
         var currencyFmt = new Intl.NumberFormat(undefined, {
             style: 'currency',
@@ -683,8 +687,8 @@ window.printflowInitReportsCharts = function () {
                             borderWidth: 1.5,
                             borderRadius: 10,
                             borderSkipped: false,
-                            barPercentage: 0.72,
-                            categoryPercentage: 0.76
+                            barPercentage: 0.58, // thinner bars
+                            categoryPercentage: 0.68 // more space between bars
                         }
                     ]
                 },
@@ -692,10 +696,11 @@ window.printflowInitReportsCharts = function () {
                     responsive: true, 
                     maintainAspectRatio: false,
                     layout: {
-                        padding: { top: 26, right: 14, bottom: 0, left: 8 }
+                        padding: { top: 32, right: 18, bottom: 0, left: 8 }
                     },
                     animation: { duration: 1100, easing: 'easeOutCubic' },
                     interaction: { mode: 'nearest', intersect: true },
+                    hover: { mode: 'index', intersect: false, animationDuration: 400 },
                     plugins: {
                         legend: { 
                             display: true,
@@ -709,7 +714,7 @@ window.printflowInitReportsCharts = function () {
                         },
                         tooltip: { 
                             animation: { duration: 180 }, 
-                            padding: 10, 
+                            padding: 12, 
                             cornerRadius: 8, 
                             displayColors: false,
                             callbacks: { 
@@ -719,7 +724,17 @@ window.printflowInitReportsCharts = function () {
                                     return raw ? raw.branch_name : '';
                                 },
                                 label: function(ctx) {
-                                    return 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
+                                    var idx = ctx.dataIndex;
+                                    var prev = dsPrevRev[idx];
+                                    var growth = dsGrowth[idx];
+                                    var label = 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
+                                    if (prev !== null && !isNaN(prev)) {
+                                        label += '\nPrev: ' + currencyFmt.format(prev);
+                                    }
+                                    if (growth !== null && !isNaN(growth)) {
+                                        label += '\nGrowth: ' + (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
+                                    }
+                                    return label;
                                 },
                                 afterLabel: function(ctx) {
                                     var pct = totalRevenue > 0 ? ((Number(ctx.parsed.y) || 0) / totalRevenue) * 100 : 0;
@@ -762,8 +777,20 @@ window.printflowInitReportsCharts = function () {
                         ctx.textBaseline = 'bottom';
                         meta.data.forEach(function(bar, index) {
                             var value = Number(dataset.data[index]) || 0;
+                            var growth = dsGrowth[index];
+                            var growthLabel = '';
+                            if (growth !== null && !isNaN(growth)) {
+                                growthLabel = (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
+                            }
                             ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
                             ctx.fillText(currencyFmt.format(value), bar.x, bar.y - 6);
+                            if (growthLabel) {
+                                ctx.save();
+                                ctx.font = 'bold 10px sans-serif';
+                                ctx.fillStyle = growth > 0 ? '#059669' : (growth < 0 ? '#dc2626' : '#64748b');
+                                ctx.fillText(growthLabel, bar.x, bar.y - 22);
+                                ctx.restore();
+                            }
                         });
                         ctx.restore();
                     }
