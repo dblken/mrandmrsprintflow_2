@@ -5,6 +5,7 @@
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/staff_access.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -81,7 +82,10 @@ if ($action === 'toggle_status') {
     $address        = sanitize($data['address'] ?? '');
     $gender         = sanitize($data['gender'] ?? '');
     $birthday       = sanitize($data['dob'] ?? ''); // Maps from modal's 'dob' model
-    $role           = sanitize($data['role'] ?? '');
+    $selected_role  = sanitize($data['role'] ?? '');
+    $role_payload   = printflow_resolve_staff_role_payload($selected_role);
+    $role           = sanitize($role_payload['role'] ?? '');
+    $position       = $role_payload['position'] ?? null;
     $branch_id      = !empty($data['branch_id']) ? (int)$data['branch_id'] : null;
     
     if ($role === 'Admin') $branch_id = null;
@@ -154,9 +158,9 @@ if ($action === 'toggle_status') {
     }
 
     $ok = db_execute(
-        "UPDATE users SET first_name=?, middle_name=?, last_name=?, contact_number=?, address=?, gender=?, birthday=?, role=?, branch_id=?, status=? WHERE user_id=?",
-        "ssssssssisi",
-        [$first_name, $middle_name ?: '', $last_name, $contact_number ?: '', $address ?: '', $gender ?: '', $birthday ?: null, $role, $branch_id, $status, $user_id]
+        "UPDATE users SET first_name=?, middle_name=?, last_name=?, contact_number=?, address=?, gender=?, birthday=?, role=?, position=?, branch_id=?, status=? WHERE user_id=?",
+        "sssssssssisi",
+        [$first_name, $middle_name ?: '', $last_name, $contact_number ?: '', $address ?: '', $gender ?: '', $birthday ?: null, $role, $position, $branch_id, $status, $user_id]
     );
     
     if ($ok) {

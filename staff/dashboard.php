@@ -10,11 +10,15 @@ require_once __DIR__ . '/../includes/branch_context.php';
 
 // Require staff access
 require_role('Staff');
+printflow_require_staff_module('dashboard');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $staffCtx = init_branch_context();
 $staffBranchId = $staffCtx['selected_branch_id'] === 'all' ? (int)($_SESSION['branch_id'] ?? 1) : (int)$staffCtx['selected_branch_id'];
 $branch_name = $staffCtx['branch_name'];
+$staffAccessMeta = printflow_get_staff_access_meta();
+$staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffAccessMeta['key'] ?? null);
+$staffOrderScopeSqlNoAlias = printflow_staff_order_source_sql('orders', $staffAccessMeta['key'] ?? null);
 
 // Some production databases may not have `orders.order_type` (older schema).
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
@@ -72,28 +76,28 @@ $timeframe_sql_no_alias = "DATE(order_date) BETWEEN ? AND ?";
 
 // Get dashboard statistics (scoped to this staff member's branch)
 $pending_orders_result = db_query(
-    "SELECT COUNT(*) as count FROM orders WHERE status IN ('Pending', 'Pending Review') AND branch_id = ?",
+    "SELECT COUNT(*) as count FROM orders WHERE status IN ('Pending', 'Pending Review') AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}",
     'i',
     [$staffBranchId]
 );
 $pending_orders = $pending_orders_result[0]['count'] ?? 0;
 
 $processing_orders_result = db_query(
-    "SELECT COUNT(*) as count FROM orders WHERE status = 'Processing' AND branch_id = ?",
+    "SELECT COUNT(*) as count FROM orders WHERE status = 'Processing' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}",
     'i',
     [$staffBranchId]
 );
 $processing_orders = $processing_orders_result[0]['count'] ?? 0;
 
 $ready_orders_result = db_query(
-    "SELECT COUNT(*) as count FROM orders WHERE status = 'Ready for Pickup' AND branch_id = ?",
+    "SELECT COUNT(*) as count FROM orders WHERE status = 'Ready for Pickup' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}",
     'i',
     [$staffBranchId]
 );
 $ready_orders = $ready_orders_result[0]['count'] ?? 0;
 
 // Get today's completed orders
-$today_completed_sql = "SELECT COUNT(*) as count FROM orders WHERE status = 'Completed' AND branch_id = ?";
+$today_completed_sql = "SELECT COUNT(*) as count FROM orders WHERE status = 'Completed' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}";
 $today_completed_types = 'i';
 $today_completed_params = [$staffBranchId];
 if ($has_timeframe_range) {
@@ -106,7 +110,7 @@ $today_completed_result = db_query($today_completed_sql, $today_completed_types,
 $completed_today = $today_completed_result[0]['count'] ?? 0;
 
 // Total Orders Today (Scoped)
-$today_orders_sql = "SELECT COUNT(*) as count FROM orders WHERE branch_id = ?";
+$today_orders_sql = "SELECT COUNT(*) as count FROM orders WHERE branch_id = ? AND {$staffOrderScopeSqlNoAlias}";
 $today_orders_types = 'i';
 $today_orders_params = [$staffBranchId];
 if ($has_timeframe_range) {
@@ -119,7 +123,7 @@ $today_orders_res = db_query($today_orders_sql, $today_orders_types, $today_orde
 $total_orders_today = $today_orders_res[0]['count'] ?? 0;
 
 // Total Sales Today (Scoped)
-$sales_today_sql = "SELECT SUM(total_amount) as total FROM orders WHERE status != 'Cancelled' AND branch_id = ?";
+$sales_today_sql = "SELECT SUM(total_amount) as total FROM orders WHERE status != 'Cancelled' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}";
 $sales_today_types = 'i';
 $sales_today_params = [$staffBranchId];
 if ($has_timeframe_range) {
@@ -138,13 +142,13 @@ $completed_products_sql = $hasOrderType
         FROM orders o 
         JOIN order_items oi ON o.order_id = oi.order_id
         JOIN products p ON oi.product_id = p.product_id
-        WHERE o.status = 'Completed' AND o.branch_id = ? AND o.order_type = 'product'"
+        WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND o.order_type = 'product'"
     : "
         SELECT COUNT(DISTINCT o.order_id) as count 
         FROM orders o 
         JOIN order_items oi ON o.order_id = oi.order_id
         JOIN products p ON oi.product_id = p.product_id
-        WHERE o.status = 'Completed' AND o.branch_id = ?";
+        WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql}";
 $completed_products_types = 'i';
 $completed_products_params = [$staffBranchId];
 if ($has_timeframe_range) {
@@ -165,7 +169,7 @@ $completed_custom_sql = "
 $completed_custom_types = 'i';
 $completed_custom_params = [$staffBranchId];
 $completed_custom_sql .= "
-    WHERE o.status = 'Completed' AND o.branch_id = ?";
+    WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql}";
 if ($has_timeframe_range) {
     $completed_custom_sql .= " AND $timeframe_sql_no_alias";
     $completed_custom_types .= 'ss';
@@ -188,7 +192,7 @@ $trend_values = [];
 for ($i = 6; $i >= 0; $i--) {
     $date = date('Y-m-d', strtotime("-$i days"));
     $trend_labels[] = date('D', strtotime($date));
-    $res = db_query("SELECT SUM(total_amount) as total FROM orders WHERE DATE(order_date) = ? AND status != 'Cancelled' AND branch_id = ?", 'si', [$date, $staffBranchId]);
+    $res = db_query("SELECT SUM(total_amount) as total FROM orders WHERE DATE(order_date) = ? AND status != 'Cancelled' AND branch_id = ? AND {$staffOrderScopeSqlNoAlias}", 'si', [$date, $staffBranchId]);
     $trend_values[] = (float)($res[0]['total'] ?? 0);
 }
 
@@ -200,6 +204,7 @@ $top_services_sql = "
     LEFT JOIN products p ON oi.product_id = p.product_id
     LEFT JOIN services s ON oi.product_id = s.service_id
     WHERE o.branch_id = ?
+      AND {$staffOrderScopeSql}
       AND (
           (p.product_id IS NOT NULL AND p.status = 'Activated')
           OR (s.service_id IS NOT NULL AND s.status = 'Activated')
@@ -219,7 +224,7 @@ if ($has_timeframe_range) {
 $top_services = db_query($top_services_sql, $top_services_types, $top_services_params);
 
 // Recent Orders with filters (Scoped)
-$sql_cond = " WHERE o.branch_id = ?";
+$sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql}";
 $params = [$staffBranchId];
 $types = "i";
 

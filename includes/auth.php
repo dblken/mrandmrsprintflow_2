@@ -23,6 +23,7 @@ require_once __DIR__ . '/rate_limiter.php';
 SessionManager::start();
 
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/staff_access.php';
 require_once __DIR__ . '/ensure_account_creation_guard.php';
 printflow_ensure_account_creation_guard();
 
@@ -235,6 +236,12 @@ if (!function_exists('printflow_hydrate_user_session')) {
         $_SESSION['user_email'] = (string)($row['email'] ?? '');
         $_SESSION['user_status'] = (string)($row['status'] ?? '');
         $_SESSION['branch_id'] = $row['branch_id'] ?? null;
+        $_SESSION['staff_position'] = (string)($row['position'] ?? '');
+        if ($user_type === 'Staff') {
+            $_SESSION['staff_access_role'] = printflow_resolve_staff_access_role_from_user($row);
+        } else {
+            unset($_SESSION['staff_access_role']);
+        }
 
         if ($user_type === 'Manager' || $user_type === 'Staff') {
             $_SESSION['selected_branch_id'] = $row['branch_id'] ?? null;
@@ -249,7 +256,7 @@ if (!function_exists('printflow_hydrate_user_session')) {
             $status = (string)($row['status'] ?? '');
             $redirect = $status === 'Pending'
                 ? AUTH_REDIRECT_BASE . '/staff/profile.php'
-                : AUTH_REDIRECT_BASE . '/staff/dashboard.php';
+                : printflow_staff_home_url();
         }
 
         return ['redirect' => $redirect];
@@ -692,6 +699,12 @@ function login_user($email, $password, $remember_me = false) {
     $_SESSION['user_email']  = $user['email'];
     $_SESSION['user_status'] = $user['status'];
     $_SESSION['branch_id']   = $user['branch_id'] ?? null;
+    $_SESSION['staff_position'] = (string)($user['position'] ?? '');
+    if (($user['role'] ?? '') === 'Staff') {
+        $_SESSION['staff_access_role'] = printflow_resolve_staff_access_role_from_user($user);
+    } else {
+        unset($_SESSION['staff_access_role']);
+    }
 
     // Force Manager (and Staff) to their assigned branch immediately so the
     // branch selector never shows "All Branches" for restricted accounts.
@@ -711,7 +724,7 @@ function login_user($email, $password, $remember_me = false) {
         // Pending staff can only see profile to complete their information
         $redirect = AUTH_REDIRECT_BASE . '/staff/profile.php';
     } else {
-        $redirect = AUTH_REDIRECT_BASE . '/staff/dashboard.php';
+        $redirect = printflow_staff_home_url();
     }
 
     SessionManager::regenerate();
@@ -1276,7 +1289,7 @@ function redirect_to_dashboard() {
             header('Location: ' . AUTH_REDIRECT_BASE . '/manager/dashboard.php');
             break;
         case 'Staff':
-            header('Location: ' . AUTH_REDIRECT_BASE . '/staff/dashboard.php');
+            header('Location: ' . printflow_staff_home_url());
             break;
         case 'Customer':
             header('Location: ' . AUTH_REDIRECT_BASE . '/customer/services.php');

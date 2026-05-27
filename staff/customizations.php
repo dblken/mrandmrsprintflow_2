@@ -12,6 +12,7 @@ if (!defined('BASE_URL')) {
     define('BASE_URL', defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : ''));
 }
 require_role(['Admin', 'Staff', 'Manager']);
+printflow_require_staff_module('customizations');
 if (in_array($_SESSION['user_type'] ?? '', ['Staff', 'Manager'], true)) {
     require_once __DIR__ . '/../includes/staff_pending_check.php';
 }
@@ -54,6 +55,9 @@ if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION']
 
 $page_title = 'Customizations - PrintFlow';
 $showLatestCustomizationOnly = false;
+$staffCustomizationRole = ($_SESSION['user_type'] ?? '') === 'Staff'
+    ? printflow_get_staff_access_role()
+    : null;
 
 $branchFilter = printflow_branch_filter_for_user();
 $joBranchSql = '';
@@ -174,6 +178,14 @@ $job_rows = db_query(
 ) ?: [];
 
 foreach ($job_rows as $row) {
+    $resolvedSource = strtolower(trim((string)($row['order_source'] ?? 'customer')));
+    $isPosSource = in_array($resolvedSource, ['pos', 'walk-in'], true);
+    if ($staffCustomizationRole === 'pos' && !$isPosSource) {
+        continue;
+    }
+    if ($staffCustomizationRole === 'online' && $isPosSource) {
+        continue;
+    }
     if (!empty($row['order_id'])) {
         $payload = JobOrderService::getStoreOrderItemsPayload((int)$row['order_id'], true, true);
         $serviceItems = array_values($payload['items'] ?? []);

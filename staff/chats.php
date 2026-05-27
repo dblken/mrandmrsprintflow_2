@@ -13,6 +13,7 @@ if (!defined('BASE_URL') && file_exists(__DIR__ . '/../config.php')) {
 if (!defined('BASE_URL')) define('BASE_URL', '');
 
 require_role(['Staff', 'Admin', 'Manager']);
+printflow_require_staff_module('chats');
 
 $page_title = 'Chats - PrintFlow';
 $current_user = get_logged_in_user();

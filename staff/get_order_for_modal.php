@@ -43,6 +43,15 @@ if (empty($order_row)) {
 }
 
 $o = $order_row[0];
+$resolvedOrderSource = strtolower(trim((string)($o['order_source'] ?? 'customer')));
+$isPosSource = in_array($resolvedOrderSource, ['pos', 'walk-in'], true);
+if (get_user_type() === 'Staff') {
+    $staffAccessRole = printflow_get_staff_access_role();
+    if (($staffAccessRole === 'pos' && !$isPosSource) || ($staffAccessRole === 'online' && $isPosSource)) {
+        echo json_encode(['success' => false, 'error' => 'You do not have access to this order.']);
+        exit;
+    }
+}
 $status_map = [
     'Pending' => 'PENDING',
     'Pending Review' => 'PENDING',

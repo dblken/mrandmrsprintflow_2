@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
 require_role('Staff');
+printflow_require_staff_module('notifications');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $staff_id = get_user_id();

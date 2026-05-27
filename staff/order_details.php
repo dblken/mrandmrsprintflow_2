@@ -10,9 +10,11 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role('Staff');
+printflow_require_staff_module('orders');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
+$staffOrderScopeSql = printflow_staff_order_source_sql('o');
 
 $order_id = (int)($_GET['id'] ?? 0);
 if (!$order_id) {
@@ -60,7 +62,7 @@ $order_result = db_query("
            c.customer_id as cust_id
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
-    WHERE o.order_id = ? AND o.branch_id = ?
+    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql}
 ", 'ii', [$order_id, $staffBranchId]);
 
 if (empty($order_result)) {

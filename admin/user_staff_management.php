@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/staff_access.php';
 require_once __DIR__ . '/../includes/ensure_account_creation_guard.php';
 printflow_ensure_account_creation_guard();
 
@@ -28,6 +29,12 @@ $current_user = get_logged_in_user();
 
 $error = '';
 $success = '';
+
+if (!function_exists('printflow_um_role_label')) {
+    function printflow_um_role_label(array $user): string {
+        return printflow_staff_role_display_name($user['role'] ?? '', $user['position'] ?? null);
+    }
+}
 
 // Realtime email check (same rules as create_staff: users + customers table)
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check_email'])) {
@@ -89,7 +96,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff']) && ve
     $email      = sanitize($_POST['email']);
     $birthday   = sanitize($_POST['birthday'] ?? '');
     $password   = $_POST['password'];
-    $role       = $_POST['role']; // 'Admin', 'Manager', or 'Staff'
+    $selected_role = $_POST['role'] ?? 'front_desk_staff';
+    $role_payload = printflow_resolve_staff_role_payload($selected_role);
+    $role       = $role_payload['role'];
+    $position   = $role_payload['position'];
 
     // Default password: email + birthday (MMDDYYYY) when not supplied by client
     if (empty($password) && !empty($birthday)) {
@@ -102,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff']) && ve
     if ($role === 'Admin') $branch_id = null; // Admins have global access
 
     $valid_roles = ['Manager', 'Staff']; // Admin creation removed
-    if (!in_array($role, $valid_roles)) $role = 'Staff';
+    if (!in_array($role, $valid_roles, true)) $role = 'Staff';
 
     // Name validation: letters only, single space between words (block 2+ consecutive spaces)
     if (empty($first_name) || empty($last_name) || empty($email) || empty($password)) {
@@ -156,12 +166,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff']) && ve
             $token = bin2hex(random_bytes(32));
             $expires = date('Y-m-d H:i:s', strtotime('+7 days'));
 
-            printflow_run_guarded_account_insert(function() use ($first_name, $middle_name, $last_name, $bday_val, $email, $password_hash, $token, $expires, $role, $branch_id) {
+            printflow_run_guarded_account_insert(function() use ($first_name, $middle_name, $last_name, $bday_val, $email, $password_hash, $token, $expires, $role, $position, $branch_id) {
                 return db_execute(
-                    "INSERT INTO users (first_name, middle_name, last_name, birthday, email, password_hash, profile_completion_token, profile_completion_expires, role, status, branch_id, created_by_system, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, 1, NOW(), NOW())",
-                    'sssssssssi',
-                    [$first_name, $middle_name, $last_name, $bday_val, $email, $password_hash, $token, $expires, $role, $branch_id]
+                    "INSERT INTO users (first_name, middle_name, last_name, birthday, email, password_hash, profile_completion_token, profile_completion_expires, role, position, status, branch_id, created_by_system, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, 1, NOW(), NOW())",
+                    'ssssssssssi',
+                    [$first_name, $middle_name, $last_name, $bday_val, $email, $password_hash, $token, $expires, $role, $position, $branch_id]
                 );
             });
 
@@ -188,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff']) && ve
              *   so send synchronously before redirect so the invite actually reaches the inbox.
              */
             if (function_exists('fastcgi_finish_request')) {
-                $_SESSION['um_staff_create_success'] = $role . ' account created for ' . htmlspecialchars($email) . '. A profile completion email is being sent to their inbox.';
+                $_SESSION['um_staff_create_success'] = printflow_staff_role_display_name($role, $position) . ' account created for ' . htmlspecialchars($email) . '. A profile completion email is being sent to their inbox.';
                 session_write_close();
                 header('Location: user_staff_management.php', true, 303);
                 ignore_user_abort(true);
@@ -202,9 +212,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff']) && ve
 
             $mail_res = $sendInviteMail($email, $first_name, $complete_link);
             if (!empty($mail_res['success'])) {
-                $_SESSION['um_staff_create_success'] = $role . ' account created! A profile completion link has been sent to ' . htmlspecialchars($email) . '.';
+                $_SESSION['um_staff_create_success'] = printflow_staff_role_display_name($role, $position) . ' account created! A profile completion link has been sent to ' . htmlspecialchars($email) . '.';
             } else {
-                $_SESSION['um_staff_create_success'] = $role . ' account created. The invitation email could not be sent'
+                $_SESSION['um_staff_create_success'] = printflow_staff_role_display_name($role, $position) . ' account created. The invitation email could not be sent'
                     . (!empty($mail_res['message']) ? ': ' . htmlspecialchars($mail_res['message']) : '')
                     . '. Share this link with them: ' . htmlspecialchars($complete_link);
             }
@@ -243,9 +253,19 @@ if (!empty($search)) {
     $types .= 'sss';
 }
 if (!empty($role_filter)) {
-    $sql_base .= " AND u.role = ?";
-    $params[] = $role_filter;
-    $types .= 's';
+    if ($role_filter === 'front_desk_staff') {
+        $sql_base .= " AND u.role = 'Staff' AND LOWER(COALESCE(u.position, '')) = LOWER(?)";
+        $params[] = 'Front Desk / POS Staff';
+        $types .= 's';
+    } elseif ($role_filter === 'online_production_staff') {
+        $sql_base .= " AND u.role = 'Staff' AND LOWER(COALESCE(u.position, '')) = LOWER(?)";
+        $params[] = 'Online / Production Staff';
+        $types .= 's';
+    } else {
+        $sql_base .= " AND u.role = ?";
+        $params[] = $role_filter;
+        $types .= 's';
+    }
 }
 if (!empty($status_filter)) {
     $sql_base .= " AND u.status = ?";
@@ -319,7 +339,7 @@ if (isset($_GET['get_archived'])) {
         foreach ($archived as $u) {
             $name = htmlspecialchars(trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? '')), ENT_QUOTES, 'UTF-8');
             $email = htmlspecialchars(strtolower((string)($u['email'] ?? '')), ENT_QUOTES, 'UTF-8');
-            $role = htmlspecialchars((string)($u['role'] ?? ''), ENT_QUOTES, 'UTF-8');
+            $role = htmlspecialchars(printflow_um_role_label($u), ENT_QUOTES, 'UTF-8');
             $branch = htmlspecialchars((string)($u['branch_name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $uid = (int)$u['user_id'];
             $html .= '<tr style="border-bottom:1px solid #f3f4f6;">';
@@ -364,7 +384,7 @@ if (isset($_GET['ajax'])) {
                 <td class="py-3" style="text-transform:lowercase;"><?php echo htmlspecialchars(strtolower((string)($user['email'] ?? ''))); ?></td>
                 <td class="py-3"><?php
                     $rs = match($user['role']) { 'Admin' => 'background:#fee2e2;color:#991b1b;', 'Manager' => 'background:#ede9fe;color:#5b21b6;', default => 'background:#dbeafe;color:#1e40af;' };
-                    ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $rs; ?>"><?php echo $user['role']; ?></span></td>
+                    ?><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $rs; ?>"><?php echo htmlspecialchars(printflow_um_role_label($user)); ?></span></td>
                 <td class="py-3"><?php echo $user['role']==='Admin' ? '<span class="text-gray-500 italic">All Branches</span>' : htmlspecialchars($user['branch_name'] ?? 'Unassigned'); ?></td>
                 <td class="py-3"><?php
                     $sc = match($um_disp_status) {
@@ -863,7 +883,9 @@ if (isset($_GET['ajax'])) {
                                         <option value="">All roles</option>
                                         <option value="Admin"   <?php echo $role_filter === 'Admin'   ? 'selected' : ''; ?>>Admin</option>
                                         <option value="Manager" <?php echo $role_filter === 'Manager' ? 'selected' : ''; ?>>Manager</option>
-                                        <option value="Staff"   <?php echo $role_filter === 'Staff'   ? 'selected' : ''; ?>>Staff</option>
+                                        <option value="front_desk_staff" <?php echo $role_filter === 'front_desk_staff' ? 'selected' : ''; ?>>Front Desk / POS Staff</option>
+                                        <option value="online_production_staff" <?php echo $role_filter === 'online_production_staff' ? 'selected' : ''; ?>>Online / Production Staff</option>
+                                        <option value="Staff"   <?php echo $role_filter === 'Staff'   ? 'selected' : ''; ?>>All Staff</option>
                                     </select>
                                 </div>
 
@@ -936,7 +958,7 @@ if (isset($_GET['ajax'])) {
                                             };
                                         ?>
                                         <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;<?php echo $role_style; ?>">
-                                            <?php echo $user['role']; ?>
+                                            <?php echo htmlspecialchars(printflow_um_role_label($user)); ?>
                                         </span>
                                     </td>
                                     <td class="py-3">
@@ -1054,7 +1076,7 @@ if (isset($_GET['ajax'])) {
                     <div class="detail-row">
                         <div class="detail-block">
                             <label>Role</label>
-                            <span x-text="viewModal.user?.role || '—'"></span>
+                            <span x-text="viewModal.user?.role_display || viewModal.user?.role || '—'"></span>
                         </div>
                         <div class="detail-block">
                             <label>Branch</label>
@@ -1213,12 +1235,13 @@ if (isset($_GET['ajax'])) {
                         <div class="mf-group">
                             <label>Role *</label>
                             <select x-model="editModal.user.role" required @change="if (editModal.user.role === 'Admin') editModal.user.status = 'Activated'">
-                                <option value="Staff">Staff</option>
+                                <option value="front_desk_staff">Front Desk / POS Staff</option>
+                                <option value="online_production_staff">Online / Production Staff</option>
                                 <option value="Manager">Manager</option>
                                 <option value="Admin">Admin</option>
                             </select>
                         </div>
-                        <div class="mf-group" x-show="editModal.user.role === 'Staff' || editModal.user.role === 'Manager'">
+                        <div class="mf-group" x-show="editModal.user.role !== 'Admin'">
                             <label>Branch Assignment</label>
                             <select x-model="editModal.user.branch_id">
                                 <option value="">-- No Branch --</option>
@@ -1420,7 +1443,8 @@ if (isset($_GET['ajax'])) {
                 <div class="form-group">
                     <label>Role <span style="color:#ef4444">*</span></label>
                     <select name="role" id="user-role-select" required>
-                        <option value="Staff">Staff</option>
+                        <option value="front_desk_staff">Front Desk / POS Staff</option>
+                        <option value="online_production_staff">Online / Production Staff</option>
                         <option value="Manager">Manager</option>
                     </select>
                 </div>
@@ -2210,6 +2234,9 @@ function userManagement() {
                 const data = await res.json();
                 if (data.success) {
                     const u = data.user;
+                    if (u.role_key) {
+                        u.role = u.role_key;
+                    }
                     // Store original address before parsing
                     const originalAddress = u.address || '';
                     const parsed = this.parseAddressFromString(originalAddress);

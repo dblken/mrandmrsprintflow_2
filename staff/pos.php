@@ -23,6 +23,7 @@ foreach ($_pos_payment_cfg as $_pm) {
 
 // Require staff or admin role
 require_role(['Admin', 'Staff']);
+printflow_require_staff_module('pos');
 
 // Resolve and lock staff branch into session
 $_pos_branch_ctx = init_branch_context(false);
