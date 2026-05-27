@@ -1695,7 +1695,7 @@ a.export-dd-link:hover { background: #f9fafb; }
     font-weight: 800;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: #2563eb;
+    color: #00232b;
 }
 
 .pf-branch-summary-grid {
@@ -1753,8 +1753,8 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 
 .pf-branch-stat-total .pf-branch-stat-icon {
-    background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 100%);
-    color: #2563eb;
+    background: linear-gradient(180deg, #ecf8fb 0%, #f0fafc 100%);
+    color: #00232b;
 }
 
 .pf-branch-stat-top .pf-branch-stat-icon {
@@ -1787,7 +1787,7 @@ a.export-dd-link:hover { background: #f9fafb; }
     font-weight: 800;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: #2563eb;
+    color: #00232b;
 }
 
 .pf-branch-toplist-items {
@@ -1807,7 +1807,7 @@ a.export-dd-link:hover { background: #f9fafb; }
     width: 24px;
     height: 24px;
     border-radius: 6px;
-    background: linear-gradient(180deg, #2563eb 0%, #3b82f6 100%);
+    background: linear-gradient(180deg, #00232b 0%, #0F4C5C 100%);
     color: #fff;
     font-size: 11px;
     font-weight: 800;
@@ -1841,7 +1841,7 @@ a.export-dd-link:hover { background: #f9fafb; }
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 100%);
+    background: linear-gradient(90deg, #00232b 0%, #0F4C5C 100%);
 }
 
 .pf-branch-toprow-value {

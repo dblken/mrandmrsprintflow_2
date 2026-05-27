@@ -708,7 +708,7 @@ window.printflowInitReportsCharts = function () {
                             labels: {
                                 boxWidth: 10,
                                 boxHeight: 10,
-                                color: '#2563eb',
+                                color: '#00232b',
                                 font: { size: 11, weight: '700' }
                             }
                         },
