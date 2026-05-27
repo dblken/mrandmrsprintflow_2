@@ -218,3 +218,67 @@ if (!function_exists('printflow_staff_order_source_sql')) {
         return "(NOT {$posPredicate} AND LOWER(TRIM(COALESCE({$orderAlias}.order_source, 'customer'))) <> 'pos_merged')";
     }
 }
+
+if (!function_exists('printflow_resolve_order_source_for_staff_scope')) {
+    function printflow_resolve_order_source_for_staff_scope(int $dataId, ?string $notificationType = null): string {
+        $dataId = (int)$dataId;
+        if ($dataId <= 0 || !function_exists('db_query')) {
+            return 'customer';
+        }
+
+        $notificationType = strtolower(trim((string)$notificationType));
+
+        if ($notificationType === 'job order') {
+            $jobRows = db_query(
+                "SELECT COALESCE(o.order_source, 'customer') AS order_source
+                 FROM job_orders jo
+                 LEFT JOIN orders o ON o.order_id = jo.order_id
+                 WHERE jo.id = ? LIMIT 1",
+                'i',
+                [$dataId]
+            );
+            if (!empty($jobRows[0]['order_source'])) {
+                return strtolower(trim((string)$jobRows[0]['order_source']));
+            }
+        }
+
+        $orderRows = db_query(
+            "SELECT COALESCE(order_source, 'customer') AS order_source
+             FROM orders
+             WHERE order_id = ? LIMIT 1",
+            'i',
+            [$dataId]
+        );
+        if (!empty($orderRows[0]['order_source'])) {
+            return strtolower(trim((string)$orderRows[0]['order_source']));
+        }
+
+        $jobRows = db_query(
+            "SELECT COALESCE(o.order_source, 'customer') AS order_source
+             FROM job_orders jo
+             LEFT JOIN orders o ON o.order_id = jo.order_id
+             WHERE jo.id = ? LIMIT 1",
+            'i',
+            [$dataId]
+        );
+        if (!empty($jobRows[0]['order_source'])) {
+            return strtolower(trim((string)$jobRows[0]['order_source']));
+        }
+
+        return 'customer';
+    }
+}
+
+if (!function_exists('printflow_staff_role_can_access_order_source')) {
+    function printflow_staff_role_can_access_order_source(?string $staffRole, ?string $orderSource): bool {
+        $staffRole = printflow_normalize_staff_access_role($staffRole ?? printflow_get_staff_access_role());
+        $orderSource = strtolower(trim((string)$orderSource));
+        $isPos = in_array($orderSource, ['pos', 'walk-in'], true);
+
+        if ($staffRole === 'pos') {
+            return $isPos;
+        }
+
+        return !$isPos && $orderSource !== 'pos_merged';
+    }
+}

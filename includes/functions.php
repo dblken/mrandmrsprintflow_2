@@ -476,22 +476,38 @@ function printflow_notification_branch_id(array $notification): ?int {
  */
 function printflow_staff_notification_visible(array $notification, ?int $branchId): bool {
     if ($branchId === null || $branchId <= 0) {
+        $branchPass = true;
+    } else {
+        $branchPass = false;
+
+        $type = (string)($notification['type'] ?? '');
+        $shopScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue'];
+        if (in_array($type, $shopScopedTypes, true)) {
+            $notificationBranch = printflow_notification_branch_id($notification);
+            $branchPass = $notificationBranch !== null && $notificationBranch === $branchId;
+        } elseif ($type === 'Stock') {
+            $notificationBranch = printflow_notification_branch_id($notification);
+            $branchPass = $notificationBranch !== null && $notificationBranch === $branchId;
+        } else {
+            $branchPass = true;
+        }
+    }
+
+    if (!$branchPass) {
+        return false;
+    }
+
+    $staffRole = function_exists('printflow_get_staff_access_role') ? printflow_get_staff_access_role() : null;
+    if ($staffRole === null || !function_exists('printflow_staff_role_can_access_order_source')) {
         return true;
     }
 
     $type = (string)($notification['type'] ?? '');
-    $shopScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue'];
-    if (in_array($type, $shopScopedTypes, true)) {
-        $notificationBranch = printflow_notification_branch_id($notification);
-        return $notificationBranch !== null && $notificationBranch === $branchId;
-    }
-
-    if ($type === 'Stock') {
-        $notificationBranch = printflow_notification_branch_id($notification);
-        if ($notificationBranch === null) {
-            return false;
-        }
-        return $notificationBranch === $branchId;
+    $dataId = (int)($notification['data_id'] ?? 0);
+    $sourceScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue', 'Message', 'Status'];
+    if ($dataId > 0 && in_array($type, $sourceScopedTypes, true)) {
+        $orderSource = printflow_resolve_order_source_for_staff_scope($dataId, $type);
+        return printflow_staff_role_can_access_order_source($staffRole, $orderSource);
     }
 
     return true;
