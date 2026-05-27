@@ -121,6 +121,14 @@ window.printflowTeardownReportsCharts = function () {
             n.dataset.pfApexInitialized = '0';
         }
     });
+    if (window.__pfDashBranchSparkChart) {
+        try { window.__pfDashBranchSparkChart.destroy(); } catch (e) {}
+        window.__pfDashBranchSparkChart = null;
+    }
+    var sparkCanvas = document.getElementById('dashBranchSparkline');
+    if (sparkCanvas) {
+        sparkCanvas.dataset.pfChartInitialized = '0';
+    }
     // Clear dashboard sales chart canvas
     var dashCanvas = document.getElementById('dashSalesChart');
     if (dashCanvas) {
@@ -830,6 +838,74 @@ window.printflowInitReportsCharts = function () {
                 noDataEl.style.display = 'flex';
                 noDataEl.querySelector('span').textContent = 'Error loading chart data';
             }
+        }
+    })();
+
+    (function initDashBranchSparkline() {
+        var canvas = document.getElementById('dashBranchSparkline');
+        if (!canvas || typeof Chart === 'undefined') return;
+
+        if (window.__pfDashBranchSparkChart) {
+            try { window.__pfDashBranchSparkChart.destroy(); } catch (e) {}
+            window.__pfDashBranchSparkChart = null;
+        }
+        if (canvas.dataset.pfChartInitialized === '1') return;
+
+        var sidebar = (window.__pfReportsData || {}).salesByBranchSidebar || {};
+        var single = sidebar.single || {};
+        var trend = single.trend || {};
+        var labels = Array.isArray(trend.labels) ? trend.labels : [];
+        var values = Array.isArray(trend.revTotal)
+            ? trend.revTotal.map(function (v) { return Number(v) || 0; })
+            : [];
+        if (!labels.length || !values.length) return;
+
+        try {
+            canvas.dataset.pfChartInitialized = '1';
+            window.__pfDashBranchSparkChart = new Chart(canvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Revenue',
+                        data: values,
+                        borderColor: '#00232b',
+                        backgroundColor: 'rgba(83,197,224,0.16)',
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 0,
+                        pointHoverRadius: 3,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#00232b',
+                            titleColor: '#fff',
+                            bodyColor: '#e2e8f0',
+                            padding: 10,
+                            callbacks: {
+                                label: function (ctx) {
+                                    var v = Number(ctx.parsed.y) || 0;
+                                    return ' ₱' + v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: { display: false, beginAtZero: true }
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn('[PrintFlow] Branch sparkline error:', e);
+            canvas.dataset.pfChartInitialized = '0';
         }
     })();
 

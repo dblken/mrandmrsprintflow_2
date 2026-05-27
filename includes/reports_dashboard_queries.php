@@ -1691,3 +1691,25 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
 
     return $result;
 }
+
+/**
+ * Monthly revenue trend for one branch (sparkline / compact trend chart).
+ *
+ * @return array{labels:string[], revTotal:float[]}
+ */
+function pf_reports_branch_monthly_trend(int $branchId, int $months = 6): array {
+    if ($branchId <= 0) {
+        return ['labels' => [], 'revTotal' => []];
+    }
+    $months = max(2, min(12, $months));
+    $from = date('Y-m-01', strtotime('-' . ($months - 1) . ' months'));
+    $toEnd = date('Y-m-d') . ' 23:59:59';
+    $series = pf_reports_period_sales_merged($from, $toEnd, $branchId);
+    $labels = $series['labels'] ?? [];
+    $rev = $series['revTotal'] ?? [];
+    if (count($labels) > $months) {
+        $labels = array_slice($labels, -$months);
+        $rev = array_slice($rev, -$months);
+    }
+    return ['labels' => $labels, 'revTotal' => $rev];
+}
