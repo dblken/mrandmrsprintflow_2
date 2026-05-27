@@ -30,13 +30,6 @@ $reports_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php';
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];   // 'all' | int
 $branchName = $branchCtx['branch_name'];
-// Reports for Admins always aggregate all branches (no per-branch filter on this page).
-if ($is_admin) {
-    $branchId = 'all';
-    $branchName = 'All Branches';
-    $branchCtx['selected_branch_id'] = 'all';
-    $branchCtx['branch_name'] = 'All Branches';
-}
 if ($is_manager) {
     $forcedBranch = (int)(printflow_branch_filter_for_user() ?? ($_SESSION['branch_id'] ?? 0));
     if ($forcedBranch > 0) {
@@ -105,7 +98,9 @@ $salesTrendToEnd    = $toEnd;
 $salesTrendBranchId = $branchId;
 
 /**
- * Analytics filter context (all active branches for Admin reports; manager stays on assigned branch).
+ * Analytics filter context:
+ * Uses the selected branch from the report filter. When Admin selects "All",
+ * branch_where_parts() includes every non-archived branch (archived branches are excluded).
  */
 $globalAnalyticsFrom     = '';
 $globalAnalyticsTo       = '';
@@ -1918,10 +1913,10 @@ a.export-dd-link:hover { background: #f9fafb; }
     <div class="main-content">
         <header class="pf-mobile-branch-inline">
             <h1 class="page-title">Reports <span class="pf-mobile-title-extra">& Analytics</span></h1>
-            <?php if ($is_manager && (!defined('MANAGER_PANEL') || !MANAGER_PANEL)) { render_branch_selector($branchCtx); } ?>
+            <?php if (!defined('MANAGER_PANEL') || !MANAGER_PANEL) { render_branch_selector($branchCtx); } ?>
         </header>
         <main>
-            <?php if ($is_manager) { render_branch_context_banner($branchCtx['branch_name']); } ?>
+            <?php render_branch_context_banner($branchCtx['branch_name']); ?>
 
             <!-- ── Print Report Header (visible only when printing) ── -->
             <div class="print-report-header">
@@ -1973,7 +1968,7 @@ a.export-dd-link:hover { background: #f9fafb; }
                         <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                             <div class="filter-panel-header">Filter</div>
                             <form method="GET" id="reportsFilterForm">
-                                <input type="hidden" name="branch_id" value="<?php echo $is_admin ? 'all' : htmlspecialchars((string)$branchId); ?>">
+                                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($branchId); ?>">
                                 <input type="hidden" name="chart_sort" value="<?php echo htmlspecialchars($chart_sort); ?>">
                                 <input type="hidden" name="trend_metric" value="<?php echo htmlspecialchars($trend_metric); ?>">
                                 <input type="hidden" name="txn_pay" value="<?php echo htmlspecialchars($txn_payment_filter); ?>">
