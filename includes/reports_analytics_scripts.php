@@ -551,41 +551,47 @@ window.printflowInitReportsCharts = function () {
     // ── FILTER-DEPENDENT CHART (Sales Revenue - Responds to Global Filter) ──
     console.log('[PrintFlow] Initializing filter-dependent Sales Revenue chart...');
     
-    // ── DASHBOARD SALES REVENUE (Single Source of Truth) ──
+    // ── DASHBOARD SALES REVENUE — grouped Product / Service by branch ──
     (function initDashSalesChart() {
         var canvas = document.getElementById('dashSalesChart');
         if (!canvas || typeof Chart === 'undefined') {
             console.log('[PrintFlow] Dashboard sales chart: Canvas or Chart.js not found');
             return;
         }
-        
-        // Destroy existing chart first
+
         if (window.__pfDashSalesChart) {
-            try {
-                window.__pfDashSalesChart.destroy();
-                console.log('[PrintFlow] Dashboard sales chart: Destroyed existing instance');
-            } catch(e) {
-                console.warn('[PrintFlow] Error destroying existing chart:', e);
-            }
+            try { window.__pfDashSalesChart.destroy(); } catch (e) {}
             window.__pfDashSalesChart = null;
         }
-        
-        // Prevent multiple initializations
+
         if (canvas.dataset.pfChartInitialized === '1') {
             console.log('[PrintFlow] Dashboard sales chart: Already initialized, skipping');
             return;
         }
-        
+
+        var COLOR_PRODUCT = '#00232b';
+        var COLOR_PRODUCT_BORDER = '#0F4C5C';
+        var COLOR_SERVICE = '#53C5E0';
+        var COLOR_SERVICE_BORDER = '#3A86A8';
+
         var rData = window.__pfReportsData || {};
         var branchRows = Array.isArray(rData.salesByBranch) ? rData.salesByBranch.slice() : [];
         branchRows = branchRows.map(function (row) {
+            var product = Number(row.revenue_product != null ? row.revenue_product : row.revenue_store) || 0;
+            var service = Number(row.revenue_service != null ? row.revenue_service : row.revenue_jobs) || 0;
             return {
                 branch_name: String(row.branch_name || 'Unknown Branch'),
-                revenue: Number(row.revenue) || 0,
+                revenue: Number(row.revenue) || (product + service),
+                revenue_product: product,
+                revenue_service: service,
                 orders_store: Number(row.orders_store) || 0,
                 orders_jobs: Number(row.orders_jobs) || 0,
-                prev_revenue: typeof row.prev_revenue === 'number' ? row.prev_revenue : (row.prev_revenue ? Number(row.prev_revenue) : null),
-                growth_pct: typeof row.growth_pct === 'number' ? row.growth_pct : (row.growth_pct ? Number(row.growth_pct) : null)
+                prev_revenue: row.prev_revenue != null && row.prev_revenue !== '' ? Number(row.prev_revenue) : null,
+                prev_revenue_product: row.prev_revenue_product != null && row.prev_revenue_product !== '' ? Number(row.prev_revenue_product) : null,
+                prev_revenue_service: row.prev_revenue_service != null && row.prev_revenue_service !== '' ? Number(row.prev_revenue_service) : null,
+                growth_pct: row.growth_pct != null && row.growth_pct !== '' ? Number(row.growth_pct) : null,
+                growth_pct_product: row.growth_pct_product != null && row.growth_pct_product !== '' ? Number(row.growth_pct_product) : null,
+                growth_pct_service: row.growth_pct_service != null && row.growth_pct_service !== '' ? Number(row.growth_pct_service) : null
             };
         }).filter(function (row) {
             return row.revenue > 0;
@@ -593,11 +599,9 @@ window.printflowInitReportsCharts = function () {
             return b.revenue - a.revenue;
         });
 
-        var dsLabels = branchRows.map(function (row) { return row.branch_name; });
-        var dsRevBranch = branchRows.map(function (row) { return row.revenue; });
-        var dsGrowth = branchRows.map(function (row) { return row.growth_pct; });
-        var dsPrevRev = branchRows.map(function (row) { return row.prev_revenue; });
-        var totalRevenue = dsRevBranch.reduce(function (sum, value) { return sum + value; }, 0);
+        var dsProduct = branchRows.map(function (row) { return row.revenue_product; });
+        var dsService = branchRows.map(function (row) { return row.revenue_service; });
+        var totalRevenue = branchRows.reduce(function (sum, row) { return sum + row.revenue; }, 0);
         var currencyFmt = new Intl.NumberFormat(undefined, {
             style: 'currency',
             currency: 'PHP',
@@ -611,193 +615,202 @@ window.printflowInitReportsCharts = function () {
         });
         var chartWrap = document.getElementById('dash-sales-chart-wrap');
         var chartCanvasWrap = canvas.parentElement;
-        var widthPerBar = branchRows.length > 8 ? 92 : 104;
-        var computedWidth = Math.max(760, branchRows.length * widthPerBar);
-        if (chartWrap) {
-            chartWrap.style.height = '520px';
-        }
+        var widthPerGroup = branchRows.length > 6 ? 128 : 148;
+        var computedWidth = Math.max(760, branchRows.length * widthPerGroup);
+        if (chartWrap) chartWrap.style.height = '520px';
         if (chartCanvasWrap) {
             chartCanvasWrap.style.width = computedWidth + 'px';
             chartCanvasWrap.style.minWidth = computedWidth + 'px';
         }
-        
-        console.log('[PrintFlow] Dashboard sales chart data:', {
-            labels: dsLabels.length,
-            revBranch: dsRevBranch.length,
-            sampleLabel: dsLabels[0],
-            sampleRevBranch: dsRevBranch[0],
-            totalRevenue: totalRevenue
-        });
-        
+
         var noDataEl = document.getElementById('dash-sales-nodata');
-        
-        // Check if we have meaningful data
-        var hasData = dsLabels.length > 0;
+        var hasData = branchRows.length > 0;
         var hasRevenue = totalRevenue > 0;
 
         if (!hasData || !hasRevenue) {
-            console.log('[PrintFlow] Dashboard sales chart: No meaningful data found', {
-                hasData: hasData,
-                hasRevenue: hasRevenue,
-                labelsLength: dsLabels.length,
-                totalBranchRev: totalRevenue
-            });
             if (noDataEl) {
                 noDataEl.style.display = 'flex';
                 var span = noDataEl.querySelector('span');
                 if (span) {
-                    if (!hasData) {
-                        span.textContent = 'No branch revenue data for this period';
-                    } else {
-                        span.textContent = 'No paid branch revenue found for the selected period';
-                    }
+                    span.textContent = hasData
+                        ? 'No paid branch revenue found for the selected period'
+                        : 'No branch revenue data for this period';
                 }
             }
             return;
         }
-        
-        console.log('[PrintFlow] Dashboard sales chart: Rendering with data');
+
         if (noDataEl) noDataEl.style.display = 'none';
-        
-        // Destroy existing chart if it exists
-        // (This is now handled above before the initialization check)
-        
+
+        var tickLabels = branchRows.map(function (row) {
+            var shortLabel = String(row.branch_name || '').replace(/\s+Branch$/i, '').trim();
+            return shortLabel || row.branch_name;
+        });
+
+        function categoryMeta(datasetIndex) {
+            if (datasetIndex === 0) {
+                return {
+                    key: 'product',
+                    label: 'Product Revenue',
+                    prevKey: 'prev_revenue_product',
+                    growthKey: 'growth_pct_product'
+                };
+            }
+            return {
+                key: 'service',
+                label: 'Service Revenue',
+                prevKey: 'prev_revenue_service',
+                growthKey: 'growth_pct_service'
+            };
+        }
+
         try {
             canvas.dataset.pfChartInitialized = '1';
-            var barFill = dsRevBranch.map(function (_, index) {
-                return index === 0 ? '#0F4C5C' : 'rgba(0,35,43,0.82)';
-            });
-            var barBorder = dsRevBranch.map(function (_, index) {
-                return index === 0 ? '#53C5E0' : '#00232b';
-            });
-            var tickLabels = dsLabels.map(function (label) {
-                var shortLabel = String(label || '').replace(/\s+Branch$/i, '').trim();
-                return [shortLabel, 'Branch'];
-            });
             window.__pfDashSalesChart = new Chart(canvas.getContext('2d'), {
                 type: 'bar',
-                data: { 
-                    labels: tickLabels, 
+                data: {
+                    labels: tickLabels,
                     datasets: [
                         {
-                            label: 'Total sales revenue',
-                            data: dsRevBranch,
-                            backgroundColor: barFill,
-                            borderColor: barBorder,
+                            label: 'Product Revenue',
+                            data: dsProduct,
+                            backgroundColor: COLOR_PRODUCT,
+                            borderColor: COLOR_PRODUCT_BORDER,
                             borderWidth: 1.5,
-                            borderRadius: 10,
+                            borderRadius: 8,
                             borderSkipped: false,
-                            barPercentage: 0.58, // thinner bars
-                            categoryPercentage: 0.68 // more space between bars
+                            hoverBackgroundColor: '#0F4C5C',
+                            categoryPercentage: 0.72,
+                            barPercentage: 0.88
+                        },
+                        {
+                            label: 'Service Revenue',
+                            data: dsService,
+                            backgroundColor: COLOR_SERVICE,
+                            borderColor: COLOR_SERVICE_BORDER,
+                            borderWidth: 1.5,
+                            borderRadius: 8,
+                            borderSkipped: false,
+                            hoverBackgroundColor: '#3A86A8',
+                            categoryPercentage: 0.72,
+                            barPercentage: 0.88
                         }
                     ]
                 },
                 options: {
-                    responsive: true, 
+                    responsive: true,
                     maintainAspectRatio: false,
-                    layout: {
-                        padding: { top: 32, right: 18, bottom: 0, left: 8 }
+                    layout: { padding: { top: 36, right: 18, bottom: 4, left: 8 } },
+                    animation: { duration: 1000, easing: 'easeOutQuart' },
+                    transitions: {
+                        active: { animation: { duration: 280 } },
+                        show: { animations: { colors: { duration: 280 }, x: { duration: 280 }, y: { duration: 280 } } },
+                        hide: { animations: { colors: { duration: 200 }, x: { duration: 200 }, y: { duration: 200 } } }
                     },
-                    animation: { duration: 1100, easing: 'easeOutCubic' },
-                    interaction: { mode: 'nearest', intersect: true },
-                    hover: { mode: 'index', intersect: false, animationDuration: 400 },
+                    interaction: { mode: 'index', intersect: false },
                     plugins: {
-                        legend: { 
+                        legend: {
                             display: true,
                             position: 'bottom',
                             labels: {
-                                boxWidth: 10,
-                                boxHeight: 10,
+                                boxWidth: 12,
+                                boxHeight: 12,
+                                padding: 16,
                                 color: '#00232b',
-                                font: { size: 11, weight: '700' }
+                                font: { size: 11, weight: '700' },
+                                usePointStyle: true,
+                                pointStyle: 'rectRounded'
                             }
                         },
-                        tooltip: { 
-                            animation: { duration: 180 }, 
-                            padding: 12, 
-                            cornerRadius: 8, 
-                            displayColors: false,
-                            callbacks: { 
-                                title: function(items) {
+                        tooltip: {
+                            animation: { duration: 180 },
+                            padding: 12,
+                            cornerRadius: 8,
+                            displayColors: true,
+                            backgroundColor: 'rgba(0, 35, 43, 0.94)',
+                            titleFont: { size: 12, weight: '700' },
+                            bodyFont: { size: 11 },
+                            callbacks: {
+                                title: function (items) {
                                     if (!items[0]) return '';
                                     var raw = branchRows[items[0].dataIndex];
                                     return raw ? raw.branch_name : '';
                                 },
-                                label: function(ctx) {
-                                    var idx = ctx.dataIndex;
-                                    var prev = dsPrevRev[idx];
-                                    var growth = dsGrowth[idx];
-                                    var label = 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
-                                    if (prev !== null && !isNaN(prev)) {
-                                        label += '\nPrev: ' + currencyFmt.format(prev);
+                                label: function (ctx) {
+                                    var meta = categoryMeta(ctx.datasetIndex);
+                                    var row = branchRows[ctx.dataIndex];
+                                    var amount = Number(ctx.parsed.y) || 0;
+                                    var lines = [meta.label + ': ' + currencyFmt.format(amount)];
+                                    var pct = totalRevenue > 0 ? (amount / totalRevenue) * 100 : 0;
+                                    lines.push('Contribution: ' + pct.toFixed(1) + '%');
+                                    if (row) {
+                                        var prev = row[meta.prevKey];
+                                        var growth = row[meta.growthKey];
+                                        if (prev != null && !isNaN(prev)) {
+                                            lines.push('Previous period: ' + currencyFmt.format(prev));
+                                        }
+                                        if (growth != null && !isNaN(growth)) {
+                                            lines.push('Growth vs prev: ' + (growth > 0 ? '+' : '') + growth.toFixed(1) + '%');
+                                        }
                                     }
-                                    if (growth !== null && !isNaN(growth)) {
-                                        label += '\nGrowth: ' + (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
-                                    }
-                                    return label;
-                                },
-                                afterLabel: function(ctx) {
-                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.y) || 0) / totalRevenue) * 100 : 0;
-                                    return 'Contribution: ' + pct.toFixed(1) + '%';
+                                    return lines;
                                 }
                             }
                         }
                     },
                     scales: {
-                        y:  { 
-                            beginAtZero: true, 
-                            ticks: { 
-                                font: { size: 11 }, 
-                                callback: function(v){ 
-                                    return compactCurrencyFmt.format(Number(v) || 0); 
-                                } 
-                            }, 
-                            grid: { color: '#f3f4f6' } 
+                        y: {
+                            beginAtZero: true,
+                            stacked: false,
+                            ticks: {
+                                font: { size: 11 },
+                                color: '#64748b',
+                                callback: function (v) {
+                                    return compactCurrencyFmt.format(Number(v) || 0);
+                                }
+                            },
+                            grid: { color: '#f3f4f6' }
                         },
-                        x:  { 
+                        x: {
+                            stacked: false,
                             ticks: {
                                 color: '#334155',
                                 font: { size: 11, weight: '600' },
-                                maxRotation: 0,
-                                minRotation: 0
+                                maxRotation: branchRows.length > 5 ? 35 : 0,
+                                minRotation: 0,
+                                autoSkip: branchRows.length > 12
                             },
-                            grid: { display: false } 
+                            grid: { display: false }
                         }
                     }
                 },
                 plugins: [{
-                    id: 'pfBranchRevenueLabels',
-                    afterDatasetsDraw: function(chart) {
+                    id: 'pfGroupedBranchRevenueLabels',
+                    afterDatasetsDraw: function (chart) {
                         var ctx = chart.ctx;
-                        var meta = chart.getDatasetMeta(0);
-                        var dataset = chart.data.datasets[0];
-                        ctx.save();
-                        ctx.font = '600 11px sans-serif';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'bottom';
-                        meta.data.forEach(function(bar, index) {
-                            var value = Number(dataset.data[index]) || 0;
-                            var growth = dsGrowth[index];
-                            var growthLabel = '';
-                            if (growth !== null && !isNaN(growth)) {
-                                growthLabel = (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
-                            }
-                            ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
-                            ctx.fillText(currencyFmt.format(value), bar.x, bar.y - 6);
-                            if (growthLabel) {
-                                ctx.save();
-                                ctx.font = 'bold 10px sans-serif';
-                                ctx.fillStyle = growth > 0 ? '#059669' : (growth < 0 ? '#dc2626' : '#64748b');
-                                ctx.fillText(growthLabel, bar.x, bar.y - 22);
-                                ctx.restore();
-                            }
+                        chart.data.datasets.forEach(function (dataset, datasetIndex) {
+                            var meta = chart.getDatasetMeta(datasetIndex);
+                            if (!meta || meta.hidden) return;
+                            ctx.save();
+                            ctx.font = '600 10px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            ctx.fillStyle = datasetIndex === 0 ? '#00232b' : '#0F4C5C';
+                            meta.data.forEach(function (bar, index) {
+                                var value = Number(dataset.data[index]) || 0;
+                                if (value <= 0) return;
+                                var chartArea = chart.chartArea;
+                                var barTop = bar.y;
+                                if (chartArea && barTop < chartArea.top + 28) return;
+                                ctx.fillText(compactCurrencyFmt.format(value), bar.x, bar.y - 5);
+                            });
+                            ctx.restore();
                         });
-                        ctx.restore();
                     }
                 }]
             });
-            console.log('[PrintFlow] Dashboard sales chart: Successfully created');
-        } catch(e) {
+            console.log('[PrintFlow] Dashboard sales chart: grouped bar chart created');
+        } catch (e) {
             console.error('[PrintFlow] Dashboard sales chart creation error:', e);
             canvas.dataset.pfChartInitialized = '0';
             if (noDataEl) {
