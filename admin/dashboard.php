@@ -314,6 +314,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
     <link rel="stylesheet" href="<?php echo pf_url('public/assets/css/output.css'); ?>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/dist/apexcharts.min.js"></script>
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <?php render_branch_css(); ?>
@@ -427,6 +430,15 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .chart-title-nowrap { white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:8px; }
         .chart-filters { display:flex; flex-wrap:nowrap; align-items:center; gap:10px; flex-shrink:0; }
         .chart-filter-label { font-size:12px; font-weight:600; color:#6b7280; white-space:nowrap; }
+        .dash-sales-revenue-card,
+        .dash-sales-revenue-card .ana-hd h3,
+        .dash-sales-revenue-card .chart-filter-label,
+        .dash-sales-revenue-card .chart-select,
+        .dash-sales-revenue-card .chart-badge,
+        .dash-sales-revenue-card .chart-nodata,
+        .dash-sales-revenue-card .chart-nodata span {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+        }
         .chart-filter-group { display:flex; gap:8px; align-items:center; flex-shrink:0; }
         .chart-badge { margin-left:8px; padding:3px 8px; background:#EBF8FF; color:#2C5282; border-radius:6px; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
         .period-tab { padding:5px 12px; border-radius:6px; font-size:12px; font-weight:600; border:1px solid #e5e7eb; background:#f9fafb; color:#6b7280; cursor:pointer; transition:all .15s; }
@@ -774,7 +786,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             </div>
 
             <!-- Sales Revenue (Full Width) -->
-            <div class="ana-card dash-full" style="margin-bottom:28px;">
+            <div class="ana-card dash-full dash-sales-revenue-card" style="margin-bottom:28px;">
                     <div class="ana-hd chart-header-row" style="margin-bottom:0;">
                         <h3 class="chart-title-nowrap">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
@@ -1092,6 +1104,18 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 (function () {
     var dashCtrl = null;
     var salesFirstFetch = true;
+    var PF_DASH_CHART_FONT = 'Inter';
+    function pfDashChartFont(size, weight) {
+        return { family: PF_DASH_CHART_FONT, size: size || 11, weight: weight || '600' };
+    }
+    function pfApplyDashChartFontDefaults() {
+        if (typeof Chart === 'undefined' || !Chart.defaults) return;
+        Chart.defaults.font.family = PF_DASH_CHART_FONT;
+        Chart.defaults.font.size = 11;
+        Chart.defaults.font.weight = '600';
+    }
+    pfApplyDashChartFontDefaults();
+    document.addEventListener('DOMContentLoaded', pfApplyDashChartFontDefaults);
     window.printflowTeardownDashboardCharts = function () {
         if (window.__pfDashRevealIOs && window.__pfDashRevealIOs.length) {
             window.__pfDashRevealIOs.forEach(function (io) {
@@ -1317,7 +1341,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             position: 'top',
                             labels: {
                                 boxWidth: 12,
-                                font: { size: 11 }
+                                font: pfDashChartFont(11, '600')
                             }
                         },
                         tooltip: {
@@ -1325,6 +1349,8 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             padding: 10,
                             cornerRadius: 8,
                             displayColors: true,
+                            titleFont: pfDashChartFont(11, '600'),
+                            bodyFont: pfDashChartFont(11, '600'),
                             callbacks: {
                                 label: function (ctx) {
                                     var label = ctx.dataset.label || '';
@@ -1334,8 +1360,8 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         }
                     },
                     scales: {
-                        y:  { beginAtZero: true, ticks: { font: { size: isDashMobile() ? 10 : 11 }, maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
-                        x:  { ticks: { font: { size: isDashMobile() ? 9 : 10 }, maxRotation: isDashMobile() ? 0 : 45, autoSkip: true, maxTicksLimit: isDashMobile() ? 5 : 10 }, grid: { display: false } }
+                        y:  { beginAtZero: true, ticks: { font: pfDashChartFont(isDashMobile() ? 10 : 11, '600'), maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
+                        x:  { ticks: { font: pfDashChartFont(isDashMobile() ? 9 : 10, '600'), maxRotation: isDashMobile() ? 0 : 45, autoSkip: true, maxTicksLimit: isDashMobile() ? 5 : 10 }, grid: { display: false } }
                     }
                 }
             });

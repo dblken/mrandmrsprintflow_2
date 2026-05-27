@@ -1220,7 +1220,16 @@ LIMIT {$limit}
  *   revenue_jobs:float
  * }>
  */
-function pf_reports_branch_performance_merged(string $from, string $toEnd, $branchId = 'all'): array {
+/**
+ * Returns branch performance with optional previous period for growth calculation.
+ * @param string $from
+ * @param string $toEnd
+ * @param mixed $branchId
+ * @param string|null $prevFrom
+ * @param string|null $prevToEnd
+ * @return array
+ */
+function pf_reports_branch_performance_merged(string $from, string $toEnd, $branchId = 'all', string $prevFrom = null, string $prevToEnd = null): array {
     $map = [];
     $names = [];
     $branchIdInt = ($branchId === 'all' || $branchId === null) ? 0 : (int)$branchId;
@@ -1348,16 +1357,72 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
     }
 
     // 4. Final aggregation and formatting
+    $prevMap = [];
+    // If previous period is provided, fetch previous period revenue for growth calculation
+    if ($prevFrom && $prevToEnd) {
+        try {
+            $oDatePart = " AND o.order_date BETWEEN ? AND ?";
+            $odParams = [$prevFrom, $prevToEnd];
+            $odTypes = "ss";
+            if ($branchId !== 'all' && $branchId !== null) {
+                $branchIdInt = (int)$branchId;
+                if ($branchIdInt > 0) {
+                    $oDatePart .= " AND o.branch_id = ?";
+                    $odParams[] = $branchIdInt;
+                    $odTypes .= "i";
+                }
+            } else {
+                $oDatePart .= " AND o.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
+            }
+            $oRows = db_query(
+                "SELECT o.branch_id, SUM(CASE WHEN o.payment_status = 'Paid' THEN o.total_amount ELSE 0 END) AS rev FROM orders o WHERE o.branch_id IS NOT NULL {$oDatePart} GROUP BY o.branch_id",
+                $odTypes,
+                $odParams
+            ) ?: [];
+            foreach ($oRows as $r) {
+                $id = (int) $r['branch_id'];
+                $prevMap[$id] = (float) $r['rev'];
+            }
+            // Customization jobs
+            $jDatePart = " AND jo.created_at BETWEEN ? AND ?";
+            $jdParams = [$prevFrom, $prevToEnd];
+            $jdTypes = "ss";
+            if ($branchId !== 'all' && $branchId !== null) {
+                $branchIdInt = (int)$branchId;
+                if ($branchIdInt > 0) {
+                    $jDatePart .= " AND jo.branch_id = ?";
+                    $jdParams[] = $branchIdInt;
+                    $jdTypes .= "i";
+                }
+            } else {
+                $jDatePart .= " AND jo.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
+            }
+            $jRows = db_query(
+                "SELECT jo.branch_id, SUM(CASE WHEN jo.payment_status = 'PAID' THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) AS rev FROM job_orders jo WHERE jo.branch_id IS NOT NULL {$jDatePart} GROUP BY jo.branch_id",
+                $jdTypes,
+                $jdParams
+            ) ?: [];
+            foreach ($jRows as $r) {
+                $id = (int) $r['branch_id'];
+                if (!isset($prevMap[$id])) $prevMap[$id] = 0.0;
+                $prevMap[$id] += (float) $r['rev'];
+            }
+        } catch (Throwable $e) {}
+    }
+
     $out = [];
     foreach ($map as $bid => $v) {
         $ord = (int) $v['orders_store'] + (int) $v['orders_jobs'];
         $rev = (float) $v['revenue_store'] + (float) $v['revenue_jobs'];
-
+        $prevRev = $prevMap[$bid] ?? null;
+        $growth = null;
+        if ($prevRev !== null && $prevRev > 0) {
+            $growth = round((($rev - $prevRev) / $prevRev) * 100, 1);
+        }
         $rawName = $names[$bid] ?? ('Branch #' . $bid);
         $pretty = function_exists('mb_convert_case')
             ? mb_convert_case(trim($rawName), MB_CASE_TITLE, 'UTF-8')
             : ucwords(strtolower(trim($rawName)));
-
         $out[] = [
             'branch_name' => $pretty,
             'orders' => $ord,
@@ -1366,6 +1431,8 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             'revenue_store' => (float) $v['revenue_store'],
             'orders_jobs' => (int) $v['orders_jobs'],
             'revenue_jobs' => (float) $v['revenue_jobs'],
+            'prev_revenue' => $prevRev,
+            'growth_pct' => $growth,
         ];
     }
 
@@ -1623,4 +1690,26 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
     ]));
 
     return $result;
+}
+
+/**
+ * Monthly revenue trend for one branch (sparkline / compact trend chart).
+ *
+ * @return array{labels:string[], revTotal:float[]}
+ */
+function pf_reports_branch_monthly_trend(int $branchId, int $months = 6): array {
+    if ($branchId <= 0) {
+        return ['labels' => [], 'revTotal' => []];
+    }
+    $months = max(2, min(12, $months));
+    $from = date('Y-m-01', strtotime('-' . ($months - 1) . ' months'));
+    $toEnd = date('Y-m-d') . ' 23:59:59';
+    $series = pf_reports_period_sales_merged($from, $toEnd, $branchId);
+    $labels = $series['labels'] ?? [];
+    $rev = $series['revTotal'] ?? [];
+    if (count($labels) > $months) {
+        $labels = array_slice($labels, -$months);
+        $rev = array_slice($rev, -$months);
+    }
+    return ['labels' => $labels, 'revTotal' => $rev];
 }

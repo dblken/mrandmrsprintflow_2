@@ -554,9 +554,48 @@ if (!$gaBranchEmpty) {
 }
 
 // ── 12. Branch performance (orders + job_orders, all-time) ─────────────────
-$branch_perf = pf_reports_branch_performance_merged('', '', $is_manager ? $globalAnalyticsBranchId : 'all');
-if ($chart_sort === 'value_asc') {
-    $branch_perf = array_reverse($branch_perf);
+$dash_prev_from = $from && $to ? date('Y-m-d', strtotime($from) - (strtotime($to) - strtotime($from)) - 86400) : '';
+$dash_prev_toEnd = $from && $to ? date('Y-m-d', strtotime($from) - 86400) . ' 23:59:59' : '';
+$dash_branch_perf = pf_reports_branch_performance_merged($from, $toEnd, $globalAnalyticsBranchId, $dash_prev_from, $dash_prev_toEnd);
+$dash_branch_perf = array_values(array_filter($dash_branch_perf, static function ($branch) {
+    return (float)($branch['revenue'] ?? 0) > 0;
+}));
+$dash_branch_total_revenue = array_reduce($dash_branch_perf, static function ($carry, $branch) {
+    return $carry + (float)($branch['revenue'] ?? 0);
+}, 0.0);
+$dash_branch_count = count($dash_branch_perf);
+$dash_top_branch = $dash_branch_perf[0] ?? null;
+$dash_low_branch = $dash_branch_count > 0 ? $dash_branch_perf[$dash_branch_count - 1] : null;
+$dash_avg_branch_revenue = $dash_branch_count > 0 ? ($dash_branch_total_revenue / $dash_branch_count) : 0.0;
+$dash_top_branches = array_slice($dash_branch_perf, 0, 5);
+$dash_period_label = 'All Time';
+if ($from !== '' && $to !== '') {
+    if (date('Y-m', strtotime($from)) === date('Y-m', strtotime($to))) {
+        $dash_period_label = date('F Y', strtotime($from));
+    } else {
+        $dash_period_label = date('M j, Y', strtotime($from)) . ' - ' . date('M j, Y', strtotime($to));
+    }
+} elseif ($from !== '') {
+    $dash_period_label = 'From ' . date('M j, Y', strtotime($from));
+} elseif ($to !== '') {
+    $dash_period_label = 'Until ' . date('M j, Y', strtotime($to));
+}
+
+$dash_sidebar_single = !printflow_branch_value_is_all($globalAnalyticsBranchId);
+$dash_single_branch = ($dash_sidebar_single && !empty($dash_branch_perf)) ? $dash_branch_perf[0] : null;
+$dash_total_product_revenue = array_reduce($dash_branch_perf, static function ($carry, $branch) {
+    return $carry + (float)($branch['revenue_store'] ?? 0);
+}, 0.0);
+$dash_total_service_revenue = array_reduce($dash_branch_perf, static function ($carry, $branch) {
+    return $carry + (float)($branch['revenue_jobs'] ?? 0);
+}, 0.0);
+$dash_product_pct = $dash_branch_total_revenue > 0 ? round(($dash_total_product_revenue / $dash_branch_total_revenue) * 100, 1) : 0.0;
+$dash_service_pct = $dash_branch_total_revenue > 0 ? round(($dash_total_service_revenue / $dash_branch_total_revenue) * 100, 1) : 0.0;
+$dash_single_prod_pct = 0.0;
+$dash_single_svc_pct = 0.0;
+if ($dash_single_branch && (float)($dash_single_branch['revenue'] ?? 0) > 0) {
+    $dash_single_prod_pct = round(((float)($dash_single_branch['revenue_store'] ?? 0) / (float)$dash_single_branch['revenue']) * 100, 1);
+    $dash_single_svc_pct = round(((float)($dash_single_branch['revenue_jobs'] ?? 0) / (float)$dash_single_branch['revenue']) * 100, 1);
 }
 
 // ── 13. Top customers ─────────────────────────────────────────────────────────
@@ -739,8 +778,8 @@ if (!$gaBranchEmpty) {
         $insights[] = "Next month (<strong>$next_month_label</strong>) revenue forecast: <strong>₱".number_format($forecast_revenue,0)."</strong> based on 12-month trend.";
     if (!empty($custom_usage) && (int)$custom_usage[0]['custom_count'] > (int)$custom_usage[0]['template_count'])
         $insights[] = "<strong>".htmlspecialchars($custom_usage[0]['product'])."</strong> shows the highest custom design upload rate.";
-    if (!empty($branch_perf) && count($branch_perf) > 1)
-        $insights[] = "<strong>".htmlspecialchars($branch_perf[0]['branch_name'])."</strong> leads all branches with ₱".number_format((float)$branch_perf[0]['revenue'],0)." revenue.";
+    if (!empty($dash_branch_perf) && count($dash_branch_perf) > 1)
+        $insights[] = "<strong>".htmlspecialchars($dash_branch_perf[0]['branch_name'])."</strong> leads all branches with ₱".number_format((float)$dash_branch_perf[0]['revenue'],0)." revenue.";
     if ($revenue_delta !== null) {
         if ($revenue_delta > 10)
             $insights[] = "Revenue is up <strong>{$revenue_delta}%</strong> vs. the previous period — strong growth momentum.";
@@ -1414,46 +1453,6 @@ a.export-dd-link:hover { background: #f9fafb; }
 .sk-warn     { background:#f59e0b; }
 .sk-danger   { background:#ef4444; }
 
-/* ── Branch Performance Comparison (Enhanced Unified Chart - No Scroll) ──────────── */
-.pf-brc-container { display: flex; align-items: flex-start; gap: 0; position: relative; width: 100%; border: 1px solid #f1f5f9; border-radius: 12px; padding: 16px 12px 24px; background: #fff; }
-.pf-brc-y-left { width: 70px; flex-shrink: 0; height: 320px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; font-weight: 800; color: #00232b; text-align: right; padding-right: 10px; border-right: 2px solid #e2e8f0; margin-top: 20px; margin-bottom: 65px; }
-.pf-brc-y-right { width: 45px; flex-shrink: 0; height: 320px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9px; font-weight: 800; color: #3b82f6; text-align: left; padding-left: 10px; border-left: 2px solid #e2e8f0; margin-top: 20px; margin-bottom: 65px; }
-.pf-brc-wrap { flex: 1; overflow: hidden; padding-top: 20px; position: relative; min-width: 0; }
-.pf-brc-legend { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; justify-content: center; padding: 0 20px; transition: all 0.2s ease; margin-bottom: 16px; }
-.pf-brc-leg { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; transition: all 0.2s ease; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #475569; }
-.pf-brc-leg:hover { background: #f1f5f9; transform: translateY(-1px); }
-.pf-brc-leg.is-hidden { opacity: 0.3; text-decoration: line-through; }
-.pf-brc-leg i { width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(15,23,42,.08); }
-.pf-brc-grid { height: 320px; display: flex; align-items: stretch; position: relative; border-bottom: 2px solid #334155; width: 100%; }
-.pf-brc-gridline { position: absolute; left: 0; right: 0; border-top: 1px dashed #f1f5f9; pointer-events: none; }
-.pf-brc-cluster { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 4px; padding: 0 8px; height: 100%; transition: all 0.2s ease; border-right: 1px solid #f8fafc; position: relative; }
-.pf-brc-cluster:hover { background: rgba(241, 245, 249, 0.6); z-index: 10; }
-.pf-brc-names { display: flex; padding-left: 1px; margin-top: 8px; width: 100%; height: 75px; }
-.pf-brc-name { flex: 1; min-width: 0; display: flex; justify-content: center; align-items: flex-start; padding-top: 15px; }
-.pf-brc-name-txt { font-size: 9px; font-weight: 800; color: #1e293b; white-space: nowrap; transform: rotate(-40deg); transform-origin: top center; display: inline-block; max-width: 80px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
-
-.pf-brc-cluster--empty { opacity: 0.5; }
-.pf-brc-bar { flex: 1; min-width: 8px; max-width: 16px; border-radius: 4px 4px 0 0; min-height: 1px; position: relative; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; transform-origin: bottom; }
-.pf-brc-bar.is-hidden { opacity: 0; transform: scaleY(0); pointer-events: none; }
-.pf-brc-bar:not(.is-hidden):hover { filter: brightness(1.15); transform: scaleY(1.05); z-index: 5; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-.pf-brc-val { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 8px; font-weight: 800; white-space: nowrap; color: #475569; line-height: 1; pointer-events: none; }
-@media (max-width: 1200px) {
-    .pf-brc-cluster { gap: 3px; padding: 0 6px; }
-    .pf-brc-bar { min-width: 6px; max-width: 12px; }
-    .pf-brc-name-txt { font-size: 8px; max-width: 70px; }
-}
-
-/* ── Custom Card Tooltip ──────────────── */
-#pf-brc-card-tooltip {
-    position: fixed; z-index: 9999; pointer-events: none; visibility: hidden; opacity: 0;
-    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15); transition: opacity 0.15s ease, visibility 0.15s ease;
-    min-width: 180px; font-family: inherit;
-}
-.pf-tt-branch { font-weight: 800; font-size: 14px; color: #0f172a; margin-bottom: 8px; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px; }
-.pf-tt-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 1.6; }
-.pf-tt-lbl { color: #64748b; font-weight: 600; }
-.pf-tt-val { color: #0f172a; font-weight: 700; text-align: right; }
 /* ── Customer Locations (Progress Bar Style - Match Customization Usage) ── */
 .pf-loc-list {
     display: flex;
@@ -1605,9 +1604,324 @@ a.export-dd-link:hover { background: #f9fafb; }
     overflow: hidden;
 }
 
+#dash-sales-chart-wrap {
+    overflow: hidden;
+}
+
+.pf-branch-revenue-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.9fr) minmax(280px, 0.9fr);
+    gap: 18px;
+    align-items: stretch;
+    min-height: 520px;
+}
+
+.pf-branch-revenue-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pf-branch-revenue-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 12px;
+    border: 1px solid #eef2f7;
+    border-radius: 14px;
+    background:
+        radial-gradient(circle at top right, rgba(83,197,224,0.12), transparent 34%),
+        linear-gradient(180deg, #fbfdff 0%, #f8fafc 100%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);
+}
+
+.pf-branch-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.pf-branch-meta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 12px;
+}
+
+.pf-branch-meta-badge svg {
+    width: 14px;
+    height: 14px;
+    color: #64748b;
+}
+
+.pf-branch-summary-title,
+.pf-branch-section-title {
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #475569;
+}
+
+.pf-branch-revenue-sidebar .pf-branch-summary-title {
+    margin-bottom: 10px;
+}
+
+.pf-branch-summary-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.pf-branch-stat {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.88);
+    border: 1px solid rgba(226,232,240,0.92);
+    box-shadow: 0 10px 25px rgba(15,23,42,0.04);
+}
+
+.pf-branch-stat-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pf-branch-stat-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.pf-branch-stat-copy {
+    min-width: 0;
+}
+
+.pf-branch-stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 4px;
+    line-height: 1.35;
+}
+
+.pf-branch-stat-value {
+    font-size: 12px;
+    font-weight: 700;
+    color: #00232b;
+    line-height: 1.25;
+}
+
+.pf-branch-stat-sub {
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 3px;
+    line-height: 1.35;
+}
+
+.pf-branch-stat-total .pf-branch-stat-icon {
+    background: linear-gradient(180deg, #ecf8fb 0%, #f0fafc 100%);
+    color: #00232b;
+}
+
+.pf-branch-stat-top .pf-branch-stat-icon {
+    background: linear-gradient(180deg, #dcfce7 0%, #f0fdf4 100%);
+    color: #16a34a;
+}
+
+.pf-branch-stat-low .pf-branch-stat-icon {
+    background: linear-gradient(180deg, #f3e8ff 0%, #faf5ff 100%);
+    color: #9333ea;
+}
+
+.pf-branch-stat-avg .pf-branch-stat-icon {
+    background: linear-gradient(180deg, #ffedd5 0%, #fff7ed 100%);
+    color: #f97316;
+}
+
+.pf-branch-stat-sub.pos { color: #16a34a; }
+.pf-branch-stat-sub.neg { color: #dc2626; }
+.pf-branch-stat-sub.neu { color: #475569; }
+
+.pf-branch-toplist {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 14px;
+}
+
+.pf-branch-toplist-title {
+    margin: 0 0 10px;
+}
+
+.pf-branch-toplist-items {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pf-branch-toprow {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.pf-branch-rank {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #00232b 0%, #0F4C5C 100%);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pf-branch-toprow-copy {
+    min-width: 0;
+}
+
+.pf-branch-toprow-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: #00232b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 5px;
+}
+
+.pf-branch-toprow-bar {
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.pf-branch-toprow-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #00232b 0%, #0F4C5C 100%);
+}
+
+.pf-branch-toprow-value {
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    white-space: nowrap;
+}
+
+.pf-branch-revenue-sidebar[data-sidebar-mode="single"],
+.pf-branch-revenue-sidebar[data-sidebar-mode="multi"] {
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.pf-branch-breakdown {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 14px;
+}
+
+.pf-branch-breakdown-row {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.pf-branch-breakdown-row:last-child {
+    margin-bottom: 0;
+}
+
+.pf-branch-breakdown-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.pf-branch-breakdown-meta span {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.pf-branch-breakdown-meta strong {
+    font-size: 12px;
+    font-weight: 700;
+    color: #00232b;
+    line-height: 1.25;
+}
+
+.pf-branch-breakdown-bar {
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.pf-branch-breakdown-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+}
+
+.pf-branch-breakdown-bar--product > span {
+    background: linear-gradient(90deg, #00232b 0%, #0F4C5C 100%);
+}
+
+.pf-branch-breakdown-bar--service > span {
+    background: linear-gradient(90deg, #53C5E0 0%, #3498DB 100%);
+}
+
+.pf-branch-footnote {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-top: 1px solid #e5e7eb;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.pf-branch-footnote svg {
+    width: 14px;
+    height: 14px;
+    color: #94a3b8;
+    flex-shrink: 0;
+}
+
+.pf-wide-chart-canvas--branch,
+.pf-wide-chart-canvas--branch canvas {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
 @media (max-width: 768px) {
-    #dash-sales-chart-wrap,
+    .pf-branch-revenue-layout {
+        grid-template-columns: 1fr;
+        min-height: 0;
+    }
     .ana-card .trend12-chart {
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    #dash-sales-chart-wrap {
         overflow-x: auto !important;
         overflow-y: hidden !important;
         -webkit-overflow-scrolling: touch;
@@ -1619,10 +1933,16 @@ a.export-dd-link:hover { background: #f9fafb; }
         height: 100% !important;
     }
     .pf-wide-chart-canvas canvas,
-    #dash-sales-chart-wrap canvas,
     .ana-card .trend12-chart canvas {
         min-width: 820px !important;
         width: 820px !important;
+        max-width: none !important;
+    }
+    .pf-wide-chart-canvas--branch,
+    .pf-wide-chart-canvas--branch canvas,
+    #dash-sales-chart-wrap canvas {
+        min-width: 760px !important;
+        width: 760px !important;
         max-width: none !important;
     }
 }
@@ -1729,7 +2049,7 @@ a.export-dd-link:hover { background: #f9fafb; }
                         <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                             <div class="filter-panel-header">Filter</div>
                             <form method="GET" id="reportsFilterForm">
-                                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($branchId); ?>">
+                                <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId; ?>">
                                 <input type="hidden" name="chart_sort" value="<?php echo htmlspecialchars($chart_sort); ?>">
                                 <input type="hidden" name="trend_metric" value="<?php echo htmlspecialchars($trend_metric); ?>">
                                 <input type="hidden" name="txn_pay" value="<?php echo htmlspecialchars($txn_payment_filter); ?>">
@@ -1958,14 +2278,36 @@ $dashData = [
             'orders' => (int)$l['orders']
         ];
     }, $customer_locations),
-    'branchPerf' => array_map(function($b) {
-        return [
-            'branch_name' => $b['branch_name'],
-            'revenue' => (float)$b['revenue'],
-            'orders_store' => (int)($b['orders_store'] ?? 0),
-            'orders_jobs' => (int)($b['orders_jobs'] ?? 0)
-        ];
-    }, $branch_perf),
+    'salesByBranch' => array_map(function($b) {
+            return [
+                'branch_name' => $b['branch_name'],
+                'revenue' => round((float)$b['revenue'], 2),
+                'revenue_store' => round((float)($b['revenue_store'] ?? 0), 2),
+                'revenue_jobs' => round((float)($b['revenue_jobs'] ?? 0), 2),
+                'orders_store' => (int)($b['orders_store'] ?? 0),
+                'orders_jobs' => (int)($b['orders_jobs'] ?? 0),
+                'prev_revenue' => isset($b['prev_revenue']) ? (float)$b['prev_revenue'] : null,
+                'growth_pct' => isset($b['growth_pct']) ? $b['growth_pct'] : null
+            ];
+        }, $dash_branch_perf),
+    'salesByBranchSidebar' => [
+        'mode' => $dash_sidebar_single ? 'single' : 'multi',
+        'period_label' => $dash_period_label,
+        'single' => $dash_single_branch ? [
+            'branch_name' => (string)$dash_single_branch['branch_name'],
+            'revenue' => round((float)$dash_single_branch['revenue'], 2),
+            'revenue_store' => round((float)($dash_single_branch['revenue_store'] ?? 0), 2),
+            'revenue_jobs' => round((float)($dash_single_branch['revenue_jobs'] ?? 0), 2),
+            'prev_revenue' => isset($dash_single_branch['prev_revenue']) ? (float)$dash_single_branch['prev_revenue'] : null,
+            'growth_pct' => $dash_single_branch['growth_pct'] ?? null,
+        ] : null,
+        'multi' => [
+            'total_revenue' => round($dash_branch_total_revenue, 2),
+            'product_pct' => $dash_product_pct,
+            'service_pct' => $dash_service_pct,
+            'branch_count' => (int)$dash_branch_count,
+        ],
+    ],
     'forecastChart' => [
         'can_forecast' => (bool)$can_forecast,
         'all_labels'   => $fc_all_labels,
@@ -2085,30 +2427,36 @@ $dashData = [
                 <div class="ana-hd">
                     <h3 class="chart-title-nowrap">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                        Sales Revenue
+                        Sales Revenue by Branch
                         <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;">Filter Applied</span>
                     </h3>
-                    <div class="no-print">
-                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"sales_revenue"]), $je); ?>)' title="Print Sales Revenue Report">
+                    <div class="pf-branch-meta no-print">
+                        <div class="pf-branch-meta-badge" title="Current branch revenue reporting period">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                            <?php echo htmlspecialchars($dash_period_label); ?>
+                        </div>
+                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"branch_perf"]), $je); ?>)' title="Print Sales Revenue by Branch Report">
                             <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
                     </div>
                 </div>
                 <div class="ana-bd">
-                    <div class="ch-box" id="dash-sales-chart-wrap" style="height:320px;">
+                    <div class="pf-branch-revenue-layout">
+                        <div class="pf-branch-revenue-main">
+                    <div class="ch-box" id="dash-sales-chart-wrap" style="height:520px;">
                         <?php if ($branch_empty): ?>
                         <div class="empty-state" style="padding:40px 20px;">
                             <div class="empty-icon" style="opacity:0.4; margin-bottom:12px;">
                                 <svg width="24" height="24" fill="none" stroke="#9ca3af" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                             </div>
-                            <div class="empty-title" style="font-size:13px; color:#6b7280;">No branch activity</div>
-                            <div class="empty-sub" style="font-size:11px;">Transactions for <strong><?php echo htmlspecialchars($branchName); ?></strong> will appear here.</div>
+                            <div class="empty-title" style="font-size:13px; color:#6b7280;">No branch revenue yet</div>
+                            <div class="empty-sub" style="font-size:11px;">Sales revenue by branch will appear here once transactions are recorded for <strong><?php echo htmlspecialchars($branchName); ?></strong>.</div>
                         </div>
                         <?php else: ?>
                         <div class="chart-loading hidden" id="dash-sales-loading">
                             <div class="chart-loading-spinner"></div>
                         </div>
                         <div id="dash-sales-nodata" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#9ca3af;font-size:11px;font-weight:600;letter-spacing:0.02em;z-index:1;">
-                            <span>No sales data for this period</span>
+                            <span>No branch revenue data for this period</span>
                         </div>
                         <!-- Debug info (remove in production) -->
                         <?php if (isset($_GET['debug'])): ?>
@@ -2121,8 +2469,194 @@ $dashData = [
                             Sample: <?php echo $dash_labels[0] ?? 'none'; ?>
                         </div>
                         <?php endif; ?>
-                        <div class="pf-wide-chart-canvas"><canvas id="dashSalesChart"></canvas></div>
+                        <div class="pf-wide-chart-canvas pf-wide-chart-canvas--branch"><canvas id="dashSalesChart"></canvas></div>
                         <?php endif; ?>
+                    </div>
+                        <div class="pf-branch-footnote">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <?php if ($dash_sidebar_single && $dash_single_branch): ?>
+                            Showing sales revenue for <strong><?php echo htmlspecialchars((string)$dash_single_branch['branch_name']); ?></strong> for <?php echo htmlspecialchars($dash_period_label); ?>.
+                            <?php else: ?>
+                            Showing combined sales revenue across <?php echo (int)$dash_branch_count; ?> branch<?php echo $dash_branch_count === 1 ? '' : 'es'; ?> for <?php echo htmlspecialchars($dash_period_label); ?>.
+                            <?php endif; ?>
+                        </div>
+                        </div>
+                        <aside class="pf-branch-revenue-sidebar" id="pfBranchRevenueSidebar" data-sidebar-mode="<?php echo $dash_sidebar_single ? 'single' : 'multi'; ?>">
+                            <?php if ($dash_sidebar_single && $dash_single_branch): ?>
+                            <?php
+                                $single_growth_val = $dash_single_branch['growth_pct'] ?? null;
+                                $single_growth_class = ($single_growth_val !== null && $single_growth_val !== '')
+                                    ? ((float)$single_growth_val > 0 ? 'pos' : ((float)$single_growth_val < 0 ? 'neg' : ''))
+                                    : '';
+                            ?>
+                            <h4 class="pf-branch-summary-title">Branch Performance Summary</h4>
+                            <div class="pf-branch-summary-grid">
+                                <div class="pf-branch-stat pf-branch-stat-total">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Branch</div>
+                                        <div class="pf-branch-stat-value"><?php echo htmlspecialchars((string)$dash_single_branch['branch_name']); ?></div>
+                                        <div class="pf-branch-stat-sub neu">Selected branch</div>
+                                    </div>
+                                </div>
+                                <div class="pf-branch-stat pf-branch-stat-total">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Total Revenue</div>
+                                        <div class="pf-branch-stat-value">₱<?php echo number_format((float)$dash_single_branch['revenue'], 0); ?></div>
+                                        <div class="pf-branch-stat-sub neu">Current period total</div>
+                                    </div>
+                                </div>
+                                <div class="pf-branch-stat pf-branch-stat-top">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Revenue Growth vs Previous Period</div>
+                                        <div class="pf-branch-stat-value">
+                                            <?php if ($single_growth_val !== null && $single_growth_val !== ''): ?>
+                                                <?php echo (float)$single_growth_val > 0 ? '+' : ''; ?><?php echo number_format((float)$single_growth_val, 1); ?>%
+                                            <?php else: ?>
+                                                —
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="pf-branch-stat-sub <?php echo $single_growth_class === 'pos' ? 'pos' : ($single_growth_class === 'neg' ? 'neg' : 'neu'); ?>">
+                                            Period-over-period change
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="pf-branch-stat pf-branch-stat-avg">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Previous Period Revenue</div>
+                                        <div class="pf-branch-stat-value">
+                                            <?php echo isset($dash_single_branch['prev_revenue']) && $dash_single_branch['prev_revenue'] !== null
+                                                ? ('₱' . number_format((float)$dash_single_branch['prev_revenue'], 0))
+                                                : '—'; ?>
+                                        </div>
+                                        <div class="pf-branch-stat-sub neu">Comparable prior window</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="pf-branch-breakdown">
+                                <h4 class="pf-branch-section-title">Revenue Breakdown</h4>
+                                <div class="pf-branch-breakdown-row">
+                                    <div class="pf-branch-breakdown-meta">
+                                        <span>Product Revenue</span>
+                                        <strong>₱<?php echo number_format((float)($dash_single_branch['revenue_store'] ?? 0), 0); ?> · <?php echo number_format($dash_single_prod_pct, 1); ?>%</strong>
+                                    </div>
+                                    <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--product"><span style="width:<?php echo max(0, min(100, $dash_single_prod_pct)); ?>%"></span></div>
+                                </div>
+                                <div class="pf-branch-breakdown-row">
+                                    <div class="pf-branch-breakdown-meta">
+                                        <span>Service Revenue</span>
+                                        <strong>₱<?php echo number_format((float)($dash_single_branch['revenue_jobs'] ?? 0), 0); ?> · <?php echo number_format($dash_single_svc_pct, 1); ?>%</strong>
+                                    </div>
+                                    <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--service"><span style="width:<?php echo max(0, min(100, $dash_single_svc_pct)); ?>%"></span></div>
+                                </div>
+                            </div>
+                            <?php else: ?>
+                            <h4 class="pf-branch-summary-title">Multi-Branch Summary</h4>
+                            <div class="pf-branch-summary-grid">
+                                <div class="pf-branch-stat pf-branch-stat-total">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Total Combined Revenue</div>
+                                        <div class="pf-branch-stat-value">₱<?php echo number_format($dash_branch_total_revenue, 0); ?></div>
+                                        <div class="pf-branch-stat-sub neu"><?php echo (int)$dash_branch_count; ?> branches compared</div>
+                                    </div>
+                                </div>
+                                <div class="pf-branch-stat pf-branch-stat-top">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 00.95-.69l1.07-3.292z"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Top Performing Branch</div>
+                                        <div class="pf-branch-stat-value"><?php echo htmlspecialchars((string)($dash_top_branch['branch_name'] ?? '—')); ?></div>
+                                        <div class="pf-branch-stat-sub pos">
+                                            <?php
+                                            $topPct = $dash_branch_total_revenue > 0 && $dash_top_branch ? (((float)$dash_top_branch['revenue'] / $dash_branch_total_revenue) * 100) : 0;
+                                            echo $dash_top_branch ? ('₱' . number_format((float)$dash_top_branch['revenue'], 0) . ' (' . number_format($topPct, 1) . '%)') : 'No data';
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php if ($dash_branch_count > 1): ?>
+                                <div class="pf-branch-stat pf-branch-stat-low">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Lowest Performing Branch</div>
+                                        <div class="pf-branch-stat-value"><?php echo htmlspecialchars((string)($dash_low_branch['branch_name'] ?? '—')); ?></div>
+                                        <div class="pf-branch-stat-sub neg">
+                                            <?php
+                                            $lowPct = $dash_branch_total_revenue > 0 && $dash_low_branch ? (((float)$dash_low_branch['revenue'] / $dash_branch_total_revenue) * 100) : 0;
+                                            echo $dash_low_branch ? ('₱' . number_format((float)$dash_low_branch['revenue'], 0) . ' (' . number_format($lowPct, 1) . '%)') : 'No data';
+                                            ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                <div class="pf-branch-stat pf-branch-stat-avg">
+                                    <div class="pf-branch-stat-icon">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 11V5a1 1 0 012 0v6h6a1 1 0 110 2h-6v6a1 1 0 11-2 0v-6H5a1 1 0 110-2h6z"/></svg>
+                                    </div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Average Revenue per Branch</div>
+                                        <div class="pf-branch-stat-value">₱<?php echo number_format($dash_avg_branch_revenue, 0); ?></div>
+                                        <div class="pf-branch-stat-sub neu">Across visible branches</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php if ($dash_branch_count > 1): ?>
+                            <div class="pf-branch-toplist">
+                                <h4 class="pf-branch-section-title pf-branch-toplist-title">Top Branch Rankings</h4>
+                                <div class="pf-branch-toplist-items">
+                                    <?php foreach ($dash_top_branches as $index => $branch): ?>
+                                        <?php $branchPct = $dash_branch_total_revenue > 0 ? (((float)$branch['revenue'] / $dash_branch_total_revenue) * 100) : 0; ?>
+                                        <?php $barPct = $dash_top_branch && (float)$dash_top_branch['revenue'] > 0 ? (((float)$branch['revenue'] / (float)$dash_top_branch['revenue']) * 100) : 0; ?>
+                                        <div class="pf-branch-toprow">
+                                            <div class="pf-branch-rank"><?php echo $index + 1; ?></div>
+                                            <div class="pf-branch-toprow-copy">
+                                                <div class="pf-branch-toprow-name"><?php echo htmlspecialchars((string)$branch['branch_name']); ?></div>
+                                                <div class="pf-branch-toprow-bar"><span style="width:<?php echo max(6, min(100, $barPct)); ?>%"></span></div>
+                                            </div>
+                                            <div class="pf-branch-toprow-value">₱<?php echo number_format((float)$branch['revenue'], 0); ?> (<?php echo number_format($branchPct, 1); ?>%)</div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            <?php if ($dash_branch_total_revenue > 0): ?>
+                            <div class="pf-branch-breakdown">
+                                <h4 class="pf-branch-section-title">Revenue Contribution Breakdown</h4>
+                                <div class="pf-branch-breakdown-row">
+                                    <div class="pf-branch-breakdown-meta">
+                                        <span>Product Revenue</span>
+                                        <strong>₱<?php echo number_format($dash_total_product_revenue, 0); ?> · <?php echo number_format($dash_product_pct, 1); ?>%</strong>
+                                    </div>
+                                    <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--product"><span style="width:<?php echo max(0, min(100, $dash_product_pct)); ?>%"></span></div>
+                                </div>
+                                <div class="pf-branch-breakdown-row">
+                                    <div class="pf-branch-breakdown-meta">
+                                        <span>Service Revenue</span>
+                                        <strong>₱<?php echo number_format($dash_total_service_revenue, 0); ?> · <?php echo number_format($dash_service_pct, 1); ?>%</strong>
+                                    </div>
+                                    <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--service"><span style="width:<?php echo max(0, min(100, $dash_service_pct)); ?>%"></span></div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            <?php endif; ?>
+                        </aside>
                     </div>
                 </div>
             </div>
@@ -2438,165 +2972,6 @@ $dashData = [
                 </div>
             </div>
 
-            <!-- ══ BRANCH PERFORMANCE COMPARISON (Dual-Axis) ══════════════════ -->
-            <?php if (!$is_manager && count($branch_perf) > 0): ?>
-            <?php
-                $perf_revArr = array_map(fn($b) => (float)$b['revenue'], $branch_perf);
-                $maxRev = max(100, ...$perf_revArr);
-                $pref_ordArr = [];
-                foreach ($branch_perf as $b) {
-                    $pref_ordArr[] = (int)($b['orders_store'] ?? 0);
-                    $pref_ordArr[] = (int)($b['orders_jobs'] ?? 0);
-                }
-                $maxOrd = max(5, ...$pref_ordArr);
-                $cH = 320; 
-                $fmtRev = function(float $v): string {
-                    if ($v >= 1e6) return '₱' . number_format($v / 1e6, 1) . 'M';
-                    if ($v >= 1e3) return '₱' . number_format($v / 1e3, 0) . 'k';
-                    return '₱' . number_format($v, 0);
-                };
-            ?>
-            <div class="ana-card">
-                <div class="ana-hd">
-                    <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg><?php echo $is_manager ? 'Current Branch Performance' : 'Branch Performance Comparison'; ?>
-                        <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo $is_manager ? 'This branch' : 'All branches'; ?></span>
-                    </h3>
-                    <div class="no-print">
-                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"branch_perf"]), $je); ?>)' title="Print Branch Performance Comparison Report">
-                            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
-                    </div>
-                </div>
-                <div class="ana-bd">
-                    <div class="pf-brc-legend" style="margin-bottom:20px;">
-                        <span class="pf-brc-leg" data-metric="revenue" role="button" tabindex="0" title="Click to toggle Revenue"><i style="background:#00232b"></i>Revenue (₱)</span>
-                        <span class="pf-brc-leg" data-metric="orders" role="button" tabindex="0" title="Click to toggle Store Orders"><i style="background:#3b82f6"></i>Store Orders</span>
-                        <span class="pf-brc-leg" data-metric="jobs" role="button" tabindex="0" title="Click to toggle Customization Jobs"><i style="background:#14b8a6"></i>Customization Jobs</span>
-                    </div>
-                    
-                    <div class="pf-brc-container">
-                        <!-- Left Y-Axis (Revenue) -->
-                        <div class="pf-brc-y-left">
-                            <div><?php echo $fmtRev($maxRev); ?></div>
-                            <div><?php echo $fmtRev($maxRev*0.75); ?></div>
-                            <div><?php echo $fmtRev($maxRev*0.5); ?></div>
-                            <div><?php echo $fmtRev($maxRev*0.25); ?></div>
-                            <div>₱0</div>
-                        </div>
-
-                        <!-- Main Chart Content (Scrollable) -->
-                        <div class="pf-brc-wrap">
-                            <div class="pf-brc-grid">
-                                <div class="pf-brc-gridline" style="bottom:25%"></div>
-                                <div class="pf-brc-gridline" style="bottom:50%"></div>
-                                <div class="pf-brc-gridline" style="bottom:75%"></div>
-                                <?php foreach ($branch_perf as $br):
-                                    $rev = (float)$br['revenue'];
-                                    $os  = (int)($br['orders_store'] ?? 0);
-                                    $oj  = (int)($br['orders_jobs'] ?? 0);
-                                    $hR  = $maxRev > 0 ? (int)round(($rev / $maxRev) * $cH) : 0;
-                                    $hO  = $maxOrd > 0 ? (int)round(($os / $maxOrd) * $cH) : 0;
-                                    $hC  = $maxOrd > 0 ? (int)round(($oj / $maxOrd) * $cH) : 0;
-                                    $isEmpty = ($rev == 0 && $os == 0 && $oj == 0);
-                                    $revFull = number_format($rev, 0);
-                                ?>
-                                <div class="pf-brc-cluster <?php echo $isEmpty ? 'pf-brc-cluster--empty' : ''; ?>"
-                                     data-branch="<?php echo htmlspecialchars($br['branch_name']); ?>"
-                                     data-rev="₱<?php echo $revFull; ?>"
-                                     data-os="<?php echo $os; ?>"
-                                     data-oj="<?php echo $oj; ?>"
-                                     data-empty="<?php echo $isEmpty ? '1' : '0'; ?>">
-                                    <!-- Revenue bar -->
-                                    <div class="pf-brc-bar pf-brc-bar--revenue" style="height:<?php echo max(1, $hR); ?>px; background:#00232b;">
-                                        <?php if ($hR > 25): ?><div class="pf-brc-val"><?php echo $fmtRev($rev); ?></div><?php endif; ?>
-                                    </div>
-                                    <!-- Store Orders bar -->
-                                    <div class="pf-brc-bar pf-brc-bar--orders" style="height:<?php echo max(1, $hO); ?>px; background:#3b82f6;">
-                                        <?php if ($hO > 20 && $os > 0): ?><div class="pf-brc-val"><?php echo $os; ?></div><?php endif; ?>
-                                    </div>
-                                    <!-- Customization bar -->
-                                    <div class="pf-brc-bar pf-brc-bar--jobs" style="height:<?php echo max(1, $hC); ?>px; background:#14b8a6;">
-                                        <?php if ($hC > 20 && $oj > 0): ?><div class="pf-brc-val"><?php echo $oj; ?></div><?php endif; ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-
-                            <!-- Branch Names (Horizontal Scrollable) -->
-                            <div class="pf-brc-names">
-                                <?php foreach ($branch_perf as $br): ?>
-                                <div class="pf-brc-name">
-                                    <span class="pf-brc-name-txt"><?php echo htmlspecialchars(mb_substr($br['branch_name'], 0, 18)); ?></span>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
-
-                        <!-- Right Y-Axis (Orders) -->
-                        <div class="pf-brc-y-right">
-                            <div><?php echo number_format($maxOrd); ?></div>
-                            <div><?php echo number_format($maxOrd*0.75); ?></div>
-                            <div><?php echo number_format($maxOrd*0.5); ?></div>
-                            <div><?php echo number_format($maxOrd*0.25); ?></div>
-                            <div>0</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Custom Tooltip Div -->
-            <div id="pf-brc-card-tooltip">
-                <div class="pf-tt-branch" id="pf-tt-branch-name">Branch Name</div>
-                <div class="pf-tt-row"><span class="pf-tt-lbl">Revenue</span> <span class="pf-tt-val" id="pf-tt-rev">₱0</span></div>
-                <div class="pf-tt-row"><span class="pf-tt-lbl">Store Orders</span> <span class="pf-tt-val" id="pf-tt-os">0</span></div>
-                <div class="pf-tt-row"><span class="pf-tt-lbl">Customization</span> <span class="pf-tt-val" id="pf-tt-oj">0</span></div>
-                <div class="pf-tt-empty" id="pf-tt-empty-msg" style="display:none;">No data available for this period</div>
-            </div>
-
-            <script>
-            (function(){
-                const tooltip = document.getElementById('pf-brc-card-tooltip');
-                if (!tooltip) return;
-                const ttName = document.getElementById('pf-tt-branch-name');
-                const ttRev  = document.getElementById('pf-tt-rev');
-                const ttOs   = document.getElementById('pf-tt-os');
-                const ttOj   = document.getElementById('pf-tt-oj');
-                const ttEmpty = document.getElementById('pf-tt-empty-msg');
-
-                const clusters = document.querySelectorAll('.pf-brc-cluster');
-                clusters.forEach(c => {
-                    c.addEventListener('mouseenter', (e) => {
-                        ttName.textContent = c.dataset.branch;
-                        ttRev.textContent  = c.dataset.rev;
-                        ttOs.textContent   = c.dataset.os;
-                        ttOj.textContent   = c.dataset.oj;
-                        ttEmpty.style.display = c.dataset.empty === '1' ? 'block' : 'none';
-                        
-                        tooltip.style.visibility = 'visible';
-                        tooltip.style.opacity = '1';
-                    });
-                    c.addEventListener('mousemove', (e) => {
-                        let x = e.clientX + 15;
-                        let y = e.clientY + 15;
-                        const winW = window.innerWidth;
-                        const winH = window.innerHeight;
-                        const ttW = tooltip.offsetWidth;
-                        const ttH = tooltip.offsetHeight;
-
-                        if (x + ttW > winW) x = e.clientX - ttW - 15;
-                        if (y + ttH > winH) y = e.clientY - ttH - 15;
-
-                        tooltip.style.left = x + 'px';
-                        tooltip.style.top  = y + 'px';
-                    });
-                    c.addEventListener('mouseleave', () => {
-                        tooltip.style.visibility = 'hidden';
-                        tooltip.style.opacity = '0';
-                    });
-                });
-            })();
-            </script>
-            <?php endif; ?>
-
             <!-- ══ TOP CUSTOMERS ══════════════════════════════════════════ -->
             <div class="ana-card print-hide" style="display:none;">
                 <div class="ana-hd">
@@ -2724,6 +3099,8 @@ $dashData = [
                     'summary' => $summary,
                     'filterCount' => (int)($from !== '' || $to !== ''),
                     'activePreset' => $active_p,
+                    'branchId' => printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId,
+                    'branchName' => $branchName,
                     'dashData' => $dashData
                 ]);
                 exit;
@@ -2735,45 +3112,13 @@ $dashData = [
 
 <script>
 function printflowInitReportsPage() {
-    // ── BRANCH PERFORMANCE LEGEND TOGGLE (Interactive Buttons - Matches Heatmap) ──
-    const brcLegs = document.querySelectorAll('.pf-brc-leg');
-    
-    brcLegs.forEach(leg => {
-        if (leg.dataset.pfBound === '1') return;
-        leg.dataset.pfBound = '1';
-        
-        leg.addEventListener('click', function() {
-            const metric = this.getAttribute('data-metric');
-            if (!metric) return;
-            
-            // Toggle hidden state on legend item
-            this.classList.toggle('is-hidden');
-            const isHidden = this.classList.contains('is-hidden');
-            
-            // Find and toggle bars
-            let barSelector = '';
-            if (metric === 'revenue') barSelector = '.pf-brc-bar--revenue';
-            else if (metric === 'orders') barSelector = '.pf-brc-bar--orders';
-            else if (metric === 'jobs') barSelector = '.pf-brc-bar--jobs';
-            
-            const bars = document.querySelectorAll(barSelector);
-            bars.forEach(bar => {
-                if (isHidden) {
-                    bar.classList.add('is-hidden');
-                } else {
-                    bar.classList.remove('is-hidden');
-                }
-            });
-        });
-        
-        // Keyboard support
-        leg.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                leg.click();
-            }
-        });
-    });
+    try {
+        var urlBranch = new URLSearchParams(window.location.search).get('branch_id');
+        if (urlBranch && window.printflowSyncReportsBranchContext) {
+            var headerLabel = document.getElementById('branchSelectorLabel');
+            window.printflowSyncReportsBranchContext(urlBranch, headerLabel ? headerLabel.textContent : '');
+        }
+    } catch (e) {}
 
     // ── CUSTOMER LOCATIONS TOOLTIP (REUSED FROM CUSTOMIZATION USAGE) ──
     let locTt = document.getElementById('pf-loc-tooltip');

@@ -307,6 +307,42 @@ function pfPushApexChart(el, options) {
 
 window.__pfReportsUpdateTimer = null;
 let isDashboardFetching = false;
+
+window.printflowSyncReportsBranchContext = function (branchId, branchName) {
+    if (branchId === undefined || branchId === null || branchId === '') {
+        return;
+    }
+    var branchKey = String(branchId).toLowerCase() === 'all' ? 'all' : String(parseInt(branchId, 10) || branchId);
+    var form = document.getElementById('reportsFilterForm');
+    if (form && form.elements['branch_id']) {
+        form.elements['branch_id'].value = branchKey;
+    }
+    var label = document.getElementById('branchSelectorLabel');
+    if (label && branchName) {
+        label.textContent = branchName;
+    }
+    var dropdown = document.getElementById('branchDropdown');
+    if (dropdown) {
+        dropdown.querySelectorAll('.branch-dropdown-item').forEach(function (item) {
+            var href = item.getAttribute('href') || '';
+            var isAll = branchKey === 'all' && href.indexOf('branch_id=all') !== -1;
+            var isBranch = branchKey !== 'all' && (href.indexOf('branch_id=' + branchKey) !== -1 || href.endsWith('branch_id=' + branchKey));
+            item.classList.toggle('active', isAll || isBranch);
+            var check = item.querySelector('.check');
+            if (check) {
+                check.style.display = (isAll || isBranch) ? '' : 'none';
+            }
+        });
+    }
+    try {
+        var u = new URL(window.location.href);
+        u.searchParams.set('branch_id', branchKey);
+        u.searchParams.delete('ajax');
+        u.searchParams.delete('_');
+        window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
+    } catch (e) {}
+};
+
 window.fetchUpdatedDashboard = async function(overrides = {}) {
     if (isDashboardFetching) return;
     
@@ -323,6 +359,17 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
     try {
         const formData = new FormData(form);
         const params = new URLSearchParams(formData);
+
+        // Prefer explicit branch_id from URL (e.g. after "All Branches" navigation)
+        try {
+            const urlBranch = new URLSearchParams(window.location.search).get('branch_id');
+            if (urlBranch) {
+                params.set('branch_id', urlBranch);
+                if (form.elements['branch_id']) {
+                    form.elements['branch_id'].value = urlBranch;
+                }
+            }
+        } catch (e) {}
         
         // Ensure ajax=1 is set
         params.set('ajax', '1');
@@ -366,6 +413,10 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
             // Update URL without reload
             const cleanUrl = url.replace('&ajax=1', '').replace('ajax=1&', '').replace('ajax=1', '');
             window.history.replaceState({}, '', cleanUrl);
+
+            if (data.branchId !== undefined) {
+                window.printflowSyncReportsBranchContext(data.branchId, data.branchName || '');
+            }
 
             // Synchronize Alpine state if data-panel exists
             const panelEl = document.querySelector('[x-data^="reportsFilterPanel"]');
@@ -558,146 +609,221 @@ window.printflowInitReportsCharts = function () {
             console.log('[PrintFlow] Dashboard sales chart: Canvas or Chart.js not found');
             return;
         }
-        
-        // Destroy existing chart first
+
         if (window.__pfDashSalesChart) {
             try {
                 window.__pfDashSalesChart.destroy();
-                console.log('[PrintFlow] Dashboard sales chart: Destroyed existing instance');
-            } catch(e) {
+            } catch (e) {
                 console.warn('[PrintFlow] Error destroying existing chart:', e);
             }
             window.__pfDashSalesChart = null;
         }
-        
-        // Prevent multiple initializations
+
         if (canvas.dataset.pfChartInitialized === '1') {
             console.log('[PrintFlow] Dashboard sales chart: Already initialized, skipping');
             return;
         }
-        
+
         var rData = window.__pfReportsData || {};
-        var sChart = rData.salesChart || {};
-        var dsLabels    = sChart.labels    || [];
-        var dsRevStore  = sChart.revStore  || [];
-        var dsRevCustom = sChart.revCustom || [];
-        var dsRevTotal  = sChart.revTotal  || [];
-        var dsRevBranch = [];
-        if (Array.isArray(dsRevTotal) && dsRevTotal.length === dsLabels.length) {
-            dsRevBranch = dsRevTotal.map(function (v) { return Number(v) || 0; });
-        } else {
-            dsRevBranch = dsRevStore.map(function (v, i) {
-                return Number(v || 0) + Number(dsRevCustom[i] || 0);
-            });
-        }
-        
-        console.log('[PrintFlow] Dashboard sales chart data:', {
-            labels: dsLabels.length,
-            revBranch: dsRevBranch.length,
-            sampleLabel: dsLabels[0],
-            sampleRevBranch: dsRevBranch[0],
-            totalRevenue: dsRevBranch.reduce(function (a, b) { return a + (b || 0); }, 0)
+        var branchRows = Array.isArray(rData.salesByBranch) ? rData.salesByBranch.slice() : [];
+        branchRows = branchRows.map(function (row) {
+            return {
+                branch_name: String(row.branch_name || 'Unknown Branch'),
+                revenue: Number(row.revenue) || 0,
+                orders_store: Number(row.orders_store) || 0,
+                orders_jobs: Number(row.orders_jobs) || 0,
+                prev_revenue: typeof row.prev_revenue === 'number' ? row.prev_revenue : (row.prev_revenue ? Number(row.prev_revenue) : null),
+                growth_pct: typeof row.growth_pct === 'number' ? row.growth_pct : (row.growth_pct ? Number(row.growth_pct) : null)
+            };
+        }).filter(function (row) {
+            return row.revenue > 0;
+        }).sort(function (a, b) {
+            return b.revenue - a.revenue;
         });
-        
+
+        var dsLabels = branchRows.map(function (row) { return row.branch_name; });
+        var dsRevBranch = branchRows.map(function (row) { return row.revenue; });
+        var dsGrowth = branchRows.map(function (row) { return row.growth_pct; });
+        var dsPrevRev = branchRows.map(function (row) { return row.prev_revenue; });
+        var totalRevenue = dsRevBranch.reduce(function (sum, value) { return sum + value; }, 0);
+        var currencyFmt = new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: 'PHP',
+            maximumFractionDigits: 0
+        });
+        var compactCurrencyFmt = new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: 'PHP',
+            notation: 'compact',
+            maximumFractionDigits: 1
+        });
+        var chartWrap = document.getElementById('dash-sales-chart-wrap');
+        var chartCanvasWrap = canvas.parentElement;
+        var widthPerBar = branchRows.length > 8 ? 92 : 104;
+        var computedWidth = Math.max(760, branchRows.length * widthPerBar);
+        if (chartWrap) {
+            chartWrap.style.height = '520px';
+        }
+        if (chartCanvasWrap) {
+            chartCanvasWrap.style.width = computedWidth + 'px';
+            chartCanvasWrap.style.minWidth = computedWidth + 'px';
+        }
+
         var noDataEl = document.getElementById('dash-sales-nodata');
-        
-        // Check if we have meaningful data
         var hasData = dsLabels.length > 0;
-        var hasRevenue = dsRevBranch.some(function (v) { return v > 0; });
+        var hasRevenue = totalRevenue > 0;
 
         if (!hasData || !hasRevenue) {
-            console.log('[PrintFlow] Dashboard sales chart: No meaningful data found', {
-                hasData: hasData,
-                hasRevenue: hasRevenue,
-                labelsLength: dsLabels.length,
-                totalBranchRev: dsRevBranch.reduce(function (a, b) { return a + (b || 0); }, 0)
-            });
             if (noDataEl) {
                 noDataEl.style.display = 'flex';
                 var span = noDataEl.querySelector('span');
                 if (span) {
-                    if (!hasData) {
-                        span.textContent = 'No sales data for this period';
-                    } else {
-                        span.textContent = 'No transactions found for the selected period';
-                    }
+                    span.textContent = !hasData
+                        ? 'No branch revenue data for this period'
+                        : 'No paid branch revenue found for the selected period';
                 }
             }
             return;
         }
-        
-        console.log('[PrintFlow] Dashboard sales chart: Rendering with data');
+
         if (noDataEl) noDataEl.style.display = 'none';
-        
-        // Destroy existing chart if it exists
-        // (This is now handled above before the initialization check)
-        
+
         try {
             canvas.dataset.pfChartInitialized = '1';
+            var barFill = dsRevBranch.map(function (_, index) {
+                return index === 0 ? '#0F4C5C' : 'rgba(0,35,43,0.82)';
+            });
+            var barBorder = dsRevBranch.map(function (_, index) {
+                return index === 0 ? '#53C5E0' : '#00232b';
+            });
+            var tickLabels = dsLabels.map(function (label) {
+                var shortLabel = String(label || '').replace(/\s+Branch$/i, '').trim();
+                return [shortLabel, 'Branch'];
+            });
             window.__pfDashSalesChart = new Chart(canvas.getContext('2d'), {
-                type: 'line',
-                data: { 
-                    labels: dsLabels, 
+                type: 'bar',
+                data: {
+                    labels: tickLabels,
                     datasets: [
                         {
-                            label: 'Branch revenue (\u20b1)',
+                            label: 'Total sales revenue',
                             data: dsRevBranch,
-                            borderColor: '#00232b',
-                            backgroundColor: 'rgba(0,35,43,.08)',
-                            borderWidth: 2.5,
-                            fill: true,
-                            tension: 0.35,
-                            pointBackgroundColor: '#00232b',
-                            pointRadius: 3,
-                            pointHoverRadius: 6,
-                            yAxisID: 'y'
+                            backgroundColor: barFill,
+                            borderColor: barBorder,
+                            borderWidth: 1.5,
+                            borderRadius: 10,
+                            borderSkipped: false,
+                            barPercentage: 0.58,
+                            categoryPercentage: 0.68
                         }
                     ]
                 },
                 options: {
-                    responsive: true, 
+                    responsive: true,
                     maintainAspectRatio: false,
-                    animation: { duration: 1200, easing: 'easeOutQuart' },
-                    interaction: { mode: 'index', intersect: false },
+                    layout: {
+                        padding: { top: 32, right: 18, bottom: 0, left: 8 }
+                    },
+                    animation: { duration: 1100, easing: 'easeOutCubic' },
+                    interaction: { mode: 'nearest', intersect: true },
+                    hover: { mode: 'index', intersect: false, animationDuration: 400 },
                     plugins: {
-                        legend: { 
-                            display: true, 
-                            position: 'top', 
-                            labels: { boxWidth: 12, font: { size: 11 } } 
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 10,
+                                boxHeight: 10,
+                                color: '#00232b',
+                                font: { size: 11, weight: '700' }
+                            }
                         },
-                        tooltip: { 
-                            animation: { duration: 180 }, 
-                            padding: 10, 
-                            cornerRadius: 8, 
-                            displayColors: true,
-                            callbacks: { 
-                                label: function(ctx) {
-                                    var l = ctx.dataset.label || '';
-                                    return l + ': \u20b1' + Number(ctx.parsed.y).toLocaleString(undefined,{minimumFractionDigits:0});
+                        tooltip: {
+                            animation: { duration: 180 },
+                            padding: 12,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            callbacks: {
+                                title: function (items) {
+                                    if (!items[0]) return '';
+                                    var raw = branchRows[items[0].dataIndex];
+                                    return raw ? raw.branch_name : '';
+                                },
+                                label: function (ctx) {
+                                    var idx = ctx.dataIndex;
+                                    var prev = dsPrevRev[idx];
+                                    var growth = dsGrowth[idx];
+                                    var label = 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
+                                    if (prev !== null && !isNaN(prev)) {
+                                        label += '\nPrev: ' + currencyFmt.format(prev);
+                                    }
+                                    if (growth !== null && !isNaN(growth)) {
+                                        label += '\nGrowth: ' + (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
+                                    }
+                                    return label;
+                                },
+                                afterLabel: function (ctx) {
+                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.y) || 0) / totalRevenue) * 100 : 0;
+                                    return 'Contribution: ' + pct.toFixed(1) + '%';
                                 }
                             }
                         }
                     },
                     scales: {
-                        y:  { 
-                            beginAtZero: true, 
-                            ticks: { 
-                                font: { size: 11 }, 
-                                callback: function(v){ 
-                                    return '\u20b1'+Number(v).toLocaleString(); 
-                                } 
-                            }, 
-                            grid: { color: '#f3f4f6' } 
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                font: { size: 11 },
+                                callback: function (v) {
+                                    return compactCurrencyFmt.format(Number(v) || 0);
+                                }
+                            },
+                            grid: { color: '#f3f4f6' }
                         },
-                        x:  { 
-                            ticks: { font: { size: 10 }, maxRotation: 45 }, 
-                            grid: { display: false } 
+                        x: {
+                            ticks: {
+                                color: '#334155',
+                                font: { size: 11, weight: '600' },
+                                maxRotation: 0,
+                                minRotation: 0
+                            },
+                            grid: { display: false }
                         }
                     }
-                }
+                },
+                plugins: [{
+                    id: 'pfBranchRevenueLabels',
+                    afterDatasetsDraw: function (chart) {
+                        var ctx = chart.ctx;
+                        var meta = chart.getDatasetMeta(0);
+                        var dataset = chart.data.datasets[0];
+                        ctx.save();
+                        ctx.font = '600 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        meta.data.forEach(function (bar, index) {
+                            var value = Number(dataset.data[index]) || 0;
+                            var growth = dsGrowth[index];
+                            var growthLabel = '';
+                            if (growth !== null && !isNaN(growth)) {
+                                growthLabel = (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
+                            }
+                            ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
+                            ctx.fillText(currencyFmt.format(value), bar.x, bar.y - 6);
+                            if (growthLabel) {
+                                ctx.save();
+                                ctx.font = 'bold 10px sans-serif';
+                                ctx.fillStyle = growth > 0 ? '#059669' : (growth < 0 ? '#dc2626' : '#64748b');
+                                ctx.fillText(growthLabel, bar.x, bar.y - 22);
+                                ctx.restore();
+                            }
+                        });
+                        ctx.restore();
+                    }
+                }]
             });
             console.log('[PrintFlow] Dashboard sales chart: Successfully created');
-        } catch(e) {
+        } catch (e) {
             console.error('[PrintFlow] Dashboard sales chart creation error:', e);
             canvas.dataset.pfChartInitialized = '0';
             if (noDataEl) {
@@ -1628,9 +1754,10 @@ window.printflowInitReportsCharts = function () {
             var url = PF_HEATMAP_API + '?year=' + encodeURIComponent(year);
             var f = document.getElementById('reportsFilterForm');
             var branchId = f ? (f.elements['branch_id'] ? f.elements['branch_id'].value : 'all') : 'all';
-            if (branchId && branchId !== 'all') {
-                url += '&branch_id=' + encodeURIComponent(branchId);
+            if (!branchId) {
+                branchId = 'all';
             }
+            url += '&branch_id=' + encodeURIComponent(branchId);
             
             fetch(url, {
                 credentials: 'same-origin',
