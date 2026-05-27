@@ -2455,12 +2455,13 @@ $dashData = [
                                             echo $dash_top_branch ? ('₱' . number_format((float)$dash_top_branch['revenue'], 0) . ' (' . number_format($topPct, 1) . '%)') : 'No data';
                                             ?>
                                             <?php if (!empty($dash_top_branch['growth_pct']) || $dash_top_branch['growth_pct'] === 0): ?>
-                                                <span class="badge" style="margin-left:8px;background:<?php echo $dash_top_branch['growth_pct'] > 0 ? '#d1fae5' : ($dash_top_branch['growth_pct'] < 0 ? '#fee2e2' : '#e5e7eb'); ?>;color:<?php echo $dash_top_branch['growth_pct'] > 0 ? '#047857' : ($dash_top_branch['growth_pct'] < 0 ? '#b91c1c' : '#64748b'); ?>;">
+                                                <?php
+                                                    $top_growth_class = $dash_top_branch['growth_pct'] > 0 ? 'b-green' : ($dash_top_branch['growth_pct'] < 0 ? 'b-red' : 'b-gray');
+                                                ?>
+                                                <span class="badge <?php echo $top_growth_class; ?>" style="margin-left:8px;">
                                                     <?php echo $dash_top_branch['growth_pct'] > 0 ? '+' : ''; ?><?php echo number_format($dash_top_branch['growth_pct'], 1); ?>%
                                                 </span>
-                                                <span title="Previous period revenue" style="font-size:10px;color:#64748b;margin-left:6px;">
-                                                    Prev: ₱<?php echo isset($dash_top_branch['prev_revenue']) && $dash_top_branch['prev_revenue'] !== null ? number_format((float)$dash_top_branch['prev_revenue'], 0) : '—'; ?>
-                                                </span>
+                                                <span title="Previous period revenue" class="badge b-gray" style="margin-left:6px;font-size:10px;font-weight:600;vertical-align:middle;">Prev: ₱<?php echo isset($dash_top_branch['prev_revenue']) && $dash_top_branch['prev_revenue'] !== null ? number_format((float)$dash_top_branch['prev_revenue'], 0) : '—'; ?></span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
@@ -2478,12 +2479,13 @@ $dashData = [
                                             echo $dash_low_branch ? ('₱' . number_format((float)$dash_low_branch['revenue'], 0) . ' (' . number_format($lowPct, 1) . '%)') : 'No data';
                                             ?>
                                             <?php if (!empty($dash_low_branch['growth_pct']) || $dash_low_branch['growth_pct'] === 0): ?>
-                                                <span class="badge" style="margin-left:8px;background:<?php echo $dash_low_branch['growth_pct'] > 0 ? '#d1fae5' : ($dash_low_branch['growth_pct'] < 0 ? '#fee2e2' : '#e5e7eb'); ?>;color:<?php echo $dash_low_branch['growth_pct'] > 0 ? '#047857' : ($dash_low_branch['growth_pct'] < 0 ? '#b91c1c' : '#64748b'); ?>;">
+                                                <?php
+                                                    $low_growth_class = $dash_low_branch['growth_pct'] > 0 ? 'b-green' : ($dash_low_branch['growth_pct'] < 0 ? 'b-red' : 'b-gray');
+                                                ?>
+                                                <span class="badge <?php echo $low_growth_class; ?>" style="margin-left:8px;">
                                                     <?php echo $dash_low_branch['growth_pct'] > 0 ? '+' : ''; ?><?php echo number_format($dash_low_branch['growth_pct'], 1); ?>%
                                                 </span>
-                                                <span title="Previous period revenue" style="font-size:10px;color:#64748b;margin-left:6px;">
-                                                    Prev: ₱<?php echo isset($dash_low_branch['prev_revenue']) && $dash_low_branch['prev_revenue'] !== null ? number_format((float)$dash_low_branch['prev_revenue'], 0) : '—'; ?>
-                                                </span>
+                                                <span title="Previous period revenue" class="badge b-gray" style="margin-left:6px;font-size:10px;font-weight:600;vertical-align:middle;">Prev: ₱<?php echo isset($dash_low_branch['prev_revenue']) && $dash_low_branch['prev_revenue'] !== null ? number_format((float)$dash_low_branch['prev_revenue'], 0) : '—'; ?></span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
@@ -2511,14 +2513,17 @@ $dashData = [
                                                 <div class="pf-branch-toprow-name">
                                                     <?php echo htmlspecialchars((string)$branch['branch_name']); ?>
                                                     <?php if (!empty($branch['growth_pct']) || $branch['growth_pct'] === 0): ?>
-                                                        <span class="badge" style="margin-left:6px;background:<?php echo $branch['growth_pct'] > 0 ? '#d1fae5' : ($branch['growth_pct'] < 0 ? '#fee2e2' : '#e5e7eb'); ?>;color:<?php echo $branch['growth_pct'] > 0 ? '#047857' : ($branch['growth_pct'] < 0 ? '#b91c1c' : '#64748b'); ?>;font-size:10px;">
+                                                        <?php
+                                                            $branch_growth_class = $branch['growth_pct'] > 0 ? 'b-green' : ($branch['growth_pct'] < 0 ? 'b-red' : 'b-gray');
+                                                        ?>
+                                                        <span class="badge <?php echo $branch_growth_class; ?>" style="margin-left:6px;font-size:10px;">
                                                             <?php echo $branch['growth_pct'] > 0 ? '+' : ''; ?><?php echo number_format($branch['growth_pct'], 1); ?>%
                                                         </span>
                                                     <?php endif; ?>
                                                 </div>
                                                 <div class="pf-branch-toprow-bar"><span style="width:<?php echo max(6, min(100, $barPct)); ?>%"></span></div>
                                                 <?php if (isset($branch['prev_revenue']) && $branch['prev_revenue'] !== null): ?>
-                                                    <div style="font-size:10px;color:#64748b;margin-top:2px;">Prev: ₱<?php echo number_format((float)$branch['prev_revenue'], 0); ?></div>
+                                                    <div class="badge b-gray" style="font-size:10px;font-weight:600;margin-top:2px;">Prev: ₱<?php echo number_format((float)$branch['prev_revenue'], 0); ?></div>
                                                 <?php endif; ?>
                                             </div>
                                             <div class="pf-branch-toprow-value">₱<?php echo number_format((float)$branch['revenue'], 0); ?> (<?php echo number_format($branchPct, 1); ?>%)</div>
