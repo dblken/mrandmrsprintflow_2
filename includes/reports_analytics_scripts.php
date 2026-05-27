@@ -606,10 +606,15 @@ window.printflowInitReportsCharts = function () {
             maximumFractionDigits: 1
         });
         var chartWrap = document.getElementById('dash-sales-chart-wrap');
-        var heightPerBar = branchRows.length > 10 ? 38 : 48;
-        var computedHeight = Math.max(320, Math.min(720, 96 + (branchRows.length * heightPerBar)));
+        var chartCanvasWrap = canvas.parentElement;
+        var widthPerBar = branchRows.length > 8 ? 92 : 104;
+        var computedWidth = Math.max(760, branchRows.length * widthPerBar);
         if (chartWrap) {
-            chartWrap.style.height = computedHeight + 'px';
+            chartWrap.style.height = '520px';
+        }
+        if (chartCanvasWrap) {
+            chartCanvasWrap.style.width = computedWidth + 'px';
+            chartCanvasWrap.style.minWidth = computedWidth + 'px';
         }
         
         console.log('[PrintFlow] Dashboard sales chart data:', {
@@ -661,10 +666,14 @@ window.printflowInitReportsCharts = function () {
             var barBorder = dsRevBranch.map(function (_, index) {
                 return index === 0 ? '#53C5E0' : '#00232b';
             });
+            var tickLabels = dsLabels.map(function (label) {
+                var shortLabel = String(label || '').replace(/\s+Branch$/i, '').trim();
+                return [shortLabel, 'Branch'];
+            });
             window.__pfDashSalesChart = new Chart(canvas.getContext('2d'), {
                 type: 'bar',
                 data: { 
-                    labels: dsLabels, 
+                    labels: tickLabels, 
                     datasets: [
                         {
                             label: 'Total sales revenue',
@@ -682,15 +691,21 @@ window.printflowInitReportsCharts = function () {
                 options: {
                     responsive: true, 
                     maintainAspectRatio: false,
-                    indexAxis: 'y',
                     layout: {
-                        padding: { top: 10, right: 80, bottom: 8, left: 8 }
+                        padding: { top: 26, right: 14, bottom: 0, left: 8 }
                     },
                     animation: { duration: 1100, easing: 'easeOutCubic' },
                     interaction: { mode: 'nearest', intersect: true },
                     plugins: {
                         legend: { 
-                            display: false
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 10,
+                                boxHeight: 10,
+                                color: '#2563eb',
+                                font: { size: 11, weight: '700' }
+                            }
                         },
                         tooltip: { 
                             animation: { duration: 180 }, 
@@ -699,20 +714,22 @@ window.printflowInitReportsCharts = function () {
                             displayColors: false,
                             callbacks: { 
                                 title: function(items) {
-                                    return items[0] ? items[0].label : '';
+                                    if (!items[0]) return '';
+                                    var raw = branchRows[items[0].dataIndex];
+                                    return raw ? raw.branch_name : '';
                                 },
                                 label: function(ctx) {
-                                    return 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.x) || 0);
+                                    return 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
                                 },
                                 afterLabel: function(ctx) {
-                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.x) || 0) / totalRevenue) * 100 : 0;
+                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.y) || 0) / totalRevenue) * 100 : 0;
                                     return 'Contribution: ' + pct.toFixed(1) + '%';
                                 }
                             }
                         }
                     },
                     scales: {
-                        x:  { 
+                        y:  { 
                             beginAtZero: true, 
                             ticks: { 
                                 font: { size: 11 }, 
@@ -722,14 +739,12 @@ window.printflowInitReportsCharts = function () {
                             }, 
                             grid: { color: '#f3f4f6' } 
                         },
-                        y:  { 
+                        x:  { 
                             ticks: {
                                 color: '#334155',
                                 font: { size: 11, weight: '600' },
-                                callback: function(value) {
-                                    var label = this.getLabelForValue(value) || '';
-                                    return label.length > 22 ? label.slice(0, 22) + '...' : label;
-                                }
+                                maxRotation: 0,
+                                minRotation: 0
                             },
                             grid: { display: false } 
                         }
@@ -743,12 +758,12 @@ window.printflowInitReportsCharts = function () {
                         var dataset = chart.data.datasets[0];
                         ctx.save();
                         ctx.font = '600 11px sans-serif';
-                        ctx.textAlign = 'left';
-                        ctx.textBaseline = 'middle';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
                         meta.data.forEach(function(bar, index) {
                             var value = Number(dataset.data[index]) || 0;
                             ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
-                            ctx.fillText(currencyFmt.format(value), bar.x + 10, bar.y);
+                            ctx.fillText(currencyFmt.format(value), bar.x, bar.y - 6);
                         });
                         ctx.restore();
                     }
