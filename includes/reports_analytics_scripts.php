@@ -577,18 +577,39 @@ window.printflowInitReportsCharts = function () {
         }
         
         var rData = window.__pfReportsData || {};
-        var sChart = rData.salesChart || {};
-        var dsLabels    = sChart.labels    || [];
-        var dsRevStore  = sChart.revStore  || [];
-        var dsRevCustom = sChart.revCustom || [];
-        var dsRevTotal  = sChart.revTotal  || [];
-        var dsRevBranch = [];
-        if (Array.isArray(dsRevTotal) && dsRevTotal.length === dsLabels.length) {
-            dsRevBranch = dsRevTotal.map(function (v) { return Number(v) || 0; });
-        } else {
-            dsRevBranch = dsRevStore.map(function (v, i) {
-                return Number(v || 0) + Number(dsRevCustom[i] || 0);
-            });
+        var branchRows = Array.isArray(rData.salesByBranch) ? rData.salesByBranch.slice() : [];
+        branchRows = branchRows.map(function (row) {
+            return {
+                branch_name: String(row.branch_name || 'Unknown Branch'),
+                revenue: Number(row.revenue) || 0,
+                orders_store: Number(row.orders_store) || 0,
+                orders_jobs: Number(row.orders_jobs) || 0
+            };
+        }).filter(function (row) {
+            return row.revenue > 0;
+        }).sort(function (a, b) {
+            return b.revenue - a.revenue;
+        });
+
+        var dsLabels = branchRows.map(function (row) { return row.branch_name; });
+        var dsRevBranch = branchRows.map(function (row) { return row.revenue; });
+        var totalRevenue = dsRevBranch.reduce(function (sum, value) { return sum + value; }, 0);
+        var currencyFmt = new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: 'PHP',
+            maximumFractionDigits: 0
+        });
+        var compactCurrencyFmt = new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: 'PHP',
+            notation: 'compact',
+            maximumFractionDigits: 1
+        });
+        var chartWrap = document.getElementById('dash-sales-chart-wrap');
+        var heightPerBar = branchRows.length > 10 ? 38 : 48;
+        var computedHeight = Math.max(320, Math.min(720, 96 + (branchRows.length * heightPerBar)));
+        if (chartWrap) {
+            chartWrap.style.height = computedHeight + 'px';
         }
         
         console.log('[PrintFlow] Dashboard sales chart data:', {
@@ -596,30 +617,30 @@ window.printflowInitReportsCharts = function () {
             revBranch: dsRevBranch.length,
             sampleLabel: dsLabels[0],
             sampleRevBranch: dsRevBranch[0],
-            totalRevenue: dsRevBranch.reduce(function (a, b) { return a + (b || 0); }, 0)
+            totalRevenue: totalRevenue
         });
         
         var noDataEl = document.getElementById('dash-sales-nodata');
         
         // Check if we have meaningful data
         var hasData = dsLabels.length > 0;
-        var hasRevenue = dsRevBranch.some(function (v) { return v > 0; });
+        var hasRevenue = totalRevenue > 0;
 
         if (!hasData || !hasRevenue) {
             console.log('[PrintFlow] Dashboard sales chart: No meaningful data found', {
                 hasData: hasData,
                 hasRevenue: hasRevenue,
                 labelsLength: dsLabels.length,
-                totalBranchRev: dsRevBranch.reduce(function (a, b) { return a + (b || 0); }, 0)
+                totalBranchRev: totalRevenue
             });
             if (noDataEl) {
                 noDataEl.style.display = 'flex';
                 var span = noDataEl.querySelector('span');
                 if (span) {
                     if (!hasData) {
-                        span.textContent = 'No sales data for this period';
+                        span.textContent = 'No branch revenue data for this period';
                     } else {
-                        span.textContent = 'No transactions found for the selected period';
+                        span.textContent = 'No paid branch revenue found for the selected period';
                     }
                 }
             }
@@ -634,67 +655,104 @@ window.printflowInitReportsCharts = function () {
         
         try {
             canvas.dataset.pfChartInitialized = '1';
+            var barFill = dsRevBranch.map(function (_, index) {
+                return index === 0 ? '#0F4C5C' : 'rgba(0,35,43,0.82)';
+            });
+            var barBorder = dsRevBranch.map(function (_, index) {
+                return index === 0 ? '#53C5E0' : '#00232b';
+            });
             window.__pfDashSalesChart = new Chart(canvas.getContext('2d'), {
-                type: 'line',
+                type: 'bar',
                 data: { 
                     labels: dsLabels, 
                     datasets: [
                         {
-                            label: 'Branch revenue (\u20b1)',
+                            label: 'Total sales revenue',
                             data: dsRevBranch,
-                            borderColor: '#00232b',
-                            backgroundColor: 'rgba(0,35,43,.08)',
-                            borderWidth: 2.5,
-                            fill: true,
-                            tension: 0.35,
-                            pointBackgroundColor: '#00232b',
-                            pointRadius: 3,
-                            pointHoverRadius: 6,
-                            yAxisID: 'y'
+                            backgroundColor: barFill,
+                            borderColor: barBorder,
+                            borderWidth: 1.5,
+                            borderRadius: 10,
+                            borderSkipped: false,
+                            barPercentage: 0.72,
+                            categoryPercentage: 0.76
                         }
                     ]
                 },
                 options: {
                     responsive: true, 
                     maintainAspectRatio: false,
-                    animation: { duration: 1200, easing: 'easeOutQuart' },
-                    interaction: { mode: 'index', intersect: false },
+                    indexAxis: 'y',
+                    layout: {
+                        padding: { top: 10, right: 80, bottom: 8, left: 8 }
+                    },
+                    animation: { duration: 1100, easing: 'easeOutCubic' },
+                    interaction: { mode: 'nearest', intersect: true },
                     plugins: {
                         legend: { 
-                            display: true, 
-                            position: 'top', 
-                            labels: { boxWidth: 12, font: { size: 11 } } 
+                            display: false
                         },
                         tooltip: { 
                             animation: { duration: 180 }, 
                             padding: 10, 
                             cornerRadius: 8, 
-                            displayColors: true,
+                            displayColors: false,
                             callbacks: { 
+                                title: function(items) {
+                                    return items[0] ? items[0].label : '';
+                                },
                                 label: function(ctx) {
-                                    var l = ctx.dataset.label || '';
-                                    return l + ': \u20b1' + Number(ctx.parsed.y).toLocaleString(undefined,{minimumFractionDigits:0});
+                                    return 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.x) || 0);
+                                },
+                                afterLabel: function(ctx) {
+                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.x) || 0) / totalRevenue) * 100 : 0;
+                                    return 'Contribution: ' + pct.toFixed(1) + '%';
                                 }
                             }
                         }
                     },
                     scales: {
-                        y:  { 
+                        x:  { 
                             beginAtZero: true, 
                             ticks: { 
                                 font: { size: 11 }, 
                                 callback: function(v){ 
-                                    return '\u20b1'+Number(v).toLocaleString(); 
+                                    return compactCurrencyFmt.format(Number(v) || 0); 
                                 } 
                             }, 
                             grid: { color: '#f3f4f6' } 
                         },
-                        x:  { 
-                            ticks: { font: { size: 10 }, maxRotation: 45 }, 
+                        y:  { 
+                            ticks: {
+                                color: '#334155',
+                                font: { size: 11, weight: '600' },
+                                callback: function(value) {
+                                    var label = this.getLabelForValue(value) || '';
+                                    return label.length > 22 ? label.slice(0, 22) + '...' : label;
+                                }
+                            },
                             grid: { display: false } 
                         }
                     }
-                }
+                },
+                plugins: [{
+                    id: 'pfBranchRevenueLabels',
+                    afterDatasetsDraw: function(chart) {
+                        var ctx = chart.ctx;
+                        var meta = chart.getDatasetMeta(0);
+                        var dataset = chart.data.datasets[0];
+                        ctx.save();
+                        ctx.font = '600 11px sans-serif';
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'middle';
+                        meta.data.forEach(function(bar, index) {
+                            var value = Number(dataset.data[index]) || 0;
+                            ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
+                            ctx.fillText(currencyFmt.format(value), bar.x + 10, bar.y);
+                        });
+                        ctx.restore();
+                    }
+                }]
             });
             console.log('[PrintFlow] Dashboard sales chart: Successfully created');
         } catch(e) {

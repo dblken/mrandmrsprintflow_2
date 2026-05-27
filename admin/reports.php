@@ -554,6 +554,11 @@ if (!$gaBranchEmpty) {
 }
 
 // ── 12. Branch performance (orders + job_orders, all-time) ─────────────────
+$dash_branch_perf = pf_reports_branch_performance_merged($from, $toEnd, $globalAnalyticsBranchId);
+$dash_branch_perf = array_values(array_filter($dash_branch_perf, static function ($branch) {
+    return (float)($branch['revenue'] ?? 0) > 0;
+}));
+
 $branch_perf = pf_reports_branch_performance_merged('', '', $is_manager ? $globalAnalyticsBranchId : 'all');
 if ($chart_sort === 'value_asc') {
     $branch_perf = array_reverse($branch_perf);
@@ -1605,8 +1610,17 @@ a.export-dd-link:hover { background: #f9fafb; }
     overflow: hidden;
 }
 
+#dash-sales-chart-wrap {
+    overflow: hidden;
+}
+
+.pf-wide-chart-canvas--branch,
+.pf-wide-chart-canvas--branch canvas {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
 @media (max-width: 768px) {
-    #dash-sales-chart-wrap,
     .ana-card .trend12-chart {
         overflow-x: auto !important;
         overflow-y: hidden !important;
@@ -1619,11 +1633,17 @@ a.export-dd-link:hover { background: #f9fafb; }
         height: 100% !important;
     }
     .pf-wide-chart-canvas canvas,
-    #dash-sales-chart-wrap canvas,
     .ana-card .trend12-chart canvas {
         min-width: 820px !important;
         width: 820px !important;
         max-width: none !important;
+    }
+    .pf-wide-chart-canvas--branch,
+    .pf-wide-chart-canvas--branch canvas,
+    #dash-sales-chart-wrap canvas {
+        min-width: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
     }
 }
 
@@ -1966,6 +1986,14 @@ $dashData = [
             'orders_jobs' => (int)($b['orders_jobs'] ?? 0)
         ];
     }, $branch_perf),
+    'salesByBranch' => array_map(function($b) {
+        return [
+            'branch_name' => $b['branch_name'],
+            'revenue' => round((float)$b['revenue'], 2),
+            'orders_store' => (int)($b['orders_store'] ?? 0),
+            'orders_jobs' => (int)($b['orders_jobs'] ?? 0)
+        ];
+    }, $dash_branch_perf),
     'forecastChart' => [
         'can_forecast' => (bool)$can_forecast,
         'all_labels'   => $fc_all_labels,
@@ -2085,11 +2113,11 @@ $dashData = [
                 <div class="ana-hd">
                     <h3 class="chart-title-nowrap">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                        Sales Revenue
+                        Sales Revenue by Branch
                         <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;">Filter Applied</span>
                     </h3>
                     <div class="no-print">
-                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"sales_revenue"]), $je); ?>)' title="Print Sales Revenue Report">
+                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"branch_perf"]), $je); ?>)' title="Print Sales Revenue by Branch Report">
                             <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
                     </div>
                 </div>
@@ -2100,15 +2128,15 @@ $dashData = [
                             <div class="empty-icon" style="opacity:0.4; margin-bottom:12px;">
                                 <svg width="24" height="24" fill="none" stroke="#9ca3af" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                             </div>
-                            <div class="empty-title" style="font-size:13px; color:#6b7280;">No branch activity</div>
-                            <div class="empty-sub" style="font-size:11px;">Transactions for <strong><?php echo htmlspecialchars($branchName); ?></strong> will appear here.</div>
+                            <div class="empty-title" style="font-size:13px; color:#6b7280;">No branch revenue yet</div>
+                            <div class="empty-sub" style="font-size:11px;">Sales revenue by branch will appear here once transactions are recorded for <strong><?php echo htmlspecialchars($branchName); ?></strong>.</div>
                         </div>
                         <?php else: ?>
                         <div class="chart-loading hidden" id="dash-sales-loading">
                             <div class="chart-loading-spinner"></div>
                         </div>
                         <div id="dash-sales-nodata" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#9ca3af;font-size:11px;font-weight:600;letter-spacing:0.02em;z-index:1;">
-                            <span>No sales data for this period</span>
+                            <span>No branch revenue data for this period</span>
                         </div>
                         <!-- Debug info (remove in production) -->
                         <?php if (isset($_GET['debug'])): ?>
@@ -2121,7 +2149,7 @@ $dashData = [
                             Sample: <?php echo $dash_labels[0] ?? 'none'; ?>
                         </div>
                         <?php endif; ?>
-                        <div class="pf-wide-chart-canvas"><canvas id="dashSalesChart"></canvas></div>
+                        <div class="pf-wide-chart-canvas pf-wide-chart-canvas--branch"><canvas id="dashSalesChart"></canvas></div>
                         <?php endif; ?>
                     </div>
                 </div>
