@@ -415,10 +415,12 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <input type="hidden" id="filter-status" :value="activeStatus">
                 <input type="hidden" id="filter-timeframe" :value="activeTimeframe">
 
+                <?php if (($staffAccessMeta['key'] ?? '') === 'pos'): ?>
                 <a href="pos.php" class="toolbar-btn" style="background: linear-gradient(135deg, #0d9488 0%, #065f46 100%); border: none; color:#fff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2); font-weight: 700; height: 38px;">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                     POS
                 </a>
+                <?php endif; ?>
             </div>
         </header>
 
