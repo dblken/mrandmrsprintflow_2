@@ -1968,7 +1968,7 @@ a.export-dd-link:hover { background: #f9fafb; }
                         <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                             <div class="filter-panel-header">Filter</div>
                             <form method="GET" id="reportsFilterForm">
-                                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($branchId); ?>">
+                                <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId; ?>">
                                 <input type="hidden" name="chart_sort" value="<?php echo htmlspecialchars($chart_sort); ?>">
                                 <input type="hidden" name="trend_metric" value="<?php echo htmlspecialchars($trend_metric); ?>">
                                 <input type="hidden" name="txn_pay" value="<?php echo htmlspecialchars($txn_payment_filter); ?>">
@@ -2921,6 +2921,8 @@ $dashData = [
                     'summary' => $summary,
                     'filterCount' => (int)($from !== '' || $to !== ''),
                     'activePreset' => $active_p,
+                    'branchId' => printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId,
+                    'branchName' => $branchName,
                     'dashData' => $dashData
                 ]);
                 exit;
@@ -2932,6 +2934,14 @@ $dashData = [
 
 <script>
 function printflowInitReportsPage() {
+    try {
+        var urlBranch = new URLSearchParams(window.location.search).get('branch_id');
+        if (urlBranch && window.printflowSyncReportsBranchContext) {
+            var headerLabel = document.getElementById('branchSelectorLabel');
+            window.printflowSyncReportsBranchContext(urlBranch, headerLabel ? headerLabel.textContent : '');
+        }
+    } catch (e) {}
+
     // ── CUSTOMER LOCATIONS TOOLTIP (REUSED FROM CUSTOMIZATION USAGE) ──
     let locTt = document.getElementById('pf-loc-tooltip');
     if (!locTt) {

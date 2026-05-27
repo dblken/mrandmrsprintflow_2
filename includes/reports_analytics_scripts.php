@@ -307,6 +307,42 @@ function pfPushApexChart(el, options) {
 
 window.__pfReportsUpdateTimer = null;
 let isDashboardFetching = false;
+
+window.printflowSyncReportsBranchContext = function (branchId, branchName) {
+    if (branchId === undefined || branchId === null || branchId === '') {
+        return;
+    }
+    var branchKey = String(branchId).toLowerCase() === 'all' ? 'all' : String(parseInt(branchId, 10) || branchId);
+    var form = document.getElementById('reportsFilterForm');
+    if (form && form.elements['branch_id']) {
+        form.elements['branch_id'].value = branchKey;
+    }
+    var label = document.getElementById('branchSelectorLabel');
+    if (label && branchName) {
+        label.textContent = branchName;
+    }
+    var dropdown = document.getElementById('branchDropdown');
+    if (dropdown) {
+        dropdown.querySelectorAll('.branch-dropdown-item').forEach(function (item) {
+            var href = item.getAttribute('href') || '';
+            var isAll = branchKey === 'all' && href.indexOf('branch_id=all') !== -1;
+            var isBranch = branchKey !== 'all' && (href.indexOf('branch_id=' + branchKey) !== -1 || href.endsWith('branch_id=' + branchKey));
+            item.classList.toggle('active', isAll || isBranch);
+            var check = item.querySelector('.check');
+            if (check) {
+                check.style.display = (isAll || isBranch) ? '' : 'none';
+            }
+        });
+    }
+    try {
+        var u = new URL(window.location.href);
+        u.searchParams.set('branch_id', branchKey);
+        u.searchParams.delete('ajax');
+        u.searchParams.delete('_');
+        window.history.replaceState({}, '', u.pathname + (u.search ? u.search : ''));
+    } catch (e) {}
+};
+
 window.fetchUpdatedDashboard = async function(overrides = {}) {
     if (isDashboardFetching) return;
     
@@ -323,6 +359,17 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
     try {
         const formData = new FormData(form);
         const params = new URLSearchParams(formData);
+
+        // Prefer explicit branch_id from URL (e.g. after "All Branches" navigation)
+        try {
+            const urlBranch = new URLSearchParams(window.location.search).get('branch_id');
+            if (urlBranch) {
+                params.set('branch_id', urlBranch);
+                if (form.elements['branch_id']) {
+                    form.elements['branch_id'].value = urlBranch;
+                }
+            }
+        } catch (e) {}
         
         // Ensure ajax=1 is set
         params.set('ajax', '1');
@@ -366,6 +413,10 @@ window.fetchUpdatedDashboard = async function(overrides = {}) {
             // Update URL without reload
             const cleanUrl = url.replace('&ajax=1', '').replace('ajax=1&', '').replace('ajax=1', '');
             window.history.replaceState({}, '', cleanUrl);
+
+            if (data.branchId !== undefined) {
+                window.printflowSyncReportsBranchContext(data.branchId, data.branchName || '');
+            }
 
             // Synchronize Alpine state if data-panel exists
             const panelEl = document.querySelector('[x-data^="reportsFilterPanel"]');
@@ -1703,9 +1754,10 @@ window.printflowInitReportsCharts = function () {
             var url = PF_HEATMAP_API + '?year=' + encodeURIComponent(year);
             var f = document.getElementById('reportsFilterForm');
             var branchId = f ? (f.elements['branch_id'] ? f.elements['branch_id'].value : 'all') : 'all';
-            if (branchId && branchId !== 'all') {
-                url += '&branch_id=' + encodeURIComponent(branchId);
+            if (!branchId) {
+                branchId = 'all';
             }
+            url += '&branch_id=' + encodeURIComponent(branchId);
             
             fetch(url, {
                 credentials: 'same-origin',

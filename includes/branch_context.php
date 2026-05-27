@@ -71,7 +71,15 @@ function printflow_branch_value_is_all($value): bool {
  */
 function printflow_parse_admin_branch_switch($raw) {
     if (is_array($raw)) {
-        return null;
+        foreach ($raw as $v) {
+            if (printflow_branch_value_is_all($v)) {
+                return 'all';
+            }
+        }
+        $raw = reset($raw);
+        if ($raw === false) {
+            return null;
+        }
     }
     if (printflow_branch_value_is_all($raw)) {
         return 'all';
@@ -87,6 +95,50 @@ function printflow_parse_admin_branch_switch($raw) {
         return ctype_digit($t) ? (int) $t : null;
     }
     return null;
+}
+
+/**
+ * Read branch_id from the current request query (handles duplicate params).
+ */
+function printflow_request_branch_switch_param(): ?string {
+    if (!isset($_GET['branch_id'])) {
+        return null;
+    }
+    $raw = $_GET['branch_id'];
+    if (is_array($raw)) {
+        foreach ($raw as $v) {
+            if (printflow_branch_value_is_all($v)) {
+                return 'all';
+            }
+        }
+        $raw = reset($raw);
+        if ($raw === false) {
+            return null;
+        }
+    }
+    if (!is_scalar($raw)) {
+        return null;
+    }
+    return (string) $raw;
+}
+
+/**
+ * Persist admin branch switch from ?branch_id= before reading session defaults.
+ */
+function printflow_apply_admin_branch_switch_from_request(string $role): void {
+    if (strcasecmp($role, 'Admin') !== 0) {
+        return;
+    }
+    $param = printflow_request_branch_switch_param();
+    if ($param === null) {
+        return;
+    }
+    $parsed = printflow_parse_admin_branch_switch($param);
+    if ($parsed === 'all') {
+        $_SESSION['selected_branch_id'] = 'all';
+    } elseif (is_int($parsed) && $parsed > 0) {
+        $_SESSION['selected_branch_id'] = $parsed;
+    }
 }
 
 /** ─────────────────────────────────────────────────────
@@ -203,22 +255,9 @@ function init_branch_context(bool $page_requires_branch = false): array {
     $branches  = get_all_branches();
 
     // Branch switch via URL — Admins only (Managers/Staff are locked to assignment)
-    if (isset($_GET['branch_id']) && $role === 'Admin') {
-        $parsed = printflow_parse_admin_branch_switch($_GET['branch_id']);
-        if ($parsed === 'all') {
-            $_SESSION['selected_branch_id'] = 'all';
-        } elseif (is_int($parsed) && $parsed > 0) {
-            foreach ($branches as $branchRow) {
-                if ((int) ($branchRow['id'] ?? 0) === $parsed) {
-                    $_SESSION['selected_branch_id'] = $parsed;
-                    break;
-                }
-            }
-        }
-        // Invalid/missing IDs: leave existing session untouched (avoid accidental branch_id = 0).
-    }
+    printflow_apply_admin_branch_switch_from_request($role);
 
-    $default_selected = ($role === 'Admin')
+    $default_selected = (strcasecmp($role, 'Admin') === 0)
         ? printflow_get_default_admin_branch_id()
         : 'all';
     $raw_selected = $_SESSION['selected_branch_id'] ?? $default_selected;
@@ -232,7 +271,9 @@ function init_branch_context(bool $page_requires_branch = false): array {
     }
 
     // Resolve human-readable name
-    if ($selected === 'all') {
+    if (printflow_branch_value_is_all($selected)) {
+        $selected = 'all';
+        $_SESSION['selected_branch_id'] = 'all';
         $branch_name = 'All Branches';
     } else {
         $branch_name = 'Branch';
