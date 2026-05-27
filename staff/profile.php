@@ -71,6 +71,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
         $address_line = trim($_POST['address_line'] ?? '');
         $gender = trim($_POST['gender'] ?? '');
         $profile_picture = $user['profile_picture'];
+        
+        $first_name = ucwords(strtolower(trim($first_name)));
+        $middle_name = ucwords(strtolower(trim($middle_name)));
+        $last_name = ucwords(strtolower(trim($last_name)));
 
         // Handle profile picture upload
         if (!empty($_FILES['profile_picture']['tmp_name']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
@@ -109,14 +113,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
         if ($address_province !== '') $addressParts[] = $address_province;
         $addressParts[] = 'Philippines';
         $address = implode(', ', $addressParts);
+        
+        // Name validation: letters and spaces only
+        $nameRegex = '/^[A-Za-z]+(?: [A-Za-z]+)*$/';
+        $contactRegex = '/^09\d{9}$/';
 
-        if (empty($first_name) || empty($last_name)) {
-            $error = 'First name and last name are required';
-        } elseif (empty($contact_number) || !preg_match('/^09\d{9}$/', $contact_number)) {
+        // Backend strong validation
+        if (empty($first_name)) {
+            $error = 'First name is required.';
+        } elseif (!preg_match($nameRegex, $first_name)) {
+            $error = 'First name must contain letters only.';
+        } elseif (strlen($first_name) < 2 || strlen($first_name) > 50) {
+            $error = 'First name must be between 2 and 50 characters.';
+        } elseif (!empty($middle_name) && !preg_match($nameRegex, $middle_name)) {
+            $error = 'Middle name must contain letters only.';
+        } elseif (!empty($middle_name) && (strlen($middle_name) < 1 || strlen($middle_name) > 50)) {
+            $error = 'Middle name must be between 1 and 50 characters.';
+        } elseif (empty($last_name)) {
+            $error = 'Last name is required.';
+        } elseif (!preg_match($nameRegex, $last_name)) {
+            $error = 'Last name must contain letters only.';
+        } elseif (strlen($last_name) < 2 || strlen($last_name) > 50) {
+            $error = 'Last name must be between 2 and 50 characters.';
+        } elseif (empty($contact_number) || !preg_match($contactRegex, $contact_number)) {
             $error = 'Valid contact number required (09XXXXXXXXX).';
-        } elseif (contact_phone_in_use_across_accounts($contact_number, null, $user_id)) {
+        }
+        
+        if (!$error && contact_phone_in_use_across_accounts($contact_number, null, $user_id)) {
             $error = 'This contact number is already used by another account.';
-        } else {
+        }
+        
+        if (!$error && (strip_tags($first_name) !== $first_name || strip_tags($last_name) !== $last_name || strip_tags($middle_name) !== $middle_name)) {
+            $error = 'Invalid characters detected in name fields.';
+        }
+        
+        // Handle ID image upload
+        if (!$error) {
             $id_filename = $user['id_validation_image'] ?? null;
             if (!empty($_FILES['id_image']['tmp_name']) && $_FILES['id_image']['error'] === UPLOAD_ERR_OK) {
                 $finfo = new finfo(FILEINFO_MIME_TYPE);
@@ -137,54 +169,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_profile'])) {
                     }
                 }
             }
-            if (!$error) {
-                $id_to_save = $id_filename ?? $user['id_validation_image'] ?? null;
-                $birthday = trim($_POST['birthday'] ?? '');
-                if ($birthday === '') {
-                    $error = 'Birthday is required.';
+        }
+        
+        // Validate birthday
+        if (!$error) {
+            $id_to_save = $id_filename ?? $user['id_validation_image'] ?? null;
+            $birthday = trim($_POST['birthday'] ?? '');
+            if ($birthday === '') {
+                $error = 'Birthday is required.';
+            } else {
+                $bday_date = DateTime::createFromFormat('Y-m-d', $birthday);
+                $bday_errors = DateTime::getLastErrors();
+                if (!$bday_date || ($bday_errors['warning_count'] ?? 0) > 0 || ($bday_errors['error_count'] ?? 0) > 0) {
+                    $error = 'Invalid birthday format.';
                 } else {
-                    $bday_date = DateTime::createFromFormat('Y-m-d', $birthday);
-                    $bday_errors = DateTime::getLastErrors();
-                    if (!$bday_date || ($bday_errors['warning_count'] ?? 0) > 0 || ($bday_errors['error_count'] ?? 0) > 0) {
-                        $error = 'Invalid birthday format.';
-                    } else {
-                        $today = new DateTime();
-                        $age = $today->diff($bday_date)->y;
-                        if ($bday_date > $today) {
-                            $error = 'Birthday cannot be a future date.';
-                        } elseif ($age < 18) {
-                            $error = 'User must be at least 18 years old.';
-                        } elseif ($age > 70) {
-                            $error = 'User must be 70 years old or younger.';
-                        }
+                    $today = new DateTime();
+                    $age = $today->diff($bday_date)->y;
+                    if ($bday_date > $today) {
+                        $error = 'Birthday cannot be a future date.';
+                    } elseif ($age < 18) {
+                        $error = 'User must be at least 18 years old.';
+                    } elseif ($age > 70) {
+                        $error = 'User must be 70 years old or younger.';
                     }
                 }
-                if (!$error) {
-                    $result = db_execute(
-                        "UPDATE users SET first_name=?, middle_name=?, last_name=?, contact_number=?, birthday=?, address=?, gender=?, id_validation_image=?, profile_picture=?, updated_at=NOW() WHERE user_id=?",
-                        'sssssssssi',
-                        [$first_name, $middle_name, $last_name, $contact_number, $birthday, $address, $gender, $id_to_save, $profile_picture, $user_id]
-                    );
-                    if ($result) {
-                        $success = 'Profile updated successfully!';
-                        $_SESSION['user_name'] = $first_name . ' ' . $last_name;
-                        $user = db_query("SELECT * FROM users WHERE user_id = ?", 'i', [$user_id])[0];
-                        $_SESSION['user_status'] = $user['status'] ?? $_SESSION['user_status'];
-                        $is_pending = ($user['status'] ?? '') === 'Pending';
-                        $needs_id = false;
-                        if ($is_pending && $id_filename) {
-                            $full_name = trim($first_name . ' ' . ($middle_name ?? '') . ' ' . $last_name);
-                            $msg = $full_name . ' (' . $user['email'] . ') has completed their profile and is ready for admin review.';
-                            $admins = db_query("SELECT user_id, role FROM users WHERE role = 'Admin' AND status = 'Activated'");
-                            foreach ($admins as $a) {
-                                $recipType = $a['role'] ?? 'Admin';
-                                create_notification((int)$a['user_id'], $recipType, $msg, 'System', true, false, (int)$user_id);
-                            }
-                        }
-                    } else {
-                        $error = 'Failed to update profile';
+            }
+        }
+        
+        // Only proceed with database update if no errors
+        if (!$error) {
+            $result = db_execute(
+                "UPDATE users SET first_name=?, middle_name=?, last_name=?, contact_number=?, birthday=?, address=?, gender=?, id_validation_image=?, profile_picture=?, updated_at=NOW() WHERE user_id=?",
+                'sssssssssi',
+                [$first_name, $middle_name, $last_name, $contact_number, $birthday, $address, $gender, $id_to_save, $profile_picture, $user_id]
+            );
+            if ($result) {
+                $success = 'Profile updated successfully!';
+                $_SESSION['user_name'] = $first_name . ' ' . $last_name;
+                $user = db_query("SELECT * FROM users WHERE user_id = ?", 'i', [$user_id])[0];
+                $_SESSION['user_status'] = $user['status'] ?? $_SESSION['user_status'];
+                $is_pending = ($user['status'] ?? '') === 'Pending';
+                $needs_id = false;
+                if ($is_pending && $id_filename) {
+                    $full_name = trim($first_name . ' ' . ($middle_name ?? '') . ' ' . $last_name);
+                    $msg = $full_name . ' (' . $user['email'] . ') has completed their profile and is ready for admin review.';
+                    $admins = db_query("SELECT user_id, role FROM users WHERE role = 'Admin' AND status = 'Activated'");
+                    foreach ($admins as $a) {
+                        $recipType = $a['role'] ?? 'Admin';
+                        create_notification((int)$a['user_id'], $recipType, $msg, 'System', true, false, (int)$user_id);
                     }
                 }
+            } else {
+                $error = 'Failed to update profile';
             }
         }
     }

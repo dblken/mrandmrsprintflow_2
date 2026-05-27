@@ -52,9 +52,9 @@ $available_services = db_query("
     SELECT DISTINCT name FROM (
         SELECT {$review_service_expr} COLLATE utf8mb4_general_ci as name FROM reviews r WHERE {$review_service_expr} != '' AND {$review_service_expr} IS NOT NULL
         UNION
-        SELECT name COLLATE utf8mb4_general_ci FROM services
+        SELECT name COLLATE utf8mb4_general_ci FROM services WHERE status = 'Activated'
         UNION
-        SELECT name COLLATE utf8mb4_general_ci FROM products
+        SELECT name COLLATE utf8mb4_general_ci FROM products WHERE status = 'Activated'
     ) as combined_services WHERE name IS NOT NULL AND name != '' ORDER BY name ASC
 ") ?: [];
 
