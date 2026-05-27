@@ -1358,8 +1358,6 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
 
     // 4. Final aggregation and formatting
     $prevMap = [];
-    $prevStoreMap = [];
-    $prevJobsMap = [];
     // If previous period is provided, fetch previous period revenue for growth calculation
     if ($prevFrom && $prevToEnd) {
         try {
@@ -1383,7 +1381,6 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             ) ?: [];
             foreach ($oRows as $r) {
                 $id = (int) $r['branch_id'];
-                $prevStoreMap[$id] = (float) $r['rev'];
                 $prevMap[$id] = (float) $r['rev'];
             }
             // Customization jobs
@@ -1407,10 +1404,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             ) ?: [];
             foreach ($jRows as $r) {
                 $id = (int) $r['branch_id'];
-                $prevJobsMap[$id] = (float) $r['rev'];
-                if (!isset($prevMap[$id])) {
-                    $prevMap[$id] = 0.0;
-                }
+                if (!isset($prevMap[$id])) $prevMap[$id] = 0.0;
                 $prevMap[$id] += (float) $r['rev'];
             }
         } catch (Throwable $e) {}
@@ -1419,23 +1413,11 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
     $out = [];
     foreach ($map as $bid => $v) {
         $ord = (int) $v['orders_store'] + (int) $v['orders_jobs'];
-        $revStore = (float) $v['revenue_store'];
-        $revJobs = (float) $v['revenue_jobs'];
-        $rev = $revStore + $revJobs;
-        $prevRev = array_key_exists($bid, $prevMap) ? (float) $prevMap[$bid] : null;
-        $prevStore = array_key_exists($bid, $prevStoreMap) ? (float) $prevStoreMap[$bid] : null;
-        $prevJobs = array_key_exists($bid, $prevJobsMap) ? (float) $prevJobsMap[$bid] : null;
+        $rev = (float) $v['revenue_store'] + (float) $v['revenue_jobs'];
+        $prevRev = $prevMap[$bid] ?? null;
         $growth = null;
         if ($prevRev !== null && $prevRev > 0) {
             $growth = round((($rev - $prevRev) / $prevRev) * 100, 1);
-        }
-        $growthProduct = null;
-        if ($prevStore !== null && $prevStore > 0) {
-            $growthProduct = round((($revStore - $prevStore) / $prevStore) * 100, 1);
-        }
-        $growthService = null;
-        if ($prevJobs !== null && $prevJobs > 0) {
-            $growthService = round((($revJobs - $prevJobs) / $prevJobs) * 100, 1);
         }
         $rawName = $names[$bid] ?? ('Branch #' . $bid);
         $pretty = function_exists('mb_convert_case')
@@ -1446,15 +1428,11 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             'orders' => $ord,
             'revenue' => $rev,
             'orders_store' => (int) $v['orders_store'],
-            'revenue_store' => $revStore,
+            'revenue_store' => (float) $v['revenue_store'],
             'orders_jobs' => (int) $v['orders_jobs'],
-            'revenue_jobs' => $revJobs,
+            'revenue_jobs' => (float) $v['revenue_jobs'],
             'prev_revenue' => $prevRev,
-            'prev_revenue_store' => $prevStore,
-            'prev_revenue_jobs' => $prevJobs,
             'growth_pct' => $growth,
-            'growth_pct_product' => $growthProduct,
-            'growth_pct_service' => $growthService,
         ];
     }
 
