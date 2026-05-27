@@ -1664,11 +1664,11 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-branch-summary-title,
 .pf-branch-section-title {
     margin: 0 0 10px;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     text-transform: uppercase;
-    color: #00232b;
+    color: #475569;
 }
 
 .pf-branch-revenue-sidebar .pf-branch-summary-title {
@@ -1712,21 +1712,24 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 .pf-branch-stat-label {
     font-size: 11px;
+    font-weight: 600;
     color: #64748b;
     margin-bottom: 4px;
+    line-height: 1.35;
 }
 
 .pf-branch-stat-value {
-    font-size: 14px;
-    font-weight: 800;
-    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    color: #00232b;
     line-height: 1.25;
 }
 
 .pf-branch-stat-sub {
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     margin-top: 3px;
+    line-height: 1.35;
 }
 
 .pf-branch-stat-total .pf-branch-stat-icon {
@@ -1781,8 +1784,8 @@ a.export-dd-link:hover { background: #f9fafb; }
     border-radius: 6px;
     background: linear-gradient(180deg, #00232b 0%, #0F4C5C 100%);
     color: #fff;
-    font-size: 11px;
-    font-weight: 800;
+    font-size: 10px;
+    font-weight: 700;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1795,7 +1798,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-branch-toprow-name {
     font-size: 12px;
     font-weight: 700;
-    color: #1e293b;
+    color: #00232b;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1817,9 +1820,9 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 
 .pf-branch-toprow-value {
-    font-size: 12px;
-    font-weight: 800;
-    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
     white-space: nowrap;
 }
 
@@ -1857,9 +1860,9 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 
 .pf-branch-breakdown-meta strong {
-    font-size: 14px;
-    font-weight: 800;
-    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    color: #00232b;
     line-height: 1.25;
 }
 
