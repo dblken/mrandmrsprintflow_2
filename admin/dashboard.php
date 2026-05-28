@@ -303,6 +303,22 @@ $dashboard_branch_perf = array_values(array_filter($dashboard_branch_perf, stati
     return (float)($branch['revenue'] ?? 0) > 0;
 }));
 $dashboard_branch_period_label = date('M j, Y', strtotime($branchRevenueFrom)) . ' - ' . date('M j, Y', strtotime($branchRevenueTo));
+$dashboard_branch_total_revenue = array_reduce($dashboard_branch_perf, static function ($carry, $branch) {
+    return $carry + (float)($branch['revenue'] ?? 0);
+}, 0.0);
+$dashboard_branch_count = count($dashboard_branch_perf);
+$dashboard_top_branch = $dashboard_branch_perf[0] ?? null;
+$dashboard_low_branch = $dashboard_branch_count > 0 ? $dashboard_branch_perf[$dashboard_branch_count - 1] : null;
+$dashboard_avg_branch_revenue = $dashboard_branch_count > 0 ? ($dashboard_branch_total_revenue / $dashboard_branch_count) : 0.0;
+$dashboard_top_branches = array_slice($dashboard_branch_perf, 0, 5);
+$dashboard_total_product_revenue = array_reduce($dashboard_branch_perf, static function ($carry, $branch) {
+    return $carry + (float)($branch['revenue_store'] ?? 0);
+}, 0.0);
+$dashboard_total_service_revenue = array_reduce($dashboard_branch_perf, static function ($carry, $branch) {
+    return $carry + (float)($branch['revenue_jobs'] ?? 0);
+}, 0.0);
+$dashboard_product_pct = $dashboard_branch_total_revenue > 0 ? round(($dashboard_total_product_revenue / $dashboard_branch_total_revenue) * 100, 1) : 0.0;
+$dashboard_service_pct = $dashboard_branch_total_revenue > 0 ? round(($dashboard_total_service_revenue / $dashboard_branch_total_revenue) * 100, 1) : 0.0;
 
 $top_products_full = [];
 try {
@@ -464,6 +480,46 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .period-tab { padding:5px 12px; border-radius:6px; font-size:12px; font-weight:600; border:1px solid #e5e7eb; background:#f9fafb; color:#6b7280; cursor:pointer; transition:all .15s; }
         .period-tab:hover { border-color:#53C5E0; color:#00232b; }
         .period-tab.active { background:#00232b; border-color:#00232b; color:#fff; }
+        .pf-branch-revenue-layout { display:grid; grid-template-columns:minmax(0, 1fr) 454px; gap:28px; align-items:stretch; }
+        .pf-branch-revenue-main { min-width:0; display:flex; flex-direction:column; gap:12px; }
+        .pf-branch-revenue-sidebar { background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 55%,#e0f2fe 100%); border:1px solid #e2e8f0; border-radius:16px; padding:20px; min-width:0; }
+        .pf-branch-summary-title,
+        .pf-branch-section-title { margin:0 0 16px; color:#334155; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; }
+        .pf-branch-summary-grid { display:grid; gap:12px; }
+        .pf-branch-stat { display:flex; align-items:center; gap:14px; padding:14px; background:rgba(255,255,255,.82); border:1px solid #e2e8f0; border-radius:14px; }
+        .pf-branch-stat-icon { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+        .pf-branch-stat-icon svg { width:22px; height:22px; }
+        .pf-branch-stat-total .pf-branch-stat-icon { background:#ecfeff; color:#0f4c5c; }
+        .pf-branch-stat-top .pf-branch-stat-icon { background:#dcfce7; color:#16a34a; }
+        .pf-branch-stat-low .pf-branch-stat-icon { background:#f3e8ff; color:#9333ea; }
+        .pf-branch-stat-avg .pf-branch-stat-icon { background:#ffedd5; color:#f97316; }
+        .pf-branch-stat-label { color:#64748b; font-size:12px; font-weight:700; }
+        .pf-branch-stat-value { color:#0f172a; font-size:14px; font-weight:900; line-height:1.25; margin-top:3px; }
+        .pf-branch-stat-sub { margin-top:3px; font-size:12px; font-weight:800; }
+        .pf-branch-stat-sub.pos { color:#16a34a; }
+        .pf-branch-stat-sub.neg { color:#dc2626; }
+        .pf-branch-stat-sub.neu { color:#475569; }
+        .pf-branch-toplist,
+        .pf-branch-breakdown { margin-top:18px; padding-top:18px; border-top:1px solid #e2e8f0; }
+        .pf-branch-toplist-items { display:flex; flex-direction:column; gap:10px; }
+        .pf-branch-toprow { display:grid; grid-template-columns:32px minmax(0,1fr) auto; align-items:center; gap:12px; }
+        .pf-branch-rank { width:30px; height:30px; border-radius:8px; background:#0f4c5c; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:12px; }
+        .pf-branch-toprow-name { color:#0f172a; font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .pf-branch-toprow-bar { margin-top:6px; height:7px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
+        .pf-branch-toprow-bar > span { display:block; height:100%; background:#0f4c5c; border-radius:999px; }
+        .pf-branch-toprow-value { color:#334155; font-size:12px; font-weight:900; white-space:nowrap; }
+        .pf-branch-breakdown-row { margin-bottom:12px; }
+        .pf-branch-breakdown-meta { display:flex; justify-content:space-between; gap:12px; color:#475569; font-size:12px; font-weight:700; margin-bottom:7px; }
+        .pf-branch-breakdown-meta strong { color:#0f172a; }
+        .pf-branch-breakdown-bar { height:9px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
+        .pf-branch-breakdown-bar > span { display:block; height:100%; border-radius:999px; }
+        .pf-branch-breakdown-bar--product > span { background:#0f4c5c; }
+        .pf-branch-breakdown-bar--service > span { background:#53C5E0; }
+        .pf-branch-footnote { display:flex; align-items:flex-start; gap:8px; color:#64748b; font-size:12px; font-weight:600; }
+        .pf-branch-footnote svg { width:15px; height:15px; flex:0 0 auto; margin-top:1px; }
+        .pf-wide-chart-canvas--branch,
+        .pf-wide-chart-canvas--branch canvas { height:100%; }
+        @media (max-width:1180px) { .pf-branch-revenue-layout { grid-template-columns:1fr; } .pf-branch-revenue-sidebar { max-width:none; } }
 
         /* Status badge */
         .badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:600; }
@@ -816,15 +872,94 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <span class="chart-filter-label"><?php echo htmlspecialchars($dashboard_branch_period_label); ?></span>
                     </div>
                     <div class="ana-bd">
-                    <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:520px;">
-                        <div class="chart-loading" id="dash-sales-loading">
-                            <div class="chart-loading-spinner"></div>
+                    <div class="pf-branch-revenue-layout">
+                        <div class="pf-branch-revenue-main">
+                            <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:520px;">
+                                <div class="chart-loading" id="dash-sales-loading">
+                                    <div class="chart-loading-spinner"></div>
+                                </div>
+                                <div class="chart-nodata" id="dash-sales-nodata">
+                                    <svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24" opacity="0.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                                    <span>No branch revenue data for this period</span>
+                                </div>
+                                <div class="pf-wide-chart-canvas pf-wide-chart-canvas--branch"><canvas id="dashSalesChart"></canvas></div>
+                            </div>
+                            <div class="pf-branch-footnote">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                Showing combined sales revenue across <?php echo (int)$dashboard_branch_count; ?> branch<?php echo $dashboard_branch_count === 1 ? '' : 'es'; ?> for <?php echo htmlspecialchars($dashboard_branch_period_label); ?>.
+                            </div>
                         </div>
-                        <div class="chart-nodata" id="dash-sales-nodata">
-                            <svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24" opacity="0.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                            <span>No sales data for this period</span>
-                        </div>
-                        <div class="pf-wide-chart-canvas"><canvas id="dashSalesChart"></canvas></div>
+                        <aside class="pf-branch-revenue-sidebar" id="pfBranchRevenueSidebar" data-sidebar-mode="multi">
+                            <h4 class="pf-branch-summary-title">Multi-Branch Summary</h4>
+                            <div class="pf-branch-summary-grid">
+                                <div class="pf-branch-stat pf-branch-stat-total">
+                                    <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Total Combined Revenue</div>
+                                        <div class="pf-branch-stat-value">₱<?php echo number_format($dashboard_branch_total_revenue, 0); ?></div>
+                                        <div class="pf-branch-stat-sub neu"><?php echo (int)$dashboard_branch_count; ?> branches compared</div>
+                                    </div>
+                                </div>
+                                <div class="pf-branch-stat pf-branch-stat-top">
+                                    <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81H7.03a1 1 0 00.95-.69l1.07-3.292z"/></svg></div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Top Performing Branch</div>
+                                        <div class="pf-branch-stat-value"><?php echo htmlspecialchars((string)($dashboard_top_branch['branch_name'] ?? '-')); ?></div>
+                                        <div class="pf-branch-stat-sub pos"><?php $topPct = $dashboard_branch_total_revenue > 0 && $dashboard_top_branch ? (((float)$dashboard_top_branch['revenue'] / $dashboard_branch_total_revenue) * 100) : 0; echo $dashboard_top_branch ? ('₱' . number_format((float)$dashboard_top_branch['revenue'], 0) . ' (' . number_format($topPct, 1) . '%)') : 'No data'; ?></div>
+                                    </div>
+                                </div>
+                                <?php if ($dashboard_branch_count > 1): ?>
+                                <div class="pf-branch-stat pf-branch-stat-low">
+                                    <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"/></svg></div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Lowest Performing Branch</div>
+                                        <div class="pf-branch-stat-value"><?php echo htmlspecialchars((string)($dashboard_low_branch['branch_name'] ?? '-')); ?></div>
+                                        <div class="pf-branch-stat-sub neg"><?php $lowPct = $dashboard_branch_total_revenue > 0 && $dashboard_low_branch ? (((float)$dashboard_low_branch['revenue'] / $dashboard_branch_total_revenue) * 100) : 0; echo $dashboard_low_branch ? ('₱' . number_format((float)$dashboard_low_branch['revenue'], 0) . ' (' . number_format($lowPct, 1) . '%)') : 'No data'; ?></div>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                <div class="pf-branch-stat pf-branch-stat-avg">
+                                    <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 11V5a1 1 0 012 0v6h6a1 1 0 110 2h-6v6a1 1 0 11-2 0v-6H5a1 1 0 110-2h6z"/></svg></div>
+                                    <div class="pf-branch-stat-copy">
+                                        <div class="pf-branch-stat-label">Average Revenue per Branch</div>
+                                        <div class="pf-branch-stat-value">₱<?php echo number_format($dashboard_avg_branch_revenue, 0); ?></div>
+                                        <div class="pf-branch-stat-sub neu">Across visible branches</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php if ($dashboard_branch_count > 1): ?>
+                            <div class="pf-branch-toplist">
+                                <h4 class="pf-branch-section-title pf-branch-toplist-title">Top Branch Rankings</h4>
+                                <div class="pf-branch-toplist-items">
+                                    <?php foreach ($dashboard_top_branches as $index => $branch): ?>
+                                        <?php $branchPct = $dashboard_branch_total_revenue > 0 ? (((float)$branch['revenue'] / $dashboard_branch_total_revenue) * 100) : 0; ?>
+                                        <?php $barPct = $dashboard_top_branch && (float)$dashboard_top_branch['revenue'] > 0 ? (((float)$branch['revenue'] / (float)$dashboard_top_branch['revenue']) * 100) : 0; ?>
+                                        <div class="pf-branch-toprow">
+                                            <div class="pf-branch-rank"><?php echo $index + 1; ?></div>
+                                            <div class="pf-branch-toprow-copy">
+                                                <div class="pf-branch-toprow-name"><?php echo htmlspecialchars((string)$branch['branch_name']); ?></div>
+                                                <div class="pf-branch-toprow-bar"><span style="width:<?php echo max(6, min(100, $barPct)); ?>%"></span></div>
+                                            </div>
+                                            <div class="pf-branch-toprow-value">₱<?php echo number_format((float)$branch['revenue'], 0); ?> (<?php echo number_format($branchPct, 1); ?>%)</div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            <?php if ($dashboard_branch_total_revenue > 0): ?>
+                            <div class="pf-branch-breakdown">
+                                <h4 class="pf-branch-section-title">Revenue Contribution Breakdown</h4>
+                                <div class="pf-branch-breakdown-row">
+                                    <div class="pf-branch-breakdown-meta"><span>Product Revenue</span><strong>₱<?php echo number_format($dashboard_total_product_revenue, 0); ?> · <?php echo number_format($dashboard_product_pct, 1); ?>%</strong></div>
+                                    <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--product"><span style="width:<?php echo max(0, min(100, $dashboard_product_pct)); ?>%"></span></div>
+                                </div>
+                                <div class="pf-branch-breakdown-row">
+                                    <div class="pf-branch-breakdown-meta"><span>Service Revenue</span><strong>₱<?php echo number_format($dashboard_total_service_revenue, 0); ?> · <?php echo number_format($dashboard_service_pct, 1); ?>%</strong></div>
+                                    <div class="pf-branch-breakdown-bar pf-branch-breakdown-bar--service"><span style="width:<?php echo max(0, min(100, $dashboard_service_pct)); ?>%"></span></div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        </aside>
                     </div>
                     </div>
                 </div>
