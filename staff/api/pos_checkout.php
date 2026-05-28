@@ -156,26 +156,42 @@ function pos_store_order_item_inline_media(int $orderItemId, array $designPayloa
         return;
     }
 
+    $uploadDir = dirname(__DIR__, 2) . '/uploads/orders';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0775, true);
+    }
+
     if (!empty($designPayload['blob'])) {
+        $storedDesignPath = null;
+        if (is_dir($uploadDir) && is_writable($uploadDir)) {
+            $baseName = trim((string)($designPayload['name'] ?? 'design_upload'));
+            $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseName);
+            if ($safeName === '' || $safeName === null) {
+                $safeName = 'design_upload';
+            }
+            $targetName = time() . '_design_' . $orderItemId . '_' . $safeName;
+            $targetPath = $uploadDir . '/' . $targetName;
+            if (@file_put_contents($targetPath, $designPayload['blob']) !== false) {
+                $storedDesignPath = '/uploads/orders/' . $targetName;
+            }
+        }
+
         db_execute(
             "UPDATE order_items
-             SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = NULL
+             SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
              WHERE order_item_id = ?",
-            'sssi',
+            'ssssi',
             [
                 $designPayload['blob'],
                 (string)($designPayload['mime'] ?? 'application/octet-stream'),
                 (string)($designPayload['name'] ?? 'design_upload'),
+                $storedDesignPath,
                 $orderItemId
             ]
         );
     }
 
     if (!empty($referencePayload['blob'])) {
-        $uploadDir = dirname(__DIR__, 2) . '/uploads/orders';
-        if (!is_dir($uploadDir)) {
-            @mkdir($uploadDir, 0775, true);
-        }
         if (is_dir($uploadDir) && is_writable($uploadDir)) {
             $baseName = trim((string)($referencePayload['name'] ?? 'reference_upload'));
             $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseName);
