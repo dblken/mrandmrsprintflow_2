@@ -477,49 +477,58 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         }
         .chart-filter-group { display:flex; gap:8px; align-items:center; flex-shrink:0; }
         .chart-badge { margin-left:8px; padding:3px 8px; background:#EBF8FF; color:#2C5282; border-radius:6px; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+        .pf-branch-meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .pf-branch-meta-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; color:#334155; font-size:12px; font-weight:600; padding:8px 12px; }
+        .pf-branch-meta-badge svg { width:14px; height:14px; color:#64748b; }
         .period-tab { padding:5px 12px; border-radius:6px; font-size:12px; font-weight:600; border:1px solid #e5e7eb; background:#f9fafb; color:#6b7280; cursor:pointer; transition:all .15s; }
         .period-tab:hover { border-color:#53C5E0; color:#00232b; }
         .period-tab.active { background:#00232b; border-color:#00232b; color:#fff; }
-        .pf-branch-revenue-layout { display:grid; grid-template-columns:minmax(0, 1fr) 454px; gap:28px; align-items:stretch; }
-        .pf-branch-revenue-main { min-width:0; display:flex; flex-direction:column; gap:12px; }
-        .pf-branch-revenue-sidebar { background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 55%,#e0f2fe 100%); border:1px solid #e2e8f0; border-radius:16px; padding:20px; min-width:0; }
+        #dash-sales-chart-wrap { overflow:hidden; }
+        .pf-branch-revenue-layout { display:grid; grid-template-columns:minmax(0, 1.9fr) minmax(280px, 0.9fr); gap:18px; align-items:stretch; min-height:520px; }
+        .pf-branch-revenue-main { display:flex; flex-direction:column; min-width:0; }
+        .pf-branch-revenue-sidebar { display:flex; flex-direction:column; gap:14px; padding:12px; border:1px solid #eef2f7; border-radius:14px; background:radial-gradient(circle at top right, rgba(83,197,224,0.12), transparent 34%), linear-gradient(180deg, #fbfdff 0%, #f8fafc 100%); box-shadow:inset 0 1px 0 rgba(255,255,255,0.75); }
         .pf-branch-summary-title,
-        .pf-branch-section-title { margin:0 0 16px; color:#334155; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; }
-        .pf-branch-summary-grid { display:grid; gap:12px; }
-        .pf-branch-stat { display:flex; align-items:center; gap:14px; padding:14px; background:rgba(255,255,255,.82); border:1px solid #e2e8f0; border-radius:14px; }
-        .pf-branch-stat-icon { width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
-        .pf-branch-stat-icon svg { width:22px; height:22px; }
-        .pf-branch-stat-total .pf-branch-stat-icon { background:#ecfeff; color:#0f4c5c; }
-        .pf-branch-stat-top .pf-branch-stat-icon { background:#dcfce7; color:#16a34a; }
-        .pf-branch-stat-low .pf-branch-stat-icon { background:#f3e8ff; color:#9333ea; }
-        .pf-branch-stat-avg .pf-branch-stat-icon { background:#ffedd5; color:#f97316; }
-        .pf-branch-stat-label { color:#64748b; font-size:12px; font-weight:700; }
-        .pf-branch-stat-value { color:#0f172a; font-size:14px; font-weight:900; line-height:1.25; margin-top:3px; }
-        .pf-branch-stat-sub { margin-top:3px; font-size:12px; font-weight:800; }
+        .pf-branch-section-title { margin:0 0 10px; font-size:11px; font-weight:700; letter-spacing:.02em; text-transform:uppercase; color:#475569; }
+        .pf-branch-revenue-sidebar .pf-branch-summary-title { margin-bottom:10px; }
+        .pf-branch-summary-grid { display:grid; gap:10px; }
+        .pf-branch-stat { display:grid; grid-template-columns:42px minmax(0, 1fr); gap:12px; align-items:center; padding:12px; border-radius:12px; background:rgba(255,255,255,.88); border:1px solid rgba(226,232,240,.92); box-shadow:0 10px 25px rgba(15,23,42,.04); }
+        .pf-branch-stat-icon { width:42px; height:42px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; }
+        .pf-branch-stat-icon svg { width:18px; height:18px; }
+        .pf-branch-stat-copy { min-width:0; }
+        .pf-branch-stat-total .pf-branch-stat-icon { background:linear-gradient(180deg, #ecf8fb 0%, #f0fafc 100%); color:#00232b; }
+        .pf-branch-stat-top .pf-branch-stat-icon { background:linear-gradient(180deg, #dcfce7 0%, #f0fdf4 100%); color:#16a34a; }
+        .pf-branch-stat-low .pf-branch-stat-icon { background:linear-gradient(180deg, #f3e8ff 0%, #faf5ff 100%); color:#9333ea; }
+        .pf-branch-stat-avg .pf-branch-stat-icon { background:linear-gradient(180deg, #ffedd5 0%, #fff7ed 100%); color:#f97316; }
+        .pf-branch-stat-label { font-size:11px; font-weight:600; color:#64748b; margin-bottom:4px; line-height:1.35; }
+        .pf-branch-stat-value { font-size:12px; font-weight:700; color:#00232b; line-height:1.25; }
+        .pf-branch-stat-sub { font-size:11px; font-weight:600; margin-top:3px; line-height:1.35; }
         .pf-branch-stat-sub.pos { color:#16a34a; }
         .pf-branch-stat-sub.neg { color:#dc2626; }
         .pf-branch-stat-sub.neu { color:#475569; }
         .pf-branch-toplist,
-        .pf-branch-breakdown { margin-top:18px; padding-top:18px; border-top:1px solid #e2e8f0; }
+        .pf-branch-breakdown { border-top:1px solid #e5e7eb; padding-top:14px; }
+        .pf-branch-toplist-title { margin:0 0 10px; }
         .pf-branch-toplist-items { display:flex; flex-direction:column; gap:10px; }
-        .pf-branch-toprow { display:grid; grid-template-columns:32px minmax(0,1fr) auto; align-items:center; gap:12px; }
-        .pf-branch-rank { width:30px; height:30px; border-radius:8px; background:#0f4c5c; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:12px; }
-        .pf-branch-toprow-name { color:#0f172a; font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .pf-branch-toprow-bar { margin-top:6px; height:7px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
-        .pf-branch-toprow-bar > span { display:block; height:100%; background:#0f4c5c; border-radius:999px; }
-        .pf-branch-toprow-value { color:#334155; font-size:12px; font-weight:900; white-space:nowrap; }
-        .pf-branch-breakdown-row { margin-bottom:12px; }
-        .pf-branch-breakdown-meta { display:flex; justify-content:space-between; gap:12px; color:#475569; font-size:12px; font-weight:700; margin-bottom:7px; }
-        .pf-branch-breakdown-meta strong { color:#0f172a; }
-        .pf-branch-breakdown-bar { height:9px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
-        .pf-branch-breakdown-bar > span { display:block; height:100%; border-radius:999px; }
-        .pf-branch-breakdown-bar--product > span { background:#0f4c5c; }
-        .pf-branch-breakdown-bar--service > span { background:#53C5E0; }
-        .pf-branch-footnote { display:flex; align-items:flex-start; gap:8px; color:#64748b; font-size:12px; font-weight:600; }
-        .pf-branch-footnote svg { width:15px; height:15px; flex:0 0 auto; margin-top:1px; }
+        .pf-branch-toprow { display:grid; grid-template-columns:24px minmax(0,1fr) auto; gap:10px; align-items:center; }
+        .pf-branch-rank { width:24px; height:24px; border-radius:6px; background:linear-gradient(180deg, #00232b 0%, #0F4C5C 100%); color:#fff; font-size:10px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+        .pf-branch-toprow-copy { min-width:0; }
+        .pf-branch-toprow-name { font-size:12px; font-weight:700; color:#00232b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:5px; }
+        .pf-branch-toprow-bar { height:6px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
+        .pf-branch-toprow-bar > span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg, #00232b 0%, #0F4C5C 100%); }
+        .pf-branch-toprow-value { font-size:11px; font-weight:700; color:#475569; white-space:nowrap; }
+        .pf-branch-breakdown-row { display:grid; gap:6px; margin-bottom:10px; }
+        .pf-branch-breakdown-row:last-child { margin-bottom:0; }
+        .pf-branch-breakdown-meta { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+        .pf-branch-breakdown-meta span { font-size:11px; font-weight:600; color:#64748b; }
+        .pf-branch-breakdown-meta strong { font-size:12px; font-weight:700; color:#00232b; line-height:1.25; }
+        .pf-branch-breakdown-bar { height:8px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
+        .pf-branch-breakdown-bar > span { display:block; height:100%; border-radius:inherit; }
+        .pf-branch-breakdown-bar--product > span { background:linear-gradient(90deg, #00232b 0%, #0F4C5C 100%); }
+        .pf-branch-breakdown-bar--service > span { background:linear-gradient(90deg, #53C5E0 0%, #3498DB 100%); }
+        .pf-branch-footnote { display:flex; align-items:center; gap:8px; margin-top:14px; padding:10px 12px; border-top:1px solid #e5e7eb; color:#64748b; font-size:12px; }
+        .pf-branch-footnote svg { width:14px; height:14px; color:#94a3b8; flex-shrink:0; }
         .pf-wide-chart-canvas--branch,
-        .pf-wide-chart-canvas--branch canvas { height:100%; }
-        @media (max-width:1180px) { .pf-branch-revenue-layout { grid-template-columns:1fr; } .pf-branch-revenue-sidebar { max-width:none; } }
+        .pf-wide-chart-canvas--branch canvas { width:100% !important; min-width:0 !important; height:100%; }
 
         /* Status badge */
         .badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:600; }
@@ -869,7 +878,15 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             Sales Revenue by Branch
                             <span class="chart-badge">Filter Applied</span>
                         </h3>
-                        <span class="chart-filter-label"><?php echo htmlspecialchars($dashboard_branch_period_label); ?></span>
+                        <div class="pf-branch-meta no-print">
+                            <div class="pf-branch-meta-badge" title="Current branch revenue reporting period">
+                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                                <?php echo htmlspecialchars($dashboard_branch_period_label); ?>
+                            </div>
+                            <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick="window.open('<?php echo htmlspecialchars(pf_admin_url('reports_print.php', array_merge($kpiBranchQs, ['report' => 'branch_perf']))); ?>','_blank')" title="Print Sales Revenue by Branch Report">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print
+                            </button>
+                        </div>
                     </div>
                     <div class="ana-bd">
                     <div class="pf-branch-revenue-layout">
@@ -1330,7 +1347,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 'growth_pct' => isset($b['growth_pct']) ? $b['growth_pct'] : null,
             ];
         }, $dashboard_branch_perf)); ?>;
-        var DASH_SALES_TREND = { forecast: {} };
 
         var dashAnimLong = 1750;
         var dashAnimShort = 680;
@@ -1389,20 +1405,18 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 var revenue = branchRows.map(function (row) { return Number(row.revenue) || 0; });
                 var fills = revenue.map(function (_, index) { return index === 0 ? '#0F4C5C' : 'rgba(0,35,43,0.82)'; });
                 var borders = revenue.map(function (_, index) { return index === 0 ? '#53C5E0' : '#00232b'; });
-                var chartWrap = document.getElementById('dash-sales-chart-wrap');
-                var chartCanvasWrap = document.getElementById('dashSalesChart')?.parentElement;
-                var computedWidth = Math.max(760, branchRows.length * (branchRows.length > 8 ? 92 : 104));
-                if (chartWrap) chartWrap.style.height = '520px';
-                if (chartCanvasWrap) {
-                    chartCanvasWrap.style.width = computedWidth + 'px';
-                    chartCanvasWrap.style.minWidth = computedWidth + 'px';
-                }
+                var maxRevenue = revenue.reduce(function (max, value) { return Math.max(max, value); }, 0);
+                var yStep = maxRevenue > 100000 ? 10000 : 5000;
+                var yMax = maxRevenue > 0 ? Math.ceil((maxRevenue * 1.02) / yStep) * yStep : undefined;
                 if (!window.__pfDashSalesChart) return;
                 window.__pfDashSalesRows = branchRows;
                 window.__pfDashSalesChart.data.labels = labels;
                 window.__pfDashSalesChart.data.datasets[0].data = revenue;
                 window.__pfDashSalesChart.data.datasets[0].backgroundColor = fills;
                 window.__pfDashSalesChart.data.datasets[0].borderColor = borders;
+                if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.scales && window.__pfDashSalesChart.options.scales.y) {
+                    window.__pfDashSalesChart.options.scales.y.max = yMax;
+                }
                 var dur = salesFirstFetch ? dashAnimLong : dashAnimShort;
                 salesFirstFetch = false;
                 if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.animation) {
