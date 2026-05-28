@@ -109,15 +109,52 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
         return $source;
     }
 
-    if (($source === '' || $source === 'customer') && !empty($orderId)) {
-        $posCheck = db_query(
-            "SELECT 1 FROM customizations WHERE order_id = ? AND customization_details LIKE '%\"source\":\"POS\"%' LIMIT 1",
+    if (!empty($orderId)) {
+        $sourceCheckRows = db_query(
+            "SELECT
+                LOWER(TRIM(COALESCE(o.order_source, ''))) AS db_order_source,
+                LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email,
+                EXISTS(
+                    SELECT 1
+                    FROM customizations cust
+                    WHERE cust.order_id = o.order_id
+                      AND (
+                          cust.customization_details LIKE '%\"source\":\"POS\"%'
+                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                      )
+                ) AS has_pos_customization,
+                EXISTS(
+                    SELECT 1
+                    FROM order_items oi
+                    WHERE oi.order_id = o.order_id
+                      AND (
+                          oi.customization_data LIKE '%\"source\":\"POS\"%'
+                          OR oi.customization_data LIKE '%\"source\": \"POS\"%'
+                      )
+                ) AS has_pos_order_item
+             FROM orders o
+             LEFT JOIN customers c ON c.customer_id = o.customer_id
+             WHERE o.order_id = ?
+             LIMIT 1",
             'i',
             [$orderId]
         );
-        if (!empty($posCheck)) {
+        $sourceCheck = $sourceCheckRows[0] ?? [];
+        $dbOrderSource = strtolower(trim((string)($sourceCheck['db_order_source'] ?? '')));
+        if (in_array($dbOrderSource, ['pos', 'walk-in'], true)) {
+            return $dbOrderSource;
+        }
+
+        $customerEmail = strtolower(trim((string)($sourceCheck['customer_email'] ?? '')));
+        $isWalkInGuest = $customerEmail === 'walkin@pos.local';
+        $hasPosCustomization = !empty($sourceCheck['has_pos_customization']);
+        $hasPosOrderItem = !empty($sourceCheck['has_pos_order_item']);
+        if ($isWalkInGuest || $hasPosCustomization || $hasPosOrderItem) {
             db_execute(
-                "UPDATE orders SET order_source = 'pos' WHERE order_id = ? AND (order_source IS NULL OR order_source = 'customer' OR order_source = '')",
+                "UPDATE orders
+                 SET order_source = 'pos'
+                 WHERE order_id = ?
+                   AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged')",
                 'i',
                 [$orderId]
             );
