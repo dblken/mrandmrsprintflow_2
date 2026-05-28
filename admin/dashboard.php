@@ -1469,7 +1469,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         bindWhenVisible(document.getElementById('dash-sales-chart-wrap'), function () {
             salesFirstFetch = true;
             var currencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 });
-            var compactCurrencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 0 });
+            var compactCurrencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 1 });
             window.__pfDashSalesChart = new Chart(document.getElementById('dashSalesChart').getContext('2d'), {
                 type: 'bar',
                 data: { labels: [], datasets: [
@@ -1491,6 +1491,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     layout: { padding: { top: 32, right: 18, bottom: 0, left: 8 } },
                     animation: { duration: dashAnimLong, easing: 'easeOutCubic' },
                     interaction: { mode: 'nearest', intersect: true },
+                    hover: { mode: 'index', intersect: false, animationDuration: 400 },
                     plugins: {
                         legend: {
                             display: true,
@@ -1504,25 +1505,48 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         },
                         tooltip: {
                             animation: { duration: 180 },
-                            padding: 10,
+                            padding: 12,
                             cornerRadius: 8,
                             displayColors: false,
                             titleFont: pfDashChartFont(11, '600'),
                             bodyFont: pfDashChartFont(11, '600'),
                             callbacks: {
+                                title: function (items) {
+                                    if (!items[0]) return '';
+                                    var raw = (window.__pfDashSalesRows || [])[items[0].dataIndex];
+                                    return raw ? raw.branch_name : '';
+                                },
                                 label: function (ctx) {
-                                    var label = ctx.dataset.label || '';
-                                    return label + ': ₱' + Number(ctx.parsed.y).toLocaleString(undefined, { minimumFractionDigits: 0 });
+                                    var idx = ctx.dataIndex;
+                                    var rows = window.__pfDashSalesRows || [];
+                                    var row = rows[idx] || {};
+                                    var prev = row.prev_revenue != null ? Number(row.prev_revenue) : null;
+                                    var growth = row.growth_pct != null ? Number(row.growth_pct) : null;
+                                    var label = 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
+                                    if (prev !== null && !isNaN(prev)) {
+                                        label += '\nPrev: ' + currencyFmt.format(prev);
+                                    }
+                                    if (growth !== null && !isNaN(growth)) {
+                                        label += '\nGrowth: ' + (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
+                                    }
+                                    return label;
+                                },
+                                afterLabel: function (ctx) {
+                                    var totalRevenue = (window.__pfDashSalesRows || []).reduce(function (sum, row) {
+                                        return sum + (Number(row.revenue) || 0);
+                                    }, 0);
+                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.y) || 0) / totalRevenue) * 100 : 0;
+                                    return 'Contribution: ' + pct.toFixed(1) + '%';
                                 }
                             }
                         }
                     },
                     scales: {
-                        y:  { beginAtZero: true, ticks: { font: pfDashChartFont(isDashMobile() ? 10 : 11, '600'), maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
+                        y:  { beginAtZero: true, ticks: { font: pfDashChartFont(isDashMobile() ? 10 : 11, '600'), maxTicksLimit: isDashMobile() ? 5 : 7, callback: function (v) { return compactCurrencyFmt.format(Number(v) || 0); } }, grid: { color: '#f3f4f6' } },
                         x:  { ticks: { color: '#334155', font: pfDashChartFont(isDashMobile() ? 9 : 11, '600'), maxRotation: 0, minRotation: 0 }, grid: { display: false } }
                     }
                 },
-                plugins: [forecastSeparatorPlugin, {
+                plugins: [{
                     id: 'pfBranchRevenueLabels',
                     afterDatasetsDraw: function (chart) {
                         var ctx = chart.ctx;
