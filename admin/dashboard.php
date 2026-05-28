@@ -1998,6 +1998,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     var resetBtn = document.getElementById('dash-filter-reset-btn');
     if (!panel || !toggleBtn || !form || !fromInput || !toInput || !presetInput) return;
     var submitTimer = null;
+    var dateEditing = false;
 
     function openPanel() {
         panel.hidden = false;
@@ -2058,6 +2059,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
     document.addEventListener('click', function (e) {
         if (panel.hidden) return;
+        if (dateEditing) return;
         if (panel.contains(e.target) || toggleBtn.contains(e.target)) return;
         closePanel();
     });
@@ -2072,6 +2074,14 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     toInput.addEventListener('change', function () {
         clearPreset();
         autoSubmit(220);
+    });
+    [fromInput, toInput].forEach(function (el) {
+        el.addEventListener('focus', function () { dateEditing = true; });
+        el.addEventListener('blur', function () {
+            setTimeout(function () { dateEditing = false; }, 180);
+        });
+        el.addEventListener('keydown', function () { dateEditing = true; });
+        el.addEventListener('input', function () { dateEditing = true; });
     });
 
     document.querySelectorAll('.fp-preset-btn').forEach(function (btn) {
