@@ -103,18 +103,21 @@ require_once __DIR__ . '/../includes/header.php';
 
 <style>
     :root {
-        --shopee-orange: #0a2530;
+        --shopee-orange: #0f3441;
         --shopee-bg: #ffffff;
-        --shopee-card-bg: #ffffff;
-        --shopee-text: #212121;
-        --shopee-muted: #757575;
-        --shopee-border: rgba(0,0,0,0.09);
+        --shopee-card-bg: rgba(255, 255, 255, 0.78);
+        --shopee-text: #173042;
+        --shopee-muted: #688092;
+        --shopee-border: rgba(126, 164, 184, 0.24);
+        --shopee-glass-shadow: 0 22px 50px rgba(13, 45, 60, 0.12);
+        --shopee-glass-shadow-hover: 0 28px 65px rgba(13, 45, 60, 0.2);
+        --shopee-glow: linear-gradient(135deg, rgba(129, 212, 250, 0.3), rgba(255, 255, 255, 0.08) 45%, rgba(139, 226, 216, 0.18));
     }
 
     .shopee-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-        gap: 20px;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 24px;
     }
 
     /* Tablet: 2 cards per row */
@@ -137,38 +140,43 @@ require_once __DIR__ . '/../includes/header.php';
             max-width: 100%;
             margin: 0;
             min-height: auto;
+            border-radius: 22px;
         }
 
         /* Optimize card layout for mobile */
         .shopee-img {
-            aspect-ratio: 1.5;
-            width: 100%;
+            aspect-ratio: 1.32;
+            width: calc(100% - 22px);
             height: auto;
             max-height: 280px;
             object-fit: cover;
+            margin: 11px 11px 0;
+            border-radius: 16px;
         }
 
         .shopee-body {
-            padding: 14px;
+            padding: 14px 15px 0;
             flex: 1;
             display: flex;
             flex-direction: column;
         }
 
         .shopee-name {
-            font-size: 1.05rem;
-            line-height: 1.4rem;
-            height: 2.8rem;
+            font-size: 1.02rem;
+            line-height: 1.38rem;
+            min-height: 2.76rem;
             overflow: hidden;
             text-overflow: ellipsis;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
-        .shopee-category {
-            font-size: 0.8rem;
+        .shopee-meta-row {
+            gap: 10px;
+            align-items: flex-start;
+            flex-wrap: wrap;
         }
 
         .shopee-price-row {
@@ -180,20 +188,20 @@ require_once __DIR__ . '/../includes/header.php';
         }
 
         .shopee-footer {
-            padding: 10px 14px;
+            padding: 12px 15px 15px;
             gap: 10px;
             flex-shrink: 0;
         }
 
         .shopee-btn {
-            padding: 10px 0;
+            padding: 12px 0;
             font-size: 0.85rem;
-            min-height: 42px;
+            min-height: 46px;
         }
 
         .rating-stars {
             font-size: 0.85rem;
-            margin-bottom: 4px;
+            margin-bottom: 8px;
         }
 
         .rating-stars svg {
@@ -205,51 +213,111 @@ require_once __DIR__ . '/../includes/header.php';
     .shopee-card {
         background: var(--shopee-card-bg);
         border: 1px solid var(--shopee-border);
-        border-radius: 4px;
-        transition: transform 0.2s, box-shadow 0.2s;
+        border-radius: 24px;
+        transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
         cursor: pointer;
         overflow: hidden;
         display: flex;
         flex-direction: column;
         height: 100%;
+        position: relative;
+        box-shadow: var(--shopee-glass-shadow);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+    }
+
+    .shopee-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--shopee-glow);
+        opacity: 0.85;
+        pointer-events: none;
+    }
+
+    .shopee-card::after {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: 23px;
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        pointer-events: none;
     }
 
     .shopee-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        border-color: var(--shopee-orange);
+        transform: translateY(-8px);
+        box-shadow: var(--shopee-glass-shadow-hover);
+        border-color: rgba(93, 158, 188, 0.42);
+    }
+
+    .shopee-card > * {
+        position: relative;
+        z-index: 1;
     }
 
     .shopee-img {
-        width: 100%;
-        aspect-ratio: 1.2;
+        width: calc(100% - 28px);
+        margin: 14px 14px 0;
+        aspect-ratio: 1.18;
         object-fit: cover;
+        border-radius: 18px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px rgba(16, 53, 71, 0.12);
+        background: linear-gradient(180deg, rgba(240, 248, 252, 0.9), rgba(225, 236, 243, 0.9));
     }
 
     .shopee-body {
-        padding: 10px 10px 0px 10px;
+        padding: 16px 18px 0;
         flex-grow: 1;
         display: flex;
         flex-direction: column;
     }
 
+    .shopee-meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+
     .shopee-name {
-        font-size: 0.95rem;
-        line-height: 1.3rem;
-        height: 2.6rem;
+        font-size: 1.12rem;
+        line-height: 1.45rem;
+        min-height: 2.9rem;
         overflow: hidden;
         text-overflow: ellipsis;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         color: var(--shopee-text);
-        margin-bottom: 6px;
+        margin-bottom: 12px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
     }
 
     .shopee-category {
-        font-size: 0.75rem;
-        color: var(--shopee-muted);
-        margin-bottom: 4px;
+        font-size: 0.72rem;
+        color: #477089;
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        padding: 0.42rem 0.8rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.6);
+        border: 1px solid rgba(126, 164, 184, 0.18);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+    }
+
+    .shopee-stock {
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 0.42rem 0.8rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.6);
+        border: 1px solid rgba(126, 164, 184, 0.18);
+        white-space: nowrap;
     }
 
     .shopee-price-row {
@@ -258,54 +326,75 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         align-items: center;
         justify-content: space-between;
+        padding-top: 12px;
     }
 
     .shopee-price {
-        color: var(--shopee-orange);
-        font-weight: 600;
-        font-size: 1.1rem;
+        color: #0f3441;
+        font-weight: 800;
+        font-size: 1.9rem;
+        letter-spacing: -0.03em;
     }
 
     .shopee-sold {
-        font-size: 0.75rem;
+        margin-left: auto;
+        font-size: 0.78rem;
         color: var(--shopee-muted);
+        padding: 0.3rem 0.65rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.55);
+        border: 1px solid rgba(126, 164, 184, 0.16);
     }
 
     .shopee-footer {
-        padding: 8px 10px;
-        border-top: 1px solid var(--shopee-border);
+        padding: 14px 18px 18px;
+        border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
-        gap: 8px;
+        gap: 10px;
     }
 
     .shopee-btn {
         flex: 1;
-        padding: 7px 0;
-        border-radius: 3px;
-        font-size: 0.8rem;
-        font-weight: 600;
+        padding: 0.95rem 1rem;
+        border-radius: 16px;
+        font-size: 0.84rem;
+        font-weight: 700;
         text-align: center;
         text-transform: uppercase;
-        transition: all 0.2s;
-        border: 1px solid var(--shopee-orange);
+        transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease, opacity 0.22s ease;
+        border: 1px solid transparent;
         display: flex;
         align-items: center;
         justify-content: center;
         text-decoration: none;
+        letter-spacing: 0.05em;
     }
 
     .shopee-btn-cart {
-        background: rgba(10, 37, 48, 0.08);
+        background: rgba(255, 255, 255, 0.68);
         color: var(--shopee-orange);
+        border-color: rgba(126, 164, 184, 0.22);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.45);
     }
 
     .shopee-btn-buy {
-        background: var(--shopee-orange);
+        background: linear-gradient(135deg, #123746 0%, #0f4958 100%);
         color: #fff;
+        box-shadow: 0 12px 24px rgba(15, 58, 73, 0.22);
     }
 
     .shopee-btn:hover {
-        opacity: 0.9;
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+
+    .shopee-btn-cart:hover {
+        box-shadow: 0 10px 22px rgba(15, 58, 73, 0.12);
+        background: rgba(255, 255, 255, 0.85);
+    }
+
+    .shopee-btn-buy:hover {
+        box-shadow: 0 16px 32px rgba(15, 58, 73, 0.28);
     }
 
     .rating-stars {
@@ -313,14 +402,16 @@ require_once __DIR__ . '/../includes/header.php';
         font-size: 0.8rem;
         display: flex;
         align-items: center;
-        gap: 2px;
-        margin-bottom: 2px;
+        gap: 4px;
+        margin-bottom: 4px;
+        padding-top: 2px;
     }
 
     .rating-text {
-        font-size: 0.75rem;
+        font-size: 0.76rem;
         color: var(--shopee-muted);
-        margin-left: 5px;
+        margin-left: 6px;
+        font-weight: 600;
     }
 </style>
 
@@ -367,9 +458,9 @@ require_once __DIR__ . '/../includes/header.php';
                             <img src="<?php echo htmlspecialchars($display_img); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="shopee-img">
                         <?php endif; ?>
                         <div class="shopee-body">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <div class="shopee-meta-row">
                                 <span class="shopee-category"><?php echo htmlspecialchars($product['category']); ?></span>
-                                <span style="font-size: 0.75rem; font-weight: 600; color: <?php echo $stock > 10 ? '#059669' : ($stock > 0 ? '#f59e0b' : '#dc2626'); ?>"><?php echo $stock_display; ?> in stock</span>
+                                <span class="shopee-stock" style="color: <?php echo $stock > 10 ? '#059669' : ($stock > 0 ? '#f59e0b' : '#dc2626'); ?>"><?php echo $stock_display; ?> in stock</span>
                             </div>
                             <h3 class="shopee-name"><?php echo htmlspecialchars($product['name']); ?></h3>
                             
@@ -380,7 +471,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     </svg>
                                 <?php endfor; ?>
                                 <span class="rating-text"><?php echo $review_count > 0 ? "($review_count)" : ''; ?></span>
-                                <span style="margin-left: auto; font-size: 0.75rem; color: var(--shopee-muted);"><?php echo $sold_display; ?> sold</span>
+                                <span class="shopee-sold"><?php echo $sold_display; ?> sold</span>
                             </div>
 
                             <div class="shopee-price-row">
