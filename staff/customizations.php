@@ -2772,6 +2772,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const grouped = new Map();
                 rows.forEach((rawRow) => {
                     const row = this.normalizeOrderRow(rawRow);
+                    const source = String(row.order_source || 'customer').toLowerCase();
+                    const isPosSource = source === 'pos' || source === 'walk-in';
+                    const staffRole = <?php echo json_encode($staffCustomizationRole); ?>;
+                    if (staffRole === 'pos' && !isPosSource) {
+                        return;
+                    }
+                    if (staffRole === 'online' && isPosSource) {
+                        return;
+                    }
                     const key = this.orderGroupKey(row);
                     const existing = grouped.get(key);
                     if (!existing) {
