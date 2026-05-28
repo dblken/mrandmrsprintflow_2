@@ -2674,6 +2674,49 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 return merged;
             },
+            posDuplicateSignature(row) {
+                if (!row) return '';
+                const source = String(row.order_source || '').toLowerCase();
+                if (!['pos', 'walk-in'].includes(source)) return '';
+
+                const customer = String(row.customer_full_name || row.customer_name || '').trim().toLowerCase();
+                const status = String(row.status || '').trim().toUpperCase();
+                const created = String(row.created_at || row.order_date || '').trim().slice(0, 10);
+                const rawLabel = String(row.service_type || row.job_title || '').trim().toLowerCase();
+                const normalizedLabel = rawLabel
+                    .replace(/\s+-\s+\d+\s*pcs?$/i, '')
+                    .replace(/\bprint\/cut\b/gi, 'stickers decals')
+                    .replace(/[^\w\s]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                if (!customer || !created || !normalizedLabel) {
+                    return '';
+                }
+
+                return [customer, created, status, normalizedLabel].join('|');
+            },
+            dedupePosDuplicateRows(rows = []) {
+                const deduped = new Map();
+                rows.forEach((row) => {
+                    const signature = this.posDuplicateSignature(row);
+                    if (!signature) {
+                        deduped.set(`row:${String(row.order_type || 'JOB')}:${row.id}:${row.order_id || ''}`, row);
+                        return;
+                    }
+
+                    const existing = deduped.get(signature);
+                    if (!existing) {
+                        deduped.set(signature, row);
+                        return;
+                    }
+
+                    const merged = this.mergeGroupedRows(existing, row);
+                    deduped.set(signature, merged);
+                });
+
+                return Array.from(deduped.values());
+            },
             getDisplayOrderCode(row) {
                 if (!row) return '';
                 const explicit = String(row.order_code || '').trim();
@@ -2790,7 +2833,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                     grouped.set(key, this.mergeGroupedRows(existing, row));
                 });
 
-                return Array.from(grouped.values()).sort((a, b) => (b._ts || 0) - (a._ts || 0));
+                return this.dedupePosDuplicateRows(Array.from(grouped.values()))
+                    .sort((a, b) => (b._ts || 0) - (a._ts || 0));
             },
 
             serviceMapping: {
