@@ -911,7 +911,15 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         <main>
             <!-- Branch context banner -->
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
-            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
+            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
+                <div id="pf-dashboard-toolbar-summary" style="font-size:12px;color:#6b7280;font-weight:500;">
+                    <?php
+                        $toolbarBranchLabel = ($branchId === 'all')
+                            ? 'All Branches'
+                            : ((string)($branchCtx['branch_name'] ?? 'Selected Branch'));
+                        echo htmlspecialchars($toolbarBranchLabel . ' · ' . $dashboard_branch_period_label);
+                    ?>
+                </div>
                 <div style="display:flex;align-items:center;gap:10px;position:relative;">
                     <button class="toolbar-btn" id="dash-filter-toggle" style="height:38px;">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V20a1 1 0 01-1.447.894l-2-1A1 1 0 0110 19v-5.5L3.2 4.6A1 1 0 013 4z"/></svg>
@@ -945,13 +953,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                                 </div>
                             </div>
                             <div class="filter-actions">
-                                <button type="button" class="filter-btn-reset" id="dash-filter-reset-btn">Reset</button>
-                                <button type="submit" class="toolbar-btn active" style="flex:1;justify-content:center;">Apply</button>
+                                <button type="button" class="filter-btn-reset" id="dash-filter-reset-btn" style="width:100%;">Reset</button>
                             </div>
                         </form>
                     </div>
                 </div>
-                <div class="pf-branch-meta-badge" title="Active dashboard filter"><?php echo htmlspecialchars($dashboard_filter_label); ?></div>
             </div>
 
             <!-- KPI Summary Row (entire card is a link; keyboard + screen-reader friendly) -->
@@ -1984,12 +1990,14 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 (function () {
     var panel = document.getElementById('dash-filter-panel');
     var toggleBtn = document.getElementById('dash-filter-toggle');
+    var form = document.getElementById('reportsFilterForm');
     var presetInput = document.getElementById('dash_preset');
     var fromInput = document.getElementById('fp_from');
     var toInput = document.getElementById('fp_to');
     var resetLink = document.getElementById('dash-filter-reset-link');
     var resetBtn = document.getElementById('dash-filter-reset-btn');
-    if (!panel || !toggleBtn || !fromInput || !toInput || !presetInput) return;
+    if (!panel || !toggleBtn || !form || !fromInput || !toInput || !presetInput) return;
+    var submitTimer = null;
 
     function openPanel() {
         panel.hidden = false;
@@ -2037,6 +2045,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     function resetToToday() {
         applyPreset('today');
     }
+    function autoSubmit(delay) {
+        if (submitTimer) clearTimeout(submitTimer);
+        submitTimer = setTimeout(function () {
+            form.submit();
+        }, typeof delay === 'number' ? delay : 220);
+    }
 
     toggleBtn.addEventListener('click', function () {
         panel.hidden ? openPanel() : closePanel();
@@ -2051,20 +2065,31 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         if (e.key === 'Escape') closePanel();
     });
 
-    fromInput.addEventListener('change', clearPreset);
-    toInput.addEventListener('change', clearPreset);
+    fromInput.addEventListener('change', function () {
+        clearPreset();
+        autoSubmit(220);
+    });
+    toInput.addEventListener('change', function () {
+        clearPreset();
+        autoSubmit(220);
+    });
 
     document.querySelectorAll('.fp-preset-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             applyPreset(btn.getAttribute('data-preset') || 'today');
+            autoSubmit(120);
         });
     });
 
     if (resetLink) resetLink.addEventListener('click', function (e) {
         e.preventDefault();
         resetToToday();
+        autoSubmit(120);
     });
-    if (resetBtn) resetBtn.addEventListener('click', resetToToday);
+    if (resetBtn) resetBtn.addEventListener('click', function () {
+        resetToToday();
+        autoSubmit(120);
+    });
 })();
 </script>
 </body>
