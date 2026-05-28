@@ -289,14 +289,14 @@ function render_service_card($srv) {
 
     .ct-product-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-        gap: 24px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 18px;
     }
 
     .shopee-card {
         background: var(--shopee-card-bg);
         border: 1px solid var(--shopee-border);
-        border-radius: 24px;
+        border-radius: 22px;
         transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
         cursor: pointer;
         overflow: hidden;
@@ -322,7 +322,7 @@ function render_service_card($srv) {
         content: "";
         position: absolute;
         inset: 1px;
-        border-radius: 23px;
+        border-radius: 21px;
         border: 1px solid rgba(255, 255, 255, 0.45);
         pointer-events: none;
     }
@@ -339,45 +339,45 @@ function render_service_card($srv) {
     }
 
     .shopee-img {
-        width: calc(100% - 28px);
-        margin: 14px 14px 0;
-        aspect-ratio: 1.18;
+        width: calc(100% - 24px);
+        margin: 12px 12px 0;
+        aspect-ratio: 1.05;
         object-fit: cover;
-        border-radius: 18px;
+        border-radius: 16px;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px rgba(16, 53, 71, 0.12);
         background: linear-gradient(180deg, rgba(240, 248, 252, 0.9), rgba(225, 236, 243, 0.9));
     }
 
     .shopee-body {
-        padding: 16px 18px 0;
+        padding: 12px 14px 0;
         flex-grow: 1;
         display: flex;
         flex-direction: column;
     }
 
     .shopee-name {
-        font-size: 1.12rem;
-        line-height: 1.45rem;
-        min-height: 2.9rem;
+        font-size: 0.92rem;
+        line-height: 1.25rem;
+        min-height: 2.5rem;
         overflow: hidden;
         text-overflow: ellipsis;
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         color: var(--shopee-text);
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         font-weight: 700;
         letter-spacing: -0.02em;
     }
 
     .shopee-category {
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         color: #477089;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
         display: inline-flex;
         align-items: center;
         width: fit-content;
-        padding: 0.42rem 0.8rem;
+        padding: 0.32rem 0.68rem;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.6);
         border: 1px solid rgba(126, 164, 184, 0.18);
@@ -402,16 +402,16 @@ function render_service_card($srv) {
 
     .shopee-sold {
         margin-left: auto;
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         color: var(--shopee-muted);
-        padding: 0.3rem 0.65rem;
+        padding: 0.22rem 0.55rem;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.55);
         border: 1px solid rgba(126, 164, 184, 0.16);
     }
 
     .shopee-footer {
-        padding: 14px 18px 18px;
+        padding: 10px 14px 14px;
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
         gap: 8px;
@@ -419,9 +419,9 @@ function render_service_card($srv) {
 
     .shopee-btn {
         flex: 1;
-        padding: 0.95rem 1rem;
-        border-radius: 16px;
-        font-size: 0.84rem;
+        padding: 0.82rem 0.9rem;
+        border-radius: 14px;
+        font-size: 0.78rem;
         font-weight: 700;
         text-align: center;
         text-transform: uppercase;
@@ -455,16 +455,16 @@ function render_service_card($srv) {
 
     .rating-stars {
         color: #ffca11;
-        font-size: 0.8rem;
+        font-size: 0.74rem;
         display: flex;
         align-items: center;
         gap: 4px;
-        margin-bottom: 4px;
-        padding-top: 2px;
+        margin-bottom: 2px;
+        padding-top: 0;
     }
 
     .rating-text {
-        font-size: 0.76rem;
+        font-size: 0.72rem;
         color: var(--shopee-muted);
         margin-left: 6px;
         font-weight: 600;
@@ -473,7 +473,7 @@ function render_service_card($srv) {
     @media (max-width: 1023px) and (min-width: 641px) {
         .ct-product-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 20px;
+            gap: 16px;
         }
     }
 
