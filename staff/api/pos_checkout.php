@@ -79,6 +79,47 @@ function pos_get_service_placeholder_product_id(): int {
     return 0;
 }
 
+function pos_find_pending_service_link(int $customerId, int $branchId, int $productId, string $serviceName): array {
+    if ($customerId <= 0 || $branchId <= 0) {
+        return ['order_id' => 0, 'customization_id' => 0];
+    }
+
+    $normalizedServiceName = trim($serviceName);
+    $rows = db_query(
+        "SELECT
+            o.order_id,
+            cust.customization_id,
+            cust.service_type
+         FROM orders o
+         JOIN customizations cust ON cust.order_id = o.order_id
+         LEFT JOIN order_items oi ON oi.order_id = o.order_id
+         WHERE o.customer_id = ?
+           AND o.branch_id = ?
+           AND LOWER(TRIM(COALESCE(o.order_source, ''))) = 'pos'
+           AND o.payment_status = 'Unpaid'
+           AND o.status IN ('Approved', 'Pending', 'Pending Review', 'Pending Approval')
+           AND (
+                o.reference_id = ?
+                OR LOWER(TRIM(COALESCE(cust.service_type, ''))) = LOWER(TRIM(?))
+                OR oi.customization_data LIKE '%\"source\":\"POS\"%'
+                OR oi.customization_data LIKE '%\"source\": \"POS\"%'
+           )
+         ORDER BY cust.updated_at DESC, cust.customization_id DESC
+         LIMIT 1",
+        'iiis',
+        [$customerId, $branchId, $productId, $normalizedServiceName]
+    ) ?: [];
+
+    if (empty($rows)) {
+        return ['order_id' => 0, 'customization_id' => 0];
+    }
+
+    return [
+        'order_id' => (int)($rows[0]['order_id'] ?? 0),
+        'customization_id' => (int)($rows[0]['customization_id'] ?? 0),
+    ];
+}
+
 function pos_migrate_pending_assignments_to_order(int $sourceOrderId, int $targetOrderId): void {
     if ($sourceOrderId <= 0 || $targetOrderId <= 0 || $sourceOrderId === $targetOrderId) {
         return;
@@ -564,6 +605,13 @@ try {
                 $pendingOrderId = (int)$_SESSION['pos_pending_orders'][$product_id];
             }
             $pendingCustomizationId = (int)($item['pending_customization_id'] ?? 0);
+            if ($pendingOrderId <= 0) {
+                $pendingLink = pos_find_pending_service_link($customer_id, $branch_id, $product_id, $name);
+                $pendingOrderId = (int)($pendingLink['order_id'] ?? 0);
+                if ($pendingCustomizationId <= 0) {
+                    $pendingCustomizationId = (int)($pendingLink['customization_id'] ?? 0);
+                }
+            }
 
             $customization_result = false;
             if ($pendingOrderId > 0) {
