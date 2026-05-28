@@ -120,6 +120,82 @@ function pos_find_pending_service_link(int $customerId, int $branchId, int $prod
     ];
 }
 
+function pos_extract_inline_media_payload(array &$customization, string $prefix): array {
+    $data = trim((string)($customization[$prefix . '_data'] ?? ''));
+    $name = trim((string)($customization[$prefix . '_name'] ?? $customization[$prefix] ?? ''));
+    $mime = trim((string)($customization[$prefix . '_mime'] ?? ''));
+
+    unset(
+        $customization[$prefix . '_data'],
+        $customization[$prefix . '_name'],
+        $customization[$prefix . '_mime']
+    );
+
+    if ($data === '' || !preg_match('#^data:([^;]+);base64,(.+)$#s', $data, $matches)) {
+        return ['blob' => null, 'mime' => $mime, 'name' => $name];
+    }
+
+    $decoded = base64_decode($matches[2], true);
+    if ($decoded === false || $decoded === '') {
+        return ['blob' => null, 'mime' => $mime, 'name' => $name];
+    }
+
+    if ($mime === '') {
+        $mime = trim((string)$matches[1]);
+    }
+
+    return [
+        'blob' => $decoded,
+        'mime' => $mime !== '' ? $mime : 'application/octet-stream',
+        'name' => $name,
+    ];
+}
+
+function pos_store_order_item_inline_media(int $orderItemId, array $designPayload, array $referencePayload = []): void {
+    if ($orderItemId <= 0) {
+        return;
+    }
+
+    if (!empty($designPayload['blob'])) {
+        db_execute(
+            "UPDATE order_items
+             SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = NULL
+             WHERE order_item_id = ?",
+            'sssi',
+            [
+                $designPayload['blob'],
+                (string)($designPayload['mime'] ?? 'application/octet-stream'),
+                (string)($designPayload['name'] ?? 'design_upload'),
+                $orderItemId
+            ]
+        );
+    }
+
+    if (!empty($referencePayload['blob'])) {
+        $uploadDir = dirname(__DIR__, 2) . '/uploads/orders';
+        if (!is_dir($uploadDir)) {
+            @mkdir($uploadDir, 0775, true);
+        }
+        if (is_dir($uploadDir) && is_writable($uploadDir)) {
+            $baseName = trim((string)($referencePayload['name'] ?? 'reference_upload'));
+            $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseName);
+            if ($safeName === '' || $safeName === null) {
+                $safeName = 'reference_upload';
+            }
+            $targetName = time() . '_ref_' . $orderItemId . '_' . $safeName;
+            $targetPath = $uploadDir . '/' . $targetName;
+            if (@file_put_contents($targetPath, $referencePayload['blob']) !== false) {
+                $storedPath = '/uploads/orders/' . $targetName;
+                db_execute(
+                    "UPDATE order_items SET reference_image_file = ? WHERE order_item_id = ?",
+                    'si',
+                    [$storedPath, $orderItemId]
+                );
+            }
+        }
+    }
+}
+
 function pos_migrate_pending_assignments_to_order(int $sourceOrderId, int $targetOrderId): void {
     if ($sourceOrderId <= 0 || $targetOrderId <= 0 || $sourceOrderId === $targetOrderId) {
         return;
@@ -327,6 +403,8 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
     
     // Mark as POS source
     $customization['source'] = 'POS';
+    $draftDesignPayload = pos_extract_inline_media_payload($customization, 'design_upload');
+    $draftReferencePayload = pos_extract_inline_media_payload($customization, 'reference_upload');
     
     try {
         global $conn;
@@ -373,6 +451,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
             exit;
         }
         $order_item_id = $conn->insert_id;
+        pos_store_order_item_inline_media($order_item_id, $draftDesignPayload, $draftReferencePayload);
 
         $details_json = json_encode($customization ?: new stdClass());
         $customization_result = db_execute(
@@ -533,6 +612,8 @@ try {
         
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];
+        $designPayload = pos_extract_inline_media_payload($custom_details, 'design_upload');
+        $referencePayload = pos_extract_inline_media_payload($custom_details, 'reference_upload');
 
         // Service catalog IDs can overlap product IDs. Only keep product_id for
         // product-backed custom items, not services selected from the Services tab.
@@ -575,6 +656,7 @@ try {
         }
         
         $order_item_id = $conn->insert_id;
+        pos_store_order_item_inline_media($order_item_id, $designPayload, $referencePayload);
 
         // Always create or re-link customization entry for service items
         if ($is_service) {

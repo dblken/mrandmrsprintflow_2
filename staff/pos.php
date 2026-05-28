@@ -1736,6 +1736,19 @@ try {
             document.getElementById('service-modal-overlay').style.display = 'none';
         }
 
+        async function posReadFilePayload(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve({
+                    name: file.name || '',
+                    mime: file.type || '',
+                    data: typeof reader.result === 'string' ? reader.result : ''
+                });
+                reader.onerror = () => reject(new Error('Failed to read file.'));
+                reader.readAsDataURL(file);
+            });
+        }
+
         async function confirmServiceModal() {
             const overlay = document.getElementById('service-modal-overlay');
             const serviceId = parseInt(overlay.dataset.serviceId);
@@ -1806,20 +1819,37 @@ try {
                     }
                 }
 
-                const fileInput = row.querySelector('input[type="file"]');
-                if (fileInput && fileInput.files && fileInput.files.length > 0) {
-                    const fileName = fileInput.files[0].name;
-                    customization[labelText] = fileName;
-                    if (fileInput.name === 'design_file') customization.design_upload = fileName;
-                    if (fileInput.name === 'reference_file') customization.reference_upload = fileName;
-                }
-
                 // Text / number
                 const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input)');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     customization[labelText] = textInput.value.trim();
                 }
             });
+
+            const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
+            for (const fileInput of serviceFileInputs) {
+                if (!(fileInput.files && fileInput.files.length > 0)) {
+                    continue;
+                }
+                const file = fileInput.files[0];
+                const payload = await posReadFilePayload(file);
+                const row = fileInput.closest('.shopee-form-row');
+                const label = row ? row.querySelector('.shopee-form-label') : null;
+                const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
+                customization[labelText] = payload.name;
+                if (fileInput.name === 'design_file') {
+                    customization.design_upload = payload.name;
+                    customization.design_upload_name = payload.name;
+                    customization.design_upload_mime = payload.mime;
+                    customization.design_upload_data = payload.data;
+                }
+                if (fileInput.name === 'reference_file') {
+                    customization.reference_upload = payload.name;
+                    customization.reference_upload_name = payload.name;
+                    customization.reference_upload_mime = payload.mime;
+                    customization.reference_upload_data = payload.data;
+                }
+            }
 
             // Add service to cart with price = 0 (will be set in customizations page)
             const result = await syncedCartAction('add', {
@@ -2304,7 +2334,7 @@ try {
             });
         }
 
-        function collectRequirementsToCustomization(requirements, startIdx, customization, validation) {
+        async function collectRequirementsToCustomization(requirements, startIdx, customization, validation) {
             if (!requirements) return;
             requirements.forEach((req, i) => {
                 const resolvedReq = typeof req === 'function' ? req() : req;
@@ -2354,14 +2384,37 @@ try {
                 const el = document.getElementById(`custom_field_${idx}`);
                 if (!el) return;
                 val = el.value;
-                if (req.type === 'file' && el.files && el.files.length > 0) {
-                    val = el.files[0].name;
-                    if (name === 'design_file') customization.design_upload = val;
-                    if (name === 'reference_file') customization.reference_upload = val;
-                }
                 if (req.required && !val) validation.valid = false;
                 if (val) customization[name] = val;
             });
+
+            for (let i = 0; i < requirements.length; i++) {
+                const resolvedReq = typeof requirements[i] === 'function' ? requirements[i]() : requirements[i];
+                if (!$resolvedReq || resolvedReq.type !== 'file') {
+                    continue;
+                }
+                const req = resolvedReq;
+                const idx = startIdx + i;
+                const name = req.name || ('field_' + idx);
+                const el = document.getElementById(`custom_field_${idx}`);
+                if (!(el && el.files && el.files.length > 0)) {
+                    continue;
+                }
+                const payload = await posReadFilePayload(el.files[0]);
+                customization[name] = payload.name;
+                if (name === 'design_file') {
+                    customization.design_upload = payload.name;
+                    customization.design_upload_name = payload.name;
+                    customization.design_upload_mime = payload.mime;
+                    customization.design_upload_data = payload.data;
+                }
+                if (name === 'reference_file') {
+                    customization.reference_upload = payload.name;
+                    customization.reference_upload_name = payload.name;
+                    customization.reference_upload_mime = payload.mime;
+                    customization.reference_upload_data = payload.data;
+                }
+            }
         }
 
         async function confirmCustomization() {
@@ -2370,9 +2423,9 @@ try {
             const customization = {};
             const validation = { valid: true };
 
-            collectRequirementsToCustomization(currentCustomRequirements, 0, customization, validation);
+            await collectRequirementsToCustomization(currentCustomRequirements, 0, customization, validation);
             if (posDynamicRequirements) {
-                collectRequirementsToCustomization(posDynamicRequirements, posDynamicFieldStartIndex, customization, validation);
+                await collectRequirementsToCustomization(posDynamicRequirements, posDynamicFieldStartIndex, customization, validation);
             }
 
             if (pendingCustomProduct.category === 'Reflectorized' || pendingCustomProduct.product_name === 'Reflectorized') {
