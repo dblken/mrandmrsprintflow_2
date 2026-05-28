@@ -131,8 +131,8 @@ require_once __DIR__ . '/../includes/header.php';
     /* Mobile: 1 card per row (full width) */
     @media (max-width: 640px) {
         .shopee-grid {
-            grid-template-columns: 1fr;
-            gap: 16px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
         }
 
         .shopee-card {

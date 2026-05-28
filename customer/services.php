@@ -487,8 +487,8 @@ function render_service_card($srv) {
 
     @media (max-width: 640px) {
         .ct-product-grid {
-            grid-template-columns: 1fr;
-            gap: 18px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
         }
 
         .shopee-card {
