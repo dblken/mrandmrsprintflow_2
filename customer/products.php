@@ -256,6 +256,8 @@ require_once __DIR__ . '/../includes/header.php';
 
     .shopee-img {
         width: 100%;
+        min-width: 100%;
+        display: block;
         margin: 0;
         aspect-ratio: 0.82;
         object-fit: cover;

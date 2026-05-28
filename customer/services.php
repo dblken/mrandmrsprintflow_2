@@ -341,6 +341,8 @@ function render_service_card($srv) {
 
     .shopee-img {
         width: 100%;
+        min-width: 100%;
+        display: block;
         margin: 0;
         aspect-ratio: 0.82;
         object-fit: cover;
