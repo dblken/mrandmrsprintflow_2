@@ -487,12 +487,14 @@ function render_service_card($srv) {
 
     @media (max-width: 640px) {
         .ct-product-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 12px !important;
         }
 
         .shopee-card {
             border-radius: 22px;
+            min-width: 0;
         }
 
         .shopee-img {
