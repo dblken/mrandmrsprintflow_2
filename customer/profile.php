@@ -1011,7 +1011,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <div style="padding:0.75rem 0.85rem 0.5rem;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Customer Account</div>
                     <ul class="profile-nav-list">
                         <li class="profile-nav-item"><a href="#section-profile" class="account-nav-link active" data-section="section-profile">Personal Information</a></li>
-                        <li class="profile-nav-item"><a href="#section-address" class="account-nav-link" data-section="section-address">Address & Delivery</a></li>
+                        <li class="profile-nav-item"><a href="#section-address" class="account-nav-link" data-section="section-address">Address</a></li>
                         <li class="profile-nav-item"><a href="#section-account" class="account-nav-link" data-section="section-account">Account Management</a></li>
                         <li class="profile-nav-item"><a href="#section-security" class="account-nav-link" data-section="section-security">Security & Verification</a></li>
                     </ul>
@@ -1025,10 +1025,9 @@ require_once __DIR__ . '/../includes/header.php';
 
                 <div class="profile-card" style="padding-bottom:1.1rem;">
                     <h2 class="profile-card-title" style="margin-bottom:0.5rem;">Customer Account</h2>
-                    <p class="profile-card-description" style="margin-bottom:1rem;">Manage your personal profile, delivery address, account access, and verification in clearly separated settings sections.</p>
                     <div class="settings-tabs">
                         <button type="button" class="settings-tab-btn is-active" data-section="section-profile">Personal Information</button>
-                        <button type="button" class="settings-tab-btn" data-section="section-address">Address & Delivery</button>
+                        <button type="button" class="settings-tab-btn" data-section="section-address">Address</button>
                         <button type="button" class="settings-tab-btn" data-section="section-account">Account Management</button>
                         <button type="button" class="settings-tab-btn" data-section="section-security">Security & Verification</button>
                     </div>
@@ -1103,8 +1102,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                 <!-- Address Section -->
                 <div class="profile-card settings-panel" id="section-address">
-                    <h3 class="profile-card-title">Address & Delivery</h3>
-                    <p class="profile-card-description">Manage your delivery location, pickup destination, and complete order address details.</p>
+                    <h3 class="profile-card-title">Address</h3>
                     
                     <form method="POST" action="" id="address-form">
                         <?php echo csrf_field(); ?>
@@ -1161,21 +1159,6 @@ require_once __DIR__ . '/../includes/header.php';
                 <!-- Security Section -->
                 <div class="profile-card settings-panel" id="section-account">
                     <h3 class="profile-card-title">Account Management</h3>
-                    <p class="profile-card-description">Manage your login credentials, password setup, and account access separately from your personal profile details.</p>
-                    <div class="helper-card" style="margin-bottom:1rem;">
-                        <div class="helper-card-title">Login Method</div>
-                        <div class="helper-card-text">
-                            <?php if ($customer_uses_google_signin): ?>
-                                Signed in with Google<?php echo !empty($omit_current_password_on_profile) ? '. Create a password below if you also want to sign in with your email and password.' : '. You can continue using Google or update your password below.'; ?>
-                            <?php else: ?>
-                                Signed in with Email and Password. Use this section to change your password and protect your account access.
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    <?php if (!empty($omit_current_password_on_profile)): ?>
-                    <p style="font-size:0.875rem;color:#64748b;margin:0 0 1rem;line-height:1.5;">You signed in with Google. Create a password here if you want to sign in with your email and password as well.</p>
-                    <?php endif; ?>
-
                     <form method="POST" action="" novalidate>
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="change_password" value="1">
