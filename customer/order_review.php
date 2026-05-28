@@ -1404,7 +1404,7 @@ require_once __DIR__ . '/../includes/header.php';
                         Back to Cart
                     </a>
                     
-                    <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Pay Now' : 'Inquire Now'; ?></button>
+                    <button type="submit" name="confirm_order" value="1" class="shopee-btn-primary" style="width: 150px; white-space: nowrap;"><?php echo $is_product_order ? 'Order Now' : 'Inquire Now'; ?></button>
                 </div>
             </div>
         </form>
