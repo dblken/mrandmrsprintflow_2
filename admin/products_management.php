@@ -1409,6 +1409,9 @@ if (isset($_GET['ajax'])) {
             gap: 14px;
             margin-bottom: 12px;
         }
+        #product-modal .form-row-3.is-add-mode {
+            grid-template-columns: 1fr 1fr;
+        }
         #product-modal .form-group,
         #view-product-modal .form-group {
             margin-bottom: 12px;
@@ -2213,7 +2216,7 @@ if (isset($_GET['ajax'])) {
                     <span id="err-photo" class="field-error"></span>
                 </div>
 
-                <div class="form-row-3">
+                <div class="form-row-3" id="modal-stock-row">
                     <div class="form-group" id="fg-stock">
                         <label for="modal-stock">Quantity <span style="color:#dc2626">*</span></label>
                         <input type="number" id="modal-stock"<?php echo $is_manager ? '' : ' name="stock_quantity"'; ?> min="0" value="" step="1" placeholder="0" maxlength="5">
@@ -2641,8 +2644,10 @@ window.openProductModal = function openProductModal(mode, product) {
             if (lowEl) lowEl.value = product.low_stock_level != null ? String(product.low_stock_level) : '10';
             var stEl = document.getElementById('modal-status');
             var stWrap = document.getElementById('fg-status');
+            var stockRow = document.getElementById('modal-stock-row');
             if (stEl) stEl.value = (product.status === 'Deactivated') ? 'Deactivated' : 'Activated';
             if (stWrap) stWrap.style.display = '';
+            if (stockRow) stockRow.classList.remove('is-add-mode');
             if (photoInput) photoInput.value = '';
             if (product.photo_path && previewImg && previewText) {
                 previewImg.src = product.photo_path;
@@ -2669,6 +2674,8 @@ window.openProductModal = function openProductModal(mode, product) {
         if (stElCreate) stElCreate.value = 'Activated';
         var stWrapCreate = document.getElementById('fg-status');
         if (stWrapCreate) stWrapCreate.style.display = 'none';
+        var stockRowCreate = document.getElementById('modal-stock-row');
+        if (stockRowCreate) stockRowCreate.classList.add('is-add-mode');
         if (photoInput) photoInput.value = '';
         if (previewImg) { previewImg.removeAttribute('src'); previewImg.style.display = 'none'; }
         if (previewText) previewText.style.display = 'block';
