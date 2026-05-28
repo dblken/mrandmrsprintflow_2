@@ -108,6 +108,9 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
     if (in_array($source, ['pos', 'walk-in'], true)) {
         return $source;
     }
+    if ($source === 'pos_draft') {
+        return 'pos_draft';
+    }
 
     if (!empty($orderId)) {
         $sourceCheckRows = db_query(
@@ -141,7 +144,7 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
         );
         $sourceCheck = $sourceCheckRows[0] ?? [];
         $dbOrderSource = strtolower(trim((string)($sourceCheck['db_order_source'] ?? '')));
-        if (in_array($dbOrderSource, ['pos', 'walk-in'], true)) {
+        if (in_array($dbOrderSource, ['pos', 'walk-in', 'pos_draft'], true)) {
             return $dbOrderSource;
         }
 
@@ -433,7 +436,7 @@ try {
                     LEFT JOIN products p ON oi.product_id = p.product_id
                     LEFT JOIN customers c ON o.customer_id = c.customer_id
                     WHERE (o.order_type IS NULL OR o.order_type = 'product' OR o.order_type = 'custom')
-                    AND COALESCE(o.order_source, '') <> 'pos_merged'
+                    AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                     AND o.status IN (
                         'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
                         'Approved', 'Design Approved',
@@ -521,7 +524,7 @@ try {
                 LEFT JOIN orders o ON cust.order_id = o.order_id
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
                 AND cust.order_id IS NOT NULL
-                AND COALESCE(o.order_source, '') <> 'pos_merged'"
+                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
                 LIMIT " . (int)$dashboardListLimit;

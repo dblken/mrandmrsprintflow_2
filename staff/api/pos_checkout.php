@@ -95,9 +95,9 @@ function pos_find_pending_service_link(int $customerId, int $branchId, int $prod
          LEFT JOIN order_items oi ON oi.order_id = o.order_id
          WHERE o.customer_id = ?
            AND o.branch_id = ?
-           AND LOWER(TRIM(COALESCE(o.order_source, ''))) = 'pos'
+           AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'pos_draft')
            AND o.payment_status = 'Unpaid'
-           AND o.status IN ('Approved', 'Pending', 'Pending Review', 'Pending Approval')
+           AND o.status IN ('Draft', 'Approved', 'Pending', 'Pending Review', 'Pending Approval')
            AND (
                 o.reference_id = ?
                 OR LOWER(TRIM(COALESCE(cust.service_type, ''))) = LOWER(TRIM(?))
@@ -333,15 +333,53 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $conn->begin_transaction();
         $transaction_open = true;
         
-        // Draft-only POS customization entry.
-        // Do not create orders/order_items here because this endpoint is used only
-        // for redirecting to the set-price screen before checkout is completed.
+        $branch_id = (int)($_SESSION['branch_id'] ?? 1);
+        if ($branch_id < 1) $branch_id = 1;
+
+        $pending_item_product_id = pos_get_service_placeholder_product_id();
+        if ($pending_item_product_id <= 0) {
+            $pending_item_product_id = $product_id;
+        }
+
+        // Create a hidden draft POS order so customizations still satisfies table
+        // constraints, but keep it out of normal staff lists until checkout finalizes.
+        $order_result = db_execute(
+            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source)
+             VALUES (?, ?, ?, 0, 'Draft', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos_draft')",
+            'iii',
+            [$customer_id, $branch_id, $product_id]
+        );
+        if (!$order_result) {
+            $conn->rollback();
+            echo json_encode(['success' => false, 'message' => 'Failed to create draft order.']);
+            exit;
+        }
+
+        $order_id = $conn->insert_id;
+        if (!isset($_SESSION['pos_pending_orders'])) {
+            $_SESSION['pos_pending_orders'] = [];
+        }
+        $_SESSION['pos_pending_orders'][$product_id] = $order_id;
+
+        $customization_json = json_encode($customization ?: new stdClass());
+        $item_result = db_execute(
+            "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, 0, ?)",
+            'iiis',
+            [$order_id, $pending_item_product_id, $qty, $customization_json]
+        );
+        if (!$item_result) {
+            $conn->rollback();
+            echo json_encode(['success' => false, 'message' => 'Failed to create draft order item.']);
+            exit;
+        }
+        $order_item_id = $conn->insert_id;
+
         $details_json = json_encode($customization ?: new stdClass());
         $customization_result = db_execute(
             "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
-             VALUES (NULL, NULL, ?, ?, ?, 'Approved', NOW(), NOW())",
-            'iss',
-            [$customer_id, $name, $details_json]
+             VALUES (?, ?, ?, ?, ?, 'Approved', NOW(), NOW())",
+            'iiiss',
+            [$order_id, $order_item_id, $customer_id, $name, $details_json]
         );
         
         if (!$customization_result) {
@@ -354,7 +392,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
 
         $conn->commit();
         $transaction_open = false;
-        echo json_encode(['success' => true, 'customization_id' => $customization_id, 'order_id' => 0]);
+        echo json_encode(['success' => true, 'customization_id' => $customization_id, 'order_id' => $order_id]);
         exit;
         
     } catch (Exception $e) {
