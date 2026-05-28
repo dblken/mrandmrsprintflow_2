@@ -196,6 +196,73 @@ function pos_store_order_item_inline_media(int $orderItemId, array $designPayloa
     }
 }
 
+function pos_copy_order_item_media_if_missing(int $sourceOrderItemId, int $targetOrderItemId): void {
+    if ($sourceOrderItemId <= 0 || $targetOrderItemId <= 0 || $sourceOrderItemId === $targetOrderItemId) {
+        return;
+    }
+
+    $sourceRows = db_query(
+        "SELECT design_image, design_image_mime, design_image_name, design_file, reference_image_file
+         FROM order_items
+         WHERE order_item_id = ?
+         LIMIT 1",
+        'i',
+        [$sourceOrderItemId]
+    ) ?: [];
+    if (empty($sourceRows)) {
+        return;
+    }
+
+    $targetRows = db_query(
+        "SELECT
+            IFNULL(LENGTH(design_image), 0) AS design_image_bytes,
+            TRIM(COALESCE(design_file, '')) AS design_file,
+            TRIM(COALESCE(reference_image_file, '')) AS reference_image_file
+         FROM order_items
+         WHERE order_item_id = ?
+         LIMIT 1",
+        'i',
+        [$targetOrderItemId]
+    ) ?: [];
+    if (empty($targetRows)) {
+        return;
+    }
+
+    $source = $sourceRows[0];
+    $target = $targetRows[0];
+    $targetHasDesign = (int)($target['design_image_bytes'] ?? 0) > 0 || trim((string)($target['design_file'] ?? '')) !== '';
+    $targetHasReference = trim((string)($target['reference_image_file'] ?? '')) !== '';
+
+    if (!$targetHasDesign) {
+        $sourceHasDesign = !empty($source['design_image']) || trim((string)($source['design_file'] ?? '')) !== '';
+        if ($sourceHasDesign) {
+            db_execute(
+                "UPDATE order_items
+                 SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
+                 WHERE order_item_id = ?",
+                'ssssi',
+                [
+                    $source['design_image'],
+                    (string)($source['design_image_mime'] ?? ''),
+                    (string)($source['design_image_name'] ?? ''),
+                    (string)($source['design_file'] ?? ''),
+                    $targetOrderItemId
+                ]
+            );
+        }
+    }
+
+    if (!$targetHasReference && trim((string)($source['reference_image_file'] ?? '')) !== '') {
+        db_execute(
+            "UPDATE order_items
+             SET reference_image_file = ?
+             WHERE order_item_id = ?",
+            'si',
+            [(string)$source['reference_image_file'], $targetOrderItemId]
+        );
+    }
+}
+
 function pos_migrate_pending_assignments_to_order(int $sourceOrderId, int $targetOrderId): void {
     if ($sourceOrderId <= 0 || $targetOrderId <= 0 || $sourceOrderId === $targetOrderId) {
         return;
@@ -668,6 +735,7 @@ try {
                 $pendingOrderId = (int)$_SESSION['pos_pending_orders'][$product_id];
             }
             $pendingCustomizationId = (int)($item['pending_customization_id'] ?? 0);
+            $pendingOrderItemId = 0;
             if ($pendingOrderId <= 0) {
                 $pendingLink = pos_find_pending_service_link($customer_id, $branch_id, $product_id, $name);
                 $pendingOrderId = (int)($pendingLink['order_id'] ?? 0);
@@ -679,7 +747,7 @@ try {
             $customization_result = false;
             if ($pendingCustomizationId > 0) {
                 $customizationExists = db_query(
-                    "SELECT customization_id
+                    "SELECT customization_id, order_item_id
                      FROM customizations
                      WHERE customization_id = ?
                      LIMIT 1",
@@ -688,6 +756,10 @@ try {
                 ) ?: [];
 
                 if (!empty($customizationExists)) {
+                    $pendingOrderItemId = (int)($customizationExists[0]['order_item_id'] ?? 0);
+                    if ($pendingOrderItemId > 0) {
+                        pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
+                    }
                     $customization_result = db_execute(
                         "UPDATE customizations
                          SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
@@ -704,7 +776,7 @@ try {
             if (!$customization_result && $pendingOrderId > 0) {
                 if (!$customization_result) {
                     $existingCustomizationRows = db_query(
-                        "SELECT customization_id
+                        "SELECT customization_id, order_item_id
                          FROM customizations
                          WHERE order_id = ?
                          ORDER BY customization_id ASC",
@@ -717,6 +789,11 @@ try {
                             return (int)($row['customization_id'] ?? 0);
                         }, $existingCustomizationRows)));
                         if (!empty($customizationIds)) {
+                            $firstPendingRow = $existingCustomizationRows[0] ?? [];
+                            $pendingOrderItemId = (int)($firstPendingRow['order_item_id'] ?? 0);
+                            if ($pendingOrderItemId > 0) {
+                                pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
+                            }
                             $placeholders = implode(',', array_fill(0, count($customizationIds), '?'));
                             $customization_result = db_execute(
                                 "UPDATE customizations
