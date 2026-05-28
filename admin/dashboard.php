@@ -287,6 +287,23 @@ try {
 $forecast_revenue = !empty($trend12_revenues_branch) ? pf_linreg($trend12_revenues_branch) : 0;
 $next_month_label = date('M Y', strtotime('+1 month'));
 
+$branchRevenueFrom = date('Y-m-d', strtotime('-30 days'));
+$branchRevenueTo = date('Y-m-d');
+$branchRevenueToEnd = $branchRevenueTo . ' 23:59:59';
+$branchRevenuePrevFrom = date('Y-m-d', strtotime($branchRevenueFrom) - (strtotime($branchRevenueTo) - strtotime($branchRevenueFrom)) - 86400);
+$branchRevenuePrevToEnd = date('Y-m-d', strtotime($branchRevenueFrom) - 86400) . ' 23:59:59';
+$dashboard_branch_perf = pf_reports_branch_performance_merged(
+    $branchRevenueFrom,
+    $branchRevenueToEnd,
+    $branchId,
+    $branchRevenuePrevFrom,
+    $branchRevenuePrevToEnd
+);
+$dashboard_branch_perf = array_values(array_filter($dashboard_branch_perf, static function ($branch) {
+    return (float)($branch['revenue'] ?? 0) > 0;
+}));
+$dashboard_branch_period_label = date('M j, Y', strtotime($branchRevenueFrom)) . ' - ' . date('M j, Y', strtotime($branchRevenueTo));
+
 $top_products_full = [];
 try {
     $top_products_full = pf_reports_top_products_merged('', '', $branchId, 10);
@@ -793,13 +810,13 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <div class="ana-hd chart-header-row" style="margin-bottom:0;">
                         <h3 class="chart-title-nowrap">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                            Sales Revenue
-                            <span class="chart-badge">12-Month Trend</span>
+                            Sales Revenue by Branch
+                            <span class="chart-badge">Filter Applied</span>
                         </h3>
-                        <span class="chart-filter-label"><?php echo htmlspecialchars($next_month_label); ?> forecast</span>
+                        <span class="chart-filter-label"><?php echo htmlspecialchars($dashboard_branch_period_label); ?></span>
                     </div>
                     <div class="ana-bd">
-                    <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:320px;">
+                    <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:520px;">
                         <div class="chart-loading" id="dash-sales-loading">
                             <div class="chart-loading-spinner"></div>
                         </div>
@@ -1168,14 +1185,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         dashCtrl = new AbortController();
         var sig = { signal: dashCtrl.signal };
         var DASH_BRANCH_ID = <?php echo $branchId !== 'all' ? (int)$branchId : 'null'; ?>;
-        var DASH_SALES_TREND = {
-            labels: <?php echo json_encode($trend12_labels); ?>,
-            revenues: <?php echo json_encode($trend12_revenues_branch); ?>,
-            forecast: {
-                revenue: <?php echo json_encode($forecast_revenue); ?>,
-                label: <?php echo json_encode($next_month_label); ?>
-            }
-        };
+        var DASH_BRANCH_REVENUE = <?php echo json_encode(array_map(static function ($b) {
+            return [
+                'branch_name' => (string)($b['branch_name'] ?? 'Unknown Branch'),
+                'revenue' => round((float)($b['revenue'] ?? 0), 2),
+                'orders_store' => (int)($b['orders_store'] ?? 0),
+                'orders_jobs' => (int)($b['orders_jobs'] ?? 0),
+                'prev_revenue' => isset($b['prev_revenue']) ? (float)$b['prev_revenue'] : null,
+                'growth_pct' => isset($b['growth_pct']) ? $b['growth_pct'] : null,
+            ];
+        }, $dashboard_branch_perf)); ?>;
+        var DASH_SALES_TREND = { forecast: {} };
 
         var dashAnimLong = 1750;
         var dashAnimShort = 680;
@@ -1221,27 +1241,33 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             if (noDataEl) noDataEl.classList.remove('visible');
 
             try {
-                var labels = (DASH_SALES_TREND.labels || []).slice();
-                var revBranch = (DASH_SALES_TREND.revenues || []).map(function (v) { return Number(v) || 0; });
-                var forecast = DASH_SALES_TREND.forecast || {};
-                var forecastData = new Array(labels.length).fill(null);
-                var forecastValue = Number(forecast.revenue || 0);
-                var forecastStartIndex = labels.length - 1;
-                window.__pfDashSalesForecastStartIndex = forecastStartIndex;
-
-                if (forecast.label && forecastValue > 0) {
-                    if (revBranch.length > 0) {
-                        forecastData[revBranch.length - 1] = revBranch[revBranch.length - 1];
-                    }
-                    labels.push(forecast.label);
-                    forecastData.push(forecastValue);
-                    revBranch.push(null);
+                var branchRows = Array.isArray(DASH_BRANCH_REVENUE) ? DASH_BRANCH_REVENUE.slice() : [];
+                branchRows = branchRows.filter(function (row) {
+                    return Number(row.revenue || 0) > 0;
+                }).sort(function (a, b) {
+                    return Number(b.revenue || 0) - Number(a.revenue || 0);
+                });
+                var labels = branchRows.map(function (row) {
+                    var shortLabel = String(row.branch_name || 'Unknown Branch').replace(/\s+Branch$/i, '').trim();
+                    return [shortLabel, 'Branch'];
+                });
+                var revenue = branchRows.map(function (row) { return Number(row.revenue) || 0; });
+                var fills = revenue.map(function (_, index) { return index === 0 ? '#0F4C5C' : 'rgba(0,35,43,0.82)'; });
+                var borders = revenue.map(function (_, index) { return index === 0 ? '#53C5E0' : '#00232b'; });
+                var chartWrap = document.getElementById('dash-sales-chart-wrap');
+                var chartCanvasWrap = document.getElementById('dashSalesChart')?.parentElement;
+                var computedWidth = Math.max(760, branchRows.length * (branchRows.length > 8 ? 92 : 104));
+                if (chartWrap) chartWrap.style.height = '520px';
+                if (chartCanvasWrap) {
+                    chartCanvasWrap.style.width = computedWidth + 'px';
+                    chartCanvasWrap.style.minWidth = computedWidth + 'px';
                 }
-
                 if (!window.__pfDashSalesChart) return;
+                window.__pfDashSalesRows = branchRows;
                 window.__pfDashSalesChart.data.labels = labels;
-                window.__pfDashSalesChart.data.datasets[0].data = revBranch;
-                window.__pfDashSalesChart.data.datasets[1].data = forecastData;
+                window.__pfDashSalesChart.data.datasets[0].data = revenue;
+                window.__pfDashSalesChart.data.datasets[0].backgroundColor = fills;
+                window.__pfDashSalesChart.data.datasets[0].borderColor = borders;
                 var dur = salesFirstFetch ? dashAnimLong : dashAnimShort;
                 salesFirstFetch = false;
                 if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.animation) {
@@ -1316,20 +1342,24 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 }
             };
             window.__pfDashSalesChart = new Chart(document.getElementById('dashSalesChart').getContext('2d'), {
-                type: 'line',
+                type: 'bar',
                 data: { labels: [], datasets: [
                     {
-                        label: 'Branch revenue (₱)',
+                        label: 'Total sales revenue',
                         data: [],
-                        borderColor: '#00232b',
-                        backgroundColor: 'rgba(0,35,43,.08)',
+                        borderColor: [],
+                        backgroundColor: [],
                         borderWidth: 2.5,
                         fill: true,
                         tension: 0.35,
                         pointBackgroundColor: '#00232b',
                         pointRadius: 3,
                         pointHoverRadius: 6,
-                        yAxisID: 'y'
+                        yAxisID: 'y',
+                        borderRadius: 10,
+                        borderSkipped: false,
+                        barPercentage: 0.58,
+                        categoryPercentage: 0.68
                     },
                     {
                         label: 'Branch revenue forecast (\u20b1)',
@@ -1352,13 +1382,13 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    layout: { padding: isDashMobile() ? { top: 8, right: 4, bottom: 0, left: 0 } : { top: 6, right: 8, bottom: 0, left: 4 } },
-                    animation: { duration: dashAnimLong, easing: 'easeOutQuart' },
-                    interaction: { mode: 'index', intersect: false },
+                    layout: { padding: { top: 32, right: 18, bottom: 0, left: 8 } },
+                    animation: { duration: dashAnimLong, easing: 'easeOutCubic' },
+                    interaction: { mode: 'nearest', intersect: true },
                     plugins: {
                         legend: {
                             display: true,
-                            position: 'top',
+                            position: 'bottom',
                             labels: {
                                 boxWidth: 12,
                                 font: pfDashChartFont(11, '600'),
@@ -1371,7 +1401,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             animation: { duration: 180 },
                             padding: 10,
                             cornerRadius: 8,
-                            displayColors: true,
+                            displayColors: false,
                             titleFont: pfDashChartFont(11, '600'),
                             bodyFont: pfDashChartFont(11, '600'),
                             callbacks: {
@@ -1384,10 +1414,37 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     },
                     scales: {
                         y:  { beginAtZero: true, ticks: { font: pfDashChartFont(isDashMobile() ? 10 : 11, '600'), maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
-                        x:  { ticks: { font: pfDashChartFont(isDashMobile() ? 9 : 10, '600'), maxRotation: isDashMobile() ? 0 : 45, autoSkip: true, maxTicksLimit: isDashMobile() ? 5 : 10 }, grid: { display: false } }
+                        x:  { ticks: { color: '#334155', font: pfDashChartFont(isDashMobile() ? 9 : 11, '600'), maxRotation: 0, minRotation: 0 }, grid: { display: false } }
                     }
                 },
-                plugins: [forecastSeparatorPlugin]
+                plugins: [forecastSeparatorPlugin, {
+                    id: 'pfBranchRevenueLabels',
+                    afterDatasetsDraw: function (chart) {
+                        var ctx = chart.ctx;
+                        var meta = chart.getDatasetMeta(0);
+                        var dataset = chart.data.datasets[0];
+                        var rows = window.__pfDashSalesRows || [];
+                        ctx.save();
+                        ctx.font = '600 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        meta.data.forEach(function (bar, index) {
+                            var value = Number(dataset.data[index]) || 0;
+                            var row = rows[index] || {};
+                            var growth = row.growth_pct != null ? Number(row.growth_pct) : null;
+                            ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
+                            ctx.fillText('\u20b1' + value.toLocaleString(undefined, { maximumFractionDigits: 0 }), bar.x, bar.y - 6);
+                            if (growth !== null && !isNaN(growth)) {
+                                ctx.save();
+                                ctx.font = 'bold 10px sans-serif';
+                                ctx.fillStyle = growth > 0 ? '#059669' : (growth < 0 ? '#dc2626' : '#64748b');
+                                ctx.fillText((growth > 0 ? '+' : '') + growth.toFixed(1) + '%', bar.x, bar.y - 22);
+                                ctx.restore();
+                            }
+                        });
+                        ctx.restore();
+                    }
+                }]
             });
             loadSalesChart(getChartPeriod());
         });
