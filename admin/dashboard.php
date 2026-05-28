@@ -911,7 +911,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         <main>
             <!-- Branch context banner -->
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
-            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
+            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
                 <div style="display:flex;align-items:center;gap:10px;position:relative;">
                     <button class="toolbar-btn" id="dash-filter-toggle" style="height:38px;">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V20a1 1 0 01-1.447.894l-2-1A1 1 0 0110 19v-5.5L3.2 4.6A1 1 0 013 4z"/></svg>
