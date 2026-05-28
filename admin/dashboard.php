@@ -939,11 +939,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                                 <div class="filter-date-row">
                                     <div>
                                         <div class="filter-date-label">From:</div>
-                                        <input type="date" name="from" id="fp_from" class="filter-input" value="<?php echo htmlspecialchars($dashFromDate); ?>" @change="selectedPreset=''; document.getElementById('dash_preset').value=''; window.debouncedSubmitDashboardFilter(300)">
+                                        <input type="date" name="from" id="fp_from" class="filter-input" value="<?php echo htmlspecialchars($dashFromDate); ?>" @input="handleDateTyping(420)" @blur="handleDateTyping(120)">
                                     </div>
                                     <div>
                                         <div class="filter-date-label">To:</div>
-                                        <input type="date" name="to" id="fp_to" class="filter-input" value="<?php echo htmlspecialchars($dashToDate); ?>" @change="selectedPreset=''; document.getElementById('dash_preset').value=''; window.debouncedSubmitDashboardFilter(300)">
+                                        <input type="date" name="to" id="fp_to" class="filter-input" value="<?php echo htmlspecialchars($dashToDate); ?>" @input="handleDateTyping(420)" @blur="handleDateTyping(120)">
                                     </div>
                                 </div>
                                 <div style="margin-top:10px;font-size:12px;font-weight:600;color:#6b7280;">Quick presets</div>
@@ -1991,17 +1991,37 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 </script>
 <script>
 window.__pfDashFilterTimer = null;
+window.__pfDashLastSubmittedRange = null;
+window.__pfDashDateRe = /^\d{4}-\d{2}-\d{2}$/;
 window.debouncedSubmitDashboardFilter = function(delay) {
     if (window.__pfDashFilterTimer) clearTimeout(window.__pfDashFilterTimer);
     window.__pfDashFilterTimer = setTimeout(function() {
         var form = document.getElementById('reportsFilterForm');
-        if (form) form.submit();
+        var fromEl = document.getElementById('fp_from');
+        var toEl = document.getElementById('fp_to');
+        if (!form || !fromEl || !toEl) return;
+        // Never interrupt while the user is actively typing in a date input.
+        if (document.activeElement === fromEl || document.activeElement === toEl) return;
+        var fromVal = String(fromEl.value || '').trim();
+        var toVal = String(toEl.value || '').trim();
+        if (!window.__pfDashDateRe.test(fromVal) || !window.__pfDashDateRe.test(toVal)) return;
+        if (fromVal > toVal) return;
+        var key = fromVal + '|' + toVal + '|' + (document.getElementById('dash_preset')?.value || '');
+        if (window.__pfDashLastSubmittedRange === key) return;
+        window.__pfDashLastSubmittedRange = key;
+        form.submit();
     }, typeof delay === 'number' ? delay : 300);
 };
 function dashboardFilterPanel(initialPreset) {
     return {
         filterOpen: false,
         selectedPreset: initialPreset || 'today',
+        handleDateTyping(delay) {
+            this.selectedPreset = '';
+            var p = document.getElementById('dash_preset');
+            if (p) p.value = '';
+            window.debouncedSubmitDashboardFilter(typeof delay === 'number' ? delay : 300);
+        },
         resetDateRange() {
             this.setPreset('today');
         },
