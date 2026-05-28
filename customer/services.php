@@ -290,7 +290,7 @@ function render_service_card($srv) {
     .ct-product-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 18px;
+        gap: 14px;
     }
 
     .shopee-card {
@@ -303,6 +303,7 @@ function render_service_card($srv) {
         display: flex;
         flex-direction: column;
         min-height: 100%;
+        max-width: 100%;
         position: relative;
         box-shadow: var(--shopee-glass-shadow);
         backdrop-filter: blur(18px);
@@ -339,17 +340,17 @@ function render_service_card($srv) {
     }
 
     .shopee-img {
-        width: calc(100% - 24px);
-        margin: 12px 12px 0;
-        aspect-ratio: 1.05;
+        width: 100%;
+        margin: 0;
+        aspect-ratio: 0.82;
         object-fit: cover;
-        border-radius: 16px;
+        border-radius: 0;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px rgba(16, 53, 71, 0.12);
         background: linear-gradient(180deg, rgba(240, 248, 252, 0.9), rgba(225, 236, 243, 0.9));
     }
 
     .shopee-body {
-        padding: 12px 14px 0;
+        padding: 10px 12px 0;
         flex-grow: 1;
         display: flex;
         flex-direction: column;
@@ -358,14 +359,12 @@ function render_service_card($srv) {
     .shopee-name {
         font-size: 0.92rem;
         line-height: 1.25rem;
-        min-height: 2.5rem;
+        min-height: 1.25rem;
         overflow: hidden;
         text-overflow: ellipsis;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
+        white-space: nowrap;
         color: var(--shopee-text);
-        margin-bottom: 8px;
+        margin-bottom: 6px;
         font-weight: 700;
         letter-spacing: -0.02em;
     }
@@ -377,13 +376,14 @@ function render_service_card($srv) {
         display: inline-flex;
         align-items: center;
         width: fit-content;
-        padding: 0.32rem 0.68rem;
+        padding: 0.25rem 0.55rem;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.6);
         border: 1px solid rgba(126, 164, 184, 0.18);
         text-transform: uppercase;
         letter-spacing: 0.08em;
         font-weight: 700;
+        white-space: nowrap;
     }
 
     .shopee-price-row {
@@ -408,10 +408,11 @@ function render_service_card($srv) {
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.55);
         border: 1px solid rgba(126, 164, 184, 0.16);
+        white-space: nowrap;
     }
 
     .shopee-footer {
-        padding: 10px 14px 14px;
+        padding: 8px 12px 12px;
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
         gap: 8px;
@@ -419,9 +420,9 @@ function render_service_card($srv) {
 
     .shopee-btn {
         flex: 1;
-        padding: 0.82rem 0.9rem;
+        padding: 0.72rem 0.8rem;
         border-radius: 14px;
-        font-size: 0.78rem;
+        font-size: 0.74rem;
         font-weight: 700;
         text-align: center;
         text-transform: uppercase;
@@ -433,6 +434,8 @@ function render_service_card($srv) {
         text-decoration: none;
         cursor: pointer;
         letter-spacing: 0.05em;
+        white-space: nowrap;
+        line-height: 1;
     }
 
     .shopee-btn-cart {
@@ -461,6 +464,7 @@ function render_service_card($srv) {
         gap: 4px;
         margin-bottom: 2px;
         padding-top: 0;
+        flex-wrap: nowrap;
     }
 
     .rating-text {
@@ -468,6 +472,7 @@ function render_service_card($srv) {
         color: var(--shopee-muted);
         margin-left: 6px;
         font-weight: 600;
+        white-space: nowrap;
     }
 
     @media (max-width: 1023px) and (min-width: 641px) {
@@ -488,28 +493,28 @@ function render_service_card($srv) {
         }
 
         .shopee-img {
-            width: calc(100% - 22px);
-            margin: 11px 11px 0;
-            aspect-ratio: 1.32;
-            border-radius: 16px;
+            width: 100%;
+            margin: 0;
+            aspect-ratio: 0.95;
+            border-radius: 0;
         }
 
         .shopee-body {
-            padding: 14px 15px 0;
+            padding: 10px 12px 0;
         }
 
         .shopee-name {
             font-size: 1.02rem;
             line-height: 1.38rem;
-            min-height: 2.76rem;
+            min-height: 1.38rem;
         }
 
         .shopee-footer {
-            padding: 12px 15px 15px;
+            padding: 8px 12px 12px;
         }
 
         .shopee-btn {
-            min-height: 46px;
+            min-height: 40px;
         }
     }
     
