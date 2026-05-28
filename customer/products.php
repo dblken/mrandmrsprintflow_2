@@ -218,6 +218,7 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         flex-direction: column;
         height: 100%;
+        min-height: 0;
         max-width: 100%;
         position: relative;
         box-shadow: var(--shopee-glass-shadow);
@@ -259,7 +260,7 @@ require_once __DIR__ . '/../includes/header.php';
         min-width: 100%;
         display: block;
         margin: 0;
-        aspect-ratio: 0.82;
+        aspect-ratio: 1.02;
         object-fit: cover;
         border-radius: 0;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px rgba(16, 53, 71, 0.12);
@@ -267,8 +268,8 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .shopee-body {
-        padding: 10px 12px 0;
-        flex-grow: 1;
+        padding: 8px 10px 0;
+        flex-grow: 0;
         display: flex;
         flex-direction: column;
     }
@@ -278,7 +279,7 @@ require_once __DIR__ . '/../includes/header.php';
         justify-content: space-between;
         align-items: center;
         gap: 6px;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
         flex-wrap: nowrap;
     }
 
@@ -290,7 +291,7 @@ require_once __DIR__ . '/../includes/header.php';
         text-overflow: ellipsis;
         white-space: nowrap;
         color: var(--shopee-text);
-        margin-bottom: 6px;
+        margin-bottom: 4px;
         font-weight: 700;
         letter-spacing: -0.02em;
     }
@@ -327,7 +328,7 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-top: 4px;
+        padding-top: 2px;
     }
 
     .shopee-price {
@@ -354,6 +355,7 @@ require_once __DIR__ . '/../includes/header.php';
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
         gap: 6px;
+        margin-top: 6px;
     }
 
     .shopee-btn {
@@ -408,7 +410,7 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         align-items: center;
         gap: 4px;
-        margin-bottom: 2px;
+        margin-bottom: 0;
         padding-top: 0;
         flex-wrap: nowrap;
     }
