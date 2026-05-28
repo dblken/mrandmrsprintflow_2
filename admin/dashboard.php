@@ -581,6 +581,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         }
         .fp-preset-btn:hover { border-color: #9ca3af; background: #f9fafb; color: #111827; }
         .fp-preset-btn.active { border-color: #00232b; background: #ecf8fb; color: #00232b; font-weight: 700; }
+        [x-cloak] { display:none !important; }
         .pf-branch-stat { display:grid; grid-template-columns:42px minmax(0, 1fr); gap:12px; align-items:center; padding:12px; border-radius:12px; background:rgba(255,255,255,.88); border:1px solid rgba(226,232,240,.92); box-shadow:0 10px 25px rgba(15,23,42,.04); }
         .pf-branch-stat-icon { width:42px; height:42px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; }
         .pf-branch-stat-icon svg { width:18px; height:18px; }
@@ -911,7 +912,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         <main>
             <!-- Branch context banner -->
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
-            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
+            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;" x-data="dashboardFilterPanel('<?php echo htmlspecialchars($dashPreset); ?>')">
                 <div id="pf-dashboard-toolbar-summary" style="font-size:12px;color:#6b7280;font-weight:500;">
                     <?php
                         $toolbarBranchLabel = ($branchId === 'all')
@@ -921,40 +922,39 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     ?>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;position:relative;">
-                    <button class="toolbar-btn" id="dash-filter-toggle" style="height:38px;">
+                    <button class="toolbar-btn" :class="{active: filterOpen}" @click="filterOpen = !filterOpen" style="height:38px;">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V20a1 1 0 01-1.447.894l-2-1A1 1 0 0110 19v-5.5L3.2 4.6A1 1 0 013 4z"/></svg>
                         Filter
                     </button>
-                    <div class="filter-panel" id="dash-filter-panel" hidden>
+                    <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                         <div class="filter-panel-header">Filter</div>
                         <form method="get" id="reportsFilterForm" action="<?php echo htmlspecialchars(pf_admin_url('dashboard.php')); ?>">
                             <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars((string)$branchId); ?>">
                             <input type="hidden" name="preset" id="dash_preset" value="<?php echo htmlspecialchars($dashPreset); ?>">
-                            <input type="hidden" name="keep_filter_open" id="dash_keep_filter_open" value="<?php echo isset($_GET['keep_filter_open']) ? '1' : '0'; ?>">
                             <div class="filter-section">
                                 <div class="filter-section-head">
                                     <div class="filter-section-label">Date range</div>
-                                    <button type="button" class="filter-reset-link" id="dash-filter-reset-link">Reset</button>
+                                    <button type="button" class="filter-reset-link" @click="resetDateRange()">Reset</button>
                                 </div>
                                 <div class="filter-date-row">
                                     <div>
                                         <div class="filter-date-label">From:</div>
-                                        <input type="date" name="from" id="fp_from" class="filter-input" value="<?php echo htmlspecialchars($dashFromDate); ?>">
+                                        <input type="date" name="from" id="fp_from" class="filter-input" value="<?php echo htmlspecialchars($dashFromDate); ?>" @change="selectedPreset=''; document.getElementById('dash_preset').value=''; window.debouncedSubmitDashboardFilter(300)">
                                     </div>
                                     <div>
                                         <div class="filter-date-label">To:</div>
-                                        <input type="date" name="to" id="fp_to" class="filter-input" value="<?php echo htmlspecialchars($dashToDate); ?>">
+                                        <input type="date" name="to" id="fp_to" class="filter-input" value="<?php echo htmlspecialchars($dashToDate); ?>" @change="selectedPreset=''; document.getElementById('dash_preset').value=''; window.debouncedSubmitDashboardFilter(300)">
                                     </div>
                                 </div>
                                 <div style="margin-top:10px;font-size:12px;font-weight:600;color:#6b7280;">Quick presets</div>
                                 <div class="fp-preset-grid">
-                                    <button type="button" class="fp-preset-btn <?php echo $dashPreset === 'today' ? 'active' : ''; ?>" data-preset="today">Today</button>
-                                    <button type="button" class="fp-preset-btn <?php echo $dashPreset === 'this_week' ? 'active' : ''; ?>" data-preset="this_week">This week</button>
-                                    <button type="button" class="fp-preset-btn <?php echo $dashPreset === 'this_month' ? 'active' : ''; ?>" data-preset="this_month">This month</button>
+                                    <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'today' }" @click="setPreset('today')">Today</button>
+                                    <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'this_week' }" @click="setPreset('this_week')">This week</button>
+                                    <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'this_month' }" @click="setPreset('this_month')">This month</button>
                                 </div>
                             </div>
                             <div class="filter-actions">
-                                <button type="button" class="filter-btn-reset" id="dash-filter-reset-btn" style="width:100%;">Reset</button>
+                                <button type="button" class="filter-btn-reset" style="width:100%;" @click="resetDateRange()">Reset</button>
                             </div>
                         </form>
                     </div>
@@ -1990,135 +1990,48 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 })();
 </script>
 <script>
-(function () {
-    var panel = document.getElementById('dash-filter-panel');
-    var toggleBtn = document.getElementById('dash-filter-toggle');
-    var form = document.getElementById('reportsFilterForm');
-    var presetInput = document.getElementById('dash_preset');
-    var keepOpenInput = document.getElementById('dash_keep_filter_open');
-    var fromInput = document.getElementById('fp_from');
-    var toInput = document.getElementById('fp_to');
-    var resetLink = document.getElementById('dash-filter-reset-link');
-    var resetBtn = document.getElementById('dash-filter-reset-btn');
-    if (!panel || !toggleBtn || !form || !fromInput || !toInput || !presetInput) return;
-    var submitTimer = null;
-
-    function openPanel() {
-        panel.hidden = false;
-        toggleBtn.classList.add('active');
-        if (keepOpenInput) keepOpenInput.value = '1';
-    }
-    function closePanel() {
-        panel.hidden = true;
-        toggleBtn.classList.remove('active');
-        if (keepOpenInput) keepOpenInput.value = '0';
-    }
-
-    function toYmdLocal(d) {
-        var dt = new Date(d.getTime() - (d.getTimezoneOffset() * 60000));
-        return dt.toISOString().slice(0, 10);
-    }
-
-    function applyPreset(preset) {
-        var today = new Date();
-        var from = new Date(today);
-        var to = new Date(today);
-        if (preset === 'today') {
-            // today range
-        } else if (preset === 'this_week') {
-            var day = from.getDay();
-            var diff = day === 0 ? 6 : (day - 1);
-            from.setDate(from.getDate() - diff);
-        } else {
-            from = new Date(today.getFullYear(), today.getMonth(), 1);
-            preset = 'this_month';
+window.__pfDashFilterTimer = null;
+window.debouncedSubmitDashboardFilter = function(delay) {
+    if (window.__pfDashFilterTimer) clearTimeout(window.__pfDashFilterTimer);
+    window.__pfDashFilterTimer = setTimeout(function() {
+        var form = document.getElementById('reportsFilterForm');
+        if (form) form.submit();
+    }, typeof delay === 'number' ? delay : 300);
+};
+function dashboardFilterPanel(initialPreset) {
+    return {
+        filterOpen: false,
+        selectedPreset: initialPreset || 'today',
+        resetDateRange() {
+            this.setPreset('today');
+        },
+        setPreset(preset) {
+            var today = new Date();
+            var from = new Date(today);
+            var to = new Date(today);
+            if (preset === 'this_week') {
+                var day = from.getDay();
+                var diff = day === 0 ? 6 : (day - 1);
+                from.setDate(from.getDate() - diff);
+            } else if (preset === 'this_month') {
+                from = new Date(today.getFullYear(), today.getMonth(), 1);
+            } else {
+                preset = 'today';
+            }
+            var fmt = function(d) {
+                return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            };
+            var f = document.getElementById('fp_from');
+            var t = document.getElementById('fp_to');
+            var p = document.getElementById('dash_preset');
+            if (f) f.value = fmt(from);
+            if (t) t.value = fmt(to);
+            if (p) p.value = preset;
+            this.selectedPreset = preset;
+            window.debouncedSubmitDashboardFilter(300);
         }
-        fromInput.value = toYmdLocal(from);
-        toInput.value = toYmdLocal(to);
-        presetInput.value = preset;
-        document.querySelectorAll('.fp-preset-btn').forEach(function (btn) {
-            btn.classList.toggle('active', btn.getAttribute('data-preset') === preset);
-        });
-    }
-
-    function clearPreset() {
-        presetInput.value = '';
-        document.querySelectorAll('.fp-preset-btn.active').forEach(function (btn) {
-            btn.classList.remove('active');
-        });
-    }
-
-    function resetToToday() {
-        applyPreset('today');
-    }
-    function autoSubmit(delay) {
-        if (submitTimer) clearTimeout(submitTimer);
-        submitTimer = setTimeout(function () {
-            if (keepOpenInput) keepOpenInput.value = '1';
-            form.submit();
-        }, typeof delay === 'number' ? delay : 220);
-    }
-    function isIsoDate(v) {
-        return /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
-    }
-    function maybeLiveSubmit() {
-        var fromVal = fromInput.value;
-        var toVal = toInput.value;
-        // Apply only when both dates are fully formed.
-        if (isIsoDate(fromVal) && isIsoDate(toVal)) {
-            autoSubmit(260);
-        }
-    }
-
-    toggleBtn.addEventListener('click', function () {
-        panel.hidden ? openPanel() : closePanel();
-    });
-
-    document.addEventListener('click', function (e) {
-        if (panel.hidden) return;
-        if (panel.contains(e.target) || toggleBtn.contains(e.target)) return;
-        closePanel();
-    });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') closePanel();
-    });
-    try {
-        var params = new URLSearchParams(window.location.search);
-        if (params.get('keep_filter_open') === '1') {
-            openPanel();
-        }
-    } catch (e) {}
-    fromInput.addEventListener('change', function () {
-        clearPreset();
-        maybeLiveSubmit();
-    });
-    toInput.addEventListener('change', function () {
-        clearPreset();
-        maybeLiveSubmit();
-    });
-    // Do not submit on every keystroke: keep typing uninterrupted.
-    fromInput.addEventListener('input', function () { clearPreset(); });
-    toInput.addEventListener('input', function () { clearPreset(); });
-    fromInput.addEventListener('blur', maybeLiveSubmit);
-    toInput.addEventListener('blur', maybeLiveSubmit);
-
-    document.querySelectorAll('.fp-preset-btn').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            applyPreset(btn.getAttribute('data-preset') || 'today');
-            autoSubmit(120);
-        });
-    });
-
-    if (resetLink) resetLink.addEventListener('click', function (e) {
-        e.preventDefault();
-        resetToToday();
-        autoSubmit(120);
-    });
-    if (resetBtn) resetBtn.addEventListener('click', function () {
-        resetToToday();
-        autoSubmit(120);
-    });
-})();
+    };
+}
 </script>
 </body>
 </html>
