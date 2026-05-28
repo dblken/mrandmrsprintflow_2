@@ -385,8 +385,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
         $low_stock_level = (int)($_POST['low_stock_level'] ?? 10);
         if ($low_stock_level < 1) $low_stock_level = 10;
-        $statusRaw = trim((string)($_POST['status'] ?? ''));
-        $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
+        // Add modal always creates products as Activated.
+        $status = 'Activated';
 
         // Server-side validation
         if (strlen($name) < 2) {
@@ -2225,7 +2225,7 @@ if (isset($_GET['ajax'])) {
                         <small>Warn when stock falls below this. Must be ≤ Quantity.</small>
                         <span id="err-low-stock" class="field-error"></span>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" id="fg-status">
                         <label for="modal-status">Status</label>
                         <select id="modal-status" name="status">
                             <option value="Activated">Activated</option>
@@ -2640,7 +2640,9 @@ window.openProductModal = function openProductModal(mode, product) {
             var lowEl = document.getElementById('modal-low-stock');
             if (lowEl) lowEl.value = product.low_stock_level != null ? String(product.low_stock_level) : '10';
             var stEl = document.getElementById('modal-status');
+            var stWrap = document.getElementById('fg-status');
             if (stEl) stEl.value = (product.status === 'Deactivated') ? 'Deactivated' : 'Activated';
+            if (stWrap) stWrap.style.display = '';
             if (photoInput) photoInput.value = '';
             if (product.photo_path && previewImg && previewText) {
                 previewImg.src = product.photo_path;
@@ -2663,6 +2665,10 @@ window.openProductModal = function openProductModal(mode, product) {
         pfManagerModalSetActive(false);
         var pidEl2 = document.getElementById('modal-product-id');
         if (pidEl2) pidEl2.value = '';
+        var stElCreate = document.getElementById('modal-status');
+        if (stElCreate) stElCreate.value = 'Activated';
+        var stWrapCreate = document.getElementById('fg-status');
+        if (stWrapCreate) stWrapCreate.style.display = 'none';
         if (photoInput) photoInput.value = '';
         if (previewImg) { previewImg.removeAttribute('src'); previewImg.style.display = 'none'; }
         if (previewText) previewText.style.display = 'block';
