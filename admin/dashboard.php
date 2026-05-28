@@ -960,6 +960,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 </div>
             </div>
 
+            <div id="pf-dashboard-content">
             <!-- KPI Summary Row (entire card is a link; keyboard + screen-reader friendly) -->
             <div class="kpi-row">
                 <a class="kpi-card indigo kpi-card--link"
@@ -1351,6 +1352,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 <?php else: ?>
                 <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No orders yet</div>
                 <?php endif; ?>
+            </div>
             </div>
 
         </main>
@@ -1998,6 +2000,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     var resetBtn = document.getElementById('dash-filter-reset-btn');
     if (!panel || !toggleBtn || !form || !fromInput || !toInput || !presetInput) return;
     var submitTimer = null;
+    var isFetching = false;
 
     function openPanel() {
         panel.hidden = false;
@@ -2045,10 +2048,54 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     function resetToToday() {
         applyPreset('today');
     }
+    function syncToolbarFromDoc(doc) {
+        var nextSummary = doc.querySelector('#pf-dashboard-toolbar-summary');
+        var curSummary = document.querySelector('#pf-dashboard-toolbar-summary');
+        if (nextSummary && curSummary) {
+            curSummary.textContent = nextSummary.textContent;
+        }
+    }
+
+    function replaceDashboardContentFromDoc(doc) {
+        var nextContent = doc.querySelector('#pf-dashboard-content');
+        var curContent = document.querySelector('#pf-dashboard-content');
+        if (!nextContent || !curContent) return false;
+        curContent.innerHTML = nextContent.innerHTML;
+        return true;
+    }
+
+    function fetchDashboardAjax() {
+        if (isFetching) return;
+        isFetching = true;
+        var params = new URLSearchParams(new FormData(form));
+        params.set('_', String(Date.now()));
+        var reqUrl = window.location.pathname + '?' + params.toString();
+        fetch(reqUrl, { credentials: 'same-origin' })
+            .then(function (resp) { return resp.text(); })
+            .then(function (html) {
+                var parser = new DOMParser();
+                var doc = parser.parseFromString(html, 'text/html');
+                if (!replaceDashboardContentFromDoc(doc)) return;
+                syncToolbarFromDoc(doc);
+                var cleanParams = new URLSearchParams(new FormData(form));
+                var cleanUrl = window.location.pathname + '?' + cleanParams.toString();
+                window.history.replaceState({}, '', cleanUrl);
+                if (typeof window.printflowInitDashboardCharts === 'function') {
+                    window.printflowInitDashboardCharts();
+                }
+            })
+            .catch(function (e) {
+                console.error('Dashboard filter ajax update failed:', e);
+            })
+            .finally(function () {
+                isFetching = false;
+            });
+    }
+
     function autoSubmit(delay) {
         if (submitTimer) clearTimeout(submitTimer);
         submitTimer = setTimeout(function () {
-            form.submit();
+            fetchDashboardAjax();
         }, typeof delay === 'number' ? delay : 220);
     }
 
