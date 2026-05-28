@@ -930,6 +930,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <form method="get" id="reportsFilterForm" action="<?php echo htmlspecialchars(pf_admin_url('dashboard.php')); ?>">
                             <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars((string)$branchId); ?>">
                             <input type="hidden" name="preset" id="dash_preset" value="<?php echo htmlspecialchars($dashPreset); ?>">
+                            <input type="hidden" name="keep_filter_open" id="dash_keep_filter_open" value="<?php echo isset($_GET['keep_filter_open']) ? '1' : '0'; ?>">
                             <div class="filter-section">
                                 <div class="filter-section-head">
                                     <div class="filter-section-label">Date range</div>
@@ -1996,6 +1997,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     var toInput = document.getElementById('fp_to');
     var resetLink = document.getElementById('dash-filter-reset-link');
     var resetBtn = document.getElementById('dash-filter-reset-btn');
+    var keepOpenInput = document.getElementById('dash_keep_filter_open');
     if (!panel || !toggleBtn || !form || !fromInput || !toInput || !presetInput) return;
     var submitTimer = null;
     var dateEditing = false;
@@ -2003,10 +2005,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     function openPanel() {
         panel.hidden = false;
         toggleBtn.classList.add('active');
+        if (keepOpenInput) keepOpenInput.value = '1';
     }
     function closePanel() {
         panel.hidden = true;
         toggleBtn.classList.remove('active');
+        if (keepOpenInput) keepOpenInput.value = '0';
     }
 
     function toYmdLocal(d) {
@@ -2049,6 +2053,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     function autoSubmit(delay) {
         if (submitTimer) clearTimeout(submitTimer);
         submitTimer = setTimeout(function () {
+            if (keepOpenInput) keepOpenInput.value = '1';
             form.submit();
         }, typeof delay === 'number' ? delay : 220);
     }
@@ -2057,15 +2062,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         panel.hidden ? openPanel() : closePanel();
     });
 
-    document.addEventListener('click', function (e) {
-        if (panel.hidden) return;
-        if (dateEditing) return;
-        if (panel.contains(e.target) || toggleBtn.contains(e.target)) return;
-        closePanel();
-    });
+    // Keep filter open while working; close only via Filter button toggle or ESC.
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') closePanel();
     });
+
+    try {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('keep_filter_open') === '1') {
+            openPanel();
+        }
+    } catch (e) {}
 
     fromInput.addEventListener('change', function () {
         clearPreset();
