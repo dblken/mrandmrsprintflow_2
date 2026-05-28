@@ -9,9 +9,11 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role('Staff');
+printflow_require_staff_module('reports');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
+$staffOrderScopeSql = printflow_staff_order_source_sql('o');
 $range = $_GET['range'] ?? 'week';
 $report_date = $_GET['date'] ?? date('Y-m-d');
 
@@ -64,7 +66,7 @@ $job_status_sql = staff_reports_job_status_sql($status_filter);
 // ---- 1. RANGE-AWARE KPI METRICS (DYNAMIC) ----
 // Total revenue for THE SELECTED PERIOD (Paid only)
 $rev_res = db_query("SELECT SUM(t.total) AS total FROM (
-    SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE $date_condition AND o.payment_status = 'Paid' AND o.branch_id = ? $status_where
+    SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE $date_condition AND o.payment_status = 'Paid' AND o.branch_id = ? AND {$staffOrderScopeSql} $status_where
     UNION ALL
     SELECT COALESCE(SUM(so.total_price), 0) as total FROM service_orders so WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . " AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
@@ -72,7 +74,7 @@ $period_revenue = (float)($rev_res[0]['total'] ?? 0);
 
 // Total orders count for THE SELECTED PERIOD
 $ord_res = db_query("SELECT SUM(t.cnt) AS count FROM (
-    SELECT COUNT(*) as cnt FROM orders o WHERE $date_condition AND o.branch_id = ? $status_where
+    SELECT COUNT(*) as cnt FROM orders o WHERE $date_condition AND o.branch_id = ? AND {$staffOrderScopeSql} $status_where
     UNION ALL
     SELECT COUNT(*) as cnt FROM service_orders so WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . " AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
@@ -81,15 +83,15 @@ $period_orders = (int)($ord_res[0]['count'] ?? 0);
 // Pending/Active orders received in THE SELECTED PERIOD (if status is not filtered specifically)
 $active_statuses_sql = "status IN ('Pending', 'Pending Review', 'Pending Verification', 'Approved', 'Downpayment Submitted', 'In Production')";
 if ($status_filter !== 'ALL') {
-    $pend_res = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = ? AND o.branch_id = ? AND $date_condition", 'si', [$status_filter, $staffBranchId]);
+    $pend_res = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND $date_condition", 'si', [$status_filter, $staffBranchId]);
 } else {
-    $pend_res = db_query("SELECT COUNT(*) as count FROM orders o WHERE $active_statuses_sql AND o.branch_id = ? AND $date_condition", 'i', [$staffBranchId]);
+    $pend_res = db_query("SELECT COUNT(*) as count FROM orders o WHERE $active_statuses_sql AND o.branch_id = ? AND {$staffOrderScopeSql} AND $date_condition", 'i', [$staffBranchId]);
 }
 $pending_period_orders = (int)($pend_res[0]['count'] ?? 0);
 
 // GLOBAL Backlog (All pending/active orders ever)
 $global_back_res = db_query("SELECT SUM(t.cnt) AS count FROM (
-    SELECT COUNT(*) as cnt FROM orders o WHERE o.status NOT IN ('Completed', 'Cancelled') AND o.branch_id = ? $status_where
+    SELECT COUNT(*) as cnt FROM orders o WHERE o.status NOT IN ('Completed', 'Cancelled') AND o.branch_id = ? AND {$staffOrderScopeSql} $status_where
     UNION ALL
     SELECT COUNT(*) as cnt FROM service_orders so WHERE so.status NOT IN ('Completed', 'Cancelled', 'Rejected') AND (so.branch_id = ? OR so.branch_id IS NULL) {$service_status_sql}
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
@@ -104,6 +106,7 @@ $trend_res = db_query("
     SELECT $group_by as dte, COALESCE(SUM(total_amount), 0) as daily_total 
     FROM orders o 
     WHERE $date_condition AND branch_id = ?
+    AND {$staffOrderScopeSql}
     $status_where
     GROUP BY dte
     ORDER BY dte ASC
@@ -156,6 +159,7 @@ $status_res = db_query("
     SELECT status, COUNT(*) as status_count 
     FROM orders o
     WHERE $date_condition AND branch_id = ?
+    AND {$staffOrderScopeSql}
     GROUP BY status
 ", 'i', [$staffBranchId]);
 
@@ -180,6 +184,7 @@ $top_products = db_query("
     JOIN orders o ON oi.order_id = o.order_id
     JOIN products p ON oi.product_id = p.product_id
     WHERE $date_condition AND o.branch_id = ?
+    AND {$staffOrderScopeSql}
     GROUP BY oi.product_id
     ORDER BY total_sold DESC
     LIMIT 5

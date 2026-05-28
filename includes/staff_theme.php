@@ -11,6 +11,18 @@
         --staff-soft: #9ED7C4;
     }
 
+    html.printflow-staff.printflow-staff-pos {
+        --accent-color: #2563eb;
+        --staff-primary: #2563eb;
+        --staff-soft: #bfdbfe;
+    }
+
+    html.printflow-staff.printflow-staff-online {
+        --accent-color: #7c3aed;
+        --staff-primary: #7c3aed;
+        --staff-soft: #ddd6fe;
+    }
+
     /* Main area: focus rings & links */
     html.printflow-staff .input-field:focus,
     html.printflow-staff select:focus,

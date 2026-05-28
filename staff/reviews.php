@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
 require_role(['Staff', 'Admin']);
+printflow_require_staff_module('reviews');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 ensure_ratings_table_exists();
 db_execute("CREATE TABLE IF NOT EXISTS review_helpful (

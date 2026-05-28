@@ -363,7 +363,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     <span>Add to Cart</span>
                                 </button>
                                 <button type="submit" name="action" value="buy_now" id="poc-buy-now-btn" class="shopee-btn-primary" style="flex: 1; min-width: 0; white-space: nowrap; display: flex; align-items: center; justify-content: center; padding: 0.5rem 1.25rem;">
-                                    <span>Pay Now</span>
+                                    <span>Order Now</span>
                                 </button>
                             <?php else: ?>
                                 <button type="button" disabled id="poc-add-cart-btn" class="shopee-btn-outline" style="flex: 1.2; min-width: 140px; opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1.25rem;">Out of Stock</button>
@@ -621,7 +621,7 @@ document.addEventListener('DOMContentLoaded', function() {
         button.style.cursor = enabled ? 'pointer' : 'not-allowed';
         const label = button.querySelector('span') || button;
         if (button.id === 'poc-buy-now-btn') {
-            label.textContent = enabled ? 'Pay Now' : 'Out of Stock';
+            label.textContent = enabled ? 'Order Now' : 'Out of Stock';
         } else if (button.id === 'poc-add-cart-btn') {
             const span = button.querySelector('span');
             if (span) span.textContent = enabled ? 'Add to Cart' : 'Out of Stock';

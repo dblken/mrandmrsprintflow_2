@@ -11,6 +11,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 
 require_role('Staff');
+printflow_require_staff_module('products');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 printflow_ensure_product_branch_stock_table();

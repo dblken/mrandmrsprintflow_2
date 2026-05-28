@@ -9,11 +9,13 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role('Staff');
+printflow_require_staff_module('orders');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $branch_ctx    = init_branch_context(false);
 $staffBranchId = (int)$branch_ctx['selected_branch_id'];
 $branchName    = $branch_ctx['branch_name'];
+$staffOrderScopeSql = printflow_staff_order_source_sql('o');
 
 // Auto-open modal if order_id is in URL
 $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
@@ -27,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
         // Fetch current status and customer ID (only if order is in this branch)
         $order_info = db_query(
-            "SELECT customer_id, status FROM orders WHERE order_id = ? AND branch_id = ?",
+            "SELECT customer_id, status FROM orders WHERE order_id = ? AND branch_id = ? AND {$staffOrderScopeSql}",
             'ii',
             [$order_id, $staffBranchId]
         );
@@ -251,7 +253,7 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
     unset($row);
 }
 
-$sql_conditions = " AND o.order_type = 'product'";
+$sql_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $params = [];
 $types = '';
 $order_code_search_sql = "CONCAT(

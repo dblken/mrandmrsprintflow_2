@@ -152,11 +152,14 @@ if (!has_role(['Admin', 'Manager', 'Staff'])) {
 }
 
 $__pf_debug_allowed = $__pf_debug_requested;
+printflow_require_staff_module('dashboard');
 
 $staffCtx = init_branch_context();
 $staffBranchId = $staffCtx['selected_branch_id'] === 'all'
     ? (int)($_SESSION['branch_id'] ?? 1)
     : (int)$staffCtx['selected_branch_id'];
+$staffOrderScopeSql = printflow_staff_order_source_sql('o');
+$staffOrderScopeSqlNoAlias = printflow_staff_order_source_sql('orders');
 
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
 
@@ -256,7 +259,7 @@ $res_products = $hasOrderType
          FROM orders o
          JOIN order_items oi ON o.order_id = oi.order_id
          JOIN products p ON oi.product_id = p.product_id
-         WHERE o.status = 'Completed' AND o.branch_id = ? AND o.order_type = 'product' AND {$time_sql}",
+         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND o.order_type = 'product' AND {$time_sql}",
         'i' . $time_types,
         array_merge([$staffBranchId], $time_params)
     )
@@ -265,7 +268,7 @@ $res_products = $hasOrderType
          FROM orders o
          JOIN order_items oi ON o.order_id = oi.order_id
          JOIN products p ON oi.product_id = p.product_id
-         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$time_sql}",
+         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND {$time_sql}",
         'i' . $time_types,
         array_merge([$staffBranchId], $time_params)
     );
@@ -278,7 +281,7 @@ $res_custom = $hasOrderType
          JOIN order_items oi ON o.order_id = oi.order_id
          LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
          LEFT JOIN services s ON oi.product_id = s.service_id
-         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$time_sql}
+         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND {$time_sql}
            AND (s.service_id IS NOT NULL OR jo.id IS NOT NULL OR o.order_type = 'custom')",
         'i' . $time_types,
         array_merge([$staffBranchId], $time_params)
@@ -288,7 +291,7 @@ $res_custom = $hasOrderType
          FROM orders o
          JOIN order_items oi ON o.order_id = oi.order_id
          JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
-         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$time_sql}",
+         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND {$time_sql}",
         'i' . $time_types,
         array_merge([$staffBranchId], $time_params)
     );
@@ -297,7 +300,7 @@ $completed_custom = (int)($res_custom[0]['count'] ?? 0);
 $res_rev = db_query(
     "SELECT COALESCE(SUM(total_amount), 0) as total
      FROM orders
-     WHERE {$time_sql_no_alias} AND status != 'Cancelled' AND branch_id = ?",
+     WHERE {$time_sql_no_alias} AND {$staffOrderScopeSqlNoAlias} AND status != 'Cancelled' AND branch_id = ?",
     $time_types . 'i',
     array_merge($time_params, [$staffBranchId])
 );
@@ -313,7 +316,7 @@ if ($timeframe === 'today') {
     $rows = db_query(
         "SELECT HOUR(o.order_date) AS k, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$status_sql} AND DATE(o.order_date) = CURDATE()
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$status_sql} AND DATE(o.order_date) = CURDATE()
          GROUP BY HOUR(o.order_date)
          ORDER BY k ASC",
         'i' . $status_types,
@@ -330,7 +333,7 @@ if ($timeframe === 'today') {
     $rows = db_query(
         "SELECT DATE(o.order_date) AS d, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$status_sql} AND DATE(o.order_date) BETWEEN ? AND ?
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$status_sql} AND DATE(o.order_date) BETWEEN ? AND ?
          GROUP BY DATE(o.order_date)
          ORDER BY d ASC",
         'i' . $status_types . 'ss',
@@ -349,7 +352,7 @@ if ($timeframe === 'today') {
     $rows = db_query(
         "SELECT DATE(o.order_date) AS d, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$status_sql} AND DATE(o.order_date) BETWEEN ? AND ?
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$status_sql} AND DATE(o.order_date) BETWEEN ? AND ?
          GROUP BY DATE(o.order_date)
          ORDER BY d ASC",
         'i' . $status_types . 'ss',
@@ -370,7 +373,7 @@ if ($timeframe === 'today') {
     $rows = db_query(
         "SELECT DATE(o.order_date) AS d, COALESCE(SUM(o.total_amount), 0) AS total
          FROM orders o
-         WHERE o.branch_id = ? AND {$status_sql} AND DATE(o.order_date) BETWEEN ? AND ?
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$status_sql} AND DATE(o.order_date) BETWEEN ? AND ?
          GROUP BY DATE(o.order_date)
          ORDER BY d ASC",
         'i' . $status_types . 'ss',
@@ -396,7 +399,7 @@ $top_services = $hasOrderType
          LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
          LEFT JOIN products p ON (oi.product_id = p.product_id AND o.order_type = 'product')
          LEFT JOIN services s ON ((oi.product_id = s.service_id AND o.order_type = 'custom') OR (jo.service_type = s.name))
-         WHERE o.branch_id = ? AND {$time_sql}
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$time_sql}
          GROUP BY name
          ORDER BY order_count DESC
          LIMIT 10",
@@ -411,7 +414,7 @@ $top_services = $hasOrderType
          JOIN orders o ON oi.order_id = o.order_id
          LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
          LEFT JOIN products p ON oi.product_id = p.product_id
-         WHERE o.branch_id = ? AND {$time_sql}
+         WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$time_sql}
          GROUP BY name
          ORDER BY order_count DESC
          LIMIT 10",
@@ -420,7 +423,7 @@ $top_services = $hasOrderType
     );
 
 // 4) Recent orders list
-$sql_cond = " WHERE o.branch_id = ?";
+$sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql}";
 $params = [$staffBranchId];
 $types = "i";
 

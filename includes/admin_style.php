@@ -84,7 +84,13 @@ unset($__pf_admin_mobile_css_file, $__pf_admin_mobile_css_ver);
 ?>
 
 <?php if (strpos($_SERVER['REQUEST_URI'] ?? '', '/staff/') !== false): ?>
-    <script>(function () { document.documentElement.classList.add('printflow-staff'); })();</script>
+    <?php
+        $__pf_staff_theme_class = 'printflow-staff-online';
+        if (function_exists('printflow_get_staff_access_meta') && (($_SESSION['user_type'] ?? '') === 'Staff')) {
+            $__pf_staff_theme_class = (string)(printflow_get_staff_access_meta()['theme_class'] ?? $__pf_staff_theme_class);
+        }
+    ?>
+    <script>(function () { document.documentElement.classList.add('printflow-staff', <?php echo json_encode($__pf_staff_theme_class); ?>); })();</script>
     <?php include __DIR__ . '/staff_theme.php'; ?>
 <?php endif; ?>
 <?php if (strpos($_SERVER['REQUEST_URI'] ?? '', '/manager/') !== false): ?>

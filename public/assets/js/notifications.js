@@ -1116,7 +1116,10 @@
             }
             else if (t.indexOf('order') !== -1 || t.indexOf('job') !== -1 || t.indexOf('design') !== -1 || t.indexOf('custom') !== -1) {
                 var oType = (orderType || '').toLowerCase();
-                if (oType === 'custom' || t.indexOf('job') !== -1 || t.indexOf('custom') !== -1) {
+                var isPosStaffView = String(USER_TYPE || '').toLowerCase() === 'staff' && window.location.pathname.indexOf('/staff/') !== -1 && window.location.pathname.indexOf('/staff/online/') === -1;
+                if (isPosStaffView) {
+                    url = base + '/staff/orders.php?order_id=' + did;
+                } else if (oType === 'custom' || t.indexOf('job') !== -1 || t.indexOf('custom') !== -1) {
                     url = base + '/staff/customizations.php?order_id=' + did + '&job_type=ORDER';
                 } else {
                     url = base + '/staff/orders.php?order_id=' + did;

@@ -108,16 +108,56 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
     if (in_array($source, ['pos', 'walk-in'], true)) {
         return $source;
     }
+    if ($source === 'pos_draft') {
+        return 'pos_draft';
+    }
 
-    if (($source === '' || $source === 'customer') && !empty($orderId)) {
-        $posCheck = db_query(
-            "SELECT 1 FROM customizations WHERE order_id = ? AND customization_details LIKE '%\"source\":\"POS\"%' LIMIT 1",
+    if (!empty($orderId)) {
+        $sourceCheckRows = db_query(
+            "SELECT
+                LOWER(TRIM(COALESCE(o.order_source, ''))) AS db_order_source,
+                LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email,
+                EXISTS(
+                    SELECT 1
+                    FROM customizations cust
+                    WHERE cust.order_id = o.order_id
+                      AND (
+                          cust.customization_details LIKE '%\"source\":\"POS\"%'
+                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                      )
+                ) AS has_pos_customization,
+                EXISTS(
+                    SELECT 1
+                    FROM order_items oi
+                    WHERE oi.order_id = o.order_id
+                      AND (
+                          oi.customization_data LIKE '%\"source\":\"POS\"%'
+                          OR oi.customization_data LIKE '%\"source\": \"POS\"%'
+                      )
+                ) AS has_pos_order_item
+             FROM orders o
+             LEFT JOIN customers c ON c.customer_id = o.customer_id
+             WHERE o.order_id = ?
+             LIMIT 1",
             'i',
             [$orderId]
         );
-        if (!empty($posCheck)) {
+        $sourceCheck = $sourceCheckRows[0] ?? [];
+        $dbOrderSource = strtolower(trim((string)($sourceCheck['db_order_source'] ?? '')));
+        if (in_array($dbOrderSource, ['pos', 'walk-in', 'pos_draft'], true)) {
+            return $dbOrderSource;
+        }
+
+        $customerEmail = strtolower(trim((string)($sourceCheck['customer_email'] ?? '')));
+        $isWalkInGuest = $customerEmail === 'walkin@pos.local';
+        $hasPosCustomization = !empty($sourceCheck['has_pos_customization']);
+        $hasPosOrderItem = !empty($sourceCheck['has_pos_order_item']);
+        if ($isWalkInGuest || $hasPosCustomization || $hasPosOrderItem) {
             db_execute(
-                "UPDATE orders SET order_source = 'pos' WHERE order_id = ? AND (order_source IS NULL OR order_source = 'customer' OR order_source = '')",
+                "UPDATE orders
+                 SET order_source = 'pos'
+                 WHERE order_id = ?
+                   AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged')",
                 'i',
                 [$orderId]
             );
@@ -396,7 +436,7 @@ try {
                     LEFT JOIN products p ON oi.product_id = p.product_id
                     LEFT JOIN customers c ON o.customer_id = c.customer_id
                     WHERE (o.order_type IS NULL OR o.order_type = 'product' OR o.order_type = 'custom')
-                    AND COALESCE(o.order_source, '') <> 'pos_merged'
+                    AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                     AND o.status IN (
                         'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
                         'Approved', 'Design Approved',
@@ -418,19 +458,10 @@ try {
                 $order['readiness'] = 'READY';
                 $order['estimated_cost'] = 0;
                 $order['order_code'] = printflow_get_order_inventory_reference((int)($order['order_id'] ?? 0))['code'] ?? '';
-                
-                // Fallback: detect legacy POS orders missing order_source
-                if (empty($order['order_source']) || $order['order_source'] === 'customer') {
-                    $pos_check = db_query(
-                        "SELECT 1 FROM customizations WHERE order_id = ? AND customization_details LIKE '%\"source\":\"POS\"%' LIMIT 1",
-                        'i', [$order['order_id']]
-                    );
-                    if (!empty($pos_check)) {
-                        $order['order_source'] = 'pos';
-                        // Backfill the DB so future loads are instant
-                        db_execute("UPDATE orders SET order_source = 'pos' WHERE order_id = ? AND (order_source IS NULL OR order_source = 'customer')", 'i', [$order['order_id']]);
-                    }
-                }
+                $order['order_source'] = jo_api_resolve_order_source(
+                    (int)($order['order_id'] ?? 0),
+                    $order['order_source'] ?? null
+                );
                 
                 // Fetch dynamic correct names based on ordered items customizations
                 $payload = JobOrderService::getStoreOrderItemsPayload($order['order_id'], $serviceOnly, $serviceOnly);
@@ -438,6 +469,10 @@ try {
                     continue;
                 }
                 JobOrderService::enrichStaffJobRowFromStorePayload($order, $payload);
+                $order['order_source'] = jo_api_resolve_order_source(
+                    (int)($order['order_id'] ?? 0),
+                    $order['order_source'] ?? null
+                );
                 $visiblePendingOrders[] = $order;
             }
             $pending_orders = $visiblePendingOrders;
@@ -488,7 +523,8 @@ try {
                 LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
-                AND COALESCE(o.order_source, '') <> 'pos_merged'"
+                AND cust.order_id IS NOT NULL
+                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
                 LIMIT " . (int)$dashboardListLimit;

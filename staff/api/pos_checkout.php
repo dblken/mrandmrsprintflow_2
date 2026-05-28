@@ -79,6 +79,206 @@ function pos_get_service_placeholder_product_id(): int {
     return 0;
 }
 
+function pos_find_pending_service_link(int $customerId, int $branchId, int $productId, string $serviceName): array {
+    if ($customerId <= 0 || $branchId <= 0) {
+        return ['order_id' => 0, 'customization_id' => 0];
+    }
+
+    $normalizedServiceName = trim($serviceName);
+    $rows = db_query(
+        "SELECT
+            o.order_id,
+            cust.customization_id,
+            cust.service_type
+         FROM orders o
+         JOIN customizations cust ON cust.order_id = o.order_id
+         LEFT JOIN order_items oi ON oi.order_id = o.order_id
+         WHERE o.customer_id = ?
+           AND o.branch_id = ?
+           AND LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'pos_draft')
+           AND o.payment_status = 'Unpaid'
+           AND o.status IN ('Draft', 'Approved', 'Pending', 'Pending Review', 'Pending Approval')
+           AND (
+                o.reference_id = ?
+                OR LOWER(TRIM(COALESCE(cust.service_type, ''))) = LOWER(TRIM(?))
+                OR oi.customization_data LIKE '%\"source\":\"POS\"%'
+                OR oi.customization_data LIKE '%\"source\": \"POS\"%'
+           )
+         ORDER BY cust.updated_at DESC, cust.customization_id DESC
+         LIMIT 1",
+        'iiis',
+        [$customerId, $branchId, $productId, $normalizedServiceName]
+    ) ?: [];
+
+    if (empty($rows)) {
+        return ['order_id' => 0, 'customization_id' => 0];
+    }
+
+    return [
+        'order_id' => (int)($rows[0]['order_id'] ?? 0),
+        'customization_id' => (int)($rows[0]['customization_id'] ?? 0),
+    ];
+}
+
+function pos_extract_inline_media_payload(array &$customization, string $prefix): array {
+    $data = trim((string)($customization[$prefix . '_data'] ?? ''));
+    $name = trim((string)($customization[$prefix . '_name'] ?? $customization[$prefix] ?? ''));
+    $mime = trim((string)($customization[$prefix . '_mime'] ?? ''));
+
+    unset(
+        $customization[$prefix . '_data'],
+        $customization[$prefix . '_name'],
+        $customization[$prefix . '_mime']
+    );
+
+    if ($data === '' || !preg_match('#^data:([^;]+);base64,(.+)$#s', $data, $matches)) {
+        return ['blob' => null, 'mime' => $mime, 'name' => $name];
+    }
+
+    $decoded = base64_decode($matches[2], true);
+    if ($decoded === false || $decoded === '') {
+        return ['blob' => null, 'mime' => $mime, 'name' => $name];
+    }
+
+    if ($mime === '') {
+        $mime = trim((string)$matches[1]);
+    }
+
+    return [
+        'blob' => $decoded,
+        'mime' => $mime !== '' ? $mime : 'application/octet-stream',
+        'name' => $name,
+    ];
+}
+
+function pos_store_order_item_inline_media(int $orderItemId, array $designPayload, array $referencePayload = []): void {
+    if ($orderItemId <= 0) {
+        return;
+    }
+
+    $uploadDir = dirname(__DIR__, 2) . '/uploads/orders';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0775, true);
+    }
+
+    if (!empty($designPayload['blob'])) {
+        $storedDesignPath = null;
+        if (is_dir($uploadDir) && is_writable($uploadDir)) {
+            $baseName = trim((string)($designPayload['name'] ?? 'design_upload'));
+            $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseName);
+            if ($safeName === '' || $safeName === null) {
+                $safeName = 'design_upload';
+            }
+            $targetName = time() . '_design_' . $orderItemId . '_' . $safeName;
+            $targetPath = $uploadDir . '/' . $targetName;
+            if (@file_put_contents($targetPath, $designPayload['blob']) !== false) {
+                $storedDesignPath = '/uploads/orders/' . $targetName;
+            }
+        }
+
+        db_execute(
+            "UPDATE order_items
+             SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
+             WHERE order_item_id = ?",
+            'ssssi',
+            [
+                $designPayload['blob'],
+                (string)($designPayload['mime'] ?? 'application/octet-stream'),
+                (string)($designPayload['name'] ?? 'design_upload'),
+                $storedDesignPath,
+                $orderItemId
+            ]
+        );
+    }
+
+    if (!empty($referencePayload['blob'])) {
+        if (is_dir($uploadDir) && is_writable($uploadDir)) {
+            $baseName = trim((string)($referencePayload['name'] ?? 'reference_upload'));
+            $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseName);
+            if ($safeName === '' || $safeName === null) {
+                $safeName = 'reference_upload';
+            }
+            $targetName = time() . '_ref_' . $orderItemId . '_' . $safeName;
+            $targetPath = $uploadDir . '/' . $targetName;
+            if (@file_put_contents($targetPath, $referencePayload['blob']) !== false) {
+                $storedPath = '/uploads/orders/' . $targetName;
+                db_execute(
+                    "UPDATE order_items SET reference_image_file = ? WHERE order_item_id = ?",
+                    'si',
+                    [$storedPath, $orderItemId]
+                );
+            }
+        }
+    }
+}
+
+function pos_copy_order_item_media_if_missing(int $sourceOrderItemId, int $targetOrderItemId): void {
+    if ($sourceOrderItemId <= 0 || $targetOrderItemId <= 0 || $sourceOrderItemId === $targetOrderItemId) {
+        return;
+    }
+
+    $sourceRows = db_query(
+        "SELECT design_image, design_image_mime, design_image_name, design_file, reference_image_file
+         FROM order_items
+         WHERE order_item_id = ?
+         LIMIT 1",
+        'i',
+        [$sourceOrderItemId]
+    ) ?: [];
+    if (empty($sourceRows)) {
+        return;
+    }
+
+    $targetRows = db_query(
+        "SELECT
+            IFNULL(LENGTH(design_image), 0) AS design_image_bytes,
+            TRIM(COALESCE(design_file, '')) AS design_file,
+            TRIM(COALESCE(reference_image_file, '')) AS reference_image_file
+         FROM order_items
+         WHERE order_item_id = ?
+         LIMIT 1",
+        'i',
+        [$targetOrderItemId]
+    ) ?: [];
+    if (empty($targetRows)) {
+        return;
+    }
+
+    $source = $sourceRows[0];
+    $target = $targetRows[0];
+    $targetHasDesign = (int)($target['design_image_bytes'] ?? 0) > 0 || trim((string)($target['design_file'] ?? '')) !== '';
+    $targetHasReference = trim((string)($target['reference_image_file'] ?? '')) !== '';
+
+    if (!$targetHasDesign) {
+        $sourceHasDesign = !empty($source['design_image']) || trim((string)($source['design_file'] ?? '')) !== '';
+        if ($sourceHasDesign) {
+            db_execute(
+                "UPDATE order_items
+                 SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
+                 WHERE order_item_id = ?",
+                'ssssi',
+                [
+                    $source['design_image'],
+                    (string)($source['design_image_mime'] ?? ''),
+                    (string)($source['design_image_name'] ?? ''),
+                    (string)($source['design_file'] ?? ''),
+                    $targetOrderItemId
+                ]
+            );
+        }
+    }
+
+    if (!$targetHasReference && trim((string)($source['reference_image_file'] ?? '')) !== '') {
+        db_execute(
+            "UPDATE order_items
+             SET reference_image_file = ?
+             WHERE order_item_id = ?",
+            'si',
+            [(string)$source['reference_image_file'], $targetOrderItemId]
+        );
+    }
+}
+
 function pos_migrate_pending_assignments_to_order(int $sourceOrderId, int $targetOrderId): void {
     if ($sourceOrderId <= 0 || $targetOrderId <= 0 || $sourceOrderId === $targetOrderId) {
         return;
@@ -265,7 +465,6 @@ if (!$data) {
 // Handle create_pending_customization action
 if (isset($data['action']) && $data['action'] === 'create_pending_customization') {
     $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
-    $post_commit_order_id = 0;
     $transaction_open = false;
     
     if ($customer_id === null) {
@@ -287,6 +486,8 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
     
     // Mark as POS source
     $customization['source'] = 'POS';
+    $draftDesignPayload = pos_extract_inline_media_payload($customization, 'design_upload');
+    $draftReferencePayload = pos_extract_inline_media_payload($customization, 'reference_upload');
     
     try {
         global $conn;
@@ -295,55 +496,50 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         
         $branch_id = (int)($_SESSION['branch_id'] ?? 1);
         if ($branch_id < 1) $branch_id = 1;
-        
-        // Create order with status 'Approved' (skipped initial Pending verification for POS)
-        // Will be updated to 'Paid' when checkout completes
+
+        $pending_item_product_id = pos_get_service_placeholder_product_id();
+        if ($pending_item_product_id <= 0) {
+            $pending_item_product_id = $product_id;
+        }
+
+        // Create a hidden draft POS order so customizations still satisfies table
+        // constraints, but keep it out of normal staff lists until checkout finalizes.
         $order_result = db_execute(
-            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source) 
-             VALUES (?, ?, ?, 0, 'Approved', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos')",
+            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source)
+             VALUES (?, ?, ?, 0, 'Draft', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos_draft')",
             'iii',
             [$customer_id, $branch_id, $product_id]
         );
-        
         if (!$order_result) {
             $conn->rollback();
-            echo json_encode(['success' => false, 'message' => 'Failed to create order.']);
+            echo json_encode(['success' => false, 'message' => 'Failed to create draft order.']);
             exit;
         }
-        
+
         $order_id = $conn->insert_id;
-        
-        // Store order_id in session for later update during checkout
         if (!isset($_SESSION['pos_pending_orders'])) {
             $_SESSION['pos_pending_orders'] = [];
         }
         $_SESSION['pos_pending_orders'][$product_id] = $order_id;
-        
-        // Create order item with price = 0
-        $pending_item_product_id = pos_get_service_placeholder_product_id();
-        if ($pending_item_product_id <= 0) {
-            // Last fallback: use service ID when placeholder setup is unavailable.
-            $pending_item_product_id = $product_id;
-        }
+
         $customization_json = json_encode($customization ?: new stdClass());
         $item_result = db_execute(
             "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, 0, ?)",
             'iiis',
             [$order_id, $pending_item_product_id, $qty, $customization_json]
         );
-        
         if (!$item_result) {
             $conn->rollback();
-            echo json_encode(['success' => false, 'message' => 'Failed to add order item.']);
+            echo json_encode(['success' => false, 'message' => 'Failed to create draft order item.']);
             exit;
         }
-        
         $order_item_id = $conn->insert_id;
-        
-        // Create customization entry with status 'Approved'
+        pos_store_order_item_inline_media($order_item_id, $draftDesignPayload, $draftReferencePayload);
+
         $details_json = json_encode($customization ?: new stdClass());
         $customization_result = db_execute(
-            "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'Approved', NOW(), NOW())",
+            "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'Approved', NOW(), NOW())",
             'iiiss',
             [$order_id, $order_item_id, $customer_id, $name, $details_json]
         );
@@ -358,24 +554,12 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
 
         $conn->commit();
         $transaction_open = false;
-        $post_commit_order_id = $order_id;
-        pos_sync_customization_jobs_after_commit($post_commit_order_id, 'APPROVED');
         echo json_encode(['success' => true, 'customization_id' => $customization_id, 'order_id' => $order_id]);
         exit;
         
     } catch (Exception $e) {
         if ($transaction_open && isset($conn)) {
             $conn->rollback();
-        }
-        if ($post_commit_order_id > 0) {
-            error_log('PrintFlow POS customization sync failed for order #' . $post_commit_order_id . ': ' . $e->getMessage());
-            echo json_encode([
-                'success' => true,
-                'customization_id' => $customization_id ?? null,
-                'order_id' => $post_commit_order_id,
-                'warning' => 'Customization was created, but production sync needs follow-up.'
-            ]);
-            exit;
         }
         echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
         exit;
@@ -511,6 +695,8 @@ try {
         
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];
+        $designPayload = pos_extract_inline_media_payload($custom_details, 'design_upload');
+        $referencePayload = pos_extract_inline_media_payload($custom_details, 'reference_upload');
 
         // Service catalog IDs can overlap product IDs. Only keep product_id for
         // product-backed custom items, not services selected from the Services tab.
@@ -553,6 +739,7 @@ try {
         }
         
         $order_item_id = $conn->insert_id;
+        pos_store_order_item_inline_media($order_item_id, $designPayload, $referencePayload);
 
         // Always create or re-link customization entry for service items
         if ($is_service) {
@@ -564,36 +751,48 @@ try {
                 $pendingOrderId = (int)$_SESSION['pos_pending_orders'][$product_id];
             }
             $pendingCustomizationId = (int)($item['pending_customization_id'] ?? 0);
+            $pendingOrderItemId = 0;
+            if ($pendingOrderId <= 0) {
+                $pendingLink = pos_find_pending_service_link($customer_id, $branch_id, $product_id, $name);
+                $pendingOrderId = (int)($pendingLink['order_id'] ?? 0);
+                if ($pendingCustomizationId <= 0) {
+                    $pendingCustomizationId = (int)($pendingLink['customization_id'] ?? 0);
+                }
+            }
 
             $customization_result = false;
-            if ($pendingOrderId > 0) {
-                if ($pendingCustomizationId > 0) {
-                    $customizationExists = db_query(
-                        "SELECT customization_id
-                         FROM customizations
-                         WHERE customization_id = ?
-                         LIMIT 1",
-                        'i',
-                        [$pendingCustomizationId]
-                    ) ?: [];
+            if ($pendingCustomizationId > 0) {
+                $customizationExists = db_query(
+                    "SELECT customization_id, order_item_id
+                     FROM customizations
+                     WHERE customization_id = ?
+                     LIMIT 1",
+                    'i',
+                    [$pendingCustomizationId]
+                ) ?: [];
 
-                    if (!empty($customizationExists)) {
-                        $customization_result = db_execute(
-                            "UPDATE customizations
-                             SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
-                             WHERE customization_id = ?",
-                            'iiissi',
-                            [$order_id, $order_item_id, $customer_id, $name, $details_json, $pendingCustomizationId]
-                        );
-                        if ($customization_result) {
-                            $last_customization_id = $pendingCustomizationId;
-                        }
+                if (!empty($customizationExists)) {
+                    $pendingOrderItemId = (int)($customizationExists[0]['order_item_id'] ?? 0);
+                    if ($pendingOrderItemId > 0) {
+                        pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
+                    }
+                    $customization_result = db_execute(
+                        "UPDATE customizations
+                         SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
+                         WHERE customization_id = ?",
+                        'iiissi',
+                        [$order_id, $order_item_id, $customer_id, $name, $details_json, $pendingCustomizationId]
+                    );
+                    if ($customization_result) {
+                        $last_customization_id = $pendingCustomizationId;
                     }
                 }
+            }
 
+            if (!$customization_result && $pendingOrderId > 0) {
                 if (!$customization_result) {
                     $existingCustomizationRows = db_query(
-                        "SELECT customization_id
+                        "SELECT customization_id, order_item_id
                          FROM customizations
                          WHERE order_id = ?
                          ORDER BY customization_id ASC",
@@ -606,6 +805,11 @@ try {
                             return (int)($row['customization_id'] ?? 0);
                         }, $existingCustomizationRows)));
                         if (!empty($customizationIds)) {
+                            $firstPendingRow = $existingCustomizationRows[0] ?? [];
+                            $pendingOrderItemId = (int)($firstPendingRow['order_item_id'] ?? 0);
+                            if ($pendingOrderItemId > 0) {
+                                pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
+                            }
                             $placeholders = implode(',', array_fill(0, count($customizationIds), '?'));
                             $customization_result = db_execute(
                                 "UPDATE customizations

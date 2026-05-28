@@ -676,7 +676,10 @@ require_once __DIR__ . '/../includes/header.php';
 
 .profile-card {
     background: #fff;
-    padding: 0;
+    padding: 1.5rem;
+    border: 1px solid var(--pf-border);
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
     transition: all 0.3s ease;
 }
 
@@ -699,6 +702,67 @@ require_once __DIR__ . '/../includes/header.php';
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+}
+
+.profile-card-description {
+    font-size: 0.9rem;
+    color: #64748b;
+    margin: -0.5rem 0 1.5rem;
+    line-height: 1.6;
+}
+
+.settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.settings-tab-btn {
+    border: 1px solid #dbe5ee;
+    background: #fff;
+    color: #476072;
+    border-radius: 999px;
+    padding: 0.7rem 1rem;
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.settings-tab-btn:hover,
+.settings-tab-btn.is-active {
+    background: #0a2530;
+    color: #fff;
+    border-color: #0a2530;
+}
+
+.settings-panel {
+    display: none;
+}
+
+.settings-panel.is-active {
+    display: block;
+}
+
+.helper-card {
+    border: 1px solid #dbe5ee;
+    background: linear-gradient(180deg, #f8fbfd 0%, #ffffff 100%);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+}
+
+.helper-card-title {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 0.3rem;
+}
+
+.helper-card-text {
+    font-size: 0.82rem;
+    color: #64748b;
+    line-height: 1.55;
 }
 
 @media (max-width: 768px) {
@@ -867,6 +931,15 @@ require_once __DIR__ . '/../includes/header.php';
     #address-form > div:first-of-type {
         grid-template-columns: 1fr !important;
     }
+
+    .profile-card {
+        padding: 1rem;
+    }
+
+    .settings-tab-btn {
+        width: 100%;
+        text-align: center;
+    }
 }
 </style>
 
@@ -934,6 +1007,16 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
 
+                <div class="profile-nav-card">
+                    <div style="padding:0.75rem 0.85rem 0.5rem;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Customer Account</div>
+                    <ul class="profile-nav-list">
+                        <li class="profile-nav-item"><a href="#section-profile" class="account-nav-link active" data-section="section-profile">Personal Information</a></li>
+                        <li class="profile-nav-item"><a href="#section-address" class="account-nav-link" data-section="section-address">Address</a></li>
+                        <li class="profile-nav-item"><a href="#section-account" class="account-nav-link" data-section="section-account">Account Management</a></li>
+                        <li class="profile-nav-item"><a href="#section-security" class="account-nav-link" data-section="section-security">Security & Verification</a></li>
+                    </ul>
+                </div>
+
 
             </aside>
 
@@ -941,8 +1024,9 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="profile-main-content">
 
                 <!-- Personal Information -->
-                <div class="profile-card" id="section-profile">
+                <div class="profile-card settings-panel is-active" id="section-profile">
                     <h3 class="profile-card-title">Personal Information</h3>
+                    <p class="profile-card-description">Update your personal identity details and profile information used across your customer account.</p>
                     
                     <form method="POST" action="" enctype="multipart/form-data">
                         <?php echo csrf_field(); ?>
@@ -1007,8 +1091,8 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <!-- Address Section -->
-                <div class="profile-card" id="section-address" style="padding-top: 2rem; border-top: 1px solid #e2e8f0;">
-                    <h3 class="profile-card-title">Address & Delivery</h3>
+                <div class="profile-card settings-panel" id="section-address">
+                    <h3 class="profile-card-title">Address</h3>
                     
                     <form method="POST" action="" id="address-form">
                         <?php echo csrf_field(); ?>
@@ -1063,12 +1147,8 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <!-- Security Section -->
-                <div class="profile-card" id="section-password" style="padding-top: 2rem; border-top: 1px solid #e2e8f0;">
-                    <h3 class="profile-card-title">Security & Password</h3>
-                    <?php if (!empty($omit_current_password_on_profile)): ?>
-                    <p style="font-size:0.875rem;color:#64748b;margin:0 0 1rem;line-height:1.5;">You signed in with Google. Create a password here if you want to sign in with your email and password as well.</p>
-                    <?php endif; ?>
-
+                <div class="profile-card settings-panel" id="section-account">
+                    <h3 class="profile-card-title">Account Management</h3>
                     <form method="POST" action="" novalidate>
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="change_password" value="1">
@@ -1116,7 +1196,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
 
                         <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
-                            <button type="submit" class="pf-btn-primary"><?php echo !empty($omit_current_password_on_profile) ? 'Set password' : 'Update Password'; ?></button>
+                            <button type="submit" class="pf-btn-primary"><?php echo !empty($omit_current_password_on_profile) ? 'Set Password' : 'Change Password'; ?></button>
                         </div>
                     </form>
                 </div>
@@ -1135,12 +1215,13 @@ require_once __DIR__ . '/../includes/header.php';
                 ];
                 [$sc,$sbg,$slabel] = $status_colors[$id_status] ?? $status_colors['None'];
                 ?>
-                <div class="profile-card" id="section-id" style="padding-top:2rem;border-top:1px solid #e2e8f0;">
+                <div class="profile-card settings-panel" id="section-security">
                     <h3 class="profile-card-title">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0"/></svg>
-                        ID Verification
+                        Security & Verification
                         <span style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:99px;background:<?php echo $sbg;?>;color:<?php echo $sc;?>;margin-left:8px;"><?php echo $slabel; ?></span>
                     </h3>
+                    <p class="profile-card-description">Review your verification status and submit a valid ID when needed to confirm your identity and unlock order eligibility.</p>
 
                     <?php if ($id_status === 'Rejected'): ?>
                     <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;margin-bottom:1rem;color:#b91c1c;">
@@ -1211,6 +1292,33 @@ require_once __DIR__ . '/../includes/header.php';
         </div><!-- /profile-grid -->
     </div><!-- /profile-container -->
 </div><!-- /min-h-screen -->
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const panels = Array.from(document.querySelectorAll('.settings-panel'));
+    const tabButtons = Array.from(document.querySelectorAll('.settings-tab-btn'));
+    const navLinks = Array.from(document.querySelectorAll('.account-nav-link'));
+
+    function activateSection(id) {
+        panels.forEach(panel => panel.classList.toggle('is-active', panel.id === id));
+        tabButtons.forEach(btn => btn.classList.toggle('is-active', btn.dataset.section === id));
+        navLinks.forEach(link => link.classList.toggle('active', link.dataset.section === id));
+    }
+
+    [...tabButtons, ...navLinks].forEach(control => {
+        control.addEventListener('click', function (event) {
+            event.preventDefault();
+            const id = this.dataset.section;
+            if (!id) return;
+            activateSection(id);
+            const panel = document.getElementById(id);
+            if (panel) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    });
+});
+</script>
 
 <style>
 /* ── password checklist styles already in page head ── */

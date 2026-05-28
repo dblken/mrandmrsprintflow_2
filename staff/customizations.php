@@ -12,6 +12,7 @@ if (!defined('BASE_URL')) {
     define('BASE_URL', defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : ''));
 }
 require_role(['Admin', 'Staff', 'Manager']);
+printflow_require_staff_module('customizations');
 if (in_array($_SESSION['user_type'] ?? '', ['Staff', 'Manager'], true)) {
     require_once __DIR__ . '/../includes/staff_pending_check.php';
 }
@@ -54,6 +55,9 @@ if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION']
 
 $page_title = 'Customizations - PrintFlow';
 $showLatestCustomizationOnly = false;
+$staffCustomizationRole = ($_SESSION['user_type'] ?? '') === 'Staff'
+    ? printflow_get_staff_access_role()
+    : null;
 
 $branchFilter = printflow_branch_filter_for_user();
 $joBranchSql = '';
@@ -174,6 +178,14 @@ $job_rows = db_query(
 ) ?: [];
 
 foreach ($job_rows as $row) {
+    $resolvedSource = strtolower(trim((string)($row['order_source'] ?? 'customer')));
+    $isPosSource = in_array($resolvedSource, ['pos', 'walk-in'], true);
+    if ($staffCustomizationRole === 'pos' && !$isPosSource) {
+        continue;
+    }
+    if ($staffCustomizationRole === 'online' && $isPosSource) {
+        continue;
+    }
     if (!empty($row['order_id'])) {
         $payload = JobOrderService::getStoreOrderItemsPayload((int)$row['order_id'], true, true);
         $serviceItems = array_values($payload['items'] ?? []);
@@ -2662,6 +2674,49 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 return merged;
             },
+            posDuplicateSignature(row) {
+                if (!row) return '';
+                const source = String(row.order_source || '').toLowerCase();
+                if (!['pos', 'walk-in'].includes(source)) return '';
+
+                const customer = String(row.customer_full_name || row.customer_name || '').trim().toLowerCase();
+                const status = String(row.status || '').trim().toUpperCase();
+                const created = String(row.created_at || row.order_date || '').trim().slice(0, 10);
+                const rawLabel = String(row.service_type || row.job_title || '').trim().toLowerCase();
+                const normalizedLabel = rawLabel
+                    .replace(/\s+-\s+\d+\s*pcs?$/i, '')
+                    .replace(/\bprint\/cut\b/gi, 'stickers decals')
+                    .replace(/[^\w\s]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                if (!customer || !created || !normalizedLabel) {
+                    return '';
+                }
+
+                return [customer, created, status, normalizedLabel].join('|');
+            },
+            dedupePosDuplicateRows(rows = []) {
+                const deduped = new Map();
+                rows.forEach((row) => {
+                    const signature = this.posDuplicateSignature(row);
+                    if (!signature) {
+                        deduped.set(`row:${String(row.order_type || 'JOB')}:${row.id}:${row.order_id || ''}`, row);
+                        return;
+                    }
+
+                    const existing = deduped.get(signature);
+                    if (!existing) {
+                        deduped.set(signature, row);
+                        return;
+                    }
+
+                    const merged = this.mergeGroupedRows(existing, row);
+                    deduped.set(signature, merged);
+                });
+
+                return Array.from(deduped.values());
+            },
             getDisplayOrderCode(row) {
                 if (!row) return '';
                 const explicit = String(row.order_code || '').trim();
@@ -2760,6 +2815,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const grouped = new Map();
                 rows.forEach((rawRow) => {
                     const row = this.normalizeOrderRow(rawRow);
+                    const source = String(row.order_source || 'customer').toLowerCase();
+                    const isPosSource = source === 'pos' || source === 'walk-in';
+                    const staffRole = <?php echo json_encode($staffCustomizationRole); ?>;
+                    if (staffRole === 'pos' && !isPosSource) {
+                        return;
+                    }
+                    if (staffRole === 'online' && isPosSource) {
+                        return;
+                    }
                     const key = this.orderGroupKey(row);
                     const existing = grouped.get(key);
                     if (!existing) {
@@ -2769,7 +2833,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                     grouped.set(key, this.mergeGroupedRows(existing, row));
                 });
 
-                return Array.from(grouped.values()).sort((a, b) => (b._ts || 0) - (a._ts || 0));
+                return this.dedupePosDuplicateRows(Array.from(grouped.values()))
+                    .sort((a, b) => (b._ts || 0) - (a._ts || 0));
             },
 
             serviceMapping: {
