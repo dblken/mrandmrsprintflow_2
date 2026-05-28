@@ -469,7 +469,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="shopee-body">
                             <div class="shopee-meta-row">
                                 <span class="shopee-category"><?php echo htmlspecialchars($product['category']); ?></span>
-                                <span class="shopee-stock" style="color: <?php echo $stock > 10 ? '#059669' : ($stock > 0 ? '#f59e0b' : '#dc2626'); ?>"><?php echo $stock_display; ?> in stock</span>
                             </div>
                             <h3 class="shopee-name"><?php echo htmlspecialchars($product['name']); ?></h3>
                             

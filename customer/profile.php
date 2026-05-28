@@ -1023,16 +1023,6 @@ require_once __DIR__ . '/../includes/header.php';
             <!-- ── MAIN CONTENT (RIGHT SIDE) ── -->
             <div class="profile-main-content">
 
-                <div class="profile-card" style="padding-bottom:1.1rem;">
-                    <h2 class="profile-card-title" style="margin-bottom:0.5rem;">Customer Account</h2>
-                    <div class="settings-tabs">
-                        <button type="button" class="settings-tab-btn is-active" data-section="section-profile">Personal Information</button>
-                        <button type="button" class="settings-tab-btn" data-section="section-address">Address</button>
-                        <button type="button" class="settings-tab-btn" data-section="section-account">Account Management</button>
-                        <button type="button" class="settings-tab-btn" data-section="section-security">Security & Verification</button>
-                    </div>
-                </div>
-
                 <!-- Personal Information -->
                 <div class="profile-card settings-panel is-active" id="section-profile">
                     <h3 class="profile-card-title">Personal Information</h3>
