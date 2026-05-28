@@ -117,7 +117,7 @@ require_once __DIR__ . '/../includes/header.php';
     .shopee-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
+        gap: 10px;
     }
 
     /* Tablet: 2 cards per row */
@@ -140,41 +140,41 @@ require_once __DIR__ . '/../includes/header.php';
             max-width: 100%;
             margin: 0;
             min-height: auto;
-            border-radius: 20px;
+            border-radius: 16px;
         }
 
         /* Optimize card layout for mobile */
         .shopee-img {
-            aspect-ratio: 0.95;
+            aspect-ratio: 1.15;
             width: 100%;
             height: auto;
-            max-height: 280px;
+            max-height: 210px;
             object-fit: cover;
             margin: 0;
             border-radius: 0;
         }
 
         .shopee-body {
-            padding: 10px 12px 0;
+            padding: 7px 8px 0;
             flex: 1;
             display: flex;
             flex-direction: column;
         }
 
         .shopee-name {
-            font-size: 0.92rem;
-            line-height: 1.24rem;
-            min-height: 1.24rem;
+            font-size: 0.8rem;
+            line-height: 1.02rem;
+            min-height: 1.02rem;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }
 
         .shopee-meta-row {
-            gap: 10px;
+            gap: 6px;
             align-items: flex-start;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
         }
 
         .shopee-price-row {
@@ -182,36 +182,36 @@ require_once __DIR__ . '/../includes/header.php';
         }
 
         .shopee-price {
-            font-size: 1.25rem;
+            font-size: 0.92rem;
         }
 
         .shopee-footer {
-            padding: 8px 12px 12px;
-            gap: 10px;
+            padding: 6px 8px 8px;
+            gap: 5px;
             flex-shrink: 0;
         }
 
         .shopee-btn {
-            padding: 0.72rem 0.8rem;
-            font-size: 0.74rem;
-            min-height: 40px;
+            padding: 0.52rem 0.56rem;
+            font-size: 0.62rem;
+            min-height: 32px;
         }
 
         .rating-stars {
-            font-size: 0.85rem;
-            margin-bottom: 8px;
+            font-size: 0.68rem;
+            margin-bottom: 2px;
         }
 
         .rating-stars svg {
-            width: 15px !important;
-            height: 15px !important;
+            width: 12px !important;
+            height: 12px !important;
         }
     }
 
     .shopee-card {
         background: var(--shopee-card-bg);
         border: 1px solid var(--shopee-border);
-        border-radius: 22px;
+        border-radius: 16px;
         transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
         cursor: pointer;
         overflow: hidden;
@@ -239,7 +239,7 @@ require_once __DIR__ . '/../includes/header.php';
         content: "";
         position: absolute;
         inset: 1px;
-        border-radius: 21px;
+        border-radius: 15px;
         border: 1px solid rgba(255, 255, 255, 0.45);
         pointer-events: none;
     }
@@ -260,7 +260,7 @@ require_once __DIR__ . '/../includes/header.php';
         min-width: 100%;
         display: block;
         margin: 0;
-        aspect-ratio: 1.02;
+        aspect-ratio: 1.18;
         object-fit: cover;
         border-radius: 0;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px rgba(16, 53, 71, 0.12);
@@ -268,7 +268,7 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .shopee-body {
-        padding: 8px 10px 0;
+        padding: 6px 8px 0;
         flex-grow: 0;
         display: flex;
         flex-direction: column;
@@ -278,31 +278,31 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 6px;
-        margin-bottom: 4px;
+        gap: 5px;
+        margin-bottom: 3px;
         flex-wrap: nowrap;
     }
 
     .shopee-name {
-        font-size: 0.92rem;
-        line-height: 1.24rem;
-        min-height: 1.24rem;
+        font-size: 0.78rem;
+        line-height: 1rem;
+        min-height: 1rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         color: var(--shopee-text);
-        margin-bottom: 4px;
+        margin-bottom: 3px;
         font-weight: 700;
         letter-spacing: -0.02em;
     }
 
     .shopee-category {
-        font-size: 0.68rem;
+        font-size: 0.58rem;
         color: #477089;
         display: inline-flex;
         align-items: center;
         width: fit-content;
-        padding: 0.24rem 0.55rem;
+        padding: 0.16rem 0.4rem;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.6);
         border: 1px solid rgba(126, 164, 184, 0.18);
@@ -313,9 +313,9 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .shopee-stock {
-        font-size: 0.7rem;
+        font-size: 0.58rem;
         font-weight: 700;
-        padding: 0.24rem 0.55rem;
+        padding: 0.16rem 0.4rem;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.6);
         border: 1px solid rgba(126, 164, 184, 0.18);
@@ -328,22 +328,22 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding-top: 2px;
+        padding-top: 0;
     }
 
     .shopee-price {
         color: #0f3441;
         font-weight: 800;
-        font-size: 1.02rem;
+        font-size: 0.82rem;
         letter-spacing: -0.03em;
         white-space: nowrap;
     }
 
     .shopee-sold {
         margin-left: auto;
-        font-size: 0.7rem;
+        font-size: 0.58rem;
         color: var(--shopee-muted);
-        padding: 0.22rem 0.55rem;
+        padding: 0.16rem 0.4rem;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.55);
         border: 1px solid rgba(126, 164, 184, 0.16);
@@ -351,18 +351,18 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     .shopee-footer {
-        padding: 8px 12px 12px;
+        padding: 5px 8px 8px;
         border-top: 1px solid rgba(126, 164, 184, 0.16);
         display: flex;
-        gap: 6px;
-        margin-top: 6px;
+        gap: 4px;
+        margin-top: 4px;
     }
 
     .shopee-btn {
         flex: 1;
-        padding: 0.7rem 0.78rem;
-        border-radius: 14px;
-        font-size: 0.72rem;
+        padding: 0.5rem 0.54rem;
+        border-radius: 12px;
+        font-size: 0.6rem;
         font-weight: 700;
         text-align: center;
         text-transform: uppercase;
@@ -406,19 +406,19 @@ require_once __DIR__ . '/../includes/header.php';
 
     .rating-stars {
         color: #ffca11;
-        font-size: 0.74rem;
+        font-size: 0.62rem;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 2px;
         margin-bottom: 0;
         padding-top: 0;
         flex-wrap: nowrap;
     }
 
     .rating-text {
-        font-size: 0.72rem;
+        font-size: 0.6rem;
         color: var(--shopee-muted);
-        margin-left: 6px;
+        margin-left: 3px;
         font-weight: 600;
         white-space: nowrap;
     }
