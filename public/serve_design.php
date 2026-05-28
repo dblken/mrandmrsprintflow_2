@@ -188,6 +188,115 @@ function pf_serve_design_find_related_order_item(int $orderId, int $excludeOrder
     return $rows[0] ?? null;
 }
 
+function pf_serve_design_decode_json_payload(?string $raw): array {
+    $payload = json_decode((string)$raw, true);
+    return is_array($payload) ? $payload : [];
+}
+
+function pf_serve_design_first_nonempty_scalar(array $payload, array $keys): ?string {
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $payload)) {
+            continue;
+        }
+        $value = $payload[$key];
+        if (is_scalar($value)) {
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+    }
+    return null;
+}
+
+function pf_serve_design_emit_data_url_if_present(?string $dataUrl, string $fallbackName = 'design'): bool {
+    $raw = trim((string)$dataUrl);
+    if ($raw === '' || !preg_match('#^data:([^;]+);base64,(.+)$#s', $raw, $matches)) {
+        return false;
+    }
+    $blob = base64_decode($matches[2], true);
+    if ($blob === false || $blob === '') {
+        return false;
+    }
+    pf_serve_design_emit_blob($blob, trim((string)$matches[1]), $fallbackName);
+    return true;
+}
+
+function pf_serve_design_try_customization_payload_media(int $orderItemId, string $field = 'design'): bool {
+    if ($orderItemId <= 0) {
+        return false;
+    }
+
+    $rows = db_query(
+        "SELECT customization_details
+         FROM customizations
+         WHERE order_item_id = ?
+         ORDER BY customization_id DESC
+         LIMIT 1",
+        'i',
+        [$orderItemId]
+    ) ?: [];
+    if (empty($rows)) {
+        return false;
+    }
+
+    $payload = pf_serve_design_decode_json_payload((string)($rows[0]['customization_details'] ?? ''));
+    if (empty($payload)) {
+        return false;
+    }
+
+    if ($field === 'reference') {
+        $dataUrl = pf_serve_design_first_nonempty_scalar($payload, [
+            'reference_upload_data',
+            'upload_reference_data',
+            'reference_data',
+        ]);
+        if ($dataUrl !== null) {
+            return pf_serve_design_emit_data_url_if_present($dataUrl, (string)(pf_serve_design_first_nonempty_scalar($payload, [
+                'reference_upload_name',
+                'reference_upload',
+                'reference_file',
+            ]) ?? 'reference'));
+        }
+        $path = pf_serve_design_first_nonempty_scalar($payload, [
+            'reference_upload_path',
+            'upload_reference_path',
+            'reference_file',
+            'reference_upload',
+        ]);
+        if ($path !== null && pf_serve_design_read_file($path)) {
+            return true;
+        }
+        return false;
+    }
+
+    $dataUrl = pf_serve_design_first_nonempty_scalar($payload, [
+        'design_upload_data',
+        'upload_design_data',
+        'design_data',
+    ]);
+    if ($dataUrl !== null) {
+        return pf_serve_design_emit_data_url_if_present($dataUrl, (string)(pf_serve_design_first_nonempty_scalar($payload, [
+            'design_upload_name',
+            'design_upload',
+            'design_file',
+        ]) ?? 'design'));
+    }
+
+    $path = pf_serve_design_first_nonempty_scalar($payload, [
+        'design_upload_path',
+        'upload_design_path',
+        'design_file',
+        'design_upload',
+        'layout_file',
+    ]);
+    if ($path !== null && pf_serve_design_read_file($path)) {
+        return true;
+    }
+
+    return false;
+}
+
 // Role-based access (Customers can only see their own, Staff can see all)
 if (!is_logged_in()) {
     http_response_code(403);
@@ -247,6 +356,9 @@ if ($type === 'order_item') {
         if (pf_serve_design_read_file($item['reference_image_file'] ?? '')) {
             exit;
         }
+        if (pf_serve_design_try_customization_payload_media($id, 'reference')) {
+            exit;
+        }
         $relatedReference = pf_serve_design_find_related_order_item($orderId, $id, 'reference');
         if (!empty($relatedReference['reference_image_file']) && pf_serve_design_read_file((string)$relatedReference['reference_image_file'])) {
             exit;
@@ -262,6 +374,9 @@ if ($type === 'order_item') {
         }
         // Then try File
         if (pf_serve_design_read_file($item['design_file'] ?? '')) {
+            exit;
+        }
+        if (pf_serve_design_try_customization_payload_media($id, 'design')) {
             exit;
         }
         $relatedDesign = pf_serve_design_find_related_order_item($orderId, $id, 'design');
