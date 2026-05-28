@@ -371,6 +371,11 @@ function printflow_restore_build_payload(int $productId): array {
     return $payload;
 }
 
+function printflow_fixed_low_stock_level(int $stockQuantity): int {
+    if ($stockQuantity <= 0) return 0;
+    return (int)ceil($stockQuantity * 0.20);
+}
+
 // Handle product creation/update/delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     if (isset($_POST['create_product'])) {
@@ -383,8 +388,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $description = sanitize($_POST['description'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
-        $low_stock_level = (int)($_POST['low_stock_level'] ?? 10);
-        if ($low_stock_level < 1) $low_stock_level = 10;
+        $low_stock_level = printflow_fixed_low_stock_level($stock_quantity);
         // Add modal always creates products as Activated.
         $status = 'Activated';
 
@@ -401,10 +405,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
         } elseif ($stock_quantity < 0) {
             $error = 'Quantity must be a non-negative whole number.';
-        } elseif ($low_stock_level < 0) {
-            $error = 'Low stock level must be a non-negative whole number.';
-        } elseif ($low_stock_level > $stock_quantity) {
-            $error = 'Low stock level cannot exceed quantity.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
         } elseif (!printflow_product_category_valid_for_create($category)) {
@@ -465,10 +465,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     } elseif (isset($_POST['add_product_stock'])) {
         $product_id = (int)($_POST['product_id'] ?? 0);
         $add_stock_quantity = (int)($_POST['add_stock_quantity'] ?? 0);
-        $low_stock_level = (int)($_POST['low_stock_level'] ?? 10);
-        if ($low_stock_level < 1) {
-            $low_stock_level = 10;
-        }
 
         if ($product_id < 1) {
             $error = 'Invalid product.';
@@ -495,44 +491,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     ? (int)($existingProduct[0]['stock_quantity'] ?? 0)
                     : (int)(printflow_product_effective_stock($product_id, $product_stock_branch_id)[0] ?? 0);
                 $newStockQuantity = $oldStockQuantity + $add_stock_quantity;
-
-                if ($low_stock_level > $newStockQuantity) {
-                    $error = 'Low stock level cannot exceed the updated quantity.';
+                $low_stock_level = printflow_fixed_low_stock_level($newStockQuantity);
+                $result = false;
+                if ($product_stock_uses_base) {
+                    $result = db_execute(
+                        "UPDATE products SET stock_quantity = ?, low_stock_level = ?, updated_at = NOW() WHERE product_id = ?",
+                        'iii',
+                        [$newStockQuantity, $low_stock_level, $product_id]
+                    );
                 } else {
-                    $result = false;
-                    if ($product_stock_uses_base) {
-                        $result = db_execute(
-                            "UPDATE products SET stock_quantity = ?, low_stock_level = ?, updated_at = NOW() WHERE product_id = ?",
-                            'iii',
-                            [$newStockQuantity, $low_stock_level, $product_id]
-                        );
-                    } else {
-                        $result = printflow_product_branch_stock_upsert(
-                            $product_id,
-                            $product_stock_branch_id,
-                            $newStockQuantity,
-                            $low_stock_level
-                        );
-                    }
+                    $result = printflow_product_branch_stock_upsert(
+                        $product_id,
+                        $product_stock_branch_id,
+                        $newStockQuantity,
+                        $low_stock_level
+                    );
+                }
 
-                    if ($result) {
-                        printflow_record_product_inventory_transaction(
-                            $product_id,
-                            'IN',
-                            (float)$add_stock_quantity,
-                            'PRODUCT_ADJUSTMENT',
-                            $product_id,
-                            "Products Management add stock for {$productName}: {$oldStockQuantity} -> {$newStockQuantity}",
-                            (int)(get_user_id() ?? 0),
-                            date('Y-m-d'),
-                            $product_stock_branch_id
-                        );
-                        $success = 'Stock added successfully.';
-                    } else {
-                        global $conn;
-                        $dberr = isset($conn) ? $conn->error : '';
-                        $error = 'Failed to add stock.' . ($dberr !== '' ? ' (' . htmlspecialchars($dberr, ENT_QUOTES, 'UTF-8') . ')' : '');
-                    }
+                if ($result) {
+                    printflow_record_product_inventory_transaction(
+                        $product_id,
+                        'IN',
+                        (float)$add_stock_quantity,
+                        'PRODUCT_ADJUSTMENT',
+                        $product_id,
+                        "Products Management add stock for {$productName}: {$oldStockQuantity} -> {$newStockQuantity}",
+                        (int)(get_user_id() ?? 0),
+                        date('Y-m-d'),
+                        $product_stock_branch_id
+                    );
+                    $success = 'Stock added successfully.';
+                } else {
+                    global $conn;
+                    $dberr = isset($conn) ? $conn->error : '';
+                    $error = 'Failed to add stock.' . ($dberr !== '' ? ' (' . htmlspecialchars($dberr, ENT_QUOTES, 'UTF-8') . ')' : '');
                 }
             }
         }
@@ -540,18 +532,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         if ($is_manager) {
             $product_id = (int)($_POST['product_id'] ?? 0);
             $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
-            $low_stock_level = (int)($_POST['low_stock_level'] ?? 10);
-            if ($low_stock_level < 1) {
-                $low_stock_level = 10;
-            }
+            $low_stock_level = printflow_fixed_low_stock_level($stock_quantity);
             if ($product_id < 1) {
                 $error = 'Invalid product.';
             } elseif ($mgr_branch_id < 1) {
                 $error = 'No branch is assigned to your account.';
             } elseif ($stock_quantity < 0) {
                 $error = 'Quantity must be a non-negative whole number.';
-            } elseif ($low_stock_level > $stock_quantity) {
-                $error = 'Low stock level cannot exceed quantity.';
             } else {
                 $existingProduct = db_query("SELECT product_id, name FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1", 'i', [$product_id]);
                 $existingStock = printflow_product_effective_stock($product_id, $mgr_branch_id);
@@ -593,7 +580,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $description = sanitize($_POST['description'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
-        $low_stock_level = (int)($_POST['low_stock_level'] ?? 10);
+        $low_stock_level = printflow_fixed_low_stock_level($stock_quantity);
         $statusRaw = trim((string)($_POST['status'] ?? ''));
         $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
 
@@ -612,10 +599,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
         } elseif ($stock_quantity < 0 || $stock_quantity != floor($stock_quantity)) {
             $error = 'Quantity must be a non-negative whole number.';
-        } elseif ($low_stock_level < 0 || $low_stock_level != floor($low_stock_level)) {
-            $error = 'Low stock level must be a non-negative whole number.';
-        } elseif ($low_stock_level > $stock_quantity) {
-            $error = 'Low stock level cannot exceed quantity.';
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
         } elseif (!printflow_product_category_is_allowed($category)) {
@@ -2154,8 +2137,8 @@ if (isset($_GET['ajax'])) {
                         </div>
                         <div class="form-group" id="fg-low-stock-mgr">
                             <label for="modal-low-mgr">Low stock level <span style="color:#dc2626">*</span> <span style="font-weight:500;color:#6b7280;">(your branch)</span></label>
-                            <input type="number" id="modal-low-mgr" name="low_stock_level" min="0" value="10" step="1" disabled autocomplete="off" placeholder="0" maxlength="5">
-                            <small style="display:block;margin-top:4px;color:#6b7280;">Warn when stock falls below this. Must be ≤ quantity.</small>
+                            <input type="number" id="modal-low-mgr" name="low_stock_level" min="0" value="0" step="1" disabled readonly autocomplete="off" placeholder="Auto (20%)" maxlength="5">
+                            <small style="display:block;margin-top:4px;color:#6b7280;">Auto-calculated as 20% of quantity.</small>
                             <span id="err-low-mgr" class="field-error"></span>
                         </div>
                     </div>
@@ -2224,8 +2207,8 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div class="form-group" id="fg-low-stock">
                         <label for="modal-low-stock">Low Stock Level <span style="color:#dc2626">*</span></label>
-                        <input type="number" id="modal-low-stock"<?php echo $is_manager ? '' : ' name="low_stock_level"'; ?> min="0" value="10" step="1" placeholder="0" maxlength="5">
-                        <small>Warn when stock falls below this. Must be ≤ Quantity.</small>
+                        <input type="number" id="modal-low-stock"<?php echo $is_manager ? '' : ' name="low_stock_level"'; ?> min="0" value="0" step="1" placeholder="Auto (20%)" maxlength="5" readonly>
+                        <small>Auto-calculated as 20% of Quantity.</small>
                         <span id="err-low-stock" class="field-error"></span>
                     </div>
                     <div class="form-group" id="fg-status">
@@ -2509,6 +2492,11 @@ function pfManagerModalSetActive(active, product) {
     var lowAdm = document.getElementById('modal-low-stock');
     var sm = document.getElementById('modal-stock-mgr');
     var lm = document.getElementById('modal-low-mgr');
+    function pfCalcLowStock20(qty) {
+        qty = parseInt(qty, 10) || 0;
+        if (qty <= 0) return 0;
+        return Math.ceil(qty * 0.20);
+    }
     if (active) {
         mgr.style.display = 'block';
         adm.style.display = 'none';
@@ -2524,7 +2512,7 @@ function pfManagerModalSetActive(active, product) {
         var nm = document.getElementById('manager-modal-product-name');
         if (product && nm) nm.textContent = product.name || '—';
         if (product && sm) sm.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
-        if (product && lm) lm.value = product.low_stock_level != null ? String(product.low_stock_level) : '10';
+        if (lm) lm.value = String(pfCalcLowStock20(sm ? sm.value : 0));
     } else {
         mgr.style.display = 'none';
         adm.style.display = 'block';
@@ -2540,6 +2528,11 @@ function pfManagerModalSetActive(active, product) {
         }
         if (sm) { sm.disabled = true; }
         if (lm) { lm.disabled = true; }
+    }
+    if (sm && lm) {
+        sm.oninput = function() {
+            lm.value = String(pfCalcLowStock20(sm.value));
+        };
     }
 }
 
@@ -2588,6 +2581,11 @@ window.openProductModal = function openProductModal(mode, product) {
     var submitBtn = pfGetProductModalSubmitBtn();
     var previewImg = document.getElementById('photo-preview-img');
     var previewText = document.getElementById('photo-preview-text');
+    function pfCalcLowStock20(qty) {
+        qty = parseInt(qty, 10) || 0;
+        if (qty <= 0) return 0;
+        return Math.ceil(qty * 0.20);
+    }
     var photoInput = document.getElementById('modal-photo');
 
     if (mode === 'stock' && product) {
@@ -2641,7 +2639,7 @@ window.openProductModal = function openProductModal(mode, product) {
             var stockEl = document.getElementById('modal-stock');
             if (stockEl) stockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
             var lowEl = document.getElementById('modal-low-stock');
-            if (lowEl) lowEl.value = product.low_stock_level != null ? String(product.low_stock_level) : '10';
+            if (lowEl) lowEl.value = String(pfCalcLowStock20(stockEl ? stockEl.value : 0));
             var stEl = document.getElementById('modal-status');
             var stWrap = document.getElementById('fg-status');
             var stockRow = document.getElementById('modal-stock-row');
@@ -2672,6 +2670,9 @@ window.openProductModal = function openProductModal(mode, product) {
         if (pidEl2) pidEl2.value = '';
         var stElCreate = document.getElementById('modal-status');
         if (stElCreate) stElCreate.value = 'Activated';
+        var stockCreate = document.getElementById('modal-stock');
+        var lowCreate = document.getElementById('modal-low-stock');
+        if (lowCreate) lowCreate.value = String(pfCalcLowStock20(stockCreate ? stockCreate.value : 0));
         var stWrapCreate = document.getElementById('fg-status');
         if (stWrapCreate) stWrapCreate.style.display = 'none';
         var stockRowCreate = document.getElementById('modal-stock-row');
@@ -2688,6 +2689,13 @@ window.openProductModal = function openProductModal(mode, product) {
     }
     if (typeof window.printflowProductFormValidationRun === 'function') {
         window.printflowProductFormValidationRun();
+    }
+    var stockForLow = document.getElementById('modal-stock');
+    var lowForLow = document.getElementById('modal-low-stock');
+    if (stockForLow && lowForLow) {
+        stockForLow.oninput = function() {
+            lowForLow.value = String(pfCalcLowStock20(stockForLow.value));
+        };
     }
     if (mode === 'stock' && product) {
         requestAnimationFrame(function() {
