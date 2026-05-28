@@ -26,6 +26,21 @@ try {
         }
     }
 
+    $fromInput = trim((string)($_GET['from'] ?? ''));
+    $toInput = trim((string)($_GET['to'] ?? ''));
+    $isValidDate = static function (string $date): bool {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
+        $dt = DateTime::createFromFormat('Y-m-d', $date);
+        return $dt && $dt->format('Y-m-d') === $date;
+    };
+    $fromDate = $isValidDate($fromInput) ? $fromInput : date('Y-m-d');
+    $toDate = $isValidDate($toInput) ? $toInput : date('Y-m-d');
+    if (strtotime($fromDate) > strtotime($toDate)) {
+        [$fromDate, $toDate] = [$toDate, $fromDate];
+    }
+    $fromStart = $fromDate . ' 00:00:00';
+    $toEnd = $toDate . ' 23:59:59';
+
     // Build branch SQL filter
     [$bSqlFrag, $bTypes, $bParams] = branch_where_parts('o', $branchId);
 
@@ -33,11 +48,11 @@ try {
     $order_status = db_query(
         "SELECT o.status, COUNT(*) as cnt 
          FROM orders o 
-         WHERE 1=1 {$bSqlFrag} 
+         WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag} 
          GROUP BY o.status 
          ORDER BY cnt DESC",
-        $bTypes ?: null,
-        $bParams ?: null
+        'ss' . ($bTypes ?: ''),
+        array_merge([$fromStart, $toEnd], $bParams ?: [])
     ) ?: [];
 
     // Status color mapping
