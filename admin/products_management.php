@@ -430,7 +430,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     
                     $result = db_execute(
                         "INSERT INTO products (name, sku, category, description, price, stock_quantity, low_stock_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                        'ssssdiiis',
+                        'ssssdiiss',
                         [$name, $sku_val, $category, $description, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $status, $photo_path]
                     );
 
