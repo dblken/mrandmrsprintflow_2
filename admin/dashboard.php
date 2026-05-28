@@ -2064,9 +2064,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     function maybeLiveSubmit() {
         var fromVal = fromInput.value;
         var toVal = toInput.value;
-        // Live apply only when both dates are fully formed.
+        // Apply only when both dates are fully formed.
         if (isIsoDate(fromVal) && isIsoDate(toVal)) {
-            autoSubmit(380);
+            autoSubmit(260);
         }
     }
 
@@ -2096,14 +2096,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         clearPreset();
         maybeLiveSubmit();
     });
-    fromInput.addEventListener('input', function () {
-        clearPreset();
-        maybeLiveSubmit();
-    });
-    toInput.addEventListener('input', function () {
-        clearPreset();
-        maybeLiveSubmit();
-    });
+    // Do not submit on every keystroke: keep typing uninterrupted.
+    fromInput.addEventListener('input', function () { clearPreset(); });
+    toInput.addEventListener('input', function () { clearPreset(); });
+    fromInput.addEventListener('blur', maybeLiveSubmit);
+    toInput.addEventListener('blur', maybeLiveSubmit);
 
     document.querySelectorAll('.fp-preset-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
