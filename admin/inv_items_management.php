@@ -959,7 +959,7 @@ if (isset($_GET['ajax'])) {
                 <div class="sc-card-label" style="font-size:11px; font-weight:700; color:#15803d; text-transform:uppercase; letter-spacing:0.05em;">Reorder Level</div>
                 <div class="sc-card-value" id="scMinStock" style="font-size:20px; font-weight:800; color:#166534;">0</div>
             </div>
-            <div class="sc-card" id="scStatusCard" style="border:1px solid; display:flex; flex-direction:column; justify-content:center;">
+            <div class="sc-card" id="scStatusCard" style="border:1px solid; display:none; flex-direction:column; justify-content:center;">
                 <div class="sc-card-label" style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Stock Status</div>
                 <div class="sc-card-value" id="scStatusText" style="font-size:16px; font-weight:700;">&mdash;</div>
             </div>
@@ -984,7 +984,7 @@ if (isset($_GET['ajax'])) {
         </div>
 
         <!-- Smart Status Message -->
-        <div id="scStatusMsg" style="padding:12px 16px; border-radius:10px; font-size:14px; font-weight:600; margin-bottom:20px;"></div>
+        <div id="scStatusMsg" style="display:none; padding:12px 16px; border-radius:10px; font-size:14px; font-weight:600; margin-bottom:20px;"></div>
 
         <!-- Product Details -->
         <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:14px 16px; margin-bottom:20px;">
@@ -1141,7 +1141,7 @@ if (isset($_GET['ajax'])) {
                         <input type="number" step="0.01" min="0" id="itemMinStock" name="min_stock_level" value="0.00" required class="w-100">
                         <span id="err-itemMinStock" class="field-error"></span>
                     </div>
-                    <div id="previewStatusSection">
+                    <div id="previewStatusSection" style="display:none !important;">
                         <label>Preview Status</label>
                         <div id="editModalReorderPreview" class="preview-badge" style="height:38px; display:flex; align-items:center; justify-content:center; padding:0 12px; font-weight:600;">In Stock</div>
                     </div>
