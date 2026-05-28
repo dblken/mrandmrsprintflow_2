@@ -520,6 +520,7 @@ try {
                 LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
+                AND cust.order_id IS NOT NULL
                 AND COALESCE(o.order_source, '') <> 'pos_merged'"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC

@@ -306,7 +306,6 @@ if (!$data) {
 // Handle create_pending_customization action
 if (isset($data['action']) && $data['action'] === 'create_pending_customization') {
     $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
-    $post_commit_order_id = 0;
     $transaction_open = false;
     
     if ($customer_id === null) {
@@ -334,59 +333,15 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $conn->begin_transaction();
         $transaction_open = true;
         
-        $branch_id = (int)($_SESSION['branch_id'] ?? 1);
-        if ($branch_id < 1) $branch_id = 1;
-        
-        // Create order with status 'Approved' (skipped initial Pending verification for POS)
-        // Will be updated to 'Paid' when checkout completes
-        $order_result = db_execute(
-            "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, order_date, updated_at, order_type, order_source) 
-             VALUES (?, ?, ?, 0, 'Approved', 'Unpaid', 'Cash', NOW(), NOW(), 'custom', 'pos')",
-            'iii',
-            [$customer_id, $branch_id, $product_id]
-        );
-        
-        if (!$order_result) {
-            $conn->rollback();
-            echo json_encode(['success' => false, 'message' => 'Failed to create order.']);
-            exit;
-        }
-        
-        $order_id = $conn->insert_id;
-        
-        // Store order_id in session for later update during checkout
-        if (!isset($_SESSION['pos_pending_orders'])) {
-            $_SESSION['pos_pending_orders'] = [];
-        }
-        $_SESSION['pos_pending_orders'][$product_id] = $order_id;
-        
-        // Create order item with price = 0
-        $pending_item_product_id = pos_get_service_placeholder_product_id();
-        if ($pending_item_product_id <= 0) {
-            // Last fallback: use service ID when placeholder setup is unavailable.
-            $pending_item_product_id = $product_id;
-        }
-        $customization_json = json_encode($customization ?: new stdClass());
-        $item_result = db_execute(
-            "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data) VALUES (?, ?, ?, 0, ?)",
-            'iiis',
-            [$order_id, $pending_item_product_id, $qty, $customization_json]
-        );
-        
-        if (!$item_result) {
-            $conn->rollback();
-            echo json_encode(['success' => false, 'message' => 'Failed to add order item.']);
-            exit;
-        }
-        
-        $order_item_id = $conn->insert_id;
-        
-        // Create customization entry with status 'Approved'
+        // Draft-only POS customization entry.
+        // Do not create orders/order_items here because this endpoint is used only
+        // for redirecting to the set-price screen before checkout is completed.
         $details_json = json_encode($customization ?: new stdClass());
         $customization_result = db_execute(
-            "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'Approved', NOW(), NOW())",
-            'iiiss',
-            [$order_id, $order_item_id, $customer_id, $name, $details_json]
+            "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
+             VALUES (NULL, NULL, ?, ?, ?, 'Approved', NOW(), NOW())",
+            'iss',
+            [$customer_id, $name, $details_json]
         );
         
         if (!$customization_result) {
@@ -399,24 +354,12 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
 
         $conn->commit();
         $transaction_open = false;
-        $post_commit_order_id = $order_id;
-        pos_sync_customization_jobs_after_commit($post_commit_order_id, 'APPROVED');
-        echo json_encode(['success' => true, 'customization_id' => $customization_id, 'order_id' => $order_id]);
+        echo json_encode(['success' => true, 'customization_id' => $customization_id, 'order_id' => 0]);
         exit;
         
     } catch (Exception $e) {
         if ($transaction_open && isset($conn)) {
             $conn->rollback();
-        }
-        if ($post_commit_order_id > 0) {
-            error_log('PrintFlow POS customization sync failed for order #' . $post_commit_order_id . ': ' . $e->getMessage());
-            echo json_encode([
-                'success' => true,
-                'customization_id' => $customization_id ?? null,
-                'order_id' => $post_commit_order_id,
-                'warning' => 'Customization was created, but production sync needs follow-up.'
-            ]);
-            exit;
         }
         echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
         exit;
@@ -614,31 +557,31 @@ try {
             }
 
             $customization_result = false;
-            if ($pendingOrderId > 0) {
-                if ($pendingCustomizationId > 0) {
-                    $customizationExists = db_query(
-                        "SELECT customization_id
-                         FROM customizations
-                         WHERE customization_id = ?
-                         LIMIT 1",
-                        'i',
-                        [$pendingCustomizationId]
-                    ) ?: [];
+            if ($pendingCustomizationId > 0) {
+                $customizationExists = db_query(
+                    "SELECT customization_id
+                     FROM customizations
+                     WHERE customization_id = ?
+                     LIMIT 1",
+                    'i',
+                    [$pendingCustomizationId]
+                ) ?: [];
 
-                    if (!empty($customizationExists)) {
-                        $customization_result = db_execute(
-                            "UPDATE customizations
-                             SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
-                             WHERE customization_id = ?",
-                            'iiissi',
-                            [$order_id, $order_item_id, $customer_id, $name, $details_json, $pendingCustomizationId]
-                        );
-                        if ($customization_result) {
-                            $last_customization_id = $pendingCustomizationId;
-                        }
+                if (!empty($customizationExists)) {
+                    $customization_result = db_execute(
+                        "UPDATE customizations
+                         SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
+                         WHERE customization_id = ?",
+                        'iiissi',
+                        [$order_id, $order_item_id, $customer_id, $name, $details_json, $pendingCustomizationId]
+                    );
+                    if ($customization_result) {
+                        $last_customization_id = $pendingCustomizationId;
                     }
                 }
+            }
 
+            if (!$customization_result && $pendingOrderId > 0) {
                 if (!$customization_result) {
                     $existingCustomizationRows = db_query(
                         "SELECT customization_id
