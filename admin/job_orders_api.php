@@ -455,19 +455,10 @@ try {
                 $order['readiness'] = 'READY';
                 $order['estimated_cost'] = 0;
                 $order['order_code'] = printflow_get_order_inventory_reference((int)($order['order_id'] ?? 0))['code'] ?? '';
-                
-                // Fallback: detect legacy POS orders missing order_source
-                if (empty($order['order_source']) || $order['order_source'] === 'customer') {
-                    $pos_check = db_query(
-                        "SELECT 1 FROM customizations WHERE order_id = ? AND customization_details LIKE '%\"source\":\"POS\"%' LIMIT 1",
-                        'i', [$order['order_id']]
-                    );
-                    if (!empty($pos_check)) {
-                        $order['order_source'] = 'pos';
-                        // Backfill the DB so future loads are instant
-                        db_execute("UPDATE orders SET order_source = 'pos' WHERE order_id = ? AND (order_source IS NULL OR order_source = 'customer')", 'i', [$order['order_id']]);
-                    }
-                }
+                $order['order_source'] = jo_api_resolve_order_source(
+                    (int)($order['order_id'] ?? 0),
+                    $order['order_source'] ?? null
+                );
                 
                 // Fetch dynamic correct names based on ordered items customizations
                 $payload = JobOrderService::getStoreOrderItemsPayload($order['order_id'], $serviceOnly, $serviceOnly);
@@ -475,6 +466,10 @@ try {
                     continue;
                 }
                 JobOrderService::enrichStaffJobRowFromStorePayload($order, $payload);
+                $order['order_source'] = jo_api_resolve_order_source(
+                    (int)($order['order_id'] ?? 0),
+                    $order['order_source'] ?? null
+                );
                 $visiblePendingOrders[] = $order;
             }
             $pending_orders = $visiblePendingOrders;
