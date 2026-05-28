@@ -486,39 +486,39 @@ function render_service_card($srv) {
     }
 
     @media (max-width: 640px) {
-        .ct-product-grid {
+        body.customer-theme .ct-product-grid {
             display: grid !important;
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             gap: 12px !important;
         }
 
-        .shopee-card {
+        body.customer-theme .shopee-card {
             border-radius: 22px;
             min-width: 0;
         }
 
-        .shopee-img {
+        body.customer-theme .shopee-img {
             width: 100%;
             margin: 0;
             aspect-ratio: 1.08;
             border-radius: 0;
         }
 
-        .shopee-body {
+        body.customer-theme .shopee-body {
             padding: 8px 10px 0;
         }
 
-        .shopee-name {
+        body.customer-theme .shopee-name {
             font-size: 1.02rem;
             line-height: 1.38rem;
             min-height: 1.38rem;
         }
 
-        .shopee-footer {
+        body.customer-theme .shopee-footer {
             padding: 8px 10px 10px;
         }
 
-        .shopee-btn {
+        body.customer-theme .shopee-btn {
             min-height: 40px;
         }
     }
