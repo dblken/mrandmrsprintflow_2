@@ -230,7 +230,7 @@ if (isset($_GET['ajax'])) {
     ob_start();
     ?>
     <?php if (empty($transactions)): ?>
-        <tr><td colspan="8" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
+        <tr><td colspan="7" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
     <?php else: ?>
         <?php foreach ($transactions as $t): 
             $qty = (float)$t['quantity'];
@@ -248,7 +248,7 @@ if (isset($_GET['ajax'])) {
                 $typeBadgeStyle = 'display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;';
             }
         ?>
-            <tr style="cursor:pointer;" onclick="viewTransaction(<?php echo pf_ledger_tx_json_attr($t); ?>)">
+            <tr>
                 <td style="font-family:monospace;font-size:12px;color:#111827;">#TX-<?php echo $t['id']; ?></td>
                 <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
                 <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
@@ -261,9 +261,6 @@ if (isset($_GET['ajax'])) {
                 </td>
                 <td class="truncate" style="font-size:12px;color:#6b7280;" title="<?php echo htmlspecialchars($t['notes'] ?: '—'); ?>"><?php echo htmlspecialchars($t['notes'] ?: '—'); ?></td>
                 <td style="font-size:12px;color:#374151;"><?php echo htmlspecialchars($t['created_by_name'] ?: 'System'); ?></td>
-                <td class="no-truncate" style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation()">
-                    <button type="button" onclick="event.stopPropagation();viewTransaction(<?php echo pf_ledger_tx_json_attr($t); ?>)" class="btn-action blue">View</button>
-                </td>
             </tr>
         <?php endforeach; ?>
     <?php endif; ?>
@@ -318,7 +315,7 @@ if (isset($_GET['ajax'])) {
         .inv-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .inv-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; }
         .truncate { max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .inv-table tbody tr { cursor: pointer; transition: background 0.1s; }
+        .inv-table tbody tr { cursor: default; transition: background 0.1s; }
         .inv-table tbody tr:hover td { background: #f9fafb; }
         .inv-table tbody tr:last-child td { border-bottom: none; }
         
@@ -723,12 +720,11 @@ if (isset($_GET['ajax'])) {
                                 <th style="text-align:right;">Quantity</th>
                                 <th>Notes</th>
                                 <th>Admin</th>
-                                <th style="text-align:right;">Action</th>
                             </tr>
                         </thead>
                         <tbody id="ledgerTableBody">
                             <?php if (empty($transactions)): ?>
-                                <tr><td colspan="8" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
+                                <tr><td colspan="7" style="text-align:center; padding: 60px; color:#6b7280; font-size: 15px;">No logs found for this period.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($transactions as $t): 
                                     $qty = (float)$t['quantity'];
@@ -746,7 +742,7 @@ if (isset($_GET['ajax'])) {
                                         $typeBadgeStyle = 'display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;';
                                     }
                                 ?>
-                                    <tr style="cursor:pointer;" onclick="viewTransaction(<?php echo pf_ledger_tx_json_attr($t); ?>)">
+                                    <tr>
                                         <td style="font-family:monospace;font-size:12px;color:#111827;">#TX-<?php echo $t['id']; ?></td>
                                         <td style="color:#6b7280;"><?php echo $t['transaction_date']; ?></td>
                                         <td class="truncate" style="font-weight:500;color:#111827;" title="<?php echo htmlspecialchars($t['item_name']); ?>">
@@ -759,9 +755,6 @@ if (isset($_GET['ajax'])) {
                                         </td>
                                         <td class="truncate" style="font-size:12px;color:#6b7280;" title="<?php echo htmlspecialchars($t['notes'] ?: '—'); ?>"><?php echo htmlspecialchars($t['notes'] ?: '—'); ?></td>
                                         <td style="font-size:12px;color:#374151;"><?php echo htmlspecialchars($t['created_by_name'] ?: 'System'); ?></td>
-                                        <td class="no-truncate" style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation()">
-                                            <button type="button" onclick="event.stopPropagation();viewTransaction(<?php echo pf_ledger_tx_json_attr($t); ?>)" class="btn-action blue">View</button>
-                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
