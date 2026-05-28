@@ -2058,6 +2058,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             form.submit();
         }, typeof delay === 'number' ? delay : 220);
     }
+    function isIsoDate(v) {
+        return /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    }
+    function maybeLiveSubmit() {
+        var fromVal = fromInput.value;
+        var toVal = toInput.value;
+        // Live apply only when both dates are fully formed.
+        if (isIsoDate(fromVal) && isIsoDate(toVal)) {
+            autoSubmit(380);
+        }
+    }
 
     toggleBtn.addEventListener('click', function () {
         panel.hidden ? openPanel() : closePanel();
@@ -2079,11 +2090,19 @@ $page_title = 'Dashboard - Admin | PrintFlow';
     } catch (e) {}
     fromInput.addEventListener('change', function () {
         clearPreset();
-        // Wait for user to complete "To" date before applying.
+        maybeLiveSubmit();
     });
     toInput.addEventListener('change', function () {
         clearPreset();
-        autoSubmit(220);
+        maybeLiveSubmit();
+    });
+    fromInput.addEventListener('input', function () {
+        clearPreset();
+        maybeLiveSubmit();
+    });
+    toInput.addEventListener('input', function () {
+        clearPreset();
+        maybeLiveSubmit();
     });
 
     document.querySelectorAll('.fp-preset-btn').forEach(function (btn) {
