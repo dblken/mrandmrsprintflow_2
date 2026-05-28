@@ -1468,28 +1468,8 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         bindWhenVisible(document.getElementById('dash-sales-chart-wrap'), function () {
             salesFirstFetch = true;
-            var forecastSeparatorPlugin = {
-                id: 'dashForecastSeparator',
-                afterDraw: function(chart) {
-                    var forecast = DASH_SALES_TREND.forecast || {};
-                    var forecastStartIndex = window.__pfDashSalesForecastStartIndex;
-                    if (!forecast.label || forecastStartIndex == null || forecastStartIndex < 0) return;
-                    var chartArea = chart.chartArea;
-                    var xPos = chart.scales.x.getPixelForValue(forecastStartIndex + 0.5);
-                    if (xPos < chartArea.left || xPos > chartArea.right) return;
-                    var ctx = chart.ctx;
-                    ctx.save();
-                    ctx.setLineDash([8, 4]);
-                    ctx.strokeStyle = '#94a3b8';
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.8;
-                    ctx.beginPath();
-                    ctx.moveTo(xPos, chartArea.top);
-                    ctx.lineTo(xPos, chartArea.bottom);
-                    ctx.stroke();
-                    ctx.restore();
-                }
-            };
+            var currencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 });
+            var compactCurrencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 0 });
             window.__pfDashSalesChart = new Chart(document.getElementById('dashSalesChart').getContext('2d'), {
                 type: 'bar',
                 data: { labels: [], datasets: [
@@ -1498,34 +1478,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         data: [],
                         borderColor: [],
                         backgroundColor: [],
-                        borderWidth: 2.5,
-                        fill: true,
-                        tension: 0.35,
-                        pointBackgroundColor: '#00232b',
-                        pointRadius: 3,
-                        pointHoverRadius: 6,
-                        yAxisID: 'y',
+                        borderWidth: 1.5,
                         borderRadius: 10,
                         borderSkipped: false,
                         barPercentage: 0.58,
                         categoryPercentage: 0.68
-                    },
-                    {
-                        label: 'Branch revenue forecast (\u20b1)',
-                        data: [],
-                        borderColor: '#6366F1',
-                        backgroundColor: 'transparent',
-                        borderWidth: 2.5,
-                        borderDash: [8, 6],
-                        fill: false,
-                        tension: 0.35,
-                        pointBackgroundColor: '#6366F1',
-                        pointBorderColor: '#ffffff',
-                        pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 7,
-                        yAxisID: 'y',
-                        spanGaps: true
                     }
                 ]},
                 options: {
@@ -1539,11 +1496,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             display: true,
                             position: 'bottom',
                             labels: {
-                                boxWidth: 12,
-                                font: pfDashChartFont(11, '600'),
-                                filter: function(legendItem) {
-                                    return !String(legendItem.text || '').includes('forecast');
-                                }
+                                boxWidth: 10,
+                                boxHeight: 10,
+                                color: '#00232b',
+                                font: pfDashChartFont(11, '700')
                             }
                         },
                         tooltip: {
