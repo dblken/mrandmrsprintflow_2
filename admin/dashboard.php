@@ -1993,23 +1993,92 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 window.__pfDashFilterTimer = null;
 window.__pfDashLastSubmittedRange = null;
 window.__pfDashDateRe = /^\d{4}-\d{2}-\d{2}$/;
+window.__pfDashFilterFetchCtrl = null;
+window.__pfDashFilterBusy = false;
+window.__pfDashFilterQueued = false;
+
+window.pfDashApplyFilterAjax = function() {
+    var form = document.getElementById('reportsFilterForm');
+    var fromEl = document.getElementById('fp_from');
+    var toEl = document.getElementById('fp_to');
+    if (!form || !fromEl || !toEl) return;
+
+    var fromVal = String(fromEl.value || '').trim();
+    var toVal = String(toEl.value || '').trim();
+    if (!window.__pfDashDateRe.test(fromVal) || !window.__pfDashDateRe.test(toVal)) return;
+    if (fromVal > toVal) return;
+
+    var presetVal = document.getElementById('dash_preset')?.value || '';
+    var key = fromVal + '|' + toVal + '|' + presetVal;
+    if (window.__pfDashLastSubmittedRange === key && !window.__pfDashFilterQueued) return;
+    window.__pfDashLastSubmittedRange = key;
+
+    if (window.__pfDashFilterBusy) {
+        window.__pfDashFilterQueued = true;
+        return;
+    }
+    window.__pfDashFilterBusy = true;
+    window.__pfDashFilterQueued = false;
+
+    try {
+        if (window.__pfDashFilterFetchCtrl) {
+            try { window.__pfDashFilterFetchCtrl.abort(); } catch (e0) {}
+        }
+        window.__pfDashFilterFetchCtrl = new AbortController();
+    } catch (e1) {
+        window.__pfDashFilterFetchCtrl = null;
+    }
+
+    var params = new URLSearchParams(new FormData(form));
+    params.set('_', String(Date.now()));
+    var reqUrl = window.location.pathname + '?' + params.toString();
+
+    fetch(reqUrl, {
+        credentials: 'same-origin',
+        signal: window.__pfDashFilterFetchCtrl ? window.__pfDashFilterFetchCtrl.signal : undefined
+    })
+    .then(function(resp) { return resp.text(); })
+    .then(function(html) {
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+
+        var nextContent = doc.querySelector('#pf-dashboard-content');
+        var curContent = document.querySelector('#pf-dashboard-content');
+        if (nextContent && curContent) {
+            curContent.innerHTML = nextContent.innerHTML;
+        }
+
+        var nextSummary = doc.querySelector('#pf-dashboard-toolbar-summary');
+        var curSummary = document.querySelector('#pf-dashboard-toolbar-summary');
+        if (nextSummary && curSummary) {
+            curSummary.textContent = nextSummary.textContent;
+        }
+
+        var cleanParams = new URLSearchParams(new FormData(form));
+        var cleanUrl = window.location.pathname + '?' + cleanParams.toString();
+        window.history.replaceState({}, '', cleanUrl);
+
+        if (typeof window.printflowInitDashboardCharts === 'function') {
+            window.printflowInitDashboardCharts();
+        }
+    })
+    .catch(function(err) {
+        if (err && err.name === 'AbortError') return;
+        console.error('Dashboard live filter failed:', err);
+    })
+    .finally(function() {
+        window.__pfDashFilterBusy = false;
+        if (window.__pfDashFilterQueued) {
+            window.__pfDashFilterQueued = false;
+            window.pfDashApplyFilterAjax();
+        }
+    });
+};
+
 window.debouncedSubmitDashboardFilter = function(delay) {
     if (window.__pfDashFilterTimer) clearTimeout(window.__pfDashFilterTimer);
     window.__pfDashFilterTimer = setTimeout(function() {
-        var form = document.getElementById('reportsFilterForm');
-        var fromEl = document.getElementById('fp_from');
-        var toEl = document.getElementById('fp_to');
-        if (!form || !fromEl || !toEl) return;
-        // Never interrupt while the user is actively typing in a date input.
-        if (document.activeElement === fromEl || document.activeElement === toEl) return;
-        var fromVal = String(fromEl.value || '').trim();
-        var toVal = String(toEl.value || '').trim();
-        if (!window.__pfDashDateRe.test(fromVal) || !window.__pfDashDateRe.test(toVal)) return;
-        if (fromVal > toVal) return;
-        var key = fromVal + '|' + toVal + '|' + (document.getElementById('dash_preset')?.value || '');
-        if (window.__pfDashLastSubmittedRange === key) return;
-        window.__pfDashLastSubmittedRange = key;
-        form.submit();
+        window.pfDashApplyFilterAjax();
     }, typeof delay === 'number' ? delay : 300);
 };
 function dashboardFilterPanel(initialPreset) {
