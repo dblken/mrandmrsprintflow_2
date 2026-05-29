@@ -609,6 +609,14 @@ if ($showLatestCustomizationOnly) {
         }
         .pill-tab:not(.active) .tab-count { background: #e7f3f0; color: #035f5f; }
 
+        .pf-custom-tabs.pos-tabs {
+            width: 100%;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
 
 
         /* Unified Table Typography */
@@ -1302,7 +1310,7 @@ if ($showLatestCustomizationOnly) {
                     </div>
                 </div>
                 <div class="toolbar-group toolbar-group--tabs">
-                    <div class="pf-custom-tabs">
+                    <div class="pf-custom-tabs<?php echo $isPosCustomizationView ? ' pos-tabs' : ''; ?>">
                         <button type="button" @click="activeStatus = 'ALL'" :class="activeStatus === 'ALL' ? 'active' : ''" class="pill-tab">
                             <span>ALL</span>
                             <span class="tab-count" x-text="getStatusCount('ALL')"></span>
@@ -1310,6 +1318,10 @@ if ($showLatestCustomizationOnly) {
                         <button type="button" @click="activeStatus = 'PENDING'" :class="activeStatus === 'PENDING' ? 'active' : ''" class="pill-tab">
                             <span>PENDING</span>
                             <span class="tab-count" x-text="getStatusCount('PENDING')"></span>
+                        </button>
+                        <button type="button" @click="activeStatus = 'COMPLETED'" :class="activeStatus === 'COMPLETED' ? 'active' : ''" class="pill-tab">
+                            <span>COMPLETED</span>
+                            <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
                         <?php if (!$isPosCustomizationView): ?>
                         <button type="button" @click="activeStatus = 'APPROVED'" :class="activeStatus === 'APPROVED' ? 'active' : ''" class="pill-tab">
@@ -1332,10 +1344,6 @@ if ($showLatestCustomizationOnly) {
                             <span>TO PICKUP</span>
                             <span class="tab-count" x-text="getStatusCount('TO_RECEIVE')"></span>
                         </button>
-                        <button type="button" @click="activeStatus = 'COMPLETED'" :class="activeStatus === 'COMPLETED' ? 'active' : ''" class="pill-tab">
-                            <span>COMPLETED</span>
-                            <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
-                        </button>
                         <button type="button" @click="activeStatus = 'REJECTED'" :class="activeStatus === 'REJECTED' ? 'active' : ''" class="pill-tab">
                             <span>REJECTED</span>
                             <span class="tab-count" x-text="getStatusCount('REJECTED')"></span>
@@ -1352,13 +1360,13 @@ if ($showLatestCustomizationOnly) {
                     <table class="w-full text-sm text-left border-separate border-spacing-0" style="table-layout:fixed;">
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 w-[12%] border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 w-[28%] border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 w-[18%] border-b border-gray-100 text-center">Status</th>
+                                <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[25%]' : 'w-[28%]'; ?> border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[18%]'; ?> border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 w-[8%] border-b border-gray-100 text-center">Source</th>
-                                <th class="px-4 py-4 w-[14%] border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 w-[10%] border-b border-gray-100 text-right">Created</th>
-                                <th class="px-4 py-4 w-[10%] border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[12%]' : 'w-[14%]'; ?> border-b border-gray-100">Customer</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[10%]' : 'w-[10%]'; ?> border-b border-gray-100 text-right">Created</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[20%]' : 'w-[10%]'; ?> border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -1401,7 +1409,7 @@ if ($showLatestCustomizationOnly) {
                                         <div class="table-text-sub uppercase truncate-ellipsis" :title="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''" x-text="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''"></div>
                                     </td>
                                     <td class="px-4 py-4 action-col-cell">
-                                        <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
+                                        <div style="display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;">
                                             <button x-show="isPosWalkInPending(jo)" @click.stop="openPosCompleteConfirm(jo)" class="table-action-btn">Mark as Completed</button>
                                             <button @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')" class="table-action-btn">View</button>
                                         </div>
