@@ -2402,17 +2402,17 @@ if (isset($_GET['ajax'])) {
             }
         }
         
-        const status = pfResolveStockStatus(previewQty, reorderVal, criticalVal, isNewWithoutStock);
+        const stockStatus = pfResolveStockStatus(previewQty, reorderVal, criticalVal, isNewWithoutStock);
         const previewEl = document.getElementById('editModalReorderPreview');
         if (previewEl) {
-            previewEl.textContent = status.label;
-            previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + status.borderColor + ';border-radius:8px;background:' + status.bgColor + ';color:' + status.textColor + ';';
+            previewEl.textContent = stockStatus.label;
+            previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + stockStatus.borderColor + ';border-radius:8px;background:' + stockStatus.bgColor + ';color:' + stockStatus.textColor + ';';
         }
 
-        const status = document.getElementById('itemStatus')?.value;
+        const itemStatusVal = document.getElementById('itemStatus')?.value;
         const statusHelper = document.getElementById('statusHelperMessage');
         if (statusHelper) {
-            statusHelper.style.display = status === 'INACTIVE' ? 'block' : 'none';
+            statusHelper.style.display = itemStatusVal === 'INACTIVE' ? 'block' : 'none';
         }
         
         const rollSec = document.getElementById('rollSettingsSection');
@@ -2438,7 +2438,7 @@ if (isset($_GET['ajax'])) {
             const origCritical = parseFloat(editItemOriginalValues.critical_level || 0);
             if (Math.abs(reorderVal - origReorder) > 0.001) {
                 changes.push('Reorder Level: ' + (origReorder || '0') + ' \u2192 ' + (isPcs ? Math.round(reorderVal) : reorderVal.toFixed(2)));
-                if (status.label) changes.push('This will change stock status to ' + status.label);
+                if (stockStatus.label) changes.push('This will change stock status to ' + stockStatus.label);
             }
             if (Math.abs(criticalVal - origCritical) > 0.001) {
                 changes.push('Critical Level: ' + (origCritical || '0') + ' \u2192 ' + (isPcs ? Math.round(criticalVal) : criticalVal.toFixed(2)));
