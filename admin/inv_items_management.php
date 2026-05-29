@@ -392,9 +392,21 @@ if (isset($_GET['ajax'])) {
             margin-bottom: 20px;
             align-items: start;
         }
-        .item-modal--edit #itemInitialStockColumn { display: none !important; }
-        .item-modal--edit .item-modal-row-preview { display: grid; }
-        .item-modal--create .item-modal-row-preview { display: none !important; }
+        .item-modal--edit #itemInitialStockSlot,
+        .item-modal--edit #ftDualInputGroup { display: none !important; }
+        .item-modal--edit #itemModalThresholdRow,
+        .item-modal--edit .item-modal-row-preview,
+        .item-modal--edit #reorderAlertsGroup,
+        .item-modal--edit #itemModalBottomRow { display: none !important; }
+        .item-modal--create .item-modal-row-preview,
+        .item-modal--create .item-modal-edit-only { display: none !important; }
+        .item-modal--edit .item-modal-edit-only { display: flex; flex-direction: column; gap: 6px; }
+        #itemModal .item-modal-edit-only#statusSection {
+            background: transparent;
+            border: none;
+            padding: 0;
+            min-height: auto;
+        }
         .item-modal-field {
             display: flex;
             flex-direction: column;
@@ -434,7 +446,6 @@ if (isset($_GET['ajax'])) {
             background: #f0f9ff;
             border-color: #bae6fd;
         }
-        .item-modal--create #statusSection,
         .item-modal--create #reorderAlertsGroup,
         .item-modal--create #editModalChangeSummary {
             display: none !important;
@@ -1249,14 +1260,24 @@ if (isset($_GET['ajax'])) {
                         <p class="field-hint">&nbsp;</p>
                     </div>
                     <div id="itemInitialStockColumn" class="item-modal-field">
-                        <div id="itemInitialStockSlot" class="form-group">
+                        <div id="statusSection" class="item-modal-edit-only form-group">
+                            <label for="itemStatus">System Status</label>
+                            <select id="itemStatus" name="status" class="w-100">
+                                <option value="ACTIVE">Active</option>
+                                <option value="INACTIVE">Inactive</option>
+                            </select>
+                            <div id="statusHelperMessage" style="display:none;">
+                                <p class="field-hint" style="min-height:auto;">Inactive materials are hidden from new orders and POS.</p>
+                            </div>
+                        </div>
+                        <div id="itemInitialStockSlot" class="form-group item-modal-create-only">
                             <label for="itemStartingStock">Initial Stock Quantity <span class="pf-required-star item-modal-create-only">*</span></label>
                             <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="0" class="w-100" inputmode="numeric"
                                 onkeydown="handlePcsInitialStockKeyDown(event)"
                                 onpaste="handlePcsInitialStockPaste(event)">
                             <span id="err-itemStartingStock" class="field-error"></span>
                         </div>
-                        <div id="ftDualInputGroup" class="item-ft-stock-inline" style="display:none;">
+                        <div id="ftDualInputGroup" class="item-ft-stock-inline item-modal-create-only" style="display:none;">
                             <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.025em;">Initial Stock <span class="pf-required-star item-modal-create-only">*</span></label>
                             <input type="hidden" id="stockInputMethodHidden" name="stock_input_method" value="">
                             <input type="hidden" id="startingRollsHidden" name="starting_rolls" value="">
@@ -1290,7 +1311,7 @@ if (isset($_GET['ajax'])) {
                         </div>
                     </div>
                 </div>
-                <div class="item-modal-rows-2">
+                <div id="itemModalThresholdRow" class="item-modal-rows-2">
                     <div class="item-modal-field">
                         <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
                         <input type="text" id="itemMinStock" value="Reorder Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
@@ -1318,23 +1339,7 @@ if (isset($_GET['ajax'])) {
                 </div>
             </div>
 
-            <!-- Bottom Row: System Status (edit only) -->
-            <div id="itemModalBottomRow" class="item-modal-bottom-grid">
-                <!-- System Status (edit only; new items default to Active) -->
-                <div id="statusSection" class="item-modal-panel" style="background:#f9fafb;">
-                    <p class="section-header" style="margin:0 0 4px;">System Status</p>
-                    <div class="item-modal-field">
-                        <label for="itemStatus">Status</label>
-                        <select id="itemStatus" name="status" class="w-100">
-                            <option value="ACTIVE">Active</option>
-                            <option value="INACTIVE">Inactive</option>
-                        </select>
-                        <div id="statusHelperMessage" style="display:none;">
-                            <p class="field-hint" style="min-height:auto;">Inactive materials are hidden from new orders and POS.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <div id="itemModalBottomRow" class="item-modal-bottom-grid" style="display:none;" aria-hidden="true"></div>
             <!-- Change Summary (Edit mode, when changed) -->
             <div id="editModalChangeSummary" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
                 <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:8px;">Changes Summary</div>
@@ -2318,6 +2323,8 @@ if (isset($_GET['ajax'])) {
             if (stockSlot) stockSlot.style.display = 'none';
             if (ftGroup) ftGroup.style.display = 'none';
             if (isFeet) pfEnsureRollLengthFt();
+            const startingStockEdit = document.getElementById('itemStartingStock');
+            if (startingStockEdit) startingStockEdit.type = 'hidden';
         }
 
         updateSaveButtonState();
@@ -2384,6 +2391,8 @@ if (isset($_GET['ajax'])) {
             if (ftGrp) ftGrp.style.display = 'none';
             const itemStatus = document.getElementById('itemStatus');
             if (itemStatus) itemStatus.value = 'ACTIVE';
+            const startingStockCreate = document.getElementById('itemStartingStock');
+            if (startingStockCreate) startingStockCreate.type = 'number';
 
             // Lock them by default for new items until category is selected
             pfSyncAutoFieldLockStates();
@@ -2412,12 +2421,15 @@ if (isset($_GET['ajax'])) {
             if (itemCategory2) itemCategory2.value = item.category_id || '';
             if (itemUnit2) itemUnit2.value = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
             if (itemUnitCost2) itemUnitCost2.value = item.unit_cost || '0.00';
-            // Tracking is auto-generated from UOM; keep UI consistent.
             const track2 = document.getElementById('itemTrackByRoll');
-            const minStock2 = document.getElementById('itemMinStock');
             const status2 = document.getElementById('itemStatus');
+            const startingStockEdit = document.getElementById('itemStartingStock');
             if (track2) track2.value = item.track_by_roll;
-            if (status2) status2.value = item.status;
+            if (status2) status2.value = item.status || 'ACTIVE';
+            if (startingStockEdit) {
+                startingStockEdit.value = item.current_stock != null ? String(item.current_stock) : '';
+                startingStockEdit.type = 'hidden';
+            }
             selectedItemForStockCard = item;
             pfApplySuggestedThresholds();
             const ftGrp2 = document.getElementById('ftDualInputGroup');
@@ -2473,20 +2485,20 @@ if (isset($_GET['ajax'])) {
                 }
             }
         }
-        pfApplySuggestedThresholds();
-        const currentStock = parseFloat(selectedItemForStockCard?.current_stock || 0);
-        const previewQty = isEdit ? currentStock : pfGetModalReferenceQuantity();
-        const reorderVal = pfSuggestReorderLevel(previewQty);
-        const criticalVal = pfSuggestCriticalLevel(previewQty);
-        const isNewWithoutStock = !isEdit && (!Number.isFinite(previewQty) || previewQty <= 0);
-        const noStockYetEl = document.getElementById('editModalNoStockYet');
-        if (noStockYetEl) noStockYetEl.style.display = isNewWithoutStock ? 'block' : 'none';
-
-        const stockStatus = pfResolveStockStatus(previewQty, reorderVal, criticalVal, isNewWithoutStock);
-        const previewEl = document.getElementById('editModalReorderPreview');
-        if (previewEl) {
-            previewEl.textContent = stockStatus.label;
-            previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + stockStatus.borderColor + ';border-radius:8px;background:' + stockStatus.bgColor + ';color:' + stockStatus.textColor + ';';
+        if (!isEdit) {
+            pfApplySuggestedThresholds();
+            const previewQty = pfGetModalReferenceQuantity();
+            const reorderVal = pfSuggestReorderLevel(previewQty);
+            const criticalVal = pfSuggestCriticalLevel(previewQty);
+            const isNewWithoutStock = !Number.isFinite(previewQty) || previewQty <= 0;
+            const noStockYetEl = document.getElementById('editModalNoStockYet');
+            if (noStockYetEl) noStockYetEl.style.display = isNewWithoutStock ? 'block' : 'none';
+            const stockStatus = pfResolveStockStatus(previewQty, reorderVal, criticalVal, isNewWithoutStock);
+            const previewEl = document.getElementById('editModalReorderPreview');
+            if (previewEl) {
+                previewEl.textContent = stockStatus.label;
+                previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + stockStatus.borderColor + ';border-radius:8px;background:' + stockStatus.bgColor + ';color:' + stockStatus.textColor + ';';
+            }
         }
 
         const itemStatusVal = document.getElementById('itemStatus')?.value;
