@@ -392,7 +392,7 @@ if (isset($_GET['ajax'])) {
             margin-bottom: 20px;
             align-items: start;
         }
-        .item-modal--edit #itemInitialStockSlot { display: none !important; }
+        .item-modal--edit #itemInitialStockColumn { display: none !important; }
         .item-modal--edit .item-modal-row-preview { display: grid; }
         .item-modal--create .item-modal-row-preview { display: none !important; }
         .item-modal-field {
@@ -498,6 +498,14 @@ if (isset($_GET['ajax'])) {
             font-style: italic;
         }
         #itemModal .threshold-readonly { background: #f9fafb; font-weight: 600; color: #374151; }
+        #itemModal .item-ft-stock-inline {
+            background: transparent !important;
+            border: none !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+        }
+        #itemModal .item-ft-stock-inline > .section-header { display: none; }
+        #itemInitialStockColumn { min-width: 0; }
         
         #saveBtn:disabled { opacity: 0.6; cursor: not-allowed; filter: grayscale(1); }
         #saveBtn.save-btn--submitting { opacity: 0.7; cursor: wait; }
@@ -1231,7 +1239,7 @@ if (isset($_GET['ajax'])) {
                         <span id="err-itemUnitCost" class="field-error"></span>
                     </div>
                 </div>
-                <div class="item-modal-rows-2">
+                <div class="item-modal-rows-2" id="itemTrackingStockRow">
                     <div class="item-modal-field">
                         <label for="itemTrackByRoll">Tracking Mode <span id="autoTagTrack" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
                         <select id="itemTrackByRoll" name="track_by_roll" class="w-100 locked-select pf-field-auto" disabled aria-readonly="true" tabindex="-1">
@@ -1240,13 +1248,46 @@ if (isset($_GET['ajax'])) {
                         </select>
                         <p class="field-hint">&nbsp;</p>
                     </div>
-                    <div id="itemInitialStockSlot" class="item-modal-field form-group">
-                        <label for="itemStartingStock">Initial Stock Quantity <span class="pf-required-star item-modal-create-only">*</span></label>
-                        <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="0" class="w-100" inputmode="numeric"
-                            onkeydown="handlePcsInitialStockKeyDown(event)"
-                            onpaste="handlePcsInitialStockPaste(event)">
-                        <span id="err-itemStartingStock" class="field-error"></span>
-                        <small id="startingStockHelper" style="font-size:11px;color:#9ca3af;margin-top:2px;display:block;">0</small>
+                    <div id="itemInitialStockColumn" class="item-modal-field">
+                        <div id="itemInitialStockSlot" class="form-group">
+                            <label for="itemStartingStock">Initial Stock Quantity <span class="pf-required-star item-modal-create-only">*</span></label>
+                            <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="0" class="w-100" inputmode="numeric"
+                                onkeydown="handlePcsInitialStockKeyDown(event)"
+                                onpaste="handlePcsInitialStockPaste(event)">
+                            <span id="err-itemStartingStock" class="field-error"></span>
+                        </div>
+                        <div id="ftDualInputGroup" class="item-ft-stock-inline" style="display:none;">
+                            <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.025em;">Initial Stock <span class="pf-required-star item-modal-create-only">*</span></label>
+                            <input type="hidden" id="stockInputMethodHidden" name="stock_input_method" value="">
+                            <input type="hidden" id="startingRollsHidden" name="starting_rolls" value="">
+                            <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.025em;">Stock Input Method</label>
+                            <div style="display:flex; gap:14px; align-items:center; margin-bottom:12px;">
+                                <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:#374151; font-weight:500; text-transform:none; letter-spacing:normal;">
+                                    <input type="radio" name="stock_input_method_radio" id="stockByRolls" value="rolls" onchange="handleStockInputMethodChange()">
+                                    By Rolls
+                                </label>
+                                <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:#374151; font-weight:500; text-transform:none; letter-spacing:normal;">
+                                    <input type="radio" name="stock_input_method_radio" id="stockByFeet" value="feet" onchange="handleStockInputMethodChange()">
+                                    By Feet
+                                </label>
+                            </div>
+                            <div id="stockByRollsFields" class="form-group" style="display:none;">
+                                <label for="startingRolls">Number of Rolls <span class="pf-required-star item-modal-create-only">*</span></label>
+                                <input type="number" step="1" min="1" id="startingRolls" value="" class="w-100" oninput="handleDualInputChange()">
+                                <span id="err-startingRolls" class="field-error"></span>
+                            </div>
+                            <div id="stockByFeetFields" class="form-group" style="display:none;">
+                                <label for="startingFeet">Total Feet <span class="pf-required-star item-modal-create-only">*</span></label>
+                                <input type="number" step="0.01" min="0.01" id="startingFeet" value="" class="w-100" oninput="handleDualInputChange()">
+                                <span id="err-startingFeet" class="field-error"></span>
+                            </div>
+                            <div id="dualComputedTotal" style="display:none; margin-top:8px; font-size:12px; color:#065f46; font-weight:700;">
+                                Total Feet: &mdash;
+                            </div>
+                            <div id="dualComputedRollEq" style="display:none; margin-top:4px; font-size:11px; color:#6b7280;">
+                                Equivalent to ~&mdash; rolls
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="item-modal-rows-2">
@@ -1277,50 +1318,9 @@ if (isset($_GET['ajax'])) {
                 </div>
             </div>
 
-            <!-- Bottom Row: Initial Balance | Roll Settings | System Status (edit) -->
+            <!-- Bottom Row: Roll Settings | System Status (edit) -->
             <div id="itemModalBottomRow" class="item-modal-bottom-grid">
-                <!-- Feet/Rolls initial stock (Create + ft UOM) -->
-                <div id="ftDualInputGroup" class="item-modal-panel" style="display:none;">
-                    <p class="section-header" style="margin:0 0 4px;">Initial Balance (Feet) <span class="pf-required-star item-modal-create-only">*</span></p>
-
-                    <input type="hidden" id="stockInputMethodHidden" name="stock_input_method" value="">
-                    <input type="hidden" id="startingRollsHidden" name="starting_rolls" value="">
-
-                    <label style="display:block; margin-bottom:8px;">Stock Input Method</label>
-                    <div style="display:flex; gap:14px; align-items:center; margin-bottom:12px;">
-                        <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:#374151;">
-                            <input type="radio" name="stock_input_method_radio" id="stockByRolls" value="rolls" onchange="handleStockInputMethodChange()">
-                            By Rolls
-                        </label>
-                        <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:#374151;">
-                            <input type="radio" name="stock_input_method_radio" id="stockByFeet" value="feet" onchange="handleStockInputMethodChange()">
-                            By Feet
-                        </label>
-                    </div>
-
-                    <div id="stockByRollsFields" class="form-group" style="display:none;">
-                        <label for="startingRolls">Number of Rolls <span class="pf-required-star item-modal-create-only">*</span></label>
-                        <input type="number" step="1" min="1" id="startingRolls" value="" class="w-100" oninput="handleDualInputChange()">
-                        <p style="font-size:10px; color:#9ca3af; margin-top:6px; line-height: 1.4;">Use rolls for bulk input. Whole numbers only. Total feet will be calculated as Rolls × Roll Length.</p>
-                        <span id="err-startingRolls" class="field-error"></span>
-                    </div>
-
-                    <div id="stockByFeetFields" class="form-group" style="display:none;">
-                        <label for="startingFeet">Total Feet <span class="pf-required-star item-modal-create-only">*</span></label>
-                        <input type="number" step="0.01" min="0.01" id="startingFeet" value="" class="w-100" oninput="handleDualInputChange()">
-                        <p style="font-size:10px; color:#9ca3af; margin-top:6px; line-height: 1.4;">Use feet for exact measurement. Decimals allowed (e.g. 164.5).</p>
-                        <span id="err-startingFeet" class="field-error"></span>
-                    </div>
-
-                    <div id="dualComputedTotal" style="display:none; margin-top:10px; font-size:12px; color:#065f46; font-weight:700;">
-                        Total Feet: &mdash;
-                    </div>
-                    <div id="dualComputedRollEq" style="display:none; margin-top:4px; font-size:11px; color:#6b7280;">
-                        Equivalent to ~&mdash; rolls
-                    </div>
-                </div>
-
-                <!-- Column 2: Roll Settings (UOM: ft Only) -->
+                <!-- Roll Settings (UOM: ft, By Rolls method) -->
                 <div id="rollSettingsSection" class="item-modal-panel item-modal-panel--roll" style="display:none;">
                     <p class="section-header" style="margin:0 0 4px; color:#0369a1; border-color:#bae6fd;">Roll Settings</p>
                     <label for="itemRollLength">Roll Length (ft) <span style="color:#ef4444" id="rollLengthRequired">*</span></label>
@@ -2289,7 +2289,7 @@ if (isset($_GET['ajax'])) {
         const ftGroup = document.getElementById('ftDualInputGroup');
         const startingStockEl = document.getElementById('itemStartingStock');
         if (isCreate) {
-            if (stockSlot) stockSlot.style.display = isFeet ? 'none' : '';
+            if (stockSlot) stockSlot.style.display = isFeet ? 'none' : 'block';
             if (ftGroup) ftGroup.style.display = isFeet ? 'block' : 'none';
 
             if (startingStockEl) {
@@ -2308,9 +2308,6 @@ if (isset($_GET['ajax'])) {
                     }
                 }
             }
-
-            const helper = document.getElementById('startingStockHelper');
-            if (helper) helper.textContent = '0';
 
             // Default dual input method for ft
             if (isFeet) {
