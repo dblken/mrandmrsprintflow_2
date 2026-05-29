@@ -1368,6 +1368,7 @@ if (isset($_GET['ajax'])) {
     var selectedItemForStockCard = null;
     var editItemOriginalValues = {};
     var _itemModalOpenToken = 0;
+    var _itemFormValidating = false;
     var PF_DEFAULT_ROLL_LENGTH_FT = 164;
 
     function scheduleItemModalWork(fn, delayMs) {
@@ -1758,52 +1759,57 @@ if (isset($_GET['ajax'])) {
     }
 
     function validateItemForm(forceShowErrors) {
-        const isCreate = document.getElementById('actionType')?.value === 'create_item';
-        const fields = ['itemName', 'itemCategory', 'itemUnitCost'];
-        const uom = pfGetEffectiveUom();
+        if (_itemFormValidating) return true;
+        _itemFormValidating = true;
+        var allValid = true;
+        try {
+            const isCreate = document.getElementById('actionType')?.value === 'create_item';
+            const fields = ['itemName', 'itemCategory', 'itemUnitCost'];
+            const uom = pfGetEffectiveUom();
 
-        if (isCreate) {
-            if (uom === 'ft') {
+            if (isCreate) {
+                if (uom === 'ft') {
+                    pfEnsureRollLengthFt();
+                    const method = getStockInputMethod();
+                    if (method === 'rolls') fields.push('startingRolls');
+                    else if (method === 'feet') fields.push('startingFeet');
+                } else {
+                    fields.push('itemStartingStock');
+                }
+            } else if (uom === 'ft') {
                 pfEnsureRollLengthFt();
-                const method = getStockInputMethod();
-                if (method === 'rolls') fields.push('startingRolls');
-                else if (method === 'feet') fields.push('startingFeet');
+            }
+
+            fields.forEach(function (id) {
+                if (!validateField(id, forceShowErrors, true)) allValid = false;
+            });
+
+            if (isCreate && uom === 'ft' && !getStockInputMethod()) {
+                allValid = false;
+                if (forceShowErrors) {
+                    const ftGroup = document.getElementById('ftDualInputGroup');
+                    let hint = document.getElementById('err-ftStockMethod');
+                    if (!hint && ftGroup) {
+                        hint = document.createElement('span');
+                        hint.id = 'err-ftStockMethod';
+                        hint.className = 'field-error';
+                        hint.style.display = 'block';
+                        hint.style.marginTop = '8px';
+                        const radios = ftGroup.querySelector('div[style*="flex"]');
+                        if (radios && radios.parentNode) radios.parentNode.appendChild(hint);
+                    }
+                    if (hint) {
+                        hint.textContent = 'Please choose a stock input method (By Rolls or By Feet).';
+                        hint.style.display = 'block';
+                    }
+                }
             } else {
-                fields.push('itemStartingStock');
+                const hint = document.getElementById('err-ftStockMethod');
+                if (hint) hint.style.display = 'none';
             }
-        } else if (uom === 'ft') {
-            pfEnsureRollLengthFt();
+        } finally {
+            _itemFormValidating = false;
         }
-
-        let allValid = true;
-        fields.forEach(function (id) {
-            if (!validateField(id, forceShowErrors)) allValid = false;
-        });
-
-        if (isCreate && uom === 'ft' && !getStockInputMethod()) {
-            allValid = false;
-            if (forceShowErrors) {
-                const ftGroup = document.getElementById('ftDualInputGroup');
-                let hint = document.getElementById('err-ftStockMethod');
-                if (!hint && ftGroup) {
-                    hint = document.createElement('span');
-                    hint.id = 'err-ftStockMethod';
-                    hint.className = 'field-error';
-                    hint.style.display = 'block';
-                    hint.style.marginTop = '8px';
-                    const radios = ftGroup.querySelector('div[style*="flex"]');
-                    if (radios && radios.parentNode) radios.parentNode.appendChild(hint);
-                }
-                if (hint) {
-                    hint.textContent = 'Please choose a stock input method (By Rolls or By Feet).';
-                    hint.style.display = 'block';
-                }
-            }
-        } else {
-            const hint = document.getElementById('err-ftStockMethod');
-            if (hint) hint.style.display = 'none';
-        }
-
         return allValid;
     }
 
@@ -1831,7 +1837,7 @@ if (isset($_GET['ajax'])) {
         return Number.isFinite(n) && n >= 1 && n <= 1000;
     }
 
-    function validateField(id, forceShowErrors) {
+    function validateField(id, forceShowErrors, skipFormSideEffects) {
         const el = document.getElementById(id);
         if (!el) return true;
         const errEl = document.getElementById('err-' + id);
@@ -1901,10 +1907,11 @@ if (isset($_GET['ajax'])) {
         if (showFieldError) {
             updateValidationUI(id, isValid, msg);
         }
-        updateSaveButtonState();
-        if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
-            pfApplySuggestedThresholds();
-            updateEditModalUI();
+        if (!skipFormSideEffects && !_itemFormValidating) {
+            if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
+                pfApplySuggestedThresholds();
+                updateEditModalUI(false);
+            }
         }
         return isValid;
     }
@@ -1930,17 +1937,9 @@ if (isset($_GET['ajax'])) {
         const saveBtn = document.getElementById('saveBtn');
         if (!saveBtn || saveBtn.classList.contains('save-btn--submitting')) return;
 
-        const isCreate = document.getElementById('actionType')?.value === 'create_item';
         updateItemModalSaveButtonLabel();
-
-        // Add modal: button stays clickable; validation runs on submit.
-        if (isCreate) {
-            saveBtn.disabled = false;
-            return;
-        }
-
-        let allValid = validateItemForm(false);
-        saveBtn.disabled = !allValid;
+        // Validate on submit only — keep Save clickable (avoids validateField ↔ validateItemForm recursion).
+        saveBtn.disabled = false;
     }
 
     function buildFilterURL(overrides = {}, isAjax = false) {
@@ -2212,7 +2211,7 @@ if (isset($_GET['ajax'])) {
         pfSyncAutoFieldLockStates();
         applySmartUomRules();
         pfApplySuggestedThresholds();
-        updateEditModalUI();
+        updateEditModalUI(false);
     }
 
     function editFromStockCard() {
@@ -2322,9 +2321,7 @@ if (isset($_GET['ajax'])) {
         }
 
         pfApplySuggestedThresholds();
-        updateEditModalUI();
-        // Real-time: keep Save button state accurate while typing.
-        updateSaveButtonState();
+        updateEditModalUI(false);
     }
 
     function applySmartUomRules() {
@@ -2454,7 +2451,7 @@ if (isset($_GET['ajax'])) {
             pfApplySuggestedThresholds();
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();
-            scheduleItemModalWork(function () { updateEditModalUI(); }, 0);
+            scheduleItemModalWork(function () { updateEditModalUI(false); }, 0);
         } else {
             if (!item) return;
             populateItemEditForm(item);
@@ -2464,14 +2461,15 @@ if (isset($_GET['ajax'])) {
             pfApplySuggestedThresholds();
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();
-            scheduleItemModalWork(function () { updateEditModalUI(); }, 0);
+            scheduleItemModalWork(function () { updateEditModalUI(false); }, 0);
         }
     }
 
-    function updateEditModalUI() {
+    function updateEditModalUI(updateButtonState) {
         const actionTypeEl = document.getElementById('actionType');
         if (!actionTypeEl) return;
         const isEdit = actionTypeEl.value === 'update_item';
+        if (updateButtonState === undefined) updateButtonState = true;
         const archiveBtn = document.getElementById('archiveItemBtn');
         if (archiveBtn) {
             if (!isEdit) {
@@ -2507,8 +2505,10 @@ if (isset($_GET['ajax'])) {
         if (statusHelper) {
             statusHelper.style.display = itemStatusVal === 'INACTIVE' ? 'block' : 'none';
         }
-        
-        updateSaveButtonState();
+
+        if (updateButtonState && !_itemFormValidating) {
+            updateSaveButtonState();
+        }
 
         const sumEl = document.getElementById('editModalChangeSummary');
         if (sumEl) sumEl.style.display = 'none';
@@ -3138,7 +3138,7 @@ if (isset($_GET['ajax'])) {
         const ftMethodErr = document.getElementById('err-ftStockMethod');
         if (ftMethodErr) ftMethodErr.style.display = 'none';
 
-        updateEditModalUI();
+        updateEditModalUI(false);
 
         if (!validateItemForm(true)) {
             const firstInvalid = document.querySelector('#itemForm .has-error, #itemForm .field-error[style*="block"]');
