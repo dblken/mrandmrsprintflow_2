@@ -801,7 +801,7 @@ if (isset($_GET['ajax'])) {
                                 <th>Transaction Type</th>
                                 <th style="text-align:right;">Quantity</th>
                                 <th>Notes</th>
-                                <th>Admin</th>
+                                <th>Recorded by</th>
                             </tr>
                         </thead>
                         <tbody id="ledgerTableBody">
