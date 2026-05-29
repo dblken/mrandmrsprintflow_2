@@ -4963,7 +4963,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             async completeOrder(machineId = null) {
                 if (!this.beginModalAction()) return;
                 try {
-                    if (this.currentJo.order_type === 'ORDER') {
+                    const isPosPendingFlow = this.isPosSimplifiedView && this.getPosWalkInBucket(this.currentJo) === 'PENDING';
+                    if (this.currentJo.order_type === 'ORDER' || (isPosPendingFlow && (this.currentJo.order_id || this.currentJo.id))) {
                         const orderId = this.currentJo.order_id || this.currentJo.id;
                         if (!orderId) {
                             this.showStaffAlert('Error', 'No linked order found for this entry.');
@@ -4983,6 +4984,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                         );
 
                         if (res.success) {
+                            if (this.currentJo) {
+                                this.currentJo.status = 'COMPLETED';
+                            }
                             await this.loadOrders();
                             this.showStaffAlert('Success', 'Order marked as completed.');
                         } else {
