@@ -2563,8 +2563,10 @@ endif; ?>
             requestAnimationFrame(function () {
                 requestAnimationFrame(function () {
                     try {
-                        if (document.getElementById('reportsFilterForm') && typeof window.printflowInitReportsCharts === 'function') {
+                        if (document.getElementById('reportsFilterForm') && document.getElementById('salesChart') && typeof window.printflowInitReportsCharts === 'function') {
                             window.printflowInitReportsCharts();
+                        } else if (document.getElementById('dashSalesChart') && typeof window.printflowInitDashboardCharts === 'function') {
+                            window.printflowInitDashboardCharts();
                         } else if (document.getElementById('salesChart') && typeof window.printflowInitDashboardCharts === 'function') {
                             window.printflowInitDashboardCharts();
                         }

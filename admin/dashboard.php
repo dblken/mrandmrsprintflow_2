@@ -372,6 +372,21 @@ $dashboard_total_service_revenue = array_reduce($dashboard_branch_perf, static f
 $dashboard_product_pct = $dashboard_branch_total_revenue > 0 ? round(($dashboard_total_product_revenue / $dashboard_branch_total_revenue) * 100, 1) : 0.0;
 $dashboard_service_pct = $dashboard_branch_total_revenue > 0 ? round(($dashboard_total_service_revenue / $dashboard_branch_total_revenue) * 100, 1) : 0.0;
 
+$dashboard_branch_revenue_js = array_map(static function ($b) {
+    return [
+        'branch_name' => (string)($b['branch_name'] ?? 'Unknown Branch'),
+        'revenue' => round((float)($b['revenue'] ?? 0), 2),
+        'orders_store' => (int)($b['orders_store'] ?? 0),
+        'orders_jobs' => (int)($b['orders_jobs'] ?? 0),
+        'prev_revenue' => isset($b['prev_revenue']) ? (float)$b['prev_revenue'] : null,
+        'growth_pct' => isset($b['growth_pct']) ? $b['growth_pct'] : null,
+    ];
+}, $dashboard_branch_perf);
+$dashboard_branch_revenue_json = json_encode($dashboard_branch_revenue_js, JSON_UNESCAPED_UNICODE);
+if ($dashboard_branch_revenue_json === false) {
+    $dashboard_branch_revenue_json = '[]';
+}
+
 $top_products_full = [];
 try {
     $top_products_full = pf_reports_top_products_merged($dashFromDate, $dashToEnd, $branchId, 10);
@@ -1028,7 +1043,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <div class="ana-bd">
                     <div class="pf-branch-revenue-layout">
                         <div class="pf-branch-revenue-main">
-                            <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:520px;">
+                            <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:520px;" data-branch-revenue="<?php echo htmlspecialchars($dashboard_branch_revenue_json, ENT_QUOTES, 'UTF-8'); ?>">
                                 <div class="chart-loading" id="dash-sales-loading">
                                     <div class="chart-loading-spinner"></div>
                                 </div>
@@ -1250,7 +1265,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         Sales by Product
                     </div>
                     <?php if (!empty($category_sales)): ?>
-                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;"><canvas id="categoryChart"></canvas></div>
+                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
                     <div id="category-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No official product sales data yet</div>
@@ -1318,7 +1333,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
                     Sales Trend
                 </div>
-                <div class="trend12-chart"><div class="pf-wide-chart-canvas"><canvas id="trend12Chart"></canvas></div></div>
+                <div class="trend12-chart" data-trend-labels="<?php echo htmlspecialchars(json_encode($trend12_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-trend-revenues="<?php echo htmlspecialchars(json_encode($trend12_revenues_branch, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div class="pf-wide-chart-canvas"><canvas id="trend12Chart"></canvas></div></div>
             </div>
 
             <!-- Recent Orders (Full Width) -->
@@ -1403,6 +1418,50 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         Chart.defaults.font.size = 11;
         Chart.defaults.font.weight = '600';
     }
+    function pfDashParseJsonAttr(el, attr, fallback) {
+        if (!el) return fallback;
+        var raw = el.getAttribute(attr);
+        if (!raw) return fallback;
+        try {
+            var parsed = JSON.parse(raw);
+            return parsed != null ? parsed : fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+    function pfReadDashBranchRevenue() {
+        return pfDashParseJsonAttr(document.getElementById('dash-sales-chart-wrap'), 'data-branch-revenue', []);
+    }
+    function pfDashFilterDates() {
+        var fromEl = document.getElementById('fp_from');
+        var toEl = document.getElementById('fp_to');
+        var presetEl = document.getElementById('dash_preset');
+        return {
+            from: (fromEl && fromEl.value) ? fromEl.value : '<?php echo $dashFromDate; ?>',
+            to: (toEl && toEl.value) ? toEl.value : '<?php echo $dashToDate; ?>',
+            preset: (presetEl && presetEl.value) ? presetEl.value : '<?php echo $dashPreset; ?>'
+        };
+    }
+    function pfWaitForChartJs(onReady, attempt) {
+        if (typeof Chart !== 'undefined') {
+            onReady();
+            return;
+        }
+        var next = (attempt || 0) + 1;
+        if (next > 60) return;
+        setTimeout(function () { pfWaitForChartJs(onReady, next); }, 50);
+    }
+    function pfDashIsVisible(target) {
+        if (!target || !target.getBoundingClientRect) return false;
+        var rect = target.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
+        var root = document.querySelector('.main-content');
+        if (root && root.getBoundingClientRect) {
+            var rootRect = root.getBoundingClientRect();
+            return rect.bottom > rootRect.top && rect.top < rootRect.bottom;
+        }
+        return rect.bottom > 0 && rect.top < (window.innerHeight || document.documentElement.clientHeight);
+    }
     pfApplyDashChartFontDefaults();
     document.addEventListener('DOMContentLoaded', pfApplyDashChartFontDefaults);
     window.printflowTeardownDashboardCharts = function () {
@@ -1456,6 +1515,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             try { window.__pfDashCategoryChart.destroy(); } catch (e) {}
             window.__pfDashCategoryChart = null;
         }
+        if (window.__pfDashTrendChart) {
+            try { window.__pfDashTrendChart.destroy(); } catch (e) {}
+            window.__pfDashTrendChart = null;
+        }
 
     };
     window.printflowInitDashboardCharts = function () {
@@ -1463,28 +1526,13 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         printflowInitDashboardKPIs();
 
-        if (typeof Chart === 'undefined') {
-            setTimeout(function () {
-                if (typeof window.printflowInitDashboardCharts === 'function') window.printflowInitDashboardCharts();
-            }, 40);
-            return;
-        }
+        pfWaitForChartJs(function () {
         window.printflowTeardownDashboardCharts();
 
         window.__pfDashRevealIOs = [];
         dashCtrl = new AbortController();
         var sig = { signal: dashCtrl.signal };
         var DASH_BRANCH_ID = <?php echo $branchId !== 'all' ? (int)$branchId : 'null'; ?>;
-        var DASH_BRANCH_REVENUE = <?php echo json_encode(array_map(static function ($b) {
-            return [
-                'branch_name' => (string)($b['branch_name'] ?? 'Unknown Branch'),
-                'revenue' => round((float)($b['revenue'] ?? 0), 2),
-                'orders_store' => (int)($b['orders_store'] ?? 0),
-                'orders_jobs' => (int)($b['orders_jobs'] ?? 0),
-                'prev_revenue' => isset($b['prev_revenue']) ? (float)$b['prev_revenue'] : null,
-                'growth_pct' => isset($b['growth_pct']) ? $b['growth_pct'] : null,
-            ];
-        }, $dashboard_branch_perf)); ?>;
 
         var dashAnimLong = 1750;
         var dashAnimShort = 680;
@@ -1504,20 +1552,28 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         function bindWhenVisible(target, onFirst) {
             if (!target || typeof onFirst !== 'function') return;
+            var fired = false;
+            function runOnce() {
+                if (fired) return;
+                fired = true;
+                onFirst();
+            }
+            if (pfDashIsVisible(target)) {
+                requestAnimationFrame(runOnce);
+                return;
+            }
             if (typeof IntersectionObserver === 'undefined') {
-                requestAnimationFrame(onFirst);
+                requestAnimationFrame(runOnce);
                 return;
             }
             var root = document.querySelector('.main-content');
-            var fired = false;
             var io = new IntersectionObserver(function (entries) {
                 entries.forEach(function (en) {
                     if (!en.isIntersecting || fired) return;
-                    fired = true;
                     try { io.disconnect(); } catch (e) {}
-                    onFirst();
+                    runOnce();
                 });
-            }, { root: root || null, threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+            }, { root: root || null, threshold: 0.08, rootMargin: '0px 0px 0px 0px' });
             io.observe(target);
             window.__pfDashRevealIOs.push(io);
         }
@@ -1530,7 +1586,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             if (noDataEl) noDataEl.classList.remove('visible');
 
             try {
-                var branchRows = Array.isArray(DASH_BRANCH_REVENUE) ? DASH_BRANCH_REVENUE.slice() : [];
+                var branchRows = pfReadDashBranchRevenue().slice();
                 branchRows = branchRows.filter(function (row) {
                     return Number(row.revenue || 0) > 0;
                 }).sort(function (a, b) {
@@ -1750,11 +1806,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         async function loadStatusChart() {
             if (!window.__pfDashStatusChart) return;
+            var filterDates = pfDashFilterDates();
             var qs = [];
             if (DASH_BRANCH_ID) qs.push('branch_id=' + encodeURIComponent(DASH_BRANCH_ID));
-            qs.push('from=' + encodeURIComponent('<?php echo $dashFromDate; ?>'));
-            qs.push('to=' + encodeURIComponent('<?php echo $dashToDate; ?>'));
-            qs.push('preset=' + encodeURIComponent('<?php echo $dashPreset; ?>'));
+            qs.push('from=' + encodeURIComponent(filterDates.from));
+            qs.push('to=' + encodeURIComponent(filterDates.to));
+            qs.push('preset=' + encodeURIComponent(filterDates.preset));
             var url = 'api_order_status_chart.php' + (qs.length ? ('?' + qs.join('&')) : '');
             try {
                 var resp = await fetch(url, { credentials: 'same-origin', signal: dashCtrl.signal });
@@ -1796,20 +1853,22 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             legendContainer.innerHTML = html;
         }
 
-        <?php if (!empty($category_sales)): ?>
         (function () {
             var cv = document.getElementById('categoryChart');
             var w = cv ? cv.parentElement : null;
+            if (!cv || !w) return;
             var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
-            var catLabels = <?php echo json_encode(array_map(fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales)); ?>;
+            var catLabels = pfDashParseJsonAttr(w, 'data-category-labels', []);
+            var catTotals = pfDashParseJsonAttr(w, 'data-category-totals', []);
+            if (!catLabels.length || !catTotals.length) return;
             bindWhenVisible(w, function () {
-                window.__pfDashCategoryChart = new Chart(document.getElementById('categoryChart').getContext('2d'), {
+                window.__pfDashCategoryChart = new Chart(cv.getContext('2d'), {
                     type: 'doughnut',
                     data: {
                         labels: catLabels,
                         datasets: [{
-                            data: <?php echo json_encode(array_map(fn($c) => (float)$c['total'], $category_sales)); ?>,
-                            backgroundColor: catColors.slice(0, <?php echo count($category_sales); ?>),
+                            data: catTotals,
+                            backgroundColor: catColors.slice(0, catLabels.length),
                             borderWidth: 0
                         }]
                     },
@@ -1837,12 +1896,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 }
             });
         })();
-        <?php endif; ?>
 
         (function attachDashboardChartLayout() {
             var mainEl = document.querySelector('.main-content');
             function runDashResize() {
-                ['__pfDashSalesChart', '__pfDashStatusChart', '__pfDashCategoryChart'].forEach(function (k) {
+                ['__pfDashSalesChart', '__pfDashStatusChart', '__pfDashCategoryChart', '__pfDashTrendChart'].forEach(function (k) {
                     var c = window[k];
                     if (c && typeof c.resize === 'function') {
                         try { c.resize(); } catch (e) {}
@@ -1866,19 +1924,25 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             }
         })();
 
-        // 12-Month Trend Chart
-        <?php if (!empty($trend12_labels)): ?>
+        // Sales trend chart (reads labels/revenue from DOM so AJAX filter refresh stays in sync)
         (function () {
             var cv = document.getElementById('trend12Chart');
-            if (!cv) return;
-            bindWhenVisible(cv.parentElement, function () {
-                new Chart(cv.getContext('2d'), {
+            var trendWrap = cv ? cv.closest('.trend12-chart') : null;
+            if (!cv || !trendWrap) return;
+            var trendLabels = pfDashParseJsonAttr(trendWrap, 'data-trend-labels', []);
+            var trendRevenues = pfDashParseJsonAttr(trendWrap, 'data-trend-revenues', []);
+            if (!trendLabels.length || !trendRevenues.length) return;
+            bindWhenVisible(trendWrap, function () {
+                if (window.__pfDashTrendChart) {
+                    try { window.__pfDashTrendChart.destroy(); } catch (e) {}
+                }
+                window.__pfDashTrendChart = new Chart(cv.getContext('2d'), {
                     type: 'line',
                     data: {
-                        labels: <?php echo json_encode($trend12_labels); ?>,
+                        labels: trendLabels,
                         datasets: [{
                             label: 'Branch revenue (₱)',
-                            data: <?php echo json_encode($trend12_revenues_branch); ?>,
+                            data: trendRevenues,
                             borderColor: '#00232b',
                             backgroundColor: 'rgba(0,35,43,.08)',
                             borderWidth: 2.5,
@@ -1913,7 +1977,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 });
             });
         })();
-        <?php endif; ?>
 
         // Revenue Donut Chart
         <?php if (!empty($rev_donut)): ?>
@@ -1980,6 +2043,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             });
         })();
         <?php endif; ?>
+        });
     };
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', window.printflowInitDashboardCharts);
