@@ -1650,11 +1650,11 @@ if ($showLatestCustomizationOnly) {
                         <div style="font-size:13px;color:#6b7280;background:#fffbeb;border:1px solid #fef3c7;padding:10px 14px;border-radius:8px;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;" x-text="combinedCustomerNotes()"></div>
                     </div>
 
-                    <template x-if="isPosSimplifiedView && isPosWalkInSource(currentJo) && getPosWalkInBucket(currentJo) === 'PENDING'">
+                    <template x-if="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #d1fae5; background:#f0fdf4;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
                                 <div style="min-width:0; flex:1;">
-                                    <label style="font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;display:block;margin-bottom:6px;">Pending Walk-in Order</label>
+                                    <label style="font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;display:block;margin-bottom:6px;">Pending Order</label>
                                     <div style="font-size:13px; color:#065f46;">This order is still active and can be marked as completed once the printing or release is finished.</div>
                                 </div>
                                 <button type="button" @click="openPosCompleteConfirm()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Completed</button>
@@ -2040,7 +2040,7 @@ if ($showLatestCustomizationOnly) {
                     <!-- Left: Status actions -->
                     <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;flex:1;">
                         <div style="display:flex;gap:8px; flex-wrap:wrap; align-items:center;">
-                            <div x-show="isPosSimplifiedView && isPosWalkInSource(currentJo) && getPosWalkInBucket(currentJo) === 'PENDING'" style="display:flex; gap:8px;">
+                            <div x-show="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING'" style="display:flex; gap:8px;">
                                 <button type="button" @click="cancelPosWalkInOrder()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Cancel Order</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isPendingReviewStatus(currentJo) && !isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
