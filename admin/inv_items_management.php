@@ -374,6 +374,7 @@ if (isset($_GET['ajax'])) {
         .section-header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #9ca3af; margin-bottom: 16px; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px; }
         
         .form-row-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 20px; margin-bottom: 20px; align-items: flex-start; }
+        .item-modal-equal-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .form-col-full { grid-column: span 2; }
 
         /* Item modal: 2-column rows (Tracking | Initial Stock, Reorder | Critical) */
@@ -453,11 +454,29 @@ if (isset($_GET['ajax'])) {
         #itemModal .field-error {
             display: none;
             font-size: 12px;
-            color: #ef4444;
+            color: #ef4444 !important;
             margin-top: 4px;
             min-height: 18px;
             font-weight: 400;
         }
+        #itemModal .form-group.has-error .field-error,
+        #itemModal .item-modal-field.has-error .field-error {
+            display: block !important;
+        }
+        #itemModal .custom-validation-error { display: none !important; }
+        #itemModal .btn-save {
+            border-radius: 10px;
+            height: 44px;
+            padding: 0 24px;
+            background: #0d9488;
+            color: #fff;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #itemModal .btn-save:hover:not(:disabled) { background: #0f766e; }
+        #itemModal .btn-save:disabled { opacity: 0.65; cursor: not-allowed; }
         #itemModal .form-group.has-error input,
         #itemModal .form-group.has-error select,
         #itemModal .form-group.has-error textarea,
@@ -1156,7 +1175,7 @@ if (isset($_GET['ajax'])) {
             <button class="close-btn" onclick="closeModal()">&times;</button>
         </div>
         <div class="modal-body">
-        <form id="itemForm" onsubmit="saveItem(event)" style="display: flex; flex-direction: column; height: 100%;">
+        <form id="itemForm" onsubmit="saveItem(event)" novalidate data-pf-skip-validation="true" style="display: flex; flex-direction: column; height: 100%;">
             <input type="hidden" id="itemId" name="id">
             <input type="hidden" id="actionType" name="action" value="create_item">
 
@@ -1164,10 +1183,10 @@ if (isset($_GET['ajax'])) {
             <!-- Section: Material Information -->
             <div class="modal-section">
                 <p class="section-header">Material Information</p>
-                <div class="form-row-grid" style="grid-template-columns: 2fr 1fr;">
+                <div class="form-row-grid item-modal-equal-cols">
                     <div class="form-group" id="fg-itemName">
                         <label for="itemName">Item Name <span style="color:#ef4444">*</span></label>
-                        <input type="text" id="itemName" name="name" required placeholder="name" class="w-100">
+                        <input type="text" id="itemName" name="name" placeholder="e.g. Vinyl Sticker" class="w-100">
                         <span id="err-itemName" class="field-error"></span>
                     </div>
                     <div class="form-group" id="fg-itemCategory">
@@ -1192,7 +1211,7 @@ if (isset($_GET['ajax'])) {
                 <div class="form-row-grid">
                     <div class="form-group" id="fg-itemUnit">
                         <label for="itemUnit">Unit of Measure (UOM) <span id="autoTagUom" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
-                        <select id="itemUnit" name="unit" required onchange="handleUomChange()" class="w-100 locked-select">
+                        <select id="itemUnit" name="unit" onchange="handleUomChange()" class="w-100 locked-select">
                             <option value="">Select Category First</option>
                             <option value="pcs">Pieces (pcs)</option>
                             <option value="ft">Feet (ft)</option>
@@ -1202,7 +1221,7 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div class="form-group" id="fg-itemUnitCost">
                         <label for="itemUnitCost">Unit Cost (&#8369;) <span style="color:#ef4444">*</span></label>
-                        <input type="number" step="0.01" min="0" id="itemUnitCost" name="unit_cost" value="" placeholder="0.00" required class="w-100">
+                        <input type="number" step="0.01" min="0" id="itemUnitCost" name="unit_cost" value="" placeholder="0.00" class="w-100">
                         <span id="err-itemUnitCost" class="field-error"></span>
                     </div>
                 </div>
@@ -1327,7 +1346,7 @@ if (isset($_GET['ajax'])) {
             <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
                 <button type="button" onclick="closeModal()" class="btn-secondary" style="border-radius: 10px; height: 44px; padding: 0 24px;">Cancel</button>
                 <button type="button" id="archiveItemBtn" onclick="openItemArchiveConfirm()" class="btn-secondary" style="border-radius: 10px; height: 44px; padding: 0 24px; display:none;">Archive</button>
-                <button type="submit" class="btn-primary" id="saveBtn" style="border-radius: 10px; height: 44px; padding: 0 24px; background: #10b981; border:none; transition: background 0.2s; cursor: pointer;">Add Material</button>
+                <button type="submit" class="btn-save" id="saveBtn">Add Material</button>
             </div>
             </div>
         </form>
@@ -2318,7 +2337,11 @@ if (isset($_GET['ajax'])) {
         // Top info removed
         editItemOriginalValues = {};
         
-        // Clear previous validation states
+        // Clear previous validation states (including global order_validation.js messages)
+        document.querySelectorAll('#itemForm .custom-validation-error').forEach(function (el) { el.remove(); });
+        document.querySelectorAll('#itemForm .validation-highlight-error').forEach(function (el) {
+            el.classList.remove('validation-highlight-error');
+        });
         document.querySelectorAll('#itemForm .has-error').forEach(function (g) { g.classList.remove('has-error'); });
         ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
             const el = document.getElementById(id);
@@ -3121,6 +3144,12 @@ if (isset($_GET['ajax'])) {
 
     async function saveItem(e) {
         e.preventDefault();
+        e.stopPropagation();
+
+        document.querySelectorAll('#itemForm .custom-validation-error').forEach(function (el) { el.remove(); });
+        document.querySelectorAll('#itemForm .validation-highlight-error').forEach(function (el) {
+            el.classList.remove('validation-highlight-error');
+        });
 
         document.querySelectorAll('#itemForm .field-error').forEach(function (el) {
             el.style.display = 'none';
