@@ -237,12 +237,11 @@ try {
     $inventoryBranchId = ($branchId === 'all') ? 0 : (int)$branchId;
     foreach ($all_items as $item) {
         $soh = InventoryManager::getStockOnHand($item['id'], $inventoryBranchId);
-        $reorder = printflow_item_reorder_level($item);
-        $critical = printflow_item_critical_level($item);
-        $stockStatus = printflow_resolve_stock_status($soh, $reorder, $critical);
+        $thresholds = printflow_thresholds_for_quantity($soh);
+        $stockStatus = printflow_resolve_stock_status($soh, $thresholds['reorder'], $thresholds['critical']);
         if (in_array($stockStatus['key'], ['low', 'critical', 'out'], true)) {
             $item['current_stock'] = $soh;
-            $item['low_limit'] = $reorder;
+            $item['low_limit'] = $thresholds['reorder'];
             $item['stock_status'] = $stockStatus;
             $item['ratio'] = $reorder > 0 ? ($soh / $reorder) : 0;
             $low_stock[] = $item;

@@ -124,18 +124,6 @@ try {
             $sku = sanitize($_POST['sku'] ?? '') ?: null;
             $track_by_roll = (int)($_POST['track_by_roll'] ?? 0);
             $roll_length = (float)($_POST['roll_length_ft'] ?? 0) ?: null;
-            $min_stock = (float)($_POST['min_stock_level'] ?? 0);
-            $critical_stock = (float)($_POST['critical_level'] ?? 0);
-            if ($min_stock < 1 || $min_stock > 10000) {
-                $errors['min_stock_level'] = 'Reorder level must be between 1 and 10,000.';
-            }
-            if ($critical_stock < 1 || $critical_stock > 10000) {
-                $errors['critical_level'] = 'Critical level must be between 1 and 10,000.';
-            }
-            if (empty($errors) && $critical_stock > $min_stock) {
-                $errors['critical_level'] = 'Critical level must be less than or equal to the reorder level.';
-            }
-
             $unit_cost = (float)($_POST['unit_cost'] ?? 0);
             if ($unit_cost <= 0) $errors['unit_cost'] = 'Unit cost must be greater than 0.';
             else if ($unit_cost > 1000000) $errors['unit_cost'] = 'Unit cost is too high.';
@@ -153,6 +141,10 @@ try {
             }
 
             if ($isUpdate) {
+                $soh = InventoryManager::getStockOnHand($id, $branchId);
+                $thresholds = printflow_thresholds_for_quantity($soh);
+                $min_stock = $thresholds['reorder'];
+                $critical_stock = $thresholds['critical'];
                 $status = in_array(sanitize($_POST['status'] ?? ''), ['ACTIVE', 'INACTIVE']) ? sanitize($_POST['status']) : 'ACTIVE';
                 $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, status=?, unit_cost=? WHERE id=?";
                 global $conn;
@@ -162,6 +154,10 @@ try {
                 $stmt->close();
                 echo json_encode(['success' => true]);
             } else {
+                $starting_stock = max(0, (float)($_POST['starting_stock'] ?? 0));
+                $thresholds = printflow_thresholds_for_quantity($starting_stock);
+                $min_stock = $thresholds['reorder'];
+                $critical_stock = $thresholds['critical'];
                 $sql = "INSERT INTO inv_items (category_id, sku, name, unit_of_measure, track_by_roll, default_roll_length_ft, reorder_level, critical_level, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 global $conn;
                 $stmt = $conn->prepare($sql);
@@ -169,7 +165,6 @@ try {
                 if (!$stmt->execute()) throw new Exception("Create failed: " . $stmt->error);
                 $itemId = $stmt->insert_id;
                 $stmt->close();
-                $starting_stock = max(0, (float)($_POST['starting_stock'] ?? 0));
 
                 // Opening balance behavior:
                 // - Standard items: one IN ledger entry (no roll record).
@@ -211,6 +206,8 @@ try {
                         }
                     }
                 }
+                $finalSoh = InventoryManager::getStockOnHand($itemId, $branchId);
+                printflow_sync_item_thresholds($itemId, $finalSoh);
                 echo json_encode(['success' => true, 'item_id' => $itemId]);
             }
             break;

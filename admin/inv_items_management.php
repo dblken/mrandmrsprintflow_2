@@ -1139,16 +1139,14 @@ if (isset($_GET['ajax'])) {
                         </select>
                     </div>
                     <div>
-                        <label for="itemMinStock">Reorder Level <span style="color:#ef4444">*</span></label>
-                        <input type="number" step="1" min="1" id="itemMinStock" name="min_stock_level" value="1" required class="w-100" title="Warning threshold for restocking (suggested: 20% of quantity)">
-                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Suggested: 20% of quantity (min 1). Editable.</p>
-                        <span id="err-itemMinStock" class="field-error"></span>
+                        <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
+                        <input type="text" id="itemMinStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 20%))">
+                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Updates live from quantity: max(1, ceil(qty × 0.20))</p>
                     </div>
                     <div>
-                        <label for="itemCriticalStock">Critical Level <span style="color:#ef4444">*</span></label>
-                        <input type="number" step="1" min="1" id="itemCriticalStock" name="critical_level" value="1" required class="w-100" title="Emergency threshold for urgent replenishment (suggested: 5% of quantity)">
-                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Suggested: 5% of quantity (min 1). Editable.</p>
-                        <span id="err-itemCriticalStock" class="field-error"></span>
+                        <label for="itemCriticalStock">Critical Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
+                        <input type="text" id="itemCriticalStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 5%))">
+                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Updates live from quantity: max(1, ceil(qty × 0.05))</p>
                     </div>
                     <div id="previewStatusSection">
                         <label>Stock Status Preview</label>
@@ -1163,11 +1161,7 @@ if (isset($_GET['ajax'])) {
                     <p style="font-size:11px; color:#6b7280; margin-bottom:4px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds update in real time as quantity changes.</p>
                     <div id="editModalReorderWarnHigh" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; This may mark your stock as low immediately</div>
                     <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; You may run out of stock before being warned</div>
-                    <div id="editModalReorderWarnInitialBelow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; Current stock is below the reorder level.</div>
-                    <div id="editModalCriticalWarnAboveReorder" style="display:none; font-size:11px; color:#991b1b; background:#fef2f2; padding:8px 12px; border-radius:8px; border:1px solid #fecaca;">Critical level should be less than or equal to the reorder level.</div>
                     <div id="editModalNoStockYet" style="display:none; font-size:11px; color:#6b7280; background:#f3f4f6; padding:8px 12px; border-radius:8px; border:1px solid #e5e7eb;">No stock added yet.</div>
-                    <div id="editModalReorderError" style="display:none; font-size:11px; color:#dc2626; margin-top:2px;">Please enter a whole number between 1 and 10,000</div>
-                    <div id="editModalCriticalError" style="display:none; font-size:11px; color:#dc2626; margin-top:2px;">Please enter a whole number between 1 and 10,000</div>
                 </div>
             </div>
 
@@ -1276,8 +1270,6 @@ if (isset($_GET['ajax'])) {
     var usageChart = null;
     var selectedItemForStockCard = null;
     var editItemOriginalValues = {};
-    var thresholdManualEdit = { reorder: false, critical: false };
-
     function pfSuggestReorderLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
         return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.20));
@@ -1286,14 +1278,6 @@ if (isset($_GET['ajax'])) {
     function pfSuggestCriticalLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
         return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.05));
-    }
-
-    function pfEffectiveCriticalLevel(item) {
-        var stored = parseFloat(item?.critical_level);
-        if (Number.isFinite(stored) && stored >= 1) return stored;
-        var reorder = parseFloat(item?.reorder_level);
-        if (Number.isFinite(reorder) && reorder >= 1) return Math.max(1, Math.ceil(reorder * 0.25));
-        return 1;
     }
 
     function pfResolveStockStatus(quantity, reorderLevel, criticalLevel, isNewItemWithoutStock) {
@@ -1342,17 +1326,13 @@ if (isset($_GET['ajax'])) {
         return Math.max(0, parseFloat(document.getElementById('itemStartingStock')?.value || 0));
     }
 
-    function pfApplySuggestedThresholds(force) {
+    function pfApplySuggestedThresholds() {
         var refQty = pfGetModalReferenceQuantity();
         var reorderEl = document.getElementById('itemMinStock');
         var criticalEl = document.getElementById('itemCriticalStock');
         if (!reorderEl || !criticalEl) return;
-        if (force || !thresholdManualEdit.reorder) {
-            reorderEl.value = String(pfSuggestReorderLevel(refQty));
-        }
-        if (force || !thresholdManualEdit.critical) {
-            criticalEl.value = String(pfSuggestCriticalLevel(refQty));
-        }
+        reorderEl.value = String(pfSuggestReorderLevel(refQty));
+        criticalEl.value = String(pfSuggestCriticalLevel(refQty));
     }
     var currentPage = <?php echo $page; ?>;
     var currentIsTarpaulinCategory = false;
@@ -1413,16 +1393,14 @@ if (isset($_GET['ajax'])) {
             addStockUnitCost.addEventListener('input', updateAddStockUI);
             addStockUnitCost.addEventListener('change', updateAddStockUI);
         }
-        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemCriticalStock', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
+        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el && !el._pf_bound) {
                 el._pf_bound = true;
                 var eventType = (el.tagName === 'SELECT') ? 'change' : 'input';
                 el.addEventListener(eventType, function () {
-                    if (id === 'itemMinStock') thresholdManualEdit.reorder = true;
-                    if (id === 'itemCriticalStock') thresholdManualEdit.critical = true;
                     if (id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet' || id === 'itemRollLength') {
-                        pfApplySuggestedThresholds(false);
+                        pfApplySuggestedThresholds();
                     }
                     validateField(id);
                 });
@@ -1547,20 +1525,6 @@ if (isset($_GET['ajax'])) {
                 else if (cost <= 0) { msg = 'Unit cost must be greater than 0.'; isValid = false; }
                 else if (cost > 1000000) { msg = 'Unit cost is too high (max 1M).'; isValid = false; }
                 break;
-            case 'itemMinStock':
-                if (!isWholeNumberLike(val)) { msg = 'Reorder level must be a whole number (min 1).'; isValid = false; }
-                else {
-                    const min = Number(val);
-                    if (!Number.isFinite(min) || min < 1 || min > 10000) { msg = 'Reorder level must be between 1 and 10,000.'; isValid = false; }
-                }
-                break;
-            case 'itemCriticalStock':
-                if (!isWholeNumberLike(val)) { msg = 'Critical level must be a whole number (min 1).'; isValid = false; }
-                else {
-                    const crit = Number(val);
-                    if (!Number.isFinite(crit) || crit < 1 || crit > 10000) { msg = 'Critical level must be between 1 and 10,000.'; isValid = false; }
-                }
-                break;
             case 'itemStartingStock':
                 if (!val) { msg = 'Initial stock is required.'; isValid = false; }
                 else if (uom === 'pcs') {
@@ -1604,7 +1568,8 @@ if (isset($_GET['ajax'])) {
 
         updateValidationUI(id, isValid, msg);
         updateSaveButtonState();
-        if (id === 'itemMinStock' || id === 'itemCriticalStock' || id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
+        if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
+            pfApplySuggestedThresholds();
             updateEditModalUI();
         }
         return isValid;
@@ -1629,7 +1594,7 @@ if (isset($_GET['ajax'])) {
     }
 
     function updateSaveButtonState() {
-        const baseFields = ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemCriticalStock'];
+        const baseFields = ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost'];
         let allValid = true;
 
         baseFields.forEach(id => {
@@ -1816,8 +1781,8 @@ if (isset($_GET['ajax'])) {
         selectedItemForStockCard = item;
         
         const stock = parseFloat(item.current_stock || 0);
-        const reorder = Math.max(1, parseFloat(item.reorder_level || 1));
-        const critical = pfEffectiveCriticalLevel(item);
+        const reorder = pfSuggestReorderLevel(stock);
+        const critical = pfSuggestCriticalLevel(stock);
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
@@ -2063,7 +2028,7 @@ if (isset($_GET['ajax'])) {
             if (showEq) eqEl.textContent = 'Equivalent to ~' + (rollEq ? rollEq.toFixed(2) : '—') + ' rolls (1 roll = ' + rollLen.toFixed(2) + ' ft)';
         }
 
-        pfApplySuggestedThresholds(false);
+        pfApplySuggestedThresholds();
         updateEditModalUI();
         // Real-time: keep Save button state accurate while typing.
         updateSaveButtonState();
@@ -2178,9 +2143,8 @@ if (isset($_GET['ajax'])) {
         // Top info removed
         editItemOriginalValues = {};
         
-        thresholdManualEdit = { reorder: false, critical: false };
         // Clear previous validation states
-        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemCriticalStock'].forEach(id => {
+        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.classList.remove('input-error', 'input-success');
@@ -2205,9 +2169,7 @@ if (isset($_GET['ajax'])) {
             if (actionType) actionType.value = 'create_item';
             if (itemId) itemId.value = '';
             if (itemUnitCost) itemUnitCost.value = '0.00';
-            if (itemMinStock) itemMinStock.value = '1';
-            if (itemCriticalStock) itemCriticalStock.value = '1';
-            pfApplySuggestedThresholds(true);
+            pfApplySuggestedThresholds();
             // Smart UOM decides which stock group is visible.
             const startingStockGroup = document.getElementById('startingStockGroup');
             if (startingStockGroup) startingStockGroup.style.display = 'none';
@@ -2251,10 +2213,9 @@ if (isset($_GET['ajax'])) {
             const minStock2 = document.getElementById('itemMinStock');
             const status2 = document.getElementById('itemStatus');
             if (track2) track2.value = item.track_by_roll;
-            if (minStock2) minStock2.value = item.reorder_level || '1';
-            const critical2 = document.getElementById('itemCriticalStock');
-            if (critical2) critical2.value = item.critical_level || pfEffectiveCriticalLevel(item);
             if (status2) status2.value = item.status;
+            selectedItemForStockCard = item;
+            pfApplySuggestedThresholds();
             const startingStockGroup2 = document.getElementById('startingStockGroup');
             if (startingStockGroup2) startingStockGroup2.style.display = 'none';
             const ftGrp2 = document.getElementById('ftDualInputGroup');
@@ -2298,12 +2259,8 @@ if (isset($_GET['ajax'])) {
             setTimeout(applySmartUomRules, 0);
 
             editItemOriginalValues = {
-                reorder_level: String(item.reorder_level || '0'),
-                critical_level: String(item.critical_level || pfEffectiveCriticalLevel(item)),
                 roll_length: String(item.default_roll_length_ft || '')
             };
-            thresholdManualEdit = { reorder: true, critical: true };
-            selectedItemForStockCard = item;
             // Stock info removed from modal top
         }
         setTimeout(updateEditModalUI, 50);
@@ -2327,81 +2284,17 @@ if (isset($_GET['ajax'])) {
                 }
             }
         }
-        const minStock = document.getElementById('itemMinStock');
-        const criticalStock = document.getElementById('itemCriticalStock');
+        pfApplySuggestedThresholds();
         const rollLength = document.getElementById('itemRollLength');
-        const reorderVal = parseFloat(minStock?.value || 0);
-        const criticalVal = parseFloat(criticalStock?.value || 0);
         const rollVal = parseFloat(rollLength?.value || 0);
         const currentStock = parseFloat(selectedItemForStockCard?.current_stock || 0);
         const previewQty = isEdit ? currentStock : pfGetModalReferenceQuantity();
-        
-        const uom = document.getElementById('itemUnit')?.value || 'pcs';
-        const isPcs = (uom || '').toLowerCase() === 'pcs';
-        
-        let reorderValid = true;
-        let criticalValid = true;
-        const reorderErr = document.getElementById('editModalReorderError');
-        const criticalErr = document.getElementById('editModalCriticalError');
-        const reorderWarnHigh = document.getElementById('editModalReorderWarnHigh');
-        const reorderWarnLow = document.getElementById('editModalReorderWarnLow');
-        const reorderWarnInitialBelow = document.getElementById('editModalReorderWarnInitialBelow');
-        const criticalWarnAboveReorder = document.getElementById('editModalCriticalWarnAboveReorder');
-        const noStockYetEl = document.getElementById('editModalNoStockYet');
-        
-        if (!Number.isFinite(reorderVal) || reorderVal < 1 || reorderVal > 10000) {
-            reorderValid = false;
-            if (reorderErr) reorderErr.style.display = 'block';
-            if (reorderWarnHigh) reorderWarnHigh.style.display = 'none';
-            if (reorderWarnLow) reorderWarnLow.style.display = 'none';
-            if (reorderWarnInitialBelow) reorderWarnInitialBelow.style.display = 'none';
-        } else {
-            if (reorderErr) reorderErr.style.display = 'none';
-            if (reorderWarnHigh) reorderWarnHigh.style.display = (isEdit && currentStock > 0 && reorderVal > currentStock) ? 'block' : 'none';
-            if (reorderWarnLow) reorderWarnLow.style.display = (isEdit && reorderVal > 0 && reorderVal < 10) ? 'block' : 'none';
-        }
-
-        if (!Number.isFinite(criticalVal) || criticalVal < 1 || criticalVal > 10000) {
-            criticalValid = false;
-            if (criticalErr) criticalErr.style.display = 'block';
-            if (criticalWarnAboveReorder) criticalWarnAboveReorder.style.display = 'none';
-        } else {
-            if (criticalErr) criticalErr.style.display = 'none';
-            if (criticalWarnAboveReorder) criticalWarnAboveReorder.style.display = (criticalVal > reorderVal) ? 'block' : 'none';
-        }
-
-        const initialStockRaw = document.getElementById('itemStartingStock')?.value || '0';
-        const initialStock = parseFloat(initialStockRaw);
+        const reorderVal = pfSuggestReorderLevel(previewQty);
+        const criticalVal = pfSuggestCriticalLevel(previewQty);
         const isNewWithoutStock = !isEdit && (!Number.isFinite(previewQty) || previewQty <= 0);
-        const showInitialBelow = (!isEdit && !isNewWithoutStock && Number.isFinite(initialStock) && initialStock > 0 && reorderVal > initialStock);
-
-        if (reorderWarnInitialBelow) reorderWarnInitialBelow.style.display = showInitialBelow ? 'block' : 'none';
+        const noStockYetEl = document.getElementById('editModalNoStockYet');
         if (noStockYetEl) noStockYetEl.style.display = isNewWithoutStock ? 'block' : 'none';
 
-        const startingStockEl = document.getElementById('itemStartingStock');
-        const startingRollsEl = document.getElementById('startingRolls');
-        const startingFeetEl = document.getElementById('startingFeet');
-        const uomLower = String(uom || '').toLowerCase();
-        const stockInputMethod = getStockInputMethod();
-
-        // Clear previous warning highlights
-        if (minStock) minStock.classList.remove('input-warning');
-        if (startingStockEl) startingStockEl.classList.remove('input-warning');
-        if (startingRollsEl) startingRollsEl.classList.remove('input-warning');
-        if (startingFeetEl) startingFeetEl.classList.remove('input-warning');
-
-        if (showInitialBelow) {
-            if (minStock) minStock.classList.add('input-warning');
-            if (uomLower === 'ft') {
-                // Highlight the active ft input for clearer guidance.
-                if (stockInputMethod === 'rolls' && startingRollsEl) startingRollsEl.classList.add('input-warning');
-                else if (stockInputMethod === 'feet' && startingFeetEl) startingFeetEl.classList.add('input-warning');
-                else if (startingRollsEl) startingRollsEl.classList.add('input-warning');
-            } else if (startingStockEl) {
-                startingStockEl.classList.add('input-warning');
-            }
-        }
-        
         const stockStatus = pfResolveStockStatus(previewQty, reorderVal, criticalVal, isNewWithoutStock);
         const previewEl = document.getElementById('editModalReorderPreview');
         if (previewEl) {
@@ -2429,20 +2322,11 @@ if (isset($_GET['ajax'])) {
         if (saveBtn) {
             // Let smart numeric validation drive the button, then apply reorder/roll section gating.
             updateSaveButtonState();
-            if (!reorderValid || !criticalValid || (rollSectionVisible && !rollValid)) saveBtn.disabled = true;
+            if (rollSectionVisible && !rollValid) saveBtn.disabled = true;
         }
         
         if (isEdit && editItemOriginalValues && Object.keys(editItemOriginalValues).length) {
             const changes = [];
-            const origReorder = parseFloat(editItemOriginalValues.reorder_level || 0);
-            const origCritical = parseFloat(editItemOriginalValues.critical_level || 0);
-            if (Math.abs(reorderVal - origReorder) > 0.001) {
-                changes.push('Reorder Level: ' + (origReorder || '0') + ' \u2192 ' + (isPcs ? Math.round(reorderVal) : reorderVal.toFixed(2)));
-                if (stockStatus.label) changes.push('This will change stock status to ' + stockStatus.label);
-            }
-            if (Math.abs(criticalVal - origCritical) > 0.001) {
-                changes.push('Critical Level: ' + (origCritical || '0') + ' \u2192 ' + (isPcs ? Math.round(criticalVal) : criticalVal.toFixed(2)));
-            }
             const origRoll = parseFloat(editItemOriginalValues.roll_length || 0);
             if (rollSectionVisible && Math.abs(rollVal - origRoll) > 0.001) {
                 changes.push('Standard Roll Length: ' + (editItemOriginalValues.roll_length || '\u2014') + ' \u2192 ' + rollVal);
@@ -3123,7 +3007,7 @@ if (isset($_GET['ajax'])) {
                 if (data.errors) {
                     for (let key in data.errors) {
                         // Map API field names to UI element IDs if different
-                        let idMap = { 'name': 'itemName', 'category_id': 'itemCategory', 'unit': 'itemUnit', 'unit_cost': 'itemUnitCost', 'min_stock_level': 'itemMinStock', 'critical_level': 'itemCriticalStock', 'roll_length_ft': 'itemRollLength' };
+                        let idMap = { 'name': 'itemName', 'category_id': 'itemCategory', 'unit': 'itemUnit', 'unit_cost': 'itemUnitCost', 'roll_length_ft': 'itemRollLength' };
                         const targetId = idMap[key] || key;
                         const errEl = document.getElementById('err-' + targetId);
                         const inputEl = document.getElementById(targetId);

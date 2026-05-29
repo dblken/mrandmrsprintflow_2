@@ -100,6 +100,25 @@ class InventoryManager {
         return [" AND {$column} = ?", 'i', [$resolvedBranchId]];
     }
 
+    /** Sync live thresholds and send low/critical notifications after stock changes. */
+    private static function notifyStockLevelIfNeeded(array $item, int $itemId, ?int $branchId = null): void {
+        $branchId = $branchId ?: self::getCurrentBranchId();
+        $newSoh = self::getStockOnHand($itemId, $branchId);
+        printflow_sync_item_thresholds($itemId, $newSoh);
+        if (!function_exists('notify_shop_users')) {
+            return;
+        }
+        $thresholds = printflow_thresholds_for_quantity($newSoh);
+        $status = printflow_resolve_stock_status($newSoh, $thresholds['reorder'], $thresholds['critical']);
+        if ($status['key'] === 'critical' || $status['key'] === 'out') {
+            $msg = "Critical stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (critical at {$thresholds['critical']})";
+            notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
+        } elseif ($status['key'] === 'low') {
+            $msg = "Low stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (reorder at {$thresholds['reorder']})";
+            notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
+        }
+    }
+
     /**
      * Records a new inventory transaction and enforces idempotency.
      */
@@ -197,6 +216,7 @@ class InventoryManager {
             self::recordTransaction($itemId, 'IN', $quantity, $uom, $refType, $refId, $rollId, $notes, null, $transactionDate, $branchId);
 
             $conn->commit();
+            printflow_sync_item_thresholds($itemId, self::getStockOnHand($itemId, $branchId));
             return true;
         } catch (Throwable $e) {
             if ($conn->in_transaction) $conn->rollback();
@@ -219,7 +239,11 @@ class InventoryManager {
         // For roll-tracked items, route through FIFO deduction
         if ($item['track_by_roll'] && !$ignoreRollCheck) {
             require_once __DIR__ . '/RollService.php';
-            return RollService::deductFIFO($itemId, $quantity, $refType, $refId, $notes, $branchId);
+            $result = RollService::deductFIFO($itemId, $quantity, $refType, $refId, $notes, $branchId);
+            if ($result) {
+                self::notifyStockLevelIfNeeded($item, $itemId, $branchId);
+            }
+            return $result;
         }
 
         $soh = self::getStockOnHand($itemId, $branchId);
@@ -231,19 +255,8 @@ class InventoryManager {
 
         $result = self::recordTransaction($itemId, 'OUT', $quantity, $uom ?: $item['unit_of_measure'], $refType, $refId, null, $notes, null, null, $branchId);
 
-        // Fire stock alerts when SOH crosses critical or reorder thresholds
-        if ($result && function_exists('notify_shop_users')) {
-            $newSoh = self::getStockOnHand($itemId, $branchId);
-            $reorder = printflow_item_reorder_level($item);
-            $critical = printflow_item_critical_level($item);
-            $status = printflow_resolve_stock_status($newSoh, $reorder, $critical);
-            if ($status['key'] === 'critical' || $status['key'] === 'out') {
-                $msg = "Critical stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (critical at {$critical})";
-                notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
-            } elseif ($status['key'] === 'low') {
-                $msg = "Low stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (reorder at {$reorder})";
-                notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
-            }
+        if ($result) {
+            self::notifyStockLevelIfNeeded($item, $itemId, $branchId);
         }
 
         return $result;

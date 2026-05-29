@@ -49,19 +49,59 @@ function printflow_suggest_critical_level(float $quantity): int {
     return max(1, (int)ceil($qty * 0.05));
 }
 
-function printflow_item_critical_level(array $item): float {
-    if (array_key_exists('critical_level', $item) && $item['critical_level'] !== null && $item['critical_level'] !== '') {
-        return max(1.0, (float)$item['critical_level']);
-    }
-    $reorder = (float)($item['reorder_level'] ?? 0);
-    if ($reorder >= 1) {
-        return (float)max(1, (int)ceil($reorder * 0.25));
-    }
-    return 1.0;
+/**
+ * Live thresholds from current quantity (20% / 5% with ceiling, minimum 1).
+ *
+ * @return array{reorder:float,critical:float}
+ */
+function printflow_thresholds_for_quantity(float $quantity): array {
+    return [
+        'reorder' => (float)printflow_suggest_reorder_level($quantity),
+        'critical' => (float)printflow_suggest_critical_level($quantity),
+    ];
 }
 
+/** @deprecated Use printflow_thresholds_for_quantity($stock) for live evaluation. */
+function printflow_item_critical_level(array $item): float {
+    $stock = isset($item['current_stock']) ? (float)$item['current_stock'] : 0.0;
+    return printflow_thresholds_for_quantity($stock)['critical'];
+}
+
+/** @deprecated Use printflow_thresholds_for_quantity($stock) for live evaluation. */
 function printflow_item_reorder_level(array $item): float {
-    return max(1.0, (float)($item['reorder_level'] ?? 1));
+    $stock = isset($item['current_stock']) ? (float)$item['current_stock'] : 0.0;
+    return printflow_thresholds_for_quantity($stock)['reorder'];
+}
+
+/**
+ * @return array{reorder:float,critical:float,status:array}
+ */
+function printflow_item_stock_status(array $item, float $currentStock, bool $isNewItemWithoutStock = false): array {
+    $thresholds = printflow_thresholds_for_quantity($currentStock);
+    $status = printflow_resolve_stock_status(
+        $currentStock,
+        $thresholds['reorder'],
+        $thresholds['critical'],
+        $isNewItemWithoutStock
+    );
+    return [
+        'reorder' => $thresholds['reorder'],
+        'critical' => $thresholds['critical'],
+        'status' => $status,
+    ];
+}
+
+/** Persist computed thresholds after quantity changes (cache for reporting). */
+function printflow_sync_item_thresholds(int $itemId, float $quantity): void {
+    if ($itemId <= 0) {
+        return;
+    }
+    $thresholds = printflow_thresholds_for_quantity($quantity);
+    db_execute(
+        'UPDATE inv_items SET reorder_level = ?, critical_level = ? WHERE id = ?',
+        'ddi',
+        [$thresholds['reorder'], $thresholds['critical'], $itemId]
+    );
 }
 
 /**
@@ -82,7 +122,7 @@ function printflow_resolve_stock_status(
 ): array {
     $qty = max(0, $quantity);
     $reorder = max(1, $reorderLevel);
-    $critical = max(1, min($criticalLevel, $reorder));
+    $critical = max(1, $criticalLevel);
 
     if ($isNewItemWithoutStock && $qty <= 0) {
         return [
