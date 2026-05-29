@@ -1186,7 +1186,7 @@ if (isset($_GET['ajax'])) {
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                             <button class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
                             <?php if (!$is_manager && $product['status'] !== 'Archived'): ?>
-                                <button class="btn-action teal" type="button" onclick="window.location.href='product_field_config.php?product_id=<?php echo (int)$product['product_id']; ?>'">Configure Fields</button>
+                                <button class="btn-action teal" type="button" onclick="window.location.href='product_field_config.php?product_id=<?php echo (int)$product['product_id']; ?>'">Fields</button>
                             <?php endif; ?>
                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
@@ -2116,7 +2116,7 @@ if (isset($_GET['ajax'])) {
                                             <button class="btn-action blue"
                                                 onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
                                             <?php if (!$is_manager && $product['status'] !== 'Archived'): ?>
-                                                <button class="btn-action teal" type="button" onclick="window.location.href='product_field_config.php?product_id=<?php echo (int)$product['product_id']; ?>'">Configure Fields</button>
+                                                <button class="btn-action teal" type="button" onclick="window.location.href='product_field_config.php?product_id=<?php echo (int)$product['product_id']; ?>'">Fields</button>
                                             <?php endif; ?>
                                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">

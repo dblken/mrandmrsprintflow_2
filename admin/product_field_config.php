@@ -62,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 }
 
 $field_configs = get_product_field_config($product_id);
-$page_title = 'Configure Product Input Fields - ' . $product['name'];
+$page_title = 'Product Fields - ' . $product['name'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -122,7 +122,7 @@ $page_title = 'Configure Product Input Fields - ' . $product['name'];
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
                     </svg>
                 </button>
-                <h1 class="page-title" style="margin:0;">Configure Product Input Fields</h1>
+                <h1 class="page-title" style="margin:0;">Product Fields</h1>
             </div>
             <p style="color:#6b7280;font-size:14px;margin-top:8px;">Product: <strong><?php echo htmlspecialchars($product['name']); ?></strong></p>
         </header>
