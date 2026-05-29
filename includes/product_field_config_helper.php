@@ -17,7 +17,7 @@ function printflow_ensure_product_field_config_table(): void
             product_id INT NOT NULL,
             field_key VARCHAR(100) NOT NULL,
             field_label VARCHAR(255) DEFAULT NULL,
-            field_type ENUM('select', 'radio', 'file', 'textarea', 'dimension') NOT NULL,
+            field_type ENUM('select', 'radio', 'dimension') NOT NULL,
             field_options JSON DEFAULT NULL,
             is_visible TINYINT(1) DEFAULT 1,
             is_required TINYINT(1) DEFAULT 1,
@@ -49,7 +49,7 @@ function get_product_field_config(int $product_id): array
     foreach ($rows as $row) {
         $result[$row['field_key']] = [
             'label' => (string)($row['field_label'] ?? ''),
-            'type' => (string)($row['field_type'] ?? 'textarea'),
+            'type' => (string)($row['field_type'] ?? 'select'),
             'options' => !empty($row['field_options']) ? (json_decode((string)$row['field_options'], true) ?: []) : [],
             'visible' => (bool)($row['is_visible'] ?? 0),
             'required' => (bool)($row['is_required'] ?? 0),

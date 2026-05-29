@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             }
             $label = trim((string)($config['label'] ?? ''));
             $type = trim((string)($config['type'] ?? ''));
-            if ($label === '' || !in_array($type, ['select', 'radio', 'file', 'textarea', 'dimension'], true)) {
+            if ($label === '' || !in_array($type, ['select', 'radio', 'dimension'], true)) {
                 continue;
             }
 
@@ -102,6 +102,13 @@ $page_title = 'Configure Product Input Fields - ' . $product['name'];
         .status-pill { display:inline-block; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; text-transform:uppercase; }
         .toggle-row { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
         .inline-check { display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; }
+        .toggle-switch { position:relative; display:inline-block; width:48px; height:26px; }
+        .toggle-switch input { opacity:0; width:0; height:0; }
+        .toggle-slider { position:absolute; cursor:pointer; inset:0; background:#cbd5e1; border-radius:26px; transition:0.3s; }
+        .toggle-slider:before { position:absolute; content:""; height:20px; width:20px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:0.3s; box-shadow:0 2px 4px rgba(0,0,0,0.2); }
+        .toggle-switch input:checked + .toggle-slider { background:#0d9488; }
+        .toggle-switch input:checked + .toggle-slider:before { transform:translateX(22px); }
+        .toggle-label { display:inline-flex; align-items:center; gap:10px; font-size:14px; color:#374151; font-weight:500; }
     </style>
 </head>
 <body>
@@ -125,7 +132,7 @@ $page_title = 'Configure Product Input Fields - ' . $product['name'];
 
             <div class="info-box">
                 <p style="margin:0;font-size:13px;color:#1e40af;line-height:1.5;">
-                    Configure flexible customer choices for this product such as size, color, material, finish, print layout, or design uploads.
+                    Configure flexible customer choices for this product such as size, color, material, finish, print type, or layout.
                 </p>
             </div>
 
@@ -197,8 +204,6 @@ $page_title = 'Configure Product Input Fields - ' . $product['name'];
                     <option value="select">Select (Dropdown)</option>
                     <option value="dimension">Dimension (Size)</option>
                     <option value="radio">Radio Buttons</option>
-                    <option value="file">File Upload</option>
-                    <option value="textarea">Textarea (Multi-line)</option>
                 </select>
             </div>
             <div class="field-group" id="modalUnitGroup" style="display:none;">
@@ -211,7 +216,13 @@ $page_title = 'Configure Product Input Fields - ' . $product['name'];
             </div>
             <div class="field-group" id="modalOptionsGroup" style="display:none;">
                 <div class="toggle-row" style="margin-bottom:12px;">
-                    <label class="inline-check"><input type="checkbox" id="modal-allow-others" checked> Allow "Others"</label>
+                    <label class="toggle-label">
+                        <span>Allow "Others"</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="modal-allow-others" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </label>
                 </div>
                 <label class="field-label">Field Options</label>
                 <div id="modalOptionsList"></div>
