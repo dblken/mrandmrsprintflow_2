@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $order_id = (int)($_POST['order_id'] ?? 0);
 $new_status = $_POST['status'] ?? '';
+$cancel_reason = trim((string)($_POST['cancel_reason'] ?? ''));
 $csrf_token = $_POST['csrf_token'] ?? '';
 
 if (!verify_csrf_token($csrf_token)) {
@@ -64,10 +65,45 @@ if ($is_service_order && $new_status === 'Completed' && $old_status !== 'Complet
     }
 }
 
+if ($is_service_order && $new_status === 'Cancelled' && $old_status !== 'Cancelled') {
+    try {
+        $updatedJobs = JobOrderService::syncStoreOrderToStatus($order_id, 'CANCELLED', null, $cancel_reason);
+        db_execute(
+            "UPDATE orders
+             SET status = 'Cancelled',
+                 cancelled_by = 'Staff',
+                 cancel_reason = ?,
+                 cancelled_at = NOW(),
+                 updated_at = NOW()
+             WHERE order_id = ?",
+            'si',
+            [$cancel_reason, $order_id]
+        );
+        echo json_encode([
+            'success' => true,
+            'message' => 'Service order marked as Cancelled',
+            'job_ids' => $updatedJobs
+        ]);
+        exit;
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit;
+    }
+}
+
 
 // 2. Update Status
 $update_sql = "UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?";
-$result = db_execute($update_sql, 'si', [$new_status, $order_id]);
+$update_types = 'si';
+$update_params = [$new_status, $order_id];
+if ($new_status === 'Cancelled') {
+    $update_sql = "UPDATE orders
+                   SET status = ?, cancel_reason = ?, cancelled_by = 'Staff', cancelled_at = NOW(), updated_at = NOW()
+                   WHERE order_id = ?";
+    $update_types = 'ssi';
+    $update_params = [$new_status, $cancel_reason, $order_id];
+}
+$result = db_execute($update_sql, $update_types, $update_params);
 
 if (!$result) {
     echo json_encode(['success' => false, 'error' => 'Failed to update order status']);
