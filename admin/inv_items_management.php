@@ -1082,17 +1082,6 @@ if (isset($_GET['ajax'])) {
                 <div class="sc-card-label" style="font-size:11px; font-weight:700; color:#991b1b; text-transform:uppercase; letter-spacing:0.05em;">Critical Level</div>
                 <div class="sc-card-value" id="scCriticalStock" style="font-size:20px; font-weight:800; color:#991b1b;">0</div>
             </div>
-            <div class="sc-card" id="scStatusCard" style="border:1px solid; display:flex; flex-direction:column; justify-content:center;">
-                <div class="sc-card-label" style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Stock Status</div>
-                <div class="sc-card-value" id="scStatusText" style="font-size:16px; font-weight:700;">&mdash;</div>
-            </div>
-            <div class="sc-card" id="scRollCard" style="background:#fdf2f8; border:1px solid #fbcfe8;">
-                <div class="sc-card-label" style="font-size:11px; font-weight:700; color:#be185d; text-transform:uppercase; letter-spacing:0.05em;">Available Rolls</div>
-                <div style="display:flex; align-items:baseline; justify-content:center; gap:4px;">
-                    <span class="sc-card-value" id="scRoll" style="font-size:20px; font-weight:800; color:#9d174d;">0</span>
-                    <span style="font-size:11px; font-weight:700; color:#db2777; text-transform:uppercase;">Rolls</span>
-                </div>
-            </div>
         </div>
 
         <!-- Stock Health Progress Bar -->
@@ -2091,14 +2080,6 @@ if (isset($_GET['ajax'])) {
         document.getElementById('scUnit').textContent = uom;
         document.getElementById('scMinStock').textContent = fmtQty(reorder, isPcs);
         document.getElementById('scCriticalStock').textContent = fmtQty(critical, isPcs);
-        document.getElementById('scStatusText').textContent = status.label;
-        document.getElementById('scStatusCard').style.background = status.bgColor;
-        document.getElementById('scStatusCard').style.borderColor = status.borderColor;
-        document.getElementById('scStatusCard').querySelector('.sc-card-value').style.color = status.textColor;
-        
-        const rollCard = document.getElementById('scRollCard');
-        rollCard.style.display = item.track_by_roll == 1 ? 'block' : 'none';
-        document.getElementById('scRoll').textContent = '0';
         
         // Progress bar (stock vs reorder)
         const maxVal = Math.max(reorder, stock, 1);
@@ -2148,8 +2129,6 @@ if (isset($_GET['ajax'])) {
             const res = await fetch(ADMIN_API_BASE + `inventory_stock_card_api.php?branch_id=${encodeURIComponent(currentBranch)}&item_id=${item.id}`);
             const data = await res.json();
             if (data.success) {
-                document.getElementById('scRoll').textContent = (data.rolls || []).length;
-                
                 const ledger = data.ledger || [];
                 let ledgerHtml = '';
                 ledger.forEach(l => {
