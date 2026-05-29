@@ -68,6 +68,28 @@ function pf_ledger_enrich_transaction_row(array $row): array {
     return $row;
 }
 
+function pf_ledger_normalize_uom(?string $uom, ?string $categoryName = null): string {
+    $normalized = strtolower(trim((string)$uom));
+    $categoryNormalized = strtoupper(trim((string)$categoryName));
+
+    if ($categoryNormalized === 'INK L120' || $categoryNormalized === 'INK L130') {
+        return 'l';
+    }
+
+    if ($normalized === 'btl') return 'l';
+    if (in_array($normalized, ['pcs', 'ft', 'l'], true)) return $normalized;
+    return 'pcs';
+}
+
+function pf_ledger_uom_label(string $uom): string {
+    return match ($uom) {
+        'ft' => 'Feet (ft)',
+        'l' => 'Liters (L)',
+        'pcs' => 'Pieces (pcs)',
+        default => strtoupper($uom),
+    };
+}
+
 // Get filter parameters
 printflow_ensure_product_inventory_transaction_schema();
 $hasProductIdColumn = db_table_has_column('inventory_transactions', 'product_id');
@@ -220,7 +242,33 @@ $transactions = db_query($sql, $types ?: null, $params ?: null) ?: [];
 $transactions = array_map('pf_ledger_enrich_transaction_row', $transactions);
 
 // Get items for filters/forms
-$items = db_query("SELECT id, name, unit_of_measure as unit FROM inv_items ORDER BY name ASC") ?: [];
+$items = db_query(
+    "SELECT i.id, i.name, i.status, i.category_id, i.unit_of_measure AS unit, c.name AS category_name
+     FROM inv_items i
+     LEFT JOIN inv_categories c ON i.category_id = c.id
+     ORDER BY i.name ASC"
+) ?: [];
+$categories = db_query("SELECT id, name FROM inv_categories ORDER BY sort_order ASC, name ASC") ?: [];
+
+$tx_modal_items = [];
+foreach ($items as $item) {
+    $itemId = (int)($item['id'] ?? 0);
+    if ($itemId <= 0 || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
+        continue;
+    }
+    $uom = pf_ledger_normalize_uom($item['unit'] ?? '', $item['category_name'] ?? '');
+    $soh = (float)InventoryManager::getStockOnHand($itemId, $branchId);
+    $tx_modal_items[] = [
+        'id' => $itemId,
+        'name' => (string)($item['name'] ?? ''),
+        'category_id' => (int)($item['category_id'] ?? 0),
+        'category_name' => (string)($item['category_name'] ?? ''),
+        'uom' => $uom,
+        'uom_label' => pf_ledger_uom_label($uom),
+        'soh' => $soh,
+        'soh_display' => $uom === 'pcs' ? (string)(int)round($soh) : rtrim(rtrim(number_format($soh, 2, '.', ''), '0'), '.'),
+    ];
+}
 $catalog_products = db_query(
     "SELECT product_id, name FROM products WHERE status != 'Archived' ORDER BY name ASC LIMIT 4000"
 ) ?: [];
@@ -340,8 +388,44 @@ if (isset($_GET['ajax'])) {
         .form-group.full { grid-column: span 2; }
         
         /* Ensure select elements in modal have consistent height and style (match table font) */
-        .modal select, .modal input { height: 40px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0 12px; font-size: 13px; background: #fff; color: #374151; }
+        .modal select, .modal input:not([type="hidden"]) { height: 40px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0 12px; font-size: 13px; background: #fff; color: #374151; }
         .modal label { margin-bottom: 6px; display: block; font-weight: 600; color: #374151; font-size: 13px; }
+
+        .tx-item-picker-filters { display: grid; grid-template-columns: 1fr 1.2fr; gap: 10px; margin-bottom: 10px; }
+        .tx-item-selected {
+            display: none; align-items: center; justify-content: space-between; gap: 10px;
+            padding: 10px 12px; border: 1px solid #a7f3d0; border-radius: 10px; background: #ecfdf5; margin-bottom: 8px;
+        }
+        .tx-item-selected.is-visible { display: flex; }
+        .tx-item-selected-name { font-weight: 600; color: #065f46; line-height: 1.35; }
+        .tx-item-selected-meta { font-size: 12px; color: #047857; margin-top: 2px; }
+        .tx-item-clear {
+            flex-shrink: 0; border: 1px solid #6ee7b7; background: #fff; color: #047857;
+            border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+        }
+        .tx-item-clear:hover { background: #d1fae5; }
+        .tx-item-results {
+            max-height: 220px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff;
+        }
+        .tx-item-results:empty { display: none; }
+        .tx-item-result {
+            width: 100%; text-align: left; border: none; border-bottom: 1px solid #f3f4f6; background: #fff;
+            padding: 10px 12px; cursor: pointer; font: inherit; font-size: 13px; color: #111827;
+        }
+        .tx-item-result:last-child { border-bottom: none; }
+        .tx-item-result:hover, .tx-item-result:focus { background: #f9fafb; outline: none; }
+        .tx-item-result-meta { display: block; font-size: 12px; color: #6b7280; margin-top: 2px; font-weight: 500; }
+        .tx-item-empty { padding: 14px 12px; color: #6b7280; font-size: 13px; text-align: center; }
+        .tx-qty-with-uom { display: flex; align-items: stretch; gap: 8px; }
+        .tx-qty-with-uom input { flex: 1; min-width: 0; }
+        .tx-qty-uom {
+            display: inline-flex; align-items: center; justify-content: center; min-width: 96px;
+            padding: 0 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;
+            color: #374151; font-size: 12px; font-weight: 700; white-space: nowrap;
+        }
+        @media (max-width: 560px) {
+            .tx-item-picker-filters { grid-template-columns: 1fr; }
+        }
 
         .btn-action {
             display: inline-flex; align-items: center; justify-content: center;
@@ -828,13 +912,28 @@ if (isset($_GET['ajax'])) {
             
             <div class="form-grid">
                 <div class="form-group full">
-                    <label for="txItem">Resource / Material *</label>
-                    <select id="txItem" name="item_id" required style="width: 100%;">
-                        <option value="">Search for an item...</option>
-                        <?php foreach ($items as $item): ?>
-                            <option value="<?php echo $item['id']; ?>"><?php echo htmlspecialchars($item['name']); ?> (SOH: <?php echo (float)InventoryManager::getStockOnHand($item['id'], $branchId); ?> <?php echo $item['unit']; ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label>Resource / Material *</label>
+                    <div class="tx-item-picker" id="txItemPicker">
+                        <div class="tx-item-picker-filters">
+                            <select id="txItemCategory" aria-label="Filter by category">
+                                <option value="">All categories</option>
+                                <?php foreach ($categories as $cat): ?>
+                                    <option value="<?php echo (int)$cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <input type="search" id="txItemSearch" placeholder="Search by item name..." autocomplete="off" aria-label="Search item by name">
+                        </div>
+                        <input type="hidden" id="txItem" name="item_id" value="" required>
+                        <input type="hidden" id="txUom" name="uom" value="">
+                        <div id="txItemSelected" class="tx-item-selected" aria-live="polite">
+                            <div>
+                                <div class="tx-item-selected-name" id="txItemSelectedName"></div>
+                                <div class="tx-item-selected-meta" id="txItemSelectedMeta"></div>
+                            </div>
+                            <button type="button" class="tx-item-clear" id="txItemClearBtn">Change</button>
+                        </div>
+                        <div id="txItemResults" class="tx-item-results" role="listbox" aria-label="Matching materials"></div>
+                    </div>
                 </div>
                 
                 <div class="filter-group">
@@ -844,7 +943,10 @@ if (isset($_GET['ajax'])) {
                 
                 <div class="filter-group">
                     <label for="txQty">Quantity *</label>
-                    <input type="number" step="0.01" id="txQty" name="quantity" min="0.01" required placeholder="0.00">
+                    <div class="tx-qty-with-uom">
+                        <input type="number" step="0.01" id="txQty" name="quantity" min="0.01" required placeholder="0.00" aria-describedby="txQtyUom">
+                        <span id="txQtyUom" class="tx-qty-uom" title="Unit of measure for selected material">UOM</span>
+                    </div>
                 </div>
                 
                 <div class="form-group full">
@@ -872,6 +974,9 @@ if (isset($_GET['ajax'])) {
     var ledgerRealtimeMs = 15000;
     var ledgerRealtimeTimer = null;
     var ledgerRealtimeBound = false;
+    var TX_LEDGER_ITEMS = <?php echo json_encode($tx_modal_items, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    var txItemPickerBound = false;
+    var txSelectedItem = null;
 
     function filterPanel() {
         return {
@@ -915,6 +1020,8 @@ if (isset($_GET['ajax'])) {
                 fetchUpdatedTable({ page: 1 });
             });
         });
+
+        initTxItemPicker();
 
         startLedgerRealtime();
         if (!ledgerRealtimeBound) {
@@ -1133,11 +1240,149 @@ if (isset($_GET['ajax'])) {
         document.getElementById('viewModal').style.display = 'flex';
     }
 
+    function pfFormatTxSoh(item) {
+        if (!item) return '';
+        return item.soh_display + ' ' + item.uom;
+    }
+
+    function pfApplyTxQtyInputRules(uom) {
+        const qtyEl = document.getElementById('txQty');
+        if (!qtyEl) return;
+        if (uom === 'pcs') {
+            qtyEl.step = '1';
+            qtyEl.min = '1';
+            qtyEl.placeholder = '0';
+        } else {
+            qtyEl.step = '0.01';
+            qtyEl.min = '0.01';
+            qtyEl.placeholder = '0.00';
+        }
+    }
+
+    function pfUpdateTxQtyUom(item) {
+        const uomEl = document.getElementById('txQtyUom');
+        const uomHidden = document.getElementById('txUom');
+        const label = item ? item.uom_label : 'UOM';
+        if (uomEl) {
+            uomEl.textContent = label;
+            uomEl.title = item ? ('Enter quantity in ' + label) : 'Select a material to see its unit';
+        }
+        if (uomHidden) uomHidden.value = item ? item.uom : '';
+        pfApplyTxQtyInputRules(item ? item.uom : '');
+    }
+
+    function pfFilterTxLedgerItems() {
+        const cat = document.getElementById('txItemCategory')?.value || '';
+        const q = (document.getElementById('txItemSearch')?.value || '').trim().toLowerCase();
+        return (TX_LEDGER_ITEMS || []).filter(function (item) {
+            if (cat && String(item.category_id) !== String(cat)) return false;
+            if (q && !(item.name || '').toLowerCase().includes(q)) return false;
+            return true;
+        }).slice(0, 80);
+    }
+
+    function pfRenderTxItemResults() {
+        const resultsEl = document.getElementById('txItemResults');
+        const searchEl = document.getElementById('txItemSearch');
+        if (!resultsEl || txSelectedItem) return;
+
+        const matches = pfFilterTxLedgerItems();
+        if (!matches.length) {
+            const hasQuery = !!(searchEl && searchEl.value.trim()) || !!(document.getElementById('txItemCategory')?.value);
+            resultsEl.innerHTML = '<div class="tx-item-empty">' + (hasQuery ? 'No materials match your search.' : 'Type a name or pick a category to find materials.') + '</div>';
+            return;
+        }
+
+        resultsEl.innerHTML = matches.map(function (item) {
+            const cat = item.category_name ? escapeHtml(item.category_name) + ' · ' : '';
+            return '<button type="button" class="tx-item-result" data-id="' + item.id + '">' +
+                '<span>' + escapeHtml(item.name) + '</span>' +
+                '<span class="tx-item-result-meta">' + cat + 'SOH: ' + escapeHtml(pfFormatTxSoh(item)) + ' · ' + escapeHtml(item.uom_label) + '</span>' +
+                '</button>';
+        }).join('');
+
+        resultsEl.querySelectorAll('.tx-item-result').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                const id = parseInt(btn.getAttribute('data-id'), 10);
+                const found = (TX_LEDGER_ITEMS || []).find(function (it) { return it.id === id; });
+                if (found) pfSelectTxLedgerItem(found);
+            });
+        });
+    }
+
+    function pfSelectTxLedgerItem(item) {
+        txSelectedItem = item;
+        const hidden = document.getElementById('txItem');
+        const selectedWrap = document.getElementById('txItemSelected');
+        const nameEl = document.getElementById('txItemSelectedName');
+        const metaEl = document.getElementById('txItemSelectedMeta');
+        const resultsEl = document.getElementById('txItemResults');
+        const searchEl = document.getElementById('txItemSearch');
+        const catEl = document.getElementById('txItemCategory');
+
+        if (hidden) hidden.value = String(item.id);
+        if (nameEl) nameEl.textContent = item.name;
+        if (metaEl) {
+            const cat = item.category_name ? item.category_name + ' · ' : '';
+            metaEl.textContent = cat + 'On hand: ' + pfFormatTxSoh(item) + ' · ' + item.uom_label;
+        }
+        if (selectedWrap) selectedWrap.classList.add('is-visible');
+        if (resultsEl) resultsEl.innerHTML = '';
+        if (searchEl) { searchEl.value = ''; searchEl.style.display = 'none'; }
+        if (catEl) catEl.style.display = 'none';
+        pfUpdateTxQtyUom(item);
+        document.getElementById('txQty')?.focus();
+    }
+
+    function pfClearTxLedgerItemSelection() {
+        txSelectedItem = null;
+        const hidden = document.getElementById('txItem');
+        const selectedWrap = document.getElementById('txItemSelected');
+        const searchEl = document.getElementById('txItemSearch');
+        const catEl = document.getElementById('txItemCategory');
+
+        if (hidden) hidden.value = '';
+        if (selectedWrap) selectedWrap.classList.remove('is-visible');
+        if (searchEl) { searchEl.style.display = ''; searchEl.value = ''; }
+        if (catEl) { catEl.style.display = ''; catEl.value = ''; }
+        pfUpdateTxQtyUom(null);
+        pfRenderTxItemResults();
+        searchEl?.focus();
+    }
+
+    function pfResetTxItemPicker() {
+        pfClearTxLedgerItemSelection();
+    }
+
+    function initTxItemPicker() {
+        if (txItemPickerBound) return;
+        txItemPickerBound = true;
+
+        const searchEl = document.getElementById('txItemSearch');
+        const catEl = document.getElementById('txItemCategory');
+        const clearBtn = document.getElementById('txItemClearBtn');
+        const picker = document.getElementById('txItemPicker');
+
+        if (searchEl) {
+            searchEl.addEventListener('input', pfRenderTxItemResults);
+            searchEl.addEventListener('focus', pfRenderTxItemResults);
+        }
+        if (catEl) catEl.addEventListener('change', pfRenderTxItemResults);
+        if (clearBtn) clearBtn.addEventListener('click', pfClearTxLedgerItemSelection);
+        if (picker) {
+            picker.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && txSelectedItem) pfClearTxLedgerItemSelection();
+            });
+        }
+        pfUpdateTxQtyUom(null);
+    }
+
     function openModal(mode) {
         document.getElementById('txModal').style.display = 'flex';
         const form = document.getElementById('txForm');
         form.reset();
         document.getElementById('txDate').value = new Date().toISOString().split('T')[0];
+        pfResetTxItemPicker();
         
         if (mode === 'issue') {
             document.getElementById('modalTitle').textContent = 'Issue Material (STOCK-OUT)';
@@ -1154,6 +1399,13 @@ if (isset($_GET['ajax'])) {
 
     async function saveTransaction(e) {
         e.preventDefault();
+        const itemId = parseInt(document.getElementById('txItem')?.value || '0', 10);
+        if (!itemId) {
+            alert('Please search and select a material.');
+            document.getElementById('txItemSearch')?.focus();
+            return;
+        }
+
         const btn = document.getElementById('saveBtn');
         btn.disabled = true;
         btn.textContent = 'Recording...';
