@@ -4888,11 +4888,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.showStaffAlert('Error', 'No walk-in order is selected.');
                     return;
                 }
-                const reason = (window.prompt('Enter cancellation reason for this walk-in order:', '') || '').trim();
-                if (!reason) {
-                    this.showStaffAlert('Cancellation Required', 'Cancellation reason is required.');
-                    return;
-                }
                 if (!window.confirm('Are you sure you want to cancel this walk-in order?')) {
                     return;
                 }
@@ -4904,7 +4899,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const fd = new FormData();
                 fd.append('order_id', orderId);
                 fd.append('status', 'Cancelled');
-                fd.append('cancel_reason', reason);
+                fd.append('cancel_reason', 'Cancelled in-store after discussion with the customer.');
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 const res = await this.parseJsonResponse(
                     await fetch(this.staffApiUrl('update_order_status_process.php'), {
