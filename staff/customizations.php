@@ -216,9 +216,29 @@ if (!function_exists('printflow_pos_customization_status_bucket')) {
     }
 }
 
+if (!function_exists('printflow_online_customization_stage_bucket')) {
+    function printflow_online_customization_stage_bucket(string $status): string {
+        $normalized = strtoupper(trim($status));
+        if (in_array($normalized, ['REJECTED', 'CANCELLED'], true)) {
+            return 'CLOSED';
+        }
+        if (in_array($normalized, ['COMPLETED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'], true)) {
+            return 'PRODUCTION';
+        }
+        if (in_array($normalized, ['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)) {
+            return 'PAYMENT';
+        }
+        return 'INQUIRY';
+    }
+}
+
 $pos_pending_count = 0;
 $pos_completed_count = 0;
 $pos_cancelled_count = 0;
+$online_inquiry_count = 0;
+$online_payment_count = 0;
+$online_production_count = 0;
+$online_closed_count = 0;
 if ($isPosCustomizationView) {
     foreach ($preloaded_customization_rows as $row) {
         $bucket = printflow_pos_customization_status_bucket((string)($row['status'] ?? 'PENDING'));
@@ -228,6 +248,19 @@ if ($isPosCustomizationView) {
             $pos_cancelled_count++;
         } else {
             $pos_pending_count++;
+        }
+    }
+} else {
+    foreach ($preloaded_customization_rows as $row) {
+        $bucket = printflow_online_customization_stage_bucket((string)($row['status'] ?? 'PENDING'));
+        if ($bucket === 'PAYMENT') {
+            $online_payment_count++;
+        } elseif ($bucket === 'PRODUCTION') {
+            $online_production_count++;
+        } elseif ($bucket === 'CLOSED') {
+            $online_closed_count++;
+        } else {
+            $online_inquiry_count++;
         }
     }
 }
@@ -1202,23 +1235,30 @@ if ($showLatestCustomizationOnly) {
                 <?php else: ?>
                 <div class="kpi-card amber">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Pending Approval</span>
-                        <span class="kpi-value"><?php echo number_format($pending_jobs); ?></span>
-                        <span class="kpi-sub">Awaiting review</span>
+                        <span class="kpi-label">Inquiry &amp; Design</span>
+                        <span class="kpi-value"><?php echo number_format($online_inquiry_count); ?></span>
+                        <span class="kpi-sub">Review, revisions, materials, pricing</span>
                     </span>
                 </div>
                 <div class="kpi-card blue">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Approved</span>
-                        <span class="kpi-value"><?php echo number_format($approval_jobs); ?></span>
-                        <span class="kpi-sub">Ready for production</span>
+                        <span class="kpi-label">Payment</span>
+                        <span class="kpi-value"><?php echo number_format($online_payment_count); ?></span>
+                        <span class="kpi-sub">To pay and for verification</span>
                     </span>
                 </div>
                 <div class="kpi-card emerald">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">In Production</span>
-                        <span class="kpi-value"><?php echo number_format($in_production); ?></span>
-                        <span class="kpi-sub">Active task tracks</span>
+                        <span class="kpi-label">Production</span>
+                        <span class="kpi-value"><?php echo number_format($online_production_count); ?></span>
+                        <span class="kpi-sub">Printing, pickup, completed</span>
+                    </span>
+                </div>
+                <div class="kpi-card indigo">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Closed</span>
+                        <span class="kpi-value"><?php echo number_format($online_closed_count); ?></span>
+                        <span class="kpi-sub">Rejected or cancelled</span>
                     </span>
                 </div>
                 <?php endif; ?>
@@ -1335,6 +1375,24 @@ if ($showLatestCustomizationOnly) {
                             <span>ALL</span>
                             <span class="tab-count" x-text="getStatusCount('ALL')"></span>
                         </button>
+                        <?php if (!$isPosCustomizationView): ?>
+                        <button type="button" @click="activeStatus = 'INQUIRY'" :class="activeStatus === 'INQUIRY' ? 'active' : ''" class="pill-tab">
+                            <span>INQUIRY &amp; DESIGN</span>
+                            <span class="tab-count" x-text="getStatusCount('INQUIRY')"></span>
+                        </button>
+                        <button type="button" @click="activeStatus = 'PAYMENT'" :class="activeStatus === 'PAYMENT' ? 'active' : ''" class="pill-tab">
+                            <span>PAYMENT</span>
+                            <span class="tab-count" x-text="getStatusCount('PAYMENT')"></span>
+                        </button>
+                        <button type="button" @click="activeStatus = 'PRODUCTION'" :class="activeStatus === 'PRODUCTION' ? 'active' : ''" class="pill-tab">
+                            <span>PRODUCTION</span>
+                            <span class="tab-count" x-text="getStatusCount('PRODUCTION')"></span>
+                        </button>
+                        <button type="button" @click="activeStatus = 'CLOSED'" :class="activeStatus === 'CLOSED' ? 'active' : ''" class="pill-tab">
+                            <span>CLOSED</span>
+                            <span class="tab-count" x-text="getStatusCount('CLOSED')"></span>
+                        </button>
+                        <?php else: ?>
                         <button type="button" @click="activeStatus = 'PENDING'" :class="activeStatus === 'PENDING' ? 'active' : ''" class="pill-tab">
                             <span>PENDING</span>
                             <span class="tab-count" x-text="getStatusCount('PENDING')"></span>
@@ -1343,36 +1401,11 @@ if ($showLatestCustomizationOnly) {
                             <span>COMPLETED</span>
                             <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
-                        <?php if (!$isPosCustomizationView): ?>
-                        <button type="button" @click="activeStatus = 'APPROVED'" :class="activeStatus === 'APPROVED' ? 'active' : ''" class="pill-tab">
-                            <span>APPROVED</span>
-                            <span class="tab-count" x-text="getStatusCount('APPROVED')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'TO_PAY'" :class="activeStatus === 'TO_PAY' ? 'active' : ''" class="pill-tab">
-                            <span>TO PAY</span>
-                            <span class="tab-count" x-text="getStatusCount('TO_PAY')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'TO_VERIFY'" :class="activeStatus === 'TO_VERIFY' ? 'active' : ''" class="pill-tab">
-                            <span>TO VERIFY</span>
-                            <span class="tab-count" x-text="getStatusCount('TO_VERIFY')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'IN_PRODUCTION'" :class="activeStatus === 'IN_PRODUCTION' ? 'active' : ''" class="pill-tab">
-                            <span>IN PRODUCTION</span>
-                            <span class="tab-count" x-text="getStatusCount('IN_PRODUCTION')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'TO_RECEIVE'" :class="activeStatus === 'TO_RECEIVE' ? 'active' : ''" class="pill-tab">
-                            <span>TO PICKUP</span>
-                            <span class="tab-count" x-text="getStatusCount('TO_RECEIVE')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'REJECTED'" :class="activeStatus === 'REJECTED' ? 'active' : ''" class="pill-tab">
-                            <span>REJECTED</span>
-                            <span class="tab-count" x-text="getStatusCount('REJECTED')"></span>
-                        </button>
-                        <?php endif; ?>
                         <button type="button" @click="activeStatus = 'CANCELLED'" :class="activeStatus === 'CANCELLED' ? 'active' : ''" class="pill-tab">
                             <span>CANCELLED</span>
                             <span class="tab-count" x-text="getStatusCount('CANCELLED')"></span>
                         </button>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -2281,7 +2314,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             ...printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
             }),
-            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'PENDING', 'APPROVED', 'TO_PAY', 'TO_VERIFY', 'IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'REJECTED', 'CANCELLED']"; ?>,
+            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             currentPage: 1,
             itemsPerPage: 15,
@@ -3448,15 +3481,24 @@ window.pfCustomizationPreloadedOrders = (() => {
                             'CANCELLED': 'CANCELLED'
                         }
                         : {
-                            'TO_VERIFY': 'TO_VERIFY',
-                            'PENDING_VERIFICATION': 'TO_VERIFY',
-                            'DOWNPAYMENT_SUBMITTED': 'TO_VERIFY',
-                            'VERIFY_PAY': 'TO_VERIFY',
-                            'TO_PAY': 'TO_PAY',
-                            'PENDING': 'PENDING',
-                            'PENDING_REVIEW': 'PENDING',
-                            'APPROVED': 'APPROVED',
-                            'PROCESSING': 'IN_PRODUCTION'
+                            'PENDING': 'INQUIRY',
+                            'PENDING_REVIEW': 'INQUIRY',
+                            'PENDING_APPROVAL': 'INQUIRY',
+                            'FOR_REVISION': 'INQUIRY',
+                            'APPROVED': 'INQUIRY',
+                            'TO_PAY': 'PAYMENT',
+                            'TO_VERIFY': 'PAYMENT',
+                            'PENDING_VERIFICATION': 'PAYMENT',
+                            'DOWNPAYMENT_SUBMITTED': 'PAYMENT',
+                            'VERIFY_PAY': 'PAYMENT',
+                            'IN_PRODUCTION': 'PRODUCTION',
+                            'PROCESSING': 'PRODUCTION',
+                            'PRINTING': 'PRODUCTION',
+                            'TO_RECEIVE': 'PRODUCTION',
+                            'READY_TO_COLLECT': 'PRODUCTION',
+                            'COMPLETED': 'PRODUCTION',
+                            'REJECTED': 'CLOSED',
+                            'CANCELLED': 'CLOSED'
                         };
                     const mapped = statusMap[initialStatus.toUpperCase().replace(/\s+/g, '_')] || initialStatus;
                     if (this.statuses.includes(mapped)) {
@@ -3466,7 +3508,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.activeStatus = 'ALL';
                     }
                 } else if (returnToPOS && sourceOrderId) {
-                    this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'APPROVED';
+                    this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'INQUIRY';
                 }
 
                 if (orderId) {
@@ -3717,10 +3759,22 @@ window.pfCustomizationPreloadedOrders = (() => {
             isPosWalkInPending(jo) {
                 return this.isPosSimplifiedView && this.isPosWalkInSource(jo) && this.getPosWalkInBucket(jo) === 'PENDING';
             },
+            getOnlineStageBucket(row) {
+                if (!row) return 'INQUIRY';
+                const s = String(row.status || '').toUpperCase().replace(/\s+/g, '_');
+                if (s === 'REJECTED' || s === 'CANCELLED') return 'CLOSED';
+                if (['COMPLETED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'PRODUCTION';
+                if (['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
+                return 'INQUIRY';
+            },
             matchesStatusTab(jo, status) {
                 if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
                     if (status === 'ALL') return true;
                     return this.getPosWalkInBucket(jo) === status;
+                }
+                if (!this.isPosSimplifiedView) {
+                    if (status === 'ALL') return true;
+                    return this.getOnlineStageBucket(jo) === status;
                 }
                 if (status === 'ALL') return true;
                 if (status === 'APPROVED') return jo.status === 'APPROVED';
@@ -4160,7 +4214,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         res = await this.parseJsonResponse(r);
                     }
                     if (res.success) {
-                        this.activeStatus = 'IN_PRODUCTION';
+                        this.activeStatus = this.isPosSimplifiedView ? 'IN_PRODUCTION' : 'PRODUCTION';
                         await this.loadOrders();
                         await this.loadAllInventoryItems();
                         this.currentJo.status = 'IN_PRODUCTION';
@@ -4244,7 +4298,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         res = await this.parseJsonResponse(r);
                     }
                     if (res.success) {
-                        this.activeStatus = 'REJECTED';
+                        this.activeStatus = this.isPosSimplifiedView ? 'REJECTED' : 'CLOSED';
                         await this.loadOrders();
                         this.currentJo.status = 'REJECTED';
                         const currentOrderId = this.currentJo.order_id ?? null;
@@ -4485,7 +4539,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
                                 return;
                             }
-                            this.activeStatus = targetTab;
+                            this.activeStatus = this.isPosSimplifiedView ? targetTab : 'PAYMENT';
                             await this.loadOrders();
                             this.showStaffAlert('Success', successMessage);
                         } else {
