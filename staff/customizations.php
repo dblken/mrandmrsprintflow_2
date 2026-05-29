@@ -1257,6 +1257,13 @@ if ($showLatestCustomizationOnly) {
                         <span class="kpi-sub">Printing, pickup, completed</span>
                     </span>
                 </div>
+                <div class="kpi-card rose">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Closed</span>
+                        <span class="kpi-value"><?php echo number_format($online_closed_count); ?></span>
+                        <span class="kpi-sub">Rejected or cancelled</span>
+                    </span>
+                </div>
                 <?php endif; ?>
             </div>
 
@@ -1392,13 +1399,9 @@ if ($showLatestCustomizationOnly) {
                             <span>COMPLETED</span>
                             <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
-                        <button type="button" @click="activeStatus = 'REJECTED'" :class="activeStatus === 'REJECTED' ? 'active' : ''" class="pill-tab">
-                            <span>REJECTED</span>
-                            <span class="tab-count" x-text="getStatusCount('REJECTED')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'CANCELLED'" :class="activeStatus === 'CANCELLED' ? 'active' : ''" class="pill-tab">
-                            <span>CANCELLED</span>
-                            <span class="tab-count" x-text="getStatusCount('CANCELLED')"></span>
+                        <button type="button" @click="activeStatus = 'CLOSED'" :class="activeStatus === 'CLOSED' ? 'active' : ''" class="pill-tab">
+                            <span>CLOSED</span>
+                            <span class="tab-count" x-text="getStatusCount('CLOSED')"></span>
                         </button>
                         <?php else: ?>
                         <button type="button" @click="activeStatus = 'PENDING'" :class="activeStatus === 'PENDING' ? 'active' : ''" class="pill-tab">
@@ -2322,7 +2325,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             ...printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
             }),
-            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'REJECTED', 'CANCELLED']"; ?>,
+            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             currentPage: 1,
             itemsPerPage: 15,
@@ -3784,8 +3787,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (status === 'ALL') return true;
                     if (status === 'TO_RECEIVE') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'TO_RECEIVE' || String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'READY_TO_COLLECT';
                     if (status === 'COMPLETED') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'COMPLETED';
-                    if (status === 'REJECTED') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'REJECTED';
-                    if (status === 'CANCELLED') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'CANCELLED';
+                    if (status === 'CLOSED') {
+                        const normalizedStatus = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
+                        return normalizedStatus === 'REJECTED' || normalizedStatus === 'CANCELLED';
+                    }
                     return this.getOnlineStageBucket(jo) === status;
                 }
                 if (status === 'ALL') return true;
