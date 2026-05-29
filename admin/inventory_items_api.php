@@ -11,6 +11,9 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/inventory_stock_status.php';
+
+printflow_ensure_inv_items_threshold_schema();
 
 require_role(['Admin', 'Staff', 'Manager']);
 header('Content-Type: application/json');
@@ -122,7 +125,16 @@ try {
             $track_by_roll = (int)($_POST['track_by_roll'] ?? 0);
             $roll_length = (float)($_POST['roll_length_ft'] ?? 0) ?: null;
             $min_stock = (float)($_POST['min_stock_level'] ?? 0);
-            if ($min_stock < 0) $errors['min_stock_level'] = 'Reorder level cannot be negative.';
+            $critical_stock = (float)($_POST['critical_level'] ?? 0);
+            if ($min_stock < 1 || $min_stock > 10000) {
+                $errors['min_stock_level'] = 'Reorder level must be between 1 and 10,000.';
+            }
+            if ($critical_stock < 1 || $critical_stock > 10000) {
+                $errors['critical_level'] = 'Critical level must be between 1 and 10,000.';
+            }
+            if (empty($errors) && $critical_stock > $min_stock) {
+                $errors['critical_level'] = 'Critical level must be less than or equal to the reorder level.';
+            }
 
             $unit_cost = (float)($_POST['unit_cost'] ?? 0);
             if ($unit_cost <= 0) $errors['unit_cost'] = 'Unit cost must be greater than 0.';
@@ -142,18 +154,18 @@ try {
 
             if ($isUpdate) {
                 $status = in_array(sanitize($_POST['status'] ?? ''), ['ACTIVE', 'INACTIVE']) ? sanitize($_POST['status']) : 'ACTIVE';
-                $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, status=?, unit_cost=? WHERE id=?";
+                $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, status=?, unit_cost=? WHERE id=?";
                 global $conn;
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("isssiddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $status, $unit_cost, $id);
+                $stmt->bind_param("isssidddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $critical_stock, $status, $unit_cost, $id);
                 if (!$stmt->execute()) throw new Exception("Update failed: " . $stmt->error);
                 $stmt->close();
                 echo json_encode(['success' => true]);
             } else {
-                $sql = "INSERT INTO inv_items (category_id, sku, name, unit_of_measure, track_by_roll, default_roll_length_ft, reorder_level, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                $sql = "INSERT INTO inv_items (category_id, sku, name, unit_of_measure, track_by_roll, default_roll_length_ft, reorder_level, critical_level, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 global $conn;
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("isssiddd", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $unit_cost);
+                $stmt->bind_param("isssiddddd", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $critical_stock, $unit_cost);
                 if (!$stmt->execute()) throw new Exception("Create failed: " . $stmt->error);
                 $itemId = $stmt->insert_id;
                 $stmt->close();

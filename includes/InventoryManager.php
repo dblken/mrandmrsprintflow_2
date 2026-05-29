@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/inventory_stock_status.php';
 
 class InventoryManager {
     private static $branchSchemaEnsured = false;
@@ -230,14 +231,18 @@ class InventoryManager {
 
         $result = self::recordTransaction($itemId, 'OUT', $quantity, $uom ?: $item['unit_of_measure'], $refType, $refId, null, $notes, null, null, $branchId);
 
-        // Fire a low-stock push notification when SOH drops to or below the reorder level
-        if ($result && !empty($item['reorder_level']) && (float)$item['reorder_level'] > 0) {
+        // Fire stock alerts when SOH crosses critical or reorder thresholds
+        if ($result && function_exists('notify_shop_users')) {
             $newSoh = self::getStockOnHand($itemId, $branchId);
-            if ($newSoh <= (float)$item['reorder_level']) {
-                if (function_exists('notify_shop_users')) {
-                    $msg = "Low stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (reorder at {$item['reorder_level']})";
-                    notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
-                }
+            $reorder = printflow_item_reorder_level($item);
+            $critical = printflow_item_critical_level($item);
+            $status = printflow_resolve_stock_status($newSoh, $reorder, $critical);
+            if ($status['key'] === 'critical' || $status['key'] === 'out') {
+                $msg = "Critical stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (critical at {$critical})";
+                notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
+            } elseif ($status['key'] === 'low') {
+                $msg = "Low stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (reorder at {$reorder})";
+                notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
             }
         }
 

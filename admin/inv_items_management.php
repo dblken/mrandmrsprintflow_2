@@ -4,8 +4,10 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
+require_once __DIR__ . '/../includes/inventory_stock_status.php';
 
 require_role(['Admin', 'Manager']);
+printflow_ensure_inv_items_threshold_schema();
 // Ensure $base_path is defined
 if (!isset($base_path)) {
     if (file_exists(__DIR__ . '/../config.php')) {
@@ -44,7 +46,7 @@ $sort     = $_GET['sort'] ?? 'id';
 $dir      = strtoupper($_GET['dir'] ?? 'DESC') === 'DESC' ? 'DESC' : 'ASC';
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $track_by = isset($_GET['track_by_roll']) && $_GET['track_by_roll'] !== '' ? (int)$_GET['track_by_roll'] : null;
-$stock_status = trim($_GET['stock_status'] ?? ''); // 'low', 'out', 'in'
+$stock_status = trim($_GET['stock_status'] ?? ''); // 'in', 'low', 'critical', 'out'
 $per_page = 15;
 
 // Inventory Archive/Restore (AJAX)
@@ -158,11 +160,12 @@ if ($stock_status) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
         
         $stock = (float)$item['current_stock'];
-        $reorder = (float)$item['reorder_level'];
-        
-        if ($stock_status === 'out' && $stock > 0) continue;
-        if ($stock_status === 'low' && ($stock <= 0 || $stock > $reorder)) continue;
-        if ($stock_status === 'in' && ($stock <= 0 || $stock <= $reorder)) continue;
+        $reorder = printflow_item_reorder_level($item);
+        $critical = printflow_item_critical_level($item);
+        $status = printflow_resolve_stock_status($stock, $reorder, $critical);
+        if (!printflow_stock_matches_filter($status, $stock_status)) {
+            continue;
+        }
         
         $filtered_items[] = $item;
     }
@@ -219,22 +222,19 @@ if (isset($_GET['ajax'])) {
     <?php else: 
         foreach ($items as $item): 
             $stock = (float)$item['current_stock'];
-            $minStock = (float)$item['reorder_level'];
-            $isOut = $stock <= 0;
-            $isLow = !$isOut && $stock <= $minStock;
-            
-            $stockColor = '#1f2937';
-            if ($isOut) $stockColor = '#991b1b';
-            else if ($isLow) $stockColor = '#d97706';
+            $reorder = printflow_item_reorder_level($item);
+            $critical = printflow_item_critical_level($item);
+            $status = printflow_resolve_stock_status($stock, $reorder, $critical);
+            $stockColor = $status['text_color'];
             
             $trackBadge = $item['track_by_roll'] == 1
                 ? '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;">Roll-Based</span>'
                 : '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#f3f4f6;color:#4b5563;">Standard</span>';
             
-            $statusBadge = ($isLow && !$isOut) ? '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;margin-left:8px;">Low Stock</span>' : '';
+            $statusBadge = printflow_stock_status_badge_html($status);
             $inactiveBadge = $item['status'] === 'INACTIVE' ? '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#f3f4f6;color:#6b7280;margin-left:6px;">Inactive</span>' : '';
     ?>
-            <tr class="<?php echo ($isOut || $isLow) ? 'low-stock-row' : ''; ?>" style="cursor:pointer;" onclick="openStockCard(<?php echo $item['id']; ?>)">
+            <tr class="<?php echo htmlspecialchars($status['row_class'], ENT_QUOTES, 'UTF-8'); ?>" style="cursor:pointer;" onclick="openStockCard(<?php echo $item['id']; ?>)">
                 <td style="font-weight:500;text-transform:capitalize;"><?php echo htmlspecialchars($item['name']); ?><?php echo $statusBadge . $inactiveBadge; ?></td>
                 <?php
                     $catDispRaw = (string)($item['category_name'] ?? '');
@@ -720,6 +720,7 @@ if (isset($_GET['ajax'])) {
                                         <option value="">All Stock Levels</option>
                                         <option value="in" <?php echo ($stock_status === 'in') ? 'selected' : ''; ?>>In Stock</option>
                                         <option value="low" <?php echo ($stock_status === 'low') ? 'selected' : ''; ?>>Low Stock</option>
+                                        <option value="critical" <?php echo ($stock_status === 'critical') ? 'selected' : ''; ?>>Critical</option>
                                         <option value="out" <?php echo ($stock_status === 'out') ? 'selected' : ''; ?>>Out of Stock</option>
                                     </select>
                                 </div>
@@ -760,25 +761,22 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($items as $item): 
                                     $stock = (float)$item['current_stock'];
-                                    $minStock = (float)$item['reorder_level'];
-                                    $isOut = $stock <= 0;
-                                    $isLow = !$isOut && $stock <= $minStock;
+                                    $reorder = printflow_item_reorder_level($item);
+                                    $critical = printflow_item_critical_level($item);
+                                    $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
                                     $displayTrackByRoll = (int)($item['track_by_roll'] ?? 0);
-                                    
-                                    $stockColor = '#1f2937';
-                                    if ($isOut) $stockColor = '#991b1b';
-                                    else if ($isLow) $stockColor = '#d97706';
+                                    $stockColor = $status['text_color'];
                                     
                                     $trackBadge = $displayTrackByRoll == 1
                                         ? '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#eef2ff;color:#4338ca;">Roll-Based</span>'
                                         : '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#f3f4f6;color:#4b5563;">Standard</span>';
                                     
-                                    $statusBadge = ($isLow && !$isOut) ? '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;margin-left:8px;">Low Stock</span>' : '';
+                                    $statusBadge = printflow_stock_status_badge_html($status);
                                     $inactiveBadge = $item['status'] === 'INACTIVE' ? '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#f3f4f6;color:#6b7280;margin-left:6px;">Inactive</span>' : '';
                                 ?>
-                                    <tr class="<?php echo ($isOut || $isLow) ? 'low-stock-row' : ''; ?>" style="cursor:pointer;" onclick="openStockCard(<?php echo $item['id']; ?>)">
+                                    <tr class="<?php echo htmlspecialchars($status['row_class'], ENT_QUOTES, 'UTF-8'); ?>" style="cursor:pointer;" onclick="openStockCard(<?php echo $item['id']; ?>)">
                                         <td class="truncate" style="font-weight:500;text-transform:capitalize;" title="<?php echo htmlspecialchars($item['name']); ?>">
                                             <?php echo htmlspecialchars($item['name']); ?><?php echo $statusBadge . $inactiveBadge; ?>
                                         </td>
@@ -959,7 +957,11 @@ if (isset($_GET['ajax'])) {
                 <div class="sc-card-label" style="font-size:11px; font-weight:700; color:#15803d; text-transform:uppercase; letter-spacing:0.05em;">Reorder Level</div>
                 <div class="sc-card-value" id="scMinStock" style="font-size:20px; font-weight:800; color:#166534;">0</div>
             </div>
-            <div class="sc-card" id="scStatusCard" style="border:1px solid; display:none; flex-direction:column; justify-content:center;">
+            <div class="sc-card" style="background:#fef2f2; border:1px solid #fecaca;">
+                <div class="sc-card-label" style="font-size:11px; font-weight:700; color:#991b1b; text-transform:uppercase; letter-spacing:0.05em;">Critical Level</div>
+                <div class="sc-card-value" id="scCriticalStock" style="font-size:20px; font-weight:800; color:#991b1b;">0</div>
+            </div>
+            <div class="sc-card" id="scStatusCard" style="border:1px solid; display:flex; flex-direction:column; justify-content:center;">
                 <div class="sc-card-label" style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Stock Status</div>
                 <div class="sc-card-value" id="scStatusText" style="font-size:16px; font-weight:700;">&mdash;</div>
             </div>
@@ -1128,7 +1130,7 @@ if (isset($_GET['ajax'])) {
                         <span id="err-itemUnitCost" class="field-error"></span>
                     </div>
                 </div>
-                <div class="form-row-grid" style="grid-template-columns: 1.2fr 1fr 1fr; gap:16px;">
+                <div class="form-row-grid" style="grid-template-columns: 1.2fr 1fr 1fr 1fr; gap:16px;">
                     <div>
                         <label for="itemTrackByRoll">Tracking Mode <span id="autoTagTrack" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
                         <select id="itemTrackByRoll" name="track_by_roll" class="w-100 locked-select">
@@ -1138,12 +1140,19 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div>
                         <label for="itemMinStock">Reorder Level <span style="color:#ef4444">*</span></label>
-                        <input type="number" step="0.01" min="0" id="itemMinStock" name="min_stock_level" value="0.00" required class="w-100">
+                        <input type="number" step="1" min="1" id="itemMinStock" name="min_stock_level" value="1" required class="w-100" title="Warning threshold for restocking (suggested: 20% of quantity)">
+                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Suggested: 20% of quantity (min 1). Editable.</p>
                         <span id="err-itemMinStock" class="field-error"></span>
                     </div>
-                    <div id="previewStatusSection" style="display:none !important;">
-                        <label>Preview Status</label>
-                        <div id="editModalReorderPreview" class="preview-badge" style="height:38px; display:flex; align-items:center; justify-content:center; padding:0 12px; font-weight:600;">In Stock</div>
+                    <div>
+                        <label for="itemCriticalStock">Critical Level <span style="color:#ef4444">*</span></label>
+                        <input type="number" step="1" min="1" id="itemCriticalStock" name="critical_level" value="1" required class="w-100" title="Emergency threshold for urgent replenishment (suggested: 5% of quantity)">
+                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Suggested: 5% of quantity (min 1). Editable.</p>
+                        <span id="err-itemCriticalStock" class="field-error"></span>
+                    </div>
+                    <div id="previewStatusSection">
+                        <label>Stock Status Preview</label>
+                        <div id="editModalReorderPreview" class="preview-badge" style="min-height:38px; display:flex; align-items:center; justify-content:center; padding:0 12px; font-weight:600; border:1px solid #e5e7eb; border-radius:8px;">No stock added yet.</div>
                     </div>
                 </div>
             </div>
@@ -1151,11 +1160,14 @@ if (isset($_GET['ajax'])) {
             <!-- Alerts Section -->
             <div id="reorderAlertsGroup" class="modal-section" style="margin-top:-24px; margin-bottom: 16px;">
                 <div class="form-col-full">
-                    <p style="font-size:11px; color:#6b7280; margin-bottom:4px;">You will be warned when stock reaches the Reorder Level.</p>
+                    <p style="font-size:11px; color:#6b7280; margin-bottom:4px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds update in real time as quantity changes.</p>
                     <div id="editModalReorderWarnHigh" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; This may mark your stock as low immediately</div>
                     <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; You may run out of stock before being warned</div>
                     <div id="editModalReorderWarnInitialBelow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; Current stock is below the reorder level.</div>
-                    <div id="editModalReorderError" style="display:none; font-size:11px; color:#dc2626; margin-top:2px;">Please enter a value between 0.01 and 10,000</div>
+                    <div id="editModalCriticalWarnAboveReorder" style="display:none; font-size:11px; color:#991b1b; background:#fef2f2; padding:8px 12px; border-radius:8px; border:1px solid #fecaca;">Critical level should be less than or equal to the reorder level.</div>
+                    <div id="editModalNoStockYet" style="display:none; font-size:11px; color:#6b7280; background:#f3f4f6; padding:8px 12px; border-radius:8px; border:1px solid #e5e7eb;">No stock added yet.</div>
+                    <div id="editModalReorderError" style="display:none; font-size:11px; color:#dc2626; margin-top:2px;">Please enter a whole number between 1 and 10,000</div>
+                    <div id="editModalCriticalError" style="display:none; font-size:11px; color:#dc2626; margin-top:2px;">Please enter a whole number between 1 and 10,000</div>
                 </div>
             </div>
 
@@ -1264,6 +1276,84 @@ if (isset($_GET['ajax'])) {
     var usageChart = null;
     var selectedItemForStockCard = null;
     var editItemOriginalValues = {};
+    var thresholdManualEdit = { reorder: false, critical: false };
+
+    function pfSuggestReorderLevel(qty) {
+        var q = Math.max(0, Number(qty) || 0);
+        return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.20));
+    }
+
+    function pfSuggestCriticalLevel(qty) {
+        var q = Math.max(0, Number(qty) || 0);
+        return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.05));
+    }
+
+    function pfEffectiveCriticalLevel(item) {
+        var stored = parseFloat(item?.critical_level);
+        if (Number.isFinite(stored) && stored >= 1) return stored;
+        var reorder = parseFloat(item?.reorder_level);
+        if (Number.isFinite(reorder) && reorder >= 1) return Math.max(1, Math.ceil(reorder * 0.25));
+        return 1;
+    }
+
+    function pfResolveStockStatus(quantity, reorderLevel, criticalLevel, isNewItemWithoutStock) {
+        var qty = Math.max(0, Number(quantity) || 0);
+        var reorder = Math.max(1, Number(reorderLevel) || 1);
+        var critical = Math.max(1, Math.min(Number(criticalLevel) || 1, reorder));
+
+        if (isNewItemWithoutStock && qty <= 0) {
+            return {
+                key: 'no_stock_yet',
+                label: 'No stock added yet.',
+                textColor: '#6b7280',
+                bgColor: '#f3f4f6',
+                borderColor: '#e5e7eb',
+                rowClass: ''
+            };
+        }
+        if (qty <= 0) {
+            return { key: 'out', label: 'Out of Stock', textColor: '#7f1d1d', bgColor: '#f3f4f6', borderColor: '#d1d5db', rowClass: 'low-stock-row stock-status-out' };
+        }
+        if (qty <= critical) {
+            return { key: 'critical', label: 'Critical', textColor: '#991b1b', bgColor: '#fef2f2', borderColor: '#fecaca', rowClass: 'low-stock-row stock-status-critical' };
+        }
+        if (qty <= reorder) {
+            return { key: 'low', label: 'Low Stock', textColor: '#92400e', bgColor: '#fef3c7', borderColor: '#fde68a', rowClass: 'low-stock-row stock-status-low' };
+        }
+        return { key: 'in', label: 'In Stock', textColor: '#166534', bgColor: '#dcfce7', borderColor: '#bbf7d0', rowClass: 'stock-status-in' };
+    }
+
+    function pfGetModalReferenceQuantity() {
+        var actionTypeEl = document.getElementById('actionType');
+        var isEdit = actionTypeEl && actionTypeEl.value === 'update_item';
+        if (isEdit) {
+            return Math.max(0, parseFloat(selectedItemForStockCard?.current_stock || 0));
+        }
+        var uom = (document.getElementById('itemUnit')?.value || 'pcs').toLowerCase();
+        if (uom === 'ft') {
+            var method = getStockInputMethod();
+            if (method === 'rolls') {
+                var rolls = parseFloat(document.getElementById('startingRolls')?.value || 0);
+                var rollLen = parseFloat(document.getElementById('itemRollLength')?.value || 0);
+                if (rolls > 0 && rollLen > 0) return rolls * rollLen;
+            }
+            return Math.max(0, parseFloat(document.getElementById('startingFeet')?.value || document.getElementById('itemStartingStock')?.value || 0));
+        }
+        return Math.max(0, parseFloat(document.getElementById('itemStartingStock')?.value || 0));
+    }
+
+    function pfApplySuggestedThresholds(force) {
+        var refQty = pfGetModalReferenceQuantity();
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        if (!reorderEl || !criticalEl) return;
+        if (force || !thresholdManualEdit.reorder) {
+            reorderEl.value = String(pfSuggestReorderLevel(refQty));
+        }
+        if (force || !thresholdManualEdit.critical) {
+            criticalEl.value = String(pfSuggestCriticalLevel(refQty));
+        }
+    }
     var currentPage = <?php echo $page; ?>;
     var currentIsTarpaulinCategory = false;
     var currentSort = '<?php echo $sort; ?>';
@@ -1323,12 +1413,19 @@ if (isset($_GET['ajax'])) {
             addStockUnitCost.addEventListener('input', updateAddStockUI);
             addStockUnitCost.addEventListener('change', updateAddStockUI);
         }
-        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
+        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemCriticalStock', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el && !el._pf_bound) {
                 el._pf_bound = true;
                 var eventType = (el.tagName === 'SELECT') ? 'change' : 'input';
-                el.addEventListener(eventType, function () { validateField(id); });
+                el.addEventListener(eventType, function () {
+                    if (id === 'itemMinStock') thresholdManualEdit.reorder = true;
+                    if (id === 'itemCriticalStock') thresholdManualEdit.critical = true;
+                    if (id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet' || id === 'itemRollLength') {
+                        pfApplySuggestedThresholds(false);
+                    }
+                    validateField(id);
+                });
                 if (id === 'itemName') el.addEventListener('input', handleItemNameInput);
             }
         });
@@ -1451,9 +1548,18 @@ if (isset($_GET['ajax'])) {
                 else if (cost > 1000000) { msg = 'Unit cost is too high (max 1M).'; isValid = false; }
                 break;
             case 'itemMinStock':
-                const min = parseFloat(val);
-                if (isNaN(min)) { msg = 'Reorder level is required.'; isValid = false; }
-                else if (min < 0) { msg = 'Reorder level cannot be negative.'; isValid = false; }
+                if (!isWholeNumberLike(val)) { msg = 'Reorder level must be a whole number (min 1).'; isValid = false; }
+                else {
+                    const min = Number(val);
+                    if (!Number.isFinite(min) || min < 1 || min > 10000) { msg = 'Reorder level must be between 1 and 10,000.'; isValid = false; }
+                }
+                break;
+            case 'itemCriticalStock':
+                if (!isWholeNumberLike(val)) { msg = 'Critical level must be a whole number (min 1).'; isValid = false; }
+                else {
+                    const crit = Number(val);
+                    if (!Number.isFinite(crit) || crit < 1 || crit > 10000) { msg = 'Critical level must be between 1 and 10,000.'; isValid = false; }
+                }
                 break;
             case 'itemStartingStock':
                 if (!val) { msg = 'Initial stock is required.'; isValid = false; }
@@ -1498,7 +1604,7 @@ if (isset($_GET['ajax'])) {
 
         updateValidationUI(id, isValid, msg);
         updateSaveButtonState();
-        if (id === 'itemMinStock' || id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
+        if (id === 'itemMinStock' || id === 'itemCriticalStock' || id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
             updateEditModalUI();
         }
         return isValid;
@@ -1523,7 +1629,7 @@ if (isset($_GET['ajax'])) {
     }
 
     function updateSaveButtonState() {
-        const baseFields = ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock'];
+        const baseFields = ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemCriticalStock'];
         let allValid = true;
 
         baseFields.forEach(id => {
@@ -1710,32 +1816,22 @@ if (isset($_GET['ajax'])) {
         selectedItemForStockCard = item;
         
         const stock = parseFloat(item.current_stock || 0);
-        const reorder = parseFloat(item.reorder_level || 0);
+        const reorder = Math.max(1, parseFloat(item.reorder_level || 1));
+        const critical = pfEffectiveCriticalLevel(item);
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
-        
-        // Stock status (computed dynamically)
-        let statusText, statusBg, statusColor, statusBorder;
-        if (stock <= 0) {
-            statusText = 'Out of Stock';
-            statusBg = '#fef2f2'; statusColor = '#991b1b'; statusBorder = '#fecaca';
-        } else if (reorder > 0 && stock <= reorder) {
-            statusText = 'Low Stock';
-            statusBg = '#fef9c3'; statusColor = '#854d0e'; statusBorder = '#fde68a';
-        } else {
-            statusText = 'In Stock';
-            statusBg = '#dcfce7'; statusColor = '#166534'; statusBorder = '#bbf7d0';
-        }
+        const status = pfResolveStockStatus(stock, reorder, critical, false);
         
         document.getElementById('scName').textContent = item.name;
         document.getElementById('scStock').textContent = fmtQty(stock, isPcs);
         document.getElementById('scUnit').textContent = uom;
         document.getElementById('scMinStock').textContent = fmtQty(reorder, isPcs);
-        document.getElementById('scStatusText').textContent = statusText;
-        document.getElementById('scStatusCard').style.background = statusBg;
-        document.getElementById('scStatusCard').style.borderColor = statusBorder;
-        document.getElementById('scStatusCard').querySelector('.sc-card-value').style.color = statusColor;
+        document.getElementById('scCriticalStock').textContent = fmtQty(critical, isPcs);
+        document.getElementById('scStatusText').textContent = status.label;
+        document.getElementById('scStatusCard').style.background = status.bgColor;
+        document.getElementById('scStatusCard').style.borderColor = status.borderColor;
+        document.getElementById('scStatusCard').querySelector('.sc-card-value').style.color = status.textColor;
         
         const rollCard = document.getElementById('scRollCard');
         rollCard.style.display = item.track_by_roll == 1 ? 'block' : 'none';
@@ -1747,20 +1843,24 @@ if (isset($_GET['ajax'])) {
         document.getElementById('scProgressFill').style.width = pct + '%';
         document.getElementById('scProgressText').textContent = fmtQty(stock, isPcs) + ' / ' + fmtQty(reorder, isPcs);
         let progColor = '#10b981';
-        if (stock <= 0) progColor = '#dc2626';
-        else if (reorder > 0 && stock <= reorder) progColor = '#eab308';
+        if (status.key === 'out') progColor = '#6b7280';
+        else if (status.key === 'critical') progColor = '#dc2626';
+        else if (status.key === 'low') progColor = '#f59e0b';
         document.getElementById('scProgressFill').style.background = progColor;
         
         // Status message
         const msgEl = document.getElementById('scStatusMsg');
-        if (stock <= 0) {
-            msgEl.textContent = 'Out of stock. Immediate restocking required';
+        if (status.key === 'out') {
+            msgEl.textContent = 'Out of stock. Immediate restocking required.';
+            msgEl.style.background = '#f3f4f6'; msgEl.style.color = '#7f1d1d'; msgEl.style.border = '1px solid #d1d5db';
+        } else if (status.key === 'critical') {
+            msgEl.textContent = 'Critical stock level. Urgent replenishment required.';
             msgEl.style.background = '#fef2f2'; msgEl.style.color = '#991b1b'; msgEl.style.border = '1px solid #fecaca';
-        } else if (reorder > 0 && stock <= reorder) {
-            msgEl.textContent = 'Stock is getting low. Consider restocking';
-            msgEl.style.background = '#fef9c3'; msgEl.style.color = '#854d0e'; msgEl.style.border = '1px solid #fde68a';
+        } else if (status.key === 'low') {
+            msgEl.textContent = 'Stock is getting low. Consider restocking.';
+            msgEl.style.background = '#fef3c7'; msgEl.style.color = '#92400e'; msgEl.style.border = '1px solid #fde68a';
         } else {
-            msgEl.textContent = 'Stock level is healthy';
+            msgEl.textContent = 'Stock level is healthy.';
             msgEl.style.background = '#dcfce7'; msgEl.style.color = '#166534'; msgEl.style.border = '1px solid #bbf7d0';
         }
         
@@ -1963,6 +2063,8 @@ if (isset($_GET['ajax'])) {
             if (showEq) eqEl.textContent = 'Equivalent to ~' + (rollEq ? rollEq.toFixed(2) : '—') + ' rolls (1 roll = ' + rollLen.toFixed(2) + ' ft)';
         }
 
+        pfApplySuggestedThresholds(false);
+        updateEditModalUI();
         // Real-time: keep Save button state accurate while typing.
         updateSaveButtonState();
     }
@@ -2076,8 +2178,9 @@ if (isset($_GET['ajax'])) {
         // Top info removed
         editItemOriginalValues = {};
         
+        thresholdManualEdit = { reorder: false, critical: false };
         // Clear previous validation states
-        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock'].forEach(id => {
+        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemMinStock', 'itemCriticalStock'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.classList.remove('input-error', 'input-success');
@@ -2097,11 +2200,14 @@ if (isset($_GET['ajax'])) {
             const itemId = document.getElementById('itemId');
             const itemUnitCost = document.getElementById('itemUnitCost');
             const itemMinStock = document.getElementById('itemMinStock');
+            const itemCriticalStock = document.getElementById('itemCriticalStock');
             if (modalTitle) modalTitle.textContent = 'Add New Material';
             if (actionType) actionType.value = 'create_item';
             if (itemId) itemId.value = '';
             if (itemUnitCost) itemUnitCost.value = '0.00';
             if (itemMinStock) itemMinStock.value = '1';
+            if (itemCriticalStock) itemCriticalStock.value = '1';
+            pfApplySuggestedThresholds(true);
             // Smart UOM decides which stock group is visible.
             const startingStockGroup = document.getElementById('startingStockGroup');
             if (startingStockGroup) startingStockGroup.style.display = 'none';
@@ -2110,7 +2216,7 @@ if (isset($_GET['ajax'])) {
             const itemStatus = document.getElementById('itemStatus');
             if (itemStatus) itemStatus.value = 'ACTIVE';
             const previewSection = document.getElementById('previewStatusSection');
-            if (previewSection) previewSection.style.display = 'none';
+            if (previewSection) previewSection.style.display = 'block';
             
             // Lock them by default for new items until category is selected
             const itemUnitEl = document.getElementById('itemUnit');
@@ -2146,6 +2252,8 @@ if (isset($_GET['ajax'])) {
             const status2 = document.getElementById('itemStatus');
             if (track2) track2.value = item.track_by_roll;
             if (minStock2) minStock2.value = item.reorder_level || '1';
+            const critical2 = document.getElementById('itemCriticalStock');
+            if (critical2) critical2.value = item.critical_level || pfEffectiveCriticalLevel(item);
             if (status2) status2.value = item.status;
             const startingStockGroup2 = document.getElementById('startingStockGroup');
             if (startingStockGroup2) startingStockGroup2.style.display = 'none';
@@ -2191,8 +2299,10 @@ if (isset($_GET['ajax'])) {
 
             editItemOriginalValues = {
                 reorder_level: String(item.reorder_level || '0'),
+                critical_level: String(item.critical_level || pfEffectiveCriticalLevel(item)),
                 roll_length: String(item.default_roll_length_ft || '')
             };
+            thresholdManualEdit = { reorder: true, critical: true };
             selectedItemForStockCard = item;
             // Stock info removed from modal top
         }
@@ -2218,21 +2328,28 @@ if (isset($_GET['ajax'])) {
             }
         }
         const minStock = document.getElementById('itemMinStock');
+        const criticalStock = document.getElementById('itemCriticalStock');
         const rollLength = document.getElementById('itemRollLength');
         const reorderVal = parseFloat(minStock?.value || 0);
+        const criticalVal = parseFloat(criticalStock?.value || 0);
         const rollVal = parseFloat(rollLength?.value || 0);
         const currentStock = parseFloat(selectedItemForStockCard?.current_stock || 0);
+        const previewQty = isEdit ? currentStock : pfGetModalReferenceQuantity();
         
         const uom = document.getElementById('itemUnit')?.value || 'pcs';
         const isPcs = (uom || '').toLowerCase() === 'pcs';
         
         let reorderValid = true;
-        const reorderErr = document.getElementById('err-itemMinStock');
+        let criticalValid = true;
+        const reorderErr = document.getElementById('editModalReorderError');
+        const criticalErr = document.getElementById('editModalCriticalError');
         const reorderWarnHigh = document.getElementById('editModalReorderWarnHigh');
         const reorderWarnLow = document.getElementById('editModalReorderWarnLow');
         const reorderWarnInitialBelow = document.getElementById('editModalReorderWarnInitialBelow');
+        const criticalWarnAboveReorder = document.getElementById('editModalCriticalWarnAboveReorder');
+        const noStockYetEl = document.getElementById('editModalNoStockYet');
         
-        if (reorderVal <= 0 || reorderVal > 10000) {
+        if (!Number.isFinite(reorderVal) || reorderVal < 1 || reorderVal > 10000) {
             reorderValid = false;
             if (reorderErr) reorderErr.style.display = 'block';
             if (reorderWarnHigh) reorderWarnHigh.style.display = 'none';
@@ -2241,17 +2358,25 @@ if (isset($_GET['ajax'])) {
         } else {
             if (reorderErr) reorderErr.style.display = 'none';
             if (reorderWarnHigh) reorderWarnHigh.style.display = (isEdit && currentStock > 0 && reorderVal > currentStock) ? 'block' : 'none';
-            // Avoid showing "run out soon" warnings in create mode (it can be misleading).
             if (reorderWarnLow) reorderWarnLow.style.display = (isEdit && reorderVal > 0 && reorderVal < 10) ? 'block' : 'none';
         }
 
-        // Create-mode only warning: if initial stock is below reorder level, warn + highlight, but do NOT block submission.
-        // We compare against itemStartingStock (ft dual input writes the computed total into this hidden field).
+        if (!Number.isFinite(criticalVal) || criticalVal < 1 || criticalVal > 10000) {
+            criticalValid = false;
+            if (criticalErr) criticalErr.style.display = 'block';
+            if (criticalWarnAboveReorder) criticalWarnAboveReorder.style.display = 'none';
+        } else {
+            if (criticalErr) criticalErr.style.display = 'none';
+            if (criticalWarnAboveReorder) criticalWarnAboveReorder.style.display = (criticalVal > reorderVal) ? 'block' : 'none';
+        }
+
         const initialStockRaw = document.getElementById('itemStartingStock')?.value || '0';
         const initialStock = parseFloat(initialStockRaw);
-        const showInitialBelow = (!isEdit && Number.isFinite(initialStock) && initialStock >= 0 && reorderVal > initialStock);
+        const isNewWithoutStock = !isEdit && (!Number.isFinite(previewQty) || previewQty <= 0);
+        const showInitialBelow = (!isEdit && !isNewWithoutStock && Number.isFinite(initialStock) && initialStock > 0 && reorderVal > initialStock);
 
         if (reorderWarnInitialBelow) reorderWarnInitialBelow.style.display = showInitialBelow ? 'block' : 'none';
+        if (noStockYetEl) noStockYetEl.style.display = isNewWithoutStock ? 'block' : 'none';
 
         const startingStockEl = document.getElementById('itemStartingStock');
         const startingRollsEl = document.getElementById('startingRolls');
@@ -2277,29 +2402,11 @@ if (isset($_GET['ajax'])) {
             }
         }
         
-        let statusPreview = '';
-        let badgeStyle = 'background:#f9fafb; color:#374151;';
-        if (reorderVal >= 0) {
-            if (isEdit) {
-                if (currentStock <= 0) {
-                    statusPreview = 'Out of Stock';
-                    badgeStyle = 'background:#fef2f2; color:#991b1b; border-color:#fecaca;';
-                } else if (currentStock <= reorderVal) {
-                    statusPreview = 'Low Stock';
-                    badgeStyle = 'background:#fef9c3; color:#854d0e; border-color:#fde68a;';
-                } else {
-                    statusPreview = 'In Stock';
-                    badgeStyle = 'background:#dcfce7; color:#166534; border-color:#bbf7d0;';
-                }
-            } else {
-                statusPreview = 'In Stock (Initial)';
-                badgeStyle = 'background:#dcfce7; color:#166534; border-color:#bbf7d0;';
-            }
-        }
+        const status = pfResolveStockStatus(previewQty, reorderVal, criticalVal, isNewWithoutStock);
         const previewEl = document.getElementById('editModalReorderPreview');
         if (previewEl) {
-            previewEl.textContent = statusPreview;
-            previewEl.style.cssText = badgeStyle;
+            previewEl.textContent = status.label;
+            previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + status.borderColor + ';border-radius:8px;background:' + status.bgColor + ';color:' + status.textColor + ';';
         }
 
         const status = document.getElementById('itemStatus')?.value;
@@ -2322,15 +2429,19 @@ if (isset($_GET['ajax'])) {
         if (saveBtn) {
             // Let smart numeric validation drive the button, then apply reorder/roll section gating.
             updateSaveButtonState();
-            if (!reorderValid || (rollSectionVisible && !rollValid)) saveBtn.disabled = true;
+            if (!reorderValid || !criticalValid || (rollSectionVisible && !rollValid)) saveBtn.disabled = true;
         }
         
         if (isEdit && editItemOriginalValues && Object.keys(editItemOriginalValues).length) {
             const changes = [];
             const origReorder = parseFloat(editItemOriginalValues.reorder_level || 0);
+            const origCritical = parseFloat(editItemOriginalValues.critical_level || 0);
             if (Math.abs(reorderVal - origReorder) > 0.001) {
                 changes.push('Reorder Level: ' + (origReorder || '0') + ' \u2192 ' + (isPcs ? Math.round(reorderVal) : reorderVal.toFixed(2)));
-                if (statusPreview !== '') changes.push('This will change stock status to ' + statusPreview);
+                if (status.label) changes.push('This will change stock status to ' + status.label);
+            }
+            if (Math.abs(criticalVal - origCritical) > 0.001) {
+                changes.push('Critical Level: ' + (origCritical || '0') + ' \u2192 ' + (isPcs ? Math.round(criticalVal) : criticalVal.toFixed(2)));
             }
             const origRoll = parseFloat(editItemOriginalValues.roll_length || 0);
             if (rollSectionVisible && Math.abs(rollVal - origRoll) > 0.001) {
@@ -3012,7 +3123,7 @@ if (isset($_GET['ajax'])) {
                 if (data.errors) {
                     for (let key in data.errors) {
                         // Map API field names to UI element IDs if different
-                        let idMap = { 'name': 'itemName', 'category_id': 'itemCategory', 'unit': 'itemUnit', 'unit_cost': 'itemUnitCost', 'min_stock_level': 'itemMinStock', 'roll_length_ft': 'itemRollLength' };
+                        let idMap = { 'name': 'itemName', 'category_id': 'itemCategory', 'unit': 'itemUnit', 'unit_cost': 'itemUnitCost', 'min_stock_level': 'itemMinStock', 'critical_level': 'itemCriticalStock', 'roll_length_ft': 'itemRollLength' };
                         const targetId = idMap[key] || key;
                         const errEl = document.getElementById('err-' + targetId);
                         const inputEl = document.getElementById(targetId);

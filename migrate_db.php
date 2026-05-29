@@ -125,6 +125,7 @@ $tables = [
       `default_roll_length_ft` decimal(10,2) DEFAULT NULL,
       `unit_cost` decimal(10,2) DEFAULT '0.00',
       `reorder_level` decimal(10,2) DEFAULT '0.00',
+      `critical_level` decimal(10,2) NOT NULL DEFAULT '1.00',
       `status` varchar(20) DEFAULT 'ACTIVE',
       `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
       `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

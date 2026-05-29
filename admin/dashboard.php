@@ -222,9 +222,11 @@ try {
 try {
     // Requires InventoryManager to get real-time SOH
     require_once __DIR__ . '/../includes/InventoryManager.php';
+    require_once __DIR__ . '/../includes/inventory_stock_status.php';
+    printflow_ensure_inv_items_threshold_schema();
     
     $all_items = db_query(
-        "SELECT i.id, i.name as material_name, i.reorder_level as low_limit, i.unit_of_measure as unit,
+        "SELECT i.id, i.name as material_name, i.reorder_level, i.critical_level, i.unit_of_measure as unit,
                 ic.name as category_name
          FROM inv_items i
          LEFT JOIN inv_categories ic ON i.category_id = ic.id
@@ -235,10 +237,14 @@ try {
     $inventoryBranchId = ($branchId === 'all') ? 0 : (int)$branchId;
     foreach ($all_items as $item) {
         $soh = InventoryManager::getStockOnHand($item['id'], $inventoryBranchId);
-        if ($soh <= $item['low_limit']) {
+        $reorder = printflow_item_reorder_level($item);
+        $critical = printflow_item_critical_level($item);
+        $stockStatus = printflow_resolve_stock_status($soh, $reorder, $critical);
+        if (in_array($stockStatus['key'], ['low', 'critical', 'out'], true)) {
             $item['current_stock'] = $soh;
-            // Calculate ratio so we can sort (lowest relative stock first)
-            $item['ratio'] = $soh / $item['low_limit'];
+            $item['low_limit'] = $reorder;
+            $item['stock_status'] = $stockStatus;
+            $item['ratio'] = $reorder > 0 ? ($soh / $reorder) : 0;
             $low_stock[] = $item;
         }
     }
@@ -1203,14 +1209,14 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         </span>
                         <?php if (!empty($low_stock)):
                             // Check if any item is out of stock (0)
+                            $has_critical = false;
                             $has_out_of_stock = false;
                             foreach ($low_stock as $ls) {
-                                if ((float)$ls['current_stock'] <= 0) {
-                                    $has_out_of_stock = true;
-                                    break;
-                                }
+                                $sk = $ls['stock_status']['key'] ?? '';
+                                if ($sk === 'critical') $has_critical = true;
+                                if ($sk === 'out') $has_out_of_stock = true;
                             }
-                            $stock_filter = $has_out_of_stock ? 'out' : 'low';
+                            $stock_filter = $has_out_of_stock ? 'out' : ($has_critical ? 'critical' : 'low');
                         ?>
                         <a href="<?php echo pf_admin_url('inv_items_management.php', ['stock_status' => $stock_filter]); ?>" style="font-size:13px; font-weight:600; color:#0d9488; text-decoration:none;">See all &rarr;</a>
                         <?php endif; ?>
@@ -1223,9 +1229,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                                 $stock = (float)$ls['current_stock'];
                                 $limit = (float)$ls['low_limit'];
                                 $pct = $limit > 0 ? ($stock / $limit) * 100 : 0;
-                                $barClass = $stock <= 0 ? 'danger' : 'warning';
-                                $statusText = $stock <= 0 ? 'OUT OF STOCK' : 'LOW';
-                                $statusColor = $stock <= 0 ? '#ef4444' : '#d97706';
+                                $st = $ls['stock_status'] ?? printflow_resolve_stock_status($stock, $limit, printflow_item_critical_level($ls));
+                                $barClass = $st['key'] === 'out' ? 'danger' : ($st['key'] === 'critical' ? 'danger' : 'warning');
+                                $statusText = strtoupper($st['label']);
+                                $statusColor = $st['text_color'];
                             ?>
                             <tr>
                                 <td style="font-weight:600;" title="<?php echo htmlspecialchars($ls['material_name']); ?>">
