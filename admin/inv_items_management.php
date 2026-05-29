@@ -1260,7 +1260,7 @@ if (isset($_GET['ajax'])) {
                             <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.025em;">Initial Stock <span class="pf-required-star item-modal-create-only">*</span></label>
                             <input type="hidden" id="stockInputMethodHidden" name="stock_input_method" value="">
                             <input type="hidden" id="startingRollsHidden" name="starting_rolls" value="">
-                            <label style="display:block; margin-bottom:8px; font-size:12px; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.025em;">Stock Input Method</label>
+                            <input type="hidden" id="itemRollLength" name="roll_length_ft" value="164">
                             <div style="display:flex; gap:14px; align-items:center; margin-bottom:12px;">
                                 <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:#374151; font-weight:500; text-transform:none; letter-spacing:normal;">
                                     <input type="radio" name="stock_input_method_radio" id="stockByRolls" value="rolls" onchange="handleStockInputMethodChange()">
@@ -1318,17 +1318,9 @@ if (isset($_GET['ajax'])) {
                 </div>
             </div>
 
-            <!-- Bottom Row: Roll Settings | System Status (edit) -->
+            <!-- Bottom Row: System Status (edit only) -->
             <div id="itemModalBottomRow" class="item-modal-bottom-grid">
-                <!-- Roll Settings (UOM: ft, By Rolls method) -->
-                <div id="rollSettingsSection" class="item-modal-panel item-modal-panel--roll" style="display:none;">
-                    <p class="section-header" style="margin:0 0 4px; color:#0369a1; border-color:#bae6fd;">Roll Settings</p>
-                    <label for="itemRollLength">Roll Length (ft) <span style="color:#ef4444" id="rollLengthRequired">*</span></label>
-                    <input type="number" step="0.01" min="1" max="1000" id="itemRollLength" name="roll_length_ft" placeholder="e.g. 164.00" class="w-100" oninput="handleDualInputChange()">
-                    <span id="err-itemRollLength" class="field-error"></span>
-                </div>
-
-                <!-- Column 3: System Status (edit only; new items default to Active) -->
+                <!-- System Status (edit only; new items default to Active) -->
                 <div id="statusSection" class="item-modal-panel" style="background:#f9fafb;">
                     <p class="section-header" style="margin:0 0 4px;">System Status</p>
                     <div class="item-modal-field">
@@ -1370,6 +1362,18 @@ if (isset($_GET['ajax'])) {
     var usageChart = null;
     var selectedItemForStockCard = null;
     var editItemOriginalValues = {};
+    var PF_DEFAULT_ROLL_LENGTH_FT = 164;
+
+    function pfEnsureRollLengthFt() {
+        var rollLenEl = document.getElementById('itemRollLength');
+        if (rollLenEl) rollLenEl.value = String(PF_DEFAULT_ROLL_LENGTH_FT);
+    }
+
+    function pfGetRollLengthFt() {
+        var n = parseFloat(document.getElementById('itemRollLength')?.value || PF_DEFAULT_ROLL_LENGTH_FT);
+        return (!isNaN(n) && n > 0) ? n : PF_DEFAULT_ROLL_LENGTH_FT;
+    }
+
     function pfSuggestReorderLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
         return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.20));
@@ -1456,7 +1460,7 @@ if (isset($_GET['ajax'])) {
         if (uom === 'ft') {
             var method = getStockInputMethod();
             if (method === 'rolls') {
-                return getRawInput('startingRolls') !== '' && getRawInput('itemRollLength') !== '';
+                return getRawInput('startingRolls') !== '';
             }
             if (method === 'feet') {
                 return getRawInput('startingFeet') !== '';
@@ -1479,7 +1483,7 @@ if (isset($_GET['ajax'])) {
             var method = getStockInputMethod();
             if (method === 'rolls') {
                 var rolls = parseFloat(document.getElementById('startingRolls')?.value || 0);
-                var rollLen = parseFloat(document.getElementById('itemRollLength')?.value || 0);
+                var rollLen = pfGetRollLengthFt();
                 if (rolls > 0 && rollLen > 0) return rolls * rollLen;
             }
             return Math.max(0, parseFloat(document.getElementById('startingFeet')?.value || document.getElementById('itemStartingStock')?.value || 0));
@@ -1565,14 +1569,14 @@ if (isset($_GET['ajax'])) {
             addStockUnitCost.addEventListener('input', updateAddStockUI);
             addStockUnitCost.addEventListener('change', updateAddStockUI);
         }
-        ['itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(pfBindNumericClearOnFocus);
-        ['itemName', 'itemCategory', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
+        ['itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(pfBindNumericClearOnFocus);
+        ['itemName', 'itemCategory', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el && !el._pf_bound) {
                 el._pf_bound = true;
                 var eventType = (el.tagName === 'SELECT') ? 'change' : 'input';
                 el.addEventListener(eventType, function () {
-                    if (id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet' || id === 'itemRollLength') {
+                    if (id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
                         pfApplySuggestedThresholds();
                     }
                     validateField(id);
@@ -1686,7 +1690,7 @@ if (isset($_GET['ajax'])) {
 
         if (isCreate) {
             if (uom === 'ft') {
-                fields.push('itemRollLength');
+                pfEnsureRollLengthFt();
                 const method = getStockInputMethod();
                 if (method === 'rolls') fields.push('startingRolls');
                 else if (method === 'feet') fields.push('startingFeet');
@@ -1694,7 +1698,7 @@ if (isset($_GET['ajax'])) {
                 fields.push('itemStartingStock');
             }
         } else if (uom === 'ft') {
-            fields.push('itemRollLength');
+            pfEnsureRollLengthFt();
         }
 
         let allValid = true;
@@ -1816,10 +1820,6 @@ if (isset($_GET['ajax'])) {
                 if (!val) { msg = 'Initial stock is required.'; isValid = false; }
                 else if (!isFeetPositive(val)) { msg = 'Initial stock must be greater than 0.'; isValid = false; }
                 break;
-            case 'itemRollLength':
-                if (!val) { msg = 'Roll length is required.'; isValid = false; }
-                else if (!isRollLengthValid(val)) { msg = 'Roll length must be between 1 and 1000 ft.'; isValid = false; }
-                break;
         }
 
         const isCreate = document.getElementById('actionType')?.value === 'create_item';
@@ -1866,11 +1866,6 @@ if (isset($_GET['ajax'])) {
         }
 
         let allValid = validateItemForm(false);
-        const uom = pfGetEffectiveUom();
-        if (uom === 'ft') {
-            const rollRaw = getRawInput('itemRollLength');
-            if (!isRollLengthValid(rollRaw)) allValid = false;
-        }
         saveBtn.disabled = !allValid;
     }
 
@@ -2201,20 +2196,14 @@ if (isset($_GET['ajax'])) {
         // Only meaningful for ft create mode
         const computedTotalEl = document.getElementById('dualComputedTotal');
         const eqEl = document.getElementById('dualComputedRollEq');
-        const rollSec = document.getElementById('rollSettingsSection');
         if (!isCreate || uom !== 'ft') {
             if (computedTotalEl) computedTotalEl.style.display = 'none';
             if (eqEl) eqEl.style.display = 'none';
-            if (rollSec) rollSec.style.display = (uom === 'ft') ? 'block' : 'none';
             return;
         }
 
-        // Conditional visibility:
-        // - By Rolls: show Roll Length + computed total
-        // - By Feet: hide Roll Length + computed total (clean UI)
-        if (rollSec) rollSec.style.display = (method === 'rolls') ? 'block' : 'none';
-
-        const rollLen = parseFloat(document.getElementById('itemRollLength')?.value || 0);
+        pfEnsureRollLengthFt();
+        const rollLen = pfGetRollLengthFt();
         const startingStockEl = document.getElementById('itemStartingStock');
 
         let totalFeet = 0;
@@ -2274,15 +2263,8 @@ if (isset($_GET['ajax'])) {
         }
         pfSyncAutoFieldLockStates();
 
-        // Roll settings visible for Feet only
-        const rollSec = document.getElementById('rollSettingsSection');
-        const rollLenEl = document.getElementById('itemRollLength');
-        const rollLenReq = document.getElementById('rollLengthRequired');
         const isFeet = (uom === 'ft');
-        // Note: when ft + dual input, roll section visibility depends on input method.
-        if (rollSec) rollSec.style.display = isFeet ? 'block' : 'none';
-        if (rollLenEl) rollLenEl.required = !!isFeet;
-        if (rollLenReq) rollLenReq.style.display = isFeet ? 'inline' : 'none';
+        if (isFeet) pfEnsureRollLengthFt();
 
         // Initial stock inputs
         const stockSlot = document.getElementById('itemInitialStockSlot');
@@ -2309,12 +2291,8 @@ if (isset($_GET['ajax'])) {
                 }
             }
 
-            // Default dual input method for ft
             if (isFeet) {
-                // Ensure a sensible default roll length for calculations/back-end validation.
-                if (rollLenEl && (!rollLenEl.value || parseFloat(rollLenEl.value) <= 0)) {
-                    rollLenEl.value = '164.00';
-                }
+                pfEnsureRollLengthFt();
                 if (!getStockInputMethod()) {
                     const byFeet = document.getElementById('stockByFeet');
                     if (byFeet) byFeet.checked = true;
@@ -2337,8 +2315,9 @@ if (isset($_GET['ajax'])) {
                 if (eqEl) eqEl.style.display = 'none';
             }
         } else {
-            if (startGroup) startGroup.style.display = 'none';
+            if (stockSlot) stockSlot.style.display = 'none';
             if (ftGroup) ftGroup.style.display = 'none';
+            if (isFeet) pfEnsureRollLengthFt();
         }
 
         updateSaveButtonState();
@@ -2358,8 +2337,8 @@ if (isset($_GET['ajax'])) {
         modal.style.display = 'flex';
         form.reset();
         setItemModalMode(mode);
-        
-        // Top info removed
+        pfEnsureRollLengthFt();
+
         editItemOriginalValues = {};
         
         // Clear previous validation states (including global order_validation.js messages)
@@ -2368,7 +2347,7 @@ if (isset($_GET['ajax'])) {
             el.classList.remove('validation-highlight-error');
         });
         document.querySelectorAll('#itemForm .has-error').forEach(function (g) { g.classList.remove('has-error'); });
-        ['itemName', 'itemCategory', 'itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
+        ['itemName', 'itemCategory', 'itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(function (id) {
             const el = document.getElementById(id);
             if (el) {
                 const err = document.getElementById('err-' + id);
@@ -2464,14 +2443,12 @@ if (isset($_GET['ajax'])) {
             }
 
             if (normalizeInventoryUomValue(item.unit_of_measure, item.category_name) === 'ft') {
-                document.getElementById('itemRollLength').value = item.default_roll_length_ft || '';
+                pfEnsureRollLengthFt();
             }
-            // Ensure roll/stock sections match current UOM.
+            // Ensure stock sections match current UOM.
             setTimeout(applySmartUomRules, 0);
 
-            editItemOriginalValues = {
-                roll_length: String(item.default_roll_length_ft || '')
-            };
+            editItemOriginalValues = {};
             updateItemModalSaveButtonLabel();
         }
         pfApplySuggestedThresholds();
@@ -2497,8 +2474,6 @@ if (isset($_GET['ajax'])) {
             }
         }
         pfApplySuggestedThresholds();
-        const rollLength = document.getElementById('itemRollLength');
-        const rollVal = parseFloat(rollLength?.value || 0);
         const currentStock = parseFloat(selectedItemForStockCard?.current_stock || 0);
         const previewQty = isEdit ? currentStock : pfGetModalReferenceQuantity();
         const reorderVal = pfSuggestReorderLevel(previewQty);
@@ -2520,35 +2495,10 @@ if (isset($_GET['ajax'])) {
             statusHelper.style.display = itemStatusVal === 'INACTIVE' ? 'block' : 'none';
         }
         
-        const rollSec = document.getElementById('rollSettingsSection');
-        const rollErr = document.getElementById('err-itemRollLength');
-        const rollSectionVisible = document.getElementById('itemUnit')?.value === 'ft';
-        let rollValid = true;
-        if (rollSectionVisible) {
-            const rollRaw = String(rollLength?.value || '').trim();
-            rollValid = isRollLengthValid(rollRaw);
-            if (rollErr) rollErr.style.display = (!rollValid && rollRaw !== '') ? 'block' : 'none';
-        }
-        
         updateSaveButtonState();
-        
-        if (isEdit && editItemOriginalValues && Object.keys(editItemOriginalValues).length) {
-            const changes = [];
-            const origRoll = parseFloat(editItemOriginalValues.roll_length || 0);
-            if (rollSectionVisible && Math.abs(rollVal - origRoll) > 0.001) {
-                changes.push('Standard Roll Length: ' + (editItemOriginalValues.roll_length || '\u2014') + ' \u2192 ' + rollVal);
-            }
-            const sumEl = document.getElementById('editModalChangeSummary');
-            const sumContent = document.getElementById('editModalChangeSummaryContent');
-            if (sumEl && sumContent) {
-                if (changes.length > 0) {
-                    sumEl.style.display = 'block';
-                    sumContent.innerHTML = changes.map(c => '<div style="margin-bottom:4px;">\u2022 ' + c + '</div>').join('');
-                } else {
-                    sumEl.style.display = 'none';
-                }
-            }
-        }
+
+        const sumEl = document.getElementById('editModalChangeSummary');
+        if (sumEl) sumEl.style.display = 'none';
     }
 
     function closeModal() {
