@@ -1367,7 +1367,76 @@ if (isset($_GET['ajax'])) {
     var usageChart = null;
     var selectedItemForStockCard = null;
     var editItemOriginalValues = {};
+    var _itemModalOpenToken = 0;
     var PF_DEFAULT_ROLL_LENGTH_FT = 164;
+
+    function scheduleItemModalWork(fn, delayMs) {
+        _itemModalOpenToken++;
+        var token = _itemModalOpenToken;
+        window.setTimeout(function () {
+            if (token !== _itemModalOpenToken) return;
+            fn();
+        }, delayMs == null ? 0 : delayMs);
+    }
+
+    function clearItemFormValidation() {
+        document.querySelectorAll('#itemForm .custom-validation-error').forEach(function (el) { el.remove(); });
+        document.querySelectorAll('#itemForm .validation-highlight-error').forEach(function (el) {
+            el.classList.remove('validation-highlight-error');
+        });
+        document.querySelectorAll('#itemForm .has-error').forEach(function (g) { g.classList.remove('has-error'); });
+        ['itemName', 'itemCategory', 'itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            var err = document.getElementById('err-' + id);
+            if (err) { err.style.display = 'none'; err.textContent = ''; }
+        });
+    }
+
+    function populateItemEditForm(item) {
+        if (!item) return;
+        var modalTitle = document.getElementById('modalTitle');
+        var actionType = document.getElementById('actionType');
+        var itemId = document.getElementById('itemId');
+        var itemName = document.getElementById('itemName');
+        var itemCategory = document.getElementById('itemCategory');
+        var itemUnit = document.getElementById('itemUnit');
+        var itemUnitCost = document.getElementById('itemUnitCost');
+        var trackEl = document.getElementById('itemTrackByRoll');
+        var statusEl = document.getElementById('itemStatus');
+        var startingStockEl = document.getElementById('itemStartingStock');
+
+        if (modalTitle) modalTitle.textContent = 'Edit Material Settings';
+        if (actionType) actionType.value = 'update_item';
+        if (itemId) itemId.value = item.id != null ? String(item.id) : '';
+        if (itemName) itemName.value = item.name || '';
+        if (itemCategory) itemCategory.value = item.category_id != null ? String(item.category_id) : '';
+        if (itemUnit) itemUnit.value = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
+        if (itemUnitCost) itemUnitCost.value = item.unit_cost != null ? String(item.unit_cost) : '0.00';
+        if (trackEl) trackEl.value = item.track_by_roll != null ? String(item.track_by_roll) : '0';
+        if (statusEl) statusEl.value = item.status || 'ACTIVE';
+        if (startingStockEl) {
+            startingStockEl.value = item.current_stock != null ? String(item.current_stock) : '';
+            startingStockEl.type = 'hidden';
+        }
+
+        var catOpt = itemCategory && itemCategory.selectedOptions ? itemCategory.selectedOptions[0] : null;
+        var catEditLabel = (catOpt && catOpt.textContent ? catOpt.textContent : '').toUpperCase();
+        var editIsTarpaulin = catEditLabel.indexOf('TARPAULIN') >= 0;
+        var editIsPrintedSticker = catEditLabel.indexOf('PRINTED') >= 0 && (catEditLabel.indexOf('STKR') >= 0 || catEditLabel.indexOf('STICKER') >= 0);
+        currentIsTarpaulinCategory = !!editIsTarpaulin;
+
+        if (editIsPrintedSticker && itemUnit) itemUnit.value = 'pcs';
+        if (normalizeInventoryUomValue(item.unit_of_measure, item.category_name) === 'ft') {
+            pfEnsureRollLengthFt();
+        }
+
+        var archiveBtn = document.getElementById('archiveItemBtn');
+        if (archiveBtn) {
+            archiveBtn.style.display = (item.status && item.status === 'INACTIVE') ? 'inline-flex' : 'none';
+            archiveBtn.textContent = 'Archive';
+        }
+    }
 
     function pfEnsureRollLengthFt() {
         var rollLenEl = document.getElementById('itemRollLength');
@@ -2341,42 +2410,26 @@ if (isset($_GET['ajax'])) {
         const modal = document.getElementById('itemModal');
         const form = document.getElementById('itemForm');
         if (!modal || !form) return;
+
+        _itemModalOpenToken++;
         modal.style.display = 'flex';
         form.reset();
         setItemModalMode(mode);
         pfEnsureRollLengthFt();
-
         editItemOriginalValues = {};
-        
-        // Clear previous validation states (including global order_validation.js messages)
-        document.querySelectorAll('#itemForm .custom-validation-error').forEach(function (el) { el.remove(); });
-        document.querySelectorAll('#itemForm .validation-highlight-error').forEach(function (el) {
-            el.classList.remove('validation-highlight-error');
-        });
-        document.querySelectorAll('#itemForm .has-error').forEach(function (g) { g.classList.remove('has-error'); });
-        ['itemName', 'itemCategory', 'itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(function (id) {
-            const el = document.getElementById(id);
-            if (el) {
-                const err = document.getElementById('err-' + id);
-                if (err) { err.style.display = 'none'; err.textContent = ''; }
-            }
-        });
+        clearItemFormValidation();
+
         const saveBtn = document.getElementById('saveBtn');
         if (saveBtn) {
             saveBtn.disabled = false;
             saveBtn.classList.remove('save-btn--submitting');
         }
-        
-        // Ensure smart rules run after reset.
-        applySmartUomRules();
 
         if (mode === 'create') {
             const modalTitle = document.getElementById('modalTitle');
             const actionType = document.getElementById('actionType');
             const itemId = document.getElementById('itemId');
             const itemUnitCost = document.getElementById('itemUnitCost');
-            const itemMinStock = document.getElementById('itemMinStock');
-            const itemCriticalStock = document.getElementById('itemCriticalStock');
             if (modalTitle) modalTitle.textContent = 'Add New Material';
             if (actionType) actionType.value = 'create_item';
             if (itemId) itemId.value = '';
@@ -2386,85 +2439,27 @@ if (isset($_GET['ajax'])) {
                 startingStockElCreate.value = '';
                 startingStockElCreate.type = 'number';
             }
-            pfApplySuggestedThresholds();
-            const ftGrp = document.getElementById('ftDualInputGroup');
-            if (ftGrp) ftGrp.style.display = 'none';
             const itemStatus = document.getElementById('itemStatus');
             if (itemStatus) itemStatus.value = 'ACTIVE';
-            const startingStockCreate = document.getElementById('itemStartingStock');
-            if (startingStockCreate) startingStockCreate.type = 'number';
-
-            // Lock them by default for new items until category is selected
-            pfSyncAutoFieldLockStates();
+            selectedItemForStockCard = null;
             const archiveBtn = document.getElementById('archiveItemBtn');
             if (archiveBtn) archiveBtn.style.display = 'none';
-
-            selectedItemForStockCard = null;
-            updateItemModalSaveButtonLabel();
-            setTimeout(function () {
-                applySmartUomRules();
-                pfSyncAutoFieldLockStates();
-                updateEditModalUI();
-            }, 0);
-        } else {
-            const modalTitle2 = document.getElementById('modalTitle');
-            const actionType2 = document.getElementById('actionType');
-            const itemId2 = document.getElementById('itemId');
-            const itemName2 = document.getElementById('itemName');
-            const itemCategory2 = document.getElementById('itemCategory');
-            const itemUnit2 = document.getElementById('itemUnit');
-            const itemUnitCost2 = document.getElementById('itemUnitCost');
-            if (modalTitle2) modalTitle2.textContent = 'Edit Material Settings';
-            if (actionType2) actionType2.value = 'update_item';
-            if (itemId2) itemId2.value = item.id;
-            if (itemName2) itemName2.value = item.name;
-            if (itemCategory2) itemCategory2.value = item.category_id || '';
-            if (itemUnit2) itemUnit2.value = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
-            if (itemUnitCost2) itemUnitCost2.value = item.unit_cost || '0.00';
-            const track2 = document.getElementById('itemTrackByRoll');
-            const status2 = document.getElementById('itemStatus');
-            const startingStockEdit = document.getElementById('itemStartingStock');
-            if (track2) track2.value = item.track_by_roll;
-            if (status2) status2.value = item.status || 'ACTIVE';
-            if (startingStockEdit) {
-                startingStockEdit.value = item.current_stock != null ? String(item.current_stock) : '';
-                startingStockEdit.type = 'hidden';
-            }
-            selectedItemForStockCard = item;
+            applySmartUomRules();
             pfApplySuggestedThresholds();
-            const ftGrp2 = document.getElementById('ftDualInputGroup');
-            if (ftGrp2) ftGrp2.style.display = 'none';
-            const archiveBtn2 = document.getElementById('archiveItemBtn');
-            if (archiveBtn2) {
-                archiveBtn2.style.display = (item.status && item.status === 'INACTIVE') ? 'inline-flex' : 'none';
-                archiveBtn2.textContent = 'Archive';
-            }
-
-            // Lock them in Edit mode unless Tarpaulin (allow override even when editing).
-            const catOpt = document.getElementById('itemCategory')?.selectedOptions?.[0];
-            const catEditLabel = (catOpt?.textContent || '').toUpperCase();
-            const editIsTarpaulin = catEditLabel.includes('TARPAULIN');
-            const editIsPrintedSticker = catEditLabel.includes('PRINTED') && (catEditLabel.includes('STKR') || catEditLabel.includes('STICKER'));
-            currentIsTarpaulinCategory = !!editIsTarpaulin;
-
             pfSyncAutoFieldLockStates();
-
-            if (editIsPrintedSticker) {
-                const itemUnit3c = document.getElementById('itemUnit');
-                if (itemUnit3c) itemUnit3c.value = 'pcs';
-            }
-
-            if (normalizeInventoryUomValue(item.unit_of_measure, item.category_name) === 'ft') {
-                pfEnsureRollLengthFt();
-            }
-            // Ensure stock sections match current UOM.
-            setTimeout(applySmartUomRules, 0);
-
-            editItemOriginalValues = {};
             updateItemModalSaveButtonLabel();
+            scheduleItemModalWork(function () { updateEditModalUI(); }, 0);
+        } else {
+            if (!item) return;
+            populateItemEditForm(item);
+            selectedItemForStockCard = item;
+            editItemOriginalValues = {};
+            applySmartUomRules();
+            pfApplySuggestedThresholds();
+            pfSyncAutoFieldLockStates();
+            updateItemModalSaveButtonLabel();
+            scheduleItemModalWork(function () { updateEditModalUI(); }, 0);
         }
-        pfApplySuggestedThresholds();
-        setTimeout(updateEditModalUI, 50);
     }
 
     function updateEditModalUI() {
@@ -2514,6 +2509,7 @@ if (isset($_GET['ajax'])) {
     }
 
     function closeModal() {
+        _itemModalOpenToken++;
         document.getElementById('itemModal').style.display = 'none';
     }
 
