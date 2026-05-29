@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 $session_user_type = trim((string)(get_user_type() ?? ''));
 if (!is_logged_in() || strcasecmp($session_user_type, 'Customer') !== 0) {
@@ -131,7 +132,18 @@ if ($action === 'add') {
     $quantity = min($quantity, $available);
 
     if (isset($_SESSION['cart'][$key])) {
-        $_SESSION['cart'][$key]['quantity'] = min(CART_MAX, $_SESSION['cart'][$key]['quantity'] + $quantity);
+        $nextQty = min(CART_MAX, $_SESSION['cart'][$key]['quantity'] + $quantity);
+        $stockCheck = printflow_product_option_stock_validate(
+            $product_id,
+            (int)($_SESSION['cart'][$key]['branch_id'] ?? 0),
+            (array)($_SESSION['cart'][$key]['customization'] ?? []),
+            $nextQty
+        );
+        if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+            echo json_encode(['success' => false, 'message' => $stockCheck['message'] ?? 'Insufficient stock for selected variant.']);
+            exit;
+        }
+        $_SESSION['cart'][$key]['quantity'] = $nextQty;
     } else {
         $_SESSION['cart'][$key] = [
             'product_id'   => $product_id,
@@ -166,6 +178,17 @@ if ($action === 'update') {
     if ($quantity <= 0) {
         unset($_SESSION['cart'][$key]);
     } else {
+        $item = $_SESSION['cart'][$key];
+        $stockCheck = printflow_product_option_stock_validate(
+            (int)($item['product_id'] ?? 0),
+            (int)($item['branch_id'] ?? 0),
+            (array)($item['customization'] ?? []),
+            $quantity
+        );
+        if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+            echo json_encode(['success' => false, 'message' => $stockCheck['message'] ?? 'Insufficient stock for selected variant.']);
+            exit;
+        }
         $current_item_qty  = $_SESSION['cart'][$key]['quantity'] ?? 0;
         $other_total       = cart_count() - $current_item_qty;
         if ($other_total + $quantity > CART_MAX) {

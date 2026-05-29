@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -278,34 +279,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 
     if (false) {
         $error = 'Please select a branch.';
-    } elseif ($quantity > (int)$branch_stock_qty) {
-        $error = 'Quantity exceeds available stock.';
-    } elseif ((int)$branch_stock_qty <= 0) {
-        $error = 'This product is currently out of stock.';
     } else {
-        $item_key = 'product_' . $product_id . '_' . time() . '_' . rand(100, 999);
+        $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, $customization, $quantity);
+        if (!empty($optionStockCheck['uses_option_stock']) && empty($optionStockCheck['ok'])) {
+            $error = (string)($optionStockCheck['message'] ?? 'Selected variant is out of stock.');
+        } elseif ($quantity > (int)$branch_stock_qty && empty($optionStockCheck['uses_option_stock'])) {
+            $error = 'Quantity exceeds available stock.';
+        } elseif ((int)$branch_stock_qty <= 0 && empty($optionStockCheck['uses_option_stock'])) {
+            $error = 'This product is currently out of stock.';
+        } else {
+            $item_key = 'product_' . $product_id . '_' . time() . '_' . rand(100, 999);
 
-        if (empty($error)) {
-            $_SESSION['cart'][$item_key] = [
-                'type'            => 'Product',
-                'source_page'     => 'products',
-                'product_id'      => $product_id,
-                'name'            => $product['name'],
-                'price'           => (float)$product['price'] + $price_delta,
-                'quantity'        => $quantity,
-                'category'        => $product['category'],
-                'branch_id'       => $branch_id,
-                'design_tmp_path' => null,
-                'design_name'     => null,
-                'design_mime'     => null,
-                'uploaded_files'  => $uploaded_files,
-                'customization'   => $customization,
-            ];
+            if (empty($error)) {
+                $_SESSION['cart'][$item_key] = [
+                    'type'            => 'Product',
+                    'source_page'     => 'products',
+                    'product_id'      => $product_id,
+                    'name'            => $product['name'],
+                    'price'           => (float)$product['price'] + $price_delta,
+                    'quantity'        => $quantity,
+                    'category'        => $product['category'],
+                    'branch_id'       => $branch_id,
+                    'design_tmp_path' => null,
+                    'design_name'     => null,
+                    'design_mime'     => null,
+                    'uploaded_files'  => $uploaded_files,
+                    'customization'   => $customization,
+                ];
 
-            if (($_POST['action'] ?? '') === 'buy_now') {
-                redirect('order_review.php?item=' . urlencode($item_key));
-            } else {
-                redirect('cart.php');
+                if (($_POST['action'] ?? '') === 'buy_now') {
+                    redirect('order_review.php?item=' . urlencode($item_key));
+                } else {
+                    redirect('cart.php');
+                }
             }
         }
     }

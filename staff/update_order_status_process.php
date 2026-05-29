@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 
@@ -117,7 +118,7 @@ if ($new_status === 'Completed' && $old_status !== 'Completed') {
     $orderRef = printflow_get_order_inventory_reference($order_id);
     $orderLabel = $orderRef['label'] ?? ('Order #' . printflow_format_order_code($order_id, ''));
     $items = db_query(
-        "SELECT oi.product_id, oi.quantity, p.name AS product_name
+        "SELECT oi.product_id, oi.quantity, oi.customization_data, p.name AS product_name
          FROM order_items oi
          LEFT JOIN products p ON p.product_id = oi.product_id
          WHERE oi.order_id = ?",
@@ -129,8 +130,31 @@ if ($new_status === 'Completed' && $old_status !== 'Completed') {
         $pid = (int)($item['product_id'] ?? 0);
         $qty = (int)($item['quantity'] ?? 0);
         $productName = (string)($item['product_name'] ?? ('Product #' . $pid));
+        $customization = [];
+        if (!empty($item['customization_data'])) {
+            $customization = json_decode((string)$item['customization_data'], true) ?: [];
+        }
         
         if ($pid > 0 && $qty > 0) {
+            $variantDeduction = printflow_product_option_stock_deduct($pid, $branch_id, $customization, $qty);
+            if (!empty($variantDeduction['handled'])) {
+                if (!$variantDeduction['success']) {
+                    echo json_encode(['success' => false, 'error' => $variantDeduction['message'] ?? 'Failed to deduct selected size stock']);
+                    exit;
+                }
+                printflow_record_product_inventory_transaction(
+                    $pid,
+                    'OUT',
+                    (float)$qty,
+                    'ORDER',
+                    $order_id,
+                    "{$orderLabel} completed - {$productName} ({$variantDeduction['field_label']}: {$variantDeduction['option_value']}) {$variantDeduction['previous_stock']} -> {$variantDeduction['new_stock']}",
+                    (int)($_SESSION['user_id'] ?? 0),
+                    date('Y-m-d'),
+                    $branch_id
+                );
+                continue;
+            }
             // Use branch-aware deduction
             if (printflow_product_deduct_stock_for_branch($pid, $branch_id, $qty)) {
                 printflow_record_product_inventory_transaction(
