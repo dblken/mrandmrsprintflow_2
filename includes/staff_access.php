@@ -139,7 +139,7 @@ if (!function_exists('printflow_get_staff_access_meta')) {
             return [
                 'key' => 'pos',
                 'label' => 'Front Desk / POS Staff',
-                'short_label' => 'POS Staff',
+                'short_label' => 'Counter Staff',
                 'focus_label' => 'Walk-in Focus',
                 'theme_class' => 'printflow-staff-pos',
                 'accent' => '#2563eb',
@@ -151,12 +151,12 @@ if (!function_exists('printflow_get_staff_access_meta')) {
         return [
             'key' => 'online',
             'label' => 'Online / Production Staff',
-            'short_label' => 'Online Staff',
+            'short_label' => 'Online Operations Staff',
             'focus_label' => 'Online Focus',
             'theme_class' => 'printflow-staff-online',
             'accent' => '#7c3aed',
             'soft' => '#ddd6fe',
-            'modules' => ['dashboard', 'orders', 'customizations', 'chats', 'reviews', 'reports', 'notifications', 'profile'],
+            'modules' => ['dashboard', 'orders', 'customizations', 'products', 'chats', 'reviews', 'reports', 'notifications', 'profile'],
         ];
     }
 }
