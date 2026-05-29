@@ -416,13 +416,11 @@ if (isset($_GET['ajax'])) {
         .tx-item-result:hover, .tx-item-result:focus { background: #f9fafb; outline: none; }
         .tx-item-result-meta { display: block; font-size: 12px; color: #6b7280; margin-top: 2px; font-weight: 500; }
         .tx-item-empty { padding: 14px 12px; color: #6b7280; font-size: 13px; text-align: center; }
-        .tx-qty-with-uom { display: flex; align-items: stretch; gap: 8px; }
-        .tx-qty-with-uom input { flex: 1; min-width: 0; }
-        .tx-qty-uom {
-            display: inline-flex; align-items: center; justify-content: center; min-width: 96px;
-            padding: 0 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;
-            color: #374151; font-size: 12px; font-weight: 700; white-space: nowrap;
+        .tx-qty-label { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+        .tx-qty-uom-label {
+            display: none; font-size: 12px; font-weight: 600; color: #0d9488; white-space: nowrap;
         }
+        .tx-qty-uom-label.is-visible { display: inline; }
         @media (max-width: 560px) {
             .tx-item-picker-filters { grid-template-columns: 1fr; }
         }
@@ -942,11 +940,11 @@ if (isset($_GET['ajax'])) {
                 </div>
                 
                 <div class="filter-group">
-                    <label for="txQty">Quantity *</label>
-                    <div class="tx-qty-with-uom">
-                        <input type="number" step="0.01" id="txQty" name="quantity" min="0.01" required placeholder="0.00" aria-describedby="txQtyUom">
-                        <span id="txQtyUom" class="tx-qty-uom" title="Unit of measure for selected material">UOM</span>
-                    </div>
+                    <label for="txQty" class="tx-qty-label">
+                        <span>Quantity *</span>
+                        <span id="txQtyUom" class="tx-qty-uom-label" aria-hidden="true"></span>
+                    </label>
+                    <input type="number" step="0.01" id="txQty" name="quantity" min="0.01" required placeholder="0.00">
                 </div>
                 
                 <div class="form-group full">
@@ -1262,10 +1260,16 @@ if (isset($_GET['ajax'])) {
     function pfUpdateTxQtyUom(item) {
         const uomEl = document.getElementById('txQtyUom');
         const uomHidden = document.getElementById('txUom');
-        const label = item ? item.uom_label : 'UOM';
         if (uomEl) {
-            uomEl.textContent = label;
-            uomEl.title = item ? ('Enter quantity in ' + label) : 'Select a material to see its unit';
+            if (item) {
+                uomEl.textContent = '(' + item.uom_label + ')';
+                uomEl.classList.add('is-visible');
+                uomEl.setAttribute('aria-hidden', 'false');
+            } else {
+                uomEl.textContent = '';
+                uomEl.classList.remove('is-visible');
+                uomEl.setAttribute('aria-hidden', 'true');
+            }
         }
         if (uomHidden) uomHidden.value = item ? item.uom : '';
         pfApplyTxQtyInputRules(item ? item.uom : '');
