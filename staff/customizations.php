@@ -2089,6 +2089,34 @@ if ($showLatestCustomizationOnly) {
     </div>
 </template>
 
+<template x-if="showPosCancelConfirmModal">
+    <div>
+        <div x-show="showPosCancelConfirmModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,0.52); backdrop-filter:blur(3px);" @click="closePosCancelConfirm()"></div>
+        <div x-show="showPosCancelConfirmModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:460px; background:linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border-radius:20px; box-shadow:0 30px 60px -18px rgba(15,23,42,0.35); overflow:hidden; border:1px solid rgba(226,232,240,0.95);">
+            <div style="padding:22px 24px 14px; display:flex; align-items:flex-start; gap:14px;">
+                <div style="width:48px; height:48px; border-radius:14px; background:linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); display:flex; align-items:center; justify-content:center; flex:0 0 auto; box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);">
+                    <svg width="24" height="24" fill="none" stroke="#dc2626" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-7.18 12.44A2 2 0 004.82 19h14.36a2 2 0 001.71-2.7L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                </div>
+                <div style="min-width:0; flex:1;">
+                    <div style="font-size:18px; font-weight:800; color:#111827; line-height:1.3;">Cancel this order?</div>
+                    <div style="margin-top:6px; font-size:14px; line-height:1.65; color:#4b5563;">Use this only after the customer has already talked with the store team. The order will be moved to the cancelled list.</div>
+                </div>
+                <button type="button" @click="closePosCancelConfirm()" style="background:none; border:none; color:#9ca3af; font-size:24px; line-height:1; cursor:pointer; padding:0;">&times;</button>
+            </div>
+            <div style="padding:0 24px 20px;">
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border-radius:14px; background:#fff7ed; border:1px solid #fed7aa;">
+                    <svg width="18" height="18" fill="none" stroke="#ea580c" viewBox="0 0 24 24" stroke-width="2.2" style="margin-top:1px; flex:0 0 auto;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div style="font-size:13px; line-height:1.55; color:#9a3412;">A note will be saved automatically: <strong>Cancelled in-store after discussion with the customer.</strong></div>
+                </div>
+            </div>
+            <div style="padding:16px 24px 22px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; background:rgba(248,250,252,0.88);">
+                <button type="button" @click="closePosCancelConfirm()" class="btn-secondary">Keep Order</button>
+                <button type="button" @click="confirmPosCancelOrder()" class="pf-entry-btn pf-entry-out" style="background:#dc2626; color:#fff; border-color:#dc2626;">Yes, Cancel Order</button>
+            </div>
+        </div>
+    </div>
+</template>
+
 <div x-show="actionBusy" x-cloak style="position:fixed;inset:0;z-index:12000;display:flex;align-items:center;justify-content:center;pointer-events:none;">
     <div style="width:46px;height:46px;border:4px solid #d1d5db;border-top-color:#06A1A1;border-radius:50%;animation:spin .8s linear infinite;"></div>
 </div>
@@ -2262,6 +2290,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             isPosSimplifiedView: <?php echo $isPosCustomizationView ? 'true' : 'false'; ?>,
             showPosCompleteConfirmModal: false,
             posCompleteConfirmTarget: null,
+            showPosCancelConfirmModal: false,
+            posCancelConfirmTarget: null,
             ordersVersion: 0,
             sortOrder: 'newest',
             sortOpen: false,
@@ -4873,6 +4903,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.showPosCompleteConfirmModal = false;
                 this.posCompleteConfirmTarget = null;
             },
+            openPosCancelConfirm(jo = null) {
+                this.posCancelConfirmTarget = jo || this.currentJo || null;
+                this.showPosCancelConfirmModal = true;
+            },
+            closePosCancelConfirm() {
+                this.showPosCancelConfirmModal = false;
+                this.posCancelConfirmTarget = null;
+            },
             async confirmPosComplete() {
                 const target = this.posCompleteConfirmTarget || this.currentJo || null;
                 this.closePosCompleteConfirm();
@@ -4883,13 +4921,17 @@ window.pfCustomizationPreloadedOrders = (() => {
                 await this.completeOrder();
             },
             async cancelPosWalkInOrder() {
-                const target = this.currentJo || null;
+                this.openPosCancelConfirm();
+            },
+            async confirmPosCancelOrder() {
+                const target = this.posCancelConfirmTarget || this.currentJo || null;
+                this.closePosCancelConfirm();
                 if (!target) {
                     this.showStaffAlert('Error', 'No walk-in order is selected.');
                     return;
                 }
-                if (!window.confirm('Are you sure you want to cancel this walk-in order?')) {
-                    return;
+                if (!this.showDetailsModal) {
+                    this.currentJo = { ...target };
                 }
                 const orderId = target.order_id || target.id;
                 if (!orderId) {
