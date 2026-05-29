@@ -1430,7 +1430,6 @@ if ($showLatestCustomizationOnly) {
                                     </td>
                                     <td class="px-4 py-4 action-col-cell">
                                         <div class="action-btn-group">
-                                            <button x-show="isPosWalkInPending(jo)" @click.stop="openPosCompleteConfirm(jo)" class="table-action-btn">Mark as Completed</button>
                                             <button @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')" class="table-action-btn">View</button>
                                         </div>
                                     </td>
