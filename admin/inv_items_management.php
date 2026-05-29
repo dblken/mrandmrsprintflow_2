@@ -376,17 +376,17 @@ if (isset($_GET['ajax'])) {
         .form-row-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 20px; margin-bottom: 20px; align-items: flex-start; }
         .form-col-full { grid-column: span 2; }
 
-        /* Item modal: create vs edit layout */
-        .item-modal-threshold-grid {
+        /* Item modal: 2-column rows (Tracking | Initial Stock, Reorder | Critical) */
+        .item-modal-rows-2 {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 20px;
             margin-bottom: 20px;
             align-items: start;
         }
-        .item-modal--edit .item-modal-threshold-grid {
-            grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 1fr));
-        }
+        .item-modal--edit #itemInitialStockSlot { display: none !important; }
+        .item-modal--edit .item-modal-row-preview { display: grid; }
+        .item-modal--create .item-modal-row-preview { display: none !important; }
         .item-modal-field {
             display: flex;
             flex-direction: column;
@@ -426,7 +426,6 @@ if (isset($_GET['ajax'])) {
             background: #f0f9ff;
             border-color: #bae6fd;
         }
-        .item-modal--create #previewStatusSection,
         .item-modal--create #statusSection,
         .item-modal--create #reorderAlertsGroup,
         .item-modal--create #editModalChangeSummary {
@@ -444,8 +443,7 @@ if (isset($_GET['ajax'])) {
             .form-row-grid { grid-template-columns: 1fr; gap: 16px; }
             .form-col-full { grid-column: span 1; }
             .w-35, .w-40, .w-50 { width: 100% !important; }
-            .item-modal-threshold-grid,
-            .item-modal--edit .item-modal-threshold-grid { grid-template-columns: 1fr; }
+            .item-modal-rows-2 { grid-template-columns: 1fr; }
             .item-modal-bottom-grid { grid-template-columns: 1fr; }
         }
 
@@ -459,6 +457,7 @@ if (isset($_GET['ajax'])) {
         .input-warning { border-color: #f59e0b !important; box-shadow: 0 0 0 3px rgba(245,158,11,0.15) !important; }
         
         #saveBtn:disabled { opacity: 0.6; cursor: not-allowed; filter: grayscale(1); }
+        #saveBtn.save-btn--submitting { opacity: 0.7; cursor: wait; }
         .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1186,11 +1185,11 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div>
                         <label for="itemUnitCost">Unit Cost (&#8369;) <span style="color:#ef4444">*</span></label>
-                        <input type="number" step="0.01" min="0" id="itemUnitCost" name="unit_cost" value="0.00" required class="w-100">
+                        <input type="number" step="0.01" min="0" id="itemUnitCost" name="unit_cost" value="" placeholder="0.00" required class="w-100">
                         <span id="err-itemUnitCost" class="field-error"></span>
                     </div>
                 </div>
-                <div id="itemThresholdRow" class="item-modal-threshold-grid">
+                <div class="item-modal-rows-2">
                     <div class="item-modal-field">
                         <label for="itemTrackByRoll">Tracking Mode <span id="autoTagTrack" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
                         <select id="itemTrackByRoll" name="track_by_roll" class="w-100 locked-select">
@@ -1199,6 +1198,16 @@ if (isset($_GET['ajax'])) {
                         </select>
                         <p class="field-hint">&nbsp;</p>
                     </div>
+                    <div id="itemInitialStockSlot" class="item-modal-field">
+                        <label for="itemStartingStock">Initial Stock Quantity <span id="initialStockRequiredStar" style="color:#ef4444;display:none;">*</span></label>
+                        <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="Enter quantity" class="w-100" inputmode="numeric"
+                            onkeydown="handlePcsInitialStockKeyDown(event)"
+                            onpaste="handlePcsInitialStockPaste(event)">
+                        <span id="err-itemStartingStock" class="field-error"></span>
+                        <p id="startingStockHelper" class="field-hint" style="min-height:auto;">Opening balance for new item record</p>
+                    </div>
+                </div>
+                <div class="item-modal-rows-2">
                     <div class="item-modal-field">
                         <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
                         <input type="text" id="itemMinStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 20%))">
@@ -1209,10 +1218,11 @@ if (isset($_GET['ajax'])) {
                         <input type="text" id="itemCriticalStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 5%))">
                         <p class="field-hint">max(1, ceil(qty × 0.05))</p>
                     </div>
-                    <div id="previewStatusSection" class="item-modal-field">
+                </div>
+                <div class="item-modal-rows-2 item-modal-row-preview">
+                    <div id="previewStatusSection" class="item-modal-field" style="grid-column: span 2;">
                         <label>Stock Status Preview</label>
                         <div id="editModalReorderPreview" class="preview-badge" style="min-height:42px;">No stock added yet.</div>
-                        <p class="field-hint">&nbsp;</p>
                     </div>
                 </div>
             </div>
@@ -1229,18 +1239,7 @@ if (isset($_GET['ajax'])) {
 
             <!-- Bottom Row: Initial Balance | Roll Settings | System Status (edit) -->
             <div id="itemModalBottomRow" class="item-modal-bottom-grid">
-                <!-- Column 1: Initial Stock (Create Mode Only) -->
-                <div id="startingStockGroup" class="item-modal-panel" style="display:none;">
-                    <p class="section-header" style="margin:0 0 4px;">Initial Balance</p>
-                    <label for="itemStartingStock">Initial Stock Quantity</label>
-                    <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="0" class="w-100" inputmode="numeric"
-                        onkeydown="handlePcsInitialStockKeyDown(event)"
-                        onpaste="handlePcsInitialStockPaste(event)">
-                    <p id="startingStockHelper" style="font-size:10px; color:#9ca3af; margin-top:8px; line-height: 1.4;">Opening balance for new item record</p>
-                    <span id="err-itemStartingStock" class="field-error"></span>
-                </div>
-
-                <!-- Column 1b: Dual Input (Feet/Rolls) - UOM: ft Only -->
+                <!-- Feet/Rolls initial stock (Create + ft UOM) -->
                 <div id="ftDualInputGroup" class="item-modal-panel" style="display:none;">
                     <p class="section-header" style="margin:0 0 4px;">Initial Balance (Feet)</p>
 
@@ -1313,7 +1312,7 @@ if (isset($_GET['ajax'])) {
             <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
                 <button type="button" onclick="closeModal()" class="btn-secondary" style="border-radius: 10px; height: 44px; padding: 0 24px;">Cancel</button>
                 <button type="button" id="archiveItemBtn" onclick="openItemArchiveConfirm()" class="btn-secondary" style="border-radius: 10px; height: 44px; padding: 0 24px; display:none;">Archive</button>
-                <button type="submit" class="btn-primary" id="saveBtn" style="border-radius: 10px; height: 44px; padding: 0 24px; background: #10b981; border:none; transition: background 0.2s;">Save Changes</button>
+                <button type="submit" class="btn-primary" id="saveBtn" style="border-radius: 10px; height: 44px; padding: 0 24px; background: #10b981; border:none; transition: background 0.2s; cursor: pointer;">Add Material</button>
             </div>
             </div>
         </form>
@@ -1454,6 +1453,7 @@ if (isset($_GET['ajax'])) {
             addStockUnitCost.addEventListener('input', updateAddStockUI);
             addStockUnitCost.addEventListener('change', updateAddStockUI);
         }
+        ['itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(pfBindNumericClearOnFocus);
         ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el && !el._pf_bound) {
@@ -1534,6 +1534,90 @@ if (isset($_GET['ajax'])) {
         return (document.getElementById(id)?.value ?? '').trim();
     }
 
+    function pfIsZeroLikeNumeric(val) {
+        const s = String(val ?? '').trim();
+        if (s === '' || s === '0' || s === '0.0' || s === '0.00') return true;
+        const n = parseFloat(s);
+        return !isNaN(n) && n === 0;
+    }
+
+    function pfClearZeroNumericOnFocus(e) {
+        const el = e.target;
+        if (!el) return;
+        if (pfIsZeroLikeNumeric(el.value)) {
+            el.value = '';
+            el.dataset.pfClearedZero = '1';
+        }
+    }
+
+    function pfBindNumericClearOnFocus(id) {
+        const el = document.getElementById(id);
+        if (!el || el._pf_zeroClearBound) return;
+        el._pf_zeroClearBound = true;
+        el.addEventListener('focus', pfClearZeroNumericOnFocus);
+        el.addEventListener('input', function () {
+            if (el.dataset.pfClearedZero === '1') delete el.dataset.pfClearedZero;
+        });
+    }
+
+    function updateItemModalSaveButtonLabel() {
+        const saveBtn = document.getElementById('saveBtn');
+        const isCreate = document.getElementById('actionType')?.value === 'create_item';
+        if (!saveBtn || saveBtn.classList.contains('save-btn--submitting')) return;
+        saveBtn.textContent = isCreate ? 'Add Material' : 'Save Changes';
+    }
+
+    function validateItemForm(forceShowErrors) {
+        const isCreate = document.getElementById('actionType')?.value === 'create_item';
+        const fields = ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost'];
+        let uom = String(document.getElementById('itemUnit')?.value || '').toLowerCase();
+        if (uom === 'btl') uom = 'l';
+
+        if (isCreate) {
+            if (uom === 'pcs' || uom === 'l') {
+                fields.push('itemStartingStock');
+            } else if (uom === 'ft') {
+                fields.push('itemRollLength');
+                const method = getStockInputMethod();
+                if (method === 'rolls') fields.push('startingRolls');
+                else if (method === 'feet') fields.push('startingFeet');
+            }
+        } else if (uom === 'ft') {
+            fields.push('itemRollLength');
+        }
+
+        let allValid = true;
+        fields.forEach(function (id) {
+            if (!validateField(id, forceShowErrors)) allValid = false;
+        });
+
+        if (isCreate && uom === 'ft' && !getStockInputMethod()) {
+            allValid = false;
+            if (forceShowErrors) {
+                const ftGroup = document.getElementById('ftDualInputGroup');
+                let hint = document.getElementById('err-ftStockMethod');
+                if (!hint && ftGroup) {
+                    hint = document.createElement('span');
+                    hint.id = 'err-ftStockMethod';
+                    hint.className = 'field-error';
+                    hint.style.display = 'block';
+                    hint.style.marginTop = '8px';
+                    const radios = ftGroup.querySelector('div[style*="flex"]');
+                    if (radios && radios.parentNode) radios.parentNode.appendChild(hint);
+                }
+                if (hint) {
+                    hint.textContent = 'Please choose a stock input method (By Rolls or By Feet).';
+                    hint.style.display = 'block';
+                }
+            }
+        } else {
+            const hint = document.getElementById('err-ftStockMethod');
+            if (hint) hint.style.display = 'none';
+        }
+
+        return allValid;
+    }
+
     // Strict numeric validators for UI (prevents things like "--777" and special chars).
     function isWholeNumberLike(s) {
         // Strict whole number (no decimals). e.g. 0, 1, 2 ...
@@ -1558,13 +1642,14 @@ if (isset($_GET['ajax'])) {
         return Number.isFinite(n) && n >= 1 && n <= 1000;
     }
 
-    function validateField(id) {
+    function validateField(id, forceShowErrors) {
         const el = document.getElementById(id);
+        if (!el) return true;
         const errEl = document.getElementById('err-' + id);
         let isValid = true;
         let msg = '';
 
-        const val = el?.value != null ? String(el.value).trim() : '';
+        const val = el.value != null ? String(el.value).trim() : '';
         const itemUnit = (document.getElementById('itemUnit')?.value || '').toLowerCase();
         const uom = itemUnit === 'btl' ? 'l' : itemUnit;
 
@@ -1581,10 +1666,13 @@ if (isset($_GET['ajax'])) {
                 if (!val) { msg = 'Please select a unit of measure.'; isValid = false; }
                 break;
             case 'itemUnitCost':
-                const cost = parseFloat(val);
-                if (isNaN(cost)) { msg = 'Unit cost is required.'; isValid = false; }
-                else if (cost <= 0) { msg = 'Unit cost must be greater than 0.'; isValid = false; }
-                else if (cost > 1000000) { msg = 'Unit cost is too high (max 1M).'; isValid = false; }
+                if (!val) { msg = 'Unit cost is required.'; isValid = false; }
+                else {
+                    const cost = parseFloat(val);
+                    if (isNaN(cost)) { msg = 'Unit cost is required.'; isValid = false; }
+                    else if (cost <= 0) { msg = 'Unit cost must be greater than 0.'; isValid = false; }
+                    else if (cost > 1000000) { msg = 'Unit cost is too high (max 1M).'; isValid = false; }
+                }
                 break;
             case 'itemStartingStock':
                 if (!val) { msg = 'Initial stock is required.'; isValid = false; }
@@ -1627,7 +1715,14 @@ if (isset($_GET['ajax'])) {
                 break;
         }
 
-        updateValidationUI(id, isValid, msg);
+        const isCreate = document.getElementById('actionType')?.value === 'create_item';
+        const showFieldError = !!forceShowErrors || !isCreate || (errEl && errEl.style.display === 'block');
+        if (showFieldError) {
+            updateValidationUI(id, isValid, msg);
+        } else if (isValid && val !== '') {
+            el.classList.add('input-success');
+            el.classList.remove('input-error');
+        }
         updateSaveButtonState();
         if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
             pfApplySuggestedThresholds();
@@ -1655,54 +1750,25 @@ if (isset($_GET['ajax'])) {
     }
 
     function updateSaveButtonState() {
-        const baseFields = ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost'];
-        let allValid = true;
-
-        baseFields.forEach(id => {
-            const el = document.getElementById(id);
-            const val = el?.value != null ? String(el.value).trim() : '';
-            if (!val) allValid = false;
-            if (el?.classList?.contains('input-error')) allValid = false;
-        });
-
-        const uomRaw = document.getElementById('itemUnit')?.value || '';
-        let uom = String(uomRaw).toLowerCase();
-        if (uom === 'btl') uom = 'l'; // legacy safety
+        const saveBtn = document.getElementById('saveBtn');
+        if (!saveBtn || saveBtn.classList.contains('save-btn--submitting')) return;
 
         const isCreate = document.getElementById('actionType')?.value === 'create_item';
+        updateItemModalSaveButtonLabel();
 
+        // Add modal: button stays clickable; validation runs on submit.
         if (isCreate) {
-            if (uom === 'pcs') {
-                const raw = getRawInput('itemStartingStock');
-                if (!raw || !isWholeNumberLike(raw) || Number(raw) <= 0) allValid = false;
-            } else if (uom === 'l') {
-                const raw = getRawInput('itemStartingStock');
-                if (!raw || !isDecimalWithMaxPlaces(raw, 3) || Number(raw) < 0) allValid = false;
-            } else if (uom === 'ft') {
-                const rlRaw = getRawInput('itemRollLength');
-                const rlOk = isRollLengthValid(rlRaw);
-                if (!rlOk) allValid = false;
-
-                const method = getStockInputMethod();
-                if (!method) allValid = false;
-
-                if (method === 'rolls') {
-                    const rollsRaw = getRawInput('startingRolls');
-                    if (!rollsRaw || !/^(0|[1-9]\d*)$/.test(rollsRaw) || Number(rollsRaw) < 1) allValid = false;
-                } else if (method === 'feet') {
-                    const feetRaw = getRawInput('startingFeet');
-                    if (!feetRaw || !isFeetPositive(feetRaw)) allValid = false;
-                }
-            }
-        } else {
-            // Edit mode: keep existing roll length validity gate for ft.
-            if (uom === 'ft') {
-                const rlRaw = getRawInput('itemRollLength');
-                if (!isRollLengthValid(rlRaw)) allValid = false;
-            }
+            saveBtn.disabled = false;
+            return;
         }
 
-        document.getElementById('saveBtn').disabled = !allValid;
+        let allValid = validateItemForm(false);
+        const uom = String(document.getElementById('itemUnit')?.value || '').toLowerCase();
+        if (uom === 'ft') {
+            const rollRaw = getRawInput('itemRollLength');
+            if (!isRollLengthValid(rollRaw)) allValid = false;
+        }
+        saveBtn.disabled = !allValid;
     }
 
     function buildFilterURL(overrides = {}, isAjax = false) {
@@ -2026,6 +2092,9 @@ if (isset($_GET['ajax'])) {
             validateField('startingRolls');
         }
 
+        const ftMethodErr = document.getElementById('err-ftStockMethod');
+        if (ftMethodErr && method) ftMethodErr.style.display = 'none';
+
         handleDualInputChange();
         updateSaveButtonState();
     }
@@ -2076,7 +2145,7 @@ if (isset($_GET['ajax'])) {
         }
 
         // Always store total feet in the real field used by backend.
-        if (startingStockEl) startingStockEl.value = totalFeet ? String(totalFeet.toFixed(2)) : '0.00';
+        if (startingStockEl) startingStockEl.value = totalFeet ? String(totalFeet.toFixed(2)) : '';
         document.getElementById('startingRollsHidden').value = rollsCount;
 
         if (computedTotalEl) {
@@ -2123,32 +2192,30 @@ if (isset($_GET['ajax'])) {
         if (rollLenReq) rollLenReq.style.display = isFeet ? 'inline' : 'none';
 
         // Initial stock inputs
-        const startGroup = document.getElementById('startingStockGroup');
+        const stockSlot = document.getElementById('itemInitialStockSlot');
         const ftGroup = document.getElementById('ftDualInputGroup');
         const startingStockEl = document.getElementById('itemStartingStock');
+        const stockRequiredStar = document.getElementById('initialStockRequiredStar');
 
         if (isCreate) {
-            if (startGroup) startGroup.style.display = (!isFeet) ? 'block' : 'none';
-            if (ftGroup) ftGroup.style.display = (isFeet) ? 'block' : 'none';
+            if (stockSlot) stockSlot.style.display = isFeet ? 'none' : '';
+            if (ftGroup) ftGroup.style.display = isFeet ? 'block' : 'none';
+            if (stockRequiredStar) stockRequiredStar.style.display = (!isFeet && uom) ? 'inline' : 'none';
 
-            // Validation/input behavior by UOM
             if (startingStockEl) {
-                if (uom === 'pcs') {
-                    startingStockEl.step = '1';
-                    startingStockEl.min = '0'; // Use JS validation for "no zero" rule.
-                    // Normalize legacy/default "0.00" to a strict whole number string.
-                    const startingRaw = String(startingStockEl.value || '').trim();
-                    if (!startingRaw || startingRaw === '0.00' || parseFloat(startingRaw) === 0) {
-                        startingStockEl.value = '0';
-                    } else if (startingRaw.match(/^([0-9]+)\\.0+$/)) {
-                        startingStockEl.value = String(parseInt(startingRaw, 10));
+                if (isFeet) {
+                    startingStockEl.type = 'hidden';
+                } else {
+                    startingStockEl.type = 'number';
+                    if (uom === 'pcs') {
+                        startingStockEl.step = '1';
+                        startingStockEl.min = '0';
+                        startingStockEl.placeholder = 'Enter quantity';
+                    } else if (uom === 'l') {
+                        startingStockEl.step = '0.01';
+                        startingStockEl.min = '0';
+                        startingStockEl.placeholder = 'e.g. 1.5';
                     }
-                } else if (uom === 'l') {
-                    startingStockEl.step = '0.01';
-                    startingStockEl.min = '0';
-                } else if (isFeet) {
-                    startingStockEl.step = '0.01';
-                    startingStockEl.min = '0';
                 }
             }
 
@@ -2222,7 +2289,10 @@ if (isset($_GET['ajax'])) {
             }
         });
         const saveBtn = document.getElementById('saveBtn');
-        if (saveBtn) saveBtn.disabled = true;
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.classList.remove('save-btn--submitting');
+        }
         
         // Ensure smart rules run after reset.
         applySmartUomRules();
@@ -2237,11 +2307,13 @@ if (isset($_GET['ajax'])) {
             if (modalTitle) modalTitle.textContent = 'Add New Material';
             if (actionType) actionType.value = 'create_item';
             if (itemId) itemId.value = '';
-            if (itemUnitCost) itemUnitCost.value = '0.00';
+            if (itemUnitCost) itemUnitCost.value = '';
+            const startingStockElCreate = document.getElementById('itemStartingStock');
+            if (startingStockElCreate) {
+                startingStockElCreate.value = '';
+                startingStockElCreate.type = 'number';
+            }
             pfApplySuggestedThresholds();
-            // Smart UOM decides which stock group is visible.
-            const startingStockGroup = document.getElementById('startingStockGroup');
-            if (startingStockGroup) startingStockGroup.style.display = 'none';
             const ftGrp = document.getElementById('ftDualInputGroup');
             if (ftGrp) ftGrp.style.display = 'none';
             const itemStatus = document.getElementById('itemStatus');
@@ -2256,6 +2328,7 @@ if (isset($_GET['ajax'])) {
             if (archiveBtn) archiveBtn.style.display = 'none';
 
             selectedItemForStockCard = null;
+            updateItemModalSaveButtonLabel();
             setTimeout(function () {
                 applySmartUomRules();
                 updateEditModalUI();
@@ -2283,8 +2356,6 @@ if (isset($_GET['ajax'])) {
             if (status2) status2.value = item.status;
             selectedItemForStockCard = item;
             pfApplySuggestedThresholds();
-            const startingStockGroup2 = document.getElementById('startingStockGroup');
-            if (startingStockGroup2) startingStockGroup2.style.display = 'none';
             const ftGrp2 = document.getElementById('ftDualInputGroup');
             if (ftGrp2) ftGrp2.style.display = 'none';
             const archiveBtn2 = document.getElementById('archiveItemBtn');
@@ -2326,7 +2397,7 @@ if (isset($_GET['ajax'])) {
             editItemOriginalValues = {
                 roll_length: String(item.default_roll_length_ft || '')
             };
-            // Stock info removed from modal top
+            updateItemModalSaveButtonLabel();
         }
         setTimeout(updateEditModalUI, 50);
     }
@@ -2383,12 +2454,7 @@ if (isset($_GET['ajax'])) {
             if (rollErr) rollErr.style.display = (!rollValid && rollRaw !== '') ? 'block' : 'none';
         }
         
-        const saveBtn = document.getElementById('saveBtn');
-        if (saveBtn) {
-            // Let smart numeric validation drive the button, then apply reorder/roll section gating.
-            updateSaveButtonState();
-            if (rollSectionVisible && !rollValid) saveBtn.disabled = true;
-        }
+        updateSaveButtonState();
         
         if (isEdit && editItemOriginalValues && Object.keys(editItemOriginalValues).length) {
             const changes = [];
@@ -3015,38 +3081,31 @@ if (isset($_GET['ajax'])) {
 
     async function saveItem(e) {
         e.preventDefault();
-        
-        // Clear previous errors
-        document.querySelectorAll('.field-error').forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.input-error').forEach(el => el.classList.remove('input-error'));
+
+        document.querySelectorAll('#itemForm .field-error').forEach(function (el) {
+            el.style.display = 'none';
+            el.textContent = '';
+        });
+        document.querySelectorAll('#itemForm .input-error').forEach(function (el) {
+            el.classList.remove('input-error');
+        });
+        const ftMethodErr = document.getElementById('err-ftStockMethod');
+        if (ftMethodErr) ftMethodErr.style.display = 'none';
 
         updateEditModalUI();
-        if (document.getElementById('saveBtn').disabled) return;
 
-        // Hard guard: For create mode + pcs, starting_stock must be > 0.
-        // Prevents accidental submission if UI state got out of sync.
-        const actionType = document.getElementById('actionType')?.value || '';
-        const uom = String(document.getElementById('itemUnit')?.value || '').toLowerCase();
-        const startingStockEl = document.getElementById('itemStartingStock');
-        if (actionType === 'create_item' && uom === 'pcs' && startingStockEl) {
-            const raw = String(startingStockEl.value || '').trim();
-            const ok = raw && /^\d+$/.test(raw) && Number(raw) > 0;
-            if (!ok) {
-                startingStockEl.classList.add('input-error');
-                const err = document.getElementById('err-itemStartingStock');
-                if (err) {
-                    err.textContent = 'Initial stock must be greater than 0 for pcs.';
-                    err.style.display = 'block';
-                }
-                const saveBtn = document.getElementById('saveBtn');
-                if (saveBtn) saveBtn.disabled = true;
-                return;
+        if (!validateItemForm(true)) {
+            const firstInvalid = document.querySelector('#itemForm .input-error, #itemForm .field-error[style*="block"]');
+            if (firstInvalid) {
+                (firstInvalid.closest('.item-modal-field') || firstInvalid).scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
+            return;
         }
-        
+
         const btn = document.getElementById('saveBtn');
-        const originalText = btn.innerHTML;
+        const originalText = btn.textContent;
         btn.disabled = true;
+        btn.classList.add('save-btn--submitting');
         btn.innerHTML = '<span class="loading-spinner"></span>Saving...';
 
         const uomEl = document.getElementById('itemUnit');
@@ -3063,9 +3122,9 @@ if (isset($_GET['ajax'])) {
             const res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.success) {
-                // Restore button UI state before closing modal (prevents "Saving..." sticking).
                 btn.disabled = false;
-                btn.innerHTML = originalText;
+                btn.classList.remove('save-btn--submitting');
+                btn.textContent = originalText;
                 closeModal();
                 fetchUpdatedTable();
             } else { 
@@ -3086,12 +3145,16 @@ if (isset($_GET['ajax'])) {
                     alert('Error: ' + data.error); 
                 }
                 btn.disabled = false;
-                btn.innerHTML = originalText;
+                btn.classList.remove('save-btn--submitting');
+                btn.textContent = originalText;
+                updateSaveButtonState();
             }
         } catch (err) { 
             alert('Request failed.'); 
             btn.disabled = false;
-            btn.innerHTML = originalText;
+            btn.classList.remove('save-btn--submitting');
+            btn.textContent = originalText;
+            updateSaveButtonState();
         } 
     }
 
