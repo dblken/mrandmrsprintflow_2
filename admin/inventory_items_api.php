@@ -165,7 +165,7 @@ try {
                 $sql = "INSERT INTO inv_items (category_id, sku, name, unit_of_measure, track_by_roll, default_roll_length_ft, reorder_level, critical_level, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 global $conn;
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("isssiddddd", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $critical_stock, $unit_cost);
+                $stmt->bind_param("isssidddd", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $critical_stock, $unit_cost);
                 if (!$stmt->execute()) throw new Exception("Create failed: " . $stmt->error);
                 $itemId = $stmt->insert_id;
                 $stmt->close();
