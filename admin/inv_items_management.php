@@ -2184,29 +2184,35 @@ if (isset($_GET['ajax'])) {
     function handleCategoryChange() {
         const catSelect = document.getElementById('itemCategory');
         const selectedOpt = catSelect.options[catSelect.selectedIndex];
-        if (!selectedOpt || !selectedOpt.value) return;
+        const itemUnitEl = document.getElementById('itemUnit');
+
+        if (!selectedOpt || !selectedOpt.value) {
+            currentIsTarpaulinCategory = false;
+            pfSyncAutoFieldLockStates();
+            applySmartUomRules();
+            return;
+        }
 
         const uom = selectedOpt.getAttribute('data-uom');
         const catLabel = (selectedOpt.textContent || '').toUpperCase();
-        // Tarpaulin should be flexible: allow manual override of UOM.
         const isTarpaulin = catLabel.includes('TARPAULIN');
-        // Printed stickers must be stored as Pieces (pcs), not Feet (ft).
         const isPrintedSticker = catLabel.includes('PRINTED') && (catLabel.includes('STKR') || catLabel.includes('STICKER'));
         currentIsTarpaulinCategory = !!isTarpaulin;
 
-        // Only auto-fill if it's a NEW item (mode check)
-        const isCreate = document.getElementById('actionType').value === 'create_item';
-        if (isCreate) {
+        // Auto-fill UOM from category (add + edit); tracking updates via applySmartUomRules().
+        if (itemUnitEl) {
             if (uom) {
-                document.getElementById('itemUnit').value = normalizeInventoryUomValue(uom, selectedOpt.textContent || '');
+                itemUnitEl.value = normalizeInventoryUomValue(uom, selectedOpt.textContent || '');
             }
             if (isPrintedSticker) {
-                document.getElementById('itemUnit').value = 'pcs';
+                itemUnitEl.value = 'pcs';
             }
         }
 
         pfSyncAutoFieldLockStates();
         applySmartUomRules();
+        pfApplySuggestedThresholds();
+        updateEditModalUI();
     }
 
     function editFromStockCard() {
