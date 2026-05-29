@@ -449,12 +449,29 @@ if (isset($_GET['ajax'])) {
 
         .preview-badge { display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 10px; background: #f9fafb; border: 1px solid #e5e7eb; font-size: 13px; font-weight: 600; color: #374151; width: 100%; box-sizing: border-box; }
 
-        /* Validation Styles */
-        .field-error { color: #dc2626; font-size: 11px; margin-top: 4px; display: none; font-weight: 500; }
-        .input-error { border-color: #dc2626 !important; background-color: #fffafb !important; }
-        .input-error:focus { box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1) !important; }
-        .input-success { border-color: #10b981 !important; }
-        .input-warning { border-color: #f59e0b !important; box-shadow: 0 0 0 3px rgba(245,158,11,0.15) !important; }
+        /* Validation (match products_management add modal) */
+        #itemModal .field-error {
+            display: none;
+            font-size: 12px;
+            color: #ef4444;
+            margin-top: 4px;
+            min-height: 18px;
+            font-weight: 400;
+        }
+        #itemModal .form-group.has-error input,
+        #itemModal .form-group.has-error select,
+        #itemModal .form-group.has-error textarea,
+        #itemModal .item-modal-field.has-error input,
+        #itemModal .item-modal-field.has-error select {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+        }
+        #itemModal .threshold-readonly.threshold-unset {
+            color: #9ca3af !important;
+            font-weight: 500 !important;
+            font-style: italic;
+        }
+        #itemModal .threshold-readonly { background: #f9fafb; font-weight: 600; color: #374151; }
         
         #saveBtn:disabled { opacity: 0.6; cursor: not-allowed; filter: grayscale(1); }
         #saveBtn.save-btn--submitting { opacity: 0.7; cursor: wait; }
@@ -1148,12 +1165,12 @@ if (isset($_GET['ajax'])) {
             <div class="modal-section">
                 <p class="section-header">Material Information</p>
                 <div class="form-row-grid" style="grid-template-columns: 2fr 1fr;">
-                    <div>
+                    <div class="form-group" id="fg-itemName">
                         <label for="itemName">Item Name <span style="color:#ef4444">*</span></label>
                         <input type="text" id="itemName" name="name" required placeholder="name" class="w-100">
                         <span id="err-itemName" class="field-error"></span>
                     </div>
-                    <div>
+                    <div class="form-group" id="fg-itemCategory">
                         <label for="itemCategory">Category <span style="color:#ef4444">*</span></label>
                         <select id="itemCategory" name="category_id" class="w-100" onchange="handleCategoryChange()">
                             <option value="">Select Category</option>
@@ -1173,7 +1190,7 @@ if (isset($_GET['ajax'])) {
                     </div>
                 </div>
                 <div class="form-row-grid">
-                    <div>
+                    <div class="form-group" id="fg-itemUnit">
                         <label for="itemUnit">Unit of Measure (UOM) <span id="autoTagUom" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
                         <select id="itemUnit" name="unit" required onchange="handleUomChange()" class="w-100 locked-select">
                             <option value="">Select Category First</option>
@@ -1183,7 +1200,7 @@ if (isset($_GET['ajax'])) {
                         </select>
                         <span id="err-itemUnit" class="field-error"></span>
                     </div>
-                    <div>
+                    <div class="form-group" id="fg-itemUnitCost">
                         <label for="itemUnitCost">Unit Cost (&#8369;) <span style="color:#ef4444">*</span></label>
                         <input type="number" step="0.01" min="0" id="itemUnitCost" name="unit_cost" value="" placeholder="0.00" required class="w-100">
                         <span id="err-itemUnitCost" class="field-error"></span>
@@ -1198,25 +1215,23 @@ if (isset($_GET['ajax'])) {
                         </select>
                         <p class="field-hint">&nbsp;</p>
                     </div>
-                    <div id="itemInitialStockSlot" class="item-modal-field">
+                    <div id="itemInitialStockSlot" class="item-modal-field form-group">
                         <label for="itemStartingStock">Initial Stock Quantity <span id="initialStockRequiredStar" style="color:#ef4444;display:none;">*</span></label>
-                        <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="Enter quantity" class="w-100" inputmode="numeric"
+                        <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="0" class="w-100" inputmode="numeric"
                             onkeydown="handlePcsInitialStockKeyDown(event)"
                             onpaste="handlePcsInitialStockPaste(event)">
                         <span id="err-itemStartingStock" class="field-error"></span>
-                        <p id="startingStockHelper" class="field-hint" style="min-height:auto;">Opening balance for new item record</p>
+                        <small id="startingStockHelper" style="font-size:11px;color:#9ca3af;margin-top:2px;display:block;">0</small>
                     </div>
                 </div>
                 <div class="item-modal-rows-2">
                     <div class="item-modal-field">
                         <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
-                        <input type="text" id="itemMinStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 20%))">
-                        <p class="field-hint">max(1, ceil(qty × 0.20))</p>
+                        <input type="text" id="itemMinStock" value="Reorder Level Not Set" readonly class="w-100 threshold-readonly threshold-unset" title="Set initial quantity to calculate">
                     </div>
                     <div class="item-modal-field">
                         <label for="itemCriticalStock">Critical Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
-                        <input type="text" id="itemCriticalStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 5%))">
-                        <p class="field-hint">max(1, ceil(qty × 0.05))</p>
+                        <input type="text" id="itemCriticalStock" value="Critical Level Not Set" readonly class="w-100 threshold-readonly threshold-unset" title="Set initial quantity to calculate">
                     </div>
                 </div>
                 <div class="item-modal-rows-2 item-modal-row-preview">
@@ -1367,12 +1382,33 @@ if (isset($_GET['ajax'])) {
         return { key: 'in', label: 'In Stock', textColor: '#166534', bgColor: '#dcfce7', borderColor: '#bbf7d0', rowClass: 'stock-status-in' };
     }
 
+    function pfModalQuantityIsSet() {
+        var actionTypeEl = document.getElementById('actionType');
+        var isEdit = actionTypeEl && actionTypeEl.value === 'update_item';
+        if (isEdit) return true;
+
+        var uom = (document.getElementById('itemUnit')?.value || 'pcs').toLowerCase();
+        if (uom === 'ft') {
+            var method = getStockInputMethod();
+            if (method === 'rolls') {
+                return getRawInput('startingRolls') !== '' && getRawInput('itemRollLength') !== '';
+            }
+            if (method === 'feet') {
+                return getRawInput('startingFeet') !== '';
+            }
+            return false;
+        }
+        return getRawInput('itemStartingStock') !== '';
+    }
+
     function pfGetModalReferenceQuantity() {
         var actionTypeEl = document.getElementById('actionType');
         var isEdit = actionTypeEl && actionTypeEl.value === 'update_item';
         if (isEdit) {
             return Math.max(0, parseFloat(selectedItemForStockCard?.current_stock || 0));
         }
+        if (!pfModalQuantityIsSet()) return 0;
+
         var uom = (document.getElementById('itemUnit')?.value || 'pcs').toLowerCase();
         if (uom === 'ft') {
             var method = getStockInputMethod();
@@ -1387,12 +1423,23 @@ if (isset($_GET['ajax'])) {
     }
 
     function pfApplySuggestedThresholds() {
-        var refQty = pfGetModalReferenceQuantity();
         var reorderEl = document.getElementById('itemMinStock');
         var criticalEl = document.getElementById('itemCriticalStock');
         if (!reorderEl || !criticalEl) return;
+
+        if (!pfModalQuantityIsSet()) {
+            reorderEl.value = 'Reorder Level Not Set';
+            criticalEl.value = 'Critical Level Not Set';
+            reorderEl.classList.add('threshold-unset');
+            criticalEl.classList.add('threshold-unset');
+            return;
+        }
+
+        var refQty = pfGetModalReferenceQuantity();
         reorderEl.value = String(pfSuggestReorderLevel(refQty));
         criticalEl.value = String(pfSuggestCriticalLevel(refQty));
+        reorderEl.classList.remove('threshold-unset');
+        criticalEl.classList.remove('threshold-unset');
     }
     var currentPage = <?php echo $page; ?>;
     var currentIsTarpaulinCategory = false;
@@ -1663,7 +1710,7 @@ if (isset($_GET['ajax'])) {
                 if (!val) { msg = 'Please select a category.'; isValid = false; }
                 break;
             case 'itemUnit':
-                if (!val) { msg = 'Please select a unit of measure.'; isValid = false; }
+                if (!val) { msg = 'Please select a category.'; isValid = false; }
                 break;
             case 'itemUnitCost':
                 if (!val) { msg = 'Unit cost is required.'; isValid = false; }
@@ -1671,22 +1718,22 @@ if (isset($_GET['ajax'])) {
                     const cost = parseFloat(val);
                     if (isNaN(cost)) { msg = 'Unit cost is required.'; isValid = false; }
                     else if (cost <= 0) { msg = 'Unit cost must be greater than 0.'; isValid = false; }
-                    else if (cost > 1000000) { msg = 'Unit cost is too high (max 1M).'; isValid = false; }
+                    else if (cost > 1000000) { msg = 'Unit cost must be between ₱0.01 and ₱1,000,000.00.'; isValid = false; }
                 }
                 break;
             case 'itemStartingStock':
-                if (!val) { msg = 'Initial stock is required.'; isValid = false; }
+                if (!val) { msg = 'Quantity is required.'; isValid = false; }
                 else if (uom === 'pcs') {
-                    if (!isWholeNumberLike(val)) { msg = 'Whole numbers only (pcs).'; isValid = false; }
+                    if (!isWholeNumberLike(val)) { msg = 'Quantity must be a whole number.'; isValid = false; }
                     else {
                         const n = Number(val);
-                        if (!Number.isFinite(n) || n <= 0) { msg = 'Initial stock must be greater than 0 for pcs.'; isValid = false; }
+                        if (!Number.isFinite(n) || n <= 0) { msg = 'Quantity must be greater than 0.'; isValid = false; }
                     }
                 } else if (uom === 'l') {
-                    if (!isDecimalWithMaxPlaces(val, 3)) { msg = 'Decimals allowed (e.g., 0.25 L), up to 3 decimals.'; isValid = false; }
+                    if (!isDecimalWithMaxPlaces(val, 3)) { msg = 'Quantity must be a valid number.'; isValid = false; }
                     else {
                         const n = Number(val);
-                        if (!Number.isFinite(n) || n < 0) { msg = 'Initial stock cannot be negative.'; isValid = false; }
+                        if (!Number.isFinite(n) || n < 0) { msg = 'Quantity must be a non-negative number.'; isValid = false; }
                     }
                 } else if (uom === 'ft') {
                     // In ft mode the real input comes from rolls/feet; but keep a safe check.
@@ -1698,20 +1745,20 @@ if (isset($_GET['ajax'])) {
                 }
                 break;
             case 'startingRolls':
-                if (!val) { msg = 'Number of rolls is required.'; isValid = false; }
-                else if (!/^(0|[1-9]\d*)$/.test(val)) { msg = 'Whole numbers only (rolls).'; isValid = false; }
+                if (!val) { msg = 'Quantity is required.'; isValid = false; }
+                else if (!/^(0|[1-9]\d*)$/.test(val)) { msg = 'Quantity must be a whole number.'; isValid = false; }
                 else {
                     const r = Number(val);
-                    if (!Number.isFinite(r) || r < 1) { msg = 'Rolls must be at least 1.'; isValid = false; }
+                    if (!Number.isFinite(r) || r < 1) { msg = 'Quantity must be greater than 0.'; isValid = false; }
                 }
                 break;
             case 'startingFeet':
-                if (!val) { msg = 'Total feet is required.'; isValid = false; }
-                else if (!isFeetPositive(val)) { msg = 'Feet must be > 0 and decimals allowed (up to 3).' ; isValid = false; }
+                if (!val) { msg = 'Quantity is required.'; isValid = false; }
+                else if (!isFeetPositive(val)) { msg = 'Quantity must be greater than 0.'; isValid = false; }
                 break;
             case 'itemRollLength':
-                if (!val) { msg = 'Roll Length is required for Feet (ft).'; isValid = false; }
-                else if (!isRollLengthValid(val)) { msg = 'Roll Length must be between 1 and 1000 ft (up to 3 decimals).'; isValid = false; }
+                if (!val) { msg = 'Roll length is required.'; isValid = false; }
+                else if (!isRollLengthValid(val)) { msg = 'Roll length must be between 1 and 1000 ft.'; isValid = false; }
                 break;
         }
 
@@ -1719,9 +1766,6 @@ if (isset($_GET['ajax'])) {
         const showFieldError = !!forceShowErrors || !isCreate || (errEl && errEl.style.display === 'block');
         if (showFieldError) {
             updateValidationUI(id, isValid, msg);
-        } else if (isValid && val !== '') {
-            el.classList.add('input-success');
-            el.classList.remove('input-error');
         }
         updateSaveButtonState();
         if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
@@ -1734,18 +1778,17 @@ if (isset($_GET['ajax'])) {
     function updateValidationUI(id, isValid, msg) {
         const el = document.getElementById(id);
         const errEl = document.getElementById('err-' + id);
-        if (!errEl) return;
+        if (!el || !errEl) return;
 
-        if (!isValid) {
-            el.classList.add('input-error');
-            el.classList.remove('input-success');
+        const group = el.closest('.form-group') || el.closest('.item-modal-field') || el.closest('.item-modal-panel');
+        if (!isValid && msg) {
             errEl.textContent = msg;
             errEl.style.display = 'block';
+            if (group) group.classList.add('has-error');
         } else {
-            el.classList.remove('input-error');
-            if (el.value.trim() !== '') el.classList.add('input-success');
-            else el.classList.remove('input-success');
+            errEl.textContent = '';
             errEl.style.display = 'none';
+            if (group) group.classList.remove('has-error');
         }
     }
 
@@ -2210,21 +2253,17 @@ if (isset($_GET['ajax'])) {
                     if (uom === 'pcs') {
                         startingStockEl.step = '1';
                         startingStockEl.min = '0';
-                        startingStockEl.placeholder = 'Enter quantity';
+                        startingStockEl.placeholder = '0';
                     } else if (uom === 'l') {
                         startingStockEl.step = '0.01';
                         startingStockEl.min = '0';
-                        startingStockEl.placeholder = 'e.g. 1.5';
+                        startingStockEl.placeholder = '0';
                     }
                 }
             }
 
             const helper = document.getElementById('startingStockHelper');
-            if (helper) {
-                if (uom === 'pcs') helper.textContent = 'Whole numbers only (pcs).';
-                else if (uom === 'l') helper.textContent = 'Decimals allowed (e.g., 0.25 L).';
-                else helper.textContent = 'Opening balance for new item record';
-            }
+            if (helper) helper.textContent = '0';
 
             // Default dual input method for ft
             if (isFeet) {
@@ -2280,10 +2319,10 @@ if (isset($_GET['ajax'])) {
         editItemOriginalValues = {};
         
         // Clear previous validation states
-        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost'].forEach(id => {
+        document.querySelectorAll('#itemForm .has-error').forEach(function (g) { g.classList.remove('has-error'); });
+        ['itemName', 'itemCategory', 'itemUnit', 'itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemRollLength'].forEach(function (id) {
             const el = document.getElementById(id);
             if (el) {
-                el.classList.remove('input-error', 'input-success');
                 const err = document.getElementById('err-' + id);
                 if (err) { err.style.display = 'none'; err.textContent = ''; }
             }
@@ -2399,6 +2438,7 @@ if (isset($_GET['ajax'])) {
             };
             updateItemModalSaveButtonLabel();
         }
+        pfApplySuggestedThresholds();
         setTimeout(updateEditModalUI, 50);
     }
 
@@ -3086,8 +3126,8 @@ if (isset($_GET['ajax'])) {
             el.style.display = 'none';
             el.textContent = '';
         });
-        document.querySelectorAll('#itemForm .input-error').forEach(function (el) {
-            el.classList.remove('input-error');
+        document.querySelectorAll('#itemForm .has-error').forEach(function (el) {
+            el.classList.remove('has-error');
         });
         const ftMethodErr = document.getElementById('err-ftStockMethod');
         if (ftMethodErr) ftMethodErr.style.display = 'none';
@@ -3095,7 +3135,7 @@ if (isset($_GET['ajax'])) {
         updateEditModalUI();
 
         if (!validateItemForm(true)) {
-            const firstInvalid = document.querySelector('#itemForm .input-error, #itemForm .field-error[style*="block"]');
+            const firstInvalid = document.querySelector('#itemForm .has-error, #itemForm .field-error[style*="block"]');
             if (firstInvalid) {
                 (firstInvalid.closest('.item-modal-field') || firstInvalid).scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
@@ -3139,7 +3179,10 @@ if (isset($_GET['ajax'])) {
                             errEl.textContent = data.errors[key];
                             errEl.style.display = 'block';
                         }
-                        if (inputEl) inputEl.classList.add('input-error');
+                        if (inputEl) {
+                            const grp = inputEl.closest('.form-group') || inputEl.closest('.item-modal-field') || inputEl.closest('.item-modal-panel');
+                            if (grp) grp.classList.add('has-error');
+                        }
                     }
                 } else {
                     alert('Error: ' + data.error); 
