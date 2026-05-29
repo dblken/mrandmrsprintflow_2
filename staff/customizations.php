@@ -759,6 +759,16 @@ if ($showLatestCustomizationOnly) {
             border-color: #06A1A1;
         }
 
+        .action-btn-group {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            width: 100%;
+        }
+
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:560px; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
         .modal-wrap-text { max-width:100%; white-space:normal; word-break:break-word; overflow-wrap:anywhere; }
@@ -1075,8 +1085,17 @@ if ($showLatestCustomizationOnly) {
                 border-top: 1px solid #e8eef3 !important; 
                 border-bottom: none !important; 
                 overflow: visible !important; 
+                justify-content: stretch !important;
             }
             .pf-staff-customizations-root td:nth-child(7)::before { display: none !important; }
+            html .pf-staff-customizations-root td:nth-child(7) .action-btn-group,
+            .pf-staff-customizations-root td:nth-child(7) .action-btn-group {
+                width: 100% !important;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 88px) !important;
+                gap: 8px !important;
+                align-items: center !important;
+            }
             html .pf-staff-customizations-root td:nth-child(7) .table-action-btn, 
             .pf-staff-customizations-root td:nth-child(7) .table-action-btn { 
                 display: flex !important; align-items: center !important; justify-content: center !important; 
@@ -1410,7 +1429,7 @@ if ($showLatestCustomizationOnly) {
                                         <div class="table-text-sub uppercase truncate-ellipsis" :title="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''" x-text="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''"></div>
                                     </td>
                                     <td class="px-4 py-4 action-col-cell">
-                                        <div style="display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:nowrap;white-space:nowrap;">
+                                        <div class="action-btn-group">
                                             <button x-show="isPosWalkInPending(jo)" @click.stop="openPosCompleteConfirm(jo)" class="table-action-btn">Mark as Completed</button>
                                             <button @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')" class="table-action-btn">View</button>
                                         </div>
