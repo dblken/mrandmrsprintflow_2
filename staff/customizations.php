@@ -1080,8 +1080,9 @@ if ($showLatestCustomizationOnly) {
             html .pf-staff-customizations-root td:nth-child(7) .table-action-btn, 
             .pf-staff-customizations-root td:nth-child(7) .table-action-btn { 
                 display: flex !important; align-items: center !important; justify-content: center !important; 
-                width: 100% !important; max-width: 100% !important; 
-                min-width: 0 !important; padding: 10px 4px !important; font-size: 12px !important; 
+                width: auto !important; max-width: none !important;
+                flex: 1 1 0 !important;
+                min-width: 0 !important; padding: 10px 8px !important; font-size: 12px !important; 
                 font-weight: 700 !important; border-radius: 8px !important; white-space: nowrap !important; 
                 overflow: hidden !important; text-overflow: ellipsis !important; min-height: 36px !important; 
                 box-sizing: border-box !important; 
