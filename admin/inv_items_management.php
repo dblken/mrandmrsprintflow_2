@@ -373,8 +373,65 @@ if (isset($_GET['ajax'])) {
         .modal-section:last-child { margin-bottom: 0; }
         .section-header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #9ca3af; margin-bottom: 16px; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px; }
         
-        .form-row-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 20px; margin-bottom: 16px; align-items: flex-start; }
+        .form-row-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px 20px; margin-bottom: 20px; align-items: flex-start; }
         .form-col-full { grid-column: span 2; }
+
+        /* Item modal: create vs edit layout */
+        .item-modal-threshold-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+            align-items: start;
+        }
+        .item-modal--edit .item-modal-threshold-grid {
+            grid-template-columns: minmax(0, 1.15fr) repeat(3, minmax(0, 1fr));
+        }
+        .item-modal-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+        .item-modal-field .field-hint {
+            font-size: 10px;
+            color: #9ca3af;
+            line-height: 1.4;
+            margin: 0;
+            min-height: 28px;
+        }
+        .item-modal-field input[readonly],
+        .item-modal-field select {
+            height: 42px;
+            box-sizing: border-box;
+        }
+        .item-modal-bottom-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+            align-items: stretch;
+        }
+        .item-modal-panel {
+            background: #fcfcfd;
+            border: 1px solid #f3f4f6;
+            padding: 18px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 100%;
+        }
+        .item-modal-panel--roll {
+            background: #f0f9ff;
+            border-color: #bae6fd;
+        }
+        .item-modal--create #previewStatusSection,
+        .item-modal--create #statusSection,
+        .item-modal--create #reorderAlertsGroup,
+        .item-modal--create #editModalChangeSummary {
+            display: none !important;
+        }
         
         /* Proportional Widths */
         .w-35 { width: 35% !important; min-width: 140px; }
@@ -387,6 +444,9 @@ if (isset($_GET['ajax'])) {
             .form-row-grid { grid-template-columns: 1fr; gap: 16px; }
             .form-col-full { grid-column: span 1; }
             .w-35, .w-40, .w-50 { width: 100% !important; }
+            .item-modal-threshold-grid,
+            .item-modal--edit .item-modal-threshold-grid { grid-template-columns: 1fr; }
+            .item-modal-bottom-grid { grid-template-columns: 1fr; }
         }
 
         .preview-badge { display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 16px; border-radius: 10px; background: #f9fafb; border: 1px solid #e5e7eb; font-size: 13px; font-weight: 600; color: #374151; width: 100%; box-sizing: border-box; }
@@ -1130,46 +1190,48 @@ if (isset($_GET['ajax'])) {
                         <span id="err-itemUnitCost" class="field-error"></span>
                     </div>
                 </div>
-                <div class="form-row-grid" style="grid-template-columns: 1.2fr 1fr 1fr 1fr; gap:16px;">
-                    <div>
+                <div id="itemThresholdRow" class="item-modal-threshold-grid">
+                    <div class="item-modal-field">
                         <label for="itemTrackByRoll">Tracking Mode <span id="autoTagTrack" style="font-size:10px; color:#9ca3af; font-weight:normal;">(Auto-generated)</span></label>
                         <select id="itemTrackByRoll" name="track_by_roll" class="w-100 locked-select">
                             <option value="0">Standard (Ledger)</option>
                             <option value="1">Roll-Based (Individual)</option>
                         </select>
+                        <p class="field-hint">&nbsp;</p>
                     </div>
-                    <div>
+                    <div class="item-modal-field">
                         <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
                         <input type="text" id="itemMinStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 20%))">
-                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Updates live from quantity: max(1, ceil(qty × 0.20))</p>
+                        <p class="field-hint">max(1, ceil(qty × 0.20))</p>
                     </div>
-                    <div>
+                    <div class="item-modal-field">
                         <label for="itemCriticalStock">Critical Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
                         <input type="text" id="itemCriticalStock" value="1" readonly class="w-100" style="background:#f9fafb;color:#374151;font-weight:600;" title="max(1, ceil(quantity × 5%))">
-                        <p style="font-size:10px; color:#9ca3af; margin-top:4px;">Updates live from quantity: max(1, ceil(qty × 0.05))</p>
+                        <p class="field-hint">max(1, ceil(qty × 0.05))</p>
                     </div>
-                    <div id="previewStatusSection">
+                    <div id="previewStatusSection" class="item-modal-field">
                         <label>Stock Status Preview</label>
-                        <div id="editModalReorderPreview" class="preview-badge" style="min-height:38px; display:flex; align-items:center; justify-content:center; padding:0 12px; font-weight:600; border:1px solid #e5e7eb; border-radius:8px;">No stock added yet.</div>
+                        <div id="editModalReorderPreview" class="preview-badge" style="min-height:42px;">No stock added yet.</div>
+                        <p class="field-hint">&nbsp;</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Alerts Section -->
-            <div id="reorderAlertsGroup" class="modal-section" style="margin-top:-24px; margin-bottom: 16px;">
+            <!-- Alerts Section (edit only) -->
+            <div id="reorderAlertsGroup" class="modal-section" style="margin-bottom: 20px;">
                 <div class="form-col-full">
-                    <p style="font-size:11px; color:#6b7280; margin-bottom:4px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds update in real time as quantity changes.</p>
+                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds update in real time as quantity changes.</p>
                     <div id="editModalReorderWarnHigh" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; This may mark your stock as low immediately</div>
                     <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; You may run out of stock before being warned</div>
                     <div id="editModalNoStockYet" style="display:none; font-size:11px; color:#6b7280; background:#f3f4f6; padding:8px 12px; border-radius:8px; border:1px solid #e5e7eb;">No stock added yet.</div>
                 </div>
             </div>
 
-            <!-- Bottom Row: Initial Balance | Roll Settings | System Status -->
-            <div class="form-row" style="display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; align-items: stretch; gap: 16px; margin-bottom: 20px;">
+            <!-- Bottom Row: Initial Balance | Roll Settings | System Status (edit) -->
+            <div id="itemModalBottomRow" class="item-modal-bottom-grid">
                 <!-- Column 1: Initial Stock (Create Mode Only) -->
-                <div id="startingStockGroup" style="display:none; background:#fcfcfd; border:1px solid #f3f4f6; padding:16px; border-radius:12px;">
-                    <p class="section-header" style="margin-top:0;">Initial Balance</p>
+                <div id="startingStockGroup" class="item-modal-panel" style="display:none;">
+                    <p class="section-header" style="margin:0 0 4px;">Initial Balance</p>
                     <label for="itemStartingStock">Initial Stock Quantity</label>
                     <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="0" class="w-100" inputmode="numeric"
                         onkeydown="handlePcsInitialStockKeyDown(event)"
@@ -1179,8 +1241,8 @@ if (isset($_GET['ajax'])) {
                 </div>
 
                 <!-- Column 1b: Dual Input (Feet/Rolls) - UOM: ft Only -->
-                <div id="ftDualInputGroup" style="display:none; background:#fcfcfd; border:1px solid #f3f4f6; padding:16px; border-radius:12px;">
-                    <p class="section-header" style="margin-top:0;">Initial Balance (Feet)</p>
+                <div id="ftDualInputGroup" class="item-modal-panel" style="display:none;">
+                    <p class="section-header" style="margin:0 0 4px;">Initial Balance (Feet)</p>
 
                     <input type="hidden" id="stockInputMethodHidden" name="stock_input_method" value="">
                     <input type="hidden" id="startingRollsHidden" name="starting_rolls" value="">
@@ -1220,29 +1282,28 @@ if (isset($_GET['ajax'])) {
                 </div>
 
                 <!-- Column 2: Roll Settings (UOM: ft Only) -->
-                <div id="rollSettingsSection" style="display:none; background:#f0f9ff; border:1px solid #bae6fd; border-radius:12px; padding:16px;">
-                    <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#0369a1;margin-bottom:14px;border-bottom:1px solid #bae6fd;padding-bottom:8px;">Roll Settings</p>
+                <div id="rollSettingsSection" class="item-modal-panel item-modal-panel--roll" style="display:none;">
+                    <p class="section-header" style="margin:0 0 4px; color:#0369a1; border-color:#bae6fd;">Roll Settings</p>
                     <label for="itemRollLength">Roll Length (ft) <span style="color:#ef4444" id="rollLengthRequired">*</span></label>
                     <input type="number" step="0.01" min="1" max="1000" id="itemRollLength" name="roll_length_ft" placeholder="e.g. 164.00" class="w-100" oninput="handleDualInputChange()">
                     <span id="err-itemRollLength" class="field-error"></span>
                 </div>
 
-                <!-- Column 3: System Status -->
-                <div id="statusSection" class="modal-section" style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:0;">
-                    <p class="section-header" style="margin-top:0;">System Status</p>
-                    <div style="margin-bottom:0;">
+                <!-- Column 3: System Status (edit only; new items default to Active) -->
+                <div id="statusSection" class="item-modal-panel" style="background:#f9fafb;">
+                    <p class="section-header" style="margin:0 0 4px;">System Status</p>
+                    <div class="item-modal-field">
                         <label for="itemStatus">Status</label>
                         <select id="itemStatus" name="status" class="w-100">
                             <option value="ACTIVE">Active</option>
                             <option value="INACTIVE">Inactive</option>
                         </select>
-                        <div id="statusHelperMessage" style="display:none; margin-top:8px;">
-                            <p style="font-size:11px;color:#9ca3af;line-height:1.4;">Inactive materials are hidden from new orders and POS.</p>
+                        <div id="statusHelperMessage" style="display:none;">
+                            <p class="field-hint" style="min-height:auto;">Inactive materials are hidden from new orders and POS.</p>
                         </div>
                     </div>
                 </div>
             </div>
-            
             <!-- Change Summary (Edit mode, when changed) -->
             <div id="editModalChangeSummary" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
                 <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:8px;">Changes Summary</div>
@@ -2133,12 +2194,20 @@ if (isset($_GET['ajax'])) {
         updateSaveButtonState();
     }
 
+    function setItemModalMode(mode) {
+        const form = document.getElementById('itemForm');
+        if (!form) return;
+        form.classList.remove('item-modal--create', 'item-modal--edit');
+        form.classList.add(mode === 'create' ? 'item-modal--create' : 'item-modal--edit');
+    }
+
     function openModal(mode, item = null) {
         const modal = document.getElementById('itemModal');
         const form = document.getElementById('itemForm');
         if (!modal || !form) return;
         modal.style.display = 'flex';
         form.reset();
+        setItemModalMode(mode);
         
         // Top info removed
         editItemOriginalValues = {};
@@ -2177,9 +2246,7 @@ if (isset($_GET['ajax'])) {
             if (ftGrp) ftGrp.style.display = 'none';
             const itemStatus = document.getElementById('itemStatus');
             if (itemStatus) itemStatus.value = 'ACTIVE';
-            const previewSection = document.getElementById('previewStatusSection');
-            if (previewSection) previewSection.style.display = 'block';
-            
+
             // Lock them by default for new items until category is selected
             const itemUnitEl = document.getElementById('itemUnit');
             const trackElCreate = document.getElementById('itemTrackByRoll');
@@ -2220,8 +2287,6 @@ if (isset($_GET['ajax'])) {
             if (startingStockGroup2) startingStockGroup2.style.display = 'none';
             const ftGrp2 = document.getElementById('ftDualInputGroup');
             if (ftGrp2) ftGrp2.style.display = 'none';
-            const previewSection2 = document.getElementById('previewStatusSection');
-            if (previewSection2) previewSection2.style.display = 'block';
             const archiveBtn2 = document.getElementById('archiveItemBtn');
             if (archiveBtn2) {
                 archiveBtn2.style.display = (item.status && item.status === 'INACTIVE') ? 'inline-flex' : 'none';
