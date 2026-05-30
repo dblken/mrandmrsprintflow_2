@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 
@@ -20,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $order_id = (int)($_POST['order_id'] ?? 0);
 $new_status = $_POST['status'] ?? '';
+$cancel_reason = trim((string)($_POST['cancel_reason'] ?? ''));
 $csrf_token = $_POST['csrf_token'] ?? '';
 
 if (!verify_csrf_token($csrf_token)) {
@@ -64,10 +66,45 @@ if ($is_service_order && $new_status === 'Completed' && $old_status !== 'Complet
     }
 }
 
+if ($is_service_order && $new_status === 'Cancelled' && $old_status !== 'Cancelled') {
+    try {
+        $updatedJobs = JobOrderService::syncStoreOrderToStatus($order_id, 'CANCELLED', null, $cancel_reason);
+        db_execute(
+            "UPDATE orders
+             SET status = 'Cancelled',
+                 cancelled_by = 'Staff',
+                 cancel_reason = ?,
+                 cancelled_at = NOW(),
+                 updated_at = NOW()
+             WHERE order_id = ?",
+            'si',
+            [$cancel_reason, $order_id]
+        );
+        echo json_encode([
+            'success' => true,
+            'message' => 'Service order marked as Cancelled',
+            'job_ids' => $updatedJobs
+        ]);
+        exit;
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit;
+    }
+}
+
 
 // 2. Update Status
 $update_sql = "UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?";
-$result = db_execute($update_sql, 'si', [$new_status, $order_id]);
+$update_types = 'si';
+$update_params = [$new_status, $order_id];
+if ($new_status === 'Cancelled') {
+    $update_sql = "UPDATE orders
+                   SET status = ?, cancel_reason = ?, cancelled_by = 'Staff', cancelled_at = NOW(), updated_at = NOW()
+                   WHERE order_id = ?";
+    $update_types = 'ssi';
+    $update_params = [$new_status, $cancel_reason, $order_id];
+}
+$result = db_execute($update_sql, $update_types, $update_params);
 
 if (!$result) {
     echo json_encode(['success' => false, 'error' => 'Failed to update order status']);
@@ -81,7 +118,7 @@ if ($new_status === 'Completed' && $old_status !== 'Completed') {
     $orderRef = printflow_get_order_inventory_reference($order_id);
     $orderLabel = $orderRef['label'] ?? ('Order #' . printflow_format_order_code($order_id, ''));
     $items = db_query(
-        "SELECT oi.product_id, oi.quantity, p.name AS product_name
+        "SELECT oi.product_id, oi.quantity, oi.customization_data, p.name AS product_name
          FROM order_items oi
          LEFT JOIN products p ON p.product_id = oi.product_id
          WHERE oi.order_id = ?",
@@ -93,8 +130,31 @@ if ($new_status === 'Completed' && $old_status !== 'Completed') {
         $pid = (int)($item['product_id'] ?? 0);
         $qty = (int)($item['quantity'] ?? 0);
         $productName = (string)($item['product_name'] ?? ('Product #' . $pid));
+        $customization = [];
+        if (!empty($item['customization_data'])) {
+            $customization = json_decode((string)$item['customization_data'], true) ?: [];
+        }
         
         if ($pid > 0 && $qty > 0) {
+            $variantDeduction = printflow_product_option_stock_deduct($pid, $branch_id, $customization, $qty);
+            if (!empty($variantDeduction['handled'])) {
+                if (!$variantDeduction['success']) {
+                    echo json_encode(['success' => false, 'error' => $variantDeduction['message'] ?? 'Failed to deduct selected size stock']);
+                    exit;
+                }
+                printflow_record_product_inventory_transaction(
+                    $pid,
+                    'OUT',
+                    (float)$qty,
+                    'ORDER',
+                    $order_id,
+                    "{$orderLabel} completed - {$productName} ({$variantDeduction['field_label']}: {$variantDeduction['option_value']}) {$variantDeduction['previous_stock']} -> {$variantDeduction['new_stock']}",
+                    (int)($_SESSION['user_id'] ?? 0),
+                    date('Y-m-d'),
+                    $branch_id
+                );
+                continue;
+            }
             // Use branch-aware deduction
             if (printflow_product_deduct_stock_for_branch($pid, $branch_id, $qty)) {
                 printflow_record_product_inventory_transaction(

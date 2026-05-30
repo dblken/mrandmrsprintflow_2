@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -86,6 +87,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 }
             }
         }
+
+        foreach ($cart_items as $cartItem) {
+            if (checkout_item_is_service($cartItem)) {
+                continue;
+            }
+            $productId = (int)($cartItem['product_id'] ?? 0);
+            if ($productId <= 0) {
+                continue;
+            }
+            $stockCheck = printflow_product_option_stock_validate(
+                $productId,
+                $branch_id,
+                (array)($cartItem['customization'] ?? []),
+                (int)($cartItem['quantity'] ?? 1)
+            );
+            if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+                $error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
+                break;
+            }
+        }
+
+        if (!empty($error)) {
+            // validation failed, render page with error
+        } else {
 
         $notes = $_POST['notes'] ?? null;
 
@@ -415,6 +440,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 unset($_SESSION['checkout_submit_guard']);
             }
             $error = "Failed to place order. Please try again.";
+        }
         }
     } else {
         $error = "Invalid request.";

@@ -32,24 +32,24 @@ $processing_orders = $processing_orders_result[0]['count'] ?? 0;
 $ready_orders_result = db_query("SELECT COUNT(*) as count FROM orders WHERE customer_id = ? AND status IN ('Ready for Pickup', 'Approved Design')", 'i', [$customer_id]);
 $ready_orders = $ready_orders_result[0]['count'] ?? 0;
 
-// TikTok style tabs (redirect removed tabs to completed)
+// TikTok style tabs (redirect removed tabs to completed / merged tab)
 $active_tab = $_GET['tab'] ?? 'all';
 if (in_array($active_tab, ['torate', 'totalorders'], true)) {
     $active_tab = 'completed';
+}
+if (in_array($active_tab, ['approved', 'toverify', 'rejected', 'cancelled'], true)) {
+    $active_tab = 'cancelled_rejected';
 }
 
 // Tab mappings to exact statuses
 $tab_status_map = [
     'pending'    => ['Pending', 'Pending Approval', 'Pending Review', 'For Revision'],
-    'approved'   => ['Approved'],
-    'toverify'   => ['To Verify', 'Downpayment Submitted', 'Pending Verification'],
     'topay'      => ['To Pay'],
     'production' => ['In Production', 'Processing', 'Printing', 'Paid – In Process'],
     'pickup'     => ['Ready for Pickup'],
-    'rejected'   => ['Rejected'],
+    'cancelled_rejected'   => ['Cancelled', 'Rejected'],
     'torate'     => ['To Rate', 'Rated', 'Completed'],
     'completed'  => ['Completed', 'To Rate', 'Rated'],
-    'cancelled'  => ['Cancelled'],
     'totalorders' => ['Completed', 'To Rate', 'Rated', 'Finished', 'Released', 'Claimed'],
 ];
 $tab_status_map['production'] = ['In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process'];
@@ -115,15 +115,12 @@ foreach ($status_counts_raw as $row) {
 $tab_counts = [
     'all' => (int)$total_orders,
     'pending' => 0,
-    'approved' => 0,
-    'toverify' => 0,
     'topay' => 0,
     'production' => 0,
     'pickup' => 0,
-    'rejected' => 0,
+    'cancelled_rejected' => 0,
     'torate' => 0,
     'completed' => 0,
-    'cancelled' => 0,
     'totalorders' => 0
 ];
 
@@ -1065,14 +1062,11 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="tt-tabs" id="ttTabsScrollContainer">
                         <a href="?tab=all" class="tt-tab <?php echo $active_tab === 'all' ? 'active' : ''; ?>">All <span class="tt-tab-count"><?php echo $tab_counts['all']; ?></span></a>
                         <a href="?tab=pending" class="tt-tab <?php echo $active_tab === 'pending' ? 'active' : ''; ?>">Pending <span class="tt-tab-count"><?php echo $tab_counts['pending']; ?></span></a>
-                        <a href="?tab=approved" class="tt-tab <?php echo $active_tab === 'approved' ? 'active' : ''; ?>">Approved <span class="tt-tab-count"><?php echo $tab_counts['approved']; ?></span></a>
                         <a href="?tab=topay" class="tt-tab <?php echo $active_tab === 'topay' ? 'active' : ''; ?>">To Pay <span class="tt-tab-count"><?php echo $tab_counts['topay']; ?></span></a>
-                        <a href="?tab=toverify" class="tt-tab <?php echo $active_tab === 'toverify' ? 'active' : ''; ?>">To Verify <span class="tt-tab-count"><?php echo $tab_counts['toverify']; ?></span></a>
                         <a href="?tab=production" class="tt-tab <?php echo $active_tab === 'production' ? 'active' : ''; ?>">Production <span class="tt-tab-count"><?php echo $tab_counts['production']; ?></span></a>
                         <a href="?tab=pickup" class="tt-tab <?php echo $active_tab === 'pickup' ? 'active' : ''; ?>">Ready <span class="tt-tab-count"><?php echo $tab_counts['pickup']; ?></span></a>
-                        <a href="?tab=rejected" class="tt-tab <?php echo $active_tab === 'rejected' ? 'active' : ''; ?>">Rejected <span class="tt-tab-count"><?php echo $tab_counts['rejected']; ?></span></a>
                         <a href="?tab=completed" class="tt-tab <?php echo $active_tab === 'completed' ? 'active' : ''; ?>">Completed <span class="tt-tab-count"><?php echo $tab_counts['completed']; ?></span></a>
-                        <a href="?tab=cancelled" class="tt-tab <?php echo $active_tab === 'cancelled' ? 'active' : ''; ?>">Cancelled <span class="tt-tab-count"><?php echo $tab_counts['cancelled']; ?></span></a>
+                        <a href="?tab=cancelled_rejected" class="tt-tab <?php echo $active_tab === 'cancelled_rejected' ? 'active' : ''; ?>">Cancelled/Rejected <span class="tt-tab-count"><?php echo $tab_counts['cancelled_rejected']; ?></span></a>
                     </div>
                     <button type="button" class="tt-tabs-nav tt-tabs-nav-right" id="ttTabsNextBtn" aria-label="Scroll tabs right">
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M9 5l7 7-7 7"/></svg>
@@ -2051,11 +2045,11 @@ async function refreshOrdersList() {
         'Pending Approval': 'pending',
         'Pending Review': 'pending',
         'For Revision': 'pending',
-        'Approved': 'approved',
         'To Pay': 'topay',
-        'To Verify': 'toverify',
-        'Downpayment Submitted': 'toverify',
-        'Pending Verification': 'toverify',
+        'Approved': 'pending',
+        'To Verify': 'pending',
+        'Downpayment Submitted': 'pending',
+        'Pending Verification': 'pending',
         'In Production': 'production',
         'Processing': 'production',
         'Printing': 'production',
@@ -2063,12 +2057,12 @@ async function refreshOrdersList() {
         'Paid – In Process': 'production',
         'Approved Design': 'pickup',
         'Ready for Pickup': 'pickup',
-        'Rejected': 'rejected',
+        'Rejected': 'cancelled_rejected',
         'To Receive': 'pickup',
         'Completed': 'completed',
         'To Rate': 'torate',
         'Rated': 'torate',
-        'Cancelled': 'cancelled'
+        'Cancelled': 'cancelled_rejected'
     };
 
     function shouldReloadForNewOrder(order) {

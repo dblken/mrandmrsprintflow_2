@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -335,6 +336,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
         if ($selected_branch_id < 1 && $needs_branch_selection) {
             $order_error = 'Please select a branch for pickup.';
         } else {
+            foreach ($items_to_review as $reviewItem) {
+                if (!review_item_is_product($reviewItem)) {
+                    continue;
+                }
+                $productId = (int)($reviewItem['product_id'] ?? 0);
+                if ($productId <= 0) {
+                    continue;
+                }
+                $reviewCustom = review_item_customization($reviewItem);
+                $reviewQty = review_item_quantity($reviewItem);
+                $stockCheck = printflow_product_option_stock_validate($productId, $selected_branch_id, $reviewCustom, $reviewQty);
+                if (!empty($stockCheck['uses_option_stock']) && empty($stockCheck['ok'])) {
+                    $order_error = (string)($stockCheck['message'] ?? 'Selected variant is out of stock.');
+                    break;
+                }
+            }
+        }
+
+        if ($order_error === null) {
             // 1. Calculate totals and determine order properties
             $grand_total = 0;
             $order_type = 'product';
@@ -510,6 +530,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 ]
                             );
                         }
+                        $uploadedFilesMeta = [];
                         $custom_data   = printflow_encode_customization_payload($custom);
                         $design_binary = null;
                         $design_mime   = $item['design_mime']   ?? null;
@@ -537,6 +558,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             if (copy($item['reference_tmp_path'], $upload_dir . '/' . $new_name)) {
                                 $reference_file_path = '/printflow/uploads/orders/' . $new_name;
                             }
+                        }
+
+                        if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+                            foreach ($item['uploaded_files'] as $upload) {
+                                $tmpPath = trim((string)($upload['tmp_path'] ?? ''));
+                                $origName = trim((string)($upload['name'] ?? 'upload'));
+                                $label = trim((string)($upload['label'] ?? 'Upload'));
+                                if ($tmpPath === '' || !file_exists($tmpPath)) {
+                                    continue;
+                                }
+                                $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                                $newName = uniqid('product_field_') . '_' . time() . ($ext !== '' ? '.' . $ext : '');
+                                if (copy($tmpPath, $upload_dir . '/' . $newName)) {
+                                    $uploadedFilesMeta[] = [
+                                        'label' => $label,
+                                        'name' => $origName,
+                                        'path' => '/printflow/uploads/orders/' . $newName,
+                                        'mime' => (string)($upload['mime'] ?? ''),
+                                    ];
+                                }
+                            }
+                        }
+
+                        if (!empty($uploadedFilesMeta)) {
+                            $custom['_uploaded_files'] = $uploadedFilesMeta;
+                            $custom_data = printflow_encode_customization_payload($custom);
                         }
 
                         $product_id = !empty($item['product_id']) ? (int)$item['product_id'] : null;
@@ -582,6 +629,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
 
                         if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) @unlink($item['design_tmp_path']);
                         if (!empty($item['reference_tmp_path']) && file_exists($item['reference_tmp_path'])) @unlink($item['reference_tmp_path']);
+                        if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+                            foreach ($item['uploaded_files'] as $upload) {
+                                $tmpPath = trim((string)($upload['tmp_path'] ?? ''));
+                                if ($tmpPath !== '' && file_exists($tmpPath)) {
+                                    @unlink($tmpPath);
+                                }
+                            }
+                        }
                     }
 
                     $item_keys_to_clear = array_keys($items_to_review);

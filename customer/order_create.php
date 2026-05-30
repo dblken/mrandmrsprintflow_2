@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -29,6 +31,125 @@ function order_create_optional_execute($sql, $types = '', $params = []) {
     }
 }
 
+function printflow_product_option_price_map(array $options): array
+{
+    $map = [];
+    foreach ($options as $option) {
+        if (is_array($option)) {
+            $value = trim((string)($option['value'] ?? ''));
+            $price = (float)($option['price'] ?? 0);
+        } else {
+            $value = trim((string)$option);
+            $price = 0.0;
+        }
+        if ($value !== '') {
+            $map[$value] = max(0, $price);
+        }
+    }
+    return $map;
+}
+
+function printflow_render_product_custom_field(string $field_key, array $config, array $existing_data = []): string
+{
+    if (empty($config['visible'])) {
+        return '';
+    }
+
+    $label = trim((string)($config['label'] ?? $field_key));
+    $type = trim((string)($config['type'] ?? 'textarea'));
+    $required = !empty($config['required']);
+    $required_mark = $required ? ' *' : '';
+    $required_attr = $required ? 'required' : '';
+    $saved = $existing_data['customization'][$label] ?? $existing_data['customization'][$field_key] ?? '';
+    $saved = is_string($saved) ? $saved : '';
+    $name = htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8');
+    $html = '<div class="shopee-form-row">';
+    $html .= '<div class="shopee-form-label">' . htmlspecialchars($label) . $required_mark . '</div>';
+    $html .= '<div class="shopee-form-field">';
+
+    if ($type === 'select') {
+        $html .= '<select name="' . $name . '" class="shopee-opt-btn pricing-field" ' . $required_attr . ' style="width: 220px; cursor: pointer;">';
+        $html .= '<option value="">Select ' . htmlspecialchars($label) . '</option>';
+        foreach ((array)($config['options'] ?? []) as $option) {
+            $value = is_array($option) ? (string)($option['value'] ?? '') : (string)$option;
+            $price = is_array($option) ? (float)($option['price'] ?? 0) : 0.0;
+            if ($value === '') {
+                continue;
+            }
+            $selected = $saved === $value ? ' selected' : '';
+            $html .= '<option value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '"' . $selected . '>' . htmlspecialchars($value) . '</option>';
+        }
+        $html .= '</select>';
+    } elseif ($type === 'radio') {
+        $othersEnabled = !array_key_exists('allow_others', $config) || !empty($config['allow_others']);
+        $html .= '<div class="shopee-opt-group">';
+        foreach ((array)($config['options'] ?? []) as $option) {
+            $value = is_array($option) ? (string)($option['value'] ?? '') : (string)$option;
+            $price = is_array($option) ? (float)($option['price'] ?? 0) : 0.0;
+            if ($value === '') {
+                continue;
+            }
+            $checked = $saved === $value ? ' checked' : '';
+            $active = $saved === $value ? ' active' : '';
+            $html .= '<label class="shopee-opt-btn' . $active . '">';
+            $html .= '<input type="radio" name="' . $name . '" value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '" style="display:none;" class="pricing-field"' . $checked . ' ' . $required_attr . '>';
+            $html .= '<span>' . htmlspecialchars($value) . '</span></label>';
+        }
+        if ($othersEnabled) {
+            $checked = ($saved !== '' && !isset(printflow_product_option_price_map((array)($config['options'] ?? []))[$saved])) ? ' checked' : '';
+            $active = $checked !== '' ? ' active' : '';
+            $html .= '<label class="shopee-opt-btn' . $active . '">';
+            $html .= '<input type="radio" name="' . $name . '" value="__other__" style="display:none;" class="pricing-field"' . $checked . ' ' . $required_attr . '><span>Others</span></label>';
+        }
+        $html .= '</div>';
+        if ($othersEnabled) {
+            $otherValue = ($saved !== '' && !isset(printflow_product_option_price_map((array)($config['options'] ?? []))[$saved])) ? $saved : '';
+            $display = $otherValue !== '' ? 'block' : 'none';
+            $html .= '<div id="other-wrap-' . $name . '" style="display:' . $display . ';margin-top:12px;">';
+            $html .= '<input type="text" name="' . $name . '_other" value="' . htmlspecialchars($otherValue, ENT_QUOTES, 'UTF-8') . '" class="field-input" placeholder="Please specify..." style="max-width:400px;">';
+            $html .= '</div>';
+        }
+    } elseif ($type === 'dimension') {
+        $valueMap = printflow_product_option_price_map((array)($config['options'] ?? []));
+        $savedBase = preg_replace('/\s+(ft|in|cm)$/i', '', $saved);
+        $savedIsPreset = isset($valueMap[(string)$savedBase]);
+        $html .= '<div class="shopee-opt-group">';
+        foreach ((array)($config['options'] ?? []) as $option) {
+            $value = is_array($option) ? (string)($option['value'] ?? '') : (string)$option;
+            $price = is_array($option) ? (float)($option['price'] ?? 0) : 0.0;
+            if ($value === '') {
+                continue;
+            }
+            $active = $savedBase === $value ? ' active' : '';
+            $html .= '<button type="button" class="shopee-opt-btn pricing-dimension' . $active . '" data-target="' . $name . '" data-value="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '" data-price="' . htmlspecialchars((string)$price, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($value) . '</button>';
+        }
+        if (!array_key_exists('allow_others', $config) || !empty($config['allow_others'])) {
+            $active = (!$savedIsPreset && $savedBase !== '') ? ' active' : '';
+            $html .= '<button type="button" class="shopee-opt-btn pricing-dimension-other' . $active . '" data-target="' . $name . '">Others</button>';
+        }
+        $html .= '</div>';
+        $html .= '<input type="hidden" name="' . $name . '" id="hidden-' . $name . '" value="' . htmlspecialchars($savedBase, ENT_QUOTES, 'UTF-8') . '" ' . $required_attr . '>';
+        if (!array_key_exists('allow_others', $config) || !empty($config['allow_others'])) {
+            $parts = preg_split('/[xX×]/', (string)$savedBase);
+            $showCustom = !$savedIsPreset && $savedBase !== '';
+            $html .= '<div id="custom-dim-' . $name . '" style="display:' . ($showCustom ? 'flex' : 'none') . ';gap:12px;max-width:320px;margin-top:12px;">';
+            $html .= '<input type="text" id="width-' . $name . '" class="field-input dim-width" placeholder="Width" value="' . htmlspecialchars(trim((string)($parts[0] ?? '')), ENT_QUOTES, 'UTF-8') . '">';
+            $html .= '<input type="text" id="height-' . $name . '" class="field-input dim-height" placeholder="Height" value="' . htmlspecialchars(trim((string)($parts[1] ?? '')), ENT_QUOTES, 'UTF-8') . '">';
+            $html .= '</div>';
+        }
+    } elseif ($type === 'file') {
+        $html .= '<input type="file" name="' . $name . '" class="field-input" ' . $required_attr . ' style="max-width:420px;">';
+        if ($saved !== '') {
+            $html .= '<div style="font-size:12px;color:#64748b;margin-top:8px;">Current file: ' . htmlspecialchars($saved) . '</div>';
+        }
+    } else {
+        $html .= '<textarea name="' . $name . '" class="field-input" rows="4" ' . $required_attr . ' placeholder="Enter ' . htmlspecialchars($label) . '">' . htmlspecialchars($saved) . '</textarea>';
+    }
+
+    $html .= '</div></div>';
+    return $html;
+}
+
 $product_id = (int)($_GET['product_id'] ?? 0);
 $edit_item_key = $_GET['edit_item'] ?? '';
 
@@ -46,6 +167,7 @@ $product = db_query(
 );
 if (empty($product)) { header('Location: products.php'); exit; }
 $product = $product[0];
+$product_field_configs = get_product_field_config($product_id);
 $main_branch_id = function_exists('printflow_get_default_admin_branch_id')
     ? (int)printflow_get_default_admin_branch_id()
     : 1;
@@ -76,36 +198,120 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     $notes      = trim($_POST['notes'] ?? '');
     [$branch_stock_qty] = printflow_product_effective_stock($product_id, $branch_id);
 
+    $customization = [];
+    $uploaded_files = [];
+    $price_delta = 0.0;
+
+    foreach ($product_field_configs as $field_key => $config) {
+        if (empty($config['visible'])) {
+            continue;
+        }
+
+        $label = trim((string)($config['label'] ?? $field_key));
+        $type = trim((string)($config['type'] ?? 'textarea'));
+        $required_field = !empty($config['required']);
+        $value = '';
+
+        if ($type === 'file') {
+            $file = $_FILES[$field_key] ?? null;
+            if (is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $valid = service_order_validate_file($file);
+                if (!$valid['ok']) {
+                    $error = $valid['error'];
+                    break;
+                }
+                $tmpDir = service_order_temp_dir();
+                $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
+                $target = $tmpDir . DIRECTORY_SEPARATOR . 'product_field_' . $product_id . '_' . $field_key . '_' . uniqid('', true) . '.' . $ext;
+                if (!move_uploaded_file($file['tmp_name'], $target)) {
+                    $error = 'Failed to keep uploaded file for checkout.';
+                    break;
+                }
+                $value = trim((string)$file['name']);
+                $uploaded_files[] = [
+                    'field_key' => $field_key,
+                    'label' => $label,
+                    'tmp_path' => $target,
+                    'name' => $value,
+                    'mime' => (string)$valid['mime'],
+                ];
+            } elseif ($required_field) {
+                $error = $label . ' is required.';
+                break;
+            }
+        } elseif ($type === 'radio') {
+            $raw = trim((string)($_POST[$field_key] ?? ''));
+            if ($raw === '__other__') {
+                $raw = trim((string)($_POST[$field_key . '_other'] ?? ''));
+            }
+            $value = $raw;
+            $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
+            if ($value !== '' && isset($priceMap[$value])) {
+                $price_delta += (float)$priceMap[$value];
+            }
+        } elseif ($type === 'select') {
+            $value = trim((string)($_POST[$field_key] ?? ''));
+            $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
+            if ($value !== '' && isset($priceMap[$value])) {
+                $price_delta += (float)$priceMap[$value];
+            }
+        } elseif ($type === 'dimension') {
+            $value = trim((string)($_POST[$field_key] ?? ''));
+            $priceMap = printflow_product_option_price_map((array)($config['options'] ?? []));
+            if ($value !== '' && isset($priceMap[$value])) {
+                $price_delta += (float)$priceMap[$value];
+            }
+            if ($value !== '' && !empty($config['unit'])) {
+                $value .= ' ' . trim((string)$config['unit']);
+            }
+        } else {
+            $value = trim((string)($_POST[$field_key] ?? ''));
+        }
+
+        if ($required_field && $value === '') {
+            $error = $label . ' is required.';
+            break;
+        }
+        if ($value !== '') {
+            $customization[$label] = $value;
+        }
+    }
+
     if (false) {
         $error = 'Please select a branch.';
-    } elseif ($quantity > (int)$branch_stock_qty) {
-        $error = 'Quantity exceeds available stock.';
-    } elseif ((int)$branch_stock_qty <= 0) {
-        $error = 'This product is currently out of stock.';
     } else {
-        $item_key = 'product_' . $product_id . '_' . time() . '_' . rand(100, 999);
-        $customization = [];
+        $optionStockCheck = printflow_product_option_stock_validate($product_id, $branch_id, $customization, $quantity);
+        if (!empty($optionStockCheck['uses_option_stock']) && empty($optionStockCheck['ok'])) {
+            $error = (string)($optionStockCheck['message'] ?? 'Selected variant is out of stock.');
+        } elseif ($quantity > (int)$branch_stock_qty && empty($optionStockCheck['uses_option_stock'])) {
+            $error = 'Quantity exceeds available stock.';
+        } elseif ((int)$branch_stock_qty <= 0 && empty($optionStockCheck['uses_option_stock'])) {
+            $error = 'This product is currently out of stock.';
+        } else {
+            $item_key = 'product_' . $product_id . '_' . time() . '_' . rand(100, 999);
 
-        if (empty($error)) {
-            $_SESSION['cart'][$item_key] = [
-                'type'            => 'Product',
-                'source_page'     => 'products',
-                'product_id'      => $product_id,
-                'name'            => $product['name'],
-                'price'           => (float)$product['price'],
-                'quantity'        => $quantity,
-                'category'        => $product['category'],
-                'branch_id'       => $branch_id,
-                'design_tmp_path' => null,
-                'design_name'     => null,
-                'design_mime'     => null,
-                'customization'   => $customization,
-            ];
+            if (empty($error)) {
+                $_SESSION['cart'][$item_key] = [
+                    'type'            => 'Product',
+                    'source_page'     => 'products',
+                    'product_id'      => $product_id,
+                    'name'            => $product['name'],
+                    'price'           => (float)$product['price'] + $price_delta,
+                    'quantity'        => $quantity,
+                    'category'        => $product['category'],
+                    'branch_id'       => $branch_id,
+                    'design_tmp_path' => null,
+                    'design_name'     => null,
+                    'design_mime'     => null,
+                    'uploaded_files'  => $uploaded_files,
+                    'customization'   => $customization,
+                ];
 
-            if (($_POST['action'] ?? '') === 'buy_now') {
-                redirect('order_review.php?item=' . urlencode($item_key));
-            } else {
-                redirect('cart.php');
+                if (($_POST['action'] ?? '') === 'buy_now') {
+                    redirect('order_review.php?item=' . urlencode($item_key));
+                } else {
+                    redirect('cart.php');
+                }
             }
         }
     }
@@ -350,6 +556,10 @@ require_once __DIR__ . '/../includes/header.php';
                             <div id="stock-warning" style="display: none; font-size: 0.75rem; color: #dc2626; margin-top: 0.5rem; font-weight: 600;"></div>
                         </div>
                     </div>
+
+                    <?php foreach ($product_field_configs as $field_key => $config): ?>
+                        <?php echo printflow_render_product_custom_field((string)$field_key, $config, $existing_data); ?>
+                    <?php endforeach; ?>
 
                     <div class="shopee-form-row pt-8">
                         <div style="width: 130px;"></div>
@@ -691,6 +901,61 @@ document.addEventListener('DOMContentLoaded', function() {
 
     syncQtyWithStock();
 
+    document.querySelectorAll('.shopee-opt-btn input[type="radio"]').forEach(input => {
+        input.addEventListener('change', function() {
+            const wrap = this.closest('.shopee-opt-group');
+            wrap?.querySelectorAll('.shopee-opt-btn').forEach(btn => btn.classList.remove('active'));
+            this.closest('.shopee-opt-btn')?.classList.add('active');
+
+            const name = this.getAttribute('name');
+            const otherWrap = document.getElementById('other-wrap-' + name);
+            if (otherWrap) {
+                otherWrap.style.display = this.value === '__other__' ? 'block' : 'none';
+            }
+        });
+    });
+
+    document.querySelectorAll('.pricing-dimension').forEach(button => {
+        button.addEventListener('click', function() {
+            const target = this.dataset.target;
+            document.querySelectorAll(`.pricing-dimension[data-target="${target}"]`).forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll(`.pricing-dimension-other[data-target="${target}"]`).forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            const hidden = document.getElementById('hidden-' + target);
+            if (hidden) {
+                hidden.value = this.dataset.value || '';
+            }
+            const customWrap = document.getElementById('custom-dim-' + target);
+            if (customWrap) {
+                customWrap.style.display = 'none';
+            }
+        });
+    });
+
+    document.querySelectorAll('.pricing-dimension-other').forEach(button => {
+        button.addEventListener('click', function() {
+            const target = this.dataset.target;
+            document.querySelectorAll(`.pricing-dimension[data-target="${target}"]`).forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll(`.pricing-dimension-other[data-target="${target}"]`).forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            const customWrap = document.getElementById('custom-dim-' + target);
+            if (customWrap) {
+                customWrap.style.display = 'flex';
+            }
+            const sync = () => {
+                const width = document.getElementById('width-' + target)?.value.trim() || '';
+                const height = document.getElementById('height-' + target)?.value.trim() || '';
+                const hidden = document.getElementById('hidden-' + target);
+                if (hidden) {
+                    hidden.value = width && height ? `${width}×${height}` : '';
+                }
+            };
+            document.getElementById('width-' + target)?.addEventListener('input', sync);
+            document.getElementById('height-' + target)?.addEventListener('input', sync);
+            sync();
+        });
+    });
+
     const form = document.getElementById('productOrderForm');
     if (form) {
         const removeFieldError = (field) => {
@@ -722,8 +987,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 hasError = true;
             };
 
-            const branchSelect = form.querySelector('select[name="branch_id"]');
-            // Branch validation removed - always selected by default
+            form.querySelectorAll('input[type="radio"][required]').forEach(field => {
+                if (!form.querySelector(`input[name="${field.name}"]:checked`)) {
+                    setError(field, 'Please select an option.');
+                }
+            });
 
             if (hasError) {
                 e.preventDefault();

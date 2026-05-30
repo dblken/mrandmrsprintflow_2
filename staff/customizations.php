@@ -58,6 +58,7 @@ $showLatestCustomizationOnly = false;
 $staffCustomizationRole = ($_SESSION['user_type'] ?? '') === 'Staff'
     ? printflow_get_staff_access_role()
     : null;
+$isPosCustomizationView = $staffCustomizationRole === 'pos';
 
 $branchFilter = printflow_branch_filter_for_user();
 $joBranchSql = '';
@@ -202,6 +203,68 @@ foreach ($job_rows as $row) {
     $preloaded_customization_rows[] = $row;
 }
 
+if (!function_exists('printflow_pos_customization_status_bucket')) {
+    function printflow_pos_customization_status_bucket(string $status): string {
+        $normalized = strtoupper(trim($status));
+        if (in_array($normalized, ['COMPLETED'], true)) {
+            return 'COMPLETED';
+        }
+        if (in_array($normalized, ['CANCELLED', 'REJECTED'], true)) {
+            return 'CANCELLED';
+        }
+        return 'PENDING';
+    }
+}
+
+if (!function_exists('printflow_online_customization_stage_bucket')) {
+    function printflow_online_customization_stage_bucket(string $status): string {
+        $normalized = strtoupper(trim($status));
+        if (in_array($normalized, ['REJECTED', 'CANCELLED'], true)) {
+            return 'CLOSED';
+        }
+        if (in_array($normalized, ['COMPLETED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'], true)) {
+            return 'PRODUCTION';
+        }
+        if (in_array($normalized, ['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)) {
+            return 'PAYMENT';
+        }
+        return 'INQUIRY';
+    }
+}
+
+$pos_pending_count = 0;
+$pos_completed_count = 0;
+$pos_cancelled_count = 0;
+$online_inquiry_count = 0;
+$online_payment_count = 0;
+$online_production_count = 0;
+$online_closed_count = 0;
+if ($isPosCustomizationView) {
+    foreach ($preloaded_customization_rows as $row) {
+        $bucket = printflow_pos_customization_status_bucket((string)($row['status'] ?? 'PENDING'));
+        if ($bucket === 'COMPLETED') {
+            $pos_completed_count++;
+        } elseif ($bucket === 'CANCELLED') {
+            $pos_cancelled_count++;
+        } else {
+            $pos_pending_count++;
+        }
+    }
+} else {
+    foreach ($preloaded_customization_rows as $row) {
+        $bucket = printflow_online_customization_stage_bucket((string)($row['status'] ?? 'PENDING'));
+        if ($bucket === 'PAYMENT') {
+            $online_payment_count++;
+        } elseif ($bucket === 'PRODUCTION') {
+            $online_production_count++;
+        } elseif ($bucket === 'CLOSED') {
+            $online_closed_count++;
+        } else {
+            $online_inquiry_count++;
+        }
+    }
+}
+
 if ($showLatestCustomizationOnly) {
     usort($preloaded_customization_rows, static function (array $a, array $b): int {
         $ta = strtotime((string)($a['updated_at'] ?? $a['created_at'] ?? '')) ?: 0;
@@ -257,6 +320,8 @@ if ($showLatestCustomizationOnly) {
             min-width: 0;
             overflow: visible;
             margin-top: 8px;
+            display: flex;
+            justify-content: center;
         }
 
         .toolbar-group--actions {
@@ -319,6 +384,7 @@ if ($showLatestCustomizationOnly) {
             display: flex;
             flex-wrap: nowrap;
             align-items: center;
+            justify-content: center;
             gap: 8px;
             flex: 1 1 auto;
             min-width: 0;
@@ -579,6 +645,14 @@ if ($showLatestCustomizationOnly) {
         }
         .pill-tab:not(.active) .tab-count { background: #e7f3f0; color: #035f5f; }
 
+        .pf-custom-tabs.pos-tabs {
+            width: 100%;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
 
 
         /* Unified Table Typography */
@@ -719,6 +793,16 @@ if ($showLatestCustomizationOnly) {
             background: #06A1A1;
             color: #fff;
             border-color: #06A1A1;
+        }
+
+        .action-btn-group {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            width: 100%;
         }
 
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
@@ -1037,13 +1121,23 @@ if ($showLatestCustomizationOnly) {
                 border-top: 1px solid #e8eef3 !important; 
                 border-bottom: none !important; 
                 overflow: visible !important; 
+                justify-content: stretch !important;
             }
             .pf-staff-customizations-root td:nth-child(7)::before { display: none !important; }
+            html .pf-staff-customizations-root td:nth-child(7) .action-btn-group,
+            .pf-staff-customizations-root td:nth-child(7) .action-btn-group {
+                width: 100% !important;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 88px) !important;
+                gap: 8px !important;
+                align-items: center !important;
+            }
             html .pf-staff-customizations-root td:nth-child(7) .table-action-btn, 
             .pf-staff-customizations-root td:nth-child(7) .table-action-btn { 
                 display: flex !important; align-items: center !important; justify-content: center !important; 
-                width: 100% !important; max-width: 100% !important; 
-                min-width: 0 !important; padding: 10px 4px !important; font-size: 12px !important; 
+                width: auto !important; max-width: none !important;
+                flex: 1 1 0 !important;
+                min-width: 0 !important; padding: 10px 8px !important; font-size: 12px !important; 
                 font-weight: 700 !important; border-radius: 8px !important; white-space: nowrap !important; 
                 overflow: hidden !important; text-overflow: ellipsis !important; min-height: 36px !important; 
                 box-sizing: border-box !important; 
@@ -1112,6 +1206,7 @@ if ($showLatestCustomizationOnly) {
 
         <main>
                 <div class="kpi-row">
+                <?php if ($isPosCustomizationView): ?>
                 <div class="kpi-card indigo">
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Customizations</span>
@@ -1121,25 +1216,55 @@ if ($showLatestCustomizationOnly) {
                 </div>
                 <div class="kpi-card amber">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Pending Approval</span>
-                        <span class="kpi-value"><?php echo number_format($pending_jobs); ?></span>
-                        <span class="kpi-sub">Awaiting review</span>
+                        <span class="kpi-label">Pending</span>
+                        <span class="kpi-value"><?php echo number_format($pos_pending_count); ?></span>
+                        <span class="kpi-sub">Active walk-in jobs</span>
                     </span>
                 </div>
                 <div class="kpi-card blue">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Approved</span>
-                        <span class="kpi-value"><?php echo number_format($approval_jobs); ?></span>
-                        <span class="kpi-sub">Ready for production</span>
+                        <span class="kpi-label">Completed</span>
+                        <span class="kpi-value"><?php echo number_format($pos_completed_count); ?></span>
+                        <span class="kpi-sub">Finished walk-in orders</span>
                     </span>
                 </div>
                 <div class="kpi-card emerald">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">In Production</span>
-                        <span class="kpi-value"><?php echo number_format($in_production); ?></span>
-                        <span class="kpi-sub">Active task tracks</span>
+                        <span class="kpi-label">Cancelled</span>
+                        <span class="kpi-value"><?php echo number_format($pos_cancelled_count); ?></span>
+                        <span class="kpi-sub">Stopped transactions</span>
                     </span>
                 </div>
+                <?php else: ?>
+                <div class="kpi-card amber">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Inquiry &amp; Design</span>
+                        <span class="kpi-value"><?php echo number_format($online_inquiry_count); ?></span>
+                        <span class="kpi-sub">Review, revisions, materials, pricing</span>
+                    </span>
+                </div>
+                <div class="kpi-card blue">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Payment</span>
+                        <span class="kpi-value"><?php echo number_format($online_payment_count); ?></span>
+                        <span class="kpi-sub">To pay and for verification</span>
+                    </span>
+                </div>
+                <div class="kpi-card emerald">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Production</span>
+                        <span class="kpi-value"><?php echo number_format($online_production_count); ?></span>
+                        <span class="kpi-sub">Printing, pickup, completed</span>
+                    </span>
+                </div>
+                <div class="kpi-card rose">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Closed</span>
+                        <span class="kpi-value"><?php echo number_format($online_closed_count); ?></span>
+                        <span class="kpi-sub">Rejected or cancelled</span>
+                    </span>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- Jobs List & Filters (matching Enterprise reference) -->
@@ -1248,30 +1373,23 @@ if ($showLatestCustomizationOnly) {
                     </div>
                 </div>
                 <div class="toolbar-group toolbar-group--tabs">
-                    <div class="pf-custom-tabs">
+                    <div class="pf-custom-tabs<?php echo $isPosCustomizationView ? ' pos-tabs' : ''; ?>">
                         <button type="button" @click="activeStatus = 'ALL'" :class="activeStatus === 'ALL' ? 'active' : ''" class="pill-tab">
                             <span>ALL</span>
                             <span class="tab-count" x-text="getStatusCount('ALL')"></span>
                         </button>
-                        <button type="button" @click="activeStatus = 'PENDING'" :class="activeStatus === 'PENDING' ? 'active' : ''" class="pill-tab">
-                            <span>PENDING</span>
-                            <span class="tab-count" x-text="getStatusCount('PENDING')"></span>
+                        <?php if (!$isPosCustomizationView): ?>
+                        <button type="button" @click="activeStatus = 'INQUIRY'" :class="activeStatus === 'INQUIRY' ? 'active' : ''" class="pill-tab">
+                            <span>INQUIRY &amp; DESIGN</span>
+                            <span class="tab-count" x-text="getStatusCount('INQUIRY')"></span>
                         </button>
-                        <button type="button" @click="activeStatus = 'APPROVED'" :class="activeStatus === 'APPROVED' ? 'active' : ''" class="pill-tab">
-                            <span>APPROVED</span>
-                            <span class="tab-count" x-text="getStatusCount('APPROVED')"></span>
+                        <button type="button" @click="activeStatus = 'PAYMENT'" :class="activeStatus === 'PAYMENT' ? 'active' : ''" class="pill-tab">
+                            <span>PAYMENT</span>
+                            <span class="tab-count" x-text="getStatusCount('PAYMENT')"></span>
                         </button>
-                        <button type="button" @click="activeStatus = 'TO_PAY'" :class="activeStatus === 'TO_PAY' ? 'active' : ''" class="pill-tab">
-                            <span>TO PAY</span>
-                            <span class="tab-count" x-text="getStatusCount('TO_PAY')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'TO_VERIFY'" :class="activeStatus === 'TO_VERIFY' ? 'active' : ''" class="pill-tab">
-                            <span>TO VERIFY</span>
-                            <span class="tab-count" x-text="getStatusCount('TO_VERIFY')"></span>
-                        </button>
-                        <button type="button" @click="activeStatus = 'IN_PRODUCTION'" :class="activeStatus === 'IN_PRODUCTION' ? 'active' : ''" class="pill-tab">
-                            <span>IN PRODUCTION</span>
-                            <span class="tab-count" x-text="getStatusCount('IN_PRODUCTION')"></span>
+                        <button type="button" @click="activeStatus = 'PRODUCTION'" :class="activeStatus === 'PRODUCTION' ? 'active' : ''" class="pill-tab">
+                            <span>PRODUCTION</span>
+                            <span class="tab-count" x-text="getStatusCount('PRODUCTION')"></span>
                         </button>
                         <button type="button" @click="activeStatus = 'TO_RECEIVE'" :class="activeStatus === 'TO_RECEIVE' ? 'active' : ''" class="pill-tab">
                             <span>TO PICKUP</span>
@@ -1281,14 +1399,24 @@ if ($showLatestCustomizationOnly) {
                             <span>COMPLETED</span>
                             <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
-                        <button type="button" @click="activeStatus = 'REJECTED'" :class="activeStatus === 'REJECTED' ? 'active' : ''" class="pill-tab">
-                            <span>REJECTED</span>
-                            <span class="tab-count" x-text="getStatusCount('REJECTED')"></span>
+                        <button type="button" @click="activeStatus = 'CLOSED'" :class="activeStatus === 'CLOSED' ? 'active' : ''" class="pill-tab">
+                            <span>CLOSED</span>
+                            <span class="tab-count" x-text="getStatusCount('CLOSED')"></span>
+                        </button>
+                        <?php else: ?>
+                        <button type="button" @click="activeStatus = 'PENDING'" :class="activeStatus === 'PENDING' ? 'active' : ''" class="pill-tab">
+                            <span>PENDING</span>
+                            <span class="tab-count" x-text="getStatusCount('PENDING')"></span>
+                        </button>
+                        <button type="button" @click="activeStatus = 'COMPLETED'" :class="activeStatus === 'COMPLETED' ? 'active' : ''" class="pill-tab">
+                            <span>COMPLETED</span>
+                            <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
                         <button type="button" @click="activeStatus = 'CANCELLED'" :class="activeStatus === 'CANCELLED' ? 'active' : ''" class="pill-tab">
                             <span>CANCELLED</span>
                             <span class="tab-count" x-text="getStatusCount('CANCELLED')"></span>
                         </button>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -1296,13 +1424,13 @@ if ($showLatestCustomizationOnly) {
                     <table class="w-full text-sm text-left border-separate border-spacing-0" style="table-layout:fixed;">
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 w-[12%] border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 w-[28%] border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 w-[18%] border-b border-gray-100 text-center">Status</th>
+                                <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[25%]' : 'w-[28%]'; ?> border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[18%]'; ?> border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 w-[8%] border-b border-gray-100 text-center">Source</th>
-                                <th class="px-4 py-4 w-[14%] border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 w-[10%] border-b border-gray-100 text-right">Created</th>
-                                <th class="px-4 py-4 w-[10%] border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[12%]' : 'w-[14%]'; ?> border-b border-gray-100">Customer</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[10%]' : 'w-[10%]'; ?> border-b border-gray-100 text-right">Created</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[20%]' : 'w-[10%]'; ?> border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -1325,22 +1453,7 @@ if ($showLatestCustomizationOnly) {
                                     </td>
                                     <td class="px-4 py-4 status-col-cell">
                                         <div class="status-col-inner">
-                                            <div :class="{
-                                            'badge-fulfilled':  jo.status === 'COMPLETED',
-                                            'badge-approved':   jo.status === 'APPROVED',
-                                            'badge-topay':      jo.status === 'TO_PAY',
-                                            'badge-verify':     jo.status === 'VERIFY_PAY',
-                                            'badge-production': jo.status === 'IN_PRODUCTION',
-                                            'badge-pickup':     jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT',
-                                            'badge-pending':    jo.status === 'PENDING',
-                                            'badge-cancelled':  jo.status === 'REJECTED' || jo.status === 'CANCELLED'
-                                        }" class="pf-pill status-badge-pill" x-text="jo.status === 'COMPLETED' ? 'Completed' : 
-                                           (jo.status === 'APPROVED' ? 'Approved' : 
-                                           (jo.status === 'TO_PAY' ? 'To Pay' : 
-                                           (jo.status === 'VERIFY_PAY' ? 'To Verify' : 
-                                           (jo.status === 'REJECTED' ? 'Rejected' : 
-                                           (jo.status === 'IN_PRODUCTION' ? 'In Production' : 
-                                           (jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT' ? 'To Pickup' : jo.status))))))">
+                                        <div :class="getStatusBadgeClass(jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(jo)">
                                             </div>
                                         </div>
                                     </td>
@@ -1360,7 +1473,9 @@ if ($showLatestCustomizationOnly) {
                                         <div class="table-text-sub uppercase truncate-ellipsis" :title="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''" x-text="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''"></div>
                                     </td>
                                     <td class="px-4 py-4 action-col-cell">
-                                        <button @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')" class="table-action-btn">View</button>
+                                        <div class="action-btn-group">
+                                            <button @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')" class="table-action-btn">View</button>
+                                        </div>
                                     </td>
                                 </tr>
                             </template>
@@ -1578,6 +1693,18 @@ if ($showLatestCustomizationOnly) {
                         <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:6px;">Order Notes</label>
                         <div style="font-size:13px;color:#6b7280;background:#fffbeb;border:1px solid #fef3c7;padding:10px 14px;border-radius:8px;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;" x-text="combinedCustomerNotes()"></div>
                     </div>
+
+                    <template x-if="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING'">
+                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #d1fae5; background:#f0fdf4;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                                <div style="min-width:0; flex:1;">
+                                    <label style="font-size:11px;font-weight:700;color:#047857;text-transform:uppercase;display:block;margin-bottom:6px;">Pending Order</label>
+                                    <div style="font-size:13px; color:#065f46;">This order is still active and can be marked as completed once the printing or release is finished.</div>
+                                </div>
+                                <button type="button" @click="openPosCompleteConfirm()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Completed</button>
+                            </div>
+                        </div>
+                    </template>
 
                     <!-- 4. TO_VERIFY (Payment Verification) -->
                     <template x-if="isVerifyStageRow(currentJo)">
@@ -1957,21 +2084,24 @@ if ($showLatestCustomizationOnly) {
                     <!-- Left: Status actions -->
                     <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;flex:1;">
                         <div style="display:flex;gap:8px; flex-wrap:wrap; align-items:center;">
-                            <div x-show="isPendingReviewStatus(currentJo) && !isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
+                            <div x-show="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING'" style="display:flex; gap:8px;">
+                                <button type="button" @click="cancelPosWalkInOrder()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Cancel Order</button>
+                            </div>
+                            <div x-show="!isPosSimplifiedView && isPendingReviewStatus(currentJo) && !isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="jobAction('APPROVED')" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Approve to Set Price</button>
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Revision</button>
                             </div>
-                            <div x-show="currentJo.status === 'APPROVED'" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && currentJo.status === 'APPROVED'" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Approval &amp; Send to Payment</button>
                             </div>
-                            <div x-show="isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve Payment</button>
                                 <button type="button" @click="openRejectPaymentModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Reject</button>
                             </div>
-                            <div x-show="currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing'" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="display:flex; gap:8px;">
                                 <button type="button" @click="markReadyForPickup()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Ready for Pickup</button>
                             </div>
-                            <div x-show="currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
                                 <button type="button" @click="completeOrder()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark Final Completed</button>
                             </div>
                         </div>
@@ -1983,6 +2113,53 @@ if ($showLatestCustomizationOnly) {
             </div>
         </div>
 </div>
+
+<template x-if="showPosCompleteConfirmModal">
+    <div>
+        <div x-show="showPosCompleteConfirmModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(0,0,0,0.45);" @click="closePosCompleteConfirm()"></div>
+        <div x-show="showPosCompleteConfirmModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:430px; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); overflow:hidden;">
+            <div style="padding:18px 20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center;">
+                <h3 style="margin:0; font-size:18px; font-weight:700; color:#1f2937;">Confirm Completion</h3>
+                <button type="button" @click="closePosCompleteConfirm()" style="background:none; border:none; color:#9ca3af; font-size:24px; cursor:pointer;">&times;</button>
+            </div>
+            <div style="padding:20px; color:#374151; font-size:14px; line-height:1.6;">
+                Are you sure you want to mark this walk-in order as completed?
+            </div>
+            <div style="padding:16px 20px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px;">
+                <button type="button" @click="closePosCompleteConfirm()" class="btn-secondary">Cancel</button>
+                <button type="button" @click="confirmPosComplete()" class="pf-entry-btn pf-entry-in" style="background:#10b981; color:#fff;">Mark as Completed</button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template x-if="showPosCancelConfirmModal">
+    <div>
+        <div x-show="showPosCancelConfirmModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,0.52); backdrop-filter:blur(3px);" @click="closePosCancelConfirm()"></div>
+        <div x-show="showPosCancelConfirmModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:460px; background:linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border-radius:20px; box-shadow:0 30px 60px -18px rgba(15,23,42,0.35); overflow:hidden; border:1px solid rgba(226,232,240,0.95);">
+            <div style="padding:22px 24px 14px; display:flex; align-items:flex-start; gap:14px;">
+                <div style="width:48px; height:48px; border-radius:14px; background:linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); display:flex; align-items:center; justify-content:center; flex:0 0 auto; box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);">
+                    <svg width="24" height="24" fill="none" stroke="#dc2626" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-7.18 12.44A2 2 0 004.82 19h14.36a2 2 0 001.71-2.7L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                </div>
+                <div style="min-width:0; flex:1;">
+                    <div style="font-size:18px; font-weight:800; color:#111827; line-height:1.3;">Cancel this order?</div>
+                    <div style="margin-top:6px; font-size:14px; line-height:1.65; color:#4b5563;">Use this only after the customer has already talked with the store team. The order will be moved to the cancelled list.</div>
+                </div>
+                <button type="button" @click="closePosCancelConfirm()" style="background:none; border:none; color:#9ca3af; font-size:24px; line-height:1; cursor:pointer; padding:0;">&times;</button>
+            </div>
+            <div style="padding:0 24px 20px;">
+                <div style="display:flex; align-items:flex-start; gap:10px; padding:12px 14px; border-radius:14px; background:#fff7ed; border:1px solid #fed7aa;">
+                    <svg width="18" height="18" fill="none" stroke="#ea580c" viewBox="0 0 24 24" stroke-width="2.2" style="margin-top:1px; flex:0 0 auto;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div style="font-size:13px; line-height:1.55; color:#9a3412;">A note will be saved automatically: <strong>Cancelled in-store after discussion with the customer.</strong></div>
+                </div>
+            </div>
+            <div style="padding:16px 24px 22px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; background:rgba(248,250,252,0.88);">
+                <button type="button" @click="closePosCancelConfirm()" class="btn-secondary">Keep Order</button>
+                <button type="button" @click="confirmPosCancelOrder()" class="pf-entry-btn pf-entry-out" style="background:#dc2626; color:#fff; border-color:#dc2626;">Yes, Cancel Order</button>
+            </div>
+        </div>
+    </div>
+</template>
 
 <div x-show="actionBusy" x-cloak style="position:fixed;inset:0;z-index:12000;display:flex;align-items:center;justify-content:center;pointer-events:none;">
     <div style="width:46px;height:46px;border:4px solid #d1d5db;border-top-color:#06A1A1;border-radius:50%;animation:spin .8s linear infinite;"></div>
@@ -2148,12 +2325,17 @@ window.pfCustomizationPreloadedOrders = (() => {
             ...printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
             }),
-            statuses: ['ALL', 'PENDING', 'APPROVED', 'TO_PAY', 'TO_VERIFY', 'IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'REJECTED', 'CANCELLED'],
+            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             currentPage: 1,
             itemsPerPage: 15,
             orders: [],
             statusOverrides: {},
+            isPosSimplifiedView: <?php echo $isPosCustomizationView ? 'true' : 'false'; ?>,
+            showPosCompleteConfirmModal: false,
+            posCompleteConfirmTarget: null,
+            showPosCancelConfirmModal: false,
+            posCancelConfirmTarget: null,
             ordersVersion: 0,
             sortOrder: 'newest',
             sortOpen: false,
@@ -3290,17 +3472,45 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 if (initialStatus) {
                     // Map common statuses to tabs
-                    const statusMap = {
-                        'TO_VERIFY': 'TO_VERIFY',
-                        'PENDING_VERIFICATION': 'TO_VERIFY',
-                        'DOWNPAYMENT_SUBMITTED': 'TO_VERIFY',
-                        'VERIFY_PAY': 'TO_VERIFY',
-                        'TO_PAY': 'TO_PAY',
-                        'PENDING': 'PENDING',
-                        'PENDING_REVIEW': 'PENDING',
-                        'APPROVED': 'APPROVED',
-                        'PROCESSING': 'IN_PRODUCTION'
-                    };
+                    const statusMap = this.isPosSimplifiedView
+                        ? {
+                            'PENDING': 'PENDING',
+                            'PENDING_REVIEW': 'PENDING',
+                            'APPROVED': 'PENDING',
+                            'TO_PAY': 'PENDING',
+                            'TO_VERIFY': 'PENDING',
+                            'PENDING_VERIFICATION': 'PENDING',
+                            'DOWNPAYMENT_SUBMITTED': 'PENDING',
+                            'VERIFY_PAY': 'PENDING',
+                            'IN_PRODUCTION': 'PENDING',
+                            'PROCESSING': 'PENDING',
+                            'PRINTING': 'PENDING',
+                            'TO_RECEIVE': 'PENDING',
+                            'READY_TO_COLLECT': 'PENDING',
+                            'COMPLETED': 'COMPLETED',
+                            'REJECTED': 'CANCELLED',
+                            'CANCELLED': 'CANCELLED'
+                        }
+                        : {
+                            'PENDING': 'INQUIRY',
+                            'PENDING_REVIEW': 'INQUIRY',
+                            'PENDING_APPROVAL': 'INQUIRY',
+                            'FOR_REVISION': 'INQUIRY',
+                            'APPROVED': 'INQUIRY',
+                            'TO_PAY': 'PAYMENT',
+                            'TO_VERIFY': 'PAYMENT',
+                            'PENDING_VERIFICATION': 'PAYMENT',
+                            'DOWNPAYMENT_SUBMITTED': 'PAYMENT',
+                            'VERIFY_PAY': 'PAYMENT',
+                            'IN_PRODUCTION': 'PRODUCTION',
+                            'PROCESSING': 'PRODUCTION',
+                            'PRINTING': 'PRODUCTION',
+                            'TO_RECEIVE': 'PRODUCTION',
+                            'READY_TO_COLLECT': 'PRODUCTION',
+                            'COMPLETED': 'PRODUCTION',
+                            'REJECTED': 'CLOSED',
+                            'CANCELLED': 'CLOSED'
+                        };
                     const mapped = statusMap[initialStatus.toUpperCase().replace(/\s+/g, '_')] || initialStatus;
                     if (this.statuses.includes(mapped)) {
                         this.activeStatus = mapped;
@@ -3309,7 +3519,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.activeStatus = 'ALL';
                     }
                 } else if (returnToPOS && sourceOrderId) {
-                    this.activeStatus = 'APPROVED';
+                    this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'INQUIRY';
                 }
 
                 if (orderId) {
@@ -3513,7 +3723,76 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (raw.includes('REFLECTORIZED') || raw.includes('SIGNAGE')) return 'REFLECTORIZED SIGNAGE';
                 return raw || 'OTHER';
             },
+            isPosWalkInSource(jo) {
+                return ['pos', 'walk-in'].includes(String(jo?.order_source || '').toLowerCase());
+            },
+            getPosWalkInBucket(jo) {
+                const status = String(jo?.status || '').toUpperCase();
+                if (status === 'COMPLETED') return 'COMPLETED';
+                if (status === 'CANCELLED' || status === 'REJECTED') return 'CANCELLED';
+                return 'PENDING';
+            },
+            getStatusLabel(jo) {
+                if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
+                    const bucket = this.getPosWalkInBucket(jo);
+                    if (bucket === 'COMPLETED') return 'Completed';
+                    if (bucket === 'CANCELLED') return 'Cancelled';
+                    return 'Pending';
+                }
+                return jo.status === 'COMPLETED' ? 'Completed' :
+                    (jo.status === 'APPROVED' ? 'Approved' :
+                    (jo.status === 'TO_PAY' ? 'To Pay' :
+                    (jo.status === 'VERIFY_PAY' ? 'To Verify' :
+                    (jo.status === 'REJECTED' ? 'Rejected' :
+                    (jo.status === 'IN_PRODUCTION' ? 'In Production' :
+                    (jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT' ? 'To Pickup' : jo.status))))));
+            },
+            getStatusBadgeClass(jo) {
+                if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
+                    const bucket = this.getPosWalkInBucket(jo);
+                    return {
+                        'badge-pending': bucket === 'PENDING',
+                        'badge-fulfilled': bucket === 'COMPLETED',
+                        'badge-cancelled': bucket === 'CANCELLED'
+                    };
+                }
+                return {
+                    'badge-fulfilled':  jo.status === 'COMPLETED',
+                    'badge-approved':   jo.status === 'APPROVED',
+                    'badge-topay':      jo.status === 'TO_PAY',
+                    'badge-verify':     jo.status === 'VERIFY_PAY',
+                    'badge-production': jo.status === 'IN_PRODUCTION',
+                    'badge-pickup':     jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT',
+                    'badge-pending':    jo.status === 'PENDING',
+                    'badge-cancelled':  jo.status === 'REJECTED' || jo.status === 'CANCELLED'
+                };
+            },
+            isPosWalkInPending(jo) {
+                return this.isPosSimplifiedView && this.isPosWalkInSource(jo) && this.getPosWalkInBucket(jo) === 'PENDING';
+            },
+            getOnlineStageBucket(row) {
+                if (!row) return 'INQUIRY';
+                const s = String(row.status || '').toUpperCase().replace(/\s+/g, '_');
+                if (s === 'REJECTED' || s === 'CANCELLED') return 'CLOSED';
+                if (['COMPLETED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'PRODUCTION';
+                if (['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
+                return 'INQUIRY';
+            },
             matchesStatusTab(jo, status) {
+                if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
+                    if (status === 'ALL') return true;
+                    return this.getPosWalkInBucket(jo) === status;
+                }
+                if (!this.isPosSimplifiedView) {
+                    if (status === 'ALL') return true;
+                    if (status === 'TO_RECEIVE') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'TO_RECEIVE' || String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'READY_TO_COLLECT';
+                    if (status === 'COMPLETED') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'COMPLETED';
+                    if (status === 'CLOSED') {
+                        const normalizedStatus = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
+                        return normalizedStatus === 'REJECTED' || normalizedStatus === 'CANCELLED';
+                    }
+                    return this.getOnlineStageBucket(jo) === status;
+                }
                 if (status === 'ALL') return true;
                 if (status === 'APPROVED') return jo.status === 'APPROVED';
                 if (status === 'TO_VERIFY') return this.isVerifyStageRow(jo);
@@ -3952,7 +4231,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         res = await this.parseJsonResponse(r);
                     }
                     if (res.success) {
-                        this.activeStatus = 'IN_PRODUCTION';
+                        this.activeStatus = this.isPosSimplifiedView ? 'IN_PRODUCTION' : 'PRODUCTION';
                         await this.loadOrders();
                         await this.loadAllInventoryItems();
                         this.currentJo.status = 'IN_PRODUCTION';
@@ -4036,7 +4315,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         res = await this.parseJsonResponse(r);
                     }
                     if (res.success) {
-                        this.activeStatus = 'REJECTED';
+                        this.activeStatus = this.isPosSimplifiedView ? 'REJECTED' : 'CLOSED';
                         await this.loadOrders();
                         this.currentJo.status = 'REJECTED';
                         const currentOrderId = this.currentJo.order_id ?? null;
@@ -4277,7 +4556,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
                                 return;
                             }
-                            this.activeStatus = targetTab;
+                            this.activeStatus = this.isPosSimplifiedView ? targetTab : 'PAYMENT';
                             await this.loadOrders();
                             this.showStaffAlert('Success', successMessage);
                         } else {
@@ -4687,11 +4966,76 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.endModalAction();
                 }
             },
+            openPosCompleteConfirm(jo = null) {
+                this.posCompleteConfirmTarget = jo || this.currentJo || null;
+                this.showPosCompleteConfirmModal = true;
+            },
+            closePosCompleteConfirm() {
+                this.showPosCompleteConfirmModal = false;
+                this.posCompleteConfirmTarget = null;
+            },
+            openPosCancelConfirm(jo = null) {
+                this.posCancelConfirmTarget = jo || this.currentJo || null;
+                this.showPosCancelConfirmModal = true;
+            },
+            closePosCancelConfirm() {
+                this.showPosCancelConfirmModal = false;
+                this.posCancelConfirmTarget = null;
+            },
+            async confirmPosComplete() {
+                const target = this.posCompleteConfirmTarget || this.currentJo || null;
+                this.closePosCompleteConfirm();
+                if (!target) return;
+                if (!this.showDetailsModal) {
+                    this.currentJo = { ...target };
+                }
+                await this.completeOrder();
+            },
+            async cancelPosWalkInOrder() {
+                this.openPosCancelConfirm();
+            },
+            async confirmPosCancelOrder() {
+                const target = this.posCancelConfirmTarget || this.currentJo || null;
+                this.closePosCancelConfirm();
+                if (!target) {
+                    this.showStaffAlert('Error', 'No walk-in order is selected.');
+                    return;
+                }
+                if (!this.showDetailsModal) {
+                    this.currentJo = { ...target };
+                }
+                const orderId = target.order_id || target.id;
+                if (!orderId) {
+                    this.showStaffAlert('Error', 'No linked order found for this entry.');
+                    return;
+                }
+                const fd = new FormData();
+                fd.append('order_id', orderId);
+                fd.append('status', 'Cancelled');
+                fd.append('cancel_reason', 'Cancelled in-store after discussion with the customer.');
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                const res = await this.parseJsonResponse(
+                    await fetch(this.staffApiUrl('update_order_status_process.php'), {
+                        method: 'POST',
+                        body: fd
+                    })
+                );
+                if (res.success) {
+                    if (this.currentJo) {
+                        this.currentJo.status = 'CANCELLED';
+                    }
+                    await this.loadOrders();
+                    this.showStaffAlert('Success', 'Walk-in order cancelled.');
+                } else {
+                    this.showStaffAlert('Error', res.error || 'Failed to cancel walk-in order.');
+                }
+            },
 
             async completeOrder(machineId = null) {
                 if (!this.beginModalAction()) return;
                 try {
-                    if (this.currentJo.order_type === 'ORDER') {
+                    const isPosPendingFlow = this.isPosSimplifiedView && this.getPosWalkInBucket(this.currentJo) === 'PENDING';
+                    if (this.currentJo.order_type === 'ORDER' || (isPosPendingFlow && (this.currentJo.order_id || this.currentJo.id))) {
                         const orderId = this.currentJo.order_id || this.currentJo.id;
                         if (!orderId) {
                             this.showStaffAlert('Error', 'No linked order found for this entry.');
@@ -4711,6 +5055,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                         );
 
                         if (res.success) {
+                            if (this.currentJo) {
+                                this.currentJo.status = 'COMPLETED';
+                            }
                             await this.loadOrders();
                             this.showStaffAlert('Success', 'Order marked as completed.');
                         } else {

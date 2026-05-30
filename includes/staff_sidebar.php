@@ -113,14 +113,12 @@ if (isset($_SESSION['user_id'])) {
                 </svg>
                 Customizations
             </a>
-            <?php if ($is_pos_staff): ?>
-            <a href="<?php echo $base_path; ?>/staff/products.php" class="nav-item <?php echo $current_page === 'products.php' ? 'active' : ''; ?>">
+            <a href="<?php echo $base_path; ?><?php echo $is_online_staff ? '/staff/online/products.php' : '/staff/products.php'; ?>" class="nav-item <?php echo $current_page === 'products.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
                 </svg>
                 Products
             </a>
-            <?php endif; ?>
             <a href="<?php echo $base_path; ?>/staff/reports.php" class="nav-item <?php echo $current_page === 'reports.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
