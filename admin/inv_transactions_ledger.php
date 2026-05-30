@@ -377,11 +377,9 @@ if (isset($_GET['ajax'])) {
         .qty-val.negative { color: #dc2626; }
         
         /* Modals */
-        .modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.3s ease; }
-        .modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; padding: 24px; position: relative; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e5e7eb; z-index: 1001; pointer-events: auto; font: inherit; font-size: 13px; }
-        .modal-content form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-        .modal-content .form-grid { overflow-y: auto; flex: 1; min-height: 0; padding-right: 4px; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-shrink: 0; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; animation: fadeIn 0.3s ease; }
+        .modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; padding: 24px; position: relative; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e5e7eb; z-index: 1001; pointer-events: auto; font: inherit; font-size: 13px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .modal-title { font-size: 18px; font-weight: 700; color: #111827; padding-right: 40px; overflow-wrap: break-word; word-break: break-word; -webkit-hyphens: auto; -ms-hyphens: auto; hyphens: auto; line-height: 1.4; }
         .close-btn { background: none; border: none; font-size: 20px; color: #111827; cursor: pointer; padding: 4px; line-height: 1; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
         .close-btn:hover { color: #374151; }

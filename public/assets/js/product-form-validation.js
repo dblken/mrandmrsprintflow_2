@@ -22,7 +22,8 @@
         quantityRequired: 'Quantity is required.',
         quantityWhole: 'Quantity must be a whole number.',
         quantityNegative: 'Quantity must be a non-negative number.',
-        quantityBelowLowStock: 'Quantity cannot be lower than low stock level.',
+        quantityBelowLowStock: 'Quantity cannot be lower than reorder level.',
+        criticalBelowReorder: 'Critical Level must be lower than Reorder Level.',
         lowStockExceed: 'Low stock level cannot exceed quantity.',
         lowStockWhole: 'Low stock level must be a whole number.',
         lowStockNegative: 'Low stock level must be a non-negative number.'
@@ -50,6 +51,10 @@
         return !!(ov && ov.classList.contains('active') && el('modal-mode-input')?.name === 'add_product_stock');
     }
 
+    function isProductEditMode() {
+        return !!document.getElementById('product-modal')?.classList.contains('product-modal--edit');
+    }
+
     function resolveFieldUi(fieldId) {
         if (fieldId === 'stock') {
             if (isStockOnlyModalOpen()) return { inputId: 'stock-modal-add-qty', errId: 'err-add-stock' };
@@ -60,6 +65,9 @@
             if (isStockOnlyModalOpen()) return { inputId: 'stock-modal-low-level', errId: 'err-stock-only-low' };
             if (isBranchStockModalOpen()) return { inputId: 'modal-low-mgr', errId: 'err-low-mgr' };
             return { inputId: 'modal-low-stock', errId: 'err-low-stock' };
+        }
+        if (fieldId === 'critical-stock') {
+            return { inputId: 'modal-critical-stock', errId: 'err-critical-stock' };
         }
         var inputId = fieldId === 'photo' ? 'modal-photo' : 'modal-' + fieldId;
         return { inputId: inputId, errId: 'err-' + fieldId };
@@ -86,6 +94,7 @@
     function getVal(fieldId) {
         if (fieldId === 'stock') return (el(resolveFieldUi('stock').inputId)?.value || '').trim();
         if (fieldId === 'low-stock') return (el(resolveFieldUi('low-stock').inputId)?.value || '').trim();
+        if (fieldId === 'critical-stock') return (el('modal-critical-stock')?.value || '').trim();
         return (el('modal-' + fieldId)?.value || '').trim();
     }
     function getPhoto() { return el('modal-photo'); }
@@ -152,20 +161,29 @@
         if (isNaN(num) || num < 0) return ERRORS.quantityNegative;
         if (num !== Math.floor(num)) return ERRORS.quantityWhole;
         if (isStockOnlyModalOpen() && num < 1) return ERRORS.quantityRequired;
-        
-        // Check if quantity is lower than low stock level
-        const lowStockVal = getVal('low-stock');
-        const lowStock = parseInt(lowStockVal, 10);
-        if (!isStockOnlyModalOpen() && !isNaN(lowStock) && num < lowStock) {
-            return ERRORS.quantityBelowLowStock;
+
+        if (!isStockOnlyModalOpen() && !isBranchStockModalOpen() && !isProductEditMode()) {
+            const lowStockVal = getVal('low-stock');
+            if (lowStockVal && !/not set/i.test(lowStockVal)) {
+                const lowStock = parseInt(lowStockVal, 10);
+                if (!isNaN(lowStock) && num < lowStock) {
+                    return ERRORS.quantityBelowLowStock;
+                }
+            }
         }
-        
+
         return '';
     }
 
     function validateLowStock() {
         const v = getVal('low-stock');
+        if (!v || /not set/i.test(v)) {
+            return isCreateMode() ? 'Set initial quantity to calculate reorder level.' : '';
+        }
         let qty = parseInt((el(resolveFieldUi('stock').inputId)?.value || '0'), 10);
+        if (isProductEditMode()) {
+            qty = parseInt((el('modal-current-stock')?.value || '0'), 10);
+        }
         if (isStockOnlyModalOpen()) {
             const current = parseInt((el('stock-modal-current')?.value || '0'), 10);
             qty = current + (isNaN(qty) ? 0 : qty);
@@ -173,7 +191,21 @@
         const num = parseFloat(v);
         if (isNaN(num) || num < 0) return ERRORS.lowStockNegative;
         if (num !== Math.floor(num)) return ERRORS.lowStockWhole;
-        if (num > qty) return ERRORS.lowStockExceed;
+        if (!isProductEditMode() && num > qty) return ERRORS.lowStockExceed;
+        return '';
+    }
+
+    function validateCriticalStock() {
+        const v = getVal('critical-stock');
+        if (!v || /not set/i.test(v)) {
+            return isCreateMode() ? 'Set initial quantity to calculate critical level.' : '';
+        }
+        const reorderVal = getVal('low-stock');
+        const reorder = parseFloat(reorderVal);
+        const num = parseFloat(v);
+        if (isNaN(num) || num < 0) return ERRORS.lowStockNegative;
+        if (num !== Math.floor(num)) return ERRORS.lowStockWhole;
+        if (!isNaN(reorder) && reorder > 0 && num >= reorder) return ERRORS.criticalBelowReorder;
         return '';
     }
 
@@ -187,7 +219,8 @@
                 description: '',
                 photo: '',
                 stock: validateQuantity(),
-                'low-stock': validateLowStock()
+                'low-stock': validateLowStock(),
+                'critical-stock': ''
             };
         } else if (isBranchStockModalOpen()) {
             errors = {
@@ -197,7 +230,8 @@
                 description: '',
                 photo: '',
                 stock: validateQuantity(),
-                'low-stock': validateLowStock()
+                'low-stock': validateLowStock(),
+                'critical-stock': ''
             };
         } else {
             errors = {
@@ -206,8 +240,9 @@
                 price: validatePrice(),
                 description: validateDescription(),
                 photo: validatePhoto(),
-                stock: validateQuantity(),
-                'low-stock': validateLowStock()
+                stock: isProductEditMode() ? '' : validateQuantity(),
+                'low-stock': validateLowStock(),
+                'critical-stock': validateCriticalStock()
             };
         }
         Object.keys(errors).forEach(function(k) { showError(k, errors[k]); });
@@ -246,25 +281,28 @@
     }
 
     function setupValidation() {
-        ['modal-name', 'modal-category', 'modal-price', 'modal-description', 'modal-stock', 'modal-low-stock', 'modal-stock-mgr', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'].forEach(function(id) {
+        ['modal-name', 'modal-category', 'modal-price', 'modal-description', 'modal-stock', 'modal-low-stock', 'modal-critical-stock', 'modal-stock-mgr', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'].forEach(function(id) {
             const elm = el(id);
             if (elm) {
                 elm.addEventListener('input', function() {
                     // Mark as touched on input
                     if (id === 'modal-stock-mgr' || id === 'stock-modal-add-qty') touchedFields.add('stock');
-                    else if (id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-low-stock' || id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-critical-stock') touchedFields.add('critical-stock');
                     else touchedFields.add(id.replace('modal-', ''));
                     runValidation();
                 });
                 elm.addEventListener('change', function() {
                     if (id === 'modal-stock-mgr' || id === 'stock-modal-add-qty') touchedFields.add('stock');
-                    else if (id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-low-stock' || id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-critical-stock') touchedFields.add('critical-stock');
                     else touchedFields.add(id.replace('modal-', ''));
                     runValidation();
                 });
                 elm.addEventListener('blur', function() {
                     if (id === 'modal-stock-mgr' || id === 'stock-modal-add-qty') touchedFields.add('stock');
-                    else if (id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-low-stock' || id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-critical-stock') touchedFields.add('critical-stock');
                     else touchedFields.add(id.replace('modal-', ''));
                     runValidation();
                 });
@@ -320,7 +358,7 @@
     // -------------------------------------------------------------------------
     // We use delegation on the document level to ensure listeners persist
     // even if Alpine.js or other scripts re-render the modal content.
-    const NUMERIC_INPUT_IDS = ['modal-stock', 'modal-stock-mgr', 'modal-low-stock', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'];
+    const NUMERIC_INPUT_IDS = ['modal-stock', 'modal-stock-mgr', 'modal-low-stock', 'modal-critical-stock', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'];
 
     // Global KeyDown: Block invalid keystrokes immediately
     document.addEventListener('keydown', function(e) {

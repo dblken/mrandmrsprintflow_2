@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/product_field_config_helper.php';
+require_once __DIR__ . '/../includes/product_stock_status.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -30,6 +31,7 @@ $mgr_branch_id = $is_manager ? $selectedStockBranchId : 0;
 $product_stock_branch_id = $selectedStockBranchId;
 $product_stock_uses_base = printflow_product_branch_uses_base_stock($product_stock_branch_id);
 printflow_ensure_product_branch_stock_table();
+printflow_ensure_products_threshold_schema();
 
 $error = '';
 $success = '';
@@ -374,8 +376,17 @@ function printflow_restore_build_payload(int $productId): array {
 }
 
 function printflow_fixed_low_stock_level(int $stockQuantity): int {
-    if ($stockQuantity <= 0) return 0;
-    return (int)ceil($stockQuantity * 0.20);
+    return printflow_suggest_reorder_level((float)$stockQuantity);
+}
+
+function printflow_product_thresholds_from_post(int $stockQuantity): array {
+    $reorder = isset($_POST['low_stock_level']) && $_POST['low_stock_level'] !== ''
+        ? (int)$_POST['low_stock_level']
+        : printflow_suggest_reorder_level((float)$stockQuantity);
+    $critical = isset($_POST['critical_level']) && $_POST['critical_level'] !== ''
+        ? (int)$_POST['critical_level']
+        : printflow_suggest_critical_level((float)$stockQuantity);
+    return ['reorder' => max(0, $reorder), 'critical' => max(0, $critical)];
 }
 
 function printflow_products_variant_stock_payload(int $productId, int $branchId): ?array {
@@ -397,7 +408,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $description = sanitize($_POST['description'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
         $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
-        $low_stock_level = printflow_fixed_low_stock_level($stock_quantity);
+        $thresholds = printflow_product_thresholds_from_post($stock_quantity);
+        $low_stock_level = $thresholds['reorder'];
+        $critical_level = $thresholds['critical'];
         // Add modal always creates products as Activated.
         $status = 'Activated';
 
@@ -414,6 +427,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
         } elseif ($stock_quantity < 0) {
             $error = 'Quantity must be a non-negative whole number.';
+        } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
+            $error = $thresholdErr;
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
         } elseif (!printflow_product_category_valid_for_create($category)) {
@@ -438,14 +453,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $photo_path = handle_product_photo_upload($_FILES['photo'] ?? null);
                     
                     $result = db_execute(
-                        "INSERT INTO products (name, sku, category, description, price, stock_quantity, low_stock_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
-                        'ssssdiiss',
-                        [$name, $sku_val, $category, $description, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $status, $photo_path]
+                        "INSERT INTO products (name, sku, category, description, price, stock_quantity, low_stock_level, critical_level, status, photo_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+                        'ssssdiiiss',
+                        [$name, $sku_val, $category, $description, $price, $product_stock_uses_base ? $stock_quantity : 0, $low_stock_level, $critical_level, $status, $photo_path]
                     );
 
                     if ($result) {
                         if (!$product_stock_uses_base) {
-                            printflow_product_branch_stock_upsert((int)$result, $product_stock_branch_id, $stock_quantity, $low_stock_level);
+                            printflow_product_branch_stock_upsert((int)$result, $product_stock_branch_id, $stock_quantity, $low_stock_level, $critical_level);
                         }
                         if ($stock_quantity > 0) {
                             printflow_record_product_inventory_transaction(
@@ -503,7 +518,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 if ($stockField !== null && !empty($postedVariantRows)) {
                     $changes = [];
                     $totalStock = 0;
-                    $totalLowStock = 0;
+                    $optionStockRows = printflow_product_option_stock_rows($product_id, $product_stock_branch_id);
+                    $optionLowMap = [];
+                    foreach ($optionStockRows as $optRow) {
+                        $optKey = printflow_product_option_stock_normalize_value((string)($optRow['option_value'] ?? ''));
+                        if ($optKey !== '') {
+                            $optionLowMap[$optKey] = (int)($optRow['low_stock_level'] ?? 0);
+                        }
+                    }
                     foreach ($postedVariantRows as $optionValue => $row) {
                         $optionValue = printflow_product_option_stock_normalize_value((string)$optionValue);
                         if ($optionValue === '') {
@@ -517,7 +539,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             break;
                         }
                         $newStock = $currentStock + $addQty;
-                        $lowStock = printflow_fixed_low_stock_level($newStock);
+                        $lowStock = array_key_exists($optionValue, $optionLowMap)
+                            ? $optionLowMap[$optionValue]
+                            : printflow_suggest_reorder_level((float)$newStock);
                         $changes[] = [
                             'option_value' => $optionValue,
                             'current_stock' => $currentStock,
@@ -526,7 +550,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             'low_stock_level' => $lowStock,
                         ];
                         $totalStock += $newStock;
-                        $totalLowStock += $lowStock;
                     }
 
                     if ($error === '' && empty($changes)) {
@@ -568,12 +591,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         if ($error === '' && $savedAny) {
                             if ($product_stock_uses_base) {
                                 db_execute(
-                                    "UPDATE products SET stock_quantity = ?, low_stock_level = ?, updated_at = NOW() WHERE product_id = ?",
-                                    'iii',
-                                    [$totalStock, $totalLowStock, $product_id]
+                                    "UPDATE products SET stock_quantity = ?, updated_at = NOW() WHERE product_id = ?",
+                                    'ii',
+                                    [$totalStock, $product_id]
                                 );
                             } else {
-                                printflow_product_branch_stock_upsert($product_id, $product_stock_branch_id, $totalStock, $totalLowStock);
+                                printflow_product_branch_stock_set_quantity($product_id, $product_stock_branch_id, $totalStock);
                             }
                             $success = 'Variant stock added successfully.';
                         } elseif ($error === '' && !$savedAny) {
@@ -585,20 +608,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         ? (int)($existingProduct[0]['stock_quantity'] ?? 0)
                         : (int)(printflow_product_effective_stock($product_id, $product_stock_branch_id)[0] ?? 0);
                     $newStockQuantity = $oldStockQuantity + $add_stock_quantity;
-                    $low_stock_level = printflow_fixed_low_stock_level($newStockQuantity);
                     $result = false;
                     if ($product_stock_uses_base) {
                         $result = db_execute(
-                            "UPDATE products SET stock_quantity = ?, low_stock_level = ?, updated_at = NOW() WHERE product_id = ?",
-                            'iii',
-                            [$newStockQuantity, $low_stock_level, $product_id]
+                            "UPDATE products SET stock_quantity = ?, updated_at = NOW() WHERE product_id = ?",
+                            'ii',
+                            [$newStockQuantity, $product_id]
                         );
                     } else {
-                        $result = printflow_product_branch_stock_upsert(
+                        $result = printflow_product_branch_stock_set_quantity(
                             $product_id,
                             $product_stock_branch_id,
-                            $newStockQuantity,
-                            $low_stock_level
+                            $newStockQuantity
                         );
                     }
 
@@ -627,7 +648,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         if ($is_manager) {
             $product_id = (int)($_POST['product_id'] ?? 0);
             $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
-            $low_stock_level = printflow_fixed_low_stock_level($stock_quantity);
             if ($product_id < 1) {
                 $error = 'Invalid product.';
             } elseif ($mgr_branch_id < 1) {
@@ -635,14 +655,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             } elseif ($stock_quantity < 0) {
                 $error = 'Quantity must be a non-negative whole number.';
             } else {
-                $existingProduct = db_query("SELECT product_id, name FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1", 'i', [$product_id]);
+                $existingProduct = db_query("SELECT product_id, name, COALESCE(low_stock_level, 10) AS low_stock_level, COALESCE(critical_level, 0) AS critical_level FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1", 'i', [$product_id]);
                 $existingStock = printflow_product_effective_stock($product_id, $mgr_branch_id);
                 $oldStockQuantity = (int)($existingStock[0] ?? 0);
+                $low_stock_level = (int)($existingStock[1] ?? printflow_product_stored_reorder_level($existingProduct[0] ?? []));
+                $pbsRow = db_query(
+                    'SELECT COALESCE(critical_level, 0) AS critical_level FROM product_branch_stock WHERE product_id = ? AND branch_id = ? LIMIT 1',
+                    'ii',
+                    [$product_id, $mgr_branch_id]
+                );
+                $critical_level = !empty($pbsRow)
+                    ? (int)($pbsRow[0]['critical_level'] ?? 0)
+                    : printflow_product_stored_critical_level($existingProduct[0] ?? []);
                 if ($existingProduct === false) {
                     $error = 'Database error while verifying product.';
                 } elseif (count($existingProduct) === 0) {
                     $error = 'Product not found.';
-                } elseif (printflow_product_branch_stock_upsert($product_id, $mgr_branch_id, $stock_quantity, $low_stock_level)) {
+                } elseif (printflow_product_branch_stock_upsert($product_id, $mgr_branch_id, $stock_quantity, $low_stock_level, $critical_level)) {
                     $delta = $stock_quantity - $oldStockQuantity;
                     if ($delta !== 0) {
                         $direction = $delta > 0 ? 'IN' : 'OUT';
@@ -674,8 +703,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
-        $stock_quantity = (int)($_POST['stock_quantity'] ?? 0);
-        $low_stock_level = printflow_fixed_low_stock_level($stock_quantity);
+        $thresholds = printflow_product_thresholds_from_post(0);
+        $low_stock_level = $thresholds['reorder'];
+        $critical_level = $thresholds['critical'];
         $statusRaw = trim((string)($_POST['status'] ?? ''));
         $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
 
@@ -692,8 +722,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Description must not exceed 500 characters.';
         } elseif ($price < 1.00 || $price > 1000000) {
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
-        } elseif ($stock_quantity < 0 || $stock_quantity != floor($stock_quantity)) {
-            $error = 'Quantity must be a non-negative whole number.';
+        } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
+            $error = $thresholdErr;
         } elseif (empty($category) || $category === '-- Select Category --') {
             $error = 'Please select a category.';
         } elseif (!printflow_product_category_is_allowed($category)) {
@@ -711,14 +741,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         try {
             $category = printflow_canonical_product_category($category);
             $existingProduct = db_query(
-                "SELECT product_id, name, stock_quantity FROM products WHERE product_id = ? LIMIT 1",
+                "SELECT product_id, name, stock_quantity, COALESCE(low_stock_level, 10) AS low_stock_level, COALESCE(critical_level, 0) AS critical_level FROM products WHERE product_id = ? LIMIT 1",
                 'i',
                 [$product_id]
             );
             $oldProduct = $existingProduct[0] ?? null;
-            $oldStockQuantity = $product_stock_uses_base
+            $stock_quantity = $product_stock_uses_base
                 ? (int)($oldProduct['stock_quantity'] ?? 0)
                 : (int)(printflow_product_effective_stock($product_id, $product_stock_branch_id)[0] ?? 0);
+            $oldStockQuantity = $stock_quantity;
 
             // Handle photo upload (only if a new file is provided)
             $photo_path = handle_product_photo_upload($_FILES['photo'] ?? null);
@@ -726,39 +757,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             if ($photo_path) {
                 if ($product_stock_uses_base) {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock_quantity = ?, low_stock_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdiiisi',
-                        [$name, $sku_val, $category, $description, $price, $stock_quantity, $low_stock_level, $status, $photo_path, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
+                        'ssssdiiissi',
+                        [$name, $sku_val, $category, $description, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
                     );
                 } else {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdssi',
-                        [$name, $sku_val, $category, $description, $price, $status, $photo_path, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, photo_path = ?, updated_at = NOW() WHERE product_id = ?",
+                        'ssssdiissi',
+                        [$name, $sku_val, $category, $description, $price, $low_stock_level, $critical_level, $status, $photo_path, $product_id]
                     );
                 }
             } else {
                 if ($product_stock_uses_base) {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock_quantity = ?, low_stock_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdiisi',
-                        [$name, $sku_val, $category, $description, $price, $stock_quantity, $low_stock_level, $status, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, stock_quantity = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
+                        'ssssdiiisi',
+                        [$name, $sku_val, $category, $description, $price, $stock_quantity, $low_stock_level, $critical_level, $status, $product_id]
                     );
                 } else {
                     $result = db_execute(
-                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
-                        'ssssdsi',
-                        [$name, $sku_val, $category, $description, $price, $status, $product_id]
+                        "UPDATE products SET name = ?, sku = ?, category = ?, description = ?, price = ?, low_stock_level = ?, critical_level = ?, status = ?, updated_at = NOW() WHERE product_id = ?",
+                        'ssssdiisi',
+                        [$name, $sku_val, $category, $description, $price, $low_stock_level, $critical_level, $status, $product_id]
                     );
                 }
             }
 
             if ($result) {
                 if (!$product_stock_uses_base) {
-                    printflow_product_branch_stock_upsert($product_id, $product_stock_branch_id, $stock_quantity, $low_stock_level);
+                    printflow_product_branch_stock_upsert($product_id, $product_stock_branch_id, $stock_quantity, $low_stock_level, $critical_level);
                 }
                 if ($oldProduct) {
-                    $delta = $stock_quantity - $oldStockQuantity;
+                    $delta = 0;
                     if ($delta !== 0) {
                         $direction = $delta > 0 ? 'IN' : 'OUT';
                         $qtyMoved = abs($delta);
@@ -901,6 +932,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
 }
 }
 
+if (isset($_GET['reset_product_thresholds']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    if ($is_manager) {
+        echo json_encode(['success' => false, 'error' => 'Only administrators can reset product thresholds.']);
+        exit;
+    }
+    if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'error' => 'Invalid session token.']);
+        exit;
+    }
+    $productId = (int)($_POST['product_id'] ?? 0);
+    if ($productId <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Product ID is required.']);
+        exit;
+    }
+    $stockQty = $product_stock_uses_base
+        ? (int)(printflow_product_effective_stock($productId, 0)[0] ?? 0)
+        : (int)(printflow_product_effective_stock($productId, $product_stock_branch_id)[0] ?? 0);
+    $branchForThreshold = ($product_stock_branch_id > 0 && !$product_stock_uses_base) ? $product_stock_branch_id : 0;
+    $thresholds = printflow_apply_suggested_product_thresholds($productId, $stockQty, $branchForThreshold);
+    echo json_encode([
+        'success' => true,
+        'low_stock_level' => (int)$thresholds['reorder'],
+        'critical_level' => (int)$thresholds['critical'],
+    ]);
+    exit;
+}
+
 // Handle AJAX for Archive Storage Modal
 if (isset($_GET['get_archived'])) {
     header('Content-Type: application/json');
@@ -1005,6 +1064,7 @@ if ($cat_filter !== '') {
 $branchJoin = '';
 $stockExpr  = 'p.stock_quantity';
 $lowExpr    = 'COALESCE(p.low_stock_level, 10)';
+$criticalExpr = 'COALESCE(p.critical_level, 0)';
 $sqlParams  = [];
 $sqlTypes   = '';
 
@@ -1012,6 +1072,7 @@ if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
     $branchJoin = ' LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ? ';
     $stockExpr  = 'COALESCE(pbs.stock_quantity, 0)';
     $lowExpr    = 'COALESCE(pbs.low_stock_level, p.low_stock_level, 10)';
+    $criticalExpr = 'COALESCE(pbs.critical_level, p.critical_level, 0)';
     $sqlParams[] = $product_stock_branch_id;
     $sqlTypes   .= 'i';
 }
@@ -1025,7 +1086,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$sql    = "SELECT p.*, {$stockExpr} AS eff_stock_qty, {$lowExpr} AS eff_low_stock FROM products p {$branchJoin} WHERE p.status != 'Archived'";
+$sql    = "SELECT p.*, {$stockExpr} AS eff_stock_qty, {$lowExpr} AS eff_low_stock, {$criticalExpr} AS eff_critical FROM products p {$branchJoin} WHERE p.status != 'Archived'";
 $params = $sqlParams;
 $types  = $sqlTypes;
 
@@ -1082,6 +1143,9 @@ foreach ($products as &$pfProduct) {
     if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
         $pfProduct['stock_quantity'] = (int)($pfProduct['eff_stock_qty'] ?? $pfProduct['stock_quantity']);
         $pfProduct['low_stock_level'] = (int)($pfProduct['eff_low_stock'] ?? $pfProduct['low_stock_level'] ?? 10);
+        $pfProduct['critical_level'] = (int)($pfProduct['eff_critical'] ?? $pfProduct['critical_level'] ?? 0);
+    } else {
+        $pfProduct['critical_level'] = (int)($pfProduct['critical_level'] ?? 0);
     }
     $variantStock = printflow_products_variant_stock_payload((int)($pfProduct['product_id'] ?? 0), $product_stock_branch_id > 0 ? $product_stock_branch_id : 1);
     if ($variantStock !== null) {
@@ -1097,7 +1161,7 @@ foreach ($products as &$pfProduct) {
         $pfProduct['variant_stock_options'] = [];
         $pfProduct['has_variant_stock'] = false;
     }
-    unset($pfProduct['eff_stock_qty'], $pfProduct['eff_low_stock']);
+    unset($pfProduct['eff_stock_qty'], $pfProduct['eff_low_stock'], $pfProduct['eff_critical']);
 }
 unset($pfProduct);
 
@@ -1185,9 +1249,6 @@ if (isset($_GET['ajax'])) {
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                             <button class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
-                            <?php if (!$is_manager && $product['status'] !== 'Archived'): ?>
-                                <button class="btn-action teal" type="button" onclick="window.location.href='product_field_config.php?product_id=<?php echo (int)$product['product_id']; ?>'">Fields</button>
-                            <?php endif; ?>
                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                     <?php echo csrf_field(); ?>
@@ -1699,7 +1760,19 @@ if (isset($_GET['ajax'])) {
             color: white;
         }
         #product-modal .btn-save:hover { background: #0f766e; }
-        #product-modal .btn-save:hover { background: #374151; }
+        #product-modal .threshold-readonly.threshold-unset { color: #9ca3af; font-style: italic; font-weight: 500; }
+        #product-modal .threshold-readonly { background: #f9fafb; font-weight: 600; color: #374151; }
+        #product-modal .btn-reset-thresholds {
+            border: 1px solid #e5e7eb; background: #fff; color: #374151; border-radius: 8px;
+            padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+        }
+        #product-modal .btn-reset-thresholds:hover { background: #f9fafb; }
+        .pf-product-edit-only { display: none; }
+        #product-modal.product-modal--edit .pf-product-edit-only { display: block; }
+        #product-modal.product-modal--edit #pf-product-status-row.pf-product-edit-only { display: grid; }
+        #product-modal.product-modal--edit .pf-product-create-only { display: none !important; }
+        #product-modal.product-modal--edit #fg-stock { display: none; }
+        #product-modal.product-modal--edit #fg-current-stock { display: block !important; }
         #close-modal-btn,
         #close-view-modal-btn {
             background: transparent;
@@ -2115,9 +2188,6 @@ if (isset($_GET['ajax'])) {
                                             <?php endif; ?>
                                             <button class="btn-action blue"
                                                 onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
-                                            <?php if (!$is_manager && $product['status'] !== 'Archived'): ?>
-                                                <button class="btn-action teal" type="button" onclick="window.location.href='product_field_config.php?product_id=<?php echo (int)$product['product_id']; ?>'">Fields</button>
-                                            <?php endif; ?>
                                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                                     <?php echo csrf_field(); ?>
@@ -2342,30 +2412,54 @@ if (isset($_GET['ajax'])) {
                     <span id="err-photo" class="field-error"></span>
                 </div>
 
-                <div class="form-row-3" id="modal-stock-row">
-                    <div class="form-group" id="fg-stock">
-                        <label for="modal-stock">Quantity <span style="color:#dc2626">*</span></label>
-                        <input type="number" id="modal-stock"<?php echo $is_manager ? '' : ' name="stock_quantity"'; ?> min="0" value="" step="1" placeholder="0" maxlength="5">
-                        <span id="err-stock" class="field-error"></span>
+                <div id="modal-stock-row">
+                    <div class="form-row" id="pf-product-stock-qty-row">
+                        <div class="form-group" id="fg-stock">
+                            <label for="modal-stock">Initial Quantity <span class="pf-product-create-only" style="color:#dc2626">*</span></label>
+                            <input type="number" id="modal-stock"<?php echo $is_manager ? '' : ' name="stock_quantity"'; ?> min="0" value="" step="1" placeholder="0" maxlength="5">
+                            <span id="err-stock" class="field-error"></span>
+                        </div>
+                        <div class="form-group pf-product-edit-only" id="fg-current-stock" style="display:none;">
+                            <label for="modal-current-stock">Current Stock</label>
+                            <input type="text" id="modal-current-stock" value="" readonly class="threshold-readonly pf-field-auto" tabindex="-1" aria-readonly="true">
+                            <small>Stock can only be changed through Add Stock.</small>
+                        </div>
                     </div>
-                    <div class="form-group" id="fg-low-stock">
-                        <label for="modal-low-stock">Low Stock Level <span style="color:#dc2626">*</span></label>
-                        <input type="number" id="modal-low-stock"<?php echo $is_manager ? '' : ' name="low_stock_level"'; ?> min="0" value="0" step="1" placeholder="Auto (20%)" maxlength="5" readonly>
-                        <small>Auto-calculated as 20% of Quantity.</small>
-                        <span id="err-low-stock" class="field-error"></span>
+                    <div class="form-row" id="pf-product-threshold-row">
+                        <div class="form-group" id="fg-low-stock">
+                            <label for="modal-low-stock">Reorder Level <span id="modalReorderHint" style="font-size:10px;color:#9ca3af;font-weight:normal;">(Suggested)</span></label>
+                            <input type="text" id="modal-low-stock"<?php echo $is_manager ? '' : ' name="low_stock_level"'; ?> value="Reorder Level Not Set" readonly class="threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true">
+                            <span id="err-low-stock" class="field-error"></span>
+                        </div>
+                        <div class="form-group" id="fg-critical-stock">
+                            <label for="modal-critical-stock">Critical Level <span id="modalCriticalHint" style="font-size:10px;color:#9ca3af;font-weight:normal;">(Suggested)</span></label>
+                            <input type="text" id="modal-critical-stock"<?php echo $is_manager ? '' : ' name="critical_level"'; ?> value="Critical Level Not Set" readonly class="threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true">
+                            <span id="err-critical-stock" class="field-error"></span>
+                        </div>
                     </div>
-                    <div class="form-group" id="fg-status">
-                        <label for="modal-status">Status</label>
-                        <select id="modal-status" name="status">
-                            <option value="Activated">Activated</option>
-                            <option value="Deactivated">Deactivated</option>
-                        </select>
+                    <p id="pf-product-threshold-create-hint" class="pf-product-create-only" style="font-size:11px;color:#6b7280;margin:-4px 0 12px;">Thresholds are automatically calculated and can be adjusted later.</p>
+                    <div id="pf-product-threshold-reset-row" class="pf-product-edit-only" style="display:none;margin-bottom:12px;">
+                        <button type="button" id="btnResetProductThresholds" class="btn-reset-thresholds">Reset to Suggested Values</button>
+                    </div>
+                    <p class="pf-product-edit-only" id="pf-product-threshold-edit-hint" style="display:none;font-size:11px;color:#6b7280;margin:0 0 12px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed until you edit them or use Reset to Suggested Values.</p>
+                    <div class="form-row pf-product-edit-only" id="pf-product-status-row" style="display:none;">
+                        <div class="form-group" id="fg-status">
+                            <label for="modal-status">Status</label>
+                            <select id="modal-status" name="status">
+                                <option value="Activated">Activated</option>
+                                <option value="Deactivated">Deactivated</option>
+                            </select>
+                        </div>
+                        <div class="form-group" aria-hidden="true"></div>
                     </div>
                 </div>
                 </div><!-- #pf-admin-only -->
 
                 <div class="modal-footer">
                     <button type="button" class="btn-cancel" onclick="closeProductModal()">Cancel</button>
+                    <?php if (!$is_manager): ?>
+                    <button type="button" id="btnProductFields" class="btn-cancel pf-product-edit-only" style="display:none;border-color:#0d9488;color:#0d9488;" onclick="pfOpenProductFields()">Configure Fields</button>
+                    <?php endif; ?>
                     <?php /* Managers: separate id so shared product-form-validation.js never sets disabled on this button */ ?>
                     <button type="submit" id="<?php echo $is_manager ? 'modal-submit-products-mgr' : 'modal-submit-btn'; ?>" class="btn-save">Create Product</button>
                 </div>
@@ -2495,6 +2589,123 @@ if (isset($_GET['ajax'])) {
 <script>
 window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
 window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_modal_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCTS_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+function pfSuggestReorderLevel(qty) {
+    qty = parseInt(qty, 10) || 0;
+    return qty <= 0 ? 0 : Math.ceil(qty * 0.20);
+}
+
+function pfSuggestCriticalLevel(qty) {
+    qty = parseInt(qty, 10) || 0;
+    return qty <= 0 ? 0 : Math.ceil(qty * 0.05);
+}
+
+function pfConfigureProductThresholdFields(isEdit) {
+    var reorderEl = document.getElementById('modal-low-stock');
+    var criticalEl = document.getElementById('modal-critical-stock');
+    var reorderHint = document.getElementById('modalReorderHint');
+    var criticalHint = document.getElementById('modalCriticalHint');
+    if (!reorderEl || !criticalEl) return;
+
+    if (isEdit) {
+        reorderEl.type = 'number';
+        criticalEl.type = 'number';
+        reorderEl.step = '1';
+        criticalEl.step = '1';
+        reorderEl.min = '0';
+        criticalEl.min = '0';
+        reorderEl.readOnly = false;
+        criticalEl.readOnly = false;
+        reorderEl.removeAttribute('aria-readonly');
+        criticalEl.removeAttribute('aria-readonly');
+        reorderEl.tabIndex = 0;
+        criticalEl.tabIndex = 0;
+        reorderEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
+        criticalEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
+        if (reorderHint) reorderHint.textContent = '(Configurable)';
+        if (criticalHint) criticalHint.textContent = '(Configurable)';
+    } else {
+        reorderEl.type = 'text';
+        criticalEl.type = 'text';
+        reorderEl.readOnly = true;
+        criticalEl.readOnly = true;
+        reorderEl.setAttribute('aria-readonly', 'true');
+        criticalEl.setAttribute('aria-readonly', 'true');
+        reorderEl.tabIndex = -1;
+        criticalEl.tabIndex = -1;
+        reorderEl.classList.add('threshold-readonly', 'pf-field-auto');
+        criticalEl.classList.add('threshold-readonly', 'pf-field-auto');
+        if (reorderHint) reorderHint.textContent = '(Suggested)';
+        if (criticalHint) criticalHint.textContent = '(Suggested)';
+    }
+}
+
+function pfSyncProductSuggestedThresholds() {
+    var stockEl = document.getElementById('modal-stock');
+    var reorderEl = document.getElementById('modal-low-stock');
+    var criticalEl = document.getElementById('modal-critical-stock');
+    if (!stockEl || !reorderEl || !criticalEl) return;
+    var qty = parseInt(stockEl.value || '0', 10) || 0;
+    if (qty <= 0) {
+        reorderEl.value = 'Reorder Level Not Set';
+        criticalEl.value = 'Critical Level Not Set';
+        reorderEl.classList.add('threshold-unset');
+        criticalEl.classList.add('threshold-unset');
+        return;
+    }
+    reorderEl.classList.remove('threshold-unset');
+    criticalEl.classList.remove('threshold-unset');
+    reorderEl.value = String(pfSuggestReorderLevel(qty));
+    criticalEl.value = String(pfSuggestCriticalLevel(qty));
+}
+
+function pfSetProductModalEditMode(isEdit) {
+    var modal = document.getElementById('product-modal');
+    if (!modal) return;
+    modal.classList.toggle('product-modal--edit', !!isEdit);
+    var resetRow = document.getElementById('pf-product-threshold-reset-row');
+    var editHint = document.getElementById('pf-product-threshold-edit-hint');
+    var statusRow = document.getElementById('pf-product-status-row');
+    if (resetRow) resetRow.style.display = isEdit ? 'block' : 'none';
+    if (editHint) editHint.style.display = isEdit ? 'block' : 'none';
+    if (statusRow) statusRow.style.display = isEdit ? 'grid' : 'none';
+}
+
+window.pfOpenProductFields = function pfOpenProductFields() {
+    var pid = document.getElementById('modal-product-id') && document.getElementById('modal-product-id').value;
+    if (pid) {
+        window.location.href = 'product_field_config.php?product_id=' + encodeURIComponent(pid);
+    }
+};
+
+async function resetProductSuggestedThresholds() {
+    var productId = parseInt(document.getElementById('modal-product-id')?.value || '0', 10);
+    if (!productId) return;
+    if (!window.confirm('Reset reorder and critical levels to suggested values based on current stock?')) return;
+    var formData = new FormData();
+    formData.append('csrf_token', window.PF_PRODUCTS_CSRF || '');
+    formData.append('product_id', String(productId));
+    try {
+        var resp = await fetch('?reset_product_thresholds=1', { method: 'POST', body: formData, credentials: 'same-origin' });
+        var data = await resp.json();
+        if (!data.success) {
+            alert(data.error || 'Failed to reset thresholds.');
+            return;
+        }
+        var reorderEl = document.getElementById('modal-low-stock');
+        var criticalEl = document.getElementById('modal-critical-stock');
+        if (reorderEl) reorderEl.value = String(data.low_stock_level);
+        if (criticalEl) criticalEl.value = String(data.critical_level);
+    } catch (e) {
+        alert('Failed to reset thresholds.');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var resetBtn = document.getElementById('btnResetProductThresholds');
+    if (resetBtn) resetBtn.addEventListener('click', resetProductSuggestedThresholds);
+});
 
 function pfGetProductModalSubmitBtn() {
     return document.getElementById('modal-submit-products-mgr') || document.getElementById('modal-submit-btn');
@@ -2545,7 +2756,7 @@ function pfStockOnlyModalSetActive(active, product) {
         }
         if (lowLevel) {
             lowLevel.disabled = false;
-            lowLevel.name = 'low_stock_level';
+            lowLevel.removeAttribute('name');
         }
         if (productName) productName.textContent = product && product.name ? product.name : '—';
         var qty = product && product.stock_quantity != null ? parseInt(product.stock_quantity, 10) || 0 : 0;
@@ -2608,7 +2819,7 @@ function pfStockOnlyModalSetActive(active, product) {
         if (variantWrap) variantWrap.style.display = 'none';
         if (variantBody) variantBody.innerHTML = '';
         if (addGroup) addGroup.style.display = '';
-        if (lowGroup) lowGroup.style.display = '';
+        if (lowGroup) lowGroup.style.display = 'none';
         toggleSection(mgr, false);
         toggleSection(adm, false);
     }
@@ -2629,22 +2840,18 @@ function pfSyncStockOnlyResult() {
 function pfSubmitStockOnlyForm() {
     var form = document.getElementById('product-form');
     var addQty = document.getElementById('stock-modal-add-qty');
-    var lowLevel = document.getElementById('stock-modal-low-level');
     var currentStock = document.getElementById('stock-modal-current');
     var variantWrap = document.getElementById('stock-modal-variant-wrap');
     var variantInputs = Array.prototype.slice.call(document.querySelectorAll('#stock-modal-variant-body .pf-variant-add'));
-    if (!form || !addQty || !lowLevel || !currentStock) return;
+    if (!form || !addQty || !currentStock) return;
 
     var add = parseInt(addQty.value || '0', 10);
-    var low = parseInt(lowLevel.value || '0', 10);
     var current = parseInt(currentStock.value || '0', 10);
     if (isNaN(current)) current = 0;
 
     var errAdd = document.getElementById('err-add-stock');
-    var errLow = document.getElementById('err-stock-only-low');
     var errVariant = document.getElementById('err-variant-stock');
     if (errAdd) errAdd.textContent = '';
-    if (errLow) errLow.textContent = '';
     if (errVariant) errVariant.textContent = '';
 
     var variantMode = !!(variantWrap && variantWrap.style.display !== 'none' && variantInputs.length);
@@ -2670,16 +2877,6 @@ function pfSubmitStockOnlyForm() {
     if (isNaN(add) || add < 1) {
         if (errAdd) errAdd.textContent = 'Add stock quantity must be greater than 0.';
         addQty.focus();
-        return;
-    }
-    if (isNaN(low) || low < 0) {
-        if (errLow) errLow.textContent = 'Low stock level must be a non-negative whole number.';
-        lowLevel.focus();
-        return;
-    }
-    if (low > (current + add)) {
-        if (errLow) errLow.textContent = 'Low stock level cannot exceed the updated quantity.';
-        lowLevel.focus();
         return;
     }
 
@@ -2786,6 +2983,9 @@ window.openProductModal = function openProductModal(mode, product) {
     }
     pfStockOnlyModalSetActive(false);
     pfManagerModalSetActive(false);
+    pfSetProductModalEditMode(false);
+    var fieldsBtn = document.getElementById('btnProductFields');
+    if (fieldsBtn) fieldsBtn.style.display = 'none';
     var pti = document.getElementById('modal-photo');
     if (pti) pti.disabled = false;
     form.reset();
@@ -2796,11 +2996,6 @@ window.openProductModal = function openProductModal(mode, product) {
     var submitBtn = pfGetProductModalSubmitBtn();
     var previewImg = document.getElementById('photo-preview-img');
     var previewText = document.getElementById('photo-preview-text');
-    function pfCalcLowStock20(qty) {
-        qty = parseInt(qty, 10) || 0;
-        if (qty <= 0) return 0;
-        return Math.ceil(qty * 0.20);
-    }
     var photoInput = document.getElementById('modal-photo');
 
     if (mode === 'stock' && product) {
@@ -2852,15 +3047,21 @@ window.openProductModal = function openProductModal(mode, product) {
             var descEl = document.getElementById('modal-description');
             if (descEl) descEl.value = product.description || '';
             var stockEl = document.getElementById('modal-stock');
-            if (stockEl) stockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
+            if (stockEl) {
+                stockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
+                stockEl.readOnly = true;
+            }
+            var currentStockEl = document.getElementById('modal-current-stock');
+            if (currentStockEl) currentStockEl.value = product.stock_quantity != null ? String(product.stock_quantity) : '0';
+            pfConfigureProductThresholdFields(true);
             var lowEl = document.getElementById('modal-low-stock');
-            if (lowEl) lowEl.value = String(pfCalcLowStock20(stockEl ? stockEl.value : 0));
+            var critEl = document.getElementById('modal-critical-stock');
+            if (lowEl) lowEl.value = String(product.low_stock_level != null ? product.low_stock_level : 0);
+            if (critEl) critEl.value = String(product.critical_level != null ? product.critical_level : 0);
+            pfSetProductModalEditMode(true);
+            if (fieldsBtn && product.status !== 'Archived') fieldsBtn.style.display = 'inline-flex';
             var stEl = document.getElementById('modal-status');
-            var stWrap = document.getElementById('fg-status');
-            var stockRow = document.getElementById('modal-stock-row');
             if (stEl) stEl.value = (product.status === 'Deactivated') ? 'Deactivated' : 'Activated';
-            if (stWrap) stWrap.style.display = '';
-            if (stockRow) stockRow.classList.remove('is-add-mode');
             if (photoInput) photoInput.value = '';
             if (product.photo_path && previewImg && previewText) {
                 previewImg.src = product.photo_path;
@@ -2886,12 +3087,10 @@ window.openProductModal = function openProductModal(mode, product) {
         var stElCreate = document.getElementById('modal-status');
         if (stElCreate) stElCreate.value = 'Activated';
         var stockCreate = document.getElementById('modal-stock');
-        var lowCreate = document.getElementById('modal-low-stock');
-        if (lowCreate) lowCreate.value = String(pfCalcLowStock20(stockCreate ? stockCreate.value : 0));
-        var stWrapCreate = document.getElementById('fg-status');
-        if (stWrapCreate) stWrapCreate.style.display = 'none';
-        var stockRowCreate = document.getElementById('modal-stock-row');
-        if (stockRowCreate) stockRowCreate.classList.add('is-add-mode');
+        if (stockCreate) stockCreate.readOnly = false;
+        pfConfigureProductThresholdFields(false);
+        pfSyncProductSuggestedThresholds();
+        pfSetProductModalEditMode(false);
         if (photoInput) photoInput.value = '';
         if (previewImg) { previewImg.removeAttribute('src'); previewImg.style.display = 'none'; }
         if (previewText) previewText.style.display = 'block';
@@ -2905,11 +3104,11 @@ window.openProductModal = function openProductModal(mode, product) {
     if (typeof window.printflowProductFormValidationRun === 'function') {
         window.printflowProductFormValidationRun();
     }
-    var stockForLow = document.getElementById('modal-stock');
-    var lowForLow = document.getElementById('modal-low-stock');
-    if (stockForLow && lowForLow) {
-        stockForLow.oninput = function() {
-            lowForLow.value = String(pfCalcLowStock20(stockForLow.value));
+    var stockForThresholds = document.getElementById('modal-stock');
+    if (stockForThresholds) {
+        stockForThresholds.oninput = function() {
+            if (document.getElementById('product-modal')?.classList.contains('product-modal--edit')) return;
+            pfSyncProductSuggestedThresholds();
         };
     }
     if (mode === 'stock' && product) {
@@ -2944,6 +3143,9 @@ window.openProductModal = function openProductModal(mode, product) {
 function closeProductModal() {
     pfStockOnlyModalSetActive(false);
     pfManagerModalSetActive(false);
+    pfSetProductModalEditMode(false);
+    var stockEl = document.getElementById('modal-stock');
+    if (stockEl) stockEl.readOnly = false;
     var pti = document.getElementById('modal-photo');
     if (pti) pti.disabled = false;
     var overlay = document.getElementById('product-modal-overlay');
