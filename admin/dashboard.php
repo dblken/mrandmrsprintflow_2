@@ -243,7 +243,7 @@ try {
             $item['current_stock'] = $soh;
             $item['low_limit'] = $thresholds['reorder'];
             $item['stock_status'] = $stockStatus;
-            $item['ratio'] = $reorder > 0 ? ($soh / $reorder) : 0;
+            $item['ratio'] = $thresholds['reorder'] > 0 ? ($soh / $thresholds['reorder']) : 0;
             $low_stock[] = $item;
         }
     }
