@@ -86,8 +86,17 @@ $dashboard_context_label = $dashboard_branch_display
     . ' - '
     . date('M j, Y', strtotime($dashToDate))
     . ' ('
-    . strtolower($dashboard_filter_label)
+    . $dashboard_filter_label
     . ')';
+
+$dashboard_sales_revenue_title = ($branchId === 'all')
+    ? 'Sales Revenue by Branch'
+    : ('Sales Revenue in ' . $dashboard_branch_display);
+$dashboard_sales_revenue_footnote = ($branchId === 'all')
+    ? ('Showing combined sales revenue across ' . (int)$dashboard_branch_count . ' branch' . ($dashboard_branch_count === 1 ? '' : 'es') . '.')
+    : ('Showing sales revenue for ' . $dashboard_branch_display . '.');
+$dashboard_branch_sidebar_mode = ($branchId === 'all') ? 'multi' : 'single';
+$dashboard_branch_sidebar_title = ($branchId === 'all') ? 'Multi-Branch Summary' : 'Branch Summary';
 
 // KPI drill-down links (branch preserved via query; uses pf_admin_url — no hardcoded host)
 $kpiBranchQs      = ($branchId === 'all') ? [] : ['branch_id' => (int)$branchId];
@@ -1057,7 +1066,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
-                        <span class="kpi-sub">Pending in <?php echo htmlspecialchars(strtolower($dashboard_filter_label)); ?></span>
+                        <span class="kpi-sub">Pending in <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -1068,15 +1077,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <div class="ana-hd chart-header-row" style="margin-bottom:0;">
                         <h3 class="chart-title-nowrap">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                            Sales Revenue by Branch
+                            <?php echo htmlspecialchars($dashboard_sales_revenue_title); ?>
                             <span class="chart-badge"><?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         </h3>
-                        <div class="pf-branch-meta no-print">
-                            <div class="pf-branch-meta-badge" title="Current branch revenue reporting period">
-                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
-                                <?php echo htmlspecialchars($dashboard_branch_period_label); ?>
-                            </div>
-                        </div>
                     </div>
                     <div class="ana-bd">
                     <div class="pf-branch-revenue-layout">
@@ -1093,11 +1096,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             </div>
                             <div class="pf-branch-footnote">
                                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                Showing combined sales revenue across <?php echo (int)$dashboard_branch_count; ?> branch<?php echo $dashboard_branch_count === 1 ? '' : 'es'; ?> for <?php echo htmlspecialchars($dashboard_branch_period_label); ?>.
+                                <?php echo htmlspecialchars($dashboard_sales_revenue_footnote); ?>
                             </div>
                         </div>
-                        <aside class="pf-branch-revenue-sidebar" id="pfBranchRevenueSidebar" data-sidebar-mode="multi">
-                            <h4 class="pf-branch-summary-title">Multi-Branch Summary</h4>
+                        <aside class="pf-branch-revenue-sidebar" id="pfBranchRevenueSidebar" data-sidebar-mode="<?php echo htmlspecialchars($dashboard_branch_sidebar_mode); ?>">
+                            <h4 class="pf-branch-summary-title"><?php echo htmlspecialchars($dashboard_branch_sidebar_title); ?></h4>
                             <div class="pf-branch-summary-grid">
                                 <div class="pf-branch-stat pf-branch-stat-total">
                                     <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>

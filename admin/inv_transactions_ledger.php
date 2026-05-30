@@ -377,9 +377,11 @@ if (isset($_GET['ajax'])) {
         .qty-val.negative { color: #dc2626; }
         
         /* Modals */
-        .modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center; padding: 16px; overflow-y: auto; animation: fadeIn 0.3s ease; }
-        .modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; padding: 24px; position: relative; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e5e7eb; z-index: 1001; pointer-events: auto; font: inherit; font-size: 13px; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 1000; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.3s ease; }
+        .modal-content { background: white; border-radius: 20px; width: 90%; max-width: 600px; padding: 24px; position: relative; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e5e7eb; z-index: 1001; pointer-events: auto; font: inherit; font-size: 13px; }
+        .modal-content form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+        .modal-content .form-grid { overflow-y: auto; flex: 1; min-height: 0; padding-right: 4px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-shrink: 0; }
         .modal-title { font-size: 18px; font-weight: 700; color: #111827; padding-right: 40px; overflow-wrap: break-word; word-break: break-word; -webkit-hyphens: auto; -ms-hyphens: auto; hyphens: auto; line-height: 1.4; }
         .close-btn { background: none; border: none; font-size: 20px; color: #111827; cursor: pointer; padding: 4px; line-height: 1; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
         .close-btn:hover { color: #374151; }
@@ -444,6 +446,13 @@ if (isset($_GET['ajax'])) {
         .btn-in:hover { background: #10b981; color: #fff; }
         .btn-out { border-color: #ef4444; color: #ef4444; background: transparent; }
         .btn-out:hover { background: #ef4444; color: #fff; }
+        .btn-secondary { border-radius: 10px; height: 44px; padding: 0 24px; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-weight: 600; cursor: pointer; }
+        .btn-secondary:hover { background: #f9fafb; }
+        .btn-save { border-radius: 10px; height: 44px; padding: 0 24px; background: #0d9488; color: #fff; border: none; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .btn-save:hover:not(:disabled) { background: #0f766e; }
+        .btn-save:disabled { opacity: 0.65; cursor: not-allowed; }
+        .btn-save--danger { background: #dc2626; }
+        .btn-save--danger:hover:not(:disabled) { background: #b91c1c; }
 
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
 
@@ -953,9 +962,9 @@ if (isset($_GET['ajax'])) {
                 </div>
             </div>
             
-            <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 24px; border-top: 1px solid #f3f4f6;">
-                <button type="button" onclick="closeModal()" class="btn-secondary" style="height: 44px; border-radius: 10px; padding: 0 24px;">Cancel</button>
-                <button type="submit" class="btn-primary" id="saveBtn" style="height: 44px; border-radius: 10px; padding: 0 24px; background: #6366f1;">Submit Entry</button>
+            <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 24px; border-top: 1px solid #f3f4f6; flex-shrink: 0;">
+                <button type="button" onclick="closeModal()" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-save" id="saveBtn">Submit Entry</button>
             </div>
         </form>
     </div>
@@ -1391,14 +1400,19 @@ if (isset($_GET['ajax'])) {
         if (mode === 'issue') {
             document.getElementById('modalTitle').textContent = 'Issue Material (STOCK-OUT)';
             document.getElementById('txType').value = 'issue';
+            document.getElementById('saveBtn').textContent = 'Submit Entry';
+            document.getElementById('saveBtn').classList.add('btn-save--danger');
         } else if (mode === 'purchase') {
             document.getElementById('modalTitle').textContent = 'Receive Stock (STOCK-IN)';
             document.getElementById('txType').value = 'purchase';
+            document.getElementById('saveBtn').textContent = 'Submit Entry';
+            document.getElementById('saveBtn').classList.remove('btn-save--danger');
         }
     }
 
     function closeModal() {
         document.getElementById('txModal').style.display = 'none';
+        document.getElementById('saveBtn').classList.remove('btn-save--danger');
     }
 
     async function saveTransaction(e) {
