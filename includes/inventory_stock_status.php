@@ -218,9 +218,9 @@ function printflow_resolve_stock_status(
         return [
             'key' => 'out',
             'label' => 'Out of Stock',
-            'text_color' => '#7f1d1d',
-            'bg_color' => '#f3f4f6',
-            'border_color' => '#d1d5db',
+            'text_color' => '#991b1b',
+            'bg_color' => '#fef2f2',
+            'border_color' => '#fecaca',
             'row_class' => 'low-stock-row stock-status-out',
         ];
     }
@@ -229,9 +229,9 @@ function printflow_resolve_stock_status(
         return [
             'key' => 'critical',
             'label' => 'Critical',
-            'text_color' => '#991b1b',
-            'bg_color' => '#fef2f2',
-            'border_color' => '#fecaca',
+            'text_color' => '#c2410c',
+            'bg_color' => '#fff7ed',
+            'border_color' => '#fdba74',
             'row_class' => 'low-stock-row stock-status-critical',
         ];
     }

@@ -1566,10 +1566,10 @@ if (isset($_GET['ajax'])) {
             };
         }
         if (qty <= 0) {
-            return { key: 'out', label: 'Out of Stock', textColor: '#7f1d1d', bgColor: '#f3f4f6', borderColor: '#d1d5db', rowClass: 'low-stock-row stock-status-out' };
+            return { key: 'out', label: 'Out of Stock', textColor: '#991b1b', bgColor: '#fef2f2', borderColor: '#fecaca', rowClass: 'low-stock-row stock-status-out' };
         }
         if (qty <= critical) {
-            return { key: 'critical', label: 'Critical', textColor: '#991b1b', bgColor: '#fef2f2', borderColor: '#fecaca', rowClass: 'low-stock-row stock-status-critical' };
+            return { key: 'critical', label: 'Critical', textColor: '#c2410c', bgColor: '#fff7ed', borderColor: '#fdba74', rowClass: 'low-stock-row stock-status-critical' };
         }
         if (qty <= reorder) {
             return { key: 'low', label: 'Low Stock', textColor: '#92400e', bgColor: '#fef3c7', borderColor: '#fde68a', rowClass: 'low-stock-row stock-status-low' };
@@ -2280,8 +2280,8 @@ if (isset($_GET['ajax'])) {
         document.getElementById('scProgressFill').style.width = pct + '%';
         document.getElementById('scProgressText').textContent = fmtQty(stock, isPcs) + ' / ' + fmtQty(reorder, isPcs);
         let progColor = '#10b981';
-        if (status.key === 'out') progColor = '#6b7280';
-        else if (status.key === 'critical') progColor = '#dc2626';
+        if (status.key === 'out') progColor = '#dc2626';
+        else if (status.key === 'critical') progColor = '#f97316';
         else if (status.key === 'low') progColor = '#f59e0b';
         document.getElementById('scProgressFill').style.background = progColor;
         
@@ -2289,10 +2289,10 @@ if (isset($_GET['ajax'])) {
         const msgEl = document.getElementById('scStatusMsg');
         if (status.key === 'out') {
             msgEl.textContent = 'Out of stock. Immediate restocking required.';
-            msgEl.style.background = '#f3f4f6'; msgEl.style.color = '#7f1d1d'; msgEl.style.border = '1px solid #d1d5db';
+            msgEl.style.background = status.bgColor; msgEl.style.color = status.textColor; msgEl.style.border = '1px solid ' + status.borderColor;
         } else if (status.key === 'critical') {
             msgEl.textContent = 'Critical stock level. Urgent replenishment required.';
-            msgEl.style.background = '#fef2f2'; msgEl.style.color = '#991b1b'; msgEl.style.border = '1px solid #fecaca';
+            msgEl.style.background = status.bgColor; msgEl.style.color = status.textColor; msgEl.style.border = '1px solid ' + status.borderColor;
         } else if (status.key === 'low') {
             msgEl.textContent = 'Stock is getting low. Consider restocking.';
             msgEl.style.background = '#fef3c7'; msgEl.style.color = '#92400e'; msgEl.style.border = '1px solid #fde68a';

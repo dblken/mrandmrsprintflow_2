@@ -23,16 +23,20 @@ if (is_manager()) {
 }
 
 // ── Branch Context (analytics page — allows "All") ────
+if (is_admin() && !isset($_SESSION['selected_branch_id']) && !array_key_exists('branch_id', $_GET)) {
+    $_SESSION['selected_branch_id'] = 'all';
+}
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id']; // 'all' | int
 
 // ── Dashboard date filter (same behavior family as reports filter) ─────
 $dashToday = date('Y-m-d');
-$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? 'today')));
+$hasExplicitDateFilter = isset($_GET['preset']) || isset($_GET['from']) || isset($_GET['to']);
+$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? ($hasExplicitDateFilter ? '' : 'this_month'))));
 $dashFromInput = trim((string)($_GET['from'] ?? ''));
 $dashToInput = trim((string)($_GET['to'] ?? ''));
-$dashPreset = 'today';
-$dashboard_filter_label = 'Today';
+$dashPreset = 'this_month';
+$dashboard_filter_label = 'This month';
 
 $isValidDate = static function (string $date): bool {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
@@ -64,14 +68,26 @@ if ($dashPresetRaw === 'today') {
         [$dashFromDate, $dashToDate] = [$dashToDate, $dashFromDate];
     }
 } else {
-    $dashPreset = 'today';
-    $dashboard_filter_label = 'Today';
-    $dashFromDate = $dashToday;
+    $dashPreset = 'this_month';
+    $dashboard_filter_label = 'This month';
+    $dashFromDate = date('Y-m-01');
     $dashToDate = $dashToday;
 }
 
 $dashFromStart = $dashFromDate . ' 00:00:00';
 $dashToEnd = $dashToDate . ' 23:59:59';
+
+$dashboard_branch_display = ($branchId === 'all')
+    ? 'All Branches'
+    : ((string)($branchCtx['branch_name'] ?? 'Selected Branch'));
+$dashboard_context_label = $dashboard_branch_display
+    . ' · '
+    . date('M j, Y', strtotime($dashFromDate))
+    . ' - '
+    . date('M j, Y', strtotime($dashToDate))
+    . ' ('
+    . strtolower($dashboard_filter_label)
+    . ')';
 
 // KPI drill-down links (branch preserved via query; uses pf_admin_url — no hardcoded host)
 $kpiBranchQs      = ($branchId === 'all') ? [] : ['branch_id' => (int)$branchId];
@@ -954,13 +970,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             <!-- Branch context banner -->
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
             <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;" x-data="dashboardFilterPanel('<?php echo htmlspecialchars($dashPreset); ?>')">
-                <div id="pf-dashboard-toolbar-summary" style="font-size:12px;color:#6b7280;font-weight:500;">
-                    <?php
-                        $toolbarBranchLabel = ($branchId === 'all')
-                            ? 'All Branches'
-                            : ((string)($branchCtx['branch_name'] ?? 'Selected Branch'));
-                        echo htmlspecialchars($toolbarBranchLabel . ' · ' . $dashboard_branch_period_label);
-                    ?>
+                <div id="pf-dashboard-toolbar-summary" class="pf-branch-meta-badge" title="Current dashboard branch and date filter">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                    <span id="pf-dashboard-toolbar-summary-text"><?php echo htmlspecialchars($dashboard_context_label); ?></span>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;position:relative;">
                     <button class="toolbar-btn" :class="{active: filterOpen}" @click="filterOpen = !filterOpen" style="height:38px;">
@@ -1250,16 +1262,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                                 $limit = (float)$ls['low_limit'];
                                 $pct = $limit > 0 ? ($stock / $limit) * 100 : 0;
                                 $st = $ls['stock_status'] ?? printflow_resolve_stock_status($stock, $limit, printflow_item_critical_level($ls));
-                                $barClass = $st['key'] === 'out' ? 'danger' : ($st['key'] === 'critical' ? 'danger' : 'warning');
+                                $barClass = $st['key'] === 'out' ? 'danger' : ($st['key'] === 'critical' ? 'warning' : ($st['key'] === 'low' ? 'warning' : 'good'));
                                 $statusText = strtoupper($st['label']);
                                 $statusColor = $st['text_color'];
+                                $stockColor = $st['text_color'];
                             ?>
                             <tr>
                                 <td style="font-weight:600;" title="<?php echo htmlspecialchars($ls['material_name']); ?>">
                                     <?php echo mb_strlen($ls['material_name']) > 15 ? htmlspecialchars(mb_substr($ls['material_name'], 0, 15)) . '...' : htmlspecialchars($ls['material_name']); ?>
                                     <div style="font-size:10px; color:#9ca3af;"><?php echo htmlspecialchars($ls['category_name'] ?: 'General'); ?></div>
                                 </td>
-                                <td style="color:<?php echo $stock <= 0 ? '#ef4444' : '#d97706'; ?>; font-weight:700; white-space:nowrap;">
+                                <td style="color:<?php echo $stockColor; ?>; font-weight:700; white-space:nowrap;">
                                     <?php echo number_format($stock, 1); ?> <small><?php echo htmlspecialchars($ls['unit']); ?></small>
                                 </td>
                                 <td>
@@ -2139,10 +2152,10 @@ window.pfDashApplyFilterAjax = function() {
             curContent.innerHTML = nextContent.innerHTML;
         }
 
-        var nextSummary = doc.querySelector('#pf-dashboard-toolbar-summary');
-        var curSummary = document.querySelector('#pf-dashboard-toolbar-summary');
-        if (nextSummary && curSummary) {
-            curSummary.textContent = nextSummary.textContent;
+        var nextSummaryText = doc.querySelector('#pf-dashboard-toolbar-summary-text');
+        var curSummaryText = document.querySelector('#pf-dashboard-toolbar-summary-text');
+        if (nextSummaryText && curSummaryText) {
+            curSummaryText.textContent = nextSummaryText.textContent;
         }
 
         var cleanParams = new URLSearchParams(new FormData(form));
@@ -2175,7 +2188,7 @@ window.debouncedSubmitDashboardFilter = function(delay) {
 function dashboardFilterPanel(initialPreset) {
     return {
         filterOpen: false,
-        selectedPreset: initialPreset || 'today',
+        selectedPreset: initialPreset || 'this_month',
         handleDateTyping(delay) {
             this.selectedPreset = '';
             var p = document.getElementById('dash_preset');
@@ -2183,7 +2196,7 @@ function dashboardFilterPanel(initialPreset) {
             window.debouncedSubmitDashboardFilter(typeof delay === 'number' ? delay : 300);
         },
         resetDateRange() {
-            this.setPreset('today');
+            this.setPreset('this_month');
         },
         setPreset(preset) {
             var today = new Date();
