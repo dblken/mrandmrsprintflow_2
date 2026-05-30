@@ -2088,14 +2088,14 @@ a.export-dd-link:hover { background: #f9fafb; }
                     </div>
                     <!-- Export: print + Excel/CSV (aligned with admin export endpoints & staff-style CSVs) -->
                     <div style="position:relative;" x-data="{exportOpen:false}">
-                        <button class="toolbar-btn" @click="exportOpen=!exportOpen" style="height:38px;">
+                        <button class="toolbar-btn" @click="exportOpen=!exportOpen; if(exportOpen && window.printflowSyncExportLinks) window.printflowSyncExportLinks()" style="height:38px;">
                             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                             Export
                         </button>
                         <div class="sort-dropdown export-dropdown-wide" x-show="exportOpen" x-cloak @click.outside="exportOpen=false">
                             <div class="export-dd-label" style="display:flex; justify-content:space-between; align-items:center;">
                                 Reporting Period
-                                <span style="text-transform:none; font-weight:600; color:#4b5563; font-size:11px;"><?php echo date('M j, Y', strtotime($from)); ?> – <?php echo date('M j, Y', strtotime($to)); ?></span>
+                                <span id="pf-export-period-label" style="text-transform:none; font-weight:600; color:#4b5563; font-size:11px;"><?php echo ($from !== '' && $to !== '') ? date('M j, Y', strtotime($from)) . ' – ' . date('M j, Y', strtotime($to)) : 'All time'; ?></span>
                             </div>
                             <hr class="export-dd-hr" style="margin: 4px 12px 8px;">
 
@@ -2128,31 +2128,31 @@ a.export-dd-link:hover { background: #f9fafb; }
                             $je = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
                             ?>
                             <div class="export-dd-label">Print</div>
-                            <button type="button" class="sort-option" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:600;text-align:left;padding:9px 16px;color:#111827;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"full"]), $je); ?>); exportOpen = false' title="Full analytical summary">Print Full Report</button>
+                            <button type="button" class="sort-option" data-pf-export-file="reports_print.php" data-pf-export-report="full" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:600;text-align:left;padding:9px 16px;color:#111827;" onclick="window.printflowReportsExportPrint(this); exportOpen = false" title="Full analytical summary">Print Full Report</button>
                             
                             <hr class="export-dd-hr">
-                            <button type="button" class="sort-option" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick='reportsPrintInPlace(<?php echo json_encode($printCustUrl, $je); ?>); exportOpen = false'>Print – Customers Table</button>
+                            <button type="button" class="sort-option" data-pf-export-file="reports_print.php" data-pf-export-report="customers" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick="window.printflowReportsExportPrint(this); exportOpen = false">Print – Customers Table</button>
                             
                             <hr class="export-dd-hr">
-                            <button type="button" class="sort-option" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick='reportsPrintInPlace(<?php echo json_encode($printCustUrl, $je); ?>); exportOpen = false'>Print – Customers Table</button>
+                            <button type="button" class="sort-option" data-pf-export-file="reports_print.php" data-pf-export-report="customers" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick="window.printflowReportsExportPrint(this); exportOpen = false">Print – Customers Table</button>
                             <?php if (($current_user['role'] ?? '') === 'Admin'): ?>
-                            <button type="button" class="sort-option" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick='reportsPrintInPlace(<?php echo json_encode($activityLogsPrintUrl, $je); ?>); exportOpen = false' title="Uses report date range">Print – Activity logs</button>
+                            <button type="button" class="sort-option" data-pf-export-file="activity_logs.php" data-pf-export-kind="activity_logs" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick="window.printflowReportsExportPrint(this); exportOpen = false" title="Uses report date range">Print – Activity logs</button>
                             <?php endif; ?>
 
                             <hr class="export-dd-hr">
                             <div class="export-dd-label">Excel</div>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($xlsxSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="Formatted like print: colors, auto column width">Excel – Sales detail</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($xlsxOrdersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Orders status</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($xlsxCustomersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Customers</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="sales" href="<?php echo htmlspecialchars($xlsxSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="Formatted like print: colors, auto column width">Excel – Sales detail</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="orders" href="<?php echo htmlspecialchars($xlsxOrdersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Orders status</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="customers" href="<?php echo htmlspecialchars($xlsxCustomersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Customers</a>
 
                             <hr class="export-dd-hr">
                             <div class="export-dd-label">CSV</div>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Sales detail</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvOrdersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Orders status</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvCustomersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Customers</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvDailyUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="End date of report range">CSV – Daily sales (end date)</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvShopInvUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Products &amp; materials stock</a>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvMaterialsUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Legacy materials &amp; movements</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="sales" href="<?php echo htmlspecialchars($csvSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Sales detail</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="orders" href="<?php echo htmlspecialchars($csvOrdersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Orders status</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="customers" href="<?php echo htmlspecialchars($csvCustomersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Customers</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="daily_sales" data-pf-export-date-end="1" href="<?php echo htmlspecialchars($csvDailyUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="End date of report range">CSV – Daily sales (end date)</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="shop_inventory" href="<?php echo htmlspecialchars($csvShopInvUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Products &amp; materials stock</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="inventory" href="<?php echo htmlspecialchars($csvMaterialsUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Legacy materials &amp; movements</a>
                         </div>
                     </div>
                 </div>

@@ -12,21 +12,23 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/reports_date_range.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 require_role(['Admin', 'Manager']);
 
 $report   = $_GET['report'] ?? 'orders';
-$from     = $_GET['from'] ?? date('Y-m-01');
-$to       = $_GET['to'] ?? date('Y-m-d');
+$dateRange = pf_reports_export_date_range();
+$from     = $dateRange['from'];
+$to       = $dateRange['to'];
+$fromStart = $dateRange['fromStart'];
+$toEnd    = $dateRange['toEnd'];
 
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];
 $branchName = $branchCtx['branch_name'];
 
-$from = date('Y-m-d', strtotime($from));
-$to   = date('Y-m-d', strtotime($to));
-$toEnd = $to . ' 23:59:59';
+[$dateSql, $dateTypes, $dateParams] = pf_reports_order_date_where('o');
 
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
 
@@ -90,7 +92,7 @@ $sheet = $spreadsheet->getActiveSheet();
 
 if ($report === 'orders') {
     $sheet->setTitle('Orders Status Report');
-    buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd);
+    buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Orders_Status_' . date('Y-m-d') . '.xlsx';
     pf_excel_autosize_columns($sheet, 1, 8);
 } elseif ($report === 'customers') {
@@ -100,7 +102,7 @@ if ($report === 'orders') {
     pf_excel_autosize_columns($sheet, 1, 8);
 } elseif ($report === 'sales') {
     $sheet->setTitle('Sales Report');
-    buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd);
+    buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
     pf_excel_autosize_columns($sheet, 1, $branchId === 'all' ? 8 : 7);
 } else {
@@ -120,8 +122,8 @@ exit;
 /**
  * Sales detail report (same rows as CSV sales export), print-style formatting.
  */
-function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd) {
-    $params = array_merge([$from, $toEnd], $bParams);
+function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
+    $params = array_merge($dateParams, $bParams);
     $storePaidSql = pf_reports_store_order_paid_expr('o');
     $showBranchCol = ($branchId === 'all');
     $colCustomer = $showBranchCol ? 'C' : 'B';
@@ -132,13 +134,14 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $colStatus = $showBranchCol ? 'H' : 'G';
     $lastCol = $colStatus;
     $lastColIdx = $showBranchCol ? 8 : 7;
+    $dateLabel = pf_reports_export_date_range()['label'];
 
     $summary = db_query(
         "SELECT COUNT(*) as total_orders,
                 SUM(o.total_amount) as total_revenue
          FROM orders o
-         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql",
-        'ss' . $bTypes,
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}",
+        $dateTypes . $bTypes,
         $params
     );
     $s = $summary[0] ?? [];
@@ -157,9 +160,9 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
          FROM orders o
          LEFT JOIN customers c ON o.customer_id = c.customer_id
          LEFT JOIN branches b ON o.branch_id = b.id
-         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
          ORDER BY o.order_date DESC",
-        'ss' . $bTypes,
+        $dateTypes . $bTypes,
         $params
     ) ?: [];
 
@@ -172,7 +175,7 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $sheet->setCellValue('A4', 'Branch');
     $sheet->setCellValue('B4', $branchName);
     $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', date('F j, Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+    $sheet->setCellValue('B5', $dateLabel);
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);
@@ -259,16 +262,17 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
 /**
  * Orders Status Report layout
  */
-function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd) {
-    $params = array_merge([$from, $toEnd], $bParams);
+function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
+    $params = array_merge($dateParams, $bParams);
     $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+    $dateLabel = pf_reports_export_date_range()['label'];
 
     $summary = db_query(
         "SELECT COUNT(*) as total_orders, SUM(o.total_amount) as total_revenue,
                 AVG(o.total_amount) as avg_order_value
          FROM orders o
-         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql",
-        'ss' . $bTypes, $params
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}",
+        $dateTypes . $bTypes, $params
     );
     $sum = $summary[0] ?? [];
     $grandTotalOrd = (int)($sum['total_orders'] ?? 0);
@@ -278,17 +282,17 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $status_counts = db_query(
         "SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total
          FROM orders o
-         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
          GROUP BY o.status ORDER BY cnt DESC",
-        'ss' . $bTypes, $params
+        $dateTypes . $bTypes, $params
     ) ?: [];
 
     $daily = db_query(
         "SELECT DATE(o.order_date) as day, COUNT(*) as cnt, SUM(o.total_amount) as total
          FROM orders o
-         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
          GROUP BY DATE(o.order_date) ORDER BY day DESC",
-        'ss' . $bTypes, $params
+        $dateTypes . $bTypes, $params
     ) ?: [];
 
     $row = 1;
@@ -304,7 +308,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $sheet->setCellValue('A4', 'Branch');
     $sheet->setCellValue('B4', $branchName);
     $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', date('F j, Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+    $sheet->setCellValue('B5', $dateLabel);
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);
@@ -434,6 +438,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
  */
 function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+    $dateLabel = pf_reports_export_date_range()['label'];
     if ($branchId !== 'all') {
         [$totalCust, $activeCust] = branch_customers_summary_for_branch((int)$branchId);
         $customers = branch_customers_report_list((int)$branchId);
@@ -467,7 +472,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $sheet->setCellValue('A4', 'Branch');
     $sheet->setCellValue('B4', $branchName);
     $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', date('F j, Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+    $sheet->setCellValue('B5', $dateLabel);
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);

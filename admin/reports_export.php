@@ -13,22 +13,24 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/reports_date_range.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 
 require_role(['Admin', 'Manager']);
 
 $report   = $_GET['report'] ?? '';
-$from     = $_GET['from'] ?? date('Y-m-01');
-$to       = $_GET['to'] ?? date('Y-m-d');
+$dateRange = pf_reports_export_date_range();
+$from     = $dateRange['from'];
+$to       = $dateRange['to'];
+$fromStart = $dateRange['fromStart'];
+$toEnd    = $dateRange['toEnd'];
 
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];
 $branchName = $branchCtx['branch_name'];
 
-$from = date('Y-m-d', strtotime($from));
-$to   = date('Y-m-d', strtotime($to));
-$toEnd = $to . ' 23:59:59';
+[$dateSql, $dateTypes, $dateParams] = pf_reports_order_date_where('o');
 
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
 
@@ -99,8 +101,8 @@ switch ($report) {
                     SUM(o.total_amount) as total_revenue,
                     AVG(o.total_amount) as avg_order_value
              FROM orders o
-             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidOnlySql}$bSql",
-            'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
+             WHERE 1=1{$dateSql} AND {$storePaidOnlySql}{$bSql}",
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
         );
         $s = $summary[0] ?? [];
         $totalRev = (float)($s['total_revenue'] ?? 0);
@@ -125,9 +127,9 @@ switch ($report) {
                     o.order_date, o.total_amount, o.payment_status, o.status
              FROM orders o
              LEFT JOIN customers c ON o.customer_id = c.customer_id
-             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidOnlySql}$bSql
+             WHERE 1=1{$dateSql} AND {$storePaidOnlySql}{$bSql}
              ORDER BY o.order_date DESC",
-            'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
         );
 
         if ($orders) {
@@ -159,8 +161,8 @@ switch ($report) {
             "SELECT COUNT(*) as total_orders, SUM(o.total_amount) as total_revenue,
                     AVG(o.total_amount) as avg_order_value
              FROM orders o
-             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql",
-            'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
+             WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}",
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
         );
         $sum = $summary[0] ?? [];
         $grandTotalOrd = (int)($sum['total_orders'] ?? 0);
@@ -178,9 +180,9 @@ switch ($report) {
         $status_counts = db_query(
             "SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total
              FROM orders o
-             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
+             WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
              GROUP BY o.status ORDER BY cnt DESC",
-            'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
         );
 
         if ($status_counts) {
@@ -196,9 +198,9 @@ switch ($report) {
         $daily = db_query(
             "SELECT DATE(o.order_date) as day, COUNT(*) as cnt, SUM(o.total_amount) as total
              FROM orders o
-             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
+             WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
              GROUP BY DATE(o.order_date) ORDER BY day DESC",
-            'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
         );
 
         if ($daily) {
