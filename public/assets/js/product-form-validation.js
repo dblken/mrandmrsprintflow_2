@@ -3,7 +3,7 @@
  * PrintFlow - Admin Products Management
  */
 (function() {
-    console.log('[PrintFlow] Product Validation Loaded v2.2');
+    console.log('[PrintFlow] Product Validation Loaded v2.3');
     const ERRORS = {
         nameRequired: 'Product name is required.',
         nameMinLength: 'Product name must be at least 2 characters.',
@@ -77,10 +77,10 @@
         const ui = resolveFieldUi(fieldId);
         const inp = el(ui.inputId);
         const err = el(ui.errId);
-        const group = inp?.closest('.form-group');
+        const group = (err && err.closest('.form-group')) || (inp && inp.closest('.form-group'));
         const shouldShow = !!msg && (forceShow || touchedFields.has(fieldId));
         if (err) {
-            err.textContent = msg || '';
+            err.textContent = shouldShow ? msg : '';
             err.style.display = shouldShow ? 'block' : 'none';
         }
         if (group) {
@@ -89,6 +89,48 @@
             group.classList.toggle('has-error', shouldShow);
             group.classList.toggle('has-success', !msg && (forceShow || touchedFields.has(fieldId)) && !!valForSuccess);
         }
+    }
+
+    function clearAllProductErrors() {
+        document.querySelectorAll('#product-form .field-error').forEach(function(errEl) {
+            errEl.textContent = '';
+            errEl.style.display = 'none';
+        });
+        document.querySelectorAll('#product-form .form-group.has-error').forEach(function(groupEl) {
+            groupEl.classList.remove('has-error');
+        });
+    }
+
+    function markAllCreateEditFieldsTouched() {
+        ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock', 'critical-stock'].forEach(function(k) {
+            touchedFields.add(k);
+        });
+    }
+
+    function isProductFormValidSilent() {
+        if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
+            return !validateQuantity() && !validateLowStock();
+        }
+        if (isProductEditMode()) {
+            return !validateName() && !validatePrice() && !validateDescription()
+                && !validateLowStock() && !validateCriticalStock();
+        }
+        return !validateName() && !validateCategory() && !validatePrice()
+            && !validateDescription() && !validatePhoto() && !validateQuantity()
+            && !validateLowStock() && !validateCriticalStock();
+    }
+
+    function pfUpdateConfigureFieldsButton() {
+        var btn = el('btnProductFields');
+        if (!btn || !isProductEditMode()) return;
+        var valid = isProductFormValidSilent();
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+        btn.style.opacity = valid ? '1' : '0.55';
+        btn.style.cursor = 'pointer';
+        btn.style.pointerEvents = 'auto';
+        btn.setAttribute('aria-disabled', valid ? 'false' : 'true');
+        btn.classList.toggle('pf-configure-fields-ready', valid);
     }
     function getVal(fieldId) {
         if (fieldId === 'stock') return (el(resolveFieldUi('stock').inputId)?.value || '').trim();
@@ -175,6 +217,10 @@
     }
 
     function validateLowStock() {
+        const stockVal = getVal('stock');
+        if (isCreateMode() && stockVal === '' && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
+            return '';
+        }
         const v = getVal('low-stock');
         if (!v || /not set/i.test(v)) {
             return isCreateMode() ? 'Set initial quantity to calculate reorder level.' : '';
@@ -195,6 +241,10 @@
     }
 
     function validateCriticalStock() {
+        const stockVal = getVal('stock');
+        if (isCreateMode() && stockVal === '' && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
+            return '';
+        }
         const v = getVal('critical-stock');
         if (!v || /not set/i.test(v)) {
             return isCreateMode() ? 'Set initial quantity to calculate critical level.' : '';
@@ -251,13 +301,23 @@
             btn.disabled = false;
             btn.removeAttribute('disabled');
         }
+        pfUpdateConfigureFieldsButton();
         return valid;
     }
 
+    function validateAllFields(forceShow) {
+        if (forceShow && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
+            clearAllProductErrors();
+            markAllCreateEditFieldsTouched();
+        }
+        return runValidation(forceShow);
+    }
+
     function scrollToFirstProductError() {
-        var first = document.querySelector('#product-form .form-group.has-error');
+        var first = document.querySelector('#product-form .form-group.has-error')
+            || document.querySelector('#product-form .field-error[style*="block"]');
         if (first) {
-            first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            (first.closest('.form-group') || first).scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     }
 
@@ -335,22 +395,50 @@
 
         if (form.getAttribute('data-pf-product-validation') !== '1') {
             form.setAttribute('data-pf-product-validation', '1');
+
+            var submitBtn = el('modal-submit-products-mgr') || el('modal-submit-btn');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', function(e) {
+                    if (isStockOnlyModalOpen() || isBranchStockModalOpen()) return;
+                    if (!validateAllFields(true)) {
+                        e.preventDefault();
+                        scrollToFirstProductError();
+                    }
+                });
+            }
+
+            var fieldsBtn = el('btnProductFields');
+            if (fieldsBtn) {
+                fieldsBtn.addEventListener('click', function(e) {
+                    if (!isProductEditMode()) return;
+                    if (!isProductFormValidSilent()) {
+                        e.preventDefault();
+                        validateAllFields(true);
+                        scrollToFirstProductError();
+                        return;
+                    }
+                    var pid = el('modal-product-id') && el('modal-product-id').value;
+                    if (pid) {
+                        e.preventDefault();
+                        window.location.href = 'product_field_config.php?product_id=' + encodeURIComponent(pid);
+                    }
+                });
+            }
+
             form.addEventListener('submit', function(e) {
                 if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
                     ['stock', 'low-stock'].forEach(function(k) { touchedFields.add(k); });
-                    if (!runValidation(true)) {
+                    if (!validateAllFields(true)) {
                         e.preventDefault();
                         scrollToFirstProductError();
                     }
                     return;
                 }
-                ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock', 'critical-stock'].forEach(function(k) {
-                    touchedFields.add(k);
-                });
+                markAllCreateEditFieldsTouched();
                 var catEl = el('modal-category');
                 var catWasDisabled = catEl && catEl.disabled;
                 if (catWasDisabled) catEl.disabled = false;
-                if (!runValidation(true)) {
+                if (!validateAllFields(true)) {
                     if (catWasDisabled && catEl) catEl.disabled = true;
                     e.preventDefault();
                     scrollToFirstProductError();
@@ -359,25 +447,23 @@
             setupValidation();
         }
 
-        window.printflowProductFormValidationRun = runValidation;
-        runValidation(false);
+        window.printflowProductFormValidationRun = validateAllFields;
+        window.printflowProductFormIsValid = isProductFormValidSilent;
+        window.pfUpdateConfigureFieldsButton = pfUpdateConfigureFieldsButton;
+        validateAllFields(false);
     }
 
     document.addEventListener('pf-product-modal-shown', function() {
         setTimeout(function() {
             touchedFields.clear();
-            ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock', 'critical-stock'].forEach(function(k) {
-                showError(k, '', false);
-            });
-            document.querySelectorAll('#product-form .form-group.has-error').forEach(function(g) {
-                g.classList.remove('has-error');
-            });
-            runValidation(false);
+            clearAllProductErrors();
+            validateAllFields(false);
             var btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
             if (btn) {
                 btn.disabled = false;
                 btn.removeAttribute('disabled');
             }
+            pfUpdateConfigureFieldsButton();
         }, 50);
     });
 

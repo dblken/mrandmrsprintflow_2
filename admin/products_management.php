@@ -1831,8 +1831,17 @@ if (isset($_GET['ajax'])) {
             justify-content: center;
             text-align: center;
         }
+        #btnProductFields[aria-disabled="true"] {
+            opacity: 0.55;
+        }
+        #btnProductFields.pf-configure-fields-ready {
+            opacity: 1;
+        }
         .pf-product-edit-only { display: none; }
         #product-modal.product-modal--edit .pf-product-edit-only { display: block; }
+        #product-modal.product-modal--edit #btnProductFields.pf-product-edit-only {
+            display: inline-flex !important;
+        }
         #product-modal.product-modal--edit #pf-product-status-row.pf-product-edit-only { display: grid; }
         #product-modal.product-modal--edit .pf-product-create-only { display: none !important; }
         #product-modal.product-modal--edit #fg-stock { display: none; }
@@ -2525,7 +2534,7 @@ if (isset($_GET['ajax'])) {
                 <div class="modal-footer">
                     <button type="button" class="btn-cancel" onclick="closeProductModal()">Cancel</button>
                     <?php if (!$is_manager): ?>
-                    <button type="button" id="btnProductFields" class="btn-cancel pf-product-edit-only" style="display:none;border-color:#0d9488;color:#0d9488;" onclick="pfOpenProductFields()">Configure Fields</button>
+                    <button type="button" id="btnProductFields" class="btn-cancel pf-product-edit-only" style="display:none;border-color:#0d9488;color:#0d9488;">Configure Fields</button>
                     <?php endif; ?>
                     <?php /* Managers: separate id so shared product-form-validation.js never sets disabled on this button */ ?>
                     <button type="submit" id="<?php echo $is_manager ? 'modal-submit-products-mgr' : 'modal-submit-btn'; ?>" class="btn-save">Create Product</button>
@@ -2768,6 +2777,12 @@ function pfSetProductModalEditMode(isEdit) {
 }
 
 window.pfOpenProductFields = function pfOpenProductFields() {
+    if (typeof window.printflowProductFormIsValid === 'function' && !window.printflowProductFormIsValid()) {
+        if (typeof window.printflowProductFormValidationRun === 'function') {
+            window.printflowProductFormValidationRun(true);
+        }
+        return;
+    }
     var pid = document.getElementById('modal-product-id') && document.getElementById('modal-product-id').value;
     if (pid) {
         window.location.href = 'product_field_config.php?product_id=' + encodeURIComponent(pid);
@@ -3155,6 +3170,7 @@ window.openProductModal = function openProductModal(mode, product) {
             if (critEl) critEl.value = String(product.critical_level != null ? product.critical_level : 0);
             pfSetProductModalEditMode(true);
             if (fieldsBtn && product.status !== 'Archived') fieldsBtn.style.display = 'inline-flex';
+            if (typeof window.pfUpdateConfigureFieldsButton === 'function') window.pfUpdateConfigureFieldsButton();
             var stEl = document.getElementById('modal-status');
             if (stEl) stEl.value = (product.status === 'Deactivated') ? 'Deactivated' : 'Activated';
             if (photoInput) photoInput.value = '';
@@ -3641,7 +3657,7 @@ if (document.readyState === 'loading') {
 }
 document.addEventListener('printflow:page-init', printflowInitProductsPage);
 </script>
-<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js"></script>
+<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=2.3"></script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
