@@ -139,7 +139,12 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $avgVal = (float)($s['avg_order_value'] ?? 0);
 
     $orders = db_query(
-        "SELECT o.order_id, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
+        "SELECT o.order_id,
+                (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                 FROM order_items oi
+                 LEFT JOIN products p ON oi.product_id = p.product_id
+                 WHERE oi.order_id = o.order_id) AS order_sku,
+                CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
                 o.order_date, o.total_amount, o.payment_status, o.status
          FROM orders o
          LEFT JOIN customers c ON o.customer_id = c.customer_id
@@ -187,7 +192,7 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $row += 2;
 
     $headerRow = $row;
-    $sheet->setCellValue('A' . $row, 'Order ID');
+    $sheet->setCellValue('A' . $row, 'Order #');
     $sheet->setCellValue('B' . $row, 'Customer');
     $sheet->setCellValue('C' . $row, 'Email');
     $sheet->setCellValue('D' . $row, 'Order Date');
@@ -200,7 +205,8 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $firstData = $row;
     $sumDetailAmount = 0.0;
     foreach ($orders as $o) {
-        $sheet->setCellValue('A' . $row, (int)$o['order_id']);
+        $orderCode = printflow_format_order_code($o['order_id'] ?? 0, $o['order_sku'] ?? '');
+        $sheet->setCellValue('A' . $row, $orderCode);
         $sheet->setCellValue('B' . $row, trim($o['customer_name'] ?? ''));
         $sheet->setCellValue('C' . $row, trim($o['email'] ?? ''));
         $ts = strtotime($o['order_date'] ?? '');
@@ -217,7 +223,7 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
         $sheet->setCellValue('F' . $row, (string)($o['payment_status'] ?? ''));
         $sheet->setCellValue('G' . $row, (string)($o['status'] ?? ''));
 
-        $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+        $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
         $sheet->getStyle('B' . $row . ':C' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setWrapText(true);
         $sheet->getStyle('D' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $sheet->getStyle('E' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
@@ -238,8 +244,6 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
     $sheet->getStyle('A' . $row . ':G' . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
     $sheet->getStyle('A' . $row . ':G' . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
-
-    $sheet->freezePane('A' . ($headerRow + 1));
 }
 
 /**
@@ -413,9 +417,6 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $dailyEndRow = $row - 1;
     $dailyEndRow = max($dailyEndRow, $dailyStartRow);
     $sheet->getStyle('A' . $dailyStartRow . ':C' . $dailyEndRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-
-    // Freeze panes at first data row of Status table
-    $sheet->freezePane('A' . ($statusStartRow + 1));
 }
 
 /**
@@ -529,5 +530,4 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $lastRow = $row;
 
     $sheet->getStyle('A' . $headerRow . ':H' . $lastRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-    $sheet->freezePane('A' . ($headerRow + 1));
 }

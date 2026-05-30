@@ -113,10 +113,15 @@ switch ($report) {
         fputcsv($output, ['Average Order Value', number_format($avgVal, 2, '.', '')]);
         fputcsv($output, []);
 
-        fputcsv($output, ['Order ID', 'Customer Name', 'Email', 'Order Date', 'Total Amount', 'Payment Status', 'Order Status']);
+        fputcsv($output, ['Order #', 'Customer Name', 'Email', 'Order Date', 'Total Amount', 'Payment Status', 'Order Status']);
 
         $orders = db_query(
-            "SELECT o.order_id, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
+            "SELECT o.order_id,
+                    (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                     FROM order_items oi
+                     LEFT JOIN products p ON oi.product_id = p.product_id
+                     WHERE oi.order_id = o.order_id) AS order_sku,
+                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
                     o.order_date, o.total_amount, o.payment_status, o.status
              FROM orders o
              LEFT JOIN customers c ON o.customer_id = c.customer_id
@@ -130,7 +135,7 @@ switch ($report) {
                 // Excel-safe date when opening .csv (avoids #### / wrong serial)
                 $dateForCsv = '="' . date('Y-m-d H:i', strtotime($row['order_date'])) . '"';
                 fputcsv($output, [
-                    (int)$row['order_id'],
+                    csvVal(printflow_format_order_code($row['order_id'] ?? 0, $row['order_sku'] ?? '')),
                     csvVal($row['customer_name']),
                     csvVal($row['email']),
                     $dateForCsv,
