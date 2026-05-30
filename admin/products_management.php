@@ -1274,8 +1274,11 @@ if ($status_filter) {
 }
 if ($stock_filter === 'out_of_stock') {
     $sql .= " AND ({$stockExpr}) <= 0";
+} elseif ($stock_filter === 'critical') {
+    $sql .= " AND ({$criticalExpr}) > 0 AND ({$stockExpr}) > 0 AND ({$stockExpr}) <= ({$criticalExpr})";
 } elseif ($stock_filter === 'low_stock') {
-    $sql .= " AND ({$stockExpr}) > 0 AND ({$stockExpr}) <= ({$lowExpr})";
+    $sql .= " AND ({$stockExpr}) > 0 AND ({$stockExpr}) <= ({$lowExpr})"
+        . " AND (({$criticalExpr}) <= 0 OR ({$stockExpr}) > ({$criticalExpr}))";
 } elseif ($stock_filter === 'in_stock') {
     $sql .= " AND ({$stockExpr}) > ({$lowExpr})";
 }
@@ -1383,29 +1386,27 @@ if (isset($_GET['ajax'])) {
             <?php else: ?>
                 <?php foreach ($products as $product): ?>
                     <?php
-                    $low = (int)($product['low_stock_level'] ?? 10);
-                    $stockStatus = get_stock_status($product['stock_quantity'], $low);
-                    $isLowOrOut = in_array($stockStatus, ['Low Stock','Out of Stock']);
+                    $stockStatusMeta = printflow_product_display_stock_status($product);
+                    $stockStatus = $stockStatusMeta['label'];
+                    $isAlertStock = in_array($stockStatusMeta['key'], ['low', 'critical', 'out'], true);
                     $isSystemDeletedProduct = printflow_is_system_deleted_product($product);
-                    $stockBadge = match($stockStatus) {
-                        'In Stock' => 'background:#dcfce7;color:#166534;',
-                        'Low Stock' => 'background:#fef9c3;color:#854d0e;',
-                        'Out of Stock' => 'background:#fee2e2;color:#991b1b;',
-                        default => 'background:#f3f4f6;color:#374151;'
+                    $qtyColor = match ($stockStatusMeta['key']) {
+                        'out' => '#dc2626',
+                        'critical' => '#c2410c',
+                        'low' => '#b45309',
+                        default => '#374151',
                     };
                     ?>
-                    <tr class="<?php echo $isLowOrOut ? 'low-stock-row' : ''; ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
+                    <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
                         <td><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
                         <td>
-                            <span style="font-weight:<?php echo $isLowOrOut ? 'bold' : '400'; ?>;color:<?php echo $stockStatus === 'Out of Stock' ? '#dc2626' : ($stockStatus === 'Low Stock' ? '#b45309' : '#374151'); ?>;"><?php echo $product['stock_quantity']; ?></span>
+                            <span style="font-weight:<?php echo $isAlertStock ? 'bold' : '400'; ?>;color:<?php echo $qtyColor; ?>;"><?php echo $product['stock_quantity']; ?></span>
                         </td>
-                        <td>
-                            <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $stockBadge; ?>"><?php echo $stockStatus; ?></span>
-                        </td>
+                        <td><?php echo printflow_stock_status_badge_html($stockStatusMeta, false); ?></td>
                         <td>
                             <?php $sc = match($product['status']) { 'Activated' => 'background:#dcfce7;color:#166534;', 'Deactivated' => 'background:#fee2e2;color:#991b1b;', default => 'background:#fef9c3;color:#854d0e;' }; ?>
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo $product['status']; ?></span>
@@ -2335,6 +2336,7 @@ if (isset($_GET['ajax'])) {
                                         <option value="">All stock</option>
                                         <option value="in_stock" <?php echo $stock_filter==='in_stock'?'selected':''; ?>>In Stock</option>
                                         <option value="low_stock" <?php echo $stock_filter==='low_stock'?'selected':''; ?>>Low Stock</option>
+                                        <option value="critical" <?php echo $stock_filter==='critical'?'selected':''; ?>>Critical</option>
                                         <option value="out_of_stock" <?php echo $stock_filter==='out_of_stock'?'selected':''; ?>>Out of Stock</option>
                                     </select>
                                 </div>
@@ -2384,29 +2386,27 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($products as $product): ?>
                                     <?php
-                                    $low = (int)($product['low_stock_level'] ?? 10);
-                                    $stockStatus = get_stock_status($product['stock_quantity'], $low);
-                                    $isLowOrOut = in_array($stockStatus, ['Low Stock','Out of Stock']);
+                                    $stockStatusMeta = printflow_product_display_stock_status($product);
+                                    $stockStatus = $stockStatusMeta['label'];
+                                    $isAlertStock = in_array($stockStatusMeta['key'], ['low', 'critical', 'out'], true);
                                     $isSystemDeletedProduct = printflow_is_system_deleted_product($product);
-                                    $stockBadge = match($stockStatus) {
-                                        'In Stock' => 'background:#dcfce7;color:#166534;',
-                                        'Low Stock' => 'background:#fef9c3;color:#854d0e;',
-                                        'Out of Stock' => 'background:#fee2e2;color:#991b1b;',
-                                        default => 'background:#f3f4f6;color:#374151;'
+                                    $qtyColor = match ($stockStatusMeta['key']) {
+                                        'out' => '#dc2626',
+                                        'critical' => '#c2410c',
+                                        'low' => '#b45309',
+                                        default => '#374151',
                                     };
                                     ?>
-                                    <tr class="<?php echo $isLowOrOut ? 'low-stock-row' : ''; ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
+                                    <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
                                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
                                         <td><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
                                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
                                         <td>
-                                            <span style="font-weight:<?php echo $isLowOrOut ? 'bold' : '400'; ?>;color:<?php echo $stockStatus === 'Out of Stock' ? '#dc2626' : ($stockStatus === 'Low Stock' ? '#b45309' : '#374151'); ?>;"><?php echo $product['stock_quantity']; ?></span>
+                                            <span style="font-weight:<?php echo $isAlertStock ? 'bold' : '400'; ?>;color:<?php echo $qtyColor; ?>;"><?php echo $product['stock_quantity']; ?></span>
                                         </td>
-                                        <td>
-                                            <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $stockBadge; ?>"><?php echo $stockStatus; ?></span>
-                                        </td>
+                                        <td><?php echo printflow_stock_status_badge_html($stockStatusMeta, false); ?></td>
                                         <td>
                                             <?php
                                                 $sc = match($product['status']) {
@@ -3260,18 +3260,22 @@ function pfManagerModalSetActive(active, product) {
 var _productStatusForm = null;
 var _productStatusButtonName = null;
 
-function pfProductStockStatusLabel(qty, low) {
+function pfProductStockStatusLabel(qty, low, critical) {
     qty = parseInt(qty, 10) || 0;
     low = parseInt(low, 10) || 10;
+    critical = parseInt(critical, 10);
+    if (isNaN(critical) || critical < 0) critical = 0;
     if (qty <= 0) return 'Out of Stock';
+    if (critical > 0 && qty <= critical) return 'Critical';
     if (qty <= low) return 'Low Stock';
     return 'In Stock';
 }
 function pfStockBadgeStyle(label) {
-    if (label === 'In Stock') return 'background:#dcfce7;color:#166534;';
-    if (label === 'Low Stock') return 'background:#fef9c3;color:#854d0e;';
-    if (label === 'Out of Stock') return 'background:#fee2e2;color:#991b1b;';
-    return 'background:#f3f4f6;color:#374151;';
+    if (label === 'In Stock') return 'background:#dcfce7;color:#166534;border:1px solid #bbf7d0;';
+    if (label === 'Low Stock') return 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;';
+    if (label === 'Critical') return 'background:#fff7ed;color:#c2410c;border:1px solid #fdba74;';
+    if (label === 'Out of Stock') return 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca;';
+    return 'background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;';
 }
 function pfVisibilityStatusStyle(st) {
     if (st === 'Activated') return 'background:#dcfce7;color:#166534;';
@@ -3556,7 +3560,7 @@ function openViewModal(product) {
     if (actions) {
         actions.style.display = product.status === 'Archived' ? 'none' : 'flex';
     }
-    var stockLabel = pfProductStockStatusLabel(product.stock_quantity, product.low_stock_level);
+    var stockLabel = pfProductStockStatusLabel(product.stock_quantity, product.low_stock_level, product.critical_level);
     var nameEl = document.getElementById('view-product-name');
     if (nameEl) nameEl.textContent = product.name || '—';
     var skuEl = document.getElementById('view-product-sku');

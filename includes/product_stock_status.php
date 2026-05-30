@@ -82,3 +82,11 @@ function printflow_apply_suggested_product_thresholds(int $productId, int $refer
 function printflow_product_resolve_stock_status(int $quantity, int $reorderLevel, int $criticalLevel): array {
     return printflow_resolve_stock_status((float)$quantity, (float)$reorderLevel, (float)$criticalLevel, false);
 }
+
+function printflow_product_display_stock_status(array $product): array {
+    return printflow_product_resolve_stock_status(
+        (int)($product['stock_quantity'] ?? 0),
+        (int)($product['low_stock_level'] ?? 10),
+        (int)($product['critical_level'] ?? 0)
+    );
+}
