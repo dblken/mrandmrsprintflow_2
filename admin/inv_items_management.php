@@ -160,8 +160,8 @@ if ($stock_status) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
         
         $stock = (float)$item['current_stock'];
-        $reorder = printflow_item_reorder_level($item);
-        $critical = printflow_item_critical_level($item);
+        $reorder = printflow_item_stored_reorder_level($item);
+        $critical = printflow_item_stored_critical_level($item);
         $status = printflow_resolve_stock_status($stock, $reorder, $critical);
         if (!printflow_stock_matches_filter($status, $stock_status)) {
             continue;
@@ -222,8 +222,8 @@ if (isset($_GET['ajax'])) {
     <?php else: 
         foreach ($items as $item): 
             $stock = (float)$item['current_stock'];
-            $reorder = printflow_item_reorder_level($item);
-            $critical = printflow_item_critical_level($item);
+            $reorder = printflow_item_stored_reorder_level($item);
+            $critical = printflow_item_stored_critical_level($item);
             $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             $stockColor = $status['text_color'];
             
@@ -394,13 +394,17 @@ if (isset($_GET['ajax'])) {
         }
         .item-modal--edit #itemInitialStockSlot,
         .item-modal--edit #ftDualInputGroup { display: none !important; }
-        .item-modal--edit #itemModalThresholdRow,
-        .item-modal--edit .item-modal-row-preview,
-        .item-modal--edit #reorderAlertsGroup,
+        .item-modal--edit .item-modal-row-preview { display: none !important; }
         .item-modal--edit #itemModalBottomRow { display: none !important; }
         .item-modal--create .item-modal-row-preview,
         .item-modal--create .item-modal-edit-only { display: none !important; }
         .item-modal--edit .item-modal-edit-only { display: flex; flex-direction: column; gap: 6px; }
+        .item-modal--edit #itemModalThresholdRow { display: grid !important; }
+        .item-modal--edit #reorderAlertsGroup { display: block !important; }
+        .item-modal--edit #itemThresholdResetRow { display: flex !important; }
+        .item-modal--create #reorderAlertsGroup,
+        .item-modal--create #itemThresholdResetRow,
+        .item-modal--create #itemCurrentStockSlot { display: none !important; }
         #itemModal .item-modal-edit-only#statusSection {
             background: transparent;
             border: none;
@@ -450,6 +454,23 @@ if (isset($_GET['ajax'])) {
         .item-modal--create #editModalChangeSummary {
             display: none !important;
         }
+        #itemThresholdResetRow {
+            display: none;
+            justify-content: flex-end;
+            margin: -4px 0 12px;
+        }
+        #btnResetSuggestedThresholds {
+            border-radius: 10px;
+            height: 40px;
+            padding: 0 16px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #374151;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #btnResetSuggestedThresholds:hover { background: #f9fafb; }
         
         /* Proportional Widths */
         .w-35 { width: 35% !important; min-width: 140px; }
@@ -882,8 +903,8 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($items as $item): 
                                     $stock = (float)$item['current_stock'];
-                                    $reorder = printflow_item_reorder_level($item);
-                                    $critical = printflow_item_critical_level($item);
+                                    $reorder = printflow_item_stored_reorder_level($item);
+                                    $critical = printflow_item_stored_critical_level($item);
                                     $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
@@ -1249,6 +1270,11 @@ if (isset($_GET['ajax'])) {
                         <p class="field-hint">&nbsp;</p>
                     </div>
                     <div id="itemInitialStockColumn" class="item-modal-field">
+                        <div id="itemCurrentStockSlot" class="item-modal-edit-only">
+                            <label for="itemCurrentStock">Current Stock</label>
+                            <input type="text" id="itemCurrentStock" value="" readonly class="w-100 threshold-readonly pf-field-auto" tabindex="-1" aria-readonly="true">
+                            <p class="field-hint" style="min-height:auto;">Stock can only be changed through Receive In or Receive Out.</p>
+                        </div>
                         <div id="statusSection" class="item-modal-edit-only form-group">
                             <label for="itemStatus">System Status</label>
                             <select id="itemStatus" name="status" class="w-100">
@@ -1302,13 +1328,19 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="itemModalThresholdRow" class="item-modal-rows-2">
                     <div class="item-modal-field">
-                        <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
-                        <input type="text" id="itemMinStock" value="Reorder Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <label for="itemMinStock">Reorder Level <span id="itemMinStockLabelHint" style="font-size:10px;color:#9ca3af;font-weight:normal;">(Suggested)</span></label>
+                        <input type="text" id="itemMinStock" name="reorder_level" value="Reorder Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <span id="err-itemMinStock" class="field-error"></span>
                     </div>
                     <div class="item-modal-field">
-                        <label for="itemCriticalStock">Critical Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
-                        <input type="text" id="itemCriticalStock" value="Critical Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <label for="itemCriticalStock">Critical Level <span id="itemCriticalStockLabelHint" style="font-size:10px;color:#9ca3af;font-weight:normal;">(Suggested)</span></label>
+                        <input type="text" id="itemCriticalStock" name="critical_level" value="Critical Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <span id="err-itemCriticalStock" class="field-error"></span>
                     </div>
+                </div>
+                <p id="itemThresholdCreateHint" class="item-modal-create-only field-hint" style="margin:-4px 0 12px;">Thresholds are automatically calculated and can be adjusted later.</p>
+                <div id="itemThresholdResetRow" class="item-modal-edit-only">
+                    <button type="button" id="btnResetSuggestedThresholds" onclick="resetSuggestedThresholds()">Reset to Suggested Values</button>
                 </div>
                 <div class="item-modal-rows-2 item-modal-row-preview">
                     <div id="previewStatusSection" class="item-modal-field" style="grid-column: span 2;">
@@ -1321,9 +1353,10 @@ if (isset($_GET['ajax'])) {
             <!-- Alerts Section (edit only) -->
             <div id="reorderAlertsGroup" class="modal-section" style="margin-bottom: 20px;">
                 <div class="form-col-full">
-                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds update in real time as quantity changes.</p>
+                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed until you edit them or use Reset to Suggested Values.</p>
+                    <div id="editModalThresholdExceedWarn" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; margin-bottom:8px;">The configured stock thresholds exceed the current stock quantity. This material will immediately be classified according to the configured thresholds.</div>
                     <div id="editModalReorderWarnHigh" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; This may mark your stock as low immediately</div>
-                    <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; You may run out of stock before being warned</div>
+                    <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; margin-top:8px;">&#9888;&#65039; You may run out of stock before being warned</div>
                     <div id="editModalNoStockYet" style="display:none; font-size:11px; color:#6b7280; background:#f3f4f6; padding:8px 12px; border-radius:8px; border:1px solid #e5e7eb;">No stock added yet.</div>
                 </div>
             </div>
@@ -1406,9 +1439,22 @@ if (isset($_GET['ajax'])) {
         if (trackEl) trackEl.value = item.track_by_roll != null ? String(item.track_by_roll) : '0';
         if (statusEl) statusEl.value = item.status || 'ACTIVE';
         if (startingStockEl) {
-            startingStockEl.value = item.current_stock != null ? String(item.current_stock) : '';
+            startingStockEl.value = '';
             startingStockEl.type = 'hidden';
         }
+
+        var currentStockEl = document.getElementById('itemCurrentStock');
+        var stockVal = item.current_stock != null ? parseFloat(item.current_stock) : 0;
+        var uomForDisplay = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
+        if (currentStockEl) {
+            currentStockEl.value = fmtQty(stockVal, uomForDisplay === 'pcs') + ' ' + uomForDisplay.toUpperCase();
+        }
+
+        pfConfigureThresholdFieldsForMode(true);
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        if (reorderEl) reorderEl.value = String(item.reorder_level != null ? item.reorder_level : 0);
+        if (criticalEl) criticalEl.value = String(item.critical_level != null ? item.critical_level : 0);
 
         var catOpt = itemCategory && itemCategory.selectedOptions ? itemCategory.selectedOptions[0] : null;
         var catEditLabel = (catOpt && catOpt.textContent ? catOpt.textContent : '').toUpperCase();
@@ -1440,18 +1486,58 @@ if (isset($_GET['ajax'])) {
 
     function pfSuggestReorderLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
-        return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.20));
+        return q <= 0 ? 0 : Math.ceil(q * 0.20);
     }
 
     function pfSuggestCriticalLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
-        return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.05));
+        return q <= 0 ? 0 : Math.ceil(q * 0.05);
+    }
+
+    function pfConfigureThresholdFieldsForMode(isEdit) {
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        var reorderHint = document.getElementById('itemMinStockLabelHint');
+        var criticalHint = document.getElementById('itemCriticalStockLabelHint');
+        if (!reorderEl || !criticalEl) return;
+
+        if (isEdit) {
+            reorderEl.type = 'number';
+            criticalEl.type = 'number';
+            reorderEl.step = '0.01';
+            criticalEl.step = '0.01';
+            reorderEl.min = '0';
+            criticalEl.min = '0';
+            reorderEl.readOnly = false;
+            criticalEl.readOnly = false;
+            reorderEl.removeAttribute('aria-readonly');
+            criticalEl.removeAttribute('aria-readonly');
+            reorderEl.tabIndex = 0;
+            criticalEl.tabIndex = 0;
+            reorderEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
+            criticalEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
+            if (reorderHint) reorderHint.textContent = '(Configurable)';
+            if (criticalHint) criticalHint.textContent = '(Configurable)';
+        } else {
+            reorderEl.type = 'text';
+            criticalEl.type = 'text';
+            reorderEl.readOnly = true;
+            criticalEl.readOnly = true;
+            reorderEl.setAttribute('aria-readonly', 'true');
+            criticalEl.setAttribute('aria-readonly', 'true');
+            reorderEl.tabIndex = -1;
+            criticalEl.tabIndex = -1;
+            reorderEl.classList.add('threshold-readonly', 'pf-field-auto');
+            criticalEl.classList.add('threshold-readonly', 'pf-field-auto');
+            if (reorderHint) reorderHint.textContent = '(Suggested)';
+            if (criticalHint) criticalHint.textContent = '(Suggested)';
+        }
     }
 
     function pfResolveStockStatus(quantity, reorderLevel, criticalLevel, isNewItemWithoutStock) {
         var qty = Math.max(0, Number(quantity) || 0);
-        var reorder = Math.max(1, Number(reorderLevel) || 1);
-        var critical = Math.max(1, Math.min(Number(criticalLevel) || 1, reorder));
+        var reorder = Math.max(0, Number(reorderLevel) || 0);
+        var critical = Math.max(0, Number(criticalLevel) || 0);
 
         if (isNewItemWithoutStock && qty <= 0) {
             return {
@@ -1511,8 +1597,76 @@ if (isset($_GET['ajax'])) {
 
         applyLocked(uomEl, !unlockUom);
         applyLocked(trackEl, true);
-        if (minEl) minEl.classList.add('pf-field-auto');
-        if (critEl) critEl.classList.add('pf-field-auto');
+        var isEdit = document.getElementById('actionType')?.value === 'update_item';
+        if (minEl) minEl.classList.toggle('pf-field-auto', !isEdit);
+        if (critEl) critEl.classList.toggle('pf-field-auto', !isEdit);
+    }
+
+    function pfGetThresholdValues() {
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        return {
+            reorder: Math.max(0, parseFloat(reorderEl?.value || 0) || 0),
+            critical: Math.max(0, parseFloat(criticalEl?.value || 0) || 0)
+        };
+    }
+
+    function pfValidateThresholdFields(forceShowErrors) {
+        var thresholds = pfGetThresholdValues();
+        var reorder = thresholds.reorder;
+        var critical = thresholds.critical;
+        var isValid = true;
+        var msg = 'Critical Level must be lower than Reorder Level.';
+
+        if (reorder < 0 || critical < 0) {
+            isValid = false;
+            msg = 'Reorder Level and Critical Level must be zero or greater.';
+        } else if (reorder > 0 && critical >= reorder) {
+            isValid = false;
+        }
+
+        if (forceShowErrors) {
+            updateValidationUI('itemMinStock', isValid, isValid ? '' : msg);
+            updateValidationUI('itemCriticalStock', isValid, isValid ? '' : msg);
+        }
+        return isValid;
+    }
+
+    async function resetSuggestedThresholds() {
+        var itemId = document.getElementById('itemId')?.value;
+        if (!itemId) return;
+        var stock = Math.max(0, parseFloat(selectedItemForStockCard?.current_stock || 0));
+        var suggestedReorder = pfSuggestReorderLevel(stock);
+        var suggestedCritical = pfSuggestCriticalLevel(stock);
+        var confirmed = window.confirm(
+            'Reset thresholds based on current stock (' + stock + ')?\n\nSuggested:\nReorder Level = ' + suggestedReorder + '\nCritical Level = ' + suggestedCritical
+        );
+        if (!confirmed) return;
+
+        try {
+            var formData = new FormData();
+            formData.append('action', 'reset_thresholds');
+            formData.append('id', itemId);
+            var res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
+            var data = await res.json();
+            if (!data.success) {
+                alert(data.error || 'Unable to reset thresholds.');
+                return;
+            }
+            var reorderEl = document.getElementById('itemMinStock');
+            var criticalEl = document.getElementById('itemCriticalStock');
+            if (reorderEl) reorderEl.value = String(data.reorder_level);
+            if (criticalEl) criticalEl.value = String(data.critical_level);
+            if (selectedItemForStockCard) {
+                selectedItemForStockCard.reorder_level = data.reorder_level;
+                selectedItemForStockCard.critical_level = data.critical_level;
+            }
+            pfValidateThresholdFields(true);
+            updateEditModalUI(false);
+        } catch (err) {
+            console.error(err);
+            alert('Network communication error. Please try again.');
+        }
     }
 
     function pfModalQuantityIsSet() {
@@ -1556,6 +1710,10 @@ if (isset($_GET['ajax'])) {
     }
 
     function pfApplySuggestedThresholds() {
+        var actionTypeEl = document.getElementById('actionType');
+        if (actionTypeEl && actionTypeEl.value === 'update_item') {
+            return;
+        }
         var reorderEl = document.getElementById('itemMinStock');
         var criticalEl = document.getElementById('itemCriticalStock');
         if (!reorderEl || !criticalEl) return;
@@ -1634,7 +1792,7 @@ if (isset($_GET['ajax'])) {
             addStockUnitCost.addEventListener('change', updateAddStockUI);
         }
         ['itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(pfBindNumericClearOnFocus);
-        ['itemName', 'itemCategory', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(function (id) {
+        ['itemName', 'itemCategory', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemMinStock', 'itemCriticalStock'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el && !el._pf_bound) {
                 el._pf_bound = true;
@@ -1773,6 +1931,10 @@ if (isset($_GET['ajax'])) {
                 if (!validateField(id, forceShowErrors, true)) allValid = false;
             });
 
+            if (!isCreate) {
+                if (!pfValidateThresholdFields(forceShowErrors)) allValid = false;
+            }
+
             if (isCreate && uom === 'ft' && !getStockInputMethod()) {
                 allValid = false;
                 if (forceShowErrors) {
@@ -1889,6 +2051,15 @@ if (isset($_GET['ajax'])) {
                 if (!val) { msg = 'Initial stock is required.'; isValid = false; }
                 else if (!isFeetPositive(val)) { msg = 'Initial stock must be greater than 0.'; isValid = false; }
                 break;
+            case 'itemMinStock':
+            case 'itemCriticalStock':
+                if (document.getElementById('actionType')?.value === 'update_item') {
+                    if (!pfValidateThresholdFields(false)) {
+                        msg = 'Critical Level must be lower than Reorder Level.';
+                        isValid = false;
+                    }
+                }
+                break;
         }
 
         const isCreate = document.getElementById('actionType')?.value === 'create_item';
@@ -1897,7 +2068,7 @@ if (isset($_GET['ajax'])) {
             updateValidationUI(id, isValid, msg);
         }
         if (!skipFormSideEffects && !_itemFormValidating) {
-            if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
+            if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet' || id === 'itemMinStock' || id === 'itemCriticalStock') {
                 pfApplySuggestedThresholds();
                 updateEditModalUI(false);
             }
@@ -2068,8 +2239,8 @@ if (isset($_GET['ajax'])) {
         selectedItemForStockCard = item;
         
         const stock = parseFloat(item.current_stock || 0);
-        const reorder = pfSuggestReorderLevel(stock);
-        const critical = pfSuggestCriticalLevel(stock);
+        const reorder = parseFloat(item.reorder_level || 0);
+        const critical = parseFloat(item.critical_level || 0);
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
@@ -2427,6 +2598,7 @@ if (isset($_GET['ajax'])) {
             const archiveBtn = document.getElementById('archiveItemBtn');
             if (archiveBtn) archiveBtn.style.display = 'none';
             applySmartUomRules();
+            pfConfigureThresholdFieldsForMode(false);
             pfApplySuggestedThresholds();
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();
@@ -2437,7 +2609,7 @@ if (isset($_GET['ajax'])) {
             selectedItemForStockCard = item;
             editItemOriginalValues = {};
             applySmartUomRules();
-            pfApplySuggestedThresholds();
+            pfConfigureThresholdFieldsForMode(true);
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();
             scheduleItemModalWork(function () { updateEditModalUI(false); }, 0);
@@ -2477,6 +2649,13 @@ if (isset($_GET['ajax'])) {
                 previewEl.textContent = stockStatus.label;
                 previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + stockStatus.borderColor + ';border-radius:8px;background:' + stockStatus.bgColor + ';color:' + stockStatus.textColor + ';';
             }
+        } else {
+            const stock = Math.max(0, parseFloat(selectedItemForStockCard?.current_stock || 0));
+            const thresholds = pfGetThresholdValues();
+            const stockStatus = pfResolveStockStatus(stock, thresholds.reorder, thresholds.critical, false);
+            const exceedEl = document.getElementById('editModalThresholdExceedWarn');
+            const showExceed = stock < thresholds.reorder || stock < thresholds.critical;
+            if (exceedEl) exceedEl.style.display = showExceed ? 'block' : 'none';
         }
 
         const itemStatusVal = document.getElementById('itemStatus')?.value;
@@ -3156,7 +3335,15 @@ if (isset($_GET['ajax'])) {
                 if (data.errors) {
                     for (let key in data.errors) {
                         // Map API field names to UI element IDs if different
-                        let idMap = { 'name': 'itemName', 'category_id': 'itemCategory', 'unit': 'itemUnit', 'unit_cost': 'itemUnitCost', 'roll_length_ft': 'itemRollLength' };
+                        let idMap = {
+                            'name': 'itemName',
+                            'category_id': 'itemCategory',
+                            'unit': 'itemUnit',
+                            'unit_cost': 'itemUnitCost',
+                            'roll_length_ft': 'itemRollLength',
+                            'reorder_level': 'itemMinStock',
+                            'critical_level': 'itemCriticalStock'
+                        };
                         const targetId = idMap[key] || key;
                         const errEl = document.getElementById('err-' + targetId);
                         const inputEl = document.getElementById(targetId);

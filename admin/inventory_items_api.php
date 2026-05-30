@@ -141,18 +141,39 @@ try {
             }
 
             if ($isUpdate) {
+                $reorderLevel = (float)($_POST['reorder_level'] ?? 0);
+                $criticalLevel = (float)($_POST['critical_level'] ?? 0);
+                $thresholdError = printflow_validate_item_thresholds($reorderLevel, $criticalLevel);
+                if ($thresholdError !== null) {
+                    $errors['critical_level'] = $thresholdError;
+                }
+                if (!empty($errors)) {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'errors' => $errors]);
+                    exit;
+                }
+
                 $soh = InventoryManager::getStockOnHand($id, $branchId);
-                $thresholds = printflow_thresholds_for_quantity($soh);
-                $min_stock = $thresholds['reorder'];
-                $critical_stock = $thresholds['critical'];
                 $status = in_array(sanitize($_POST['status'] ?? ''), ['ACTIVE', 'INACTIVE']) ? sanitize($_POST['status']) : 'ACTIVE';
                 $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, status=?, unit_cost=? WHERE id=?";
                 global $conn;
                 $stmt = $conn->prepare($sql);
-                $stmt->bind_param("isssidddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $min_stock, $critical_stock, $status, $unit_cost, $id);
+                $stmt->bind_param("isssidddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $reorderLevel, $criticalLevel, $status, $unit_cost, $id);
                 if (!$stmt->execute()) throw new Exception("Update failed: " . $stmt->error);
                 $stmt->close();
-                echo json_encode(['success' => true]);
+
+                $updatedItem = InventoryManager::getItem($id) ?: [];
+                printflow_evaluate_stock_alert_notification($updatedItem, $id, $soh);
+
+                $thresholdWarning = null;
+                if ($soh < $reorderLevel || $soh < $criticalLevel) {
+                    $thresholdWarning = 'The configured stock thresholds exceed the current stock quantity. This material will immediately be classified according to the configured thresholds.';
+                }
+
+                echo json_encode([
+                    'success' => true,
+                    'threshold_warning' => $thresholdWarning,
+                ]);
             } else {
                 $starting_stock = max(0, (float)($_POST['starting_stock'] ?? 0));
                 $thresholds = printflow_thresholds_for_quantity($starting_stock);
@@ -206,10 +227,31 @@ try {
                         }
                     }
                 }
-                $finalSoh = InventoryManager::getStockOnHand($itemId, $branchId);
-                printflow_sync_item_thresholds($itemId, $finalSoh);
                 echo json_encode(['success' => true, 'item_id' => $itemId]);
             }
+            break;
+
+        case 'reset_thresholds':
+            if ($inventory_master_read_only) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'This branch is view-only. Inventory items cannot be edited here.']);
+                exit;
+            }
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Item ID is required.']);
+                exit;
+            }
+            $soh = InventoryManager::getStockOnHand($id, $branchId);
+            $thresholds = printflow_apply_suggested_item_thresholds($id, $soh);
+            $item = InventoryManager::getItem($id) ?: [];
+            printflow_evaluate_stock_alert_notification($item, $id, $soh);
+            echo json_encode([
+                'success' => true,
+                'reorder_level' => (float)$thresholds['reorder'],
+                'critical_level' => (float)$thresholds['critical'],
+            ]);
             break;
 
         case 'get_categories':
