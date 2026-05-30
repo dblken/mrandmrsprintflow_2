@@ -415,6 +415,12 @@ if (isset($_GET['ajax'])) {
         .item-modal--edit #statusSection.item-modal-edit-only {
             display: block !important;
         }
+        #itemModal .modal-hint-text {
+            font-size: 11px;
+            color: #6b7280;
+            line-height: 1.4;
+            margin: 8px 0 0;
+        }
         .item-modal-field {
             display: flex;
             flex-direction: column;
@@ -1056,9 +1062,9 @@ if (isset($_GET['ajax'])) {
         </div>
         <div class="modal-body" style="padding:24px !important; font-size:14px; color:#374151;">
             <p style="margin-bottom:12px;">You are about to <strong id="itemStatusConfirmAction">archive</strong>: <strong id="itemArchiveConfirmName">—</strong></p>
-            <p id="itemStatusConfirmInfoText" style="margin-top:16px; color:#6b7280;">Archived materials are hidden from new orders and POS.</p>
+            <p id="itemStatusConfirmInfoText" class="modal-hint-text" style="margin-top:16px; margin-bottom:0;">Archived materials are hidden from new orders and POS.</p>
         </div>
-        <div style="display:flex; gap:12px; justify-content:flex-end; padding-top:20px; margin-top:20px; border-top:1px solid #f3f4f6;">
+        <div style="display:flex; gap:12px; justify-content:flex-end; padding:16px 24px 24px; border-top:1px solid #f3f4f6;">
             <button type="button" onclick="closeItemArchiveConfirmModal()" class="btn-secondary" style="height:44px;border-radius:10px;padding:0 24px;">Cancel</button>
             <button type="button" id="itemArchiveConfirmBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#6b7280;border:none;">Archive</button>
         </div>
@@ -1363,15 +1369,18 @@ if (isset($_GET['ajax'])) {
             </div>
 
             <div id="statusSection" class="item-modal-edit-only">
-                <div class="form-group" style="margin-bottom:0;">
-                    <label for="itemStatus">Status</label>
-                    <select id="itemStatus" name="status" class="w-100">
-                        <option value="ACTIVE">Active</option>
-                        <option value="INACTIVE">Inactive</option>
-                    </select>
-                    <div id="statusHelperMessage" style="display:none;">
-                        <p class="field-hint" style="min-height:auto;margin-top:6px;">Inactive materials are hidden from new orders and POS.</p>
+                <div class="item-modal-rows-2" style="margin-bottom:0;">
+                    <div class="item-modal-field">
+                        <label for="itemStatus">Status</label>
+                        <select id="itemStatus" name="status" class="w-100">
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive</option>
+                        </select>
+                        <div id="statusHelperMessage" style="display:none;">
+                            <p class="modal-hint-text">Inactive materials are hidden from new orders and POS.</p>
+                        </div>
                     </div>
+                    <div class="item-modal-field" aria-hidden="true"></div>
                 </div>
             </div>
             
@@ -1586,7 +1595,6 @@ if (isset($_GET['ajax'])) {
         var catEl = document.getElementById('itemCategory');
         var minEl = document.getElementById('itemMinStock');
         var critEl = document.getElementById('itemCriticalStock');
-        var unlockUom = !!currentIsTarpaulinCategory;
         var isEdit = document.getElementById('actionType')?.value === 'update_item';
 
         function applyLocked(el, locked) {
@@ -1605,7 +1613,7 @@ if (isset($_GET['ajax'])) {
             }
         }
 
-        applyLocked(uomEl, !unlockUom);
+        applyLocked(uomEl, true);
         applyLocked(trackEl, true);
         applyLocked(catEl, isEdit);
         if (minEl) minEl.classList.toggle('pf-field-auto', !isEdit);
