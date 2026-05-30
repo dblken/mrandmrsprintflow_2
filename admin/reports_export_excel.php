@@ -13,6 +13,9 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/reports_date_range.php';
+require_once __DIR__ . '/../includes/InventoryManager.php';
+require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/reports_export_excel_helpers.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 require_role(['Admin', 'Manager']);
@@ -33,6 +36,8 @@ $branchName = $branchCtx['branch_name'];
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
 
 $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+$storePaidOnlySql = pf_reports_store_order_paid_expr('o');
+$serviceCompletedSql = pf_reports_service_order_completed_expr('so');
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -40,75 +45,48 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetDate;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-
-/**
- * Auto-size columns from column index A=1 through last index.
- */
-function pf_excel_autosize_columns(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $fromColIdx, int $toColIdx): void {
-    for ($i = $fromColIdx; $i <= $toColIdx; $i++) {
-        $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i))->setAutoSize(true);
-    }
-}
-
-/** Title row — matches print report banner (dark teal, white text). */
-function pf_excel_style_doc_title(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, string $range): void {
-    $sheet->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('00232b');
-    $sheet->getStyle($range)->getFont()->setBold(true)->setSize(15)->getColor()->setRGB('FFFFFF');
-    $sheet->getStyle($range)->getAlignment()
-        ->setHorizontal(Alignment::HORIZONTAL_CENTER)
-        ->setVertical(Alignment::VERTICAL_CENTER);
-    $sheet->getRowDimension(1)->setRowHeight(30);
-}
-
-/** Table column headers — print-style gray band + teal underline. */
-function pf_excel_style_column_headers(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, string $range): void {
-    $sheet->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F9FAFB');
-    $sheet->getStyle($range)->getFont()->setBold(true)->setSize(10)->getColor()->setRGB('4B5563');
-    $sheet->getStyle($range)->getAlignment()
-        ->setHorizontal(Alignment::HORIZONTAL_CENTER)
-        ->setVertical(Alignment::VERTICAL_CENTER)
-        ->setWrapText(true);
-    $sheet->getStyle($range)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
-    $sheet->getStyle($range)->getBorders()->getBottom()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('0D9488');
-}
-
-/** Alternating row fill like print .zebra */
-function pf_excel_zebra_body(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $firstRow, int $lastRow, int $colFromIdx, int $colToIdx): void {
-    if ($lastRow < $firstRow) {
-        return;
-    }
-    $f = Coordinate::stringFromColumnIndex($colFromIdx);
-    $t = Coordinate::stringFromColumnIndex($colToIdx);
-    for ($r = $firstRow; $r <= $lastRow; $r++) {
-        if (($r - $firstRow) % 2 === 1) {
-            $sheet->getStyle($f . $r . ':' . $t . $r)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F3F4F6');
-        }
-    }
-}
 
 $spreadsheet = new Spreadsheet();
 $sheet = $spreadsheet->getActiveSheet();
+$excelColCount = 8;
 
 if ($report === 'orders') {
     $sheet->setTitle('Orders Status Report');
     buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Orders_Status_' . date('Y-m-d') . '.xlsx';
-    pf_excel_autosize_columns($sheet, 1, 8);
+    $excelColCount = 8;
 } elseif ($report === 'customers') {
     $sheet->setTitle('Customers Report');
     buildCustomersReport($sheet, $from, $to, $branchName, $branchId);
     $filename = 'PrintFlow_Customers_' . date('Y-m-d') . '.xlsx';
-    pf_excel_autosize_columns($sheet, 1, 8);
+    $excelColCount = 8;
 } elseif ($report === 'sales') {
     $sheet->setTitle('Sales Report');
     buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
-    pf_excel_autosize_columns($sheet, 1, $branchId === 'all' ? 8 : 7);
+    $excelColCount = ($branchId === 'all') ? 8 : 7;
+} elseif ($report === 'daily_sales') {
+    $day = date('Y-m-d', strtotime($_GET['date'] ?? $to));
+    $sheet->setTitle('Daily Sales');
+    buildDailySalesReport($sheet, $day, $branchName, $branchId, $storePaidSql, $serviceCompletedSql);
+    $filename = 'PrintFlow_Daily_Sales_' . $day . '.xlsx';
+    $excelColCount = 6;
+} elseif ($report === 'shop_inventory') {
+    $sheet->setTitle('Shop Inventory');
+    buildShopInventoryReport($sheet, $branchName, $branchId, $dateRange['label']);
+    $filename = 'PrintFlow_Shop_Inventory_' . date('Y-m-d') . '.xlsx';
+    $excelColCount = 6;
+} elseif ($report === 'inventory') {
+    $sheet->setTitle('Materials Inventory');
+    buildMaterialsInventoryReport($sheet, $branchName, $fromStart, $toEnd, $dateRange['label']);
+    $filename = 'PrintFlow_Materials_Inventory_' . date('Y-m-d') . '.xlsx';
+    $excelColCount = 7;
 } else {
     header('HTTP/1.1 400 Bad Request');
-    exit('Excel export supports report=orders, sales, or customers only.');
+    exit('Unknown report type.');
 }
+
+pf_excel_autosize_columns($sheet, 1, $excelColCount);
 
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -246,6 +224,7 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $lastData = $row - 1;
     if ($lastData >= $firstData) {
         pf_excel_zebra_body($sheet, $firstData, $lastData, 1, $lastColIdx);
+        pf_excel_apply_table_autofilter($sheet, $headerRow, $lastColIdx, $lastData);
         $sheet->getStyle('A' . $firstData . ':' . $lastCol . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
     }
 
@@ -362,6 +341,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $statusLastData = $row - 1;
     if ($statusLastData >= $statusFirstData) {
         pf_excel_zebra_body($sheet, $statusFirstData, $statusLastData, 1, 3);
+        pf_excel_apply_table_autofilter($sheet, $statusStartRow, 3, $statusLastData);
     }
 
     // TOTAL row
@@ -415,6 +395,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $dailyLastData = $row - 1;
     if ($dayCount > 0 && $dailyLastData >= $dailyFirstData) {
         pf_excel_zebra_body($sheet, $dailyFirstData, $dailyLastData, 1, 3);
+        pf_excel_apply_table_autofilter($sheet, $dailyStartRow, 3, $dailyLastData);
     }
 
     if ($dayCount > 0) {
@@ -531,6 +512,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $custLastData = $row - 1;
     if ($custLastData >= $custFirstData) {
         pf_excel_zebra_body($sheet, $custFirstData, $custLastData, 1, 8);
+        pf_excel_apply_table_autofilter($sheet, $headerRow, 8, $custLastData);
     }
 
     // TOTAL row
