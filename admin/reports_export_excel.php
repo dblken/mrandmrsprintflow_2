@@ -11,6 +11,7 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 require_role(['Admin', 'Manager']);
@@ -28,6 +29,8 @@ $to   = date('Y-m-d', strtotime($to));
 $toEnd = $to . ' 23:59:59';
 
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
+
+$storePaidSql = pf_reports_store_order_paid_completed_expr('o');
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -119,13 +122,14 @@ exit;
  */
 function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd) {
     $params = array_merge([$from, $toEnd], $bParams);
+    $storePaidSql = pf_reports_store_order_paid_expr('o');
 
     $summary = db_query(
         "SELECT COUNT(*) as total_orders,
-                SUM(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE 0 END) as total_revenue,
-                SUM(CASE WHEN o.payment_status='Paid' THEN 1 ELSE 0 END) as paid_orders,
-                AVG(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE NULL END) as avg_order_value
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql",
+                SUM(o.total_amount) as total_revenue,
+                AVG(o.total_amount) as avg_order_value
+         FROM orders o
+         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql",
         'ss' . $bTypes,
         $params
     );
@@ -139,7 +143,7 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
                 o.order_date, o.total_amount, o.payment_status, o.status
          FROM orders o
          LEFT JOIN customers c ON o.customer_id = c.customer_id
-         WHERE o.order_date BETWEEN ? AND ?$bSql
+         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
          ORDER BY o.order_date DESC",
         'ss' . $bTypes,
         $params
@@ -169,13 +173,13 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
     $row++;
-    $sheet->setCellValue('A' . $row, 'Total Revenue (paid)');
+    $sheet->setCellValue('A' . $row, 'Total Revenue');
     $sheet->setCellValue('B' . $row, $totalRev);
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
     $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
     $row++;
-    $sheet->setCellValue('A' . $row, 'Average Order Value (paid)');
+    $sheet->setCellValue('A' . $row, 'Average Order Value');
     $sheet->setCellValue('B' . $row, $avgVal);
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
@@ -227,7 +231,7 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     }
 
     $sheet->setCellValue('A' . $row, 'TOTAL');
-    $sheet->setCellValue('E' . $row, $sumDetailAmount);
+    $sheet->setCellValue('E' . $row, $totalRev);
     $sheet->getStyle('A' . $row . ':G' . $row)->getFont()->setBold(true);
     $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
     $sheet->getStyle('E' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
@@ -243,11 +247,13 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
  */
 function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd) {
     $params = array_merge([$from, $toEnd], $bParams);
+    $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
 
     $summary = db_query(
         "SELECT COUNT(*) as total_orders, SUM(o.total_amount) as total_revenue,
                 AVG(o.total_amount) as avg_order_value
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql",
+         FROM orders o
+         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql",
         'ss' . $bTypes, $params
     );
     $sum = $summary[0] ?? [];
@@ -257,14 +263,16 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
 
     $status_counts = db_query(
         "SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql
+         FROM orders o
+         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
          GROUP BY o.status ORDER BY cnt DESC",
         'ss' . $bTypes, $params
     ) ?: [];
 
     $daily = db_query(
         "SELECT DATE(o.order_date) as day, COUNT(*) as cnt, SUM(o.total_amount) as total
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql
+         FROM orders o
+         WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
          GROUP BY DATE(o.order_date) ORDER BY day DESC",
         'ss' . $bTypes, $params
     ) ?: [];
@@ -414,6 +422,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
  * Customers Report layout
  */
 function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
+    $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
     if ($branchId !== 'all') {
         [$totalCust, $activeCust] = branch_customers_summary_for_branch((int)$branchId);
         $customers = branch_customers_report_list((int)$branchId);
@@ -427,8 +436,9 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
                     COALESCE(c.email,'') as email, COALESCE(c.contact_number,'') as contact_number, c.status, c.created_at,
                     COUNT(o.order_id) as order_count, COALESCE(SUM(o.total_amount), 0) as total_spent
              FROM customers c
-             LEFT JOIN orders o ON c.customer_id = o.customer_id
+             LEFT JOIN orders o ON c.customer_id = o.customer_id AND {$storePaidSql}
              GROUP BY c.customer_id
+             HAVING order_count > 0
              ORDER BY total_spent DESC"
         ) ?: [];
     }

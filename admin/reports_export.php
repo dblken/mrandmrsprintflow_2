@@ -12,6 +12,7 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 
@@ -30,6 +31,10 @@ $to   = date('Y-m-d', strtotime($to));
 $toEnd = $to . ' 23:59:59';
 
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
+
+$storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+$storePaidOnlySql = pf_reports_store_order_paid_expr('o');
+$serviceCompletedSql = pf_reports_service_order_completed_expr('so');
 
 // UTF-8 BOM for Excel compatibility
 header('Content-Type: text/csv; charset=utf-8');
@@ -91,10 +96,10 @@ switch ($report) {
 
         $summary = db_query(
             "SELECT COUNT(*) as total_orders,
-                    SUM(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN o.payment_status='Paid' THEN 1 ELSE 0 END) as paid_orders,
-                    AVG(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE NULL END) as avg_order_value
-             FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql",
+                    SUM(o.total_amount) as total_revenue,
+                    AVG(o.total_amount) as avg_order_value
+             FROM orders o
+             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidOnlySql}$bSql",
             'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
         );
         $s = $summary[0] ?? [];
@@ -115,7 +120,7 @@ switch ($report) {
                     o.order_date, o.total_amount, o.payment_status, o.status
              FROM orders o
              LEFT JOIN customers c ON o.customer_id = c.customer_id
-             WHERE o.order_date BETWEEN ? AND ?$bSql
+             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidOnlySql}$bSql
              ORDER BY o.order_date DESC",
             'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
         );
@@ -148,7 +153,8 @@ switch ($report) {
         $summary = db_query(
             "SELECT COUNT(*) as total_orders, SUM(o.total_amount) as total_revenue,
                     AVG(o.total_amount) as avg_order_value
-             FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql",
+             FROM orders o
+             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql",
             'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
         );
         $sum = $summary[0] ?? [];
@@ -166,7 +172,8 @@ switch ($report) {
 
         $status_counts = db_query(
             "SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total
-             FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql
+             FROM orders o
+             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
              GROUP BY o.status ORDER BY cnt DESC",
             'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
         );
@@ -183,7 +190,8 @@ switch ($report) {
 
         $daily = db_query(
             "SELECT DATE(o.order_date) as day, COUNT(*) as cnt, SUM(o.total_amount) as total
-             FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql
+             FROM orders o
+             WHERE o.order_date BETWEEN ? AND ? AND {$storePaidSql}$bSql
              GROUP BY DATE(o.order_date) ORDER BY day DESC",
             'ss'.$bTypes, array_merge([$from, $toEnd], $bParams)
         );
@@ -238,8 +246,9 @@ switch ($report) {
                         COALESCE(c.email,'') as email, COALESCE(c.contact_number,'') as contact_number, c.status, c.created_at,
                         COUNT(o.order_id) as order_count, COALESCE(SUM(o.total_amount), 0) as total_spent
                  FROM customers c
-                 LEFT JOIN orders o ON c.customer_id = o.customer_id
+                 LEFT JOIN orders o ON c.customer_id = o.customer_id AND {$storePaidSql}
                  GROUP BY c.customer_id
+                 HAVING order_count > 0
                  ORDER BY total_spent DESC"
             ) ?: [];
         }
@@ -279,7 +288,7 @@ switch ($report) {
                         o.order_date, o.total_amount, o.status, o.payment_status
                  FROM orders o
                  LEFT JOIN customers c ON o.customer_id = c.customer_id
-                 WHERE DATE(o.order_date) = ? AND o.branch_id = ?
+                 WHERE DATE(o.order_date) = ? AND o.branch_id = ? AND {$storePaidSql}
                  ORDER BY o.order_date ASC",
                 'si',
                 [$day, $branchId]
@@ -290,7 +299,7 @@ switch ($report) {
                         o.order_date, o.total_amount, o.status, o.payment_status
                  FROM orders o
                  LEFT JOIN customers c ON o.customer_id = c.customer_id
-                 WHERE DATE(o.order_date) = ?
+                 WHERE DATE(o.order_date) = ? AND {$storePaidSql}
                  ORDER BY o.order_date ASC",
                 's',
                 [$day]
@@ -308,9 +317,7 @@ switch ($report) {
                     csvVal($o['status']),
                     csvVal($o['payment_status']),
                 ]);
-                if (($o['payment_status'] ?? '') === 'Paid') {
-                    $total_sales += (float)$o['total_amount'];
-                }
+                $total_sales += (float)$o['total_amount'];
             }
         } else {
             fputcsv($output, ['No standard orders for this date.']);
@@ -326,7 +333,7 @@ switch ($report) {
                         so.created_at, so.total_price, so.status
                  FROM service_orders so
                  LEFT JOIN customers c ON so.customer_id = c.customer_id
-                 WHERE DATE(so.created_at) = ? AND so.branch_id = ?
+                 WHERE DATE(so.created_at) = ? AND so.branch_id = ? AND {$serviceCompletedSql}
                  ORDER BY so.created_at ASC",
                 'si',
                 [$day, $branchId]
@@ -337,7 +344,7 @@ switch ($report) {
                         so.created_at, so.total_price, so.status
                  FROM service_orders so
                  LEFT JOIN customers c ON so.customer_id = c.customer_id
-                 WHERE DATE(so.created_at) = ?
+                 WHERE DATE(so.created_at) = ? AND {$serviceCompletedSql}
                  ORDER BY so.created_at ASC",
                 's',
                 [$day]
@@ -354,9 +361,7 @@ switch ($report) {
                     number_format((float)$so['total_price'], 2, '.', ''),
                     csvVal($so['status']),
                 ]);
-                if (($so['status'] ?? '') === 'Completed') {
-                    $total_sales += (float)$so['total_price'];
-                }
+                $total_sales += (float)$so['total_price'];
             }
         } else {
             fputcsv($output, ['No service orders for this date.']);

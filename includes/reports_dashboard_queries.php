@@ -60,6 +60,32 @@ function pf_reports_sql_alias(string $alias, string $fallback): string {
     return $alias !== '' ? $alias : $fallback;
 }
 
+/** Store order (orders table) counts as paid/completed for revenue exports. */
+function pf_reports_store_order_paid_completed_expr(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+             OR {$alias}.status = 'Completed')";
+}
+
+/** Store order with confirmed payment only (sales detail exports). */
+function pf_reports_store_order_paid_expr(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    return "LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')";
+}
+
+/** Customization / job order counts as paid/completed for revenue exports. */
+function pf_reports_job_order_paid_completed_expr(string $alias = 'jo'): string {
+    $alias = pf_reports_sql_alias($alias, 'jo');
+    return "(UPPER(TRIM(COALESCE({$alias}.payment_status, ''))) = 'PAID'
+             OR UPPER(TRIM(COALESCE({$alias}.status, ''))) = 'COMPLETED')";
+}
+
+/** Service order counts as completed for revenue exports. */
+function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
+    $alias = pf_reports_sql_alias($alias, 'so');
+    return "{$alias}.status = 'Completed'";
+}
+
 /** Resolved sold-item label for product-category charts when no live category exists. */
 function pf_product_sales_chart_item_label_sql(
     string $productAlias = 'p',
