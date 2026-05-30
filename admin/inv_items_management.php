@@ -1803,6 +1803,9 @@ if (isset($_GET['ajax'])) {
                     }
                     validateField(id);
                 });
+                if (id === 'itemMinStock' || id === 'itemCriticalStock') {
+                    el.addEventListener('change', function () { validateField(id); });
+                }
                 if (id === 'itemName') el.addEventListener('input', handleItemNameInput);
             }
         });
@@ -2054,10 +2057,11 @@ if (isset($_GET['ajax'])) {
             case 'itemMinStock':
             case 'itemCriticalStock':
                 if (document.getElementById('actionType')?.value === 'update_item') {
-                    if (!pfValidateThresholdFields(false)) {
-                        msg = 'Critical Level must be lower than Reorder Level.';
-                        isValid = false;
+                    isValid = pfValidateThresholdFields(true);
+                    if (!skipFormSideEffects && !_itemFormValidating) {
+                        updateEditModalUI(false);
                     }
+                    return isValid;
                 }
                 break;
         }
@@ -2068,7 +2072,7 @@ if (isset($_GET['ajax'])) {
             updateValidationUI(id, isValid, msg);
         }
         if (!skipFormSideEffects && !_itemFormValidating) {
-            if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet' || id === 'itemMinStock' || id === 'itemCriticalStock') {
+            if (id === 'itemName' || id === 'itemStatus' || id === 'itemStartingStock' || id === 'startingRolls' || id === 'startingFeet') {
                 pfApplySuggestedThresholds();
                 updateEditModalUI(false);
             }
