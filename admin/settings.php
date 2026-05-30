@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/team_photo_helper.php';
 
 require_role('Admin');
 // Ensure $base_path is defined
@@ -41,6 +42,7 @@ if (isset($_GET['saved']) && isset($saved_messages[$_GET['saved']])) {
 $qr_dir   = __DIR__ . '/../public/assets/uploads/qr/';
 $logo_dir = __DIR__ . '/../public/assets/uploads/';
 if (!is_dir($qr_dir)) mkdir($qr_dir, 0755, true);
+printflow_ensure_team_upload_dir();
 
 function cfg_text($input) {
     return trim(str_replace(["\r\n", "\r"], "\n", (string)$input));
@@ -192,19 +194,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $t_names  = $_POST['about_team_name'] ?? [];
         $t_roles  = $_POST['about_team_role'] ?? [];
         $t_photos = $_POST['about_team_photo'] ?? [];
+        $teamUploads = $_FILES['about_team_photo_upload'] ?? null;
         foreach ($t_names as $i => $tn) {
             $tn = cfg_text($tn);
             if ($tn !== '') {
-                $photo = cfg_text($t_photos[$i] ?? '');
-                if (!empty($_FILES['about_team_photo_upload']['name'][$i])) {
-                    $ext = strtolower(pathinfo($_FILES['about_team_photo_upload']['name'][$i], PATHINFO_EXTENSION));
-                    if (in_array($ext, ['jpg','jpeg','png','webp'])) {
-                        $fname = 'team_' . time() . '_' . $i . '.' . $ext;
-                        $tp_dir = $logo_dir . 'team/';
-                        if (!is_dir($tp_dir)) mkdir($tp_dir, 0755, true);
-                        move_uploaded_file($_FILES['about_team_photo_upload']['tmp_name'][$i], $tp_dir . $fname);
-                        $photo = $fname;
-                    }
+                $photo = printflow_team_photo_normalize(cfg_text($t_photos[$i] ?? ''));
+                $uploaded = printflow_save_team_photo_upload(is_array($teamUploads) ? $teamUploads : null, (int)$i);
+                if ($uploaded !== null) {
+                    $photo = $uploaded;
                 }
                 $team[] = ['name' => $tn, 'role' => cfg_text($t_roles[$i] ?? ''), 'photo' => $photo];
             }
@@ -242,7 +239,35 @@ $page_title = 'Settings - Admin';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+        .about-team-photo-preview {
+            width:80px;
+            height:80px;
+            border-radius:50%;
+            overflow:hidden;
+            margin:0 auto 12px;
+            border:2px solid #e5e7eb;
+            background:#fff;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+        }
+        .about-team-photo-preview img {
+            width:100%;
+            height:100%;
+            object-fit:cover;
+            display:block;
+        }
+        .about-team-photo-fallback {
+            width:100%;
+            height:100%;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            background:#eef2ff;
+            color:#4338ca;
+            font-size:22px;
+            font-weight:700;
+        }
         @media(max-width:960px) { .settings-grid { grid-template-columns:1fr; } }
         .settings-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:24px; position:relative; overflow:hidden; }
         .settings-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #00232b, #53C5E0); }
@@ -322,6 +347,10 @@ $page_title = 'Settings - Admin';
             }
             #about-team-list {
                 grid-template-columns:1fr !important;
+            }
+            .about-team-photo-preview {
+                width:72px !important;
+                height:72px !important;
             }
             .section-save {
                 justify-content:stretch;
@@ -642,9 +671,19 @@ Stickers &amp; Decals"><?php
                             <?php
                             $ab_team = $about_cfg['team_members'] ?? [];
                             foreach ($ab_team as $i => $tm):
+                                $teamPhotoUrl = printflow_team_photo_public_url($tm['photo'] ?? '');
+                                $teamInitials = printflow_team_photo_initials((string)($tm['name'] ?? ''));
                             ?>
                             <div class="about-team-row" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px;position:relative;">
-                                <button type="button" onclick="this.closest('.about-team-row').remove()" style="position:absolute;top:8px;right:8px;padding:4px 8px;border:1px solid #fee2e2;background:#fef2f2;color:#b91c1c;border-radius:5px;cursor:pointer;font-size:11px;">✕</button>
+                                <button type="button" onclick="this.closest('.about-team-row').remove()" style="position:absolute;top:8px;right:8px;padding:4px 8px;border:1px solid #fee2e2;background:#fef2f2;color:#b91c1c;border-radius:5px;cursor:pointer;font-size:11px;z-index:2;">✕</button>
+                                <div class="about-team-photo-preview" data-team-photo-preview>
+                                    <?php if ($teamPhotoUrl): ?>
+                                        <img src="<?php echo htmlspecialchars($teamPhotoUrl, ENT_QUOTES); ?>" alt="<?php echo htmlspecialchars($tm['name'] ?? 'Team member', ENT_QUOTES); ?>" data-team-photo-img onerror="this.style.display='none';var f=this.parentElement.querySelector('[data-team-photo-fallback]');if(f){f.style.display='flex';}">
+                                        <div class="about-team-photo-fallback" data-team-photo-fallback style="display:none;"><?php echo htmlspecialchars($teamInitials, ENT_QUOTES); ?></div>
+                                    <?php else: ?>
+                                        <div class="about-team-photo-fallback" data-team-photo-fallback><?php echo htmlspecialchars($teamInitials, ENT_QUOTES); ?></div>
+                                    <?php endif; ?>
+                                </div>
                                 <div class="f-group">
                                     <label>Full Name</label>
                                     <input type="text" name="about_team_name[]" class="about-team-name-input" value="<?php echo htmlspecialchars($tm['name']??''); ?>" placeholder="e.g. Maria Santos" maxlength="100">
@@ -655,11 +694,9 @@ Stickers &amp; Decals"><?php
                                 </div>
                                 <div class="f-group" style="margin-bottom:0;">
                                     <label>Photo <span style="font-weight:400;color:#9ca3af;">(optional)</span></label>
-                                    <input type="file" name="about_team_photo_upload[<?php echo $i; ?>]" accept="image/*">
-                                    <input type="hidden" name="about_team_photo[]" value="<?php echo htmlspecialchars($tm['photo']??''); ?>">
-                                    <?php if (!empty($tm['photo'])): ?>
-                                        <img src="<?php echo $base_path; ?>/public/assets/uploads/team/<?php echo htmlspecialchars($tm['photo']); ?>" style="width:50px;height:50px;border-radius:50%;object-fit:cover;margin-top:6px;border:2px solid #e5e7eb;">
-                                    <?php endif; ?>
+                                    <input type="file" name="about_team_photo_upload[]" class="about-team-photo-input" accept="image/jpeg,image/png,image/webp,image/jpg">
+                                    <input type="hidden" name="about_team_photo[]" class="about-team-photo-hidden" value="<?php echo htmlspecialchars(printflow_team_photo_normalize($tm['photo']??''), ENT_QUOTES); ?>">
+                                    <small style="display:block;margin-top:6px;color:#9ca3af;font-size:11px;">JPG, PNG, or WebP. Shown on the About page.</small>
                                 </div>
                             </div>
                             <?php endforeach; ?>
@@ -1233,6 +1270,79 @@ function printflowInitSettingsPage() {
         });
     }
 
+    function pfTeamPhotoInitials(name) {
+        name = String(name || '').trim();
+        if (!name) return '?';
+        var parts = name.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+        return name.substring(0, 2).toUpperCase();
+    }
+
+    function pfRenderTeamPhotoPreview(row) {
+        if (!row) return;
+        var preview = row.querySelector('[data-team-photo-preview]');
+        var nameInput = row.querySelector('.about-team-name-input');
+        if (!preview) return;
+        var hidden = row.querySelector('.about-team-photo-hidden');
+        var existing = hidden ? String(hidden.value || '').trim() : '';
+        var img = preview.querySelector('[data-team-photo-img]');
+        var fallback = preview.querySelector('[data-team-photo-fallback]');
+        if (existing && img) {
+            if (fallback) fallback.style.display = 'none';
+            img.style.display = 'block';
+            return;
+        }
+        if (!fallback) {
+            fallback = document.createElement('div');
+            fallback.className = 'about-team-photo-fallback';
+            fallback.setAttribute('data-team-photo-fallback', '');
+            preview.appendChild(fallback);
+        }
+        if (img) img.style.display = 'none';
+        fallback.textContent = pfTeamPhotoInitials(nameInput ? nameInput.value : '');
+        fallback.style.display = 'flex';
+    }
+
+    function pfBindTeamPhotoInputs(scope) {
+        (scope || document).querySelectorAll('.about-team-photo-input').forEach(function(input) {
+            if (input.dataset.pfBound === '1') return;
+            input.dataset.pfBound = '1';
+            input.addEventListener('change', function() {
+                var row = input.closest('.about-team-row');
+                var preview = row ? row.querySelector('[data-team-photo-preview]') : null;
+                var file = input.files && input.files[0] ? input.files[0] : null;
+                if (!preview || !file) return;
+                var reader = new FileReader();
+                reader.onload = function(ev) {
+                    var img = preview.querySelector('[data-team-photo-img]');
+                    if (!img) {
+                        img = document.createElement('img');
+                        img.setAttribute('data-team-photo-img', '');
+                        img.alt = 'Team member photo preview';
+                        preview.appendChild(img);
+                    }
+                    var fallback = preview.querySelector('[data-team-photo-fallback]');
+                    if (fallback) fallback.style.display = 'none';
+                    img.src = ev.target.result;
+                    img.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+        (scope || document).querySelectorAll('.about-team-name-input').forEach(function(input) {
+            if (input.dataset.pfTeamNameBound === '1') return;
+            input.dataset.pfTeamNameBound = '1';
+            input.addEventListener('input', function() {
+                var row = input.closest('.about-team-row');
+                if (!row || row.querySelector('[data-team-photo-img]')) return;
+                pfRenderTeamPhotoPreview(row);
+            });
+        });
+    }
+
+    pfBindTeamPhotoInputs(document);
+    document.querySelectorAll('.about-team-row').forEach(pfRenderTeamPhotoPreview);
+
     // About Page — Add Team Member Row
     const addTeamBtn = document.getElementById('add-about-team');
     if (addTeamBtn && !addTeamBtn.dataset.pfBound) {
@@ -1240,15 +1350,16 @@ function printflowInitSettingsPage() {
         addTeamBtn.addEventListener('click', function() {
             var list = document.getElementById('about-team-list');
             if (!list) return;
-            var idx = list.querySelectorAll('.about-team-row').length;
             var row = document.createElement('div');
             row.className = 'about-team-row';
             row.style.cssText = 'background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:14px;position:relative;';
-            row.innerHTML = '<button type="button" onclick="this.closest(\'.about-team-row\').remove()" style="position:absolute;top:8px;right:8px;padding:4px 8px;border:1px solid #fee2e2;background:#fef2f2;color:#b91c1c;border-radius:5px;cursor:pointer;font-size:11px;">✕</button>' +
+            row.innerHTML = '<button type="button" onclick="this.closest(\'.about-team-row\').remove()" style="position:absolute;top:8px;right:8px;padding:4px 8px;border:1px solid #fee2e2;background:#fef2f2;color:#b91c1c;border-radius:5px;cursor:pointer;font-size:11px;z-index:2;">✕</button>' +
+                '<div class="about-team-photo-preview" data-team-photo-preview><div class="about-team-photo-fallback" data-team-photo-fallback>?</div></div>' +
                 '<div class="f-group"><label>Full Name</label><input type="text" name="about_team_name[]" class="about-team-name-input" placeholder="e.g. Maria Santos" maxlength="100"></div>' +
                 '<div class="f-group"><label>Role / Position</label><input type="text" name="about_team_role[]" class="about-team-role-input" placeholder="e.g. Founder & CEO" maxlength="100"></div>' +
-                '<div class="f-group" style="margin-bottom:0;"><label>Photo <span style="font-weight:400;color:#9ca3af;">(optional)</span></label><input type="file" name="about_team_photo_upload[' + idx + ']" accept="image/*"><input type="hidden" name="about_team_photo[]" value=""></div>';
+                '<div class="f-group" style="margin-bottom:0;"><label>Photo <span style="font-weight:400;color:#9ca3af;">(optional)</span></label><input type="file" name="about_team_photo_upload[]" class="about-team-photo-input" accept="image/jpeg,image/png,image/webp,image/jpg"><input type="hidden" name="about_team_photo[]" class="about-team-photo-hidden" value=""><small style="display:block;margin-top:6px;color:#9ca3af;font-size:11px;">JPG, PNG, or WebP. Shown on the About page.</small></div>';
             list.appendChild(row);
+            pfBindTeamPhotoInputs(row);
             row.querySelector('input[type="text"]').focus();
             attachAboutFieldsValidation();
         });

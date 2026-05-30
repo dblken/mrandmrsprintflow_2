@@ -26,6 +26,7 @@ require_once __DIR__ . '/../includes/db.php';
 
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/team_photo_helper.php';
 
 
 
@@ -358,15 +359,16 @@ function about_icon(string $icon): string {
         <div class="team-grid" style="display:flex; flex-wrap:wrap; gap:1.75rem; justify-content:center;">
 
             <?php foreach ($team_members as $tm): ?>
-
+            <?php $teamPhotoUrl = printflow_team_photo_public_url($tm['photo'] ?? ''); ?>
             <div style="text-align:center; max-width:240px; width:100%; margin:0;">
 
-                <?php if (!empty($tm['photo'])): ?>
+                <?php if ($teamPhotoUrl): ?>
 
-                    <img src="<?php echo $base_path; ?>/public/assets/uploads/team/<?php echo htmlspecialchars($tm['photo']); ?>"
+                    <img src="<?php echo htmlspecialchars($teamPhotoUrl, ENT_QUOTES); ?>"
 
                          class="w-20 h-20 md:w-28 md:h-28 object-cover rounded-full border-3 border-[var(--lp-accent)] mx-auto mb-4"
-                         style="width:100px; height:100px; border-radius:50%; object-fit:cover; border:3px solid var(--lp-accent); margin:0 auto 1rem; display:block;">
+                         style="width:100px; height:100px; border-radius:50%; object-fit:cover; border:3px solid var(--lp-accent); margin:0 auto 1rem; display:block;"
+                         alt="<?php echo htmlspecialchars($tm['name'] ?? 'Team member', ENT_QUOTES); ?>">
 
                 <?php else: ?>
 
