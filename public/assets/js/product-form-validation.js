@@ -73,22 +73,21 @@
         return { inputId: inputId, errId: 'err-' + fieldId };
     }
 
-    function showError(fieldId, msg) {
+    function showError(fieldId, msg, forceShow) {
         const ui = resolveFieldUi(fieldId);
         const inp = el(ui.inputId);
         const err = el(ui.errId);
         const group = inp?.closest('.form-group');
+        const shouldShow = !!msg && (forceShow || touchedFields.has(fieldId));
         if (err) {
-            const isTouched = touchedFields.has(fieldId);
             err.textContent = msg || '';
-            err.style.display = (msg && isTouched) ? 'block' : 'none';
+            err.style.display = shouldShow ? 'block' : 'none';
         }
         if (group) {
-            const isTouched = touchedFields.has(fieldId);
             var valForSuccess = '';
             if (inp && inp.type !== 'file') valForSuccess = (inp.value || '').trim();
-            group.classList.toggle('has-error', !!msg && isTouched);
-            group.classList.toggle('has-success', !msg && isTouched && !!valForSuccess);
+            group.classList.toggle('has-error', shouldShow);
+            group.classList.toggle('has-success', !msg && (forceShow || touchedFields.has(fieldId)) && !!valForSuccess);
         }
     }
     function getVal(fieldId) {
@@ -209,7 +208,7 @@
         return '';
     }
 
-    function runValidation() {
+    function runValidation(forceShow) {
         var errors;
         if (isStockOnlyModalOpen()) {
             errors = {
@@ -236,7 +235,7 @@
         } else {
             errors = {
                 name: validateName(),
-                category: validateCategory(),
+                category: isProductEditMode() ? '' : validateCategory(),
                 price: validatePrice(),
                 description: validateDescription(),
                 photo: validatePhoto(),
@@ -245,12 +244,21 @@
                 'critical-stock': validateCriticalStock()
             };
         }
-        Object.keys(errors).forEach(function(k) { showError(k, errors[k]); });
-        const valid = (errors && typeof errors === 'object') ? Object.values(errors).every(function(e) { return !e; }) : false;
+        Object.keys(errors).forEach(function(k) { showError(k, errors[k], forceShow); });
+        const valid = Object.values(errors).every(function(e) { return !e; });
         const btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
-        /* Stock-only and branch-stock modals must remain clickable; submit handler and backend still block invalid values. */
-        if (btn) btn.disabled = (isBranchStockModalOpen() || isStockOnlyModalOpen()) ? false : !valid;
+        if (btn && !btn.classList.contains('is-submitting')) {
+            btn.disabled = false;
+            btn.removeAttribute('disabled');
+        }
         return valid;
+    }
+
+    function scrollToFirstProductError() {
+        var first = document.querySelector('#product-form .form-group.has-error');
+        if (first) {
+            first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
     }
 
     function setupProductNameInput() {
@@ -309,7 +317,12 @@
             }
         });
         const photoInput = getPhoto();
-        if (photoInput) photoInput.addEventListener('change', runValidation);
+        if (photoInput) {
+            photoInput.addEventListener('change', function() {
+                touchedFields.add('photo');
+                runValidation(false);
+            });
+        }
         setupProductNameInput();
     }
 
@@ -325,27 +338,46 @@
             form.addEventListener('submit', function(e) {
                 if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
                     ['stock', 'low-stock'].forEach(function(k) { touchedFields.add(k); });
-                } else {
-                    ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock'].forEach(function(k) {
-                        touchedFields.add(k);
-                    });
+                    if (!runValidation(true)) {
+                        e.preventDefault();
+                        scrollToFirstProductError();
+                    }
+                    return;
                 }
-                if (!runValidation()) e.preventDefault();
+                ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock', 'critical-stock'].forEach(function(k) {
+                    touchedFields.add(k);
+                });
+                var catEl = el('modal-category');
+                var catWasDisabled = catEl && catEl.disabled;
+                if (catWasDisabled) catEl.disabled = false;
+                if (!runValidation(true)) {
+                    if (catWasDisabled && catEl) catEl.disabled = true;
+                    e.preventDefault();
+                    scrollToFirstProductError();
+                }
             });
             setupValidation();
         }
 
         window.printflowProductFormValidationRun = runValidation;
-        runValidation();
+        runValidation(false);
     }
 
     document.addEventListener('pf-product-modal-shown', function() {
         setTimeout(function() {
             touchedFields.clear();
-            ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock'].forEach(function(k) {
-                showError(k, '');
+            ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock', 'critical-stock'].forEach(function(k) {
+                showError(k, '', false);
             });
-            runValidation();
+            document.querySelectorAll('#product-form .form-group.has-error').forEach(function(g) {
+                g.classList.remove('has-error');
+            });
+            runValidation(false);
+            var btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
+            if (btn) {
+                btn.disabled = false;
+                btn.removeAttribute('disabled');
+            }
         }, 50);
     });
 

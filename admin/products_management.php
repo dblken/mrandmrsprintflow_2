@@ -1747,6 +1747,10 @@ if (isset($_GET['ajax'])) {
             cursor: pointer;
             border: none;
             transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
         }
         #product-modal .btn-cancel,
         #view-product-modal .btn-cancel {
@@ -1762,17 +1766,80 @@ if (isset($_GET['ajax'])) {
         #product-modal .btn-save:hover { background: #0f766e; }
         #product-modal .threshold-readonly.threshold-unset { color: #9ca3af; font-style: italic; font-weight: 500; }
         #product-modal .threshold-readonly { background: #f9fafb; font-weight: 600; color: #374151; }
+        .locked-select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+        }
+        #product-modal .pf-field-auto,
+        #product-modal input.pf-field-auto[readonly],
+        #product-modal select.pf-field-auto:disabled {
+            background: #f3f4f6 !important;
+            color: #9ca3af !important;
+            border-color: #e5e7eb !important;
+            cursor: not-allowed !important;
+            pointer-events: none !important;
+            opacity: 1;
+            -webkit-text-fill-color: #9ca3af;
+        }
+        #product-modal select.pf-field-auto:disabled {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+        }
+        #product-modal .field-error {
+            display: none;
+            font-size: 12px;
+            color: #ef4444 !important;
+            margin-top: 4px;
+            min-height: 18px;
+            font-weight: 400;
+        }
+        #product-modal .form-group.has-error .field-error {
+            display: block !important;
+        }
+        #product-modal .form-group.has-error input,
+        #product-modal .form-group.has-error select,
+        #product-modal .form-group.has-error textarea {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
+        }
+        #product-modal #modal-description {
+            min-height: 100px;
+            max-height: 180px;
+            resize: vertical;
+        }
+        #pf-product-threshold-reset-row { width: 100%; }
         #product-modal .btn-reset-thresholds {
-            border: 1px solid #e5e7eb; background: #fff; color: #374151; border-radius: 8px;
-            padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+            width: 100%;
+            display: block;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #374151;
+            border-radius: 10px;
+            height: 44px;
+            padding: 0 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-sizing: border-box;
         }
         #product-modal .btn-reset-thresholds:hover { background: #f9fafb; }
+        #btnProductFields {
+            display: inline-flex !important;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
         .pf-product-edit-only { display: none; }
         #product-modal.product-modal--edit .pf-product-edit-only { display: block; }
         #product-modal.product-modal--edit #pf-product-status-row.pf-product-edit-only { display: grid; }
         #product-modal.product-modal--edit .pf-product-create-only { display: none !important; }
         #product-modal.product-modal--edit #fg-stock { display: none; }
         #product-modal.product-modal--edit #fg-current-stock { display: block !important; }
+        #product-modal.product-modal--edit #fg-category label > span[style*="red"],
+        #product-modal.product-modal--edit #fg-category label > span[style*="ef4444"] { display: none; }
+        #product-modal .btn-save:not(.is-submitting) { opacity: 1; cursor: pointer; }
         #close-modal-btn,
         #close-view-modal-btn {
             background: transparent;
@@ -2274,7 +2341,7 @@ if (isset($_GET['ajax'])) {
             </button>
         </div>
         <div class="modal-body">
-            <form method="POST" id="product-form" action="" enctype="multipart/form-data" novalidate data-turbo="false">
+            <form method="POST" id="product-form" action="" enctype="multipart/form-data" novalidate data-turbo="false" data-pf-skip-validation="true">
                 <?php echo csrf_field(); ?>
                 <?php /* Managers never create products: always POST update_product so server runs branch-stock handler even if JS fails after form.reset() */ ?>
                 <input type="hidden" id="modal-mode-input" name="<?php echo $is_manager ? 'update_product' : 'create_product'; ?>" value="1">
@@ -2367,7 +2434,7 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div class="form-group">
                         <label for="modal-sku">SKU</label>
-                        <input type="text" id="modal-sku" name="sku" placeholder="Auto-generated" readonly style="background-color:#f3f4f6; cursor:not-allowed;">
+                        <input type="text" id="modal-sku" name="sku" placeholder="Auto-generated" readonly class="pf-field-auto" tabindex="-1" aria-readonly="true">
                     </div>
                 </div>
 
@@ -2392,7 +2459,7 @@ if (isset($_GET['ajax'])) {
                 <div class="form-row">
                     <div class="form-group" id="fg-description" style="grid-column:1/-1;">
                         <label for="modal-description">Description</label>
-                        <textarea id="modal-description" name="description" rows="2" maxlength="500" placeholder="Optional description (max 500 chars)..." style="resize:vertical;overflow-y:auto;max-height:120px;"></textarea>
+                        <textarea id="modal-description" name="description" rows="4" maxlength="500" placeholder="Optional description (max 500 chars)..."></textarea>
                         <span id="err-description" class="field-error"></span>
                     </div>
                 </div>
@@ -2660,10 +2727,38 @@ function pfSyncProductSuggestedThresholds() {
     criticalEl.value = String(pfSuggestCriticalLevel(qty));
 }
 
+function pfSyncProductFieldLockStates() {
+    var isEdit = document.getElementById('product-modal')?.classList.contains('product-modal--edit');
+    var catEl = document.getElementById('modal-category');
+    var skuEl = document.getElementById('modal-sku');
+    var currentStockEl = document.getElementById('modal-current-stock');
+
+    function applyLocked(el, locked, useLockedSelect) {
+        if (!el) return;
+        el.classList.toggle('pf-field-auto', !!locked);
+        if (el.tagName === 'SELECT') {
+            el.disabled = !!locked;
+            el.classList.toggle('locked-select', !!(locked && useLockedSelect));
+        }
+        if (locked) {
+            el.setAttribute('aria-readonly', 'true');
+            el.tabIndex = -1;
+        } else {
+            el.removeAttribute('aria-readonly');
+            el.tabIndex = 0;
+        }
+    }
+
+    applyLocked(catEl, !!isEdit, true);
+    applyLocked(skuEl, true, false);
+    if (currentStockEl) currentStockEl.classList.add('pf-field-auto');
+}
+
 function pfSetProductModalEditMode(isEdit) {
     var modal = document.getElementById('product-modal');
     if (!modal) return;
     modal.classList.toggle('product-modal--edit', !!isEdit);
+    pfSyncProductFieldLockStates();
     var resetRow = document.getElementById('pf-product-threshold-reset-row');
     var editHint = document.getElementById('pf-product-threshold-edit-hint');
     var statusRow = document.getElementById('pf-product-status-row');
@@ -3091,6 +3186,7 @@ window.openProductModal = function openProductModal(mode, product) {
         pfConfigureProductThresholdFields(false);
         pfSyncProductSuggestedThresholds();
         pfSetProductModalEditMode(false);
+        pfSyncProductFieldLockStates();
         if (photoInput) photoInput.value = '';
         if (previewImg) { previewImg.removeAttribute('src'); previewImg.style.display = 'none'; }
         if (previewText) previewText.style.display = 'block';
