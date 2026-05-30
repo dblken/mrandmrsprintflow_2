@@ -11,7 +11,6 @@
         categoryRequired: 'Please select a category.',
         descriptionRequired: 'Description is required.',
         descriptionMax: 'Description must not exceed 2000 characters.',
-        customerModalTextMax: 'Customer modal message must not exceed 2000 characters.',
         statusRequired: 'Please select a status.'
     };
 
@@ -42,9 +41,7 @@
 
     function formatServiceName(val) {
         if (!val) return '';
-        // Collapse multiple spaces to one
         val = val.replace(/\s+/g, ' ');
-        // Remove leading space
         if (val.startsWith(' ')) val = val.trimStart();
         return val.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
     }
@@ -73,12 +70,6 @@
         return '';
     }
 
-    function validateCustomerModalText() {
-        const v = (el('modal-customer-modal-text')?.value || '').trim();
-        if (v.length > 2000) return ERRORS.customerModalTextMax;
-        return '';
-    }
-
     function validateStatus() {
         const v = getVal('status');
         if (!v) return ERRORS.statusRequired;
@@ -90,11 +81,10 @@
             name: validateName(),
             category: validateCategory(),
             description: validateDescription(),
-            'customer-modal-text': validateCustomerModalText(),
             status: validateStatus()
         };
         Object.keys(errors).forEach(function(k) { showError(k, errors[k]); });
-        const valid = (errors && typeof errors === 'object') ? Object.values(errors).every(function(e) { return !e; }) : false;
+        const valid = Object.values(errors).every(function(e) { return !e; });
         const btn = el('modal-submit-btn');
         if (btn) btn.disabled = !valid;
         return valid;
@@ -105,11 +95,8 @@
         if (!inp) return;
         inp.addEventListener('input', function() {
             let v = this.value;
-            // Block leading space
             if (v.startsWith(' ')) v = v.trimStart();
-            // Collapse multiple spaces
             v = v.replace(/\s+/g, ' ');
-            
             v = formatServiceName(v);
             if (v !== this.value) {
                 this.value = v;
@@ -130,14 +117,13 @@
     function setupDescriptionInput() {
         const inp = el('modal-description');
         if (!inp) return;
-        // Only validate on blur, don't interfere with typing
         inp.addEventListener('blur', function() {
             runValidation();
         });
     }
 
     function setupValidation() {
-        ['modal-name', 'modal-category', 'modal-customer-modal-text', 'modal-status'].forEach(function(id) {
+        ['modal-name', 'modal-category', 'modal-status'].forEach(function(id) {
             const elm = el(id);
             if (elm) {
                 elm.addEventListener('input', runValidation);
@@ -151,8 +137,7 @@
                 });
             }
         });
-        
-        // Description field - only validate on change/blur, not on input
+
         const descElm = el('modal-description');
         if (descElm) {
             descElm.addEventListener('change', function() {
@@ -164,7 +149,7 @@
                 runValidation();
             });
         }
-        
+
         setupServiceNameInput();
         setupDescriptionInput();
     }
@@ -179,7 +164,7 @@
         if (form.getAttribute('data-pf-service-validation') !== '1') {
             form.setAttribute('data-pf-service-validation', '1');
             form.addEventListener('submit', function(e) {
-                ['name', 'category', 'description', 'customer-modal-text', 'status'].forEach(function(k) {
+                ['name', 'category', 'description', 'status'].forEach(function(k) {
                     touchedFields.add(k);
                 });
                 if (!runValidation()) e.preventDefault();
@@ -194,7 +179,7 @@
     document.addEventListener('pf-service-modal-shown', function() {
         setTimeout(function() {
             touchedFields.clear();
-            ['name', 'category', 'description', 'customer-modal-text', 'status'].forEach(function(k) {
+            ['name', 'category', 'description', 'status'].forEach(function(k) {
                 showError(k, '');
             });
             runValidation();

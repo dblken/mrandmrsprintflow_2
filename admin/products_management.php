@@ -1236,9 +1236,6 @@ if (isset($_GET['ajax'])) {
                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
                         <td>
                             <span style="font-weight:<?php echo $isLowOrOut ? 'bold' : '400'; ?>;color:<?php echo $stockStatus === 'Out of Stock' ? '#dc2626' : ($stockStatus === 'Low Stock' ? '#b45309' : '#374151'); ?>;"><?php echo $product['stock_quantity']; ?></span>
-                            <?php if (!empty($product['has_variant_stock'])): ?>
-                                <div style="font-size:11px;color:#6b7280;margin-top:2px;"><?php echo htmlspecialchars((string)($product['variant_stock_field_label'] ?? 'Variant')); ?> total</div>
-                            <?php endif; ?>
                         </td>
                         <td>
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $stockBadge; ?>"><?php echo $stockStatus; ?></span>
@@ -1825,6 +1822,9 @@ if (isset($_GET['ajax'])) {
             box-sizing: border-box;
         }
         #product-modal .btn-reset-thresholds:hover { background: #f9fafb; }
+        #product-modal:not(.product-modal--edit) #btnProductFields {
+            display: none !important;
+        }
         #btnProductFields {
             display: inline-flex !important;
             align-items: center;
@@ -2237,9 +2237,6 @@ if (isset($_GET['ajax'])) {
                                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
                                         <td>
                                             <span style="font-weight:<?php echo $isLowOrOut ? 'bold' : '400'; ?>;color:<?php echo $stockStatus === 'Out of Stock' ? '#dc2626' : ($stockStatus === 'Low Stock' ? '#b45309' : '#374151'); ?>;"><?php echo $product['stock_quantity']; ?></span>
-                                            <?php if (!empty($product['has_variant_stock'])): ?>
-                                                <div style="font-size:11px;color:#6b7280;margin-top:2px;"><?php echo htmlspecialchars((string)($product['variant_stock_field_label'] ?? 'Variant')); ?> total</div>
-                                            <?php endif; ?>
                                         </td>
                                         <td>
                                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $stockBadge; ?>"><?php echo $stockStatus; ?></span>
