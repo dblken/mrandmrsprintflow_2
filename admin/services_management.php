@@ -611,6 +611,7 @@ if (isset($_GET['ajax'])) {
         #service-modal .btn-cancel { flex:1; padding:10px 16px; border-radius:8px; background:#f3f4f6; border:none; font-weight:600; cursor:pointer; }
         #service-modal .btn-save { flex:1; padding:10px 16px; border-radius:8px; background:#0d9488; color:#fff; border:none; font-weight:600; cursor:pointer; }
         #service-modal .btn-save:disabled { opacity:0.65; cursor:not-allowed; }
+        #service-modal.service-modal--create #fg-modal-status { display:none !important; }
         .view-label { display:block; font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px; }
         .view-value-box { background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px; font-size:14px; word-break:break-word; }
         .orders-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
@@ -830,7 +831,7 @@ if (isset($_GET['ajax'])) {
                     <span id="err-description" class="field-error"></span>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="fg-photos">
                     <label>Service Photos <span style="color:red">*</span></label>
                     <small style="display:block;color:#6b7280;font-size:12px;margin-bottom:8px;">Upload 1 to 5 photos. Photos are required.</small>
                     <div class="file-upload-area" id="photo-upload-area" onclick="document.getElementById('modal-photo-files').click()">
@@ -870,7 +871,7 @@ if (isset($_GET['ajax'])) {
                     <input type="hidden" id="modal-video-url" name="video_url" value="">
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="fg-modal-status">
                     <label for="modal-status">Status <span style="color:red">*</span></label>
                     <select id="modal-status" name="status" required>
                         <option value="Activated">Active</option>
@@ -1103,38 +1104,29 @@ function printflowInitServicesPage() {
         });
     }
 
-    // Form submit guard
-    document.getElementById('service-form')?.addEventListener('submit', function (e) {
-        // Transfer staged files to the real inputs before submit.
+    // Stage uploaded media into file inputs before validation/submit.
+    window.pfStageServiceMediaForSubmit = function pfStageServiceMediaForSubmit() {
         const photoInput = document.getElementById('modal-photo-files');
-        if (uploadedPhotoFiles.length > 0 && photoInput.files.length === 0) {
+        if (window.uploadedPhotoFiles.length > 0 && photoInput && photoInput.files.length === 0) {
             const dt = new DataTransfer();
-            uploadedPhotoFiles.forEach(file => {
-                dt.items.add(file);
-            });
+            window.uploadedPhotoFiles.forEach(function(file) { dt.items.add(file); });
             photoInput.files = dt.files;
         }
-
         const videoInput = document.getElementById('modal-video-file');
-        if (uploadedVideoFile && videoInput.files.length === 0) {
+        if (uploadedVideoFile && videoInput && videoInput.files.length === 0) {
             const dtVideo = new DataTransfer();
             dtVideo.items.add(uploadedVideoFile);
             videoInput.files = dtVideo.files;
         }
-        const existingPhotos = (document.getElementById('modal-display-image')?.value || '')
-            .split(',')
-            .map(v => v.trim())
-            .filter(Boolean);
-        const photoError = document.getElementById('err-photos');
-        if (uploadedPhotoFiles.length === 0 && existingPhotos.length === 0) {
-            e.preventDefault();
-            if (photoError) photoError.textContent = 'Please provide at least one service photo.';
-            return;
-        }
-        if (photoError) photoError.textContent = '';
+    };
 
+    document.getElementById('service-form')?.addEventListener('submit', function (e) {
+        if (e.defaultPrevented) return;
         const btn = document.getElementById('modal-submit-btn');
-        if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+        }
     });
 
     /* #servicesTableContainer has no x-data; turbo-init initTree(.main-content) already walked it. */
@@ -1190,7 +1182,7 @@ function openServiceModal(mode, svc) {
         document.getElementById('modal-description').value = svc.description || '';
         
         // Load existing media files
-        uploadedPhotoFiles = [];
+        window.uploadedPhotoFiles = [];
         uploadedVideoFile = null;
         const existingImages = (svc.display_image || '').split(',').map(img => serviceMediaUrl(img)).filter(Boolean);
         const existingVideo = serviceMediaUrl(svc.video_url || '');
@@ -1203,20 +1195,22 @@ function openServiceModal(mode, svc) {
         renderExistingPhotoPreviews(existingImages);
         renderExistingVideoPreview(existingVideo);
         document.getElementById('modal-status').value = (svc.status === 'Deactivated') ? 'Deactivated' : 'Activated';
+        if (typeof window.pfSetServiceModalMode === 'function') window.pfSetServiceModalMode('edit');
     } else {
         title.textContent = 'Add Service';
         modeInput.name = 'create_service';
-        submitBtn.textContent = 'Save Service';
+        submitBtn.textContent = 'Add Service';
         document.getElementById('modal-service-id').value = '';
         document.getElementById('modal-display-image').value = '';
         document.getElementById('modal-video-url').value = '';
         document.getElementById('modal-photo-files').value = '';
         document.getElementById('modal-video-file').value = '';
-        uploadedPhotoFiles = [];
+        window.uploadedPhotoFiles = [];
         uploadedVideoFile = null;
         renderPhotoPreviews();
         renderVideoPreview();
         document.getElementById('modal-status').value = 'Activated';
+        if (typeof window.pfSetServiceModalMode === 'function') window.pfSetServiceModalMode('create');
     }
     submitBtn.disabled = false;
     overlay.classList.add('active');
@@ -1234,7 +1228,7 @@ function closeServiceModal() {
     document.getElementById('service-modal-overlay').classList.remove('active');
     document.body.style.overflow = '';
     const btn = document.getElementById('modal-submit-btn');
-    if (btn) { btn.disabled = false; btn.textContent = document.getElementById('modal-mode-input').name === 'update_service' ? 'Save Changes' : 'Save Service'; }
+    if (btn) { btn.disabled = false; btn.textContent = document.getElementById('modal-mode-input').name === 'update_service' ? 'Save Changes' : 'Add Service'; }
 }
 
 function handleOverlayClick(e) {
@@ -1388,12 +1382,12 @@ window.closeArchiveModal = function closeArchiveModal() {
 
 // Page-specific initialization is now handled above via printflowInitServicesPage.
 
-let uploadedPhotoFiles = [];
+window.uploadedPhotoFiles = window.uploadedPhotoFiles || [];
 let uploadedVideoFile = null;
 
 function handlePhotoUpload(input) {
     const files = Array.from(input.files || []);
-    let nextPhotos = uploadedPhotoFiles.slice();
+    let nextPhotos = window.uploadedPhotoFiles.slice();
 
     for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
@@ -1408,8 +1402,11 @@ function handlePhotoUpload(input) {
         nextPhotos.push(file);
     }
 
-    uploadedPhotoFiles = nextPhotos;
+    window.uploadedPhotoFiles = nextPhotos;
     renderPhotoPreviews();
+    if (typeof window.printflowServiceFormValidationRun === 'function') {
+        window.printflowServiceFormValidationRun(true);
+    }
 }
 
 function handleVideoUpload(input) {
@@ -1435,7 +1432,7 @@ function renderPhotoPreviews() {
     const preview = document.getElementById('photo-preview');
     if (!container || !placeholder || !preview) return;
 
-    if (uploadedPhotoFiles.length === 0) {
+    if (window.uploadedPhotoFiles.length === 0) {
         placeholder.style.display = 'block';
         preview.style.display = 'none';
         container.innerHTML = '';
@@ -1446,7 +1443,7 @@ function renderPhotoPreviews() {
     preview.style.display = 'block';
     container.innerHTML = '';
 
-    uploadedPhotoFiles.forEach((file, index) => {
+    window.uploadedPhotoFiles.forEach((file, index) => {
         const div = document.createElement('div');
         div.className = 'media-item';
         const reader = new FileReader();
@@ -1495,10 +1492,13 @@ function renderVideoPreview() {
 }
 
 function removePhotoItem(index) {
-    uploadedPhotoFiles.splice(index, 1);
+    window.uploadedPhotoFiles.splice(index, 1);
     const input = document.getElementById('modal-photo-files');
     if (input) input.value = '';
     renderPhotoPreviews();
+    if (typeof window.printflowServiceFormValidationRun === 'function') {
+        window.printflowServiceFormValidationRun(true);
+    }
 }
 
 function removeVideoItem() {
@@ -1609,7 +1609,7 @@ function bindDropZone(areaId, inputId, handler) {
 bindDropZone('photo-upload-area', 'modal-photo-files', handlePhotoUpload);
 bindDropZone('video-upload-area', 'modal-video-file', handleVideoUpload);
 </script>
-<script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/service-form-validation.js?v=2"></script>
+<script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/service-form-validation.js?v=3"></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>
