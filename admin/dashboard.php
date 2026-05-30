@@ -203,6 +203,19 @@ try {
 
 $cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
 
+// ── Sales by Service Category (customization / job orders) ──
+try {
+    $service_category_sales = pf_reports_sales_by_service_category(
+        $dashFromDate,
+        $dashToEnd,
+        $branchId
+    );
+    $service_category_sales = pf_reports_fold_demo_service_categories(
+        $service_category_sales,
+        ['Eunsoyaaaaa', 'Ink']
+    );
+} catch (Exception $e) { $service_category_sales = []; }
+
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
@@ -218,37 +231,45 @@ try {
     ) ?: [];
 } catch (Exception $e) { $recent_orders = []; }
 
-// ── Low Stock Alerts (NEW SYSTEM) ─────────────────────
+// ── Low Stock Alerts ──────────────────────────────────
 try {
-    // Requires InventoryManager to get real-time SOH
     require_once __DIR__ . '/../includes/InventoryManager.php';
     require_once __DIR__ . '/../includes/inventory_stock_status.php';
     printflow_ensure_inv_items_threshold_schema();
-    
+
     $all_items = db_query(
         "SELECT i.id, i.name as material_name, i.reorder_level, i.critical_level, i.unit_of_measure as unit,
                 ic.name as category_name
          FROM inv_items i
          LEFT JOIN inv_categories ic ON i.category_id = ic.id
-         WHERE i.status = 'ACTIVE' AND i.reorder_level > 0"
+         WHERE i.status = 'ACTIVE'"
     ) ?: [];
-    
+
     $low_stock = [];
     $inventoryBranchId = ($branchId === 'all') ? 0 : (int)$branchId;
     foreach ($all_items as $item) {
         $soh = InventoryManager::getStockOnHand($item['id'], $inventoryBranchId);
-        $thresholds = printflow_thresholds_for_quantity($soh);
-        $stockStatus = printflow_resolve_stock_status($soh, $thresholds['reorder'], $thresholds['critical']);
-        if (in_array($stockStatus['key'], ['low', 'critical', 'out'], true)) {
-            $item['current_stock'] = $soh;
-            $item['low_limit'] = $thresholds['reorder'];
-            $item['stock_status'] = $stockStatus;
-            $item['ratio'] = $thresholds['reorder'] > 0 ? ($soh / $thresholds['reorder']) : 0;
-            $low_stock[] = $item;
+        $reorderLevel = max(1, (float)($item['reorder_level'] ?? 0));
+        $criticalLevel = max(1, (float)($item['critical_level'] ?? 0));
+        $stockStatus = printflow_resolve_stock_status($soh, $reorderLevel, $criticalLevel);
+        $needsAlert = $soh <= 0 || in_array($stockStatus['key'], ['low', 'critical', 'out'], true);
+        if (!$needsAlert) {
+            continue;
         }
+        $item['current_stock'] = $soh;
+        $item['low_limit'] = $reorderLevel;
+        $item['stock_status'] = $stockStatus;
+        $item['ratio'] = $reorderLevel > 0 ? ($soh / $reorderLevel) : 0;
+        $low_stock[] = $item;
     }
-    // Sort by ratio ASC
-    usort($low_stock, fn($a, $b) => $a['ratio'] <=> $b['ratio']);
+    usort($low_stock, static function ($a, $b) {
+        $aOut = ((float)($a['current_stock'] ?? 0)) <= 0;
+        $bOut = ((float)($b['current_stock'] ?? 0)) <= 0;
+        if ($aOut !== $bOut) {
+            return $aOut ? -1 : 1;
+        }
+        return ($a['ratio'] ?? 0) <=> ($b['ratio'] ?? 0);
+    });
     $low_stock = array_slice($low_stock, 0, 5);
 } catch (Exception $e) { $low_stock = []; }
 
@@ -401,9 +422,9 @@ $donut_palette = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A
 $rev_donut_total = 0.0;
 foreach ($rev_donut as $rd) $rev_donut_total += (float)($rd['revenue'] ?? 0);
 
-// Keep the horizontal bar on the broader top-products/services pipeline.
-$dashboard_sales_bar = array_slice($top_products_full, 0, 8);
-$dashboard_sales_bar_is_category = false;
+// Best Selling Services bar chart — customization / job-order revenue by service category.
+$dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
+$dashboard_sales_bar_is_category = true;
 
 // ── Customer Locations ────────────────────────────────
 $customer_locations = [];
@@ -1195,7 +1216,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <?php if (!empty($dashboard_sales_bar)): ?>
                     <div class="products-chart"><div id="productsChart"></div></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product data</div>
+                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
                     <?php endif; ?>
                 </div>
 
