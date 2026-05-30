@@ -247,11 +247,7 @@ if (isset($_GET['ajax'])) {
                 <td><span class="stock-val" style="color:<?php echo $stockColor; ?>;"><?php echo $displayUom === 'pcs' ? (int)$stock : number_format($stock, 2); ?></span></td>
                 <td style="color:#6b7280;font-size:12px;"><?php echo $displayUom === 'l' ? 'Liter (L)' : htmlspecialchars($displayUom); ?></td>
                 <td class="no-truncate" style="text-align:right;">
-                    <?php if (!$inventory_read_only): ?>
-                    <button type="button" class="btn-action teal" onclick="event.stopPropagation(); openAddStockModalById(<?php echo $item['id']; ?>)">+ Stock</button>
-                    <?php else: ?>
                     <button type="button" class="btn-action" onclick="event.stopPropagation(); openStockCard(<?php echo $item['id']; ?>)" style="border-color:#d1d5db;color:#374151;">View</button>
-                    <?php endif; ?>
                     <?php if ($can_manage_item_master): ?>
                     <button type="button" class="btn-action blue" onclick="event.stopPropagation(); editItemById(<?php echo $item['id']; ?>)">Edit</button>
                     <?php endif; ?>
@@ -780,6 +776,16 @@ if (isset($_GET['ajax'])) {
                             Read Only
                         </span>
                         <?php endif; ?>
+                        <?php if (!$inventory_read_only): ?>
+                        <button type="button" class="toolbar-btn" onclick="openInvItemPickModal('receive')" style="height:38px; border-color:#059669; color:#059669; background:#ecfdf5; gap:6px;">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Receive IN
+                        </button>
+                        <button type="button" class="toolbar-btn" onclick="openInvItemPickModal('issue')" style="height:38px; border-color:#dc2626; color:#dc2626; background:#fef2f2; gap:6px;">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Issue OUT
+                        </button>
+                        <?php endif; ?>
                         <?php if ($can_manage_item_master): ?>
                         <button type="button" class="toolbar-btn" onclick="openModal('create')" style="height:38px; border-color:#3b82f6; color:#3b82f6;">Add Item</button>
 
@@ -942,11 +948,7 @@ if (isset($_GET['ajax'])) {
                                         <td style="white-space:nowrap;"><span class="stock-val" style="color:<?php echo $stockColor; ?>;"><?php echo $displayUom === 'pcs' ? (int)$stock : number_format($stock, 2); ?></span></td>
                                         <td class="truncate" style="color:#6b7280;font-size:12px;"><?php echo $displayUom === 'l' ? 'Liter (L)' : htmlspecialchars($displayUom); ?></td>
                                         <td class="no-truncate" style="text-align:right;">
-                                            <?php if (!$inventory_read_only): ?>
-                                            <button type="button" class="btn-action teal" onclick="event.stopPropagation(); openAddStockModalById(<?php echo $item['id']; ?>)">+ Stock</button>
-                                            <?php else: ?>
                                             <button type="button" class="btn-action" onclick="event.stopPropagation(); openStockCard(<?php echo $item['id']; ?>)" style="border-color:#d1d5db;color:#374151;">View</button>
-                                            <?php endif; ?>
                                             <?php if ($can_manage_item_master): ?>
                                             <button type="button" class="btn-action blue" onclick="event.stopPropagation(); editItemById(<?php echo $item['id']; ?>)">Edit</button>
                                             <?php endif; ?>
@@ -968,12 +970,37 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
-<!-- Add Stock Modal -->
+<!-- Item picker for toolbar Receive IN / Issue OUT -->
+<div id="invItemPickModal" class="modal">
+    <div class="modal-content" style="max-width:520px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="invItemPickTitle" style="padding-right:30px;">Select Material</h3>
+                <p style="font-size:13px;color:#6b7280;margin-top:2px;">Search and pick a material to continue.</p>
+            </div>
+            <button type="button" class="close-btn" onclick="closeInvItemPickModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px;margin-bottom:10px;">
+                <select id="invItemPickCategory" aria-label="Filter by category" class="w-100" style="height:38px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;">
+                    <option value="">All categories</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?php echo (int)$cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <input type="search" id="invItemPickSearch" placeholder="Search by item name..." autocomplete="off" class="w-100" style="height:38px;border:1px solid #e5e7eb;border-radius:8px;padding:0 12px;">
+            </div>
+            <div id="invItemPickResults" style="max-height:280px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:10px;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Receive IN Modal -->
 <div id="addStockModal" class="modal">
     <div class="modal-content" style="max-width:450px;">
         <div class="modal-header">
             <div>
-                <h3 class="modal-title" style="padding-right:30px;">Inventory: Stock Intake</h3>
+                <h3 class="modal-title" style="padding-right:30px;">Receive IN (Stock Intake)</h3>
                 <p style="font-size:13px;color:#6b7280;margin-top:2px; padding-right:30px; overflow-wrap:break-word; word-break:break-word; hyphens:auto;" id="addStockItemName">Item Name</p>
             </div>
             <button class="close-btn" onclick="closeAddStockModal()">&times;</button>
@@ -1027,7 +1054,7 @@ if (isset($_GET['ajax'])) {
             </div>
             <div style="display:flex; gap:12px; justify-content:flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
                 <button type="button" onclick="closeAddStockModal()" class="btn-secondary" style="height:44px;border-radius:10px;padding:0 24px;">Cancel</button>
-                <button type="submit" id="addStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#059669;" disabled>Add Stock</button>
+                <button type="submit" id="addStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#059669;" disabled>Receive IN</button>
             </div>
         </form>
         </div>
@@ -1167,8 +1194,8 @@ if (isset($_GET['ajax'])) {
         <!-- Action Buttons -->
         <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
             <?php if (!$inventory_read_only): ?>
-            <button onclick="closeStockCard(); if(selectedItemForStockCard) openAddStockModal(selectedItemForStockCard)" class="btn-action teal" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">+ Add Stock</button>
-            <button onclick="closeStockCard(); if(selectedItemForStockCard) openDeductStockModal(selectedItemForStockCard)" class="btn-action red" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">&minus; Deduct Stock</button>
+            <button onclick="closeStockCard(); if(selectedItemForStockCard) openAddStockModal(selectedItemForStockCard)" class="btn-action teal" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Receive IN</button>
+            <button onclick="closeStockCard(); if(selectedItemForStockCard) openDeductStockModal(selectedItemForStockCard)" class="btn-action red" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Issue OUT</button>
             <?php endif; ?>
             <?php if ($can_manage_item_master): ?>
             <button onclick="editFromStockCard()" class="btn-action blue" style="flex:1; min-width:120px; height:40px; font-size:14px; border-radius:10px;">Edit Settings</button>
@@ -1179,12 +1206,12 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
-<!-- Deduct Stock Modal -->
+<!-- Issue OUT Modal -->
 <div id="deductStockModal" class="modal">
     <div class="modal-content" style="max-width:450px;">
         <div class="modal-header">
             <div>
-                <h3 class="modal-title" style="padding-right:30px;">Deduct Stock</h3>
+                <h3 class="modal-title" style="padding-right:30px;">Issue OUT (Stock-Out)</h3>
                 <p style="font-size:13px;color:#6b7280;margin-top:2px; padding-right:30px; overflow-wrap:break-word; word-break:break-word; hyphens:auto;" id="deductStockItemName">Item Name</p>
             </div>
             <button class="close-btn" onclick="closeDeductStockModal()">&times;</button>
@@ -1195,7 +1222,7 @@ if (isset($_GET['ajax'])) {
             <input type="hidden" id="deductStockUom">
             <div class="form-row-grid">
                 <div>
-                    <label for="deductStockQty">Quantity to Deduct *</label>
+                    <label for="deductStockQty">Quantity to Issue *</label>
                     <input type="number" step="0.01" min="0.01" id="deductStockQty" required placeholder="e.g. 10" class="w-100">
                     <span id="err-deductStockQty" class="field-error"></span>
                 </div>
@@ -1206,7 +1233,7 @@ if (isset($_GET['ajax'])) {
             </div>
             <div style="display:flex; gap:12px; justify-content:flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
                 <button type="button" onclick="closeDeductStockModal()" class="btn-secondary" style="height:44px;border-radius:10px;padding:0 24px;">Cancel</button>
-                <button type="submit" id="deductStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#dc2626;">Deduct Stock</button>
+                <button type="submit" id="deductStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#dc2626;">Issue OUT</button>
             </div>
         </form>
         </div>
@@ -2709,6 +2736,83 @@ if (isset($_GET['ajax'])) {
         if (item) openAddStockModal(item);
     }
 
+    function openDeductStockModalById(itemId) {
+        const item = currentItems.find(i => i.id == itemId);
+        if (item) openDeductStockModal(item);
+    }
+
+    var invItemPickMode = 'receive';
+
+    function openInvItemPickModal(mode) {
+        invItemPickMode = mode === 'issue' ? 'issue' : 'receive';
+        var titleEl = document.getElementById('invItemPickTitle');
+        if (titleEl) {
+            titleEl.textContent = invItemPickMode === 'issue' ? 'Issue OUT — Select Material' : 'Receive IN — Select Material';
+        }
+        var searchEl = document.getElementById('invItemPickSearch');
+        var catEl = document.getElementById('invItemPickCategory');
+        if (searchEl) searchEl.value = '';
+        if (catEl) catEl.value = '';
+        renderInvItemPickResults();
+        document.getElementById('invItemPickModal').style.display = 'flex';
+        setTimeout(function() { searchEl?.focus(); }, 150);
+    }
+
+    function closeInvItemPickModal() {
+        document.getElementById('invItemPickModal').style.display = 'none';
+    }
+
+    function renderInvItemPickResults() {
+        var resultsEl = document.getElementById('invItemPickResults');
+        var searchEl = document.getElementById('invItemPickSearch');
+        var catEl = document.getElementById('invItemPickCategory');
+        if (!resultsEl) return;
+
+        var q = (searchEl?.value || '').trim().toLowerCase();
+        var catId = catEl ? parseInt(catEl.value || '0', 10) : 0;
+        var matches = (currentItems || []).filter(function(item) {
+            if (String(item.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return false;
+            if (catId > 0 && parseInt(item.category_id || '0', 10) !== catId) return false;
+            if (!q) return true;
+            return String(item.name || '').toLowerCase().indexOf(q) !== -1;
+        });
+
+        if (!matches.length) {
+            var hasQuery = !!q || catId > 0;
+            resultsEl.innerHTML = '<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">' + (hasQuery ? 'No materials match your search.' : 'Type a name or pick a category to find materials.') + '</div>';
+            return;
+        }
+
+        resultsEl.innerHTML = matches.map(function(item) {
+            var cat = item.category_name ? escapeHtml(item.category_name) + ' · ' : '';
+            var stock = parseFloat(item.stock_on_hand != null ? item.stock_on_hand : item.starting_stock || 0);
+            var uom = item.unit_of_measure || 'pcs';
+            var soh = uom === 'pcs' ? String(Math.round(stock)) : stock.toFixed(2);
+            return '<button type="button" class="inv-item-pick-result" data-id="' + item.id + '" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:12px 14px;border:none;border-bottom:1px solid #f3f4f6;background:#fff;cursor:pointer;text-align:left;">'
+                + '<span style="font-weight:600;color:#111827;">' + escapeHtml(item.name) + '</span>'
+                + '<span style="font-size:12px;color:#6b7280;margin-top:2px;">' + cat + 'SOH: ' + soh + '</span>'
+                + '</button>';
+        }).join('');
+
+        resultsEl.querySelectorAll('.inv-item-pick-result').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var id = parseInt(btn.getAttribute('data-id'), 10);
+                closeInvItemPickModal();
+                if (invItemPickMode === 'issue') openDeductStockModalById(id);
+                else openAddStockModalById(id);
+            });
+            btn.addEventListener('mouseenter', function() { btn.style.background = '#f9fafb'; });
+            btn.addEventListener('mouseleave', function() { btn.style.background = '#fff'; });
+        });
+    }
+
+    (function bindInvItemPickModal() {
+        var searchEl = document.getElementById('invItemPickSearch');
+        var catEl = document.getElementById('invItemPickCategory');
+        if (searchEl) searchEl.addEventListener('input', renderInvItemPickResults);
+        if (catEl) catEl.addEventListener('change', renderInvItemPickResults);
+    })();
+
     function normalizeInventoryUomValue(rawUom, categoryName = '') {
         const uom = String(rawUom || '').trim().toLowerCase();
         const normalizedCategory = String(categoryName || '').trim().toUpperCase();
@@ -3128,7 +3232,7 @@ if (isset($_GET['ajax'])) {
         const fd = new FormData();
         fd.set('action', 'record_transaction');
         fd.set('item_id', document.getElementById('deductStockItemId').value);
-        fd.set('transaction_type', 'adjustment_down');
+        fd.set('transaction_type', 'issue');
         fd.set('quantity', document.getElementById('deductStockQty').value);
         fd.set('notes', document.getElementById('deductStockNotes').value || 'Manual deduction');
         try {
@@ -3154,7 +3258,7 @@ if (isset($_GET['ajax'])) {
                 }
             }
         } catch (err) { alert('Network error.'); }
-        finally { btn.disabled = false; btn.textContent = 'Deduct Stock'; }
+        finally { btn.disabled = false; btn.textContent = 'Issue OUT'; }
     }
 
     async function saveAddStock(e) {
@@ -3226,7 +3330,7 @@ if (isset($_GET['ajax'])) {
                 errEl.textContent = qtyCheck.msg || 'Please enter a valid quantity.';
                 errEl.style.display = 'block';
             }
-            btn.disabled = false; btn.textContent = 'Add Stock';
+            btn.disabled = false; btn.textContent = 'Receive IN';
             updateAddStockUI();
             return;
         }
@@ -3237,7 +3341,7 @@ if (isset($_GET['ajax'])) {
                 errCostEl.textContent = 'Unit cost must be greater than 0.';
                 errCostEl.style.display = 'block';
             }
-            btn.disabled = false; btn.textContent = 'Add Stock';
+            btn.disabled = false; btn.textContent = 'Receive IN';
             updateAddStockUI();
             return;
         }
@@ -3292,7 +3396,7 @@ if (isset($_GET['ajax'])) {
             console.error('Add stock error:', err);
             alert('Network communication error. Please try again.');
         }
-        finally { btn.disabled = false; btn.textContent = 'Add Stock'; updateAddStockUI(); }
+        finally { btn.disabled = false; btn.textContent = 'Receive IN'; updateAddStockUI(); }
     }
 
     function editItem(item) {

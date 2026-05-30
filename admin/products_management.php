@@ -644,6 +644,172 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             }
         }
+    } elseif (isset($_POST['deduct_product_stock'])) {
+        $product_id = (int)($_POST['product_id'] ?? 0);
+        $deduct_stock_quantity = (int)($_POST['deduct_stock_quantity'] ?? 0);
+        $variant_stock_payload = $_POST['variant_stock'] ?? null;
+
+        if ($product_id < 1) {
+            $error = 'Invalid product.';
+        } elseif ($variant_stock_payload === null && $deduct_stock_quantity <= 0) {
+            $error = 'Issue quantity must be greater than 0.';
+        } elseif ($variant_stock_payload === null && $deduct_stock_quantity > 99999) {
+            $error = 'Issue quantity must not exceed 5 digits.';
+        } elseif ($is_manager && $mgr_branch_id < 1) {
+            $error = 'No branch is assigned to your account.';
+        } else {
+            $existingProduct = db_query(
+                "SELECT product_id, name, stock_quantity FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1",
+                'i',
+                [$product_id]
+            );
+
+            if ($existingProduct === false) {
+                $error = 'Database error while verifying product.';
+            } elseif (count($existingProduct) === 0) {
+                $error = 'Product not found.';
+            } else {
+                $productName = (string)($existingProduct[0]['name'] ?? ('Product #' . $product_id));
+                $stockField = printflow_product_resolve_stock_field_config($product_id);
+                $postedVariantRows = is_array($variant_stock_payload) ? $variant_stock_payload : [];
+
+                if ($stockField !== null && !empty($postedVariantRows)) {
+                    $changes = [];
+                    $totalStock = 0;
+                    $optionStockRows = printflow_product_option_stock_rows($product_id, $product_stock_branch_id);
+                    $optionLowMap = [];
+                    foreach ($optionStockRows as $optRow) {
+                        $optKey = printflow_product_option_stock_normalize_value((string)($optRow['option_value'] ?? ''));
+                        if ($optKey !== '') {
+                            $optionLowMap[$optKey] = (int)($optRow['low_stock_level'] ?? 0);
+                        }
+                    }
+                    foreach ($postedVariantRows as $optionValue => $row) {
+                        $optionValue = printflow_product_option_stock_normalize_value((string)$optionValue);
+                        if ($optionValue === '') {
+                            continue;
+                        }
+
+                        $currentStock = max(0, (int)($row['current_stock'] ?? 0));
+                        $deductQty = max(0, (int)($row['deduct_qty'] ?? 0));
+                        if ($deductQty > 99999) {
+                            $error = 'Issue quantity per size must not exceed 5 digits.';
+                            break;
+                        }
+                        if ($deductQty > $currentStock) {
+                            $error = "Insufficient stock for {$stockField['field_label']}: {$optionValue}.";
+                            break;
+                        }
+                        $newStock = $currentStock - $deductQty;
+                        $lowStock = array_key_exists($optionValue, $optionLowMap)
+                            ? $optionLowMap[$optionValue]
+                            : printflow_suggest_reorder_level((float)$newStock);
+                        $changes[] = [
+                            'option_value' => $optionValue,
+                            'current_stock' => $currentStock,
+                            'deduct_qty' => $deductQty,
+                            'new_stock' => $newStock,
+                            'low_stock_level' => $lowStock,
+                        ];
+                        $totalStock += $newStock;
+                    }
+
+                    if ($error === '' && empty($changes)) {
+                        $error = 'Please issue stock from at least one size or variant.';
+                    }
+
+                    if ($error === '') {
+                        $savedAny = false;
+                        foreach ($changes as $change) {
+                            if ($change['deduct_qty'] <= 0) {
+                                continue;
+                            }
+                            $saved = printflow_product_option_stock_upsert(
+                                $product_id,
+                                $product_stock_branch_id,
+                                $stockField['field_key'],
+                                $change['option_value'],
+                                $change['new_stock'],
+                                $change['low_stock_level']
+                            );
+                            if (!$saved) {
+                                $error = 'Failed to save size-based stock.';
+                                break;
+                            }
+                            $savedAny = true;
+                            printflow_record_product_inventory_transaction(
+                                $product_id,
+                                'OUT',
+                                (float)$change['deduct_qty'],
+                                'PRODUCT_ADJUSTMENT',
+                                $product_id,
+                                "Products Management issue out for {$productName} ({$stockField['field_label']}: {$change['option_value']}): {$change['current_stock']} -> {$change['new_stock']}",
+                                (int)(get_user_id() ?? 0),
+                                date('Y-m-d'),
+                                $product_stock_branch_id
+                            );
+                        }
+
+                        if ($error === '' && $savedAny) {
+                            if ($product_stock_uses_base) {
+                                db_execute(
+                                    "UPDATE products SET stock_quantity = ?, updated_at = NOW() WHERE product_id = ?",
+                                    'ii',
+                                    [$totalStock, $product_id]
+                                );
+                            } else {
+                                printflow_product_branch_stock_set_quantity($product_id, $product_stock_branch_id, $totalStock);
+                            }
+                            $success = 'Variant stock issued successfully.';
+                        } elseif ($error === '' && !$savedAny) {
+                            $error = 'Please issue stock from at least one size or variant.';
+                        }
+                    }
+                } else {
+                    $oldStockQuantity = $product_stock_uses_base
+                        ? (int)($existingProduct[0]['stock_quantity'] ?? 0)
+                        : (int)(printflow_product_effective_stock($product_id, $product_stock_branch_id)[0] ?? 0);
+                    if ($deduct_stock_quantity > $oldStockQuantity) {
+                        $error = 'Insufficient stock to issue.';
+                    } else {
+                        $newStockQuantity = $oldStockQuantity - $deduct_stock_quantity;
+                        $result = false;
+                        if ($product_stock_uses_base) {
+                            $result = db_execute(
+                                "UPDATE products SET stock_quantity = ?, updated_at = NOW() WHERE product_id = ?",
+                                'ii',
+                                [$newStockQuantity, $product_id]
+                            );
+                        } else {
+                            $result = printflow_product_branch_stock_set_quantity(
+                                $product_id,
+                                $product_stock_branch_id,
+                                $newStockQuantity
+                            );
+                        }
+
+                        if ($result) {
+                            printflow_record_product_inventory_transaction(
+                                $product_id,
+                                'OUT',
+                                (float)$deduct_stock_quantity,
+                                'PRODUCT_ADJUSTMENT',
+                                $product_id,
+                                "Products Management issue out for {$productName}: {$oldStockQuantity} -> {$newStockQuantity}",
+                                (int)(get_user_id() ?? 0),
+                                date('Y-m-d'),
+                                $product_stock_branch_id
+                            );
+                            $success = 'Stock issued successfully.';
+                        } else {
+                            global $conn;
+                            $dberr = isset($conn) ? $conn->error : '';
+                            $error = 'Failed to issue stock.' . ($dberr !== '' ? ' (' . htmlspecialchars($dberr, ENT_QUOTES, 'UTF-8') . ')' : '');
+                        }
+                    }
+                }
+            }
+        }
     } elseif (isset($_POST['update_product'])) {
         if ($is_manager) {
             $product_id = (int)($_POST['product_id'] ?? 0);
@@ -2255,10 +2421,6 @@ if (isset($_GET['ajax'])) {
                                             </span>
                                         </td>
                                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-                                            <?php if ($product['status'] !== 'Archived'): ?>
-                                            <button class="btn-action teal"
-                                                onclick='openProductModal("stock", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Add Stock</button>
-                                            <?php endif; ?>
                                             <button class="btn-action blue"
                                                 onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
                                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
@@ -2367,7 +2529,7 @@ if (isset($_GET['ajax'])) {
                             </small>
                         </div>
                         <div class="form-group" id="fg-add-stock">
-                            <label for="stock-modal-add-qty">Add stock quantity <span style="color:#dc2626">*</span></label>
+                            <label for="stock-modal-add-qty" id="stock-modal-qty-label">Receive quantity <span style="color:#dc2626">*</span></label>
                             <input type="number" id="stock-modal-add-qty" min="1" max="99999" value="" step="1" disabled autocomplete="off" inputmode="numeric" placeholder="0" oninput="if (this.value.length > 5) this.value = this.value.slice(0, 5);">
                             <span id="err-add-stock" class="field-error"></span>
                         </div>
@@ -2389,7 +2551,7 @@ if (isset($_GET['ajax'])) {
                         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
                             <div>
                                 <div id="stock-modal-variant-title" style="font-size:13px;font-weight:700;color:#374151;">Stock by Size</div>
-                                <div style="font-size:12px;color:#6b7280;">Add stock to one, several, or all available options.</div>
+                                <div style="font-size:12px;color:#6b7280;" id="stock-modal-variant-subtitle">Receive stock to one, several, or all available options.</div>
                             </div>
                         </div>
                         <div style="overflow:auto;border:1px solid #e5e7eb;border-radius:12px;">
@@ -2398,7 +2560,7 @@ if (isset($_GET['ajax'])) {
                                     <tr>
                                         <th style="text-align:left;padding:12px 14px;border-bottom:1px solid #e5e7eb;">Option</th>
                                         <th style="text-align:left;padding:12px 14px;border-bottom:1px solid #e5e7eb;">Current Stock</th>
-                                        <th style="text-align:left;padding:12px 14px;border-bottom:1px solid #e5e7eb;">Add Stock</th>
+                                        <th style="text-align:left;padding:12px 14px;border-bottom:1px solid #e5e7eb;" id="stock-modal-variant-add-header">Receive Qty</th>
                                         <th style="text-align:left;padding:12px 14px;border-bottom:1px solid #e5e7eb;">Resulting Stock</th>
                                     </tr>
                                 </thead>
@@ -2495,7 +2657,7 @@ if (isset($_GET['ajax'])) {
                         <div class="form-group pf-product-edit-only" id="fg-current-stock" style="display:none;">
                             <label for="modal-current-stock">Current Stock</label>
                             <input type="text" id="modal-current-stock" value="" readonly class="threshold-readonly pf-field-auto" tabindex="-1" aria-readonly="true">
-                            <small>Stock can only be changed through Add Stock.</small>
+                            <small>Stock can only be changed through Receive IN or Issue OUT from the product view.</small>
                         </div>
                     </div>
                     <div class="form-row" id="pf-product-threshold-row">
@@ -2621,7 +2783,11 @@ if (isset($_GET['ajax'])) {
                 </div>
             </div>
 
-            <div style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:24px;display:flex;justify-content:flex-end;">
+            <div id="view-product-actions" style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:24px;display:none;gap:10px;flex-wrap:wrap;justify-content:center;">
+                <button type="button" id="view-product-receive-btn" onclick="openProductStockFromView('receive')" class="btn-action teal" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Receive IN</button>
+                <button type="button" id="view-product-issue-btn" onclick="openProductStockFromView('issue')" class="btn-action red" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Issue OUT</button>
+            </div>
+            <div style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:16px;display:flex;justify-content:flex-end;">
                 <button type="button" onclick="closeViewModal()" class="btn-secondary">Close</button>
             </div>
         </div>
@@ -2818,7 +2984,16 @@ function pfGetProductModalSubmitBtn() {
     return document.getElementById('modal-submit-products-mgr') || document.getElementById('modal-submit-btn');
 }
 
-function pfStockOnlyModalSetActive(active, product) {
+function pfIsProductStockModalMode(mode) {
+    return mode === 'stock' || mode === 'receive' || mode === 'issue';
+}
+
+var pfStockModalMode = 'receive';
+
+function pfStockOnlyModalSetActive(active, product, stockMode) {
+    stockMode = stockMode === 'issue' ? 'issue' : 'receive';
+    pfStockModalMode = stockMode;
+    var isIssue = stockMode === 'issue';
     var stockOnly = document.getElementById('pf-stock-only');
     var mgr = document.getElementById('pf-manager-only');
     var adm = document.getElementById('pf-admin-only');
@@ -2834,6 +3009,9 @@ function pfStockOnlyModalSetActive(active, product) {
     var variantBody = document.getElementById('stock-modal-variant-body');
     var addGroup = document.getElementById('fg-add-stock');
     var lowGroup = document.getElementById('fg-stock-only-low');
+    var qtyLabel = document.getElementById('stock-modal-qty-label');
+    var variantSubtitle = document.getElementById('stock-modal-variant-subtitle');
+    var variantAddHeader = document.getElementById('stock-modal-variant-add-header');
 
     function toggleSection(sectionEl, disabled) {
         if (!sectionEl) return;
@@ -2859,11 +3037,22 @@ function pfStockOnlyModalSetActive(active, product) {
 
         if (addQty) {
             addQty.disabled = false;
-            addQty.name = 'add_stock_quantity';
+            addQty.name = isIssue ? 'deduct_stock_quantity' : 'add_stock_quantity';
         }
         if (lowLevel) {
-            lowLevel.disabled = false;
+            lowLevel.disabled = !isIssue;
             lowLevel.removeAttribute('name');
+        }
+        if (qtyLabel) {
+            qtyLabel.innerHTML = (isIssue ? 'Issue quantity' : 'Receive quantity') + ' <span style="color:#dc2626">*</span>';
+        }
+        if (variantSubtitle) {
+            variantSubtitle.textContent = isIssue
+                ? 'Issue stock from one, several, or all available options.'
+                : 'Receive stock to one, several, or all available options.';
+        }
+        if (variantAddHeader) {
+            variantAddHeader.textContent = isIssue ? 'Issue Qty' : 'Receive Qty';
         }
         if (productName) productName.textContent = product && product.name ? product.name : '—';
         var qty = product && product.stock_quantity != null ? parseInt(product.stock_quantity, 10) || 0 : 0;
@@ -2886,6 +3075,8 @@ function pfStockOnlyModalSetActive(active, product) {
                     var optionValue = row.option_value || '';
                     var stockQty = parseInt(row.stock_quantity != null ? row.stock_quantity : 0, 10) || 0;
                     var tr = document.createElement('tr');
+                    var qtyField = isIssue ? 'deduct_qty' : 'add_qty';
+                    var qtyClass = isIssue ? 'pf-variant-deduct' : 'pf-variant-add';
                     tr.innerHTML = ''
                         + '<td style="padding:12px 14px;border-bottom:1px solid #f1f5f9;font-weight:600;color:#111827;">' + optionValue + '</td>'
                         + '<td style="padding:12px 14px;border-bottom:1px solid #f1f5f9;">'
@@ -2893,7 +3084,7 @@ function pfStockOnlyModalSetActive(active, product) {
                         +   '<input type="hidden" name="variant_stock[' + optionValue.replace(/"/g, '&quot;') + '][current_stock]" value="' + stockQty + '">'
                         + '</td>'
                         + '<td style="padding:12px 14px;border-bottom:1px solid #f1f5f9;">'
-                        +   '<input type="number" class="pf-variant-add" name="variant_stock[' + optionValue.replace(/"/g, '&quot;') + '][add_qty]" min="0" max="99999" step="1" value="" placeholder="0" data-current-stock="' + stockQty + '" style="width:100%;min-width:110px;" />'
+                        +   '<input type="number" class="' + qtyClass + '" name="variant_stock[' + optionValue.replace(/"/g, '&quot;') + '][' + qtyField + ']" min="0" max="99999" step="1" value="" placeholder="0" data-current-stock="' + stockQty + '" style="width:100%;min-width:110px;" />'
                         + '</td>'
                         + '<td style="padding:12px 14px;border-bottom:1px solid #f1f5f9;">'
                         +   '<input type="number" class="pf-variant-result" value="' + stockQty + '" disabled style="width:100%;min-width:110px;">'
@@ -2903,7 +3094,7 @@ function pfStockOnlyModalSetActive(active, product) {
             } else {
                 variantWrap.style.display = 'none';
                 if (addGroup) addGroup.style.display = '';
-                if (lowGroup) lowGroup.style.display = '';
+                if (lowGroup) lowGroup.style.display = isIssue ? 'none' : '';
             }
         }
     } else {
@@ -2938,10 +3129,10 @@ function pfSyncStockOnlyResult() {
     var resultStock = document.getElementById('stock-modal-result');
     if (!currentStock || !addQty || !resultStock) return;
     var current = parseInt(currentStock.value || '0', 10);
-    var add = parseInt(addQty.value || '0', 10);
+    var delta = parseInt(addQty.value || '0', 10);
     if (isNaN(current)) current = 0;
-    if (isNaN(add) || add < 0) add = 0;
-    resultStock.value = String(current + add);
+    if (isNaN(delta) || delta < 0) delta = 0;
+    resultStock.value = String(pfStockModalMode === 'issue' ? Math.max(0, current - delta) : (current + delta));
 }
 
 function pfSubmitStockOnlyForm() {
@@ -2949,10 +3140,11 @@ function pfSubmitStockOnlyForm() {
     var addQty = document.getElementById('stock-modal-add-qty');
     var currentStock = document.getElementById('stock-modal-current');
     var variantWrap = document.getElementById('stock-modal-variant-wrap');
-    var variantInputs = Array.prototype.slice.call(document.querySelectorAll('#stock-modal-variant-body .pf-variant-add'));
+    var isIssue = pfStockModalMode === 'issue';
+    var variantInputs = Array.prototype.slice.call(document.querySelectorAll('#stock-modal-variant-body ' + (isIssue ? '.pf-variant-deduct' : '.pf-variant-add')));
     if (!form || !addQty || !currentStock) return;
 
-    var add = parseInt(addQty.value || '0', 10);
+    var delta = parseInt(addQty.value || '0', 10);
     var current = parseInt(currentStock.value || '0', 10);
     if (isNaN(current)) current = 0;
 
@@ -2966,14 +3158,19 @@ function pfSubmitStockOnlyForm() {
         var hasPositive = false;
         for (var i = 0; i < variantInputs.length; i++) {
             var input = variantInputs[i];
-            var addVariant = parseInt(input.value || '0', 10);
-            if (!isNaN(addVariant) && addVariant > 0) {
+            var variantDelta = parseInt(input.value || '0', 10);
+            var variantCurrent = parseInt(input.getAttribute('data-current-stock') || '0', 10) || 0;
+            if (!isNaN(variantDelta) && variantDelta > 0) {
+                if (isIssue && variantDelta > variantCurrent) {
+                    if (errVariant) errVariant.textContent = 'Issue quantity cannot exceed current stock for an option.';
+                    input.focus();
+                    return;
+                }
                 hasPositive = true;
-                break;
             }
         }
         if (!hasPositive) {
-            if (errVariant) errVariant.textContent = 'Please add stock to at least one option.';
+            if (errVariant) errVariant.textContent = isIssue ? 'Please issue stock from at least one option.' : 'Please receive stock to at least one option.';
             variantInputs[0].focus();
             return;
         }
@@ -2981,8 +3178,13 @@ function pfSubmitStockOnlyForm() {
         return;
     }
 
-    if (isNaN(add) || add < 1) {
-        if (errAdd) errAdd.textContent = 'Add stock quantity must be greater than 0.';
+    if (isNaN(delta) || delta < 1) {
+        if (errAdd) errAdd.textContent = isIssue ? 'Issue quantity must be greater than 0.' : 'Receive quantity must be greater than 0.';
+        addQty.focus();
+        return;
+    }
+    if (isIssue && delta > current) {
+        if (errAdd) errAdd.textContent = 'Issue quantity cannot exceed current stock.';
         addQty.focus();
         return;
     }
@@ -2994,7 +3196,7 @@ function pfEnsureStockOnlySubmitEnabled() {
     var modeInput = document.getElementById('modal-mode-input');
     var submitBtn = pfGetProductModalSubmitBtn();
     if (!modeInput || !submitBtn) return;
-    if (modeInput.name !== 'add_product_stock') return;
+    if (modeInput.name !== 'add_product_stock' && modeInput.name !== 'deduct_product_stock') return;
     submitBtn.disabled = false;
     submitBtn.removeAttribute('disabled');
     submitBtn.style.opacity = '1';
@@ -3105,17 +3307,22 @@ window.openProductModal = function openProductModal(mode, product) {
     var previewText = document.getElementById('photo-preview-text');
     var photoInput = document.getElementById('modal-photo');
 
-    if (mode === 'stock' && product) {
-        if (title) title.textContent = 'Add Stock';
-        if (modeInput) { modeInput.name = 'add_product_stock'; modeInput.value = '1'; }
+    if (pfIsProductStockModalMode(mode) && product) {
+        var isIssue = mode === 'issue';
+        pfStockModalMode = isIssue ? 'issue' : 'receive';
+        if (title) title.textContent = isIssue ? 'Issue OUT' : 'Receive IN';
+        if (modeInput) {
+            modeInput.name = isIssue ? 'deduct_product_stock' : 'add_product_stock';
+            modeInput.value = '1';
+        }
         if (submitBtn) {
-            submitBtn.textContent = 'Add Stock';
+            submitBtn.textContent = isIssue ? 'Issue OUT' : 'Receive IN';
             submitBtn.type = 'button';
             submitBtn.onclick = pfSubmitStockOnlyForm;
         }
         var pidStockEl = document.getElementById('modal-product-id');
         if (pidStockEl) pidStockEl.value = product.product_id != null ? String(product.product_id) : '';
-        pfStockOnlyModalSetActive(true, product);
+        pfStockOnlyModalSetActive(true, product, pfStockModalMode);
     } else if (mode === 'edit' && product) {
         if (title) title.textContent = window.PF_PRODUCTS_IS_MANAGER ? 'Branch stock' : 'Edit Product';
         if (modeInput) { modeInput.name = 'update_product'; modeInput.value = '1'; }
@@ -3220,7 +3427,7 @@ window.openProductModal = function openProductModal(mode, product) {
             pfSyncProductSuggestedThresholds();
         };
     }
-    if (mode === 'stock' && product) {
+    if (pfIsProductStockModalMode(mode) && product) {
         requestAnimationFrame(function() {
             requestAnimationFrame(function() {
                 pfEnsureStockOnlySubmitEnabled();
@@ -3230,7 +3437,7 @@ window.openProductModal = function openProductModal(mode, product) {
     try {
         document.dispatchEvent(new CustomEvent('pf-product-modal-shown'));
     } catch (e) { /* ignore */ }
-    if ((window.PF_PRODUCTS_IS_MANAGER && mode === 'edit' && product && submitBtn) || (mode === 'stock' && product && submitBtn)) {
+    if ((window.PF_PRODUCTS_IS_MANAGER && mode === 'edit' && product && submitBtn) || (pfIsProductStockModalMode(mode) && product && submitBtn)) {
         requestAnimationFrame(function() {
             requestAnimationFrame(function() {
                 var b = pfGetProductModalSubmitBtn();
@@ -3241,7 +3448,7 @@ window.openProductModal = function openProductModal(mode, product) {
             });
         });
     }
-    var focusEl = (mode === 'stock' && product)
+    var focusEl = (pfIsProductStockModalMode(mode) && product)
         ? document.getElementById('stock-modal-add-qty')
         : (window.PF_PRODUCTS_IS_MANAGER && mode === 'edit' && product)
         ? document.getElementById('modal-stock-mgr')
@@ -3273,7 +3480,11 @@ function closeProductModal() {
             submitBtn.type = 'submit';
             submitBtn.onclick = null;
         } else if (modeInput.name === 'add_product_stock') {
-            submitBtn.textContent = 'Add Stock';
+            submitBtn.textContent = 'Receive IN';
+            submitBtn.type = 'button';
+            submitBtn.onclick = pfSubmitStockOnlyForm;
+        } else if (modeInput.name === 'deduct_product_stock') {
+            submitBtn.textContent = 'Issue OUT';
             submitBtn.type = 'button';
             submitBtn.onclick = pfSubmitStockOnlyForm;
         } else {
@@ -3308,21 +3519,22 @@ document.addEventListener('DOMContentLoaded', function() {
         lowLevel.addEventListener('change', pfEnsureStockOnlySubmitEnabled);
     }
     document.addEventListener('input', function(e) {
-        if (!e.target.classList.contains('pf-variant-add')) return;
+        if (!e.target.classList.contains('pf-variant-add') && !e.target.classList.contains('pf-variant-deduct')) return;
+        var isIssue = e.target.classList.contains('pf-variant-deduct');
         var current = parseInt(e.target.getAttribute('data-current-stock') || '0', 10) || 0;
-        var add = parseInt(e.target.value || '0', 10);
-        if (isNaN(add) || add < 0) add = 0;
+        var delta = parseInt(e.target.value || '0', 10);
+        if (isNaN(delta) || delta < 0) delta = 0;
         var row = e.target.closest('tr');
         var resultEl = row ? row.querySelector('.pf-variant-result') : null;
-        if (resultEl) resultEl.value = String(current + add);
+        if (resultEl) resultEl.value = String(isIssue ? Math.max(0, current - delta) : (current + delta));
         var total = 0;
         document.querySelectorAll('#stock-modal-variant-body tr').forEach(function(tr) {
             var currentInput = tr.querySelector('input[type="hidden"][name*="[current_stock]"]');
-            var addInput = tr.querySelector('.pf-variant-add');
+            var qtyInput = tr.querySelector('.pf-variant-add, .pf-variant-deduct');
             var base = parseInt(currentInput ? currentInput.value : '0', 10) || 0;
-            var inc = parseInt(addInput ? addInput.value : '0', 10);
+            var inc = parseInt(qtyInput ? qtyInput.value : '0', 10);
             if (isNaN(inc) || inc < 0) inc = 0;
-            total += (base + inc);
+            total += isIssue ? Math.max(0, base - inc) : (base + inc);
         });
         var stockResult = document.getElementById('stock-modal-result');
         if (stockResult) stockResult.value = String(total);
@@ -3330,8 +3542,20 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function openProductStockFromView(mode) {
+    if (!window._viewProductForStock) return;
+    var product = window._viewProductForStock;
+    closeViewModal();
+    openProductModal(mode === 'issue' ? 'issue' : 'receive', product);
+}
+
 function openViewModal(product) {
     if (!product) return;
+    window._viewProductForStock = product;
+    var actions = document.getElementById('view-product-actions');
+    if (actions) {
+        actions.style.display = product.status === 'Archived' ? 'none' : 'flex';
+    }
     var stockLabel = pfProductStockStatusLabel(product.stock_quantity, product.low_stock_level);
     var nameEl = document.getElementById('view-product-name');
     if (nameEl) nameEl.textContent = product.name || '—';
