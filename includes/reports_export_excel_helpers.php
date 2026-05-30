@@ -96,6 +96,9 @@ function pf_excel_apply_table_autofilter(
 }
 
 function pf_report_inventory_soh(int $itemId, bool $trackByRoll, $branchId): float {
+    if (!class_exists('InventoryManager', false)) {
+        require_once __DIR__ . '/InventoryManager.php';
+    }
     InventoryManager::ensureBranchScopedSchema();
     if ($branchId === 'all') {
         if ($trackByRoll) {

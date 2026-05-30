@@ -2141,18 +2141,12 @@ a.export-dd-link:hover { background: #f9fafb; }
 
                             <hr class="export-dd-hr">
                             <div class="export-dd-label">Excel</div>
-                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="sales" href="<?php echo htmlspecialchars($xlsxSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="Formatted like print: colors, auto column width">Excel – Sales detail</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="sales" href="<?php echo htmlspecialchars($xlsxSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="Formatted report with filters">Excel – Sales detail</a>
                             <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="orders" href="<?php echo htmlspecialchars($xlsxOrdersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Orders status</a>
                             <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="customers" href="<?php echo htmlspecialchars($xlsxCustomersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Customers</a>
-
-                            <hr class="export-dd-hr">
-                            <div class="export-dd-label">CSV</div>
-                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="sales" href="<?php echo htmlspecialchars($csvSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Sales detail</a>
-                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="orders" href="<?php echo htmlspecialchars($csvOrdersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Orders status</a>
-                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="customers" href="<?php echo htmlspecialchars($csvCustomersUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Customers</a>
-                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="daily_sales" data-pf-export-date-end="1" href="<?php echo htmlspecialchars($csvDailyUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="End date of report range">CSV – Daily sales (end date)</a>
-                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="shop_inventory" href="<?php echo htmlspecialchars($csvShopInvUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Products &amp; materials stock</a>
-                            <a class="export-dd-link" data-pf-export-file="reports_export.php" data-pf-export-report="inventory" href="<?php echo htmlspecialchars($csvMaterialsUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">CSV – Legacy materials &amp; movements</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="daily_sales" data-pf-export-date-end="1" href="<?php echo htmlspecialchars($pfRptUrl('reports_export_excel.php', ['report' => 'daily_sales', 'date' => $to]), ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false" title="Uses end date of report range">Excel – Daily sales (end date)</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="shop_inventory" href="<?php echo htmlspecialchars($pfRptUrl('reports_export_excel.php', ['report' => 'shop_inventory']), ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Products &amp; materials stock</a>
+                            <a class="export-dd-link" data-pf-export-file="reports_export_excel.php" data-pf-export-report="inventory" href="<?php echo htmlspecialchars($pfRptUrl('reports_export_excel.php', ['report' => 'inventory']), ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen=false">Excel – Legacy materials &amp; movements</a>
                         </div>
                     </div>
                 </div>
