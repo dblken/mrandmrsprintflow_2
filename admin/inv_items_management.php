@@ -405,11 +405,15 @@ if (isset($_GET['ajax'])) {
         .item-modal--create #reorderAlertsGroup,
         .item-modal--create #itemThresholdResetRow,
         .item-modal--create #itemCurrentStockSlot { display: none !important; }
-        #itemModal .item-modal-edit-only#statusSection {
-            background: transparent;
-            border: none;
-            padding: 0;
-            min-height: auto;
+        .item-modal--edit #fg-itemCategory label > span[style*="ef4444"] { display: none; }
+        #itemModal #statusSection.item-modal-edit-only {
+            display: none;
+            margin-bottom: 0;
+            padding-top: 16px;
+            border-top: 1px solid #f3f4f6;
+        }
+        .item-modal--edit #statusSection.item-modal-edit-only {
+            display: block !important;
         }
         .item-modal-field {
             display: flex;
@@ -1275,16 +1279,6 @@ if (isset($_GET['ajax'])) {
                             <input type="text" id="itemCurrentStock" value="" readonly class="w-100 threshold-readonly pf-field-auto" tabindex="-1" aria-readonly="true">
                             <p class="field-hint" style="min-height:auto;">Stock can only be changed through Receive In or Receive Out.</p>
                         </div>
-                        <div id="statusSection" class="item-modal-edit-only form-group">
-                            <label for="itemStatus">System Status</label>
-                            <select id="itemStatus" name="status" class="w-100">
-                                <option value="ACTIVE">Active</option>
-                                <option value="INACTIVE">Inactive</option>
-                            </select>
-                            <div id="statusHelperMessage" style="display:none;">
-                                <p class="field-hint" style="min-height:auto;">Inactive materials are hidden from new orders and POS.</p>
-                            </div>
-                        </div>
                         <div id="itemInitialStockSlot" class="form-group item-modal-create-only">
                             <label for="itemStartingStock">Initial Stock Quantity <span class="pf-required-star item-modal-create-only">*</span></label>
                             <input type="number" step="1" min="0" id="itemStartingStock" name="starting_stock" value="" placeholder="0" class="w-100" inputmode="numeric"
@@ -1366,6 +1360,19 @@ if (isset($_GET['ajax'])) {
             <div id="editModalChangeSummary" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
                 <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:8px;">Changes Summary</div>
                 <div id="editModalChangeSummaryContent" style="font-size:13px; color:#374151;"></div>
+            </div>
+
+            <div id="statusSection" class="item-modal-edit-only">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="itemStatus">Status</label>
+                    <select id="itemStatus" name="status" class="w-100">
+                        <option value="ACTIVE">Active</option>
+                        <option value="INACTIVE">Inactive</option>
+                    </select>
+                    <div id="statusHelperMessage" style="display:none;">
+                        <p class="field-hint" style="min-height:auto;margin-top:6px;">Inactive materials are hidden from new orders and POS.</p>
+                    </div>
+                </div>
             </div>
             
             <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
@@ -1576,15 +1583,18 @@ if (isset($_GET['ajax'])) {
     function pfSyncAutoFieldLockStates() {
         var uomEl = document.getElementById('itemUnit');
         var trackEl = document.getElementById('itemTrackByRoll');
+        var catEl = document.getElementById('itemCategory');
         var minEl = document.getElementById('itemMinStock');
         var critEl = document.getElementById('itemCriticalStock');
         var unlockUom = !!currentIsTarpaulinCategory;
+        var isEdit = document.getElementById('actionType')?.value === 'update_item';
 
         function applyLocked(el, locked) {
             if (!el) return;
             el.classList.toggle('pf-field-auto', locked);
             if (el.tagName === 'SELECT') {
                 el.disabled = locked;
+                el.classList.toggle('locked-select', locked);
             }
             if (locked) {
                 el.setAttribute('aria-readonly', 'true');
@@ -1597,7 +1607,7 @@ if (isset($_GET['ajax'])) {
 
         applyLocked(uomEl, !unlockUom);
         applyLocked(trackEl, true);
-        var isEdit = document.getElementById('actionType')?.value === 'update_item';
+        applyLocked(catEl, isEdit);
         if (minEl) minEl.classList.toggle('pf-field-auto', !isEdit);
         if (critEl) critEl.classList.toggle('pf-field-auto', !isEdit);
     }
@@ -3318,14 +3328,18 @@ if (isset($_GET['ajax'])) {
 
         const uomEl = document.getElementById('itemUnit');
         const trackEl = document.getElementById('itemTrackByRoll');
+        const catEl = document.getElementById('itemCategory');
         const uomWasDisabled = uomEl.disabled;
         const trackWasDisabled = trackEl.disabled;
+        const catWasDisabled = catEl.disabled;
 
         uomEl.disabled = false;
         trackEl.disabled = false;
+        catEl.disabled = false;
         const formData = new FormData(document.getElementById('itemForm'));
         uomEl.disabled = uomWasDisabled;
         trackEl.disabled = trackWasDisabled;
+        catEl.disabled = catWasDisabled;
         try {
             const res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
             const data = await res.json();
