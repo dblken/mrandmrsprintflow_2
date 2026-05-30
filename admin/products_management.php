@@ -3657,7 +3657,7 @@ if (document.readyState === 'loading') {
 }
 document.addEventListener('printflow:page-init', printflowInitProductsPage);
 </script>
-<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=2.3"></script>
+<script src="<?php echo $base_path; ?>/public/assets/js/product-form-validation.js?v=2.4"></script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>

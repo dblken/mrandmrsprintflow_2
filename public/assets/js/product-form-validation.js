@@ -3,7 +3,7 @@
  * PrintFlow - Admin Products Management
  */
 (function() {
-    console.log('[PrintFlow] Product Validation Loaded v2.3');
+    console.log('[PrintFlow] Product Validation Loaded v2.4');
     const ERRORS = {
         nameRequired: 'Product name is required.',
         nameMinLength: 'Product name must be at least 2 characters.',
@@ -33,8 +33,16 @@
     const MAX_PHOTO_SIZE = 5 * 1024 * 1024; // 5MB
 
     let touchedFields = new Set();
+    let submitValidationActive = false;
 
-    function el(id) { return document.getElementById(id); }
+    function el(id) {
+        var form = document.getElementById('product-form');
+        if (form) {
+            var scoped = form.querySelector('#' + id);
+            if (scoped) return scoped;
+        }
+        return document.getElementById(id);
+    }
 
     /**
      * Manager branch-stock UI: page has #modal-stock-mgr; admins do not.
@@ -78,7 +86,7 @@
         const inp = el(ui.inputId);
         const err = el(ui.errId);
         const group = (err && err.closest('.form-group')) || (inp && inp.closest('.form-group'));
-        const shouldShow = !!msg && (forceShow || touchedFields.has(fieldId));
+        const shouldShow = !!msg && (forceShow === true || touchedFields.has(fieldId));
         if (err) {
             err.textContent = shouldShow ? msg : '';
             err.style.display = shouldShow ? 'block' : 'none';
@@ -259,6 +267,9 @@
     }
 
     function runValidation(forceShow) {
+        if (!forceShow && submitValidationActive) {
+            return isProductFormValidSilent();
+        }
         var errors;
         if (isStockOnlyModalOpen()) {
             errors = {
@@ -307,10 +318,35 @@
 
     function validateAllFields(forceShow) {
         if (forceShow && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
-            clearAllProductErrors();
             markAllCreateEditFieldsTouched();
+            clearAllProductErrors();
         }
-        return runValidation(forceShow);
+        return runValidation(!!forceShow);
+    }
+
+    function handleProductFormSubmit(e) {
+        if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
+            ['stock', 'low-stock'].forEach(function(k) { touchedFields.add(k); });
+            if (!validateAllFields(true)) {
+                e.preventDefault();
+                scrollToFirstProductError();
+            }
+            return;
+        }
+        submitValidationActive = true;
+        try {
+            var catEl = el('modal-category');
+            var catWasDisabled = catEl && catEl.disabled;
+            if (catWasDisabled) catEl.disabled = false;
+            if (!validateAllFields(true)) {
+                if (catWasDisabled && catEl) catEl.disabled = true;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                scrollToFirstProductError();
+            }
+        } finally {
+            submitValidationActive = false;
+        }
     }
 
     function scrollToFirstProductError() {
@@ -344,7 +380,9 @@
         });
         inp.addEventListener('blur', function() {
             this.value = formatProductName(this.value);
-            runValidation();
+            if (submitValidationActive) return;
+            touchedFields.add('name');
+            showError('name', validateName(), false);
         });
     }
 
@@ -390,22 +428,20 @@
         const form = document.getElementById('product-form');
         if (!form) {
             window.printflowProductFormValidationRun = function() {};
+            window.pfHandleProductFormSubmit = function() {};
             return;
         }
 
         if (form.getAttribute('data-pf-product-validation') !== '1') {
             form.setAttribute('data-pf-product-validation', '1');
 
-            var submitBtn = el('modal-submit-products-mgr') || el('modal-submit-btn');
-            if (submitBtn) {
-                submitBtn.addEventListener('click', function(e) {
-                    if (isStockOnlyModalOpen() || isBranchStockModalOpen()) return;
-                    if (!validateAllFields(true)) {
-                        e.preventDefault();
-                        scrollToFirstProductError();
-                    }
-                });
-            }
+            form.addEventListener('mousedown', function(e) {
+                if (e.target.closest('button[type="submit"], .btn-save')) {
+                    submitValidationActive = true;
+                }
+            }, true);
+
+            form.addEventListener('submit', handleProductFormSubmit, true);
 
             var fieldsBtn = el('btnProductFields');
             if (fieldsBtn) {
@@ -425,46 +461,27 @@
                 });
             }
 
-            form.addEventListener('submit', function(e) {
-                if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
-                    ['stock', 'low-stock'].forEach(function(k) { touchedFields.add(k); });
-                    if (!validateAllFields(true)) {
-                        e.preventDefault();
-                        scrollToFirstProductError();
-                    }
-                    return;
-                }
-                markAllCreateEditFieldsTouched();
-                var catEl = el('modal-category');
-                var catWasDisabled = catEl && catEl.disabled;
-                if (catWasDisabled) catEl.disabled = false;
-                if (!validateAllFields(true)) {
-                    if (catWasDisabled && catEl) catEl.disabled = true;
-                    e.preventDefault();
-                    scrollToFirstProductError();
-                }
-            });
             setupValidation();
         }
 
         window.printflowProductFormValidationRun = validateAllFields;
         window.printflowProductFormIsValid = isProductFormValidSilent;
         window.pfUpdateConfigureFieldsButton = pfUpdateConfigureFieldsButton;
+        window.pfHandleProductFormSubmit = handleProductFormSubmit;
         validateAllFields(false);
     }
 
     document.addEventListener('pf-product-modal-shown', function() {
-        setTimeout(function() {
-            touchedFields.clear();
-            clearAllProductErrors();
-            validateAllFields(false);
-            var btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
-            if (btn) {
-                btn.disabled = false;
-                btn.removeAttribute('disabled');
-            }
-            pfUpdateConfigureFieldsButton();
-        }, 50);
+        submitValidationActive = false;
+        touchedFields.clear();
+        clearAllProductErrors();
+        validateAllFields(false);
+        var btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
+        if (btn) {
+            btn.disabled = false;
+            btn.removeAttribute('disabled');
+        }
+        pfUpdateConfigureFieldsButton();
     });
 
     function bootProductFormValidation() {
