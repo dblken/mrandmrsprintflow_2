@@ -92,9 +92,6 @@ $dashboard_context_label = $dashboard_branch_display
 $dashboard_sales_revenue_title = ($branchId === 'all')
     ? 'Sales Revenue by Branch'
     : ('Sales Revenue in ' . $dashboard_branch_display);
-$dashboard_sales_revenue_footnote = ($branchId === 'all')
-    ? ('Showing combined sales revenue across ' . (int)$dashboard_branch_count . ' branch' . ($dashboard_branch_count === 1 ? '' : 'es') . '.')
-    : ('Showing sales revenue for ' . $dashboard_branch_display . '.');
 $dashboard_branch_sidebar_mode = ($branchId === 'all') ? 'multi' : 'single';
 $dashboard_branch_sidebar_title = ($branchId === 'all') ? 'Multi-Branch Summary' : 'Branch Summary';
 
@@ -410,6 +407,9 @@ $dashboard_branch_total_revenue = array_reduce($dashboard_branch_perf, static fu
     return $carry + (float)($branch['revenue'] ?? 0);
 }, 0.0);
 $dashboard_branch_count = count($dashboard_branch_perf);
+$dashboard_sales_revenue_footnote = ($branchId === 'all')
+    ? ('Showing combined sales revenue across ' . (int)$dashboard_branch_count . ' branch' . ($dashboard_branch_count === 1 ? '' : 'es') . '.')
+    : ('Showing sales revenue for ' . $dashboard_branch_display . '.');
 $dashboard_top_branch = $dashboard_branch_perf[0] ?? null;
 $dashboard_low_branch = $dashboard_branch_count > 0 ? $dashboard_branch_perf[$dashboard_branch_count - 1] : null;
 $dashboard_avg_branch_revenue = $dashboard_branch_count > 0 ? ($dashboard_branch_total_revenue / $dashboard_branch_count) : 0.0;
