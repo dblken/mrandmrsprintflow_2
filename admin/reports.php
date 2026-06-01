@@ -598,6 +598,21 @@ if ($dash_single_branch && (float)($dash_single_branch['revenue'] ?? 0) > 0) {
     $dash_single_svc_pct = round(((float)($dash_single_branch['revenue_jobs'] ?? 0) / (float)$dash_single_branch['revenue']) * 100, 1);
 }
 
+// ── 12b. Estimated Gross Profit Analytics (material-cost-based only) ─────────
+$gross_profit_analytics = pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId);
+$gp_summary = $gross_profit_analytics['summary'] ?? [];
+$gp_branch_rows = $gross_profit_analytics['by_branch'] ?? [];
+$gp_cat = $gross_profit_analytics['category_insights'] ?? [];
+$gp_highest_branch = $gp_summary['highest_gp_branch'] ?? null;
+$gp_highest_margin_branch = null;
+if (!empty($gp_branch_rows)) {
+    $tmp = $gp_branch_rows;
+    usort($tmp, static fn($a, $b) => (($b['estimated_gross_margin_pct'] ?? 0) <=> ($a['estimated_gross_margin_pct'] ?? 0)));
+    $gp_highest_margin_branch = $tmp[0] ?? null;
+}
+$gp_revenue_leader = !empty($dash_branch_perf) ? $dash_branch_perf[0] : null;
+$gp_profit_leader = !empty($gp_branch_rows) ? $gp_branch_rows[0] : null;
+
 // ── 13. Top customers ─────────────────────────────────────────────────────────
 $top_customers = [];
 if (!$gaBranchEmpty) {
@@ -785,6 +800,14 @@ if (!$gaBranchEmpty) {
             $insights[] = "Revenue is up <strong>{$revenue_delta}%</strong> vs. the previous period — strong growth momentum.";
         elseif ($revenue_delta < -10)
             $insights[] = "Revenue dropped <strong>".abs($revenue_delta)."%</strong> vs. the previous period — consider a promotional push.";
+    }
+    if (!empty($gp_highest_branch['branch_name'])) {
+        $insights[] = "<strong>" . htmlspecialchars((string)$gp_highest_branch['branch_name']) . "</strong> has the highest estimated gross profit at <strong>₱" . number_format((float)($gp_highest_branch['estimated_gross_profit'] ?? 0), 0) . "</strong> (material-cost based).";
+    }
+    if (!empty($gp_revenue_leader['branch_name']) && !empty($gp_profit_leader['branch_name'])) {
+        if (mb_strtolower((string)$gp_revenue_leader['branch_name']) !== mb_strtolower((string)$gp_profit_leader['branch_name'])) {
+            $insights[] = "<strong>" . htmlspecialchars((string)$gp_revenue_leader['branch_name']) . "</strong> leads in revenue, while <strong>" . htmlspecialchars((string)$gp_profit_leader['branch_name']) . "</strong> leads in estimated gross profit due to lower attributed material costs.";
+        }
     }
 }
 foreach ($active_events as $ev) {
@@ -2284,6 +2307,46 @@ $dashData = [
                 'growth_pct' => isset($b['growth_pct']) ? $b['growth_pct'] : null
             ];
         }, $dash_branch_perf),
+    'grossProfitAnalytics' => [
+        'summary' => [
+            'estimated_gross_profit' => (float)($gp_summary['estimated_gross_profit'] ?? 0),
+            'estimated_gross_margin_pct' => (float)($gp_summary['estimated_gross_margin_pct'] ?? 0),
+            'coverage_pct' => (float)($gp_summary['coverage_pct'] ?? 0),
+            'costed_revenue' => (float)($gp_summary['costed_revenue'] ?? 0),
+            'uncosted_revenue' => (float)($gp_summary['uncosted_revenue'] ?? 0),
+            'total_revenue' => (float)($gp_summary['total_revenue'] ?? 0),
+            'missing_cost_transactions' => (int)($gp_summary['missing_cost_transactions'] ?? 0),
+            'costed_transactions' => (int)($gp_summary['costed_transactions'] ?? 0),
+            'total_transactions' => (int)($gp_summary['total_transactions'] ?? 0),
+            'coverage_warning' => (bool)($gp_summary['coverage_warning'] ?? false),
+            'coverage_warning_threshold' => (float)($gp_summary['coverage_warning_threshold'] ?? 70),
+            'highest_gp_branch' => $gp_highest_branch ? [
+                'branch_name' => (string)($gp_highest_branch['branch_name'] ?? ''),
+                'estimated_gross_profit' => (float)($gp_highest_branch['estimated_gross_profit'] ?? 0),
+                'estimated_gross_margin_pct' => (float)($gp_highest_branch['estimated_gross_margin_pct'] ?? 0),
+            ] : null,
+            'highest_margin_branch' => $gp_highest_margin_branch ? [
+                'branch_name' => (string)($gp_highest_margin_branch['branch_name'] ?? ''),
+                'estimated_gross_profit' => (float)($gp_highest_margin_branch['estimated_gross_profit'] ?? 0),
+                'estimated_gross_margin_pct' => (float)($gp_highest_margin_branch['estimated_gross_margin_pct'] ?? 0),
+            ] : null,
+        ],
+        'by_branch' => array_map(static function ($r) {
+            return [
+                'branch_name' => (string)($r['branch_name'] ?? 'Unknown Branch'),
+                'rank' => (int)($r['rank'] ?? 0),
+                'revenue' => round((float)($r['revenue'] ?? 0), 2),
+                'material_cost' => round((float)($r['material_cost'] ?? 0), 2),
+                'estimated_gross_profit' => round((float)($r['estimated_gross_profit'] ?? 0), 2),
+                'estimated_gross_margin_pct' => round((float)($r['estimated_gross_margin_pct'] ?? 0), 2),
+            ];
+        }, $gp_branch_rows),
+        'category_insights' => [
+            'highest_margin_service_category' => $gp_cat['highest_margin_service_category'] ?? null,
+            'highest_margin_product_category' => $gp_cat['highest_margin_product_category'] ?? null,
+        ],
+        'disclaimer' => 'Estimated Gross Profit is calculated using available inventory and material cost data. Labor costs, salaries, utilities, rent, overhead, equipment depreciation, and administrative expenses are not included. Values should be interpreted as material-cost-based profitability estimates.',
+    ],
     'salesByBranchSidebar' => [
         'mode' => $dash_sidebar_single ? 'single' : 'multi',
         'period_label' => $dash_period_label,
@@ -2415,6 +2478,108 @@ $dashData = [
                     <div class="kpi-sub"><?php echo $top_kpi_location ? $top_kpi_location['cnt'].' transactions' : 'No location data for period'; ?></div>
                 </div>
             </div>
+
+            <!-- ══ ESTIMATED GROSS PROFIT ANALYTICS ═══════════════════════════ -->
+            <section class="ana-card" id="pf-gross-profit-section">
+                <div class="ana-hd" style="align-items:flex-start;">
+                    <div>
+                        <h3 class="chart-title-nowrap">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Estimated Gross Profit Analytics
+                        </h3>
+                        <div style="font-size:12px;color:#6b7280;margin-top:6px;max-width:960px;">
+                            Estimated Gross Profit is calculated using available inventory and material cost data. Labor costs, salaries, utilities, rent, overhead, equipment depreciation, and administrative expenses are not included. Values should be interpreted as material-cost-based profitability estimates.
+                        </div>
+                    </div>
+                    <?php if (!empty($gp_summary['coverage_warning'])): ?>
+                        <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:8px;font-size:11px;font-weight:700;">
+                            Profitability estimates may be incomplete due to missing material cost data.
+                        </span>
+                    <?php endif; ?>
+                </div>
+                <div class="ana-bd" style="gap:16px;">
+                    <div class="kpi-row">
+                        <div class="kpi-card kpi-em" title="Cost-attributed revenue minus attributed direct material cost">
+                            <div class="kpi-lbl">Estimated Gross Profit</div>
+                            <div class="kpi-val">₱<?php echo number_format((float)($gp_summary['estimated_gross_profit'] ?? 0), 0); ?></div>
+                            <div class="kpi-sub">Material-cost-based estimate</div>
+                        </div>
+                        <div class="kpi-card kpi-ind" title="Estimated gross profit / costed revenue">
+                            <div class="kpi-lbl">Estimated Gross Margin %</div>
+                            <div class="kpi-val"><?php echo number_format((float)($gp_summary['estimated_gross_margin_pct'] ?? 0), 1); ?>%</div>
+                            <div class="kpi-sub">Based on cost-attributed revenue only</div>
+                        </div>
+                        <div class="kpi-card kpi-amb" title="Share of supported paid/completed revenue with valid material-cost attribution">
+                            <div class="kpi-lbl">Coverage Percentage</div>
+                            <div class="kpi-val"><?php echo number_format((float)($gp_summary['coverage_pct'] ?? 0), 1); ?>%</div>
+                            <div class="kpi-sub">Coverage: <?php echo number_format((float)($gp_summary['coverage_pct'] ?? 0), 1); ?>% of Revenue</div>
+                        </div>
+                        <div class="kpi-card kpi-vio" title="Branch with highest estimated gross profit">
+                            <div class="kpi-lbl">Highest Gross Profit Branch</div>
+                            <div class="kpi-val" style="font-size:16px;line-height:1.25;">
+                                <?php echo htmlspecialchars((string)(($gp_highest_branch['branch_name'] ?? '—'))); ?>
+                            </div>
+                            <div class="kpi-sub">
+                                <?php if (!empty($gp_highest_branch)): ?>
+                                    ₱<?php echo number_format((float)($gp_highest_branch['estimated_gross_profit'] ?? 0), 0); ?>
+                                <?php else: ?>
+                                    No cost-attributed branch data
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ana-grid" style="grid-template-columns:1.35fr 1fr;">
+                        <div class="ana-card" style="box-shadow:none;">
+                            <div class="ana-hd">
+                                <h3>Revenue vs Estimated Gross Profit by Branch</h3>
+                                <span style="font-size:11px;color:#6b7280;font-weight:700;">Ranked by gross profit</span>
+                            </div>
+                            <div class="ana-bd">
+                                <div class="ch-box" id="gp-branch-chart-wrap" style="height:420px;">
+                                    <div id="gp-branch-nodata" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#9ca3af;font-size:12px;font-weight:600;">
+                                        No cost-attributed branch data for this period
+                                    </div>
+                                    <div class="pf-wide-chart-canvas"><canvas id="gpBranchChart"></canvas></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ana-card" style="box-shadow:none;">
+                            <div class="ana-hd"><h3>Data Quality Indicators</h3></div>
+                            <div class="ana-bd" style="gap:10px;">
+                                <div class="pf-branch-stat-copy">
+                                    <div class="pf-branch-stat-label">Costed Revenue</div>
+                                    <div class="pf-branch-stat-value">₱<?php echo number_format((float)($gp_summary['costed_revenue'] ?? 0), 0); ?></div>
+                                </div>
+                                <div class="pf-branch-stat-copy">
+                                    <div class="pf-branch-stat-label">Uncosted Revenue</div>
+                                    <div class="pf-branch-stat-value">₱<?php echo number_format((float)($gp_summary['uncosted_revenue'] ?? 0), 0); ?></div>
+                                </div>
+                                <div class="pf-branch-stat-copy">
+                                    <div class="pf-branch-stat-label">Coverage %</div>
+                                    <div class="pf-branch-stat-value"><?php echo number_format((float)($gp_summary['coverage_pct'] ?? 0), 1); ?>%</div>
+                                </div>
+                                <div class="pf-branch-stat-copy">
+                                    <div class="pf-branch-stat-label">Transactions Missing Material Cost</div>
+                                    <div class="pf-branch-stat-value"><?php echo number_format((int)($gp_summary['missing_cost_transactions'] ?? 0)); ?></div>
+                                    <div class="pf-branch-stat-sub neu"><?php echo number_format((int)($gp_summary['costed_transactions'] ?? 0)); ?> costed of <?php echo number_format((int)($gp_summary['total_transactions'] ?? 0)); ?> total</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ana-card" style="box-shadow:none;">
+                        <div class="ana-hd"><h3>Estimated Gross Profit Insights</h3></div>
+                        <div class="ana-bd" style="gap:8px;font-size:13px;color:#374151;">
+                            <div><strong>Highest Gross Profit Branch:</strong> <?php echo htmlspecialchars((string)($gp_highest_branch['branch_name'] ?? 'N/A')); ?></div>
+                            <div><strong>Highest Gross Margin Branch:</strong> <?php echo htmlspecialchars((string)($gp_highest_margin_branch['branch_name'] ?? 'N/A')); ?><?php if (!empty($gp_highest_margin_branch)): ?> (<?php echo number_format((float)$gp_highest_margin_branch['estimated_gross_margin_pct'], 1); ?>%)<?php endif; ?></div>
+                            <div><strong>Revenue Leader vs Profit Leader:</strong> <?php echo htmlspecialchars((string)($gp_revenue_leader['branch_name'] ?? 'N/A')); ?> vs <?php echo htmlspecialchars((string)($gp_profit_leader['branch_name'] ?? 'N/A')); ?></div>
+                            <div><strong>Highest Margin Service Category:</strong> <?php echo htmlspecialchars((string)(($gp_cat['highest_margin_service_category']['category'] ?? 'N/A'))); ?></div>
+                            <div><strong>Highest Margin Product Category:</strong> <?php echo htmlspecialchars((string)(($gp_cat['highest_margin_product_category']['category'] ?? 'N/A'))); ?></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             <!-- ══ SALES REVENUE (From Dashboard) ═════════════════════════════ -->
             <div class="ana-card">

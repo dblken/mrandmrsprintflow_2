@@ -93,6 +93,10 @@ window.printflowTeardownReportsCharts = function () {
         try { window.__pfDashSalesChart.destroy(); } catch (e) {}
         window.__pfDashSalesChart = null;
     }
+    if (window.__pfGrossProfitBranchChart) {
+        try { window.__pfGrossProfitBranchChart.destroy(); } catch (e) {}
+        window.__pfGrossProfitBranchChart = null;
+    }
     if (window.__pfReportsProductCategoryChart) {
         try { window.__pfReportsProductCategoryChart.destroy(); } catch (e) {}
         window.__pfReportsProductCategoryChart = null;
@@ -127,6 +131,12 @@ window.printflowTeardownReportsCharts = function () {
         dashCanvas.dataset.pfChartInitialized = '0';
         var ctx = dashCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, dashCanvas.width, dashCanvas.height);
+    }
+    var gpCanvas = document.getElementById('gpBranchChart');
+    if (gpCanvas) {
+        gpCanvas.dataset.pfChartInitialized = '0';
+        var gpCtx = gpCanvas.getContext('2d');
+        if (gpCtx) gpCtx.clearRect(0, 0, gpCanvas.width, gpCanvas.height);
     }
     document.querySelectorAll('.ch-box.pf-chart-loading').forEach(function (box) {
         box.classList.remove('pf-chart-loading');
@@ -918,6 +928,117 @@ window.printflowInitReportsCharts = function () {
                 noDataEl.querySelector('span').textContent = 'Error loading chart data';
             }
         }
+    })();
+
+    // ── ESTIMATED GROSS PROFIT BY BRANCH (Grouped Bars) ─────────────────────
+    (function initGrossProfitBranchChart() {
+        var canvas = document.getElementById('gpBranchChart');
+        if (!canvas || typeof Chart === 'undefined') {
+            return;
+        }
+        if (window.__pfGrossProfitBranchChart) {
+            try { window.__pfGrossProfitBranchChart.destroy(); } catch (e) {}
+            window.__pfGrossProfitBranchChart = null;
+        }
+        var dataRoot = window.__pfReportsData || {};
+        var gp = dataRoot.grossProfitAnalytics || {};
+        var rows = Array.isArray(gp.by_branch) ? gp.by_branch.slice() : [];
+        rows = rows.map(function (r) {
+            return {
+                branch_name: String(r.branch_name || 'Unknown Branch'),
+                rank: Number(r.rank) || 0,
+                revenue: Number(r.revenue) || 0,
+                estimated_gross_profit: Number(r.estimated_gross_profit) || 0,
+                estimated_gross_margin_pct: Number(r.estimated_gross_margin_pct) || 0
+            };
+        }).filter(function (r) {
+            return r.revenue > 0;
+        }).sort(function (a, b) {
+            return b.estimated_gross_profit - a.estimated_gross_profit;
+        });
+
+        var noData = document.getElementById('gp-branch-nodata');
+        if (rows.length === 0) {
+            if (noData) noData.style.display = 'flex';
+            return;
+        }
+        if (noData) noData.style.display = 'none';
+
+        var labels = rows.map(function (r) { return r.branch_name; });
+        var revenue = rows.map(function (r) { return r.revenue; });
+        var gpVals = rows.map(function (r) { return r.estimated_gross_profit; });
+        var phpFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 });
+        var compactFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 1 });
+
+        canvas.dataset.pfChartInitialized = '1';
+        window.__pfGrossProfitBranchChart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Revenue',
+                        data: revenue,
+                        backgroundColor: 'rgba(0,35,43,0.80)',
+                        borderColor: '#00232b',
+                        borderWidth: 1.2,
+                        borderRadius: 8,
+                        borderSkipped: false
+                    },
+                    {
+                        label: 'Estimated Gross Profit',
+                        data: gpVals,
+                        backgroundColor: 'rgba(83,197,224,0.85)',
+                        borderColor: '#0E7490',
+                        borderWidth: 1.2,
+                        borderRadius: 8,
+                        borderSkipped: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom',
+                        labels: { boxWidth: 10, boxHeight: 10, color: '#00232b', font: { size: 11, weight: '700' } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function (items) {
+                                if (!items[0]) return '';
+                                var row = rows[items[0].dataIndex];
+                                return row.branch_name + ' (Rank #' + (row.rank || (items[0].dataIndex + 1)) + ')';
+                            },
+                            label: function (ctx) {
+                                return ctx.dataset.label + ': ' + phpFmt.format(Number(ctx.parsed.y) || 0);
+                            },
+                            afterBody: function (items) {
+                                if (!items[0]) return '';
+                                var row = rows[items[0].dataIndex];
+                                return 'Est. Gross Margin: ' + (Number(row.estimated_gross_margin_pct) || 0).toFixed(1) + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            font: { size: 11 },
+                            callback: function (v) { return compactFmt.format(Number(v) || 0); }
+                        },
+                        grid: { color: '#f3f4f6' }
+                    },
+                    x: {
+                        ticks: { color: '#334155', font: { size: 11, weight: '600' }, maxRotation: 0, minRotation: 0 },
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
     })();
 
     // ── INDEPENDENT CHARTS (All-Time Data - Not Affected by Global Filters) ──
