@@ -2791,8 +2791,27 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const incomingTs = incoming?._ts || 0;
                 let winner = existing;
                 let loser = incoming;
+                const existingType = String(existing?.order_type || 'JOB').toUpperCase();
+                const incomingType = String(incoming?.order_type || 'JOB').toUpperCase();
+                const existingSource = String(existing?.order_source || 'customer').toLowerCase();
+                const incomingSource = String(incoming?.order_source || 'customer').toLowerCase();
+                const existingIsPos = ['pos', 'walk-in'].includes(existingSource);
+                const incomingIsPos = ['pos', 'walk-in'].includes(incomingSource);
+                const sameOnlineStoreOrder =
+                    existing?.order_id &&
+                    incoming?.order_id &&
+                    String(existing.order_id) === String(incoming.order_id) &&
+                    !existingIsPos &&
+                    !incomingIsPos &&
+                    [existingType, incomingType].includes('ORDER') &&
+                    [existingType, incomingType].includes('CUSTOMIZATION');
 
-                if (incomingTs > existingTs) {
+                if (sameOnlineStoreOrder) {
+                    // Online service orders must open the regular order API; it carries the full
+                    // customer specifications. The customization row is only a workflow mirror.
+                    winner = existingType === 'ORDER' ? existing : incoming;
+                    loser = existingType === 'ORDER' ? incoming : existing;
+                } else if (incomingTs > existingTs) {
                     winner = incoming;
                     loser = existing;
                 } else if (incomingTs === existingTs) {

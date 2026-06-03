@@ -477,7 +477,10 @@ try {
             }
             $pending_orders = $visiblePendingOrders;
 
-            // Customizations from POS (customizations table)
+            // Customizations from POS (customizations table).
+            // Online service orders also create rows in customizations, but the complete
+            // customer specs live on the regular order payload. Returning those rows here
+            // lets a sparse CUSTOMIZATION row win the client-side merge and hides specs.
             $custom_sql = "SELECT 
                     cust.customization_id AS id,
                     cust.order_id,
@@ -524,7 +527,12 @@ try {
                 LEFT JOIN orders o ON cust.order_id = o.order_id
                 WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
                 AND cust.order_id IS NOT NULL
-                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')"
+                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
+                AND (
+                    LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
+                    OR cust.customization_details LIKE '%\"source\":\"POS\"%'
+                    OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                )"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
                 LIMIT " . (int)$dashboardListLimit;
