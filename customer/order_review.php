@@ -530,6 +530,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 ]
                             );
                         }
+                        $custom = printflow_normalize_customization_for_modal($custom);
+                        if (review_item_is_service($item) && (int)($custom['service_id'] ?? 0) <= 0) {
+                            $resolvedSid = printflow_resolve_service_catalog_service_id_from_cart_line($item);
+                            if ($resolvedSid > 0) {
+                                $custom['service_id'] = $resolvedSid;
+                            }
+                        }
+                        if (trim((string)($custom['source_page'] ?? '')) === '') {
+                            $custom['source_page'] = trim((string)($item['source_page'] ?? 'services')) ?: 'services';
+                        }
                         $uploadedFilesMeta = [];
                         $custom_data   = printflow_encode_customization_payload($custom);
                         $design_binary = null;

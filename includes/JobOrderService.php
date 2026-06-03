@@ -1703,7 +1703,7 @@ class JobOrderService {
         $firstCustomizationServiceType = '';
         foreach ($customizationRows as $customizationRow) {
             $serviceType = trim((string)($customizationRow['service_type'] ?? ''));
-            $details = customer_orders_decode_customization_payload((string)($customizationRow['customization_details'] ?? ''));
+            $details = printflow_decode_modal_customization_payload((string)($customizationRow['customization_details'] ?? ''));
             if ($serviceType !== '' && empty($details['service_type'])) {
                 $details['service_type'] = $serviceType;
             }
@@ -1743,7 +1743,7 @@ class JobOrderService {
 
         $firstItemCustomization = [];
         if (!empty($items)) {
-            $firstItemCustomization = customer_orders_decode_customization_payload((string)($items[0]['customization_data'] ?? ''));
+            $firstItemCustomization = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
         }
         $firstItemCustomization = printflow_overlay_nonempty_assoc(
             printflow_overlay_nonempty_assoc($orphanCustomizationDetails, $firstCustomizationPayload),
@@ -1791,7 +1791,7 @@ class JobOrderService {
 
         if (!$isServiceOrder) {
             foreach ($items as $probeItem) {
-                $probeCustom = customer_orders_decode_customization_payload((string)($probeItem['customization_data'] ?? ''));
+                $probeCustom = printflow_decode_modal_customization_payload((string)($probeItem['customization_data'] ?? ''));
                 $probeSourcePage = strtolower(trim((string)($probeCustom['source_page'] ?? '')));
                 if (
                     !empty($probeCustom['service_type'])
@@ -1929,8 +1929,8 @@ class JobOrderService {
         $height_ft = '1';
         $itemCount = count($items);
         foreach ($items as $lineIndex => $item) {
-            // Match customer/get_order_items.php: decode without early printflow_normalize so merges match the storefront modal.
-            $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+            // Match customer/get_order_items.php: decode + unwrap nested payloads so staff see the same specs as the customer modal.
+            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
             $itemCustomizationFallback = $customizationByItemId[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
             $mergedTableDetails = printflow_overlay_nonempty_assoc(
                 $orphanCustomizationDetails,
@@ -1940,12 +1940,17 @@ class JobOrderService {
             $itemTableServiceType = trim((string)($itemCustomizationFallback['service_type'] ?? ''));
             $fallbackServiceType = $itemTableServiceType !== '' ? $itemTableServiceType : $orphanServiceType;
             $custom = printflow_overlay_nonempty_assoc($mergedTableDetails, $custom);
+            $custom = printflow_overlay_nonempty_assoc(
+                is_array($firstItemCustomization) ? $firstItemCustomization : [],
+                $custom
+            );
             if ($fallbackServiceType !== '' && empty($custom['service_type'])) {
                 $custom['service_type'] = $fallbackServiceType;
             }
             if (empty($custom['service_type']) && !empty($firstItemCustomization['service_type'])) {
                 $custom['service_type'] = (string)$firstItemCustomization['service_type'];
             }
+            $custom = printflow_normalize_customization_for_modal($custom);
             $custom = customer_orders_sanitize_generic_service_labels($custom);
 
             if ($isServiceOrder && $jobOrdersList !== []) {
@@ -2016,9 +2021,10 @@ class JobOrderService {
             if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom) && !$isServiceOrder) {
                 continue;
             }
-            if (empty($first_custom)) {
-                $first_custom = $custom;
-            }
+            $first_custom = printflow_overlay_nonempty_assoc(
+                is_array($first_custom) ? $first_custom : [],
+                is_array($custom) ? $custom : []
+            );
 
             $quantity = max(1, (int)($item['quantity'] ?? 0));
             $total_qty += $quantity;
@@ -2053,6 +2059,19 @@ class JobOrderService {
                 '_use_job_title_fallback' => $useJobLineFallback,
             ];
             $name = customer_orders_primary_item_name($orderLike);
+            $designNameForSpecs = trim((string)($item['design_image_name'] ?? ''));
+            if ($designNameForSpecs === '' && !empty($item['design_file'])) {
+                $parsedDesignPath = parse_url((string)$item['design_file'], PHP_URL_PATH);
+                $designNameForSpecs = basename(
+                    is_string($parsedDesignPath) && $parsedDesignPath !== ''
+                        ? $parsedDesignPath
+                        : (string)$item['design_file']
+                );
+            }
+            if ($designNameForSpecs !== '') {
+                $custom = self::ensureUploadDesignSpecLabel($custom, $designNameForSpecs);
+            }
+
             // Staff view: preserve ALL customization fields so dynamic service orders
             // (Brochure, Stickers, Mugs, Poster, Raffle, Reflectorized, T-shirt) show
             // the same specs as the customer side. Only strip truly internal/temp keys.
@@ -2505,6 +2524,38 @@ class JobOrderService {
      * @param int                 $quantity Line quantity
      * @return array<string,string>
      */
+    /**
+     * Ensure uploaded design filename appears in customization specs when BLOB/path exists but JSON omitted it.
+     *
+     * @param array<string, mixed> $custom
+     */
+    private static function ensureUploadDesignSpecLabel(array $custom, string $designName): array
+    {
+        $designName = trim($designName);
+        if ($designName === '') {
+            return $custom;
+        }
+
+        foreach (array_keys($custom) as $key) {
+            $norm = strtolower(preg_replace('/[\s_]+/', '', (string)$key));
+            if (
+                str_contains($norm, 'uploaddesign')
+                || $norm === 'designfile'
+                || $norm === 'designupload'
+                || (str_contains($norm, 'design') && str_contains($norm, 'upload'))
+            ) {
+                if (trim((string)($custom[$key] ?? '')) === '') {
+                    $custom[$key] = $designName;
+                }
+                return $custom;
+            }
+        }
+
+        $custom['Upload Design'] = $designName;
+
+        return $custom;
+    }
+
     public static function buildStaffCustomizationPayload(array $custom, int $quantity): array
     {
         if ($custom === []) {
@@ -2517,7 +2568,6 @@ class JobOrderService {
             'design_mime',     'reference_mime',
             'cart_key',        '_cart_key',
             'config_id',       'form_type',
-            'source_page',     'source',
             'layout_file',     'reference_file',
             'install_province','install_city',
             'install_barangay','install_street',

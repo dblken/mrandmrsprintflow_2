@@ -812,8 +812,8 @@ try {
             if (empty($cust_row)) throw new Exception("Customization not found.");
             $cust = $cust_row[0];
 
-            // Parse customization details
-            $details = customer_orders_decode_customization_payload((string)($cust['customization_details'] ?? ''));
+            // Parse customization details (unwrap nested JSON like customer order summary)
+            $details = printflow_decode_modal_customization_payload((string)($cust['customization_details'] ?? ''));
             $design_name = '';
             $reference_name = '';
             foreach ($details as $detail_key => $detail_value) {
@@ -974,6 +974,9 @@ try {
                 }
                 if (!empty($storeLinePayload['customization_details']) && is_array($storeLinePayload['customization_details'])) {
                     $details = printflow_overlay_nonempty_assoc($storeLinePayload['customization_details'], $details);
+                }
+                if (!empty($items[0]['customization']) && is_array($items[0]['customization'])) {
+                    $details = printflow_overlay_nonempty_assoc($items[0]['customization'], $details);
                 }
                 if (!empty($storeLinePayload['service_type'])) {
                     $summary['service_type'] = $storeLinePayload['service_type'];
@@ -1228,7 +1231,7 @@ try {
                 'items'                    => $items,
                 'materials'                => $linked_job_materials,
                 'ink_usage'                => $linked_job_ink_usage,
-                'customization_details'    => $details,
+                'customization_details'    => printflow_normalize_customization_for_modal($details),
             ];
             if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
                 $data['_debug'] = [
@@ -1458,7 +1461,7 @@ try {
                 'readiness'            => $linked_job['readiness'] ?? 'READY',
                 'order_source'         => jo_api_resolve_order_source($order_id, $o['order_source'] ?? null),
                 'items'                => $items_out,
-                'customization_details'=> $order_level_customization,
+                'customization_details'=> printflow_normalize_customization_for_modal($order_level_customization),
                 'materials'            => $linked_job_materials,
                 'ink_usage'            => $linked_job_ink_usage,
             ];

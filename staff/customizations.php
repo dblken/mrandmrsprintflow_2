@@ -3191,9 +3191,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                 ) {
                     const targetOrderItemId = Number(this.currentJo?.order_item_id || 0);
                     const itemOrderItemId = Number(item?.order_item_id || 0);
+                    const countDisplayableKeys = (obj) => Object.keys(obj || {}).filter((k) => {
+                        const v = obj[k];
+                        return v !== '' && v != null && !(typeof v === 'string' && v.length > 2000);
+                    }).length;
                     const shouldMergeFallback =
                         (targetOrderItemId > 0 && itemOrderItemId > 0 && targetOrderItemId === itemOrderItemId)
-                        || (targetOrderItemId <= 0 && Array.isArray(this.currentJo?.items) && this.currentJo.items.length === 1);
+                        || (targetOrderItemId <= 0 && Array.isArray(this.currentJo?.items) && this.currentJo.items.length === 1)
+                        || countDisplayableKeys(fallbackCustom) > countDisplayableKeys(sourceCustom);
 
                     if (shouldMergeFallback) {
                         sourceCustom = { ...fallbackCustom, ...sourceCustom };
@@ -3202,7 +3207,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
                 const isDetail = !!this.showDetailsModal;
                 const skip = isDetail 
-                    ? ['design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime', 'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file', 'source_page', 'source'] 
+                    ? ['design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime', 'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file'] 
                     : this.customFieldSkip;
                 
                 return Object.entries(sourceCustom).filter(([k, v]) => {
@@ -3210,8 +3215,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (skip.includes(k)) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
-                        const dupDesignKeys = ['design_upload', 'design_upload_path', 'upload_design', 'upload_design_path', 'design_file'];
-                        if (dupDesignKeys.includes(k) && this.staffEffectiveDesignOpenUrl(item)) {
+                        const lkDesign = String(k).toLowerCase().replace(/\s+/g, '_');
+                        const isDesignSpecKey = ['design_upload', 'design_upload_path', 'upload_design', 'upload_design_path', 'design_file'].includes(lkDesign)
+                            || (lkDesign.includes('upload') && lkDesign.includes('design'));
+                        if (isDesignSpecKey && this.staffEffectiveDesignOpenUrl(item)) {
                             return false;
                         }
                         const lk = String(k).toLowerCase().replace(/\s+/g, '_');
