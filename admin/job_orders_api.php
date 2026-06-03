@@ -1003,7 +1003,7 @@ try {
                         $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
                         $shouldMergeDetails =
                             ($targetOrderItemId > 0 && $lineOrderItemId === $targetOrderItemId)
-                            || ($targetOrderItemId <= 0 && count($items) === 1);
+                            || count($items) === 1;
 
                         if (!$shouldMergeDetails) {
                             continue;

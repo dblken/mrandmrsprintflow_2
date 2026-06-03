@@ -225,11 +225,20 @@ function review_item_estimated_total(array $item): float {
 function review_item_customization(array $item): array {
     $custom = $item['customization'] ?? [];
     if (is_string($custom)) {
+        if (function_exists('printflow_decode_modal_customization_payload')) {
+            return printflow_decode_modal_customization_payload($custom);
+        }
         $decoded = json_decode($custom, true);
         return is_array($decoded) ? $decoded : [];
     }
 
-    return is_array($custom) ? $custom : [];
+    if (!is_array($custom)) {
+        return [];
+    }
+
+    return function_exists('printflow_normalize_customization_for_modal')
+        ? printflow_normalize_customization_for_modal($custom)
+        : $custom;
 }
 
 // ── Accept the "buy_now" item key(s) from session ──────────────────
@@ -492,6 +501,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     // 3. Process each item and insert into order_items
                     foreach ($items_to_review as $key => $item) {
                         $custom = review_item_customization($item);
+                        // Persist the same normalized spec set rendered on the customer review card.
+                        $custom = pf_order_ui_normalize_review_customization($custom, $item, true);
                         if (review_item_is_product($item)) {
                             $sp = trim((string)($item['source_page'] ?? ''));
                             if ($sp !== '' && empty($custom['source_page'])) {
