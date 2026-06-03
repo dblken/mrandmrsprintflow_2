@@ -250,25 +250,6 @@ $items = db_query(
 ) ?: [];
 $categories = db_query("SELECT id, name FROM inv_categories ORDER BY sort_order ASC, name ASC") ?: [];
 
-$tx_modal_items = [];
-foreach ($items as $item) {
-    $itemId = (int)($item['id'] ?? 0);
-    if ($itemId <= 0 || strtoupper((string)($item['status'] ?? 'ACTIVE')) !== 'ACTIVE') {
-        continue;
-    }
-    $uom = pf_ledger_normalize_uom($item['unit'] ?? '', $item['category_name'] ?? '');
-    $soh = (float)InventoryManager::getStockOnHand($itemId, $branchId);
-    $tx_modal_items[] = [
-        'id' => $itemId,
-        'name' => (string)($item['name'] ?? ''),
-        'category_id' => (int)($item['category_id'] ?? 0),
-        'category_name' => (string)($item['category_name'] ?? ''),
-        'uom' => $uom,
-        'uom_label' => pf_ledger_uom_label($uom),
-        'soh' => $soh,
-        'soh_display' => $uom === 'pcs' ? (string)(int)round($soh) : rtrim(rtrim(number_format($soh, 2, '.', ''), '0'), '.'),
-    ];
-}
 $catalog_products = db_query(
     "SELECT product_id, name FROM products WHERE status != 'Archived' ORDER BY name ASC LIMIT 4000"
 ) ?: [];
@@ -444,6 +425,13 @@ if (isset($_GET['ajax'])) {
         .btn-in:hover { background: #10b981; color: #fff; }
         .btn-out { border-color: #ef4444; color: #ef4444; background: transparent; }
         .btn-out:hover { background: #ef4444; color: #fff; }
+        .btn-secondary { border-radius: 10px; height: 44px; padding: 0 24px; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-weight: 600; cursor: pointer; }
+        .btn-secondary:hover { background: #f9fafb; }
+        .btn-save { border-radius: 10px; height: 44px; padding: 0 24px; background: #0d9488; color: #fff; border: none; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .btn-save:hover:not(:disabled) { background: #0f766e; }
+        .btn-save:disabled { opacity: 0.65; cursor: not-allowed; }
+        .btn-save--danger { background: #dc2626; }
+        .btn-save--danger:hover:not(:disabled) { background: #b91c1c; }
 
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
 
@@ -655,15 +643,6 @@ if (isset($_GET['ajax'])) {
                     </h3>
                     
                     <div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap;">
-                        <button type="button" onclick="openModal('purchase')" class="toolbar-btn" style="height:38px; border-color:#059669; color:#059669; background:#ecfdf5; gap:6px;">
-                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            Receive IN
-                        </button>
-                        <button type="button" onclick="openModal('issue')" class="toolbar-btn" style="height:38px; border-color:#dc2626; color:#dc2626; background:#fef2f2; gap:6px;">
-                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            Issue OUT
-                        </button>
-
                         <!-- Sort Button -->
                         <div style="position:relative;">
                             <button type="button" class="toolbar-btn" :class="{active: sortOpen}" @click="sortOpen = !sortOpen; filterOpen = false" style="height:38px;">
@@ -897,69 +876,6 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
-<!-- Transaction Modal -->
-<div id="txModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3 class="modal-title" id="modalTitle" style="padding-right:30px;">Record Transaction</h3>
-            <button type="button" class="close-btn" onclick="closeModal()">×</button>
-        </div>
-        <form id="txForm" onsubmit="saveTransaction(event)">
-            <input type="hidden" name="action" value="record_transaction">
-            <input type="hidden" id="txType" name="transaction_type" value="">
-            
-            <div class="form-grid">
-                <div class="form-group full">
-                    <label>Resource / Material *</label>
-                    <div class="tx-item-picker" id="txItemPicker">
-                        <div class="tx-item-picker-filters">
-                            <select id="txItemCategory" aria-label="Filter by category">
-                                <option value="">All categories</option>
-                                <?php foreach ($categories as $cat): ?>
-                                    <option value="<?php echo (int)$cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <input type="search" id="txItemSearch" placeholder="Search by item name..." autocomplete="off" aria-label="Search item by name">
-                        </div>
-                        <input type="hidden" id="txItem" name="item_id" value="" required>
-                        <input type="hidden" id="txUom" name="uom" value="">
-                        <div id="txItemSelected" class="tx-item-selected" aria-live="polite">
-                            <div>
-                                <div class="tx-item-selected-name" id="txItemSelectedName"></div>
-                                <div class="tx-item-selected-meta" id="txItemSelectedMeta"></div>
-                            </div>
-                            <button type="button" class="tx-item-clear" id="txItemClearBtn">Change</button>
-                        </div>
-                        <div id="txItemResults" class="tx-item-results" role="listbox" aria-label="Matching materials"></div>
-                    </div>
-                </div>
-                
-                <div class="filter-group">
-                    <label for="txDate">Transaction Date *</label>
-                    <input type="date" id="txDate" name="transaction_date" value="<?php echo date('Y-m-d'); ?>" required>
-                </div>
-                
-                <div class="filter-group">
-                    <label for="txQty" class="tx-qty-label">
-                        <span>Quantity *</span>
-                        <span id="txQtyUom" class="tx-qty-uom-label" aria-hidden="true"></span>
-                    </label>
-                    <input type="number" step="0.01" id="txQty" name="quantity" min="0.01" required placeholder="0.00">
-                </div>
-                
-                <div class="form-group full">
-                    <label for="txNotes">Internal Memo / Notes</label>
-                    <input type="text" id="txNotes" name="notes" placeholder="Reason for this movement...">
-                </div>
-            </div>
-            
-            <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 24px; border-top: 1px solid #f3f4f6;">
-                <button type="button" onclick="closeModal()" class="btn-secondary" style="height: 44px; border-radius: 10px; padding: 0 24px;">Cancel</button>
-                <button type="submit" class="btn-primary" id="saveBtn" style="height: 44px; border-radius: 10px; padding: 0 24px; background: #6366f1;">Submit Entry</button>
-            </div>
-        </form>
-    </div>
-</div>
 
 <script>
     /* var: Turbo re-runs this script; let would conflict with other admin pages (e.g. inv_items currentSort). */
@@ -972,9 +888,6 @@ if (isset($_GET['ajax'])) {
     var ledgerRealtimeMs = 15000;
     var ledgerRealtimeTimer = null;
     var ledgerRealtimeBound = false;
-    var TX_LEDGER_ITEMS = <?php echo json_encode($tx_modal_items, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-    var txItemPickerBound = false;
-    var txSelectedItem = null;
 
     function filterPanel() {
         return {
@@ -1018,8 +931,6 @@ if (isset($_GET['ajax'])) {
                 fetchUpdatedTable({ page: 1 });
             });
         });
-
-        initTxItemPicker();
 
         startLedgerRealtime();
         if (!ledgerRealtimeBound) {
@@ -1236,225 +1147,6 @@ if (isset($_GET['ajax'])) {
         document.getElementById('viewModalNotes').textContent = t.notes || 'No notes.';
         document.getElementById('viewModalAdmin').textContent = t.created_by_name || 'System';
         document.getElementById('viewModal').style.display = 'flex';
-    }
-
-    function pfFormatTxSoh(item) {
-        if (!item) return '';
-        return item.soh_display + ' ' + item.uom;
-    }
-
-    function pfApplyTxQtyInputRules(uom) {
-        const qtyEl = document.getElementById('txQty');
-        if (!qtyEl) return;
-        if (uom === 'pcs') {
-            qtyEl.step = '1';
-            qtyEl.min = '1';
-            qtyEl.placeholder = '0';
-        } else {
-            qtyEl.step = '0.01';
-            qtyEl.min = '0.01';
-            qtyEl.placeholder = '0.00';
-        }
-    }
-
-    function pfUpdateTxQtyUom(item) {
-        const uomEl = document.getElementById('txQtyUom');
-        const uomHidden = document.getElementById('txUom');
-        if (uomEl) {
-            if (item) {
-                uomEl.textContent = '(' + item.uom_label + ')';
-                uomEl.classList.add('is-visible');
-                uomEl.setAttribute('aria-hidden', 'false');
-            } else {
-                uomEl.textContent = '';
-                uomEl.classList.remove('is-visible');
-                uomEl.setAttribute('aria-hidden', 'true');
-            }
-        }
-        if (uomHidden) uomHidden.value = item ? item.uom : '';
-        pfApplyTxQtyInputRules(item ? item.uom : '');
-    }
-
-    function pfFilterTxLedgerItems() {
-        const cat = document.getElementById('txItemCategory')?.value || '';
-        const q = (document.getElementById('txItemSearch')?.value || '').trim().toLowerCase();
-        return (TX_LEDGER_ITEMS || []).filter(function (item) {
-            if (cat && String(item.category_id) !== String(cat)) return false;
-            if (q && !(item.name || '').toLowerCase().includes(q)) return false;
-            return true;
-        }).slice(0, 80);
-    }
-
-    function pfRenderTxItemResults() {
-        const resultsEl = document.getElementById('txItemResults');
-        const searchEl = document.getElementById('txItemSearch');
-        if (!resultsEl || txSelectedItem) return;
-
-        const matches = pfFilterTxLedgerItems();
-        if (!matches.length) {
-            const hasQuery = !!(searchEl && searchEl.value.trim()) || !!(document.getElementById('txItemCategory')?.value);
-            resultsEl.innerHTML = '<div class="tx-item-empty">' + (hasQuery ? 'No materials match your search.' : 'Type a name or pick a category to find materials.') + '</div>';
-            return;
-        }
-
-        resultsEl.innerHTML = matches.map(function (item) {
-            const cat = item.category_name ? escapeHtml(item.category_name) + ' · ' : '';
-            return '<button type="button" class="tx-item-result" data-id="' + item.id + '">' +
-                '<span>' + escapeHtml(item.name) + '</span>' +
-                '<span class="tx-item-result-meta">' + cat + 'SOH: ' + escapeHtml(pfFormatTxSoh(item)) + ' · ' + escapeHtml(item.uom_label) + '</span>' +
-                '</button>';
-        }).join('');
-
-        resultsEl.querySelectorAll('.tx-item-result').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                const id = parseInt(btn.getAttribute('data-id'), 10);
-                const found = (TX_LEDGER_ITEMS || []).find(function (it) { return it.id === id; });
-                if (found) pfSelectTxLedgerItem(found);
-            });
-        });
-    }
-
-    function pfSelectTxLedgerItem(item) {
-        txSelectedItem = item;
-        const hidden = document.getElementById('txItem');
-        const selectedWrap = document.getElementById('txItemSelected');
-        const nameEl = document.getElementById('txItemSelectedName');
-        const metaEl = document.getElementById('txItemSelectedMeta');
-        const resultsEl = document.getElementById('txItemResults');
-        const searchEl = document.getElementById('txItemSearch');
-        const catEl = document.getElementById('txItemCategory');
-
-        if (hidden) hidden.value = String(item.id);
-        if (nameEl) nameEl.textContent = item.name;
-        if (metaEl) {
-            const cat = item.category_name ? item.category_name + ' · ' : '';
-            metaEl.textContent = cat + 'On hand: ' + pfFormatTxSoh(item) + ' · ' + item.uom_label;
-        }
-        if (selectedWrap) selectedWrap.classList.add('is-visible');
-        if (resultsEl) resultsEl.innerHTML = '';
-        if (searchEl) { searchEl.value = ''; searchEl.style.display = 'none'; }
-        if (catEl) catEl.style.display = 'none';
-        pfUpdateTxQtyUom(item);
-        document.getElementById('txQty')?.focus();
-    }
-
-    function pfClearTxLedgerItemSelection() {
-        txSelectedItem = null;
-        const hidden = document.getElementById('txItem');
-        const selectedWrap = document.getElementById('txItemSelected');
-        const searchEl = document.getElementById('txItemSearch');
-        const catEl = document.getElementById('txItemCategory');
-
-        if (hidden) hidden.value = '';
-        if (selectedWrap) selectedWrap.classList.remove('is-visible');
-        if (searchEl) { searchEl.style.display = ''; searchEl.value = ''; }
-        if (catEl) { catEl.style.display = ''; catEl.value = ''; }
-        pfUpdateTxQtyUom(null);
-        pfRenderTxItemResults();
-        searchEl?.focus();
-    }
-
-    function pfResetTxItemPicker() {
-        pfClearTxLedgerItemSelection();
-    }
-
-    function initTxItemPicker() {
-        if (txItemPickerBound) return;
-        txItemPickerBound = true;
-
-        const searchEl = document.getElementById('txItemSearch');
-        const catEl = document.getElementById('txItemCategory');
-        const clearBtn = document.getElementById('txItemClearBtn');
-        const picker = document.getElementById('txItemPicker');
-
-        if (searchEl) {
-            searchEl.addEventListener('input', pfRenderTxItemResults);
-            searchEl.addEventListener('focus', pfRenderTxItemResults);
-        }
-        if (catEl) catEl.addEventListener('change', pfRenderTxItemResults);
-        if (clearBtn) clearBtn.addEventListener('click', pfClearTxLedgerItemSelection);
-        if (picker) {
-            picker.addEventListener('keydown', function (e) {
-                if (e.key === 'Escape' && txSelectedItem) pfClearTxLedgerItemSelection();
-            });
-        }
-        pfUpdateTxQtyUom(null);
-    }
-
-    function openModal(mode) {
-        document.getElementById('txModal').style.display = 'flex';
-        const form = document.getElementById('txForm');
-        form.reset();
-        document.getElementById('txDate').value = new Date().toISOString().split('T')[0];
-        pfResetTxItemPicker();
-        
-        if (mode === 'issue') {
-            document.getElementById('modalTitle').textContent = 'Issue Material (STOCK-OUT)';
-            document.getElementById('txType').value = 'issue';
-        } else if (mode === 'purchase') {
-            document.getElementById('modalTitle').textContent = 'Receive Stock (STOCK-IN)';
-            document.getElementById('txType').value = 'purchase';
-        }
-    }
-
-    function closeModal() {
-        document.getElementById('txModal').style.display = 'none';
-    }
-
-    async function saveTransaction(e) {
-        e.preventDefault();
-        const itemId = parseInt(document.getElementById('txItem')?.value || '0', 10);
-        if (!itemId) {
-            alert('Please search and select a material.');
-            document.getElementById('txItemSearch')?.focus();
-            return;
-        }
-
-        const btn = document.getElementById('saveBtn');
-        btn.disabled = true;
-        btn.textContent = 'Recording...';
-
-        const formData = new FormData(document.getElementById('txForm'));
-        try {
-            const base = window.location.pathname.replace(/\/[^/]*$/, '/');
-            const apiUrl = base + 'inventory_transactions_api.php';
-            const res = await fetch(apiUrl, { method: 'POST', body: formData });
-            const rawText = await res.text();
-            let data;
-            try {
-                data = JSON.parse(rawText);
-            } catch (_) {
-                console.error('API response:', rawText);
-                alert('Invalid response from server. Check console for details.');
-                return;
-            }
-            if (data.success) {
-                closeModal();
-                fetchUpdatedTable();
-                
-                if (data.fifo_deductions && data.fifo_deductions.length > 0) {
-                    let summary = 'FIFO Stock-Out Summary:\n\n';
-                    data.fifo_deductions.forEach(d => {
-                        summary += `  Deducted: ${parseFloat(d.deducted).toFixed(2)} ft\n`;
-                        summary += `  Was: ${parseFloat(d.was).toFixed(2)} ft → Now: ${parseFloat(d.now).toFixed(2)} ft`;
-                        if (d.status === 'FINISHED') summary += ' (FINISHED)';
-                        summary += '\n\n';
-                    });
-                    alert(summary);
-                }
-            } else {
-                const errMsg = data.error || (data.errors ? Object.values(data.errors).join(' ') : 'Unknown error');
-                alert('Error: ' + errMsg);
-            }
-        } catch (err) {
-            console.error('Network error:', err);
-            alert('Network failure. Check that the server is running and the API URL is correct.');
-        } 
-        finally { btn.disabled = false; btn.textContent = 'Submit Entry'; }
-    }
-
-    function escapeHtml(unsafe) {
-        return (unsafe || '').toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
     window.addEventListener('click', e => {

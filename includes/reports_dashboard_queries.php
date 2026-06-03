@@ -60,6 +60,32 @@ function pf_reports_sql_alias(string $alias, string $fallback): string {
     return $alias !== '' ? $alias : $fallback;
 }
 
+/** Store order (orders table) counts as paid/completed for revenue exports. */
+function pf_reports_store_order_paid_completed_expr(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+             OR {$alias}.status = 'Completed')";
+}
+
+/** Store order with confirmed payment only (sales detail exports). */
+function pf_reports_store_order_paid_expr(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    return "LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')";
+}
+
+/** Customization / job order counts as paid/completed for revenue exports. */
+function pf_reports_job_order_paid_completed_expr(string $alias = 'jo'): string {
+    $alias = pf_reports_sql_alias($alias, 'jo');
+    return "(UPPER(TRIM(COALESCE({$alias}.payment_status, ''))) = 'PAID'
+             OR UPPER(TRIM(COALESCE({$alias}.status, ''))) = 'COMPLETED')";
+}
+
+/** Service order counts as completed for revenue exports. */
+function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
+    $alias = pf_reports_sql_alias($alias, 'so');
+    return "{$alias}.status = 'Completed'";
+}
+
 /** Resolved sold-item label for product-category charts when no live category exists. */
 function pf_product_sales_chart_item_label_sql(
     string $productAlias = 'p',
@@ -1439,6 +1465,406 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
     // Sort by revenue descending (branches with 0 revenue still included at bottom)
     usort($out, static fn ($a, $b) => $b['revenue'] <=> $a['revenue']);
     return $out;
+}
+
+/** Check column existence once per table/column pair. */
+function pf_reports_table_has_column(string $table, string $column): bool {
+    static $cache = [];
+    $key = $table . '::' . $column;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    try {
+        $rows = db_query("SHOW COLUMNS FROM `{$table}` LIKE ?", 's', [$column]) ?: [];
+        $cache[$key] = !empty($rows);
+    } catch (Throwable $e) {
+        $cache[$key] = false;
+    }
+    return $cache[$key];
+}
+
+/** True if a material row has valid cost attribution inputs. */
+function pf_reports_material_cost_valid_sql(string $alias = 'm'): string {
+    $a = pf_reports_sql_alias($alias, 'm');
+    return "COALESCE({$a}.unit_cost_at_assignment, 0) > 0
+            AND (
+                (COALESCE({$a}.computed_required_length_ft, 0) > 0)
+                OR (COALESCE({$a}.quantity, 0) > 0)
+            )";
+}
+
+/** Quantity basis for material costing (rolls use required length; others use quantity). */
+function pf_reports_material_qty_basis_sql(string $alias = 'm', string $itemAlias = 'i'): string {
+    $a = pf_reports_sql_alias($alias, 'm');
+    $ia = pf_reports_sql_alias($itemAlias, 'i');
+    return "CASE
+                WHEN COALESCE({$ia}.track_by_roll, 0) = 1
+                    THEN COALESCE(NULLIF({$a}.computed_required_length_ft, 0), {$a}.quantity, 0)
+                ELSE COALESCE(NULLIF({$a}.quantity, 0), {$a}.computed_required_length_ft, 0)
+            END";
+}
+
+/**
+ * Estimated gross profit analytics (material-cost-based only).
+ * Uses only supported cost attribution from job_order_materials.
+ *
+ * @return array{
+ *   summary:array<string,mixed>,
+ *   by_branch:list<array<string,mixed>>,
+ *   category_insights:array<string,mixed>
+ * }
+ */
+function pf_reports_estimated_gross_profit_analytics(string $from, string $toEnd, $branchId): array {
+    $summary = [
+        'estimated_gross_profit' => 0.0,
+        'estimated_gross_margin_pct' => 0.0,
+        'coverage_pct' => 0.0,
+        'highest_gp_branch' => null,
+        'costed_revenue' => 0.0,
+        'uncosted_revenue' => 0.0,
+        'total_revenue' => 0.0,
+        'missing_cost_transactions' => 0,
+        'costed_transactions' => 0,
+        'total_transactions' => 0,
+        'coverage_warning' => false,
+        'coverage_warning_threshold' => 70.0,
+    ];
+    $byBranch = [];
+    $categoryInsights = [
+        'highest_margin_service_category' => null,
+        'highest_margin_product_category' => null,
+    ];
+
+    try {
+        $hasStdOrderId = pf_reports_table_has_column('job_order_materials', 'std_order_id');
+        $hasOrdersAmountPaid = pf_reports_table_has_column('orders', 'amount_paid');
+        $materialValid = pf_reports_material_cost_valid_sql('m');
+        $qtyBasis = pf_reports_material_qty_basis_sql('m', 'i');
+        $orderRevenueExpr = $hasOrdersAmountPaid
+            ? "COALESCE(NULLIF(o.amount_paid, 0), o.total_amount, 0)"
+            : "COALESCE(o.total_amount, 0)";
+
+        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
+        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
+
+        $oDatePart = '';
+        $jDatePart = '';
+        $oTypes = '';
+        $jTypes = '';
+        $oParams = [];
+        $jParams = [];
+        if ($from !== '' && $toEnd !== '') {
+            $oDatePart = ' AND o.order_date BETWEEN ? AND ?';
+            $jDatePart = ' AND jo.created_at BETWEEN ? AND ?';
+            $oTypes = 'ss';
+            $jTypes = 'ss';
+            $oParams = [$from, $toEnd];
+            $jParams = [$from, $toEnd];
+        } elseif ($from !== '') {
+            $oDatePart = ' AND o.order_date >= ?';
+            $jDatePart = ' AND jo.created_at >= ?';
+            $oTypes = 's';
+            $jTypes = 's';
+            $oParams = [$from];
+            $jParams = [$from];
+        } elseif ($toEnd !== '') {
+            $oDatePart = ' AND o.order_date <= ?';
+            $jDatePart = ' AND jo.created_at <= ?';
+            $oTypes = 's';
+            $jTypes = 's';
+            $oParams = [$toEnd];
+            $jParams = [$toEnd];
+        }
+
+        // 1) Costed store orders (only if std_order_id exists in job_order_materials)
+        $orderCostedRows = [];
+        if ($hasStdOrderId) {
+            $orderCostedRows = db_query(
+                "SELECT
+                    o.order_id AS txn_id,
+                    o.branch_id,
+                    {$orderRevenueExpr} AS revenue,
+                    SUM(
+                        CASE WHEN {$materialValid}
+                             THEN ({$qtyBasis} * COALESCE(m.unit_cost_at_assignment, 0))
+                             ELSE 0 END
+                    ) AS material_cost
+                 FROM orders o
+                 INNER JOIN job_order_materials m ON m.std_order_id = o.order_id
+                 LEFT JOIN inv_items i ON i.id = m.item_id
+                 WHERE (" . pf_reports_store_order_paid_completed_expr('o') . ")
+                   {$oDatePart} {$bo}
+                 GROUP BY o.order_id, o.branch_id",
+                $oTypes . $bto,
+                array_merge($oParams, $bpo)
+            ) ?: [];
+        }
+
+        // 2) Costed job orders
+        $jobCostedRows = db_query(
+            "SELECT
+                jo.id AS txn_id,
+                jo.branch_id,
+                COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS revenue,
+                SUM(
+                    CASE WHEN {$materialValid}
+                         THEN ({$qtyBasis} * COALESCE(m.unit_cost_at_assignment, 0))
+                         ELSE 0 END
+                ) AS material_cost
+             FROM job_orders jo
+             INNER JOIN job_order_materials m ON m.job_order_id = jo.id
+             LEFT JOIN inv_items i ON i.id = m.item_id
+             WHERE (" . pf_reports_job_order_paid_completed_expr('jo') . ")
+               {$jDatePart} {$bj}
+             GROUP BY jo.id, jo.branch_id",
+            $jTypes . $btj,
+            array_merge($jParams, $bpj)
+        ) ?: [];
+
+        $branchMap = [];
+        $costedRevenue = 0.0;
+        $costedCost = 0.0;
+        $costedTransactions = 0;
+
+        $addCosted = static function (array $rows) use (&$branchMap, &$costedRevenue, &$costedCost, &$costedTransactions): void {
+            foreach ($rows as $r) {
+                $revenue = (float)($r['revenue'] ?? 0);
+                $cost = (float)($r['material_cost'] ?? 0);
+                $branch = (int)($r['branch_id'] ?? 0);
+                if ($revenue <= 0) {
+                    continue;
+                }
+                $costedRevenue += $revenue;
+                $costedCost += $cost;
+                $costedTransactions++;
+                if (!isset($branchMap[$branch])) {
+                    $branchMap[$branch] = [
+                        'branch_id' => $branch,
+                        'revenue' => 0.0,
+                        'material_cost' => 0.0,
+                        'estimated_gross_profit' => 0.0,
+                        'estimated_gross_margin_pct' => 0.0,
+                        'rank' => 0,
+                    ];
+                }
+                $branchMap[$branch]['revenue'] += $revenue;
+                $branchMap[$branch]['material_cost'] += $cost;
+            }
+        };
+        $addCosted($orderCostedRows);
+        $addCosted($jobCostedRows);
+
+        foreach ($branchMap as &$b) {
+            $b['estimated_gross_profit'] = $b['revenue'] - $b['material_cost'];
+            $b['estimated_gross_margin_pct'] = $b['revenue'] > 0
+                ? round(($b['estimated_gross_profit'] / $b['revenue']) * 100, 2)
+                : 0.0;
+        }
+        unset($b);
+
+        // Branch names
+        if (!empty($branchMap)) {
+            $branchIds = array_keys($branchMap);
+            $ph = implode(',', array_fill(0, count($branchIds), '?'));
+            $types = str_repeat('i', count($branchIds));
+            $nameRows = db_query(
+                "SELECT id, branch_name FROM branches WHERE id IN ({$ph})",
+                $types,
+                $branchIds
+            ) ?: [];
+            $names = [];
+            foreach ($nameRows as $nr) {
+                $names[(int)$nr['id']] = (string)$nr['branch_name'];
+            }
+            foreach (array_keys($branchMap) as $branchKey) {
+                $branchIdVal = (int)($branchMap[$branchKey]['branch_id'] ?? 0);
+                $nm = $names[$branchIdVal] ?? ('Branch #' . $branchIdVal);
+                $branchMap[$branchKey]['branch_name'] = function_exists('mb_convert_case')
+                    ? mb_convert_case(trim($nm), MB_CASE_TITLE, 'UTF-8')
+                    : ucwords(strtolower(trim($nm)));
+            }
+        }
+
+        $byBranch = array_values($branchMap);
+        usort($byBranch, static fn($a, $b) => (($b['estimated_gross_profit'] ?? 0) <=> ($a['estimated_gross_profit'] ?? 0)));
+        foreach ($byBranch as $idx => &$row) {
+            $row['rank'] = $idx + 1;
+            $row['revenue'] = round((float)$row['revenue'], 2);
+            $row['material_cost'] = round((float)$row['material_cost'], 2);
+            $row['estimated_gross_profit'] = round((float)$row['estimated_gross_profit'], 2);
+        }
+        unset($row);
+
+        // Total supported revenue universe = store orders + job orders paid/completed
+        $supportedOrderRev = 0.0;
+        $supportedOrderTx = 0;
+        try {
+            $oAgg = db_query(
+                "SELECT
+                    COUNT(*) AS tx_count,
+                    SUM({$orderRevenueExpr}) AS total_rev
+                 FROM orders o
+                 WHERE (" . pf_reports_store_order_paid_completed_expr('o') . ")
+                   {$oDatePart} {$bo}",
+                $oTypes . $bto,
+                array_merge($oParams, $bpo)
+            ) ?: [];
+            $supportedOrderTx = (int)($oAgg[0]['tx_count'] ?? 0);
+            $supportedOrderRev = (float)($oAgg[0]['total_rev'] ?? 0);
+        } catch (Throwable $e) {
+        }
+
+        $supportedJobRev = 0.0;
+        $supportedJobTx = 0;
+        try {
+            $jAgg = db_query(
+                "SELECT
+                    COUNT(*) AS tx_count,
+                    SUM(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0)) AS total_rev
+                 FROM job_orders jo
+                 WHERE (" . pf_reports_job_order_paid_completed_expr('jo') . ")
+                   {$jDatePart} {$bj}",
+                $jTypes . $btj,
+                array_merge($jParams, $bpj)
+            ) ?: [];
+            $supportedJobTx = (int)($jAgg[0]['tx_count'] ?? 0);
+            $supportedJobRev = (float)($jAgg[0]['total_rev'] ?? 0);
+        } catch (Throwable $e) {
+        }
+
+        $totalRevenue = $supportedOrderRev + $supportedJobRev;
+        $totalTransactions = $supportedOrderTx + $supportedJobTx;
+        $uncostedRevenue = max(0.0, $totalRevenue - $costedRevenue);
+        $missingCostTx = max(0, $totalTransactions - $costedTransactions);
+
+        $estimatedGrossProfit = $costedRevenue - $costedCost;
+        $margin = $costedRevenue > 0 ? (($estimatedGrossProfit / $costedRevenue) * 100) : 0.0;
+        $coverage = $totalRevenue > 0 ? (($costedRevenue / $totalRevenue) * 100) : 0.0;
+
+        $summary['estimated_gross_profit'] = round($estimatedGrossProfit, 2);
+        $summary['estimated_gross_margin_pct'] = round($margin, 2);
+        $summary['coverage_pct'] = round($coverage, 2);
+        $summary['costed_revenue'] = round($costedRevenue, 2);
+        $summary['uncosted_revenue'] = round($uncostedRevenue, 2);
+        $summary['total_revenue'] = round($totalRevenue, 2);
+        $summary['missing_cost_transactions'] = $missingCostTx;
+        $summary['costed_transactions'] = $costedTransactions;
+        $summary['total_transactions'] = $totalTransactions;
+        $summary['coverage_warning'] = $coverage < (float)$summary['coverage_warning_threshold'];
+        $summary['highest_gp_branch'] = !empty($byBranch) ? $byBranch[0] : null;
+
+        // Highest margin service category (job_orders only; reliable mapping).
+        try {
+            $svcRows = db_query(
+                "SELECT
+                    COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), 'Customization') AS category,
+                    SUM(COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0)) AS revenue,
+                    SUM(
+                        CASE WHEN {$materialValid}
+                             THEN ({$qtyBasis} * COALESCE(m.unit_cost_at_assignment, 0))
+                             ELSE 0 END
+                    ) AS material_cost
+                 FROM job_orders jo
+                 INNER JOIN job_order_materials m ON m.job_order_id = jo.id
+                 LEFT JOIN inv_items i ON i.id = m.item_id
+                 LEFT JOIN (
+                    SELECT LOWER(TRIM(name)) AS name_key, MAX(NULLIF(TRIM(category), '')) AS category
+                    FROM services
+                    GROUP BY LOWER(TRIM(name))
+                 ) sc ON sc.name_key = LOWER(TRIM(COALESCE(jo.service_type, '')))
+                 WHERE (" . pf_reports_job_order_paid_completed_expr('jo') . ")
+                   {$jDatePart} {$bj}
+                 GROUP BY COALESCE(NULLIF(TRIM(sc.category), ''), NULLIF(TRIM(jo.service_type), ''), 'Customization')
+                 HAVING revenue > 0",
+                $jTypes . $btj,
+                array_merge($jParams, $bpj)
+            ) ?: [];
+            $bestSvc = null;
+            foreach ($svcRows as $r) {
+                $rev = (float)($r['revenue'] ?? 0);
+                if ($rev <= 0) continue;
+                $gp = $rev - (float)($r['material_cost'] ?? 0);
+                $mg = ($gp / $rev) * 100;
+                if ($bestSvc === null || $mg > $bestSvc['margin_pct']) {
+                    $bestSvc = [
+                        'category' => (string)($r['category'] ?? 'Customization'),
+                        'margin_pct' => round($mg, 2),
+                        'estimated_gross_profit' => round($gp, 2),
+                        'revenue' => round($rev, 2),
+                    ];
+                }
+            }
+            $categoryInsights['highest_margin_service_category'] = $bestSvc;
+        } catch (Throwable $e) {
+        }
+
+        // Highest margin product category (store orders costed via std_order_id only).
+        if ($hasStdOrderId) {
+            try {
+                $prodRows = db_query(
+                    "SELECT
+                        COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized product') AS category,
+                        SUM(oi.quantity * oi.unit_price) AS revenue,
+                        SUM(oi.quantity * oi.unit_price) AS alloc_basis,
+                        SUM(COALESCE(mc.order_material_cost, 0) * (
+                            (oi.quantity * oi.unit_price) / NULLIF(ov.order_revenue, 0)
+                        )) AS material_cost_alloc
+                     FROM order_items oi
+                     INNER JOIN orders o ON o.order_id = oi.order_id
+                     INNER JOIN products p ON p.product_id = oi.product_id
+                     INNER JOIN (
+                        SELECT o2.order_id, SUM(oi2.quantity * oi2.unit_price) AS order_revenue
+                        FROM orders o2
+                        INNER JOIN order_items oi2 ON oi2.order_id = o2.order_id
+                        WHERE (" . pf_reports_store_order_paid_completed_expr('o2') . ")
+                        GROUP BY o2.order_id
+                     ) ov ON ov.order_id = oi.order_id
+                     INNER JOIN (
+                        SELECT m.std_order_id AS order_id,
+                               SUM(
+                                   CASE WHEN {$materialValid}
+                                        THEN ({$qtyBasis} * COALESCE(m.unit_cost_at_assignment, 0))
+                                        ELSE 0 END
+                               ) AS order_material_cost
+                        FROM job_order_materials m
+                        LEFT JOIN inv_items i ON i.id = m.item_id
+                        WHERE m.std_order_id IS NOT NULL
+                        GROUP BY m.std_order_id
+                     ) mc ON mc.order_id = oi.order_id
+                     WHERE (" . pf_reports_store_order_paid_completed_expr('o') . ")
+                       {$oDatePart} {$bo}
+                     GROUP BY COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized product')
+                     HAVING revenue > 0",
+                    $oTypes . $bto,
+                    array_merge($oParams, $bpo)
+                ) ?: [];
+                $bestProd = null;
+                foreach ($prodRows as $r) {
+                    $rev = (float)($r['revenue'] ?? 0);
+                    if ($rev <= 0) continue;
+                    $gp = $rev - (float)($r['material_cost_alloc'] ?? 0);
+                    $mg = ($gp / $rev) * 100;
+                    if ($bestProd === null || $mg > $bestProd['margin_pct']) {
+                        $bestProd = [
+                            'category' => (string)($r['category'] ?? 'Uncategorized product'),
+                            'margin_pct' => round($mg, 2),
+                            'estimated_gross_profit' => round($gp, 2),
+                            'revenue' => round($rev, 2),
+                        ];
+                    }
+                }
+                $categoryInsights['highest_margin_product_category'] = $bestProd;
+            } catch (Throwable $e) {
+            }
+        }
+    } catch (Throwable $e) {
+    }
+
+    return [
+        'summary' => $summary,
+        'by_branch' => $byBranch,
+        'category_insights' => $categoryInsights,
+    ];
 }
 
 /** Server calendar year/month from DB (matches YEAR/MONTH(CURDATE()) in heatmap SQL). */

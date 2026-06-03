@@ -23,16 +23,20 @@ if (is_manager()) {
 }
 
 // ── Branch Context (analytics page — allows "All") ────
+if (is_admin() && !isset($_SESSION['selected_branch_id']) && !array_key_exists('branch_id', $_GET)) {
+    $_SESSION['selected_branch_id'] = 'all';
+}
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id']; // 'all' | int
 
 // ── Dashboard date filter (same behavior family as reports filter) ─────
 $dashToday = date('Y-m-d');
-$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? 'today')));
+$hasExplicitDateFilter = isset($_GET['preset']) || isset($_GET['from']) || isset($_GET['to']);
+$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? ($hasExplicitDateFilter ? '' : 'this_month'))));
 $dashFromInput = trim((string)($_GET['from'] ?? ''));
 $dashToInput = trim((string)($_GET['to'] ?? ''));
-$dashPreset = 'today';
-$dashboard_filter_label = 'Today';
+$dashPreset = 'this_month';
+$dashboard_filter_label = 'This month';
 
 $isValidDate = static function (string $date): bool {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
@@ -64,14 +68,32 @@ if ($dashPresetRaw === 'today') {
         [$dashFromDate, $dashToDate] = [$dashToDate, $dashFromDate];
     }
 } else {
-    $dashPreset = 'today';
-    $dashboard_filter_label = 'Today';
-    $dashFromDate = $dashToday;
+    $dashPreset = 'this_month';
+    $dashboard_filter_label = 'This month';
+    $dashFromDate = date('Y-m-01');
     $dashToDate = $dashToday;
 }
 
 $dashFromStart = $dashFromDate . ' 00:00:00';
 $dashToEnd = $dashToDate . ' 23:59:59';
+
+$dashboard_branch_display = ($branchId === 'all')
+    ? 'All Branches'
+    : ((string)($branchCtx['branch_name'] ?? 'Selected Branch'));
+$dashboard_context_label = $dashboard_branch_display
+    . ' · '
+    . date('M j, Y', strtotime($dashFromDate))
+    . ' - '
+    . date('M j, Y', strtotime($dashToDate))
+    . ' ('
+    . $dashboard_filter_label
+    . ')';
+
+$dashboard_sales_revenue_title = ($branchId === 'all')
+    ? 'Sales Revenue by Branch'
+    : ('Sales Revenue in ' . $dashboard_branch_display);
+$dashboard_branch_sidebar_mode = ($branchId === 'all') ? 'multi' : 'single';
+$dashboard_branch_sidebar_title = ($branchId === 'all') ? 'Multi-Branch Summary' : 'Branch Summary';
 
 // KPI drill-down links (branch preserved via query; uses pf_admin_url — no hardcoded host)
 $kpiBranchQs      = ($branchId === 'all') ? [] : ['branch_id' => (int)$branchId];
@@ -203,6 +225,19 @@ try {
 
 $cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
 
+// ── Sales by Service Category (customization / job orders) ──
+try {
+    $service_category_sales = pf_reports_sales_by_service_category(
+        $dashFromDate,
+        $dashToEnd,
+        $branchId
+    );
+    $service_category_sales = pf_reports_fold_demo_service_categories(
+        $service_category_sales,
+        ['Eunsoyaaaaa', 'Ink']
+    );
+} catch (Exception $e) { $service_category_sales = []; }
+
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
@@ -218,37 +253,45 @@ try {
     ) ?: [];
 } catch (Exception $e) { $recent_orders = []; }
 
-// ── Low Stock Alerts (NEW SYSTEM) ─────────────────────
+// ── Low Stock Alerts ──────────────────────────────────
 try {
-    // Requires InventoryManager to get real-time SOH
     require_once __DIR__ . '/../includes/InventoryManager.php';
     require_once __DIR__ . '/../includes/inventory_stock_status.php';
     printflow_ensure_inv_items_threshold_schema();
-    
+
     $all_items = db_query(
         "SELECT i.id, i.name as material_name, i.reorder_level, i.critical_level, i.unit_of_measure as unit,
                 ic.name as category_name
          FROM inv_items i
          LEFT JOIN inv_categories ic ON i.category_id = ic.id
-         WHERE i.status = 'ACTIVE' AND i.reorder_level > 0"
+         WHERE i.status = 'ACTIVE'"
     ) ?: [];
-    
+
     $low_stock = [];
     $inventoryBranchId = ($branchId === 'all') ? 0 : (int)$branchId;
     foreach ($all_items as $item) {
         $soh = InventoryManager::getStockOnHand($item['id'], $inventoryBranchId);
-        $thresholds = printflow_thresholds_for_quantity($soh);
-        $stockStatus = printflow_resolve_stock_status($soh, $thresholds['reorder'], $thresholds['critical']);
-        if (in_array($stockStatus['key'], ['low', 'critical', 'out'], true)) {
-            $item['current_stock'] = $soh;
-            $item['low_limit'] = $thresholds['reorder'];
-            $item['stock_status'] = $stockStatus;
-            $item['ratio'] = $reorder > 0 ? ($soh / $reorder) : 0;
-            $low_stock[] = $item;
+        $reorderLevel = max(1, (float)($item['reorder_level'] ?? 0));
+        $criticalLevel = max(1, (float)($item['critical_level'] ?? 0));
+        $stockStatus = printflow_resolve_stock_status($soh, $reorderLevel, $criticalLevel);
+        $needsAlert = $soh <= 0 || in_array($stockStatus['key'], ['low', 'critical', 'out'], true);
+        if (!$needsAlert) {
+            continue;
         }
+        $item['current_stock'] = $soh;
+        $item['low_limit'] = $reorderLevel;
+        $item['stock_status'] = $stockStatus;
+        $item['ratio'] = $reorderLevel > 0 ? ($soh / $reorderLevel) : 0;
+        $low_stock[] = $item;
     }
-    // Sort by ratio ASC
-    usort($low_stock, fn($a, $b) => $a['ratio'] <=> $b['ratio']);
+    usort($low_stock, static function ($a, $b) {
+        $aOut = ((float)($a['current_stock'] ?? 0)) <= 0;
+        $bOut = ((float)($b['current_stock'] ?? 0)) <= 0;
+        if ($aOut !== $bOut) {
+            return $aOut ? -1 : 1;
+        }
+        return ($a['ratio'] ?? 0) <=> ($b['ratio'] ?? 0);
+    });
     $low_stock = array_slice($low_stock, 0, 5);
 } catch (Exception $e) { $low_stock = []; }
 
@@ -364,6 +407,9 @@ $dashboard_branch_total_revenue = array_reduce($dashboard_branch_perf, static fu
     return $carry + (float)($branch['revenue'] ?? 0);
 }, 0.0);
 $dashboard_branch_count = count($dashboard_branch_perf);
+$dashboard_sales_revenue_footnote = ($branchId === 'all')
+    ? ('Showing combined sales revenue across ' . (int)$dashboard_branch_count . ' branch' . ($dashboard_branch_count === 1 ? '' : 'es') . '.')
+    : ('Showing sales revenue for ' . $dashboard_branch_display . '.');
 $dashboard_top_branch = $dashboard_branch_perf[0] ?? null;
 $dashboard_low_branch = $dashboard_branch_count > 0 ? $dashboard_branch_perf[$dashboard_branch_count - 1] : null;
 $dashboard_avg_branch_revenue = $dashboard_branch_count > 0 ? ($dashboard_branch_total_revenue / $dashboard_branch_count) : 0.0;
@@ -401,9 +447,9 @@ $donut_palette = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A
 $rev_donut_total = 0.0;
 foreach ($rev_donut as $rd) $rev_donut_total += (float)($rd['revenue'] ?? 0);
 
-// Keep the horizontal bar on the broader top-products/services pipeline.
-$dashboard_sales_bar = array_slice($top_products_full, 0, 8);
-$dashboard_sales_bar_is_category = false;
+// Best Selling Services bar chart — customization / job-order revenue by service category.
+$dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
+$dashboard_sales_bar_is_category = true;
 
 // ── Customer Locations ────────────────────────────────
 $customer_locations = [];
@@ -933,13 +979,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             <!-- Branch context banner -->
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
             <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;" x-data="dashboardFilterPanel('<?php echo htmlspecialchars($dashPreset); ?>')">
-                <div id="pf-dashboard-toolbar-summary" style="font-size:12px;color:#6b7280;font-weight:500;">
-                    <?php
-                        $toolbarBranchLabel = ($branchId === 'all')
-                            ? 'All Branches'
-                            : ((string)($branchCtx['branch_name'] ?? 'Selected Branch'));
-                        echo htmlspecialchars($toolbarBranchLabel . ' · ' . $dashboard_branch_period_label);
-                    ?>
+                <div id="pf-dashboard-toolbar-summary" class="pf-branch-meta-badge" title="Current dashboard branch and date filter">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                    <span id="pf-dashboard-toolbar-summary-text"><?php echo htmlspecialchars($dashboard_context_label); ?></span>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px;position:relative;">
                     <button class="toolbar-btn" :class="{active: filterOpen}" @click="filterOpen = !filterOpen" style="height:38px;">
@@ -1024,7 +1066,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
-                        <span class="kpi-sub">Pending in <?php echo htmlspecialchars(strtolower($dashboard_filter_label)); ?></span>
+                        <span class="kpi-sub">Pending in <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -1035,15 +1077,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <div class="ana-hd chart-header-row" style="margin-bottom:0;">
                         <h3 class="chart-title-nowrap">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                            Sales Revenue by Branch
+                            <?php echo htmlspecialchars($dashboard_sales_revenue_title); ?>
                             <span class="chart-badge"><?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         </h3>
-                        <div class="pf-branch-meta no-print">
-                            <div class="pf-branch-meta-badge" title="Current branch revenue reporting period">
-                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
-                                <?php echo htmlspecialchars($dashboard_branch_period_label); ?>
-                            </div>
-                        </div>
                     </div>
                     <div class="ana-bd">
                     <div class="pf-branch-revenue-layout">
@@ -1060,11 +1096,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             </div>
                             <div class="pf-branch-footnote">
                                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                Showing combined sales revenue across <?php echo (int)$dashboard_branch_count; ?> branch<?php echo $dashboard_branch_count === 1 ? '' : 'es'; ?> for <?php echo htmlspecialchars($dashboard_branch_period_label); ?>.
+                                <?php echo htmlspecialchars($dashboard_sales_revenue_footnote); ?>
                             </div>
                         </div>
-                        <aside class="pf-branch-revenue-sidebar" id="pfBranchRevenueSidebar" data-sidebar-mode="multi">
-                            <h4 class="pf-branch-summary-title">Multi-Branch Summary</h4>
+                        <aside class="pf-branch-revenue-sidebar" id="pfBranchRevenueSidebar" data-sidebar-mode="<?php echo htmlspecialchars($dashboard_branch_sidebar_mode); ?>">
+                            <h4 class="pf-branch-summary-title"><?php echo htmlspecialchars($dashboard_branch_sidebar_title); ?></h4>
                             <div class="pf-branch-summary-grid">
                                 <div class="pf-branch-stat pf-branch-stat-total">
                                     <div class="pf-branch-stat-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
@@ -1195,7 +1231,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <?php if (!empty($dashboard_sales_bar)): ?>
                     <div class="products-chart"><div id="productsChart"></div></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product data</div>
+                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
                     <?php endif; ?>
                 </div>
 
@@ -1229,16 +1265,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                                 $limit = (float)$ls['low_limit'];
                                 $pct = $limit > 0 ? ($stock / $limit) * 100 : 0;
                                 $st = $ls['stock_status'] ?? printflow_resolve_stock_status($stock, $limit, printflow_item_critical_level($ls));
-                                $barClass = $st['key'] === 'out' ? 'danger' : ($st['key'] === 'critical' ? 'danger' : 'warning');
+                                $barClass = $st['key'] === 'out' ? 'danger' : ($st['key'] === 'critical' ? 'warning' : ($st['key'] === 'low' ? 'warning' : 'good'));
                                 $statusText = strtoupper($st['label']);
                                 $statusColor = $st['text_color'];
+                                $stockColor = $st['text_color'];
                             ?>
                             <tr>
                                 <td style="font-weight:600;" title="<?php echo htmlspecialchars($ls['material_name']); ?>">
                                     <?php echo mb_strlen($ls['material_name']) > 15 ? htmlspecialchars(mb_substr($ls['material_name'], 0, 15)) . '...' : htmlspecialchars($ls['material_name']); ?>
                                     <div style="font-size:10px; color:#9ca3af;"><?php echo htmlspecialchars($ls['category_name'] ?: 'General'); ?></div>
                                 </td>
-                                <td style="color:<?php echo $stock <= 0 ? '#ef4444' : '#d97706'; ?>; font-weight:700; white-space:nowrap;">
+                                <td style="color:<?php echo $stockColor; ?>; font-weight:700; white-space:nowrap;">
                                     <?php echo number_format($stock, 1); ?> <small><?php echo htmlspecialchars($ls['unit']); ?></small>
                                 </td>
                                 <td>
@@ -2118,10 +2155,10 @@ window.pfDashApplyFilterAjax = function() {
             curContent.innerHTML = nextContent.innerHTML;
         }
 
-        var nextSummary = doc.querySelector('#pf-dashboard-toolbar-summary');
-        var curSummary = document.querySelector('#pf-dashboard-toolbar-summary');
-        if (nextSummary && curSummary) {
-            curSummary.textContent = nextSummary.textContent;
+        var nextSummaryText = doc.querySelector('#pf-dashboard-toolbar-summary-text');
+        var curSummaryText = document.querySelector('#pf-dashboard-toolbar-summary-text');
+        if (nextSummaryText && curSummaryText) {
+            curSummaryText.textContent = nextSummaryText.textContent;
         }
 
         var cleanParams = new URLSearchParams(new FormData(form));
@@ -2154,7 +2191,7 @@ window.debouncedSubmitDashboardFilter = function(delay) {
 function dashboardFilterPanel(initialPreset) {
     return {
         filterOpen: false,
-        selectedPreset: initialPreset || 'today',
+        selectedPreset: initialPreset || 'this_month',
         handleDateTyping(delay) {
             this.selectedPreset = '';
             var p = document.getElementById('dash_preset');
@@ -2162,7 +2199,7 @@ function dashboardFilterPanel(initialPreset) {
             window.debouncedSubmitDashboardFilter(typeof delay === 'number' ? delay : 300);
         },
         resetDateRange() {
-            this.setPreset('today');
+            this.setPreset('this_month');
         },
         setPreset(preset) {
             var today = new Date();

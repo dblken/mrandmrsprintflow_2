@@ -160,8 +160,8 @@ if ($stock_status) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
         
         $stock = (float)$item['current_stock'];
-        $reorder = printflow_item_reorder_level($item);
-        $critical = printflow_item_critical_level($item);
+        $reorder = printflow_item_stored_reorder_level($item);
+        $critical = printflow_item_stored_critical_level($item);
         $status = printflow_resolve_stock_status($stock, $reorder, $critical);
         if (!printflow_stock_matches_filter($status, $stock_status)) {
             continue;
@@ -222,8 +222,8 @@ if (isset($_GET['ajax'])) {
     <?php else: 
         foreach ($items as $item): 
             $stock = (float)$item['current_stock'];
-            $reorder = printflow_item_reorder_level($item);
-            $critical = printflow_item_critical_level($item);
+            $reorder = printflow_item_stored_reorder_level($item);
+            $critical = printflow_item_stored_critical_level($item);
             $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             $stockColor = $status['text_color'];
             
@@ -247,11 +247,7 @@ if (isset($_GET['ajax'])) {
                 <td><span class="stock-val" style="color:<?php echo $stockColor; ?>;"><?php echo $displayUom === 'pcs' ? (int)$stock : number_format($stock, 2); ?></span></td>
                 <td style="color:#6b7280;font-size:12px;"><?php echo $displayUom === 'l' ? 'Liter (L)' : htmlspecialchars($displayUom); ?></td>
                 <td class="no-truncate" style="text-align:right;">
-                    <?php if (!$inventory_read_only): ?>
-                    <button type="button" class="btn-action teal" onclick="event.stopPropagation(); openAddStockModalById(<?php echo $item['id']; ?>)">+ Stock</button>
-                    <?php else: ?>
                     <button type="button" class="btn-action" onclick="event.stopPropagation(); openStockCard(<?php echo $item['id']; ?>)" style="border-color:#d1d5db;color:#374151;">View</button>
-                    <?php endif; ?>
                     <?php if ($can_manage_item_master): ?>
                     <button type="button" class="btn-action blue" onclick="event.stopPropagation(); editItemById(<?php echo $item['id']; ?>)">Edit</button>
                     <?php endif; ?>
@@ -394,18 +390,32 @@ if (isset($_GET['ajax'])) {
         }
         .item-modal--edit #itemInitialStockSlot,
         .item-modal--edit #ftDualInputGroup { display: none !important; }
-        .item-modal--edit #itemModalThresholdRow,
-        .item-modal--edit .item-modal-row-preview,
-        .item-modal--edit #reorderAlertsGroup,
+        .item-modal--edit .item-modal-row-preview { display: none !important; }
         .item-modal--edit #itemModalBottomRow { display: none !important; }
         .item-modal--create .item-modal-row-preview,
         .item-modal--create .item-modal-edit-only { display: none !important; }
         .item-modal--edit .item-modal-edit-only { display: flex; flex-direction: column; gap: 6px; }
-        #itemModal .item-modal-edit-only#statusSection {
-            background: transparent;
-            border: none;
-            padding: 0;
-            min-height: auto;
+        .item-modal--edit #itemModalThresholdRow { display: grid !important; }
+        .item-modal--edit #reorderAlertsGroup { display: block !important; }
+        .item-modal--edit #itemThresholdResetRow { display: flex !important; }
+        .item-modal--create #reorderAlertsGroup,
+        .item-modal--create #itemThresholdResetRow,
+        .item-modal--create #itemCurrentStockSlot { display: none !important; }
+        .item-modal--edit #fg-itemCategory label > span[style*="ef4444"] { display: none; }
+        #itemModal #statusSection.item-modal-edit-only {
+            display: none;
+            margin-bottom: 0;
+            padding-top: 16px;
+            border-top: 1px solid #f3f4f6;
+        }
+        .item-modal--edit #statusSection.item-modal-edit-only {
+            display: block !important;
+        }
+        #itemModal .modal-hint-text {
+            font-size: 11px;
+            color: #6b7280;
+            line-height: 1.4;
+            margin: 8px 0 0;
         }
         .item-modal-field {
             display: flex;
@@ -450,6 +460,23 @@ if (isset($_GET['ajax'])) {
         .item-modal--create #editModalChangeSummary {
             display: none !important;
         }
+        #itemThresholdResetRow {
+            display: none;
+            justify-content: flex-end;
+            margin: -4px 0 12px;
+        }
+        #btnResetSuggestedThresholds {
+            border-radius: 10px;
+            height: 40px;
+            padding: 0 16px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #374151;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        #btnResetSuggestedThresholds:hover { background: #f9fafb; }
         
         /* Proportional Widths */
         .w-35 { width: 35% !important; min-width: 140px; }
@@ -749,6 +776,16 @@ if (isset($_GET['ajax'])) {
                             Read Only
                         </span>
                         <?php endif; ?>
+                        <?php if (!$inventory_read_only): ?>
+                        <button type="button" class="toolbar-btn" onclick="openInvItemPickModal('receive')" style="height:38px; border-color:#059669; color:#059669; background:#ecfdf5; gap:6px;">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Receive IN
+                        </button>
+                        <button type="button" class="toolbar-btn" onclick="openInvItemPickModal('issue')" style="height:38px; border-color:#dc2626; color:#dc2626; background:#fef2f2; gap:6px;">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Issue OUT
+                        </button>
+                        <?php endif; ?>
                         <?php if ($can_manage_item_master): ?>
                         <button type="button" class="toolbar-btn" onclick="openModal('create')" style="height:38px; border-color:#3b82f6; color:#3b82f6;">Add Item</button>
 
@@ -882,8 +919,8 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($items as $item): 
                                     $stock = (float)$item['current_stock'];
-                                    $reorder = printflow_item_reorder_level($item);
-                                    $critical = printflow_item_critical_level($item);
+                                    $reorder = printflow_item_stored_reorder_level($item);
+                                    $critical = printflow_item_stored_critical_level($item);
                                     $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
@@ -911,11 +948,7 @@ if (isset($_GET['ajax'])) {
                                         <td style="white-space:nowrap;"><span class="stock-val" style="color:<?php echo $stockColor; ?>;"><?php echo $displayUom === 'pcs' ? (int)$stock : number_format($stock, 2); ?></span></td>
                                         <td class="truncate" style="color:#6b7280;font-size:12px;"><?php echo $displayUom === 'l' ? 'Liter (L)' : htmlspecialchars($displayUom); ?></td>
                                         <td class="no-truncate" style="text-align:right;">
-                                            <?php if (!$inventory_read_only): ?>
-                                            <button type="button" class="btn-action teal" onclick="event.stopPropagation(); openAddStockModalById(<?php echo $item['id']; ?>)">+ Stock</button>
-                                            <?php else: ?>
                                             <button type="button" class="btn-action" onclick="event.stopPropagation(); openStockCard(<?php echo $item['id']; ?>)" style="border-color:#d1d5db;color:#374151;">View</button>
-                                            <?php endif; ?>
                                             <?php if ($can_manage_item_master): ?>
                                             <button type="button" class="btn-action blue" onclick="event.stopPropagation(); editItemById(<?php echo $item['id']; ?>)">Edit</button>
                                             <?php endif; ?>
@@ -937,12 +970,37 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
-<!-- Add Stock Modal -->
+<!-- Item picker for toolbar Receive IN / Issue OUT -->
+<div id="invItemPickModal" class="modal">
+    <div class="modal-content" style="max-width:520px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="invItemPickTitle" style="padding-right:30px;">Select Material</h3>
+                <p style="font-size:13px;color:#6b7280;margin-top:2px;">Search and pick a material to continue.</p>
+            </div>
+            <button type="button" class="close-btn" onclick="closeInvItemPickModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:10px;margin-bottom:10px;">
+                <select id="invItemPickCategory" aria-label="Filter by category" class="w-100" style="height:38px;border:1px solid #e5e7eb;border-radius:8px;padding:0 10px;">
+                    <option value="">All categories</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?php echo (int)$cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <input type="search" id="invItemPickSearch" placeholder="Search by item name..." autocomplete="off" class="w-100" style="height:38px;border:1px solid #e5e7eb;border-radius:8px;padding:0 12px;">
+            </div>
+            <div id="invItemPickResults" style="max-height:280px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:10px;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Receive IN Modal -->
 <div id="addStockModal" class="modal">
     <div class="modal-content" style="max-width:450px;">
         <div class="modal-header">
             <div>
-                <h3 class="modal-title" style="padding-right:30px;">Inventory: Stock Intake</h3>
+                <h3 class="modal-title" style="padding-right:30px;">Receive IN (Stock Intake)</h3>
                 <p style="font-size:13px;color:#6b7280;margin-top:2px; padding-right:30px; overflow-wrap:break-word; word-break:break-word; hyphens:auto;" id="addStockItemName">Item Name</p>
             </div>
             <button class="close-btn" onclick="closeAddStockModal()">&times;</button>
@@ -996,7 +1054,7 @@ if (isset($_GET['ajax'])) {
             </div>
             <div style="display:flex; gap:12px; justify-content:flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
                 <button type="button" onclick="closeAddStockModal()" class="btn-secondary" style="height:44px;border-radius:10px;padding:0 24px;">Cancel</button>
-                <button type="submit" id="addStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#059669;" disabled>Add Stock</button>
+                <button type="submit" id="addStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#059669;" disabled>Receive IN</button>
             </div>
         </form>
         </div>
@@ -1031,9 +1089,9 @@ if (isset($_GET['ajax'])) {
         </div>
         <div class="modal-body" style="padding:24px !important; font-size:14px; color:#374151;">
             <p style="margin-bottom:12px;">You are about to <strong id="itemStatusConfirmAction">archive</strong>: <strong id="itemArchiveConfirmName">—</strong></p>
-            <p id="itemStatusConfirmInfoText" style="margin-top:16px; color:#6b7280;">Archived materials are hidden from new orders and POS.</p>
+            <p id="itemStatusConfirmInfoText" class="modal-hint-text" style="margin-top:16px; margin-bottom:0;">Archived materials are hidden from new orders and POS.</p>
         </div>
-        <div style="display:flex; gap:12px; justify-content:flex-end; padding-top:20px; margin-top:20px; border-top:1px solid #f3f4f6;">
+        <div style="display:flex; gap:12px; justify-content:flex-end; padding:16px 24px 24px; border-top:1px solid #f3f4f6;">
             <button type="button" onclick="closeItemArchiveConfirmModal()" class="btn-secondary" style="height:44px;border-radius:10px;padding:0 24px;">Cancel</button>
             <button type="button" id="itemArchiveConfirmBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#6b7280;border:none;">Archive</button>
         </div>
@@ -1136,8 +1194,8 @@ if (isset($_GET['ajax'])) {
         <!-- Action Buttons -->
         <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
             <?php if (!$inventory_read_only): ?>
-            <button onclick="closeStockCard(); if(selectedItemForStockCard) openAddStockModal(selectedItemForStockCard)" class="btn-action teal" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">+ Add Stock</button>
-            <button onclick="closeStockCard(); if(selectedItemForStockCard) openDeductStockModal(selectedItemForStockCard)" class="btn-action red" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">&minus; Deduct Stock</button>
+            <button onclick="closeStockCard(); if(selectedItemForStockCard) openAddStockModal(selectedItemForStockCard)" class="btn-action teal" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Receive IN</button>
+            <button onclick="closeStockCard(); if(selectedItemForStockCard) openDeductStockModal(selectedItemForStockCard)" class="btn-action red" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Issue OUT</button>
             <?php endif; ?>
             <?php if ($can_manage_item_master): ?>
             <button onclick="editFromStockCard()" class="btn-action blue" style="flex:1; min-width:120px; height:40px; font-size:14px; border-radius:10px;">Edit Settings</button>
@@ -1148,12 +1206,12 @@ if (isset($_GET['ajax'])) {
     </div>
 </div>
 
-<!-- Deduct Stock Modal -->
+<!-- Issue OUT Modal -->
 <div id="deductStockModal" class="modal">
     <div class="modal-content" style="max-width:450px;">
         <div class="modal-header">
             <div>
-                <h3 class="modal-title" style="padding-right:30px;">Deduct Stock</h3>
+                <h3 class="modal-title" style="padding-right:30px;">Issue OUT (Stock-Out)</h3>
                 <p style="font-size:13px;color:#6b7280;margin-top:2px; padding-right:30px; overflow-wrap:break-word; word-break:break-word; hyphens:auto;" id="deductStockItemName">Item Name</p>
             </div>
             <button class="close-btn" onclick="closeDeductStockModal()">&times;</button>
@@ -1164,7 +1222,7 @@ if (isset($_GET['ajax'])) {
             <input type="hidden" id="deductStockUom">
             <div class="form-row-grid">
                 <div>
-                    <label for="deductStockQty">Quantity to Deduct *</label>
+                    <label for="deductStockQty">Quantity to Issue *</label>
                     <input type="number" step="0.01" min="0.01" id="deductStockQty" required placeholder="e.g. 10" class="w-100">
                     <span id="err-deductStockQty" class="field-error"></span>
                 </div>
@@ -1175,7 +1233,7 @@ if (isset($_GET['ajax'])) {
             </div>
             <div style="display:flex; gap:12px; justify-content:flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
                 <button type="button" onclick="closeDeductStockModal()" class="btn-secondary" style="height:44px;border-radius:10px;padding:0 24px;">Cancel</button>
-                <button type="submit" id="deductStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#dc2626;">Deduct Stock</button>
+                <button type="submit" id="deductStockBtn" class="btn-primary" style="height:44px;border-radius:10px;padding:0 24px;background:#dc2626;">Issue OUT</button>
             </div>
         </form>
         </div>
@@ -1249,15 +1307,10 @@ if (isset($_GET['ajax'])) {
                         <p class="field-hint">&nbsp;</p>
                     </div>
                     <div id="itemInitialStockColumn" class="item-modal-field">
-                        <div id="statusSection" class="item-modal-edit-only form-group">
-                            <label for="itemStatus">System Status</label>
-                            <select id="itemStatus" name="status" class="w-100">
-                                <option value="ACTIVE">Active</option>
-                                <option value="INACTIVE">Inactive</option>
-                            </select>
-                            <div id="statusHelperMessage" style="display:none;">
-                                <p class="field-hint" style="min-height:auto;">Inactive materials are hidden from new orders and POS.</p>
-                            </div>
+                        <div id="itemCurrentStockSlot" class="item-modal-edit-only">
+                            <label for="itemCurrentStock">Current Stock</label>
+                            <input type="text" id="itemCurrentStock" value="" readonly class="w-100 threshold-readonly pf-field-auto" tabindex="-1" aria-readonly="true">
+                            <p class="field-hint" style="min-height:auto;">Stock can only be changed through Receive In or Receive Out.</p>
                         </div>
                         <div id="itemInitialStockSlot" class="form-group item-modal-create-only">
                             <label for="itemStartingStock">Initial Stock Quantity <span class="pf-required-star item-modal-create-only">*</span></label>
@@ -1302,13 +1355,19 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="itemModalThresholdRow" class="item-modal-rows-2">
                     <div class="item-modal-field">
-                        <label for="itemMinStock">Reorder Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
-                        <input type="text" id="itemMinStock" value="Reorder Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <label for="itemMinStock">Reorder Level <span id="itemMinStockLabelHint" style="font-size:10px;color:#9ca3af;font-weight:normal;">(Suggested)</span></label>
+                        <input type="text" id="itemMinStock" name="reorder_level" value="Reorder Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <span id="err-itemMinStock" class="field-error"></span>
                     </div>
                     <div class="item-modal-field">
-                        <label for="itemCriticalStock">Critical Level <span style="font-size:10px;color:#9ca3af;font-weight:normal;">(Auto-calculated)</span></label>
-                        <input type="text" id="itemCriticalStock" value="Critical Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <label for="itemCriticalStock">Critical Level <span id="itemCriticalStockLabelHint" style="font-size:10px;color:#9ca3af;font-weight:normal;">(Suggested)</span></label>
+                        <input type="text" id="itemCriticalStock" name="critical_level" value="Critical Level Not Set" readonly class="w-100 threshold-readonly threshold-unset pf-field-auto" tabindex="-1" aria-readonly="true" title="Set initial quantity to calculate">
+                        <span id="err-itemCriticalStock" class="field-error"></span>
                     </div>
+                </div>
+                <p id="itemThresholdCreateHint" class="item-modal-create-only field-hint" style="margin:-4px 0 12px;">Thresholds are automatically calculated and can be adjusted later.</p>
+                <div id="itemThresholdResetRow" class="item-modal-edit-only">
+                    <button type="button" id="btnResetSuggestedThresholds" onclick="resetSuggestedThresholds()">Reset to Suggested Values</button>
                 </div>
                 <div class="item-modal-rows-2 item-modal-row-preview">
                     <div id="previewStatusSection" class="item-modal-field" style="grid-column: span 2;">
@@ -1321,9 +1380,10 @@ if (isset($_GET['ajax'])) {
             <!-- Alerts Section (edit only) -->
             <div id="reorderAlertsGroup" class="modal-section" style="margin-bottom: 20px;">
                 <div class="form-col-full">
-                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds update in real time as quantity changes.</p>
+                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed until you edit them or use Reset to Suggested Values.</p>
+                    <div id="editModalThresholdExceedWarn" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; margin-bottom:8px;">The configured stock thresholds exceed the current stock quantity. This material will immediately be classified according to the configured thresholds.</div>
                     <div id="editModalReorderWarnHigh" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; This may mark your stock as low immediately</div>
-                    <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; You may run out of stock before being warned</div>
+                    <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; margin-top:8px;">&#9888;&#65039; You may run out of stock before being warned</div>
                     <div id="editModalNoStockYet" style="display:none; font-size:11px; color:#6b7280; background:#f3f4f6; padding:8px 12px; border-radius:8px; border:1px solid #e5e7eb;">No stock added yet.</div>
                 </div>
             </div>
@@ -1333,6 +1393,22 @@ if (isset($_GET['ajax'])) {
             <div id="editModalChangeSummary" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
                 <div style="font-size:12px; font-weight:700; color:#166534; margin-bottom:8px;">Changes Summary</div>
                 <div id="editModalChangeSummaryContent" style="font-size:13px; color:#374151;"></div>
+            </div>
+
+            <div id="statusSection" class="item-modal-edit-only">
+                <div class="item-modal-rows-2" style="margin-bottom:0;">
+                    <div class="item-modal-field">
+                        <label for="itemStatus">Status</label>
+                        <select id="itemStatus" name="status" class="w-100">
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive</option>
+                        </select>
+                        <div id="statusHelperMessage" style="display:none;">
+                            <p class="modal-hint-text">Inactive materials are hidden from new orders and POS.</p>
+                        </div>
+                    </div>
+                    <div class="item-modal-field" aria-hidden="true"></div>
+                </div>
             </div>
             
             <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top:16px; border-top:1px solid #f3f4f6; margin-top: auto;">
@@ -1406,9 +1482,22 @@ if (isset($_GET['ajax'])) {
         if (trackEl) trackEl.value = item.track_by_roll != null ? String(item.track_by_roll) : '0';
         if (statusEl) statusEl.value = item.status || 'ACTIVE';
         if (startingStockEl) {
-            startingStockEl.value = item.current_stock != null ? String(item.current_stock) : '';
+            startingStockEl.value = '';
             startingStockEl.type = 'hidden';
         }
+
+        var currentStockEl = document.getElementById('itemCurrentStock');
+        var stockVal = item.current_stock != null ? parseFloat(item.current_stock) : 0;
+        var uomForDisplay = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
+        if (currentStockEl) {
+            currentStockEl.value = fmtQty(stockVal, uomForDisplay === 'pcs') + ' ' + uomForDisplay.toUpperCase();
+        }
+
+        pfConfigureThresholdFieldsForMode(true);
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        if (reorderEl) reorderEl.value = String(item.reorder_level != null ? item.reorder_level : 0);
+        if (criticalEl) criticalEl.value = String(item.critical_level != null ? item.critical_level : 0);
 
         var catOpt = itemCategory && itemCategory.selectedOptions ? itemCategory.selectedOptions[0] : null;
         var catEditLabel = (catOpt && catOpt.textContent ? catOpt.textContent : '').toUpperCase();
@@ -1440,18 +1529,58 @@ if (isset($_GET['ajax'])) {
 
     function pfSuggestReorderLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
-        return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.20));
+        return q <= 0 ? 0 : Math.ceil(q * 0.20);
     }
 
     function pfSuggestCriticalLevel(qty) {
         var q = Math.max(0, Number(qty) || 0);
-        return q <= 0 ? 1 : Math.max(1, Math.ceil(q * 0.05));
+        return q <= 0 ? 0 : Math.ceil(q * 0.05);
+    }
+
+    function pfConfigureThresholdFieldsForMode(isEdit) {
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        var reorderHint = document.getElementById('itemMinStockLabelHint');
+        var criticalHint = document.getElementById('itemCriticalStockLabelHint');
+        if (!reorderEl || !criticalEl) return;
+
+        if (isEdit) {
+            reorderEl.type = 'number';
+            criticalEl.type = 'number';
+            reorderEl.step = '0.01';
+            criticalEl.step = '0.01';
+            reorderEl.min = '0';
+            criticalEl.min = '0';
+            reorderEl.readOnly = false;
+            criticalEl.readOnly = false;
+            reorderEl.removeAttribute('aria-readonly');
+            criticalEl.removeAttribute('aria-readonly');
+            reorderEl.tabIndex = 0;
+            criticalEl.tabIndex = 0;
+            reorderEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
+            criticalEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
+            if (reorderHint) reorderHint.textContent = '(Configurable)';
+            if (criticalHint) criticalHint.textContent = '(Configurable)';
+        } else {
+            reorderEl.type = 'text';
+            criticalEl.type = 'text';
+            reorderEl.readOnly = true;
+            criticalEl.readOnly = true;
+            reorderEl.setAttribute('aria-readonly', 'true');
+            criticalEl.setAttribute('aria-readonly', 'true');
+            reorderEl.tabIndex = -1;
+            criticalEl.tabIndex = -1;
+            reorderEl.classList.add('threshold-readonly', 'pf-field-auto');
+            criticalEl.classList.add('threshold-readonly', 'pf-field-auto');
+            if (reorderHint) reorderHint.textContent = '(Suggested)';
+            if (criticalHint) criticalHint.textContent = '(Suggested)';
+        }
     }
 
     function pfResolveStockStatus(quantity, reorderLevel, criticalLevel, isNewItemWithoutStock) {
         var qty = Math.max(0, Number(quantity) || 0);
-        var reorder = Math.max(1, Number(reorderLevel) || 1);
-        var critical = Math.max(1, Math.min(Number(criticalLevel) || 1, reorder));
+        var reorder = Math.max(0, Number(reorderLevel) || 0);
+        var critical = Math.max(0, Number(criticalLevel) || 0);
 
         if (isNewItemWithoutStock && qty <= 0) {
             return {
@@ -1464,10 +1593,10 @@ if (isset($_GET['ajax'])) {
             };
         }
         if (qty <= 0) {
-            return { key: 'out', label: 'Out of Stock', textColor: '#7f1d1d', bgColor: '#f3f4f6', borderColor: '#d1d5db', rowClass: 'low-stock-row stock-status-out' };
+            return { key: 'out', label: 'Out of Stock', textColor: '#991b1b', bgColor: '#fef2f2', borderColor: '#fecaca', rowClass: 'low-stock-row stock-status-out' };
         }
         if (qty <= critical) {
-            return { key: 'critical', label: 'Critical', textColor: '#991b1b', bgColor: '#fef2f2', borderColor: '#fecaca', rowClass: 'low-stock-row stock-status-critical' };
+            return { key: 'critical', label: 'Critical', textColor: '#c2410c', bgColor: '#fff7ed', borderColor: '#fdba74', rowClass: 'low-stock-row stock-status-critical' };
         }
         if (qty <= reorder) {
             return { key: 'low', label: 'Low Stock', textColor: '#92400e', bgColor: '#fef3c7', borderColor: '#fde68a', rowClass: 'low-stock-row stock-status-low' };
@@ -1490,15 +1619,17 @@ if (isset($_GET['ajax'])) {
     function pfSyncAutoFieldLockStates() {
         var uomEl = document.getElementById('itemUnit');
         var trackEl = document.getElementById('itemTrackByRoll');
+        var catEl = document.getElementById('itemCategory');
         var minEl = document.getElementById('itemMinStock');
         var critEl = document.getElementById('itemCriticalStock');
-        var unlockUom = !!currentIsTarpaulinCategory;
+        var isEdit = document.getElementById('actionType')?.value === 'update_item';
 
         function applyLocked(el, locked) {
             if (!el) return;
             el.classList.toggle('pf-field-auto', locked);
             if (el.tagName === 'SELECT') {
                 el.disabled = locked;
+                el.classList.toggle('locked-select', locked);
             }
             if (locked) {
                 el.setAttribute('aria-readonly', 'true');
@@ -1509,10 +1640,78 @@ if (isset($_GET['ajax'])) {
             }
         }
 
-        applyLocked(uomEl, !unlockUom);
+        applyLocked(uomEl, true);
         applyLocked(trackEl, true);
-        if (minEl) minEl.classList.add('pf-field-auto');
-        if (critEl) critEl.classList.add('pf-field-auto');
+        applyLocked(catEl, isEdit);
+        if (minEl) minEl.classList.toggle('pf-field-auto', !isEdit);
+        if (critEl) critEl.classList.toggle('pf-field-auto', !isEdit);
+    }
+
+    function pfGetThresholdValues() {
+        var reorderEl = document.getElementById('itemMinStock');
+        var criticalEl = document.getElementById('itemCriticalStock');
+        return {
+            reorder: Math.max(0, parseFloat(reorderEl?.value || 0) || 0),
+            critical: Math.max(0, parseFloat(criticalEl?.value || 0) || 0)
+        };
+    }
+
+    function pfValidateThresholdFields(forceShowErrors) {
+        var thresholds = pfGetThresholdValues();
+        var reorder = thresholds.reorder;
+        var critical = thresholds.critical;
+        var isValid = true;
+        var msg = 'Critical Level must be lower than Reorder Level.';
+
+        if (reorder < 0 || critical < 0) {
+            isValid = false;
+            msg = 'Reorder Level and Critical Level must be zero or greater.';
+        } else if (reorder > 0 && critical >= reorder) {
+            isValid = false;
+        }
+
+        if (forceShowErrors) {
+            updateValidationUI('itemMinStock', isValid, isValid ? '' : msg);
+            updateValidationUI('itemCriticalStock', isValid, isValid ? '' : msg);
+        }
+        return isValid;
+    }
+
+    async function resetSuggestedThresholds() {
+        var itemId = document.getElementById('itemId')?.value;
+        if (!itemId) return;
+        var stock = Math.max(0, parseFloat(selectedItemForStockCard?.current_stock || 0));
+        var suggestedReorder = pfSuggestReorderLevel(stock);
+        var suggestedCritical = pfSuggestCriticalLevel(stock);
+        var confirmed = window.confirm(
+            'Reset thresholds based on current stock (' + stock + ')?\n\nSuggested:\nReorder Level = ' + suggestedReorder + '\nCritical Level = ' + suggestedCritical
+        );
+        if (!confirmed) return;
+
+        try {
+            var formData = new FormData();
+            formData.append('action', 'reset_thresholds');
+            formData.append('id', itemId);
+            var res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
+            var data = await res.json();
+            if (!data.success) {
+                alert(data.error || 'Unable to reset thresholds.');
+                return;
+            }
+            var reorderEl = document.getElementById('itemMinStock');
+            var criticalEl = document.getElementById('itemCriticalStock');
+            if (reorderEl) reorderEl.value = String(data.reorder_level);
+            if (criticalEl) criticalEl.value = String(data.critical_level);
+            if (selectedItemForStockCard) {
+                selectedItemForStockCard.reorder_level = data.reorder_level;
+                selectedItemForStockCard.critical_level = data.critical_level;
+            }
+            pfValidateThresholdFields(true);
+            updateEditModalUI(false);
+        } catch (err) {
+            console.error(err);
+            alert('Network communication error. Please try again.');
+        }
     }
 
     function pfModalQuantityIsSet() {
@@ -1556,6 +1755,10 @@ if (isset($_GET['ajax'])) {
     }
 
     function pfApplySuggestedThresholds() {
+        var actionTypeEl = document.getElementById('actionType');
+        if (actionTypeEl && actionTypeEl.value === 'update_item') {
+            return;
+        }
         var reorderEl = document.getElementById('itemMinStock');
         var criticalEl = document.getElementById('itemCriticalStock');
         if (!reorderEl || !criticalEl) return;
@@ -1634,7 +1837,7 @@ if (isset($_GET['ajax'])) {
             addStockUnitCost.addEventListener('change', updateAddStockUI);
         }
         ['itemUnitCost', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(pfBindNumericClearOnFocus);
-        ['itemName', 'itemCategory', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet'].forEach(function (id) {
+        ['itemName', 'itemCategory', 'itemUnitCost', 'itemTrackByRoll', 'itemStatus', 'itemStartingStock', 'startingRolls', 'startingFeet', 'itemMinStock', 'itemCriticalStock'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el && !el._pf_bound) {
                 el._pf_bound = true;
@@ -1645,6 +1848,9 @@ if (isset($_GET['ajax'])) {
                     }
                     validateField(id);
                 });
+                if (id === 'itemMinStock' || id === 'itemCriticalStock') {
+                    el.addEventListener('change', function () { validateField(id); });
+                }
                 if (id === 'itemName') el.addEventListener('input', handleItemNameInput);
             }
         });
@@ -1773,6 +1979,10 @@ if (isset($_GET['ajax'])) {
                 if (!validateField(id, forceShowErrors, true)) allValid = false;
             });
 
+            if (!isCreate) {
+                if (!pfValidateThresholdFields(forceShowErrors)) allValid = false;
+            }
+
             if (isCreate && uom === 'ft' && !getStockInputMethod()) {
                 allValid = false;
                 if (forceShowErrors) {
@@ -1888,6 +2098,16 @@ if (isset($_GET['ajax'])) {
             case 'startingFeet':
                 if (!val) { msg = 'Initial stock is required.'; isValid = false; }
                 else if (!isFeetPositive(val)) { msg = 'Initial stock must be greater than 0.'; isValid = false; }
+                break;
+            case 'itemMinStock':
+            case 'itemCriticalStock':
+                if (document.getElementById('actionType')?.value === 'update_item') {
+                    isValid = pfValidateThresholdFields(true);
+                    if (!skipFormSideEffects && !_itemFormValidating) {
+                        updateEditModalUI(false);
+                    }
+                    return isValid;
+                }
                 break;
         }
 
@@ -2068,8 +2288,8 @@ if (isset($_GET['ajax'])) {
         selectedItemForStockCard = item;
         
         const stock = parseFloat(item.current_stock || 0);
-        const reorder = pfSuggestReorderLevel(stock);
-        const critical = pfSuggestCriticalLevel(stock);
+        const reorder = parseFloat(item.reorder_level || 0);
+        const critical = parseFloat(item.critical_level || 0);
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
@@ -2087,8 +2307,8 @@ if (isset($_GET['ajax'])) {
         document.getElementById('scProgressFill').style.width = pct + '%';
         document.getElementById('scProgressText').textContent = fmtQty(stock, isPcs) + ' / ' + fmtQty(reorder, isPcs);
         let progColor = '#10b981';
-        if (status.key === 'out') progColor = '#6b7280';
-        else if (status.key === 'critical') progColor = '#dc2626';
+        if (status.key === 'out') progColor = '#dc2626';
+        else if (status.key === 'critical') progColor = '#f97316';
         else if (status.key === 'low') progColor = '#f59e0b';
         document.getElementById('scProgressFill').style.background = progColor;
         
@@ -2096,10 +2316,10 @@ if (isset($_GET['ajax'])) {
         const msgEl = document.getElementById('scStatusMsg');
         if (status.key === 'out') {
             msgEl.textContent = 'Out of stock. Immediate restocking required.';
-            msgEl.style.background = '#f3f4f6'; msgEl.style.color = '#7f1d1d'; msgEl.style.border = '1px solid #d1d5db';
+            msgEl.style.background = status.bgColor; msgEl.style.color = status.textColor; msgEl.style.border = '1px solid ' + status.borderColor;
         } else if (status.key === 'critical') {
             msgEl.textContent = 'Critical stock level. Urgent replenishment required.';
-            msgEl.style.background = '#fef2f2'; msgEl.style.color = '#991b1b'; msgEl.style.border = '1px solid #fecaca';
+            msgEl.style.background = status.bgColor; msgEl.style.color = status.textColor; msgEl.style.border = '1px solid ' + status.borderColor;
         } else if (status.key === 'low') {
             msgEl.textContent = 'Stock is getting low. Consider restocking.';
             msgEl.style.background = '#fef3c7'; msgEl.style.color = '#92400e'; msgEl.style.border = '1px solid #fde68a';
@@ -2427,6 +2647,7 @@ if (isset($_GET['ajax'])) {
             const archiveBtn = document.getElementById('archiveItemBtn');
             if (archiveBtn) archiveBtn.style.display = 'none';
             applySmartUomRules();
+            pfConfigureThresholdFieldsForMode(false);
             pfApplySuggestedThresholds();
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();
@@ -2437,7 +2658,7 @@ if (isset($_GET['ajax'])) {
             selectedItemForStockCard = item;
             editItemOriginalValues = {};
             applySmartUomRules();
-            pfApplySuggestedThresholds();
+            pfConfigureThresholdFieldsForMode(true);
             pfSyncAutoFieldLockStates();
             updateItemModalSaveButtonLabel();
             scheduleItemModalWork(function () { updateEditModalUI(false); }, 0);
@@ -2477,6 +2698,13 @@ if (isset($_GET['ajax'])) {
                 previewEl.textContent = stockStatus.label;
                 previewEl.style.cssText = 'min-height:38px;display:flex;align-items:center;justify-content:center;padding:0 12px;font-weight:600;border:1px solid ' + stockStatus.borderColor + ';border-radius:8px;background:' + stockStatus.bgColor + ';color:' + stockStatus.textColor + ';';
             }
+        } else {
+            const stock = Math.max(0, parseFloat(selectedItemForStockCard?.current_stock || 0));
+            const thresholds = pfGetThresholdValues();
+            const stockStatus = pfResolveStockStatus(stock, thresholds.reorder, thresholds.critical, false);
+            const exceedEl = document.getElementById('editModalThresholdExceedWarn');
+            const showExceed = stock < thresholds.reorder || stock < thresholds.critical;
+            if (exceedEl) exceedEl.style.display = showExceed ? 'block' : 'none';
         }
 
         const itemStatusVal = document.getElementById('itemStatus')?.value;
@@ -2507,6 +2735,83 @@ if (isset($_GET['ajax'])) {
         const item = currentItems.find(i => i.id == itemId);
         if (item) openAddStockModal(item);
     }
+
+    function openDeductStockModalById(itemId) {
+        const item = currentItems.find(i => i.id == itemId);
+        if (item) openDeductStockModal(item);
+    }
+
+    var invItemPickMode = 'receive';
+
+    function openInvItemPickModal(mode) {
+        invItemPickMode = mode === 'issue' ? 'issue' : 'receive';
+        var titleEl = document.getElementById('invItemPickTitle');
+        if (titleEl) {
+            titleEl.textContent = invItemPickMode === 'issue' ? 'Issue OUT — Select Material' : 'Receive IN — Select Material';
+        }
+        var searchEl = document.getElementById('invItemPickSearch');
+        var catEl = document.getElementById('invItemPickCategory');
+        if (searchEl) searchEl.value = '';
+        if (catEl) catEl.value = '';
+        renderInvItemPickResults();
+        document.getElementById('invItemPickModal').style.display = 'flex';
+        setTimeout(function() { searchEl?.focus(); }, 150);
+    }
+
+    function closeInvItemPickModal() {
+        document.getElementById('invItemPickModal').style.display = 'none';
+    }
+
+    function renderInvItemPickResults() {
+        var resultsEl = document.getElementById('invItemPickResults');
+        var searchEl = document.getElementById('invItemPickSearch');
+        var catEl = document.getElementById('invItemPickCategory');
+        if (!resultsEl) return;
+
+        var q = (searchEl?.value || '').trim().toLowerCase();
+        var catId = catEl ? parseInt(catEl.value || '0', 10) : 0;
+        var matches = (currentItems || []).filter(function(item) {
+            if (String(item.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return false;
+            if (catId > 0 && parseInt(item.category_id || '0', 10) !== catId) return false;
+            if (!q) return true;
+            return String(item.name || '').toLowerCase().indexOf(q) !== -1;
+        });
+
+        if (!matches.length) {
+            var hasQuery = !!q || catId > 0;
+            resultsEl.innerHTML = '<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">' + (hasQuery ? 'No materials match your search.' : 'Type a name or pick a category to find materials.') + '</div>';
+            return;
+        }
+
+        resultsEl.innerHTML = matches.map(function(item) {
+            var cat = item.category_name ? escapeHtml(item.category_name) + ' · ' : '';
+            var stock = parseFloat(item.stock_on_hand != null ? item.stock_on_hand : item.starting_stock || 0);
+            var uom = item.unit_of_measure || 'pcs';
+            var soh = uom === 'pcs' ? String(Math.round(stock)) : stock.toFixed(2);
+            return '<button type="button" class="inv-item-pick-result" data-id="' + item.id + '" style="display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:12px 14px;border:none;border-bottom:1px solid #f3f4f6;background:#fff;cursor:pointer;text-align:left;">'
+                + '<span style="font-weight:600;color:#111827;">' + escapeHtml(item.name) + '</span>'
+                + '<span style="font-size:12px;color:#6b7280;margin-top:2px;">' + cat + 'SOH: ' + soh + '</span>'
+                + '</button>';
+        }).join('');
+
+        resultsEl.querySelectorAll('.inv-item-pick-result').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var id = parseInt(btn.getAttribute('data-id'), 10);
+                closeInvItemPickModal();
+                if (invItemPickMode === 'issue') openDeductStockModalById(id);
+                else openAddStockModalById(id);
+            });
+            btn.addEventListener('mouseenter', function() { btn.style.background = '#f9fafb'; });
+            btn.addEventListener('mouseleave', function() { btn.style.background = '#fff'; });
+        });
+    }
+
+    (function bindInvItemPickModal() {
+        var searchEl = document.getElementById('invItemPickSearch');
+        var catEl = document.getElementById('invItemPickCategory');
+        if (searchEl) searchEl.addEventListener('input', renderInvItemPickResults);
+        if (catEl) catEl.addEventListener('change', renderInvItemPickResults);
+    })();
 
     function normalizeInventoryUomValue(rawUom, categoryName = '') {
         const uom = String(rawUom || '').trim().toLowerCase();
@@ -2927,7 +3232,7 @@ if (isset($_GET['ajax'])) {
         const fd = new FormData();
         fd.set('action', 'record_transaction');
         fd.set('item_id', document.getElementById('deductStockItemId').value);
-        fd.set('transaction_type', 'adjustment_down');
+        fd.set('transaction_type', 'issue');
         fd.set('quantity', document.getElementById('deductStockQty').value);
         fd.set('notes', document.getElementById('deductStockNotes').value || 'Manual deduction');
         try {
@@ -2953,7 +3258,7 @@ if (isset($_GET['ajax'])) {
                 }
             }
         } catch (err) { alert('Network error.'); }
-        finally { btn.disabled = false; btn.textContent = 'Deduct Stock'; }
+        finally { btn.disabled = false; btn.textContent = 'Issue OUT'; }
     }
 
     async function saveAddStock(e) {
@@ -3025,7 +3330,7 @@ if (isset($_GET['ajax'])) {
                 errEl.textContent = qtyCheck.msg || 'Please enter a valid quantity.';
                 errEl.style.display = 'block';
             }
-            btn.disabled = false; btn.textContent = 'Add Stock';
+            btn.disabled = false; btn.textContent = 'Receive IN';
             updateAddStockUI();
             return;
         }
@@ -3036,7 +3341,7 @@ if (isset($_GET['ajax'])) {
                 errCostEl.textContent = 'Unit cost must be greater than 0.';
                 errCostEl.style.display = 'block';
             }
-            btn.disabled = false; btn.textContent = 'Add Stock';
+            btn.disabled = false; btn.textContent = 'Receive IN';
             updateAddStockUI();
             return;
         }
@@ -3091,7 +3396,7 @@ if (isset($_GET['ajax'])) {
             console.error('Add stock error:', err);
             alert('Network communication error. Please try again.');
         }
-        finally { btn.disabled = false; btn.textContent = 'Add Stock'; updateAddStockUI(); }
+        finally { btn.disabled = false; btn.textContent = 'Receive IN'; updateAddStockUI(); }
     }
 
     function editItem(item) {
@@ -3135,14 +3440,18 @@ if (isset($_GET['ajax'])) {
 
         const uomEl = document.getElementById('itemUnit');
         const trackEl = document.getElementById('itemTrackByRoll');
+        const catEl = document.getElementById('itemCategory');
         const uomWasDisabled = uomEl.disabled;
         const trackWasDisabled = trackEl.disabled;
+        const catWasDisabled = catEl.disabled;
 
         uomEl.disabled = false;
         trackEl.disabled = false;
+        catEl.disabled = false;
         const formData = new FormData(document.getElementById('itemForm'));
         uomEl.disabled = uomWasDisabled;
         trackEl.disabled = trackWasDisabled;
+        catEl.disabled = catWasDisabled;
         try {
             const res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
             const data = await res.json();
@@ -3156,7 +3465,15 @@ if (isset($_GET['ajax'])) {
                 if (data.errors) {
                     for (let key in data.errors) {
                         // Map API field names to UI element IDs if different
-                        let idMap = { 'name': 'itemName', 'category_id': 'itemCategory', 'unit': 'itemUnit', 'unit_cost': 'itemUnitCost', 'roll_length_ft': 'itemRollLength' };
+                        let idMap = {
+                            'name': 'itemName',
+                            'category_id': 'itemCategory',
+                            'unit': 'itemUnit',
+                            'unit_cost': 'itemUnitCost',
+                            'roll_length_ft': 'itemRollLength',
+                            'reorder_level': 'itemMinStock',
+                            'critical_level': 'itemCriticalStock'
+                        };
                         const targetId = idMap[key] || key;
                         const errEl = document.getElementById('err-' + targetId);
                         const inputEl = document.getElementById(targetId);

@@ -100,23 +100,11 @@ class InventoryManager {
         return [" AND {$column} = ?", 'i', [$resolvedBranchId]];
     }
 
-    /** Sync live thresholds and send low/critical notifications after stock changes. */
+    /** Evaluate stored policy thresholds and notify only when alert tier changes. */
     private static function notifyStockLevelIfNeeded(array $item, int $itemId, ?int $branchId = null): void {
         $branchId = $branchId ?: self::getCurrentBranchId();
         $newSoh = self::getStockOnHand($itemId, $branchId);
-        printflow_sync_item_thresholds($itemId, $newSoh);
-        if (!function_exists('notify_shop_users')) {
-            return;
-        }
-        $thresholds = printflow_thresholds_for_quantity($newSoh);
-        $status = printflow_resolve_stock_status($newSoh, $thresholds['reorder'], $thresholds['critical']);
-        if ($status['key'] === 'critical' || $status['key'] === 'out') {
-            $msg = "Critical stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (critical at {$thresholds['critical']})";
-            notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
-        } elseif ($status['key'] === 'low') {
-            $msg = "Low stock: {$item['name']} is at {$newSoh} {$item['unit_of_measure']} (reorder at {$thresholds['reorder']})";
-            notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
-        }
+        printflow_evaluate_stock_alert_notification($item, $itemId, $newSoh);
     }
 
     /**
@@ -216,7 +204,7 @@ class InventoryManager {
             self::recordTransaction($itemId, 'IN', $quantity, $uom, $refType, $refId, $rollId, $notes, null, $transactionDate, $branchId);
 
             $conn->commit();
-            printflow_sync_item_thresholds($itemId, self::getStockOnHand($itemId, $branchId));
+            self::notifyStockLevelIfNeeded($item, $itemId, $branchId);
             return true;
         } catch (Throwable $e) {
             if ($conn->in_transaction) $conn->rollback();

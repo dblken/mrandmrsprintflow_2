@@ -20,12 +20,18 @@ function printflow_ensure_inv_items_threshold_schema(): void {
         $cols = db_query("SHOW COLUMNS FROM inv_items LIKE 'critical_level'") ?: [];
         if (empty($cols)) {
             db_execute(
-                "ALTER TABLE inv_items ADD COLUMN critical_level DECIMAL(10,2) NOT NULL DEFAULT 1.00 AFTER reorder_level"
+                "ALTER TABLE inv_items ADD COLUMN critical_level DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER reorder_level"
             );
             db_execute(
                 "UPDATE inv_items
-                 SET critical_level = GREATEST(1, CEIL(reorder_level * 0.25))
+                 SET critical_level = GREATEST(0, CEIL(reorder_level * 0.25))
                  WHERE reorder_level > 0"
+            );
+        }
+        $alertCols = db_query("SHOW COLUMNS FROM inv_items LIKE 'last_stock_alert_key'") ?: [];
+        if (empty($alertCols)) {
+            db_execute(
+                "ALTER TABLE inv_items ADD COLUMN last_stock_alert_key VARCHAR(20) NULL DEFAULT NULL AFTER critical_level"
             );
         }
     } catch (Throwable $e) {
@@ -36,17 +42,17 @@ function printflow_ensure_inv_items_threshold_schema(): void {
 function printflow_suggest_reorder_level(float $quantity): int {
     $qty = max(0, $quantity);
     if ($qty <= 0) {
-        return 1;
+        return 0;
     }
-    return max(1, (int)ceil($qty * 0.20));
+    return (int)ceil($qty * 0.20);
 }
 
 function printflow_suggest_critical_level(float $quantity): int {
     $qty = max(0, $quantity);
     if ($qty <= 0) {
-        return 1;
+        return 0;
     }
-    return max(1, (int)ceil($qty * 0.05));
+    return (int)ceil($qty * 0.05);
 }
 
 /**
@@ -61,47 +67,120 @@ function printflow_thresholds_for_quantity(float $quantity): array {
     ];
 }
 
-/** @deprecated Use printflow_thresholds_for_quantity($stock) for live evaluation. */
-function printflow_item_critical_level(array $item): float {
-    $stock = isset($item['current_stock']) ? (float)$item['current_stock'] : 0.0;
-    return printflow_thresholds_for_quantity($stock)['critical'];
+/** Stored reorder policy from inv_items (does not change with stock movements). */
+function printflow_item_stored_reorder_level(array $item): float {
+    return max(0, (float)($item['reorder_level'] ?? 0));
 }
 
-/** @deprecated Use printflow_thresholds_for_quantity($stock) for live evaluation. */
+/** Stored critical policy from inv_items (does not change with stock movements). */
+function printflow_item_stored_critical_level(array $item): float {
+    return max(0, (float)($item['critical_level'] ?? 0));
+}
+
+/** @deprecated Use printflow_item_stored_critical_level() for policy evaluation. */
+function printflow_item_critical_level(array $item): float {
+    return printflow_item_stored_critical_level($item);
+}
+
+/** @deprecated Use printflow_item_stored_reorder_level() for policy evaluation. */
 function printflow_item_reorder_level(array $item): float {
-    $stock = isset($item['current_stock']) ? (float)$item['current_stock'] : 0.0;
-    return printflow_thresholds_for_quantity($stock)['reorder'];
+    return printflow_item_stored_reorder_level($item);
 }
 
 /**
  * @return array{reorder:float,critical:float,status:array}
  */
 function printflow_item_stock_status(array $item, float $currentStock, bool $isNewItemWithoutStock = false): array {
-    $thresholds = printflow_thresholds_for_quantity($currentStock);
+    $reorder = printflow_item_stored_reorder_level($item);
+    $critical = printflow_item_stored_critical_level($item);
     $status = printflow_resolve_stock_status(
         $currentStock,
-        $thresholds['reorder'],
-        $thresholds['critical'],
+        $reorder,
+        $critical,
         $isNewItemWithoutStock
     );
     return [
-        'reorder' => $thresholds['reorder'],
-        'critical' => $thresholds['critical'],
+        'reorder' => $reorder,
+        'critical' => $critical,
         'status' => $status,
     ];
 }
 
-/** Persist computed thresholds after quantity changes (cache for reporting). */
-function printflow_sync_item_thresholds(int $itemId, float $quantity): void {
-    if ($itemId <= 0) {
-        return;
+/**
+ * Validate configured inventory policy thresholds.
+ */
+function printflow_validate_item_thresholds(float $reorderLevel, float $criticalLevel): ?string {
+    if ($reorderLevel < 0 || $criticalLevel < 0) {
+        return 'Reorder Level and Critical Level must be zero or greater.';
     }
-    $thresholds = printflow_thresholds_for_quantity($quantity);
+    if ($reorderLevel > 0 && $criticalLevel >= $reorderLevel) {
+        return 'Critical Level must be lower than Reorder Level.';
+    }
+    return null;
+}
+
+/** Apply suggested thresholds from a reference quantity (Add Material / explicit reset only). */
+function printflow_apply_suggested_item_thresholds(int $itemId, float $referenceQuantity): array {
+    $thresholds = printflow_thresholds_for_quantity($referenceQuantity);
     db_execute(
         'UPDATE inv_items SET reorder_level = ?, critical_level = ? WHERE id = ?',
         'ddi',
         [$thresholds['reorder'], $thresholds['critical'], $itemId]
     );
+    return $thresholds;
+}
+
+/** Persist computed thresholds after quantity changes (cache for reporting). */
+function printflow_sync_item_thresholds(int $itemId, float $quantity): void {
+    printflow_apply_suggested_item_thresholds($itemId, $quantity);
+}
+
+/** Notification copy for stock alert tiers. */
+function printflow_stock_alert_message(array $item, string $statusKey): string {
+    $name = trim((string)($item['name'] ?? 'Material'));
+    switch ($statusKey) {
+        case 'low':
+            return "{$name} has reached the reorder level.";
+        case 'critical':
+            return "{$name} is below the critical level. Immediate replenishment is recommended.";
+        case 'out':
+            return "{$name} is out of stock.";
+        default:
+            return '';
+    }
+}
+
+/**
+ * Evaluate stock against stored policy; notify only when alert tier changes.
+ */
+function printflow_evaluate_stock_alert_notification(array $item, int $itemId, float $currentStock): void {
+    $reorder = printflow_item_stored_reorder_level($item);
+    $critical = printflow_item_stored_critical_level($item);
+    $status = printflow_resolve_stock_status($currentStock, $reorder, $critical);
+    $alertKey = in_array($status['key'], ['low', 'critical', 'out'], true) ? $status['key'] : 'in';
+    $prevKey = trim((string)($item['last_stock_alert_key'] ?? 'in'));
+    if ($prevKey === '') {
+        $prevKey = 'in';
+    }
+
+    if ($alertKey === $prevKey) {
+        return;
+    }
+
+    db_execute(
+        'UPDATE inv_items SET last_stock_alert_key = ? WHERE id = ?',
+        'si',
+        [$alertKey, $itemId]
+    );
+
+    if ($alertKey === 'in' || !function_exists('notify_shop_users')) {
+        return;
+    }
+
+    $msg = printflow_stock_alert_message($item, $alertKey);
+    if ($msg !== '') {
+        notify_shop_users($msg, 'Stock', false, false, $itemId, ['Admin', 'Manager']);
+    }
 }
 
 /**
@@ -121,8 +200,8 @@ function printflow_resolve_stock_status(
     bool $isNewItemWithoutStock = false
 ): array {
     $qty = max(0, $quantity);
-    $reorder = max(1, $reorderLevel);
-    $critical = max(1, $criticalLevel);
+    $reorder = max(0, $reorderLevel);
+    $critical = max(0, $criticalLevel);
 
     if ($isNewItemWithoutStock && $qty <= 0) {
         return [
@@ -139,9 +218,9 @@ function printflow_resolve_stock_status(
         return [
             'key' => 'out',
             'label' => 'Out of Stock',
-            'text_color' => '#7f1d1d',
-            'bg_color' => '#f3f4f6',
-            'border_color' => '#d1d5db',
+            'text_color' => '#991b1b',
+            'bg_color' => '#fef2f2',
+            'border_color' => '#fecaca',
             'row_class' => 'low-stock-row stock-status-out',
         ];
     }
@@ -150,9 +229,9 @@ function printflow_resolve_stock_status(
         return [
             'key' => 'critical',
             'label' => 'Critical',
-            'text_color' => '#991b1b',
-            'bg_color' => '#fef2f2',
-            'border_color' => '#fecaca',
+            'text_color' => '#c2410c',
+            'bg_color' => '#fff7ed',
+            'border_color' => '#fdba74',
             'row_class' => 'low-stock-row stock-status-critical',
         ];
     }

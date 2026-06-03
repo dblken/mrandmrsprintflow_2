@@ -191,6 +191,15 @@ if (isset($_GET['ajax'])) {
         .sort-option { padding: 9px 12px; font-size: 13px; color: #4b5563; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
         .sort-option:hover { background: #f9fafb; color: #111827; }
         .sort-option.selected { background: #f0fdfa; color: #0d9488; font-weight: 600; }
+        .btn-secondary { border-radius: 10px; height: 44px; padding: 0 24px; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-weight: 600; cursor: pointer; }
+        .btn-secondary:hover { background: #f9fafb; }
+        .btn-save { border-radius: 10px; height: 44px; padding: 0 24px; background: #0d9488; color: #fff; border: none; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .btn-save:hover:not(:disabled) { background: #0f766e; }
+        .btn-save:disabled { opacity: 0.65; cursor: not-allowed; }
+        .modal-footer-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; padding-top: 24px; border-top: 1px solid #f3f4f6; flex-shrink: 0; }
+        .confirm-modal-actions { display: flex; gap: 12px; justify-content: center; }
+        .confirm-modal-actions .btn-secondary,
+        .confirm-modal-actions .btn-save { flex: 1; height: auto; padding: 12px 16px; font-size: 14px; }
         .filter-panel { position: absolute; top: calc(100% + 6px); right: 0; width: 280px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.12); z-index: 200; overflow: hidden; }
         .filter-panel-header { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; font-size: 14px; font-weight: 700; color: #111827; }
         .filter-section { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; }
@@ -745,9 +754,9 @@ if (isset($_GET['ajax'])) {
                 <div style="font-weight:700;margin-bottom:4px;color:#374151;">What happens next?</div>
                 <div>This will bring the branch back to the active list and make it available for use in the system.</div>
             </div>
-            <div style="display:flex;gap:12px;justify-content:center;">
-                <button type="button" @click="restoreConfirmModal.isOpen = false" style="flex:1;padding:12px 16px;border:1px solid #e5e7eb;background:white;border-radius:10px;font-size:14px;font-weight:600;color:#4b5563;cursor:pointer;">Cancel</button>
-                <button type="button" @click="confirmRestoreBranch()" style="flex:1;padding:12px 16px;border:none;background:#14b8a6;border-radius:10px;font-size:14px;font-weight:600;color:white;cursor:pointer;">Confirm</button>
+            <div class="confirm-modal-actions">
+                <button type="button" @click="restoreConfirmModal.isOpen = false" class="btn-secondary">Cancel</button>
+                <button type="button" @click="confirmRestoreBranch()" class="btn-save">Confirm</button>
             </div>
         </div>
     </div>
@@ -872,10 +881,9 @@ if (isset($_GET['ajax'])) {
                     </select>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:32px;">
-                    <button type="button" @click="modal.isOpen = false" style="padding:10px 16px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer;">Cancel</button>
-                    <button type="submit" 
-                            style="padding:10px 16px; border:none; border-radius:8px; background:#10b981; color:#fff; font-weight:600; cursor:pointer;"
+                <div class="modal-footer-actions">
+                    <button type="button" @click="modal.isOpen = false" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-save"
                             x-text="modal.isSubmitting ? 'Saving...' : (modal.mode === 'create' ? 'Create Branch' : 'Save Changes')"
                             :disabled="modal.isSubmitting"></button>
                 </div>

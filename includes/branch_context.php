@@ -331,15 +331,20 @@ function branch_customers_report_list(int $branchId): array {
     if ($bid <= 0) {
         return [];
     }
+    if (!function_exists('pf_reports_store_order_paid_completed_expr')) {
+        require_once __DIR__ . '/reports_dashboard_queries.php';
+    }
+    $storePaid = pf_reports_store_order_paid_completed_expr('o');
+    $jobPaid = pf_reports_job_order_paid_completed_expr('jo');
     $sql = "SELECT c.customer_id, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS name,
             COALESCE(c.email,'') AS email, COALESCE(c.contact_number,'') AS contact_number, c.status, c.created_at,
-            (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ?)
-            + (SELECT COUNT(*) FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ?) AS order_count,
-            COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ?), 0)
-            + COALESCE((SELECT SUM(jo.amount_paid) FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ? AND jo.payment_status = 'PAID'), 0) AS total_spent
+            (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ? AND {$storePaid})
+            + (SELECT COUNT(*) FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ? AND {$jobPaid}) AS order_count,
+            COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ? AND {$storePaid}), 0)
+            + COALESCE((SELECT SUM(COALESCE(NULLIF(jo.amount_paid,0), jo.estimated_total, 0)) FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ? AND {$jobPaid}), 0) AS total_spent
         FROM customers c
-        WHERE (EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ?)
-            OR EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ?))
+        WHERE (EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id AND o.branch_id = ? AND {$storePaid})
+            OR EXISTS (SELECT 1 FROM job_orders jo WHERE jo.customer_id = c.customer_id AND jo.branch_id = ? AND {$jobPaid}))
         ORDER BY total_spent DESC";
     $types = str_repeat('i', 6);
     $params = [$bid, $bid, $bid, $bid, $bid, $bid];

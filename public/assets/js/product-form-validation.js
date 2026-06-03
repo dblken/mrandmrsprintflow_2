@@ -3,7 +3,7 @@
  * PrintFlow - Admin Products Management
  */
 (function() {
-    console.log('[PrintFlow] Product Validation Loaded v2.2');
+    console.log('[PrintFlow] Product Validation Loaded v2.4');
     const ERRORS = {
         nameRequired: 'Product name is required.',
         nameMinLength: 'Product name must be at least 2 characters.',
@@ -22,7 +22,8 @@
         quantityRequired: 'Quantity is required.',
         quantityWhole: 'Quantity must be a whole number.',
         quantityNegative: 'Quantity must be a non-negative number.',
-        quantityBelowLowStock: 'Quantity cannot be lower than low stock level.',
+        quantityBelowLowStock: 'Quantity cannot be lower than reorder level.',
+        criticalBelowReorder: 'Critical Level must be lower than Reorder Level.',
         lowStockExceed: 'Low stock level cannot exceed quantity.',
         lowStockWhole: 'Low stock level must be a whole number.',
         lowStockNegative: 'Low stock level must be a non-negative number.'
@@ -32,8 +33,16 @@
     const MAX_PHOTO_SIZE = 5 * 1024 * 1024; // 5MB
 
     let touchedFields = new Set();
+    let submitValidationActive = false;
 
-    function el(id) { return document.getElementById(id); }
+    function el(id) {
+        var form = document.getElementById('product-form');
+        if (form) {
+            var scoped = form.querySelector('#' + id);
+            if (scoped) return scoped;
+        }
+        return document.getElementById(id);
+    }
 
     /**
      * Manager branch-stock UI: page has #modal-stock-mgr; admins do not.
@@ -50,6 +59,10 @@
         return !!(ov && ov.classList.contains('active') && el('modal-mode-input')?.name === 'add_product_stock');
     }
 
+    function isProductEditMode() {
+        return !!document.getElementById('product-modal')?.classList.contains('product-modal--edit');
+    }
+
     function resolveFieldUi(fieldId) {
         if (fieldId === 'stock') {
             if (isStockOnlyModalOpen()) return { inputId: 'stock-modal-add-qty', errId: 'err-add-stock' };
@@ -61,31 +74,76 @@
             if (isBranchStockModalOpen()) return { inputId: 'modal-low-mgr', errId: 'err-low-mgr' };
             return { inputId: 'modal-low-stock', errId: 'err-low-stock' };
         }
+        if (fieldId === 'critical-stock') {
+            return { inputId: 'modal-critical-stock', errId: 'err-critical-stock' };
+        }
         var inputId = fieldId === 'photo' ? 'modal-photo' : 'modal-' + fieldId;
         return { inputId: inputId, errId: 'err-' + fieldId };
     }
 
-    function showError(fieldId, msg) {
+    function showError(fieldId, msg, forceShow) {
         const ui = resolveFieldUi(fieldId);
         const inp = el(ui.inputId);
         const err = el(ui.errId);
-        const group = inp?.closest('.form-group');
+        const group = (err && err.closest('.form-group')) || (inp && inp.closest('.form-group'));
+        const shouldShow = !!msg && (forceShow === true || touchedFields.has(fieldId));
         if (err) {
-            const isTouched = touchedFields.has(fieldId);
-            err.textContent = msg || '';
-            err.style.display = (msg && isTouched) ? 'block' : 'none';
+            err.textContent = shouldShow ? msg : '';
+            err.style.display = shouldShow ? 'block' : 'none';
         }
         if (group) {
-            const isTouched = touchedFields.has(fieldId);
             var valForSuccess = '';
             if (inp && inp.type !== 'file') valForSuccess = (inp.value || '').trim();
-            group.classList.toggle('has-error', !!msg && isTouched);
-            group.classList.toggle('has-success', !msg && isTouched && !!valForSuccess);
+            group.classList.toggle('has-error', shouldShow);
+            group.classList.toggle('has-success', !msg && (forceShow || touchedFields.has(fieldId)) && !!valForSuccess);
         }
+    }
+
+    function clearAllProductErrors() {
+        document.querySelectorAll('#product-form .field-error').forEach(function(errEl) {
+            errEl.textContent = '';
+            errEl.style.display = 'none';
+        });
+        document.querySelectorAll('#product-form .form-group.has-error').forEach(function(groupEl) {
+            groupEl.classList.remove('has-error');
+        });
+    }
+
+    function markAllCreateEditFieldsTouched() {
+        ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock', 'critical-stock'].forEach(function(k) {
+            touchedFields.add(k);
+        });
+    }
+
+    function isProductFormValidSilent() {
+        if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
+            return !validateQuantity() && !validateLowStock();
+        }
+        if (isProductEditMode()) {
+            return !validateName() && !validatePrice() && !validateDescription()
+                && !validateLowStock() && !validateCriticalStock();
+        }
+        return !validateName() && !validateCategory() && !validatePrice()
+            && !validateDescription() && !validatePhoto() && !validateQuantity()
+            && !validateLowStock() && !validateCriticalStock();
+    }
+
+    function pfUpdateConfigureFieldsButton() {
+        var btn = el('btnProductFields');
+        if (!btn || !isProductEditMode()) return;
+        var valid = isProductFormValidSilent();
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+        btn.style.opacity = valid ? '1' : '0.55';
+        btn.style.cursor = 'pointer';
+        btn.style.pointerEvents = 'auto';
+        btn.setAttribute('aria-disabled', valid ? 'false' : 'true');
+        btn.classList.toggle('pf-configure-fields-ready', valid);
     }
     function getVal(fieldId) {
         if (fieldId === 'stock') return (el(resolveFieldUi('stock').inputId)?.value || '').trim();
         if (fieldId === 'low-stock') return (el(resolveFieldUi('low-stock').inputId)?.value || '').trim();
+        if (fieldId === 'critical-stock') return (el('modal-critical-stock')?.value || '').trim();
         return (el('modal-' + fieldId)?.value || '').trim();
     }
     function getPhoto() { return el('modal-photo'); }
@@ -152,20 +210,33 @@
         if (isNaN(num) || num < 0) return ERRORS.quantityNegative;
         if (num !== Math.floor(num)) return ERRORS.quantityWhole;
         if (isStockOnlyModalOpen() && num < 1) return ERRORS.quantityRequired;
-        
-        // Check if quantity is lower than low stock level
-        const lowStockVal = getVal('low-stock');
-        const lowStock = parseInt(lowStockVal, 10);
-        if (!isStockOnlyModalOpen() && !isNaN(lowStock) && num < lowStock) {
-            return ERRORS.quantityBelowLowStock;
+
+        if (!isStockOnlyModalOpen() && !isBranchStockModalOpen() && !isProductEditMode()) {
+            const lowStockVal = getVal('low-stock');
+            if (lowStockVal && !/not set/i.test(lowStockVal)) {
+                const lowStock = parseInt(lowStockVal, 10);
+                if (!isNaN(lowStock) && num < lowStock) {
+                    return ERRORS.quantityBelowLowStock;
+                }
+            }
         }
-        
+
         return '';
     }
 
     function validateLowStock() {
+        const stockVal = getVal('stock');
+        if (isCreateMode() && stockVal === '' && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
+            return '';
+        }
         const v = getVal('low-stock');
+        if (!v || /not set/i.test(v)) {
+            return isCreateMode() ? 'Set initial quantity to calculate reorder level.' : '';
+        }
         let qty = parseInt((el(resolveFieldUi('stock').inputId)?.value || '0'), 10);
+        if (isProductEditMode()) {
+            qty = parseInt((el('modal-current-stock')?.value || '0'), 10);
+        }
         if (isStockOnlyModalOpen()) {
             const current = parseInt((el('stock-modal-current')?.value || '0'), 10);
             qty = current + (isNaN(qty) ? 0 : qty);
@@ -173,11 +244,32 @@
         const num = parseFloat(v);
         if (isNaN(num) || num < 0) return ERRORS.lowStockNegative;
         if (num !== Math.floor(num)) return ERRORS.lowStockWhole;
-        if (num > qty) return ERRORS.lowStockExceed;
+        if (!isProductEditMode() && num > qty) return ERRORS.lowStockExceed;
         return '';
     }
 
-    function runValidation() {
+    function validateCriticalStock() {
+        const stockVal = getVal('stock');
+        if (isCreateMode() && stockVal === '' && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
+            return '';
+        }
+        const v = getVal('critical-stock');
+        if (!v || /not set/i.test(v)) {
+            return isCreateMode() ? 'Set initial quantity to calculate critical level.' : '';
+        }
+        const reorderVal = getVal('low-stock');
+        const reorder = parseFloat(reorderVal);
+        const num = parseFloat(v);
+        if (isNaN(num) || num < 0) return ERRORS.lowStockNegative;
+        if (num !== Math.floor(num)) return ERRORS.lowStockWhole;
+        if (!isNaN(reorder) && reorder > 0 && num >= reorder) return ERRORS.criticalBelowReorder;
+        return '';
+    }
+
+    function runValidation(forceShow) {
+        if (!forceShow && submitValidationActive) {
+            return isProductFormValidSilent();
+        }
         var errors;
         if (isStockOnlyModalOpen()) {
             errors = {
@@ -187,7 +279,8 @@
                 description: '',
                 photo: '',
                 stock: validateQuantity(),
-                'low-stock': validateLowStock()
+                'low-stock': validateLowStock(),
+                'critical-stock': ''
             };
         } else if (isBranchStockModalOpen()) {
             errors = {
@@ -197,25 +290,71 @@
                 description: '',
                 photo: '',
                 stock: validateQuantity(),
-                'low-stock': validateLowStock()
+                'low-stock': validateLowStock(),
+                'critical-stock': ''
             };
         } else {
             errors = {
                 name: validateName(),
-                category: validateCategory(),
+                category: isProductEditMode() ? '' : validateCategory(),
                 price: validatePrice(),
                 description: validateDescription(),
                 photo: validatePhoto(),
-                stock: validateQuantity(),
-                'low-stock': validateLowStock()
+                stock: isProductEditMode() ? '' : validateQuantity(),
+                'low-stock': validateLowStock(),
+                'critical-stock': validateCriticalStock()
             };
         }
-        Object.keys(errors).forEach(function(k) { showError(k, errors[k]); });
-        const valid = (errors && typeof errors === 'object') ? Object.values(errors).every(function(e) { return !e; }) : false;
+        Object.keys(errors).forEach(function(k) { showError(k, errors[k], forceShow); });
+        const valid = Object.values(errors).every(function(e) { return !e; });
         const btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
-        /* Stock-only and branch-stock modals must remain clickable; submit handler and backend still block invalid values. */
-        if (btn) btn.disabled = (isBranchStockModalOpen() || isStockOnlyModalOpen()) ? false : !valid;
+        if (btn && !btn.classList.contains('is-submitting')) {
+            btn.disabled = false;
+            btn.removeAttribute('disabled');
+        }
+        pfUpdateConfigureFieldsButton();
         return valid;
+    }
+
+    function validateAllFields(forceShow) {
+        if (forceShow && !isStockOnlyModalOpen() && !isBranchStockModalOpen()) {
+            markAllCreateEditFieldsTouched();
+            clearAllProductErrors();
+        }
+        return runValidation(!!forceShow);
+    }
+
+    function handleProductFormSubmit(e) {
+        if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
+            ['stock', 'low-stock'].forEach(function(k) { touchedFields.add(k); });
+            if (!validateAllFields(true)) {
+                e.preventDefault();
+                scrollToFirstProductError();
+            }
+            return;
+        }
+        submitValidationActive = true;
+        try {
+            var catEl = el('modal-category');
+            var catWasDisabled = catEl && catEl.disabled;
+            if (catWasDisabled) catEl.disabled = false;
+            if (!validateAllFields(true)) {
+                if (catWasDisabled && catEl) catEl.disabled = true;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                scrollToFirstProductError();
+            }
+        } finally {
+            submitValidationActive = false;
+        }
+    }
+
+    function scrollToFirstProductError() {
+        var first = document.querySelector('#product-form .form-group.has-error')
+            || document.querySelector('#product-form .field-error[style*="block"]');
+        if (first) {
+            (first.closest('.form-group') || first).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
     }
 
     function setupProductNameInput() {
@@ -241,37 +380,47 @@
         });
         inp.addEventListener('blur', function() {
             this.value = formatProductName(this.value);
-            runValidation();
+            if (submitValidationActive) return;
+            touchedFields.add('name');
+            showError('name', validateName(), false);
         });
     }
 
     function setupValidation() {
-        ['modal-name', 'modal-category', 'modal-price', 'modal-description', 'modal-stock', 'modal-low-stock', 'modal-stock-mgr', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'].forEach(function(id) {
+        ['modal-name', 'modal-category', 'modal-price', 'modal-description', 'modal-stock', 'modal-low-stock', 'modal-critical-stock', 'modal-stock-mgr', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'].forEach(function(id) {
             const elm = el(id);
             if (elm) {
                 elm.addEventListener('input', function() {
                     // Mark as touched on input
                     if (id === 'modal-stock-mgr' || id === 'stock-modal-add-qty') touchedFields.add('stock');
-                    else if (id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-low-stock' || id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-critical-stock') touchedFields.add('critical-stock');
                     else touchedFields.add(id.replace('modal-', ''));
                     runValidation();
                 });
                 elm.addEventListener('change', function() {
                     if (id === 'modal-stock-mgr' || id === 'stock-modal-add-qty') touchedFields.add('stock');
-                    else if (id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-low-stock' || id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-critical-stock') touchedFields.add('critical-stock');
                     else touchedFields.add(id.replace('modal-', ''));
                     runValidation();
                 });
                 elm.addEventListener('blur', function() {
                     if (id === 'modal-stock-mgr' || id === 'stock-modal-add-qty') touchedFields.add('stock');
-                    else if (id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-low-stock' || id === 'modal-low-mgr' || id === 'stock-modal-low-level') touchedFields.add('low-stock');
+                    else if (id === 'modal-critical-stock') touchedFields.add('critical-stock');
                     else touchedFields.add(id.replace('modal-', ''));
                     runValidation();
                 });
             }
         });
         const photoInput = getPhoto();
-        if (photoInput) photoInput.addEventListener('change', runValidation);
+        if (photoInput) {
+            photoInput.addEventListener('change', function() {
+                touchedFields.add('photo');
+                runValidation(false);
+            });
+        }
         setupProductNameInput();
     }
 
@@ -279,36 +428,60 @@
         const form = document.getElementById('product-form');
         if (!form) {
             window.printflowProductFormValidationRun = function() {};
+            window.pfHandleProductFormSubmit = function() {};
             return;
         }
 
         if (form.getAttribute('data-pf-product-validation') !== '1') {
             form.setAttribute('data-pf-product-validation', '1');
-            form.addEventListener('submit', function(e) {
-                if (isStockOnlyModalOpen() || isBranchStockModalOpen()) {
-                    ['stock', 'low-stock'].forEach(function(k) { touchedFields.add(k); });
-                } else {
-                    ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock'].forEach(function(k) {
-                        touchedFields.add(k);
-                    });
+
+            form.addEventListener('mousedown', function(e) {
+                if (e.target.closest('button[type="submit"], .btn-save')) {
+                    submitValidationActive = true;
                 }
-                if (!runValidation()) e.preventDefault();
-            });
+            }, true);
+
+            form.addEventListener('submit', handleProductFormSubmit, true);
+
+            var fieldsBtn = el('btnProductFields');
+            if (fieldsBtn) {
+                fieldsBtn.addEventListener('click', function(e) {
+                    if (!isProductEditMode()) return;
+                    if (!isProductFormValidSilent()) {
+                        e.preventDefault();
+                        validateAllFields(true);
+                        scrollToFirstProductError();
+                        return;
+                    }
+                    var pid = el('modal-product-id') && el('modal-product-id').value;
+                    if (pid) {
+                        e.preventDefault();
+                        window.location.href = 'product_field_config.php?product_id=' + encodeURIComponent(pid);
+                    }
+                });
+            }
+
             setupValidation();
         }
 
-        window.printflowProductFormValidationRun = runValidation;
-        runValidation();
+        window.printflowProductFormValidationRun = validateAllFields;
+        window.printflowProductFormIsValid = isProductFormValidSilent;
+        window.pfUpdateConfigureFieldsButton = pfUpdateConfigureFieldsButton;
+        window.pfHandleProductFormSubmit = handleProductFormSubmit;
+        validateAllFields(false);
     }
 
     document.addEventListener('pf-product-modal-shown', function() {
-        setTimeout(function() {
-            touchedFields.clear();
-            ['name', 'category', 'price', 'description', 'photo', 'stock', 'low-stock'].forEach(function(k) {
-                showError(k, '');
-            });
-            runValidation();
-        }, 50);
+        submitValidationActive = false;
+        touchedFields.clear();
+        clearAllProductErrors();
+        validateAllFields(false);
+        var btn = el('modal-submit-products-mgr') || el('modal-submit-btn');
+        if (btn) {
+            btn.disabled = false;
+            btn.removeAttribute('disabled');
+        }
+        pfUpdateConfigureFieldsButton();
     });
 
     function bootProductFormValidation() {
@@ -320,7 +493,7 @@
     // -------------------------------------------------------------------------
     // We use delegation on the document level to ensure listeners persist
     // even if Alpine.js or other scripts re-render the modal content.
-    const NUMERIC_INPUT_IDS = ['modal-stock', 'modal-stock-mgr', 'modal-low-stock', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'];
+    const NUMERIC_INPUT_IDS = ['modal-stock', 'modal-stock-mgr', 'modal-low-stock', 'modal-critical-stock', 'modal-low-mgr', 'stock-modal-add-qty', 'stock-modal-low-level'];
 
     // Global KeyDown: Block invalid keystrokes immediately
     document.addEventListener('keydown', function(e) {

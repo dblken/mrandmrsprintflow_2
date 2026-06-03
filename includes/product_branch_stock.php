@@ -68,6 +68,67 @@ function printflow_ensure_product_branch_stock_table(): void {
 }
 
 /**
+ * Update branch stock quantity without changing threshold policy.
+ */
+function printflow_product_branch_stock_set_quantity(int $productId, int $branchId, int $stockQty): bool {
+    printflow_ensure_product_branch_stock_table();
+    if ($productId <= 0 || $branchId <= 0) {
+        return false;
+    }
+    $existing = db_query(
+        'SELECT low_stock_level, critical_level FROM product_branch_stock WHERE product_id = ? AND branch_id = ? LIMIT 1',
+        'ii',
+        [$productId, $branchId]
+    );
+    if (!empty($existing)) {
+        return db_execute(
+            'UPDATE product_branch_stock SET stock_quantity = ? WHERE product_id = ? AND branch_id = ?',
+            'iii',
+            [$stockQty, $productId, $branchId]
+        ) !== false;
+    }
+    $p = db_query(
+        'SELECT COALESCE(low_stock_level, 10) AS low_stock_level, COALESCE(critical_level, 0) AS critical_level FROM products WHERE product_id = ? LIMIT 1',
+        'i',
+        [$productId]
+    );
+    $low = (int)($p[0]['low_stock_level'] ?? 10);
+    $critical = (int)($p[0]['critical_level'] ?? 0);
+    return printflow_product_branch_stock_upsert($productId, $branchId, $stockQty, $low, $critical);
+}
+
+/**
+ * Upsert branch-level stock and thresholds.
+ */
+function printflow_product_branch_stock_upsert(int $productId, int $branchId, int $stockQty, int $lowLevel, ?int $criticalLevel = null): bool {
+    printflow_ensure_product_branch_stock_table();
+    if ($productId <= 0 || $branchId <= 0) {
+        return false;
+    }
+    if ($criticalLevel === null) {
+        $existing = db_query(
+            'SELECT critical_level FROM product_branch_stock WHERE product_id = ? AND branch_id = ? LIMIT 1',
+            'ii',
+            [$productId, $branchId]
+        );
+        if (!empty($existing)) {
+            $criticalLevel = (int)($existing[0]['critical_level'] ?? 0);
+        } else {
+            $p = db_query('SELECT COALESCE(critical_level, 0) AS critical_level FROM products WHERE product_id = ? LIMIT 1', 'i', [$productId]);
+            $criticalLevel = (int)($p[0]['critical_level'] ?? 0);
+        }
+    }
+    $res = db_execute(
+        'INSERT INTO product_branch_stock (product_id, branch_id, stock_quantity, low_stock_level, critical_level)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE stock_quantity = VALUES(stock_quantity), low_stock_level = VALUES(low_stock_level), critical_level = VALUES(critical_level)',
+        'iiiii',
+        [$productId, $branchId, $stockQty, $lowLevel, $criticalLevel]
+    );
+    return $res !== false;
+}
+
+/**
  * Ensure product-aware audit columns exist in inventory_transactions.
  * Product stock movements share the ledger table, but must never rely on
  * inv_items IDs because product IDs and material IDs are different domains.
@@ -388,24 +449,6 @@ function printflow_product_effective_stock(int $productId, int $branchId): array
         return [0, 10];
     }
     return [(int)$p[0]['stock_quantity'], (int)$p[0]['low_stock_level']];
-}
-
-/**
- * Upsert branch-level stock (managers).
- */
-function printflow_product_branch_stock_upsert(int $productId, int $branchId, int $stockQty, int $lowLevel): bool {
-    printflow_ensure_product_branch_stock_table();
-    if ($productId <= 0 || $branchId <= 0) {
-        return false;
-    }
-    $res = db_execute(
-        'INSERT INTO product_branch_stock (product_id, branch_id, stock_quantity, low_stock_level)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE stock_quantity = VALUES(stock_quantity), low_stock_level = VALUES(low_stock_level)',
-        'iiii',
-        [$productId, $branchId, $stockQty, $lowLevel]
-    );
-    return $res !== false;
 }
 
 /**

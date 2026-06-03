@@ -166,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $hero_image = admin_service_media_url(sanitize(trim((string) ($_POST['hero_image'] ?? ''))));
         $display_image = !empty($uploaded_images) ? implode(',', $uploaded_images) : admin_service_media_list_url(sanitize(trim((string) ($_POST['display_image'] ?? ''))));
         $video_url = $uploaded_video ?: admin_service_media_url(sanitize(trim((string) ($_POST['video_url'] ?? ''))));
-        $customer_modal_text = trim(sanitize((string) ($_POST['customer_modal_text'] ?? '')));
+        $customer_modal_text = '';
 
         if ($name === '') {
             $error = 'Service name is required.';
@@ -178,8 +178,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Invalid category.';
         } elseif (strlen($description) > 2000) {
             $error = 'Description must not exceed 2000 characters.';
-        } elseif (strlen($customer_modal_text) > 2000) {
-            $error = 'Customer modal message must not exceed 2000 characters.';
         } elseif ($display_image === '') {
             $error = 'Please provide at least one service photo.';
         } elseif (service_name_exists($name, 0)) {
@@ -216,7 +214,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $hero_image = admin_service_media_url(sanitize(trim((string) ($_POST['hero_image'] ?? ''))));
         $display_image = !empty($uploaded_images) ? implode(',', $uploaded_images) : admin_service_media_list_url(sanitize(trim((string) ($_POST['display_image'] ?? ''))));
         $video_url = $uploaded_video ?: admin_service_media_url(sanitize(trim((string) ($_POST['video_url'] ?? ''))));
-        $customer_modal_text = trim(sanitize((string) ($_POST['customer_modal_text'] ?? '')));
+        $existing_modal = db_query("SELECT customer_modal_text FROM services WHERE service_id = ? LIMIT 1", 'i', [$service_id]);
+        $customer_modal_text = trim((string)($existing_modal[0]['customer_modal_text'] ?? ''));
 
         if ($service_id < 1) {
             $error = 'Invalid service.';
@@ -230,8 +229,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Invalid category.';
         } elseif (strlen($description) > 2000) {
             $error = 'Description must not exceed 2000 characters.';
-        } elseif (strlen($customer_modal_text) > 2000) {
-            $error = 'Customer modal message must not exceed 2000 characters.';
         } elseif ($display_image === '') {
             $error = 'Please provide at least one service photo.';
         } elseif (service_name_exists($name, $service_id)) {
@@ -476,11 +473,12 @@ function render_services_table_rows(array $services): void {
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo htmlspecialchars($svc['status']); ?></span>
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
+                            <div class="services-actions">
                             <?php if ($readonly): ?>
                             <button type="button" class="btn-action blue" onclick="event.stopPropagation(); openViewModal(pfParseServiceRow(this))">View</button>
                             <?php else: ?>
                             <button type="button" class="btn-action blue" onclick="event.stopPropagation(); openServiceModal(&quot;edit&quot;, pfParseServiceRow(this))">Edit</button>
-                            <a href="service_field_config.php?service_id=<?php echo (int)$svc['service_id']; ?>" class="btn-action" style="color:#059669;border-color:#059669;text-decoration:none;" title="Configure service fields">Fields</a>
+                            <a href="service_field_config.php?service_id=<?php echo (int)$svc['service_id']; ?>" class="btn-action green" title="Configure service fields">Fields</a>
                             <?php if ($svc['status'] !== 'Archived'): ?>
                                 <form method="POST" class="inline service-status-form" data-pf-skip-guard data-action="<?php echo $svc['status'] === 'Activated' ? 'Deactivate' : 'Activate'; ?>" data-service-name="<?php echo htmlspecialchars($svc['name'], ENT_QUOTES); ?>" onsubmit="showServiceStatusModal(event, this);return false;">
                                     <?php echo csrf_field(); ?>
@@ -504,6 +502,7 @@ function render_services_table_rows(array $services): void {
                                 </form>
                             <?php endif; ?>
                             <?php endif; ?>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -545,12 +544,14 @@ if (isset($_GET['ajax'])) {
     <link rel="stylesheet" href="<?php echo htmlspecialchars($base_path); ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        .btn-action { display:inline-flex; align-items:center; justify-content:center; padding:5px 12px; min-width:72px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; cursor:pointer; white-space:nowrap; }
+        .btn-action { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; height:30px; min-height:30px; padding:0 12px; min-width:72px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; line-height:1; cursor:pointer; white-space:nowrap; text-decoration:none; vertical-align:middle; }
         .btn-action.teal { color:#14b8a6; border-color:#14b8a6; } .btn-action.teal:hover { background:#14b8a6; color:#fff; }
         .btn-action.blue { color:#3b82f6; border-color:#3b82f6; } .btn-action.blue:hover { background:#3b82f6; color:#fff; }
         .btn-action.red { color:#ef4444; border-color:#ef4444; } .btn-action.red:hover { background:#ef4444; color:#fff; }
         .btn-action.gray { color:#6b7280; border-color:#d1d5db; } .btn-action.gray:hover { background:#6b7280; color:#fff; }
-        a.btn-action[style*="#059669"]:hover { background:#059669 !important; color:#fff !important; border-color:#059669 !important; }
+        .btn-action.green { color:#059669; border-color:#059669; } .btn-action.green:hover { background:#059669; color:#fff; }
+        .services-actions { display:inline-flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:wrap; }
+        .services-actions form.inline { display:inline-flex; margin:0; }
         .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
         @media(max-width:900px) { .kpi-row { grid-template-columns:repeat(2,1fr); } }
         .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
@@ -610,11 +611,18 @@ if (isset($_GET['ajax'])) {
         #service-modal .btn-cancel { flex:1; padding:10px 16px; border-radius:8px; background:#f3f4f6; border:none; font-weight:600; cursor:pointer; }
         #service-modal .btn-save { flex:1; padding:10px 16px; border-radius:8px; background:#0d9488; color:#fff; border:none; font-weight:600; cursor:pointer; }
         #service-modal .btn-save:disabled { opacity:0.65; cursor:not-allowed; }
+        #service-modal.service-modal--create #fg-modal-status { display:none !important; }
         .view-label { display:block; font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px; }
         .view-value-box { background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px; font-size:14px; word-break:break-word; }
-        .orders-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .orders-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
         .orders-table th { padding:12px 16px; font-weight:600; color:#6b7280; text-align:left; border-bottom:1px solid #e5e7eb; }
         .orders-table td { padding:12px 16px; border-bottom:1px solid #f3f4f6; vertical-align:middle; }
+        .orders-table th:nth-child(1), .orders-table td:nth-child(1) { width:72px; }
+        .orders-table th:nth-child(2), .orders-table td:nth-child(2) { width:28%; }
+        .orders-table th:nth-child(3), .orders-table td:nth-child(3) { width:18%; }
+        .orders-table th:nth-child(4), .orders-table td:nth-child(4) { width:14%; }
+        .orders-table th:nth-child(5), .orders-table td:nth-child(5) { width:auto; text-align:right; }
+        .orders-table td:nth-child(5) { text-align:right; }
         .orders-table tbody tr { cursor:pointer; transition:background 0.1s; }
         .orders-table tbody tr:hover { background:#f9fafb; }
         @media (max-width:600px) { #service-modal .form-row { grid-template-columns:1fr; } }
@@ -823,7 +831,7 @@ if (isset($_GET['ajax'])) {
                     <span id="err-description" class="field-error"></span>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="fg-photos">
                     <label>Service Photos <span style="color:red">*</span></label>
                     <small style="display:block;color:#6b7280;font-size:12px;margin-bottom:8px;">Upload 1 to 5 photos. Photos are required.</small>
                     <div class="file-upload-area" id="photo-upload-area" onclick="document.getElementById('modal-photo-files').click()">
@@ -863,28 +871,7 @@ if (isset($_GET['ajax'])) {
                     <input type="hidden" id="modal-video-url" name="video_url" value="">
                 </div>
 
-                <div class="form-group">
-                    <label for="modal-customer-modal-text">Customer modal message <span style="color:#9ca3af;font-weight:400;">(optional)</span></label>
-                    <small style="display:block;color:#6b7280;font-size:12px;margin:-2px 0 6px;">Text shown on the customer Services page when they open a service (below the title). Leave blank to use the default wording.</small>
-                    <textarea id="modal-customer-modal-text" name="customer_modal_text" rows="4" maxlength="2000" placeholder="<?php echo htmlspecialchars(printflow_default_customer_service_modal_text()); ?>"></textarea>
-                    <span id="err-customer-modal-text" class="field-error"></span>
-                </div>
-
-                <div class="form-group" style="margin-top:20px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;" onclick="toggleFieldConfig()">
-                        <div>
-                            <label style="margin:0;font-size:13px;font-weight:700;color:#374151;cursor:pointer;">Customize Service Fields</label>
-                            <small style="display:block;color:#6b7280;font-size:11px;margin-top:2px;">Configure labels, options, and visibility for customer order form</small>
-                        </div>
-                        <svg id="field-config-arrow" style="width:20px;height:20px;color:#6b7280;transition:transform 0.2s;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-                    </div>
-                    <div id="field-config-panel" style="display:none;margin-top:12px;padding:16px;background:#fafbfc;border:1px solid #e5e7eb;border-radius:8px;">
-                        <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">Click "Configure Fields" button after saving the service to customize form fields.</p>
-                        <a href="#" id="configure-fields-link" class="btn-secondary" style="display:inline-block;padding:8px 16px;background:#0d9488;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;" onclick="return false;">Configure Fields</a>
-                    </div>
-                </div>
-
-                <div class="form-group">
+                <div class="form-group" id="fg-modal-status">
                     <label for="modal-status">Status <span style="color:red">*</span></label>
                     <select id="modal-status" name="status" required>
                         <option value="Activated">Active</option>
@@ -920,7 +907,6 @@ if (isset($_GET['ajax'])) {
                     <div><span class="view-label">Status</span><div id="view-status" class="view-value-box">—</div></div>
                 </div>
                 <div><span class="view-label">Description</span><div id="view-description" class="view-value-box" style="white-space:pre-wrap;min-height:60px;">—</div></div>
-                <div><span class="view-label">Customer modal message</span><div id="view-customer-modal-text" class="view-value-box" style="white-space:pre-wrap;min-height:48px;">—</div></div>
             </div>
             <div style="padding:16px 0 0;margin-top:24px;border-top:1px solid #f3f4f6;display:flex;justify-content:flex-end;">
                 <button type="button" class="btn-secondary" onclick="closeViewModal()">Close</button>
@@ -1118,38 +1104,29 @@ function printflowInitServicesPage() {
         });
     }
 
-    // Form submit guard
-    document.getElementById('service-form')?.addEventListener('submit', function (e) {
-        // Transfer staged files to the real inputs before submit.
+    // Stage uploaded media into file inputs before validation/submit.
+    window.pfStageServiceMediaForSubmit = function pfStageServiceMediaForSubmit() {
         const photoInput = document.getElementById('modal-photo-files');
-        if (uploadedPhotoFiles.length > 0 && photoInput.files.length === 0) {
+        if (window.uploadedPhotoFiles.length > 0 && photoInput && photoInput.files.length === 0) {
             const dt = new DataTransfer();
-            uploadedPhotoFiles.forEach(file => {
-                dt.items.add(file);
-            });
+            window.uploadedPhotoFiles.forEach(function(file) { dt.items.add(file); });
             photoInput.files = dt.files;
         }
-
         const videoInput = document.getElementById('modal-video-file');
-        if (uploadedVideoFile && videoInput.files.length === 0) {
+        if (uploadedVideoFile && videoInput && videoInput.files.length === 0) {
             const dtVideo = new DataTransfer();
             dtVideo.items.add(uploadedVideoFile);
             videoInput.files = dtVideo.files;
         }
-        const existingPhotos = (document.getElementById('modal-display-image')?.value || '')
-            .split(',')
-            .map(v => v.trim())
-            .filter(Boolean);
-        const photoError = document.getElementById('err-photos');
-        if (uploadedPhotoFiles.length === 0 && existingPhotos.length === 0) {
-            e.preventDefault();
-            if (photoError) photoError.textContent = 'Please provide at least one service photo.';
-            return;
-        }
-        if (photoError) photoError.textContent = '';
+    };
 
+    document.getElementById('service-form')?.addEventListener('submit', function (e) {
+        if (e.defaultPrevented) return;
         const btn = document.getElementById('modal-submit-btn');
-        if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Saving…';
+        }
     });
 
     /* #servicesTableContainer has no x-data; turbo-init initTree(.main-content) already walked it. */
@@ -1161,18 +1138,6 @@ if (document.readyState === 'loading') {
     printflowInitServicesPage();
 }
 document.addEventListener('printflow:page-init', printflowInitServicesPage);
-
-function toggleFieldConfig() {
-    const panel = document.getElementById('field-config-panel');
-    const arrow = document.getElementById('field-config-arrow');
-    if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        arrow.style.transform = 'rotate(180deg)';
-    } else {
-        panel.style.display = 'none';
-        arrow.style.transform = 'rotate(0deg)';
-    }
-}
 
 function openServiceModal(mode, svc) {
     if (window.PF_SERVICES_MANAGER_VIEW_ONLY) return;
@@ -1186,12 +1151,6 @@ function openServiceModal(mode, svc) {
         return;
     }
     form.reset();
-    
-    // Reset field config panel
-    const panel = document.getElementById('field-config-panel');
-    const arrow = document.getElementById('field-config-arrow');
-    if (panel) panel.style.display = 'none';
-    if (arrow) arrow.style.transform = 'rotate(0deg)';
 
     document.getElementById('modal-category').querySelectorAll('option[data-pf-legacy-cat]').forEach(function (o) { o.remove(); });
 
@@ -1223,7 +1182,7 @@ function openServiceModal(mode, svc) {
         document.getElementById('modal-description').value = svc.description || '';
         
         // Load existing media files
-        uploadedPhotoFiles = [];
+        window.uploadedPhotoFiles = [];
         uploadedVideoFile = null;
         const existingImages = (svc.display_image || '').split(',').map(img => serviceMediaUrl(img)).filter(Boolean);
         const existingVideo = serviceMediaUrl(svc.video_url || '');
@@ -1235,38 +1194,23 @@ function openServiceModal(mode, svc) {
         // Display existing media previews
         renderExistingPhotoPreviews(existingImages);
         renderExistingVideoPreview(existingVideo);
-        const cm = svc.customer_modal_text;
-        document.getElementById('modal-customer-modal-text').value = (cm !== undefined && cm !== null && String(cm).trim() !== '') ? String(cm) : (window.PF_DEFAULT_SERVICE_MODAL_TEXT || '');
         document.getElementById('modal-status').value = (svc.status === 'Deactivated') ? 'Deactivated' : 'Activated';
-        
-        // Update configure fields link
-        const configLink = document.getElementById('configure-fields-link');
-        if (configLink) {
-            configLink.href = 'service_field_config.php?service_id=' + (svc.service_id || '');
-            configLink.onclick = null;
-        }
+        if (typeof window.pfSetServiceModalMode === 'function') window.pfSetServiceModalMode('edit');
     } else {
         title.textContent = 'Add Service';
         modeInput.name = 'create_service';
-        submitBtn.textContent = 'Save Service';
+        submitBtn.textContent = 'Add Service';
         document.getElementById('modal-service-id').value = '';
         document.getElementById('modal-display-image').value = '';
         document.getElementById('modal-video-url').value = '';
         document.getElementById('modal-photo-files').value = '';
         document.getElementById('modal-video-file').value = '';
-        uploadedPhotoFiles = [];
+        window.uploadedPhotoFiles = [];
         uploadedVideoFile = null;
         renderPhotoPreviews();
         renderVideoPreview();
         document.getElementById('modal-status').value = 'Activated';
-        document.getElementById('modal-customer-modal-text').value = window.PF_DEFAULT_SERVICE_MODAL_TEXT || '';
-        
-        // Disable configure fields link for new services
-        const configLink = document.getElementById('configure-fields-link');
-        if (configLink) {
-            configLink.href = '#';
-            configLink.onclick = function(e) { e.preventDefault(); alert('Please save the service first before configuring fields.'); return false; };
-        }
+        if (typeof window.pfSetServiceModalMode === 'function') window.pfSetServiceModalMode('create');
     }
     submitBtn.disabled = false;
     overlay.classList.add('active');
@@ -1284,7 +1228,7 @@ function closeServiceModal() {
     document.getElementById('service-modal-overlay').classList.remove('active');
     document.body.style.overflow = '';
     const btn = document.getElementById('modal-submit-btn');
-    if (btn) { btn.disabled = false; btn.textContent = document.getElementById('modal-mode-input').name === 'update_service' ? 'Save Changes' : 'Save Service'; }
+    if (btn) { btn.disabled = false; btn.textContent = document.getElementById('modal-mode-input').name === 'update_service' ? 'Save Changes' : 'Add Service'; }
 }
 
 function handleOverlayClick(e) {
@@ -1297,10 +1241,7 @@ function openViewModal(svc) {
     const st = svc.status || '';
     document.getElementById('view-status').textContent = st === 'Activated' ? 'Active' : (st === 'Deactivated' ? 'Inactive' : st);
     document.getElementById('view-description').textContent = svc.description || '—';
-    const cm = svc.customer_modal_text;
-    document.getElementById('view-customer-modal-text').textContent =
-        (cm !== undefined && cm !== null && String(cm).trim() !== '') ? String(cm) : (window.PF_DEFAULT_SERVICE_MODAL_TEXT || '—');
-    
+
     // Display existing media if available
     const existingImages = (svc.display_image || '').split(',').map(img => serviceMediaUrl(img)).filter(Boolean);
     const existingVideo = serviceMediaUrl(svc.video_url || '');
@@ -1441,12 +1382,12 @@ window.closeArchiveModal = function closeArchiveModal() {
 
 // Page-specific initialization is now handled above via printflowInitServicesPage.
 
-let uploadedPhotoFiles = [];
+window.uploadedPhotoFiles = window.uploadedPhotoFiles || [];
 let uploadedVideoFile = null;
 
 function handlePhotoUpload(input) {
     const files = Array.from(input.files || []);
-    let nextPhotos = uploadedPhotoFiles.slice();
+    let nextPhotos = window.uploadedPhotoFiles.slice();
 
     for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
@@ -1461,8 +1402,11 @@ function handlePhotoUpload(input) {
         nextPhotos.push(file);
     }
 
-    uploadedPhotoFiles = nextPhotos;
+    window.uploadedPhotoFiles = nextPhotos;
     renderPhotoPreviews();
+    if (typeof window.printflowServiceFormValidationRun === 'function') {
+        window.printflowServiceFormValidationRun(true);
+    }
 }
 
 function handleVideoUpload(input) {
@@ -1488,7 +1432,7 @@ function renderPhotoPreviews() {
     const preview = document.getElementById('photo-preview');
     if (!container || !placeholder || !preview) return;
 
-    if (uploadedPhotoFiles.length === 0) {
+    if (window.uploadedPhotoFiles.length === 0) {
         placeholder.style.display = 'block';
         preview.style.display = 'none';
         container.innerHTML = '';
@@ -1499,7 +1443,7 @@ function renderPhotoPreviews() {
     preview.style.display = 'block';
     container.innerHTML = '';
 
-    uploadedPhotoFiles.forEach((file, index) => {
+    window.uploadedPhotoFiles.forEach((file, index) => {
         const div = document.createElement('div');
         div.className = 'media-item';
         const reader = new FileReader();
@@ -1548,10 +1492,13 @@ function renderVideoPreview() {
 }
 
 function removePhotoItem(index) {
-    uploadedPhotoFiles.splice(index, 1);
+    window.uploadedPhotoFiles.splice(index, 1);
     const input = document.getElementById('modal-photo-files');
     if (input) input.value = '';
     renderPhotoPreviews();
+    if (typeof window.printflowServiceFormValidationRun === 'function') {
+        window.printflowServiceFormValidationRun(true);
+    }
 }
 
 function removeVideoItem() {
@@ -1662,7 +1609,7 @@ function bindDropZone(areaId, inputId, handler) {
 bindDropZone('photo-upload-area', 'modal-photo-files', handlePhotoUpload);
 bindDropZone('video-upload-area', 'modal-video-file', handleVideoUpload);
 </script>
-<script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/service-form-validation.js"></script>
+<script src="<?php echo htmlspecialchars($base_path); ?>/public/assets/js/service-form-validation.js?v=3"></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 </body>
 </html>

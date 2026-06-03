@@ -11,23 +11,32 @@ ini_set('display_errors', 0);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/reports_date_range.php';
+require_once __DIR__ . '/../includes/InventoryManager.php';
+require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/reports_export_excel_helpers.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 require_role(['Admin', 'Manager']);
 
 $report   = $_GET['report'] ?? 'orders';
-$from     = $_GET['from'] ?? date('Y-m-01');
-$to       = $_GET['to'] ?? date('Y-m-d');
+$dateRange = pf_reports_export_date_range();
+$from     = $dateRange['from'];
+$to       = $dateRange['to'];
+$fromStart = $dateRange['fromStart'];
+$toEnd    = $dateRange['toEnd'];
 
 $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id'];
 $branchName = $branchCtx['branch_name'];
 
-$from = date('Y-m-d', strtotime($from));
-$to   = date('Y-m-d', strtotime($to));
-$toEnd = $to . ' 23:59:59';
+[$dateSql, $dateTypes, $dateParams] = pf_reports_order_date_where('o');
 
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
+
+$storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+$serviceCompletedSql = pf_reports_service_order_completed_expr('so');
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -35,75 +44,48 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetDate;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-
-/**
- * Auto-size columns from column index A=1 through last index.
- */
-function pf_excel_autosize_columns(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $fromColIdx, int $toColIdx): void {
-    for ($i = $fromColIdx; $i <= $toColIdx; $i++) {
-        $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($i))->setAutoSize(true);
-    }
-}
-
-/** Title row — matches print report banner (dark teal, white text). */
-function pf_excel_style_doc_title(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, string $range): void {
-    $sheet->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('00232b');
-    $sheet->getStyle($range)->getFont()->setBold(true)->setSize(15)->getColor()->setRGB('FFFFFF');
-    $sheet->getStyle($range)->getAlignment()
-        ->setHorizontal(Alignment::HORIZONTAL_CENTER)
-        ->setVertical(Alignment::VERTICAL_CENTER);
-    $sheet->getRowDimension(1)->setRowHeight(30);
-}
-
-/** Table column headers — print-style gray band + teal underline. */
-function pf_excel_style_column_headers(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, string $range): void {
-    $sheet->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F9FAFB');
-    $sheet->getStyle($range)->getFont()->setBold(true)->setSize(10)->getColor()->setRGB('4B5563');
-    $sheet->getStyle($range)->getAlignment()
-        ->setHorizontal(Alignment::HORIZONTAL_CENTER)
-        ->setVertical(Alignment::VERTICAL_CENTER)
-        ->setWrapText(true);
-    $sheet->getStyle($range)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
-    $sheet->getStyle($range)->getBorders()->getBottom()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('0D9488');
-}
-
-/** Alternating row fill like print .zebra */
-function pf_excel_zebra_body(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $firstRow, int $lastRow, int $colFromIdx, int $colToIdx): void {
-    if ($lastRow < $firstRow) {
-        return;
-    }
-    $f = Coordinate::stringFromColumnIndex($colFromIdx);
-    $t = Coordinate::stringFromColumnIndex($colToIdx);
-    for ($r = $firstRow; $r <= $lastRow; $r++) {
-        if (($r - $firstRow) % 2 === 1) {
-            $sheet->getStyle($f . $r . ':' . $t . $r)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F3F4F6');
-        }
-    }
-}
 
 $spreadsheet = new Spreadsheet();
 $sheet = $spreadsheet->getActiveSheet();
+$excelColCount = 8;
 
 if ($report === 'orders') {
     $sheet->setTitle('Orders Status Report');
-    buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd);
+    buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Orders_Status_' . date('Y-m-d') . '.xlsx';
-    pf_excel_autosize_columns($sheet, 1, 8);
+    $excelColCount = 8;
 } elseif ($report === 'customers') {
     $sheet->setTitle('Customers Report');
     buildCustomersReport($sheet, $from, $to, $branchName, $branchId);
     $filename = 'PrintFlow_Customers_' . date('Y-m-d') . '.xlsx';
-    pf_excel_autosize_columns($sheet, 1, 8);
+    $excelColCount = 8;
 } elseif ($report === 'sales') {
     $sheet->setTitle('Sales Report');
-    buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd);
+    buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
-    pf_excel_autosize_columns($sheet, 1, 7);
+    $excelColCount = ($branchId === 'all') ? 8 : 7;
+} elseif ($report === 'daily_sales') {
+    $day = date('Y-m-d', strtotime($_GET['date'] ?? $to));
+    $sheet->setTitle('Daily Sales');
+    buildDailySalesReport($sheet, $day, $branchName, $branchId, $serviceCompletedSql);
+    $filename = 'PrintFlow_Daily_Sales_' . $day . '.xlsx';
+    $excelColCount = 6;
+} elseif ($report === 'shop_inventory') {
+    $sheet->setTitle('Shop Inventory');
+    buildShopInventoryReport($sheet, $branchName, $branchId, $dateRange['label']);
+    $filename = 'PrintFlow_Shop_Inventory_' . date('Y-m-d') . '.xlsx';
+    $excelColCount = 6;
+} elseif ($report === 'inventory') {
+    $sheet->setTitle('Materials Inventory');
+    buildMaterialsInventoryReport($sheet, $branchName, $fromStart, $toEnd, $dateRange['label']);
+    $filename = 'PrintFlow_Materials_Inventory_' . date('Y-m-d') . '.xlsx';
+    $excelColCount = 7;
 } else {
     header('HTTP/1.1 400 Bad Request');
-    exit('Excel export supports report=orders, sales, or customers only.');
+    exit('Unknown report type.');
 }
+
+pf_excel_autosize_columns($sheet, 1, $excelColCount);
 
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -117,44 +99,60 @@ exit;
 /**
  * Sales detail report (same rows as CSV sales export), print-style formatting.
  */
-function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd) {
-    $params = array_merge([$from, $toEnd], $bParams);
+function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
+    $params = array_merge($dateParams, $bParams);
+    $storePaidSql = pf_reports_store_order_paid_expr('o');
+    $showBranchCol = ($branchId === 'all');
+    $colCustomer = $showBranchCol ? 'C' : 'B';
+    $colEmail = $showBranchCol ? 'D' : 'C';
+    $colDate = $showBranchCol ? 'E' : 'D';
+    $colAmount = $showBranchCol ? 'F' : 'E';
+    $colPayment = $showBranchCol ? 'G' : 'F';
+    $colStatus = $showBranchCol ? 'H' : 'G';
+    $lastCol = $colStatus;
+    $lastColIdx = $showBranchCol ? 8 : 7;
+    $dateLabel = pf_reports_export_date_range()['label'];
 
     $summary = db_query(
         "SELECT COUNT(*) as total_orders,
-                SUM(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE 0 END) as total_revenue,
-                SUM(CASE WHEN o.payment_status='Paid' THEN 1 ELSE 0 END) as paid_orders,
-                AVG(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE NULL END) as avg_order_value
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql",
-        'ss' . $bTypes,
+                SUM(o.total_amount) as total_revenue
+         FROM orders o
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}",
+        $dateTypes . $bTypes,
         $params
     );
     $s = $summary[0] ?? [];
     $totalRev = (float)($s['total_revenue'] ?? 0);
     $totalOrd = (int)($s['total_orders'] ?? 0);
-    $avgVal = (float)($s['avg_order_value'] ?? 0);
 
     $orders = db_query(
-        "SELECT o.order_id, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
+        "SELECT o.order_id,
+                (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                 FROM order_items oi
+                 LEFT JOIN products p ON oi.product_id = p.product_id
+                 WHERE oi.order_id = o.order_id) AS order_sku,
+                COALESCE(b.branch_name, 'Unknown') AS branch_name,
+                CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
                 o.order_date, o.total_amount, o.payment_status, o.status
          FROM orders o
          LEFT JOIN customers c ON o.customer_id = c.customer_id
-         WHERE o.order_date BETWEEN ? AND ?$bSql
+         LEFT JOIN branches b ON o.branch_id = b.id
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
          ORDER BY o.order_date DESC",
-        'ss' . $bTypes,
+        $dateTypes . $bTypes,
         $params
     ) ?: [];
 
     $sheet->setCellValue('A1', 'PrintFlow Sales & Analytics Report');
-    $sheet->mergeCells('A1:G1');
-    pf_excel_style_doc_title($sheet, 'A1:G1');
+    $sheet->mergeCells('A1:' . $lastCol . '1');
+    pf_excel_style_doc_title($sheet, 'A1:' . $lastCol . '1');
 
     $sheet->setCellValue('A3', 'Report Type');
     $sheet->setCellValue('B3', 'Sales Report');
     $sheet->setCellValue('A4', 'Branch');
     $sheet->setCellValue('B4', $branchName);
     $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', date('F j, Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+    $sheet->setCellValue('B5', $dateLabel);
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);
@@ -169,86 +167,90 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
     $row++;
-    $sheet->setCellValue('A' . $row, 'Total Revenue (paid)');
+    $sheet->setCellValue('A' . $row, 'Total Revenue');
     $sheet->setCellValue('B' . $row, $totalRev);
-    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
-    $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-    $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
-    $row++;
-    $sheet->setCellValue('A' . $row, 'Average Order Value (paid)');
-    $sheet->setCellValue('B' . $row, $avgVal);
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
     $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
     $row += 2;
 
     $headerRow = $row;
-    $sheet->setCellValue('A' . $row, 'Order ID');
-    $sheet->setCellValue('B' . $row, 'Customer');
-    $sheet->setCellValue('C' . $row, 'Email');
-    $sheet->setCellValue('D' . $row, 'Order Date');
-    $sheet->setCellValue('E' . $row, 'Total Amount (₱)');
-    $sheet->setCellValue('F' . $row, 'Payment Status');
-    $sheet->setCellValue('G' . $row, 'Order Status');
-    pf_excel_style_column_headers($sheet, 'A' . $row . ':G' . $row);
+    $sheet->setCellValue('A' . $row, 'Order #');
+    if ($showBranchCol) {
+        $sheet->setCellValue('B' . $row, 'Branch');
+    }
+    $sheet->setCellValue($colCustomer . $row, 'Customer');
+    $sheet->setCellValue($colEmail . $row, 'Email');
+    $sheet->setCellValue($colDate . $row, 'Order Date');
+    $sheet->setCellValue($colAmount . $row, 'Total Amount (₱)');
+    $sheet->setCellValue($colPayment . $row, 'Payment Status');
+    $sheet->setCellValue($colStatus . $row, 'Order Status');
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':' . $lastCol . $row);
     $row++;
 
     $firstData = $row;
-    $sumDetailAmount = 0.0;
     foreach ($orders as $o) {
-        $sheet->setCellValue('A' . $row, (int)$o['order_id']);
-        $sheet->setCellValue('B' . $row, trim($o['customer_name'] ?? ''));
-        $sheet->setCellValue('C' . $row, trim($o['email'] ?? ''));
+        $orderCode = printflow_format_order_code($o['order_id'] ?? 0, $o['order_sku'] ?? '');
+        $sheet->setCellValue('A' . $row, $orderCode);
+        if ($showBranchCol) {
+            $sheet->setCellValue('B' . $row, trim($o['branch_name'] ?? 'Unknown'));
+        }
+        $sheet->setCellValue($colCustomer . $row, trim($o['customer_name'] ?? ''));
+        $sheet->setCellValue($colEmail . $row, trim($o['email'] ?? ''));
         $ts = strtotime($o['order_date'] ?? '');
         if ($ts) {
-            $sheet->setCellValue('D' . $row, SpreadsheetDate::PHPToExcel($ts));
-            $sheet->getStyle('D' . $row)->getNumberFormat()->setFormatCode('mmm d, yyyy h:mm AM/PM');
+            $sheet->setCellValue($colDate . $row, SpreadsheetDate::PHPToExcel($ts));
+            $sheet->getStyle($colDate . $row)->getNumberFormat()->setFormatCode('mmm d, yyyy h:mm AM/PM');
         } else {
-            $sheet->setCellValue('D' . $row, '');
+            $sheet->setCellValue($colDate . $row, '');
         }
         $amt = (float)($o['total_amount'] ?? 0);
-        $sumDetailAmount += $amt;
-        $sheet->setCellValue('E' . $row, $amt);
-        $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
-        $sheet->setCellValue('F' . $row, (string)($o['payment_status'] ?? ''));
-        $sheet->setCellValue('G' . $row, (string)($o['status'] ?? ''));
+        $sheet->setCellValue($colAmount . $row, $amt);
+        $sheet->getStyle($colAmount . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+        $sheet->setCellValue($colPayment . $row, (string)($o['payment_status'] ?? ''));
+        $sheet->setCellValue($colStatus . $row, (string)($o['status'] ?? ''));
 
-        $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        $sheet->getStyle('B' . $row . ':C' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setWrapText(true);
-        $sheet->getStyle('D' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        $sheet->getStyle('E' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        $sheet->getStyle('F' . $row . ':G' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+        if ($showBranchCol) {
+            $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+        }
+        $sheet->getStyle($colCustomer . $row . ':' . $colEmail . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setWrapText(true);
+        $sheet->getStyle($colDate . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle($colAmount . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+        $sheet->getStyle($colPayment . $row . ':' . $colStatus . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
     }
     $lastData = $row - 1;
     if ($lastData >= $firstData) {
-        pf_excel_zebra_body($sheet, $firstData, $lastData, 1, 7);
-        $sheet->getStyle('A' . $firstData . ':G' . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
+        pf_excel_zebra_body($sheet, $firstData, $lastData, 1, $lastColIdx);
+        pf_excel_apply_table_autofilter($sheet, $headerRow, $lastColIdx, $lastData);
+        $sheet->getStyle('A' . $firstData . ':' . $lastCol . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
     }
 
     $sheet->setCellValue('A' . $row, 'TOTAL');
-    $sheet->setCellValue('E' . $row, $sumDetailAmount);
-    $sheet->getStyle('A' . $row . ':G' . $row)->getFont()->setBold(true);
+    $sheet->setCellValue($colAmount . $row, $totalRev);
+    $sheet->getStyle('A' . $row . ':' . $lastCol . $row)->getFont()->setBold(true);
     $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
-    $sheet->getStyle('E' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-    $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
-    $sheet->getStyle('A' . $row . ':G' . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
-    $sheet->getStyle('A' . $row . ':G' . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
-
-    $sheet->freezePane('A' . ($headerRow + 1));
+    $sheet->getStyle($colAmount . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+    $sheet->getStyle($colAmount . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+    $sheet->getStyle('A' . $row . ':' . $lastCol . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
+    $sheet->getStyle('A' . $row . ':' . $lastCol . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
 }
 
 /**
  * Orders Status Report layout
  */
-function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $toEnd) {
-    $params = array_merge([$from, $toEnd], $bParams);
+function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
+    $params = array_merge($dateParams, $bParams);
+    $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+    $dateLabel = pf_reports_export_date_range()['label'];
 
     $summary = db_query(
         "SELECT COUNT(*) as total_orders, SUM(o.total_amount) as total_revenue,
                 AVG(o.total_amount) as avg_order_value
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql",
-        'ss' . $bTypes, $params
+         FROM orders o
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}",
+        $dateTypes . $bTypes, $params
     );
     $sum = $summary[0] ?? [];
     $grandTotalOrd = (int)($sum['total_orders'] ?? 0);
@@ -257,16 +259,18 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
 
     $status_counts = db_query(
         "SELECT o.status, COUNT(*) as cnt, SUM(o.total_amount) as total
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql
+         FROM orders o
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
          GROUP BY o.status ORDER BY cnt DESC",
-        'ss' . $bTypes, $params
+        $dateTypes . $bTypes, $params
     ) ?: [];
 
     $daily = db_query(
         "SELECT DATE(o.order_date) as day, COUNT(*) as cnt, SUM(o.total_amount) as total
-         FROM orders o WHERE o.order_date BETWEEN ? AND ?$bSql
+         FROM orders o
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
          GROUP BY DATE(o.order_date) ORDER BY day DESC",
-        'ss' . $bTypes, $params
+        $dateTypes . $bTypes, $params
     ) ?: [];
 
     $row = 1;
@@ -282,7 +286,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $sheet->setCellValue('A4', 'Branch');
     $sheet->setCellValue('B4', $branchName);
     $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', date('F j, Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+    $sheet->setCellValue('B5', $dateLabel);
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);
@@ -336,6 +340,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $statusLastData = $row - 1;
     if ($statusLastData >= $statusFirstData) {
         pf_excel_zebra_body($sheet, $statusFirstData, $statusLastData, 1, 3);
+        pf_excel_apply_table_autofilter($sheet, $statusStartRow, 3, $statusLastData);
     }
 
     // TOTAL row
@@ -389,6 +394,7 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $dailyLastData = $row - 1;
     if ($dayCount > 0 && $dailyLastData >= $dailyFirstData) {
         pf_excel_zebra_body($sheet, $dailyFirstData, $dailyLastData, 1, 3);
+        pf_excel_apply_table_autofilter($sheet, $dailyStartRow, 3, $dailyLastData);
     }
 
     if ($dayCount > 0) {
@@ -405,15 +411,14 @@ function buildOrdersReport($sheet, $from, $to, $branchName, $branchId, $bSql, $b
     $dailyEndRow = $row - 1;
     $dailyEndRow = max($dailyEndRow, $dailyStartRow);
     $sheet->getStyle('A' . $dailyStartRow . ':C' . $dailyEndRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-
-    // Freeze panes at first data row of Status table
-    $sheet->freezePane('A' . ($statusStartRow + 1));
 }
 
 /**
  * Customers Report layout
  */
 function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
+    $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
+    $dateLabel = pf_reports_export_date_range()['label'];
     if ($branchId !== 'all') {
         [$totalCust, $activeCust] = branch_customers_summary_for_branch((int)$branchId);
         $customers = branch_customers_report_list((int)$branchId);
@@ -427,8 +432,9 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
                     COALESCE(c.email,'') as email, COALESCE(c.contact_number,'') as contact_number, c.status, c.created_at,
                     COUNT(o.order_id) as order_count, COALESCE(SUM(o.total_amount), 0) as total_spent
              FROM customers c
-             LEFT JOIN orders o ON c.customer_id = o.customer_id
+             LEFT JOIN orders o ON c.customer_id = o.customer_id AND {$storePaidSql}
              GROUP BY c.customer_id
+             HAVING order_count > 0
              ORDER BY total_spent DESC"
         ) ?: [];
     }
@@ -446,7 +452,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $sheet->setCellValue('A4', 'Branch');
     $sheet->setCellValue('B4', $branchName);
     $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', date('F j, Y', strtotime($from)) . ' – ' . date('F j, Y', strtotime($to)));
+    $sheet->setCellValue('B5', $dateLabel);
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);
@@ -505,6 +511,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $custLastData = $row - 1;
     if ($custLastData >= $custFirstData) {
         pf_excel_zebra_body($sheet, $custFirstData, $custLastData, 1, 8);
+        pf_excel_apply_table_autofilter($sheet, $headerRow, 8, $custLastData);
     }
 
     // TOTAL row
@@ -519,5 +526,288 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $lastRow = $row;
 
     $sheet->getStyle('A' . $headerRow . ':H' . $lastRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-    $sheet->freezePane('A' . ($headerRow + 1));
+}
+
+function buildDailySalesReport($sheet, string $day, string $branchName, $branchId, string $serviceCompletedSql): void {
+    $dayLabel = date('F j, Y', strtotime($day));
+    $row = pf_excel_write_report_meta($sheet, 'Daily Sales Report', $branchName, $dayLabel, 'F');
+    $row++;
+    $sheet->setCellValue('A' . $row, 'Snapshot Date');
+    $sheet->setCellValue('B' . $row, $dayLabel);
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+
+    $paidOnly = pf_reports_store_order_paid_expr('o');
+    if ($branchId !== 'all') {
+        $orders = db_query(
+            "SELECT o.order_id,
+                    (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                     FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id
+                     WHERE oi.order_id = o.order_id) AS order_sku,
+                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
+                    o.order_date, o.total_amount, o.status, o.payment_status
+             FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id
+             WHERE DATE(o.order_date) = ? AND o.branch_id = ? AND {$paidOnly}
+             ORDER BY o.order_date ASC",
+            'si', [$day, $branchId]
+        ) ?: [];
+    } else {
+        $orders = db_query(
+            "SELECT o.order_id,
+                    (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                     FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id
+                     WHERE oi.order_id = o.order_id) AS order_sku,
+                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
+                    o.order_date, o.total_amount, o.status, o.payment_status
+             FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id
+             WHERE DATE(o.order_date) = ? AND {$paidOnly}
+             ORDER BY o.order_date ASC",
+            's', [$day]
+        ) ?: [];
+    }
+
+    $sheet->setCellValue('A' . $row, 'STANDARD ORDERS (paid)');
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+    $stdHeader = $row;
+    foreach (['Order #', 'Customer', 'Time', 'Amount (₱)', 'Status', 'Payment'] as $i => $h) {
+        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    }
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':F' . $row);
+    $row++;
+    $stdFirst = $row;
+    $totalSales = 0.0;
+    foreach ($orders as $o) {
+        $sheet->setCellValue('A' . $row, printflow_format_order_code($o['order_id'] ?? 0, $o['order_sku'] ?? ''));
+        $sheet->setCellValue('B' . $row, trim($o['customer_name'] ?? 'Walk-in'));
+        $ts = strtotime($o['order_date'] ?? '');
+        $sheet->setCellValue('C' . $row, $ts ? date('g:i A', $ts) : '');
+        $amt = (float)($o['total_amount'] ?? 0);
+        $sheet->setCellValue('D' . $row, $amt);
+        $sheet->getStyle('D' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+        $sheet->setCellValue('E' . $row, (string)($o['status'] ?? ''));
+        $sheet->setCellValue('F' . $row, (string)($o['payment_status'] ?? ''));
+        $totalSales += $amt;
+        $row++;
+    }
+    $stdLast = $row - 1;
+    if ($stdLast >= $stdFirst) {
+        pf_excel_zebra_body($sheet, $stdFirst, $stdLast, 1, 6);
+        pf_excel_apply_table_autofilter($sheet, $stdHeader, 6, $stdLast);
+    }
+    $row += 2;
+
+    if ($branchId !== 'all') {
+        $sOrders = db_query(
+            "SELECT so.id, so.service_name,
+                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
+                    so.created_at, so.total_price, so.status
+             FROM service_orders so LEFT JOIN customers c ON so.customer_id = c.customer_id
+             WHERE DATE(so.created_at) = ? AND so.branch_id = ? AND {$serviceCompletedSql}
+             ORDER BY so.created_at ASC",
+            'si', [$day, $branchId]
+        ) ?: [];
+    } else {
+        $sOrders = db_query(
+            "SELECT so.id, so.service_name,
+                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
+                    so.created_at, so.total_price, so.status
+             FROM service_orders so LEFT JOIN customers c ON so.customer_id = c.customer_id
+             WHERE DATE(so.created_at) = ? AND {$serviceCompletedSql}
+             ORDER BY so.created_at ASC",
+            's', [$day]
+        ) ?: [];
+    }
+
+    $sheet->setCellValue('A' . $row, 'SERVICE ORDERS (completed)');
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+    $svcHeader = $row;
+    foreach (['Order #', 'Service', 'Customer', 'Time', 'Amount (₱)', 'Status'] as $i => $h) {
+        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    }
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':F' . $row);
+    $row++;
+    $svcFirst = $row;
+    foreach ($sOrders as $so) {
+        $sheet->setCellValue('A' . $row, '#' . (int)$so['id']);
+        $sheet->setCellValue('B' . $row, trim($so['service_name'] ?? ''));
+        $sheet->setCellValue('C' . $row, trim($so['customer_name'] ?? 'N/A'));
+        $ts = strtotime($so['created_at'] ?? '');
+        $sheet->setCellValue('D' . $row, $ts ? date('g:i A', $ts) : '');
+        $amt = (float)($so['total_price'] ?? 0);
+        $sheet->setCellValue('E' . $row, $amt);
+        $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+        $sheet->setCellValue('F' . $row, (string)($so['status'] ?? ''));
+        $totalSales += $amt;
+        $row++;
+    }
+    $svcLast = $row - 1;
+    if ($svcLast >= $svcFirst) {
+        pf_excel_zebra_body($sheet, $svcFirst, $svcLast, 1, 6);
+        pf_excel_apply_table_autofilter($sheet, $svcHeader, 6, $svcLast);
+    }
+    $row++;
+    $sheet->setCellValue('D' . $row, 'TOTAL');
+    $sheet->setCellValue('E' . $row, $totalSales);
+    $sheet->getStyle('D' . $row . ':E' . $row)->getFont()->setBold(true);
+    $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+}
+
+function buildShopInventoryReport($sheet, string $branchName, $branchId, string $dateLabel): void {
+    printflow_ensure_product_branch_stock_table();
+    $row = pf_excel_write_report_meta($sheet, 'Products & Materials Inventory', $branchName, $dateLabel, 'F');
+    $row += 2;
+
+    $sheet->setCellValue('A' . $row, 'PRODUCT CATALOG');
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+    $prodHeader = $row;
+    foreach (['Product', 'SKU', 'Category', 'Stock', 'Price (₱)', 'Status'] as $i => $h) {
+        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    }
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':F' . $row);
+    $row++;
+    $prodFirst = $row;
+
+    $productSql = "SELECT p.name, p.sku, p.category, p.price, p.status, p.stock_quantity, p.low_stock_level";
+    $productTypes = '';
+    $productParams = [];
+    if ($branchId !== 'all') {
+        $productSql .= ", COALESCE(pbs.stock_quantity, 0) AS branch_stock_quantity,
+                         COALESCE(pbs.low_stock_level, p.low_stock_level, 10) AS branch_low_stock_level
+                         FROM products p
+                         LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
+                         WHERE p.status = 'Activated' ORDER BY p.category, p.name";
+        $productTypes = 'i';
+        $productParams = [(int)$branchId];
+    } else {
+        $productSql .= " FROM products p WHERE p.status = 'Activated' ORDER BY p.category, p.name";
+    }
+    $products = db_query($productSql, $productTypes ?: null, $productParams ?: null) ?: [];
+    foreach ($products as $p) {
+        $sq = ($branchId !== 'all') ? (int)($p['branch_stock_quantity'] ?? 0) : (int)($p['stock_quantity'] ?? 0);
+        $low = ($branchId !== 'all') ? (int)($p['branch_low_stock_level'] ?? 10) : (int)($p['low_stock_level'] ?? 10);
+        $status = $sq <= 0 ? 'OUT OF STOCK' : ($sq <= $low ? 'LOW STOCK' : 'In Stock');
+        $sheet->setCellValue('A' . $row, trim($p['name'] ?? ''));
+        $sheet->setCellValue('B' . $row, trim($p['sku'] ?? ''));
+        $sheet->setCellValue('C' . $row, trim($p['category'] ?? ''));
+        $sheet->setCellValue('D' . $row, $sq);
+        $sheet->setCellValue('E' . $row, (float)($p['price'] ?? 0));
+        $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+        $sheet->setCellValue('F' . $row, $status);
+        $row++;
+    }
+    $prodLast = $row - 1;
+    if ($prodLast >= $prodFirst) {
+        pf_excel_zebra_body($sheet, $prodFirst, $prodLast, 1, 6);
+        pf_excel_apply_table_autofilter($sheet, $prodHeader, 6, $prodLast);
+    }
+    $row += 2;
+
+    $sheet->setCellValue('A' . $row, 'INVENTORY ITEMS (materials / rolls)');
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+    $invHeader = $row;
+    foreach (['Item Name', 'Category', 'Current Stock', 'UOM', 'Roll-based'] as $i => $h) {
+        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    }
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':E' . $row);
+    $row++;
+    $invFirst = $row;
+    $invItems = db_query(
+        "SELECT i.id, i.name, ic.name AS category_name, i.unit_of_measure, i.track_by_roll
+         FROM inv_items i LEFT JOIN inv_categories ic ON i.category_id = ic.id
+         ORDER BY ic.name, i.name"
+    ) ?: [];
+    foreach ($invItems as $i) {
+        $stock = pf_report_inventory_soh((int)$i['id'], !empty($i['track_by_roll']), $branchId);
+        $sheet->setCellValue('A' . $row, trim($i['name'] ?? ''));
+        $sheet->setCellValue('B' . $row, trim($i['category_name'] ?? ''));
+        $sheet->setCellValue('C' . $row, $stock);
+        $sheet->setCellValue('D' . $row, trim($i['unit_of_measure'] ?? ''));
+        $sheet->setCellValue('E' . $row, !empty($i['track_by_roll']) ? 'Yes' : 'No');
+        $row++;
+    }
+    $invLast = $row - 1;
+    if ($invLast >= $invFirst) {
+        pf_excel_zebra_body($sheet, $invFirst, $invLast, 1, 5);
+        pf_excel_apply_table_autofilter($sheet, $invHeader, 5, $invLast);
+    }
+}
+
+function buildMaterialsInventoryReport($sheet, string $branchName, string $fromStart, string $toEnd, string $dateLabel): void {
+    $row = pf_excel_write_report_meta($sheet, 'Materials Inventory & Movements', $branchName, $dateLabel, 'G');
+    $row += 2;
+
+    $sheet->setCellValue('A' . $row, 'MATERIAL STOCK LEVELS');
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+    $matHeader = $row;
+    foreach (['Category', 'Material', 'Unit', 'Opening Stock', 'Current Stock', 'Stock Used', 'Status'] as $i => $h) {
+        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    }
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':G' . $row);
+    $row++;
+    $matFirst = $row;
+    $materials = db_query(
+        "SELECT mc.category_name, m.material_name, m.unit, m.opening_stock, m.current_stock
+         FROM materials m JOIN material_categories mc ON m.category_id = mc.category_id
+         ORDER BY mc.category_name, m.material_name"
+    ) ?: [];
+    foreach ($materials as $m) {
+        $opening = (float)($m['opening_stock'] ?? 0);
+        $current = (float)($m['current_stock'] ?? 0);
+        $used = $opening - $current;
+        $status = $current <= 0 ? 'OUT OF STOCK' : ($current < $opening * 0.2 ? 'LOW STOCK' : 'In Stock');
+        $sheet->setCellValue('A' . $row, $m['category_name'] ?? '');
+        $sheet->setCellValue('B' . $row, $m['material_name'] ?? '');
+        $sheet->setCellValue('C' . $row, $m['unit'] ?? '');
+        $sheet->setCellValue('D' . $row, $opening);
+        $sheet->setCellValue('E' . $row, $current);
+        $sheet->setCellValue('F' . $row, $used);
+        $sheet->setCellValue('G' . $row, $status);
+        $row++;
+    }
+    $matLast = $row - 1;
+    if ($matLast >= $matFirst) {
+        pf_excel_zebra_body($sheet, $matFirst, $matLast, 1, 7);
+        pf_excel_apply_table_autofilter($sheet, $matHeader, 7, $matLast);
+    }
+    $row += 2;
+
+    $sheet->setCellValue('A' . $row, 'STOCK MOVEMENTS IN PERIOD');
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $row += 2;
+    $movHeader = $row;
+    foreach (['Date', 'Material', 'Change', 'Notes'] as $i => $h) {
+        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    }
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':D' . $row);
+    $row++;
+    $movFirst = $row;
+    $from = $fromStart !== '' ? substr($fromStart, 0, 10) : date('Y-m-01');
+    $to = $toEnd !== '' ? substr($toEnd, 0, 10) : date('Y-m-d');
+    $movements = db_query(
+        "SELECT msm.movement_date, m.material_name, msm.quantity_change, msm.notes
+         FROM material_stock_movements msm JOIN materials m ON msm.material_id = m.material_id
+         WHERE msm.movement_date BETWEEN ? AND ? ORDER BY msm.movement_date DESC",
+        'ss', [$from, $to]
+    ) ?: [];
+    foreach ($movements as $mv) {
+        $ts = strtotime($mv['movement_date'] ?? '');
+        if ($ts) {
+            $sheet->setCellValue('A' . $row, SpreadsheetDate::PHPToExcel($ts));
+            $sheet->getStyle('A' . $row)->getNumberFormat()->setFormatCode('mmm d, yyyy');
+        }
+        $sheet->setCellValue('B' . $row, $mv['material_name'] ?? '');
+        $sheet->setCellValue('C' . $row, (float)($mv['quantity_change'] ?? 0));
+        $sheet->setCellValue('D' . $row, $mv['notes'] ?? '');
+        $row++;
+    }
+    $movLast = $row - 1;
+    if ($movLast >= $movFirst) {
+        pf_excel_zebra_body($sheet, $movFirst, $movLast, 1, 4);
+        pf_excel_apply_table_autofilter($sheet, $movHeader, 4, $movLast);
+    }
 }
