@@ -1596,6 +1596,15 @@ if ($showLatestCustomizationOnly) {
                             <template x-for="(item, idx) in currentJo.items" :key="item.order_item_id || idx">
                                 <div style="margin-bottom:16px; padding:12px; background:#fff; border:1px solid #e5e7eb; border-radius:8px;">
                                     <div class="modal-wrap-text modal-item-title" style="font-size:13px; font-weight:700; color:#1f2937; margin-bottom:10px;" x-text="getDynamicProductName(item) + ' × ' + item.quantity"></div>
+                                    <template x-if="staffProductServiceImageUrl(item)">
+                                        <div style="margin-bottom:12px;">
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Product/Service Image</div>
+                                            <img :src="staffProductServiceImageUrl(item)"
+                                                 @click="previewFile = staffProductServiceImageUrl(item)"
+                                                 style="width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; background:#f8fafc;"
+                                                 onerror="this.style.display='none'">
+                                        </div>
+                                    </template>
                                     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px;">
                                         <template x-for="([k, v]) in getDisplayableCustom(item.customization, item)" :key="k">
                                             <div style="padding:8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; min-width:0; overflow-wrap:break-word;">
@@ -3234,12 +3243,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                         : existingCustomization;
                     const designName = item.design_name || item.design_image_name || this.staffBasename(item.design_file);
                     const designOpenUrl = item.design_open_url || item.design_file || item.design_url || '';
+                    const productImage = item.product_image || '';
+                    const serviceImage = item.service_image || '';
 
                     return {
                         ...item,
                         customization,
                         design_name: designName,
-                        design_open_url: designOpenUrl
+                        design_open_url: designOpenUrl,
+                        product_image: productImage,
+                        service_image: serviceImage
                     };
                 });
 
@@ -3352,12 +3365,24 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!name) return false;
                 return /\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i.test(String(name));
             },
+            staffProductServiceImageUrl(item) {
+                if (!item) return '';
+                const raw = item.product_image || item.service_image || '';
+                if (!raw) return '';
+                const text = String(raw).trim();
+                if (item.product_image && text && !/^https?:\/\//i.test(text) && !text.startsWith('/') && !text.includes('/')) {
+                    const base = document.body.getAttribute('data-base-url') || '';
+                    return base + '/uploads/products/' + text;
+                }
+                return this.staffResolveMediaUrl(raw);
+            },
             staffDesignShowsAsImage(item) {
                 if (!item) return false;
                 if (item.design_is_image) return true;
                 return this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
-                    || this.staffFilenameLooksLikeImage(item.design_file);
+                    || this.staffFilenameLooksLikeImage(item.design_file)
+                    || this.staffFilenameLooksLikeImage(item.artwork_path || this.currentJo?.artwork_path);
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
@@ -3381,8 +3406,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Priority 3: Use the persisted order_items.design_file path when present.
                 const designFile = (item.design_file || '').trim();
                 if (designFile) return this.staffResolveMediaUrl(designFile);
+
+                // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
+                const artworkPath = (item.artwork_path || this.currentJo?.artwork_path || '').trim();
+                if (artworkPath) return this.staffResolveMediaUrl(artworkPath);
                 
-                // Priority 4: Fallback to serve_design.php if we have order_item_id and filename
+                // Priority 5: Fallback to serve_design.php if we have order_item_id and filename
                 if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }

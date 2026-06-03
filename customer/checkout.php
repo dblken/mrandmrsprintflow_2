@@ -480,6 +480,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                         'notes'           => $notes,
                         'due_date'        => null,
                         'priority'        => 'NORMAL',
+                        'order_item_id'   => $oi_id,
                         'artwork_path'    => null,
                         'created_by'      => null,
                     ]);

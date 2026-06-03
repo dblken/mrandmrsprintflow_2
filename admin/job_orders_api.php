@@ -80,6 +80,15 @@ function jo_api_require_staff_branch(?int $staffBranch, int $jobId): void {
     }
 }
 
+function jo_api_debug_staff_order_items(array $row, array $items = []): void {
+    $firstItem = is_array($items[0] ?? null) ? $items[0] : [];
+    error_log('JOB ORDER ID: ' . ($row['id'] ?? ''));
+    error_log('JOB ORDER ORDER_ID: ' . ($row['order_id'] ?? ''));
+    error_log('JOB ORDER ORDER_ITEM_ID: ' . ($row['order_item_id'] ?? ($firstItem['order_item_id'] ?? '')));
+    error_log('ORDER ITEM CUSTOMIZATION DATA: ' . ($firstItem['customization_data'] ?? 'NULL'));
+    error_log('ORDER ITEM DESIGN FILE: ' . ($firstItem['design_file'] ?? ($row['artwork_path'] ?? 'NULL')));
+}
+
 function jo_api_require_staff_order_branch(?int $staffBranch, int $orderId): void {
     if ($staffBranch === null || $orderId <= 0) {
         return;
@@ -634,6 +643,7 @@ try {
             if (!$order) throw new Exception("Order not found.");
             $order['readiness'] = JobOrderService::getMaterialReadiness($id);
             $order['order_code'] = printflow_get_job_inventory_reference($id)['code'] ?? printflow_format_job_code($id);
+            jo_api_debug_staff_order_items($order, is_array($order['items'] ?? null) ? $order['items'] : []);
             jo_api_json_response(['success' => true, 'data' => $order]);
             break;
 
@@ -1249,6 +1259,7 @@ try {
                 ];
             }
 
+            jo_api_debug_staff_order_items($data, is_array($data['items'] ?? null) ? $data['items'] : []);
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;
 
@@ -1479,6 +1490,7 @@ try {
                     'payload' => $payload,
                 ];
             }
+            jo_api_debug_staff_order_items($data, is_array($data['items'] ?? null) ? $data['items'] : []);
             jo_api_json_response(['success' => true, 'data' => $data]);
             break;
 

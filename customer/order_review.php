@@ -502,6 +502,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         : false;
                     
                     // 3. Process each item and insert into order_items
+                    $created_order_item_ids_by_key = [];
                     foreach ($items_to_review as $key => $item) {
                         $custom = review_item_customization($item);
                         $postedSnapshot = $_POST['spec_snapshot'][$key] ?? null;
@@ -680,6 +681,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             }
                         }
 
+                        if ($order_item_id > 0) {
+                            $created_order_item_ids_by_key[$key] = $order_item_id;
+                        }
+
                         if (review_item_is_service($item) && $order_item_id > 0) {
                             db_execute(
                                 "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
@@ -737,7 +742,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         // Without this, orders placed via order_review.php had no job_orders row
                         // and the deep-link incorrectly fell back to orders.php.
                         if (class_exists('JobOrderService')) {
-                            foreach ($items_to_review as $rev_item) {
+                            foreach ($items_to_review as $rev_key => $rev_item) {
                                 if (!review_item_is_service($rev_item)) {
                                     continue;
                                 }
@@ -839,6 +844,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                         'notes'           => $job_notes,
                                         'due_date'        => null,
                                         'priority'        => 'NORMAL',
+                                        'order_item_id'   => $created_order_item_ids_by_key[$rev_key] ?? null,
                                         'artwork_path'    => null,
                                         'created_by'      => null,
                                     ]);

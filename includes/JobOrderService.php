@@ -57,6 +57,104 @@ class JobOrderService {
         return $base . $normalized;
     }
 
+    private static function firstOrderItemForOrder(int $orderId): int {
+        if ($orderId <= 0) {
+            return 0;
+        }
+        $row = db_query(
+            'SELECT order_item_id FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1',
+            'i',
+            [$orderId]
+        ) ?: [];
+        return (int)($row[0]['order_item_id'] ?? 0);
+    }
+
+    private static function orderItemArtworkPath(int $orderItemId): ?string {
+        if ($orderItemId <= 0) {
+            return null;
+        }
+        $row = db_query(
+            'SELECT design_file, design_image_name FROM order_items WHERE order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if (empty($row)) {
+            return null;
+        }
+        $designFile = trim((string)($row[0]['design_file'] ?? ''));
+        if ($designFile !== '') {
+            return $designFile;
+        }
+        $designName = trim((string)($row[0]['design_image_name'] ?? ''));
+        return $designName !== '' ? $designName : null;
+    }
+
+    private static function repairMissingOrderItemLinks(int $orderId): void {
+        if ($orderId <= 0 || !self::tableHasColumn('job_orders', 'order_item_id')) {
+            return;
+        }
+
+        $jobs = db_query(
+            "SELECT id, order_item_id, artwork_path
+             FROM job_orders
+             WHERE order_id = ?
+             ORDER BY id ASC",
+            'i',
+            [$orderId]
+        ) ?: [];
+        $items = db_query(
+            "SELECT order_item_id, design_file, design_image_name
+             FROM order_items
+             WHERE order_id = ?
+             ORDER BY order_item_id ASC",
+            'i',
+            [$orderId]
+        ) ?: [];
+        if ($jobs === [] || $items === []) {
+            return;
+        }
+
+        $itemCount = count($items);
+        foreach ($jobs as $idx => $job) {
+            $currentOrderItemId = (int)($job['order_item_id'] ?? 0);
+            $item = $items[$idx] ?? ($itemCount === 1 ? $items[0] : null);
+            if (!$item) {
+                continue;
+            }
+            $resolvedOrderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($resolvedOrderItemId <= 0) {
+                continue;
+            }
+            $artworkPath = trim((string)($job['artwork_path'] ?? ''));
+            if ($artworkPath === '') {
+                $artworkPath = trim((string)($item['design_file'] ?? ''));
+            }
+            if ($artworkPath === '') {
+                $artworkPath = trim((string)($item['design_image_name'] ?? ''));
+            }
+
+            if ($currentOrderItemId <= 0 && $artworkPath !== '') {
+                db_execute(
+                    'UPDATE job_orders SET order_item_id = ?, artwork_path = ? WHERE id = ?',
+                    'isi',
+                    [$resolvedOrderItemId, $artworkPath, (int)$job['id']]
+                );
+            } elseif ($currentOrderItemId <= 0) {
+                db_execute(
+                    'UPDATE job_orders SET order_item_id = ? WHERE id = ?',
+                    'ii',
+                    [$resolvedOrderItemId, (int)$job['id']]
+                );
+            } elseif ($artworkPath !== '' && trim((string)($job['artwork_path'] ?? '')) === '') {
+                db_execute(
+                    'UPDATE job_orders SET artwork_path = ? WHERE id = ?',
+                    'si',
+                    [$artworkPath, (int)$job['id']]
+                );
+            }
+        }
+    }
+
     private static function tableHasColumn(string $table, string $column): bool {
         $cacheKey = $table . '.' . $column;
         if (array_key_exists($cacheKey, self::$columnExistsCache)) {
@@ -452,36 +550,72 @@ class JobOrderService {
         $conn->begin_transaction();
         try {
             $branchId = self::resolveBranchIdForOrderData((array)$orderData) ?? (int)($_SESSION['branch_id'] ?? 0);
+            $linkedOrderId = (int)($orderData['order_id'] ?? 0);
+            $orderItemId = (int)($orderData['order_item_id'] ?? 0);
+            if ($orderItemId <= 0 && $linkedOrderId > 0) {
+                $orderItemId = self::firstOrderItemForOrder($linkedOrderId);
+            }
+            $artworkPath = $orderData['artwork_path'] ?? null;
+            if ((string)$artworkPath === '' && $orderItemId > 0) {
+                $artworkPath = self::orderItemArtworkPath($orderItemId);
+            }
+
             // 1. Insert Job Order (with explicit PENDING status)
             $requiredPayment = self::calculateRequiredPayment($orderData['customer_id'], $orderData['estimated_total']);
-            $sql = "INSERT INTO job_orders (order_id, customer_id, branch_id, job_title, service_type, width_ft, height_ft, quantity, total_sqft, price_per_sqft, price_per_piece, estimated_total, required_payment, notes, due_date, priority, artwork_path, status, created_by) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)";
-            
-            $stmt = $conn->prepare($sql);
-            $stmt->bind_param("iiisssddiddddssssi", 
-                $orderData['order_id'],
-                $orderData['customer_id'], 
+            $columns = [
+                'order_id',
+                'customer_id',
+                'branch_id',
+                'job_title',
+                'service_type',
+                'width_ft',
+                'height_ft',
+                'quantity',
+                'total_sqft',
+                'price_per_sqft',
+                'price_per_piece',
+                'estimated_total',
+                'required_payment',
+                'notes',
+                'due_date',
+                'priority',
+                'artwork_path',
+                'status',
+                'created_by',
+            ];
+            $types = 'iiissddidddddsssssi';
+            $params = [
+                $linkedOrderId > 0 ? $linkedOrderId : null,
+                (int)($orderData['customer_id'] ?? 0),
                 $branchId,
-                $orderData['job_title'],
-                $orderData['service_type'], 
-                $orderData['width_ft'], 
-                $orderData['height_ft'], 
-                $orderData['quantity'], 
-                $orderData['total_sqft'], 
-                $orderData['price_per_sqft'], 
-                $orderData['price_per_piece'], 
-                $orderData['estimated_total'], 
+                (string)($orderData['job_title'] ?? ''),
+                (string)($orderData['service_type'] ?? ''),
+                (float)($orderData['width_ft'] ?? 0),
+                (float)($orderData['height_ft'] ?? 0),
+                (int)($orderData['quantity'] ?? 1),
+                (float)($orderData['total_sqft'] ?? 0),
+                $orderData['price_per_sqft'] ?? null,
+                $orderData['price_per_piece'] ?? null,
+                $orderData['estimated_total'] ?? null,
                 $requiredPayment,
-                $orderData['notes'], 
-                $orderData['due_date'],
-                $orderData['priority'],
-                $orderData['artwork_path'], 
-                $orderData['created_by']
-            );
-            
-            if (!$stmt->execute()) throw new Exception("Failed to create job order.");
-            $orderId = $stmt->insert_id;
-            $stmt->close();
+                (string)($orderData['notes'] ?? ''),
+                $orderData['due_date'] ?? null,
+                (string)($orderData['priority'] ?? 'NORMAL'),
+                $artworkPath,
+                'PENDING',
+                $orderData['created_by'] ?? null,
+            ];
+
+            if (self::tableHasColumn('job_orders', 'order_item_id')) {
+                array_splice($columns, 1, 0, ['order_item_id']);
+                $types = substr($types, 0, 1) . 'i' . substr($types, 1);
+                array_splice($params, 1, 0, [$orderItemId > 0 ? $orderItemId : null]);
+            }
+
+            $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+            $sql = 'INSERT INTO job_orders (' . implode(', ', $columns) . ') VALUES (' . $placeholders . ')';
+            $orderId = (int)db_execute($sql, $types, $params);
+            if ($orderId <= 0) throw new Exception("Failed to create job order.");
 
             // 2. Insert Required Materials (placeholders + capture unit cost)
             if (!empty($materials)) {
@@ -549,6 +683,7 @@ class JobOrderService {
     public static function ensureJobsForStoreOrder(int $orderId): ?int {
         $existing = db_query('SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1', 'i', [$orderId]);
         if (!empty($existing)) {
+            self::repairMissingOrderItemLinks($orderId);
             return (int)$existing[0]['id'];
         }
         $order = db_query('SELECT * FROM orders WHERE order_id = ?', 'i', [$orderId]);
@@ -623,7 +758,8 @@ class JobOrderService {
                     'notes'           => $notes,
                     'due_date'        => null,
                     'priority'        => 'NORMAL',
-                    'artwork_path'    => null,
+                    'order_item_id'   => (int)($item['order_item_id'] ?? 0),
+                    'artwork_path'    => self::orderItemArtworkPath((int)($item['order_item_id'] ?? 0)),
                     'created_by'      => null,
                 ], $autoMaterials);
                 if ($firstJobId === null) {
@@ -1329,6 +1465,7 @@ class JobOrderService {
             'design_is_image' => $designIsImage,
             'design_name' => $designName !== '' ? $designName : null,
             'design_image_name' => trim((string)($item['design_image_name'] ?? '')),
+            'design_image_mime' => trim((string)($item['design_image_mime'] ?? '')),
             'design_file' => trim((string)($item['design_file'] ?? '')),
             'reference_url' => $referenceIsImage ? $referenceOpenUrl : null,
             'reference_open_url' => $referenceOpenUrl,
@@ -1565,11 +1702,23 @@ class JobOrderService {
         if ($storeOrderId <= 0) {
             return ['items' => [], 'width_ft' => '1', 'height_ft' => '1', 'service_type' => ''];
         }
+        self::repairMissingOrderItemLinks($storeOrderId);
         if (function_exists('printflow_ensure_order_items_specifications_column')) {
             printflow_ensure_order_items_specifications_column();
         }
+        $productImageSelect = "'' AS product_image";
+        $hasProductImage = self::tableHasColumn('products', 'product_image');
+        $hasPhotoPath = self::tableHasColumn('products', 'photo_path');
+        if ($hasProductImage && $hasPhotoPath) {
+            $productImageSelect = "COALESCE(NULLIF(p.photo_path, ''), NULLIF(p.product_image, '')) AS product_image";
+        } elseif ($hasProductImage) {
+            $productImageSelect = "p.product_image AS product_image";
+        } elseif ($hasPhotoPath) {
+            $productImageSelect = "p.photo_path AS product_image";
+        }
         $items = db_query(
             "SELECT oi.*, p.name as product_name, p.category, p.product_type,
+                    {$productImageSelect},
                     IFNULL(LENGTH(oi.design_image), 0) AS pf_design_image_bytes,
                     IFNULL(LENGTH(oi.design_file), 0) AS pf_design_file_bytes
              FROM order_items oi
@@ -1634,6 +1783,8 @@ class JobOrderService {
                 'order_item_id'   => $item['order_item_id'],
                 'product_name'    => $name,
                 'product_type'    => $item['product_type'] ?? 'custom',
+                'product_image'   => (string)($item['product_image'] ?? ''),
+                'service_image'   => function_exists('get_service_image_url') ? get_service_image_url($name) : '',
                 'quantity'        => (int)$item['quantity'],
                 'customization'   => $custom,
                 'specifications'   => $custom,
@@ -2104,6 +2255,8 @@ class JobOrderService {
                 'product_name' => $name,
                 'product_type' => $item['product_type'] ?? 'custom',
                 'category' => $item['category'] ?? '',
+                'product_image' => (string)($item['product_image'] ?? ''),
+                'service_image' => function_exists('get_service_image_url') ? get_service_image_url($name) : '',
                 'quantity' => $quantity,
                 'customization' => $customForPayload,
                 'customization_data' => (string)($item['customization_data'] ?? ''),
@@ -2211,6 +2364,11 @@ class JobOrderService {
     }
 
     public static function getOrder($id) {
+        $linkedStoreOrderId = self::getLinkedStoreOrderId((int)$id);
+        if ($linkedStoreOrderId > 0) {
+            self::repairMissingOrderItemLinks($linkedStoreOrderId);
+        }
+
         $sql = "SELECT jo.*, 
                        c.customer_type, c.transaction_count,
                        CONCAT(c.first_name, ' ', c.last_name) as customer_full_name,
@@ -2221,11 +2379,20 @@ class JobOrderService {
                        COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
                        TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                        COALESCE(jo.branch_id, ord.branch_id) AS branch_display_id,
-                       b.branch_name AS branch_name
+                       b.branch_name AS branch_name,
+                       oi.order_item_id AS joined_order_item_id,
+                       oi.customization_data AS joined_customization_data,
+                       oi.design_file AS joined_design_file,
+                       oi.design_image_name AS joined_design_image_name,
+                       oi.design_image_mime AS joined_design_image_mime
                 FROM job_orders jo
                 LEFT JOIN customers c ON jo.customer_id = c.customer_id
                 LEFT JOIN orders ord ON ord.order_id = jo.order_id
                 LEFT JOIN branches b ON b.id = COALESCE(jo.branch_id, ord.branch_id)
+                LEFT JOIN order_items oi ON oi.order_item_id = COALESCE(
+                    NULLIF(jo.order_item_id, 0),
+                    (SELECT MIN(oi2.order_item_id) FROM order_items oi2 WHERE oi2.order_id = jo.order_id)
+                )
                 WHERE jo.id = ?";
         
         $order = db_query($sql, 'i', [$id]);
@@ -2249,6 +2416,8 @@ class JobOrderService {
                 : [];
             if (empty($order['order_item_id']) && !empty($payload['items']) && count($payload['items']) === 1) {
                 $order['order_item_id'] = (int)($payload['items'][0]['order_item_id'] ?? 0);
+            } elseif (empty($order['order_item_id']) && !empty($order['joined_order_item_id'])) {
+                $order['order_item_id'] = (int)$order['joined_order_item_id'];
             }
             self::cleanupLegacyAutoAssignedMaterials((int)$id, $storeOid, (string)($payload['service_type'] ?? $order['service_type'] ?? ''));
             $st = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$storeOid]);
