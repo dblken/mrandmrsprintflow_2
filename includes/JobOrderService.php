@@ -1328,6 +1328,8 @@ class JobOrderService {
             'design_open_url' => $designOpenUrl,
             'design_is_image' => $designIsImage,
             'design_name' => $designName !== '' ? $designName : null,
+            'design_image_name' => trim((string)($item['design_image_name'] ?? '')),
+            'design_file' => trim((string)($item['design_file'] ?? '')),
             'reference_url' => $referenceIsImage ? $referenceOpenUrl : null,
             'reference_open_url' => $referenceOpenUrl,
             'reference_is_image' => $referenceIsImage,
@@ -2096,11 +2098,13 @@ class JobOrderService {
 
             $items_out[] = array_merge([
                 'order_item_id' => (int)($item['order_item_id'] ?? 0),
+                'order_id' => (int)($item['order_id'] ?? 0),
                 'product_name' => $name,
                 'product_type' => $item['product_type'] ?? 'custom',
                 'category' => $item['category'] ?? '',
                 'quantity' => $quantity,
                 'customization' => $customForPayload,
+                'customization_data' => (string)($item['customization_data'] ?? ''),
                 'specifications' => $customForPayload,
                 'specifications_raw' => (string)($item['specifications'] ?? ''),
             ], self::buildStoreOrderItemAssetMeta($item, $anyDesignOrderItemId, $fallbackDesignMeta, $custom));

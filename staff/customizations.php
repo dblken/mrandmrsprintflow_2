@@ -3216,6 +3216,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             getDisplayableCustom(custom, item = null) {
                 let sourceCustom = custom;
                 const itemSpecs = item ? {
+                    ...this.parseSpecsObject(item.customization_data),
                     ...this.parseSpecsObject(item.specifications_raw),
                     ...this.parseSpecsObject(item.specifications)
                 } : {};
@@ -3304,7 +3305,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!s) return '';
                 if (/^https?:\/\//i.test(s)) return s;
                 const base = document.body.getAttribute('data-base-url') || '';
-                if (s.startsWith('/')) return base + s;
+                if (s.startsWith('/')) {
+                    if (base && s.toLowerCase().startsWith(String(base).toLowerCase() + '/')) return s;
+                    return base + s;
+                }
                 return base + '/' + s.replace(/^\/+/, '');
             },
             staffPaymentProofSrc(jo) {
@@ -3319,7 +3323,9 @@ window.pfCustomizationPreloadedOrders = (() => {
             staffDesignShowsAsImage(item) {
                 if (!item) return false;
                 if (item.design_is_image) return true;
-                return this.staffFilenameLooksLikeImage(item.design_name);
+                return this.staffFilenameLooksLikeImage(item.design_name)
+                    || this.staffFilenameLooksLikeImage(item.design_image_name)
+                    || this.staffFilenameLooksLikeImage(item.design_file);
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
@@ -3339,8 +3345,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Priority 2: Check for standard design URL from API
                 const fromApi = (item.design_open_url || item.design_url || '').trim();
                 if (fromApi) return this.staffResolveMediaUrl(fromApi);
+
+                // Priority 3: Use the persisted order_items.design_file path when present.
+                const designFile = (item.design_file || '').trim();
+                if (designFile) return this.staffResolveMediaUrl(designFile);
                 
-                // Priority 3: Fallback to serve_design.php if we have order_item_id and filename
+                // Priority 4: Fallback to serve_design.php if we have order_item_id and filename
                 if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
