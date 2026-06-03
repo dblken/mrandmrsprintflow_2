@@ -3213,6 +3213,38 @@ window.pfCustomizationPreloadedOrders = (() => {
                 } catch (_) {}
                 return {};
             },
+            staffBasename(path) {
+                if (!path) return '';
+                const clean = String(path).split('?')[0].replace(/\\/g, '/');
+                return clean.split('/').filter(Boolean).pop() || '';
+            },
+            normalizeStaffOrderDetail(order) {
+                if (!order || typeof order !== 'object') return order;
+                const normalized = { ...order };
+                if (!Array.isArray(normalized.items)) return normalized;
+
+                normalized.items = normalized.items.map((item) => {
+                    if (!item || typeof item !== 'object') return item;
+                    const decodedCustomization = this.parseSpecsObject(item.customization_data);
+                    const existingCustomization = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                        ? item.customization
+                        : {};
+                    const customization = Object.keys(decodedCustomization).length > 0
+                        ? { ...existingCustomization, ...decodedCustomization }
+                        : existingCustomization;
+                    const designName = item.design_name || item.design_image_name || this.staffBasename(item.design_file);
+                    const designOpenUrl = item.design_open_url || item.design_file || item.design_url || '';
+
+                    return {
+                        ...item,
+                        customization,
+                        design_name: designName,
+                        design_open_url: designOpenUrl
+                    };
+                });
+
+                return normalized;
+            },
             getDisplayableCustom(custom, item = null) {
                 let sourceCustom = custom;
                 const itemSpecs = item ? {
@@ -3992,7 +4024,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                             await fetch(this.adminApiUrl(`job_orders_api.php?action=get_customization&id=${id}`))
                         );
                         if (detailRes.success) {
-                            this.currentJo = this.applyPosSetPriceDeepLinkOverride({ ...detailRes.data, order_type: 'CUSTOMIZATION' });
+                            this.currentJo = this.normalizeStaffOrderDetail(
+                                this.applyPosSetPriceDeepLinkOverride({ ...detailRes.data, order_type: 'CUSTOMIZATION' })
+                            );
                             this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                             this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                             this.jobPriceInput = this.currentJo.final_price || 0;
@@ -4008,7 +4042,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`))
                             );
                             if (fallbackRes.success && fallbackRes.data) {
-                                this.currentJo = this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' });
+                                this.currentJo = this.normalizeStaffOrderDetail(
+                                    this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' })
+                                );
                                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                                 this.jobPriceInput = this.currentJo.final_price || 0;
@@ -4031,7 +4067,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`))
                             );
                             if (fallbackRes.success && fallbackRes.data) {
-                                this.currentJo = this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' });
+                                this.currentJo = this.normalizeStaffOrderDetail(
+                                    this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' })
+                                );
                                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                                 this.jobPriceInput = this.currentJo.final_price || 0;
@@ -4108,7 +4146,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.showStaffAlert('Not Found', detailErrorMessage || 'Order details could not be loaded for this pending entry.');
                         return;
                     }
-                    this.currentJo = { ...order, order_type: 'ORDER' };
+                    this.currentJo = this.normalizeStaffOrderDetail({ ...order, order_type: 'ORDER' });
                     this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                     this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                     this.jobPriceInput = this.currentJo.final_price || 0;
@@ -4133,7 +4171,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             await fetch(this.adminApiUrl(`job_orders_api.php?action=get_order&id=${jid}`))
                         );
                         if (res.success) {
-                            this.currentJo = { ...res.data, order_type: 'JOB' };
+                            this.currentJo = this.normalizeStaffOrderDetail({ ...res.data, order_type: 'JOB' });
                             this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                             this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                             this.jobPriceInput = this.currentJo.final_price || 0;
@@ -4148,7 +4186,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${jid}`))
                             );
                             if (fallbackRes.success) {
-                                this.currentJo = { ...fallbackRes.data, order_type: 'ORDER' };
+                                this.currentJo = this.normalizeStaffOrderDetail({ ...fallbackRes.data, order_type: 'ORDER' });
                                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                                 this.jobPriceInput = this.currentJo.final_price || 0;

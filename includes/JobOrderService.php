@@ -1945,7 +1945,8 @@ class JobOrderService {
         $itemCount = count($items);
         foreach ($items as $lineIndex => $item) {
             // Match customer/get_order_items.php: decode + unwrap nested payloads so staff see the same specs as the customer modal.
-            $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            $orderItemCustomization = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            $custom = $orderItemCustomization;
             $savedSpecifications = printflow_decode_modal_customization_payload((string)($item['specifications'] ?? ''));
             if ($savedSpecifications !== []) {
                 $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecifications);
@@ -2095,6 +2096,7 @@ class JobOrderService {
             // (Brochure, Stickers, Mugs, Poster, Raffle, Reflectorized, T-shirt) show
             // the same specs as the customer side. Only strip truly internal/temp keys.
             $customForPayload = self::buildStaffCustomizationPayload($custom, $quantity);
+            $customForPayload = printflow_overlay_nonempty_assoc($customForPayload, $orderItemCustomization);
 
             $items_out[] = array_merge([
                 'order_item_id' => (int)($item['order_item_id'] ?? 0),
