@@ -501,6 +501,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     // 3. Process each item and insert into order_items
                     foreach ($items_to_review as $key => $item) {
                         $custom = review_item_customization($item);
+                        $postedSnapshot = $_POST['spec_snapshot'][$key] ?? null;
+                        if (is_string($postedSnapshot) && trim($postedSnapshot) !== '') {
+                            $snapshotCustom = printflow_decode_modal_customization_payload($postedSnapshot);
+                            if ($snapshotCustom !== []) {
+                                $custom = printflow_overlay_nonempty_assoc($custom, $snapshotCustom);
+                            }
+                        }
                         // Persist the same normalized spec set rendered on the customer review card.
                         $custom = pf_order_ui_normalize_review_customization($custom, $item, true);
                         if (review_item_is_product($item)) {
@@ -1394,8 +1401,11 @@ require_once __DIR__ . '/../includes/header.php';
                 foreach ($items_to_review as $key => $item): 
                     $item_index++;
                     $is_hidden = ($item_index > 3);
+                    $review_snapshot = pf_order_ui_normalize_review_customization(review_item_customization($item), $item, true);
+                    $review_snapshot_json = printflow_encode_customization_payload($review_snapshot);
                 ?>
                 <div class="review-order-item <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
+                    <input type="hidden" name="spec_snapshot[<?php echo htmlspecialchars((string)$key, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($review_snapshot_json, ENT_QUOTES, 'UTF-8'); ?>">
                     <?php
                     try {
                         render_order_item_clean($item, true, true, true);
