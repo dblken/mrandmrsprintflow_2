@@ -244,6 +244,9 @@ if ($action === 'buy_now') {
         }
         
         $custom_json = printflow_encode_customization_payload($custom_data);
+        $hasSpecificationsColumn = function_exists('printflow_ensure_order_items_specifications_column')
+            ? printflow_ensure_order_items_specifications_column()
+            : false;
         
         // Handle file uploads
         $upload_dir = __DIR__ . '/../uploads/orders';
@@ -276,26 +279,44 @@ if ($action === 'buy_now') {
         
         $order_item_id = 0;
         if ($design_binary) {
-            $stmt = $conn->prepare(
-                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
+            $insertSql = $hasSpecificationsColumn
+                ? "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
+                                        design_image, design_image_mime, design_image_name, design_file, specifications)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                : "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
                                         design_image, design_image_mime, design_image_name, design_file)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $stmt = $conn->prepare(
+                $insertSql
             );
             if ($stmt) {
                 $null = NULL;
-                $stmt->bind_param('iiidsssss', $order_id, $product_id, $quantity, $unit_price, $custom_json, $null, $design_mime, $design_name, $design_file_path);
+                if ($hasSpecificationsColumn) {
+                    $stmt->bind_param('iiidssssss', $order_id, $product_id, $quantity, $unit_price, $custom_json, $null, $design_mime, $design_name, $design_file_path, $custom_json);
+                } else {
+                    $stmt->bind_param('iiidsssss', $order_id, $product_id, $quantity, $unit_price, $custom_json, $null, $design_mime, $design_name, $design_file_path);
+                }
                 $stmt->send_long_data(5, $design_binary);
                 $stmt->execute();
                 $order_item_id = (int)$conn->insert_id;
                 $stmt->close();
             }
         } else {
-            $order_item_id = (int)db_execute(
-                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file) 
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                'iiidss',
-                [$order_id, $product_id, $quantity, $unit_price, $custom_json, $design_file_path]
-            );
+            if ($hasSpecificationsColumn) {
+                $order_item_id = (int)db_execute(
+                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, specifications) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    'iiidsss',
+                    [$order_id, $product_id, $quantity, $unit_price, $custom_json, $design_file_path, $custom_json]
+                );
+            } else {
+                $order_item_id = (int)db_execute(
+                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file) 
+                     VALUES (?, ?, ?, ?, ?, ?)",
+                    'iiidss',
+                    [$order_id, $product_id, $quantity, $unit_price, $custom_json, $design_file_path]
+                );
+            }
         }
 
         if ($order_item_id > 0) {

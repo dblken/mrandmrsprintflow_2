@@ -2975,6 +2975,32 @@ function printflow_encode_customization_payload(array $payload): string {
     return $json;
 }
 
+function printflow_ensure_order_items_specifications_column(): bool {
+    if (!function_exists('db_table_has_column')) {
+        return false;
+    }
+    if (db_table_has_column('order_items', 'specifications')) {
+        return true;
+    }
+
+    global $conn;
+    if (!$conn instanceof mysqli) {
+        return false;
+    }
+
+    $afterColumn = db_table_has_column('order_items', 'reference_image_file')
+        ? 'reference_image_file'
+        : (db_table_has_column('order_items', 'customization_data') ? 'customization_data' : '');
+    $sql = "ALTER TABLE `order_items` ADD COLUMN `specifications` LONGTEXT NULL";
+    if ($afterColumn !== '') {
+        $sql .= " AFTER `{$afterColumn}`";
+    }
+    $ok = (bool)@$conn->query($sql);
+    db_table_has_column('order_items', 'specifications', true);
+
+    return $ok || db_table_has_column('order_items', 'specifications');
+}
+
 function printflow_decode_modal_customization_payload($raw): array {
     return printflow_normalize_customization_for_modal(
         customer_orders_decode_customization_payload($raw)

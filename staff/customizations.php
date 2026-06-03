@@ -3193,8 +3193,37 @@ window.pfCustomizationPreloadedOrders = (() => {
                 'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
                 'cart_key', '_cart_key', 'config_id', 'form_type'
             ],
+            parseSpecsObject(raw) {
+                if (!raw) return {};
+                if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+                if (typeof raw !== 'string') return {};
+                const s = raw.trim();
+                if (!s) return {};
+                try {
+                    const parsed = JSON.parse(s);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        return parsed;
+                    }
+                    if (typeof parsed === 'string' && parsed.trim()) {
+                        const parsedAgain = JSON.parse(parsed);
+                        return parsedAgain && typeof parsedAgain === 'object' && !Array.isArray(parsedAgain)
+                            ? parsedAgain
+                            : {};
+                    }
+                } catch (_) {}
+                return {};
+            },
             getDisplayableCustom(custom, item = null) {
                 let sourceCustom = custom;
+                const itemSpecs = item ? {
+                    ...this.parseSpecsObject(item.specifications_raw),
+                    ...this.parseSpecsObject(item.specifications)
+                } : {};
+                if (Object.keys(itemSpecs).length > 0) {
+                    sourceCustom = sourceCustom && typeof sourceCustom === 'object' && !Array.isArray(sourceCustom)
+                        ? { ...sourceCustom, ...itemSpecs }
+                        : itemSpecs;
+                }
                 const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
                     ? this.currentJo.customization_details
                     : null;

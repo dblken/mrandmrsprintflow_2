@@ -1563,6 +1563,9 @@ class JobOrderService {
         if ($storeOrderId <= 0) {
             return ['items' => [], 'width_ft' => '1', 'height_ft' => '1', 'service_type' => ''];
         }
+        if (function_exists('printflow_ensure_order_items_specifications_column')) {
+            printflow_ensure_order_items_specifications_column();
+        }
         $items = db_query(
             "SELECT oi.*, p.name as product_name, p.category, p.product_type,
                     IFNULL(LENGTH(oi.design_image), 0) AS pf_design_image_bytes,
@@ -1583,6 +1586,10 @@ class JobOrderService {
         $height_ft = '1';
         foreach ($items as $item) {
             $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+            $savedSpecs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+            if ($savedSpecs !== []) {
+                $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+            }
             if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
                 continue;
             }
@@ -1627,6 +1634,8 @@ class JobOrderService {
                 'product_type'    => $item['product_type'] ?? 'custom',
                 'quantity'        => (int)$item['quantity'],
                 'customization'   => $custom,
+                'specifications'   => $custom,
+                'specifications_raw' => (string)($item['specifications'] ?? ''),
                 'design_url'      => ((int)($item['pf_design_image_bytes'] ?? 0) > 0
                     || !empty($item['design_image'])
                     || !empty($item['design_file']))
@@ -1744,6 +1753,10 @@ class JobOrderService {
         $firstItemCustomization = [];
         if (!empty($items)) {
             $firstItemCustomization = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
+            $firstItemSpecifications = printflow_decode_modal_customization_payload((string)($items[0]['specifications'] ?? ''));
+            if ($firstItemSpecifications !== []) {
+                $firstItemCustomization = printflow_overlay_nonempty_assoc($firstItemCustomization, $firstItemSpecifications);
+            }
         }
         $firstItemCustomization = printflow_overlay_nonempty_assoc(
             printflow_overlay_nonempty_assoc($orphanCustomizationDetails, $firstCustomizationPayload),
@@ -1931,6 +1944,10 @@ class JobOrderService {
         foreach ($items as $lineIndex => $item) {
             // Match customer/get_order_items.php: decode + unwrap nested payloads so staff see the same specs as the customer modal.
             $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            $savedSpecifications = printflow_decode_modal_customization_payload((string)($item['specifications'] ?? ''));
+            if ($savedSpecifications !== []) {
+                $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecifications);
+            }
             $itemCustomizationFallback = $customizationByItemId[(int)($item['order_item_id'] ?? 0)] ?? ['details' => [], 'service_type' => ''];
             $mergedTableDetails = printflow_overlay_nonempty_assoc(
                 $orphanCustomizationDetails,
@@ -2084,6 +2101,8 @@ class JobOrderService {
                 'category' => $item['category'] ?? '',
                 'quantity' => $quantity,
                 'customization' => $customForPayload,
+                'specifications' => $customForPayload,
+                'specifications_raw' => (string)($item['specifications'] ?? ''),
             ], self::buildStoreOrderItemAssetMeta($item, $anyDesignOrderItemId, $fallbackDesignMeta, $custom));
         }
 

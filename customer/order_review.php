@@ -497,6 +497,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     error_log('Order created successfully with ID: ' . $order_id);
                     error_log('Order type: ' . $order_type);
                     error_log('Branch ID: ' . $branch_id);
+                    $hasSpecificationsColumn = function_exists('printflow_ensure_order_items_specifications_column')
+                        ? printflow_ensure_order_items_specifications_column()
+                        : false;
                     
                     // 3. Process each item and insert into order_items
                     foreach ($items_to_review as $key => $item) {
@@ -614,6 +617,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $custom['_uploaded_files'] = $uploadedFilesMeta;
                             $custom_data = printflow_encode_customization_payload($custom);
                         }
+                        $specifications_json = $custom_data;
 
                         $product_id = !empty($item['product_id']) ? (int)$item['product_id'] : null;
                         $service_type = $custom['service_type'] ?? ($item['category'] ?? ($item['name'] ?? ''));
@@ -636,26 +640,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
 
                         $order_item_id = 0;
                         if ($design_binary) {
-                            $stmt = $conn->prepare(
-                                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
+                            $insertItemSql = $hasSpecificationsColumn
+                                ? "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
+                                                        design_image, design_image_mime, design_image_name, design_file, reference_image_file, specifications)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                : "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
                                                         design_image, design_image_mime, design_image_name, design_file, reference_image_file)
-                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                            $stmt = $conn->prepare(
+                                $insertItemSql
                             );
                             if ($stmt) {
                                 $null = NULL;
-                                $stmt->bind_param('iiidssssss', $order_id, $product_id, $quantity_val, $unit_price, $custom_data, $null, $design_mime, $design_name, $design_file_path, $reference_file_path);
+                                if ($hasSpecificationsColumn) {
+                                    $stmt->bind_param('iiidsssssss', $order_id, $product_id, $quantity_val, $unit_price, $custom_data, $null, $design_mime, $design_name, $design_file_path, $reference_file_path, $specifications_json);
+                                } else {
+                                    $stmt->bind_param('iiidssssss', $order_id, $product_id, $quantity_val, $unit_price, $custom_data, $null, $design_mime, $design_name, $design_file_path, $reference_file_path);
+                                }
                                 $stmt->send_long_data(5, $design_binary);
                                 $stmt->execute();
                                 $order_item_id = (int)$conn->insert_id;
                                 $stmt->close();
                             }
                         } else {
-                            $order_item_id = (int)db_execute(
-                                "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file) 
-                                 VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                'iiidsss',
-                                [$order_id, $product_id, $quantity_val, $unit_price, $custom_data, $design_file_path, $reference_file_path]
-                            );
+                            if ($hasSpecificationsColumn) {
+                                $order_item_id = (int)db_execute(
+                                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file, specifications) 
+                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                    'iiidssss',
+                                    [$order_id, $product_id, $quantity_val, $unit_price, $custom_data, $design_file_path, $reference_file_path, $specifications_json]
+                                );
+                            } else {
+                                $order_item_id = (int)db_execute(
+                                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file) 
+                                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                    'iiidsss',
+                                    [$order_id, $product_id, $quantity_val, $unit_price, $custom_data, $design_file_path, $reference_file_path]
+                                );
+                            }
                         }
 
                         if (review_item_is_service($item) && $order_item_id > 0) {

@@ -678,11 +678,21 @@ foreach ($items as $lineIndex => $item) {
     if ($session_restore_custom !== [] && (int)($item['order_item_id'] ?? 0) > 0) {
         $healed_custom_json = printflow_encode_customization_payload($custom_data);
         $healed_order_item_id = (int)$item['order_item_id'];
+        $hasSpecificationsColumn = function_exists('printflow_ensure_order_items_specifications_column')
+            ? printflow_ensure_order_items_specifications_column()
+            : false;
         db_execute(
             'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
             'si',
             [$healed_custom_json, $healed_order_item_id]
         );
+        if ($hasSpecificationsColumn) {
+            db_execute(
+                'UPDATE order_items SET specifications = ? WHERE order_item_id = ?',
+                'si',
+                [$healed_custom_json, $healed_order_item_id]
+            );
+        }
         db_execute(
             'UPDATE customizations SET customization_details = ?, updated_at = updated_at WHERE order_id = ? AND order_item_id = ?',
             'sii',
