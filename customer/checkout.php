@@ -16,8 +16,9 @@ require_once __DIR__ . '/../includes/require_id_verified.php';
 function checkout_item_is_service(array $item): bool {
     $custom = $item['customization'] ?? [];
     if (is_string($custom)) {
-        $decoded = json_decode($custom, true);
-        $custom = is_array($decoded) ? $decoded : [];
+        $custom = function_exists('printflow_decode_modal_customization_payload')
+            ? printflow_decode_modal_customization_payload($custom)
+            : (json_decode($custom, true) ?: []);
     }
 
     $source_page = strtolower(trim((string)($item['source_page'] ?? '')));
@@ -38,6 +39,23 @@ function checkout_item_is_service(array $item): bool {
     }
 
     return $product_id <= 0;
+}
+
+function checkout_item_customization(array $item): array {
+    $custom = $item['customization'] ?? [];
+    if (is_string($custom)) {
+        if (function_exists('printflow_decode_modal_customization_payload')) {
+            return printflow_decode_modal_customization_payload($custom);
+        }
+        $decoded = json_decode($custom, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($custom)) {
+        return [];
+    }
+    return function_exists('printflow_normalize_customization_for_modal')
+        ? printflow_normalize_customization_for_modal($custom)
+        : $custom;
 }
 
 $cart_items = $_SESSION['cart'] ?? [];
@@ -207,10 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             $inserted_order_item_ids = [];
             foreach ($cart_items as $pid => $item) {
                 // Determine service_type for better display in history/notifications
-                $custom = $item['customization'] ?? [];
-                if (!is_array($custom)) {
-                    $custom = [];
-                }
+                $custom = checkout_item_customization($item);
                 if (!checkout_item_is_service($item)) {
                     $sp = trim((string)($item['source_page'] ?? ''));
                     if ($sp !== '' && empty($custom['source_page'])) {
@@ -248,8 +263,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                         ]
                     );
                 }
+                $custom = printflow_normalize_customization_for_modal($custom);
+                if (checkout_item_is_service($item) && (int)($custom['service_id'] ?? 0) <= 0) {
+                    $resolvedSid = printflow_resolve_service_catalog_service_id_from_cart_line($item);
+                    if ($resolvedSid > 0) {
+                        $custom['service_id'] = $resolvedSid;
+                    }
+                }
+                if (trim((string)($custom['source_page'] ?? '')) === '') {
+                    $custom['source_page'] = trim((string)($item['source_page'] ?? 'services')) ?: 'services';
+                }
 
                 $custom_data    = printflow_encode_customization_payload($custom);
+                $cart_items[$pid]['customization'] = $custom;
                 $design_binary  = null;
                 $design_mime    = $item['design_mime']   ?? null;
                 $design_name    = $item['design_name']   ?? null;

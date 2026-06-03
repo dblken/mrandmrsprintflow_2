@@ -553,6 +553,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         }
                         $uploadedFilesMeta = [];
                         $custom_data   = printflow_encode_customization_payload($custom);
+                        $items_to_review[$key]['customization'] = $custom;
                         $design_binary = null;
                         $design_mime   = $item['design_mime']   ?? null;
                         $design_name   = $item['design_name']   ?? null;

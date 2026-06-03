@@ -675,6 +675,21 @@ foreach ($items as $lineIndex => $item) {
         $custom_data = customer_order_items_sort_customization_by_service_config($custom_data, $sidForSort);
     }
 
+    if ($session_restore_custom !== [] && (int)($item['order_item_id'] ?? 0) > 0) {
+        $healed_custom_json = printflow_encode_customization_payload($custom_data);
+        $healed_order_item_id = (int)$item['order_item_id'];
+        db_execute(
+            'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
+            'si',
+            [$healed_custom_json, $healed_order_item_id]
+        );
+        db_execute(
+            'UPDATE customizations SET customization_details = ?, updated_at = updated_at WHERE order_id = ? AND order_item_id = ?',
+            'sii',
+            [$healed_custom_json, $order_id, $healed_order_item_id]
+        );
+    }
+
     $raw_quantity = max(1, (int)($item['quantity'] ?? 0));
     $raw_unit_price = (float)($item['unit_price'] ?? 0);
     $raw_subtotal = $raw_quantity * $raw_unit_price;

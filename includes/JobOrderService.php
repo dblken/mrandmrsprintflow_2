@@ -2562,6 +2562,22 @@ class JobOrderService {
             return $quantity > 0 ? ['Quantity' => (string)$quantity] : [];
         }
 
+        $customerModalShape = function_exists('printflow_flatten_customization_for_customer_order_modal')
+            ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity, true)
+            : [];
+        $staffFallbackShape = function_exists('printflow_modal_customization_fallback_flatten_for_staff')
+            ? printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity)
+            : [];
+        if (is_array($customerModalShape) && is_array($staffFallbackShape) && $customerModalShape !== []) {
+            $mergedShape = printflow_overlay_nonempty_assoc($customerModalShape, $staffFallbackShape);
+            if ($mergedShape !== []) {
+                return $mergedShape;
+            }
+        }
+        if (is_array($staffFallbackShape) && $staffFallbackShape !== []) {
+            return $staffFallbackShape;
+        }
+
         // Keys that are purely internal/temp and must never be shown to staff.
         static $internalKeys = [
             'design_tmp_path', 'reference_tmp_path',
