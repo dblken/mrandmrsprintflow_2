@@ -85,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     $branch_id = (int)$item['customization']['Branch_ID'];
                     break;
                 }
+
             }
         }
 
@@ -296,6 +297,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     $unit_price = round($unit_price / $quantity_val, 2);
                 }
                 
+                $order_item_id = 0;
                 if ($design_binary) {
                     // INSERT with BLOB using send_long_data
                     $item_stmt = $conn->prepare(
@@ -318,16 +320,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                         );
                         $item_stmt->send_long_data(5, $design_binary);
                         $item_stmt->execute();
-                        $inserted_order_item_ids[$pid] = $conn->insert_id;
+                        $order_item_id = (int)$conn->insert_id;
+                        $inserted_order_item_ids[$pid] = $order_item_id;
                         $item_stmt->close();
                     }
                 } else {
                     // No design uploaded — insert without BLOB
-                    $inserted_order_item_ids[$pid] = db_execute(
+                    $order_item_id = (int)db_execute(
                         "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file)
                          VALUES (?, ?, ?, ?, ?, ?, ?)",
                         'iiidsss',
                         [$order_id, $item['product_id'], $item['quantity'], $unit_price, $custom_data, $design_file_path, $reference_file_path]
+                    );
+                    $inserted_order_item_ids[$pid] = $order_item_id;
+                }
+
+                if (checkout_item_is_service($item) && $order_item_id > 0) {
+                    db_execute(
+                        "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, 'Pending Review', NOW(), NOW())",
+                        'iiiss',
+                        [
+                            $order_id,
+                            $order_item_id,
+                            $customer_id,
+                            (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
+                            $custom_data
+                        ]
                     );
                 }
             }

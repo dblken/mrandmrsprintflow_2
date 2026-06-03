@@ -274,6 +274,7 @@ if ($action === 'buy_now') {
         // Insert order item
         $unit_price = 0; // Will be set by staff
         
+        $order_item_id = 0;
         if ($design_binary) {
             $stmt = $conn->prepare(
                 "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
@@ -285,14 +286,30 @@ if ($action === 'buy_now') {
                 $stmt->bind_param('iiidsssss', $order_id, $product_id, $quantity, $unit_price, $custom_json, $null, $design_mime, $design_name, $design_file_path);
                 $stmt->send_long_data(5, $design_binary);
                 $stmt->execute();
+                $order_item_id = (int)$conn->insert_id;
                 $stmt->close();
             }
         } else {
-            db_execute(
+            $order_item_id = (int)db_execute(
                 "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file) 
                  VALUES (?, ?, ?, ?, ?, ?)",
                 'iiidss',
                 [$order_id, $product_id, $quantity, $unit_price, $custom_json, $design_file_path]
+            );
+        }
+
+        if ($order_item_id > 0) {
+            db_execute(
+                "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, 'Pending Review', NOW(), NOW())",
+                'iiiss',
+                [
+                    $order_id,
+                    $order_item_id,
+                    $customer_id,
+                    (string)($custom_data['service_type'] ?? ($product['name'] ?? 'Service')),
+                    $custom_json
+                ]
             );
         }
         

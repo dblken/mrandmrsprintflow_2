@@ -605,6 +605,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         $unit_price = review_item_unit_price($item);
                         $quantity_val = review_item_quantity($item);
 
+                        $order_item_id = 0;
                         if ($design_binary) {
                             $stmt = $conn->prepare(
                                 "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
@@ -616,14 +617,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                 $stmt->bind_param('iiidssssss', $order_id, $product_id, $quantity_val, $unit_price, $custom_data, $null, $design_mime, $design_name, $design_file_path, $reference_file_path);
                                 $stmt->send_long_data(5, $design_binary);
                                 $stmt->execute();
+                                $order_item_id = (int)$conn->insert_id;
                                 $stmt->close();
                             }
                         } else {
-                            db_execute(
+                            $order_item_id = (int)db_execute(
                                 "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file) 
                                  VALUES (?, ?, ?, ?, ?, ?, ?)",
                                 'iiidsss',
                                 [$order_id, $product_id, $quantity_val, $unit_price, $custom_data, $design_file_path, $reference_file_path]
+                            );
+                        }
+
+                        if (review_item_is_service($item) && $order_item_id > 0) {
+                            db_execute(
+                                "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
+                                 VALUES (?, ?, ?, ?, ?, 'Pending Review', NOW(), NOW())",
+                                'iiiss',
+                                [
+                                    $order_id,
+                                    $order_item_id,
+                                    $customer_id,
+                                    (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
+                                    $custom_data
+                                ]
                             );
                         }
 
