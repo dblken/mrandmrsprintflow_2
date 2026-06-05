@@ -55,19 +55,73 @@
     }
 
     /* ─── Sidebar active-state sync ──────────────────────────────────────── */
+    function printflowSyncSidebarNavFromPath() {
+        var live = document.getElementById('printflow-persistent-sidebar');
+        if (!live) return;
+
+        var current = normPath(window.location.href);
+        var matchedTop = false;
+
+        live.querySelectorAll('a.nav-item').forEach(function (a) {
+            var isActive = normPath(a.href) === current;
+            a.classList.toggle('active', isActive);
+            if (isActive) matchedTop = true;
+        });
+
+        var customersGroup = live.querySelector('[data-nav-group="customers"]');
+        if (customersGroup) {
+            var anySubActive = false;
+            customersGroup.querySelectorAll('a.nav-subitem').forEach(function (a) {
+                var isActive = normPath(a.href) === current;
+                a.classList.toggle('active', isActive);
+                if (isActive) anySubActive = true;
+            });
+
+            var parent = customersGroup.querySelector('.nav-parent');
+            if (parent) parent.classList.toggle('active', anySubActive);
+
+            if (anySubActive) {
+                customersGroup.classList.add('expanded');
+                if (parent) parent.setAttribute('aria-expanded', 'true');
+            }
+        }
+    }
+
     document.addEventListener('turbo:before-render', function (ev) {
         var nb = ev.detail && ev.detail.newBody;
         if (!nb) return;
         var incoming = nb.querySelector('#printflow-persistent-sidebar');
         if (!incoming) return;
-        var newActive = incoming.querySelector('a.nav-item.active');
         var live = document.getElementById('printflow-persistent-sidebar');
-        if (!live || !newActive) return;
+        if (!live) return;
+
+        var newActiveSub = incoming.querySelector('a.nav-subitem.active');
+        if (newActiveSub) {
+            var wantSub = normPath(newActiveSub.href);
+            live.querySelectorAll('a.nav-subitem').forEach(function (a) {
+                a.classList.toggle('active', normPath(a.href) === wantSub);
+            });
+            var group = live.querySelector('[data-nav-group="customers"]');
+            if (group) {
+                group.classList.add('expanded');
+                var parent = group.querySelector('.nav-parent');
+                if (parent) {
+                    parent.classList.add('active');
+                    parent.setAttribute('aria-expanded', 'true');
+                }
+            }
+            return;
+        }
+
+        var newActive = incoming.querySelector('a.nav-item.active');
+        if (!newActive) return;
         var want = normPath(newActive.href);
         live.querySelectorAll('a.nav-item').forEach(function (a) {
             a.classList.toggle('active', normPath(a.href) === want);
         });
     });
+
+    document.addEventListener('turbo:load', printflowSyncSidebarNavFromPath);
 
     /* ─── Alpine: tear down only the swapped main column (not the whole body) ─
      * destroyTree(document.body) broke persistent sidebar + raced inline <script>

@@ -966,15 +966,56 @@ endif; ?>
     }
 
     .nav-item.nav-parent {
-        cursor: default;
+        width: 100%;
         margin: 0;
+        border: none;
+        background: transparent;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        box-sizing: border-box;
+    }
+
+    .nav-item.nav-parent .nav-label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .nav-chevron {
+        width: 16px;
+        height: 16px;
+        margin-left: auto;
+        flex-shrink: 0;
+        opacity: 0.72;
+        transition: transform 0.2s ease, opacity 0.18s ease;
+    }
+
+    .nav-item.nav-parent:hover .nav-chevron,
+    .nav-item.nav-parent.active .nav-chevron {
+        opacity: 1;
+    }
+
+    .nav-group.expanded .nav-chevron {
+        transform: rotate(90deg);
+    }
+
+    .nav-subitems {
+        position: relative;
+        display: none;
+        margin: 2px 0 6px 27px;
+        padding: 2px 0 4px 14px;
+        border-left: 1px solid rgba(148, 200, 212, 0.3);
+    }
+
+    .nav-group.expanded .nav-subitems {
+        display: block;
     }
 
     .nav-subitem {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 8px 14px 8px 42px;
+        padding: 7px 12px 7px 10px;
         margin: 2px 0;
         border-radius: 8px;
         color: rgba(200, 230, 238, 0.78);
@@ -985,22 +1026,34 @@ endif; ?>
         position: relative;
     }
 
+    .nav-subitem::before {
+        content: '';
+        position: absolute;
+        left: -14px;
+        top: 50%;
+        width: 10px;
+        height: 1px;
+        background: rgba(148, 200, 212, 0.3);
+        transform: translateY(-50%);
+    }
+
     .nav-subitem:hover {
         background: rgba(255, 255, 255, 0.05);
         color: #f0fafc;
     }
 
     .nav-subitem.active {
-        background: rgba(255, 255, 255, 0.1);
+        background: linear-gradient(135deg, rgba(240, 253, 250, 0.14) 0%, rgba(224, 242, 244, 0.1) 100%);
         color: #f8fffe;
-        box-shadow: inset 3px 0 0 rgba(240, 253, 250, 0.85);
+        box-shadow: inset 2px 0 0 rgba(240, 253, 250, 0.85);
     }
 
     .nav-subitem .nav-badge {
         margin-left: auto;
     }
 
-    .sidebar.collapsed .nav-group .nav-subitem {
+    .sidebar.collapsed .nav-group .nav-subitems,
+    .sidebar.collapsed .nav-group .nav-chevron {
         display: none;
     }
 

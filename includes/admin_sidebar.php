@@ -84,22 +84,33 @@ if (isset($_SESSION['user_id'])) {
             $customers_nav_active = in_array($current_page, ['customers_management.php', 'customer_verification.php'], true);
             $pending_verification_count = pf_count_customer_verification_pending();
             ?>
-            <div class="nav-group <?php echo $customers_nav_active ? 'expanded' : ''; ?>">
-                <div class="nav-item nav-parent <?php echo $customers_nav_active ? 'active' : ''; ?>">
+            <div class="nav-group <?php echo $customers_nav_active ? 'expanded' : ''; ?>" data-nav-group="customers">
+                <button
+                    type="button"
+                    class="nav-item nav-parent <?php echo $customers_nav_active ? 'active' : ''; ?>"
+                    data-nav-toggle="customers"
+                    aria-expanded="<?php echo $customers_nav_active ? 'true' : 'false'; ?>"
+                    aria-controls="nav-subitems-customers"
+                >
                     <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
                     </svg>
-                    <span>Customers</span>
+                    <span class="nav-label">Customers</span>
+                    <svg class="nav-chevron" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+                <div class="nav-subitems" id="nav-subitems-customers">
+                    <a href="<?php echo $base_path; ?>/admin/customers_management.php" class="nav-subitem <?php echo $current_page === 'customers_management.php' ? 'active' : ''; ?>" data-nav-page="customers_management.php">
+                        Customer List
+                    </a>
+                    <a href="<?php echo $base_path; ?>/admin/customer_verification.php" class="nav-subitem <?php echo $current_page === 'customer_verification.php' ? 'active' : ''; ?>" data-nav-page="customer_verification.php">
+                        Verification
+                        <?php if ($pending_verification_count > 0): ?>
+                        <span class="nav-badge"><?php echo $pending_verification_count > 99 ? '99+' : (int)$pending_verification_count; ?></span>
+                        <?php endif; ?>
+                    </a>
                 </div>
-                <a href="<?php echo $base_path; ?>/admin/customers_management.php" class="nav-subitem <?php echo $current_page === 'customers_management.php' ? 'active' : ''; ?>">
-                    Customers Management
-                </a>
-                <a href="<?php echo $base_path; ?>/admin/customer_verification.php" class="nav-subitem <?php echo $current_page === 'customer_verification.php' ? 'active' : ''; ?>">
-                    Customer Verification
-                    <?php if ($pending_verification_count > 0): ?>
-                    <span class="nav-badge"><?php echo $pending_verification_count > 99 ? '99+' : (int)$pending_verification_count; ?></span>
-                    <?php endif; ?>
-                </a>
             </div>
             <a href="<?php echo $base_path; ?>/admin/products_management.php" class="nav-item <?php echo $current_page === 'products_management.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -319,6 +330,72 @@ document.addEventListener('click', function(event) {
     }
 });
 
+    function printflowNavPath(href) {
+        try {
+            var u = new URL(href, window.location.href);
+            var p = u.pathname.replace(/\/+$/, '') || '/';
+            return p.replace(/\.php$/i, '');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function printflowSetCustomersNavExpanded(group, expanded, persist) {
+        if (!group) return;
+        group.classList.toggle('expanded', expanded);
+        var btn = group.querySelector('[data-nav-toggle]');
+        if (btn) btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        if (persist !== false) {
+            try {
+                sessionStorage.setItem('printflow_nav_customers_expanded', expanded ? '1' : '0');
+            } catch (e) {}
+        }
+    }
+
+    function printflowSyncCustomersNavGroup() {
+        var group = document.querySelector('[data-nav-group="customers"]');
+        if (!group) return;
+
+        var currentPath = printflowNavPath(window.location.href);
+        var anyActive = false;
+
+        group.querySelectorAll('.nav-subitem').forEach(function (link) {
+            var isActive = printflowNavPath(link.href) === currentPath;
+            link.classList.toggle('active', isActive);
+            if (isActive) anyActive = true;
+        });
+
+        var parent = group.querySelector('.nav-parent');
+        if (parent) parent.classList.toggle('active', anyActive);
+
+        if (anyActive) {
+            printflowSetCustomersNavExpanded(group, true, false);
+        } else {
+            var saved = null;
+            try { saved = sessionStorage.getItem('printflow_nav_customers_expanded'); } catch (e) {}
+            printflowSetCustomersNavExpanded(group, saved === '1', false);
+        }
+    }
+
+    function printflowInitCustomersNavGroup() {
+        var group = document.querySelector('[data-nav-group="customers"]');
+        if (!group) return;
+
+        var btn = group.querySelector('[data-nav-toggle]');
+        if (btn && btn.dataset.pfNavBound !== '1') {
+            btn.dataset.pfNavBound = '1';
+            btn.addEventListener('click', function () {
+                var expanded = !group.classList.contains('expanded');
+                printflowSetCustomersNavExpanded(group, expanded, true);
+            });
+        }
+
+        printflowSyncCustomersNavGroup();
+    }
+
+    document.addEventListener('DOMContentLoaded', printflowInitCustomersNavGroup);
+    document.addEventListener('printflow:page-init', printflowSyncCustomersNavGroup);
+
     document.addEventListener('DOMContentLoaded', function() {
         var nav = document.querySelector('#printflow-persistent-sidebar .sidebar-nav') || document.querySelector('.sidebar-nav');
         var sidebar = document.getElementById('adminSidebar');
@@ -342,7 +419,7 @@ document.addEventListener('click', function(event) {
                     });
                 }
             } else {
-                var activeItem = nav.querySelector('a.nav-item.active');
+                var activeItem = nav.querySelector('a.nav-subitem.active') || nav.querySelector('a.nav-item.active');
                 if (activeItem) {
                     requestAnimationFrame(function() {
                         activeItem.scrollIntoView({ block: 'nearest', behavior: 'auto' });
@@ -363,7 +440,7 @@ document.addEventListener('click', function(event) {
                 } catch (e) {}
             }, true);
         }
-        nav.querySelectorAll('a.nav-item').forEach(function(link) {
+        nav.querySelectorAll('a.nav-item, a.nav-subitem').forEach(function(link) {
             link.addEventListener('click', function() {
                 if (window.innerWidth <= 768) {
                     var sb = document.getElementById('adminSidebar');
