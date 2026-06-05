@@ -143,9 +143,8 @@ function pf_customer_id_rejection_reason(string $selected, string $custom = ''):
         $selected = '';
     }
 
-    $custom = sanitize($custom);
-    $custom = preg_replace('/\s+/', ' ', $custom ?? '');
-    $custom = trim((string)$custom);
+    $custom = preg_replace('/\s+/', ' ', $custom);
+    $custom = trim($custom);
 
     if ($selected === 'Other') {
         if ($custom === '') {
@@ -177,11 +176,29 @@ function pf_ensure_customer_id_verification_columns(): void
         return;
     }
 
+    if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_image'"))) {
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_image VARCHAR(255) DEFAULT NULL');
+    }
+    if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_type'"))) {
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_type VARCHAR(100) DEFAULT NULL');
+    }
+    if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_status'"))) {
+        @$conn->query("ALTER TABLE customers ADD COLUMN id_status ENUM('None','Pending','Unverified','Verified','Rejected') DEFAULT 'None'");
+    } else {
+        $statusCol = db_query("SHOW COLUMNS FROM customers LIKE 'id_status'");
+        $statusType = strtolower((string)($statusCol[0]['Type'] ?? ''));
+        if (str_starts_with($statusType, 'enum') && !str_contains($statusType, 'rejected')) {
+            @$conn->query("ALTER TABLE customers MODIFY COLUMN id_status ENUM('None','Pending','Unverified','Verified','Rejected') DEFAULT 'None'");
+        }
+    }
+    if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_reject_reason'"))) {
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_reject_reason VARCHAR(500) DEFAULT NULL');
+    }
     if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_uploaded_at'"))) {
-        @$conn->query('ALTER TABLE customers ADD COLUMN id_uploaded_at DATETIME NULL DEFAULT NULL AFTER id_reject_reason');
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_uploaded_at DATETIME NULL DEFAULT NULL');
     }
     if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_reviewed_at'"))) {
-        @$conn->query('ALTER TABLE customers ADD COLUMN id_reviewed_at DATETIME NULL DEFAULT NULL AFTER id_uploaded_at');
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_reviewed_at DATETIME NULL DEFAULT NULL');
     }
 
     if (!empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_uploaded_at'"))) {
@@ -318,17 +335,6 @@ function pf_customer_verification_payload_attr(array $customer, string $base_pat
     );
 }
 
-function pf_customer_id_verification_has_column(string $column): bool
-{
-    static $cache = [];
-    if (array_key_exists($column, $cache)) {
-        return $cache[$column];
-    }
-
-    $cache[$column] = !empty(db_query('SHOW COLUMNS FROM customers LIKE ?', 's', [$column]));
-    return $cache[$column];
-}
-
 /**
  * Persist approve/reject to the database and confirm the row reflects the target status.
  *
@@ -339,53 +345,53 @@ function pf_persist_customer_id_verification(int $cid, string $action, string $r
     pf_ensure_customer_id_verification_columns();
 
     $targetStatus = $action === 'approve' ? 'Verified' : 'Rejected';
-    $hasReviewedAt = pf_customer_id_verification_has_column('id_reviewed_at');
-    $hasRejectReason = pf_customer_id_verification_has_column('id_reject_reason');
-    $executed = false;
+    $hasReviewedAt = db_table_has_column('customers', 'id_reviewed_at', true);
+    $hasRejectReason = db_table_has_column('customers', 'id_reject_reason', true);
+    $affected = -1;
 
     if ($action === 'approve') {
         if ($hasReviewedAt && $hasRejectReason) {
-            $executed = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE customers SET id_status='Verified', id_reject_reason=NULL, id_reviewed_at=NOW() WHERE customer_id=?",
                 'i',
                 [$cid]
-            ) !== false;
+            );
         } elseif ($hasRejectReason) {
-            $executed = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE customers SET id_status='Verified', id_reject_reason=NULL WHERE customer_id=?",
                 'i',
                 [$cid]
-            ) !== false;
+            );
         } else {
-            $executed = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE customers SET id_status='Verified' WHERE customer_id=?",
                 'i',
                 [$cid]
-            ) !== false;
+            );
         }
     } else {
         if ($hasReviewedAt && $hasRejectReason) {
-            $executed = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE customers SET id_status='Rejected', id_reject_reason=?, id_reviewed_at=NOW() WHERE customer_id=?",
                 'si',
                 [$rejectReason, $cid]
-            ) !== false;
+            );
         } elseif ($hasRejectReason) {
-            $executed = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE customers SET id_status='Rejected', id_reject_reason=? WHERE customer_id=?",
                 'si',
                 [$rejectReason, $cid]
-            ) !== false;
+            );
         } else {
-            $executed = db_execute(
+            $affected = db_execute_affected_rows(
                 "UPDATE customers SET id_status='Rejected' WHERE customer_id=?",
                 'i',
                 [$cid]
-            ) !== false;
+            );
         }
     }
 
-    if (!$executed) {
+    if ($affected < 0) {
         return ['ok' => false, 'row' => [], 'error' => 'Failed to update the customer ID status.'];
     }
 
@@ -415,6 +421,73 @@ function pf_persist_customer_id_verification(int $cid, string $action, string $r
     }
 
     return ['ok' => true, 'row' => $row, 'error' => ''];
+}
+
+/**
+ * Apply approve/reject for a customer ID verification record.
+ *
+ * @return array{success:bool,error?:string,code?:string,customer_id?:int,id_status?:string,id_status_label?:string,id_reject_reason?:string,csrf_token?:string}
+ */
+function pf_apply_customer_id_verification_decision(
+    int $cid,
+    string $action,
+    string $rejectReason = '',
+    string $rejectReasonOther = ''
+): array {
+    if ($cid <= 0 || !in_array($action, ['approve', 'reject'], true)) {
+        return ['success' => false, 'error' => 'Invalid verification request.'];
+    }
+
+    $customerRows = db_query(
+        'SELECT customer_id, id_image FROM customers WHERE customer_id = ? LIMIT 1',
+        'i',
+        [$cid]
+    );
+    if (empty($customerRows)) {
+        return ['success' => false, 'error' => 'Customer not found.'];
+    }
+
+    if (trim((string)($customerRows[0]['id_image'] ?? '')) === '') {
+        return ['success' => false, 'error' => 'This customer has no uploaded ID image to review.'];
+    }
+
+    $reason = '';
+    if ($action === 'reject') {
+        $reason = pf_customer_id_rejection_reason($rejectReason, $rejectReasonOther);
+    }
+
+    $persisted = pf_persist_customer_id_verification($cid, $action, $reason);
+    if (!$persisted['ok']) {
+        return ['success' => false, 'error' => $persisted['error']];
+    }
+
+    $verifiedRow = $persisted['row'];
+    if ($action === 'approve') {
+        try {
+            create_notification($cid, 'Customer', 'Your ID has been verified! You can now place orders.', 'System', false, false);
+        } catch (Throwable $e) {
+            error_log('ID approval notification failed for customer ' . $cid . ': ' . $e->getMessage());
+        }
+    } else {
+        try {
+            create_notification($cid, 'Customer', 'Your ID verification was rejected: ' . $reason, 'System', false, false);
+        } catch (Throwable $e) {
+            error_log('ID rejection notification failed for customer ' . $cid . ': ' . $e->getMessage());
+        }
+    }
+
+    $normalizedStatus = pf_customer_id_status_normalize($verifiedRow['id_status'] ?? '');
+    $statusLabel = $normalizedStatus === 'Verified' ? 'Approved' : $normalizedStatus;
+    $storedReason = pf_decode_display_text((string)($verifiedRow['id_reject_reason'] ?? ''));
+
+    return [
+        'success' => true,
+        'customer_id' => $cid,
+        'id_status' => $normalizedStatus,
+        'id_status_label' => $statusLabel,
+        'id_reject_reason' => $action === 'reject' ? ($storedReason !== '' ? $storedReason : $reason) : '',
+        'csrf_token' => generate_csrf_token(),
+    ];
 }
 
 /**
@@ -456,72 +529,21 @@ function pf_process_customer_id_verification_post(string $redirect_url = 'custom
         exit;
     }
 
-    $cid = (int)($_POST['cid'] ?? 0);
-    $action = trim((string)($_POST['id_action'] ?? ''));
-    if ($cid <= 0 || !in_array($action, ['approve', 'reject'], true)) {
-        $respond(['success' => false, 'error' => 'Invalid verification request.'], 422);
-        header('Location: ' . $redirect_url . '?reviewed=0');
-        exit;
-    }
-
-    $customerRows = db_query(
-        "SELECT customer_id, id_image FROM customers WHERE customer_id = ? LIMIT 1",
-        'i',
-        [$cid]
+    $result = pf_apply_customer_id_verification_decision(
+        (int)($_POST['cid'] ?? 0),
+        trim((string)($_POST['id_action'] ?? '')),
+        (string)($_POST['reject_reason'] ?? ''),
+        (string)($_POST['reject_reason_other'] ?? '')
     );
-    if (empty($customerRows)) {
-        $respond(['success' => false, 'error' => 'Customer not found.'], 404);
+
+    if (!$result['success']) {
+        $respond($result, 500);
         header('Location: ' . $redirect_url . '?reviewed=0');
         exit;
     }
 
-    if (trim((string)($customerRows[0]['id_image'] ?? '')) === '') {
-        $respond(['success' => false, 'error' => 'This customer has no uploaded ID image to review.'], 422);
-        header('Location: ' . $redirect_url . '?reviewed=0');
-        exit;
-    }
-
-    $reason = '';
-    if ($action === 'reject') {
-        $reason = pf_customer_id_rejection_reason(
-            (string)($_POST['reject_reason'] ?? ''),
-            (string)($_POST['reject_reason_other'] ?? '')
-        );
-    }
-
-    $persisted = pf_persist_customer_id_verification($cid, $action, $reason);
-    if (!$persisted['ok']) {
-        $respond(['success' => false, 'error' => $persisted['error']], 500);
-        header('Location: ' . $redirect_url . '?reviewed=0');
-        exit;
-    }
-
-    $verifiedRow = $persisted['row'];
-    if ($action === 'approve') {
-        try {
-            create_notification($cid, 'Customer', 'Your ID has been verified! You can now place orders.', 'System', false, false);
-        } catch (Throwable $e) {
-            error_log('ID approval notification failed for customer ' . $cid . ': ' . $e->getMessage());
-        }
-    } else {
-        try {
-            create_notification($cid, 'Customer', 'Your ID verification was rejected: ' . $reason, 'System', false, false);
-        } catch (Throwable $e) {
-            error_log('ID rejection notification failed for customer ' . $cid . ': ' . $e->getMessage());
-        }
-    }
-
-    $normalizedStatus = pf_customer_id_status_normalize($verifiedRow['id_status'] ?? '');
-    $statusLabel = $normalizedStatus === 'Verified' ? 'Approved' : $normalizedStatus;
     if ($isAjax) {
-        $respond([
-            'success' => true,
-            'customer_id' => $cid,
-            'id_status' => $normalizedStatus,
-            'id_status_label' => $statusLabel,
-            'id_reject_reason' => (string)($verifiedRow['id_reject_reason'] ?? ''),
-            'csrf_token' => generate_csrf_token(),
-        ]);
+        $respond($result);
     }
 
     header('Location: ' . $redirect_url . '?reviewed=1');

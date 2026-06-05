@@ -238,6 +238,9 @@ $page_title = 'Customer Verification - Admin';
         #verification-modal .vf-text-secondary { font-size:12px; color:#6b7280; line-height:1.4; }
         #verification-modal .vf-text-meta { font-size:12px; color:#9ca3af; line-height:1.4; }
         #verification-modal .vf-text-error { font-size:12px; color:#dc2626; line-height:1.4; }
+        .verification-rejected-box { background:#fef2f2; border:1px solid #fecaca; border-radius:10px; padding:12px 14px; }
+        .verification-rejected-box__label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:#b91c1c; margin:0 0 6px; }
+        .verification-rejected-box__text { font-size:13px; color:#7f1d1d; margin:0; line-height:1.5; white-space:pre-wrap; }
         #verification-modal .vf-text-success { font-size:12px; color:#16a34a; font-weight:600; line-height:1.4; }
         #verification-modal .vf-loading-text { font-size:13px; color:#6b7280; }
         .verification-action-section { margin-top:8px; }
@@ -387,6 +390,7 @@ $page_title = 'Customer Verification - Admin';
                     idActionError: '',
                     idRejectReasonError: '',
                     idNoteError: '',
+                    idSubmitting: false,
 
                     init() {
                         window.addEventListener('filter-badge-update', e => { this.hasActiveFilters = (e.detail.badge > 0); });
@@ -517,18 +521,18 @@ $page_title = 'Customer Verification - Admin';
 
                     async submitIdAction(action, attempt = 0) {
                         if (!<?php echo $can_manage_customer_verification ? 'true' : 'false'; ?>) return;
-                        if (!this.customer?.customer_id) return;
+                        if (!this.customer?.customer_id || this.idSubmitting) return;
                         const selectedReason = (this.idRejectReason || '').trim();
                         const otherReason = (this.idRejectReasonOther || '').trim();
                         const fd = new FormData();
-                        fd.append('ajax', '1');
                         fd.append('id_action', action);
-                        fd.append('cid', this.customer.customer_id);
+                        fd.append('cid', String(this.customer.customer_id));
                         fd.append('reject_reason', selectedReason);
                         fd.append('reject_reason_other', otherReason);
                         fd.append('csrf_token', this.getIdActionCsrfToken());
+                        this.idSubmitting = true;
                         try {
-                            const data = await this.fetchJsonResponse('<?php echo $base_path; ?>/admin/customer_verification.php', {
+                            const data = await this.fetchJsonResponse('<?php echo $base_path; ?>/admin/api_customer_id_verification.php', {
                                 method: 'POST',
                                 body: fd,
                             });
@@ -541,16 +545,13 @@ $page_title = 'Customer Verification - Admin';
                                     alert(data.error || 'The verification status did not save. Please try again.');
                                     return;
                                 }
-                                const rejectReason = selectedReason === 'Other'
-                                    ? (otherReason || 'ID could not be verified. Please resubmit a clearer photo.')
-                                    : (selectedReason || 'ID could not be verified. Please resubmit a clearer photo.');
                                 this.customer = {
                                     ...this.customer,
                                     id_status: data.id_status,
                                     id_status_label: data.id_status_label || (expectedStatus === 'Verified' ? 'Approved' : expectedStatus),
-                                    id_reject_reason: typeof data.id_reject_reason === 'string'
-                                        ? data.id_reject_reason
-                                        : (action === 'approve' ? '' : rejectReason),
+                                    id_reject_reason: action === 'approve'
+                                        ? ''
+                                        : (typeof data.id_reject_reason === 'string' ? data.id_reject_reason : ''),
                                 };
                                 this.resetIdActionForm();
                                 await fetchUpdatedTable();
@@ -558,12 +559,15 @@ $page_title = 'Customer Verification - Admin';
                             }
                             if (data.code === 'csrf_mismatch' && data.csrf_token && attempt < 2) {
                                 this.setIdActionCsrfToken(data.csrf_token);
-                                return this.submitIdAction(action, attempt + 1);
+                                await this.submitIdAction(action, attempt + 1);
+                                return;
                             }
                             alert(data.error || 'Failed to update customer ID status.');
                         } catch (e) {
                             console.error(e);
                             alert('Failed to update customer ID status. Please refresh and try again.');
+                        } finally {
+                            this.idSubmitting = false;
                         }
                     },
 
@@ -852,7 +856,10 @@ $page_title = 'Customer Verification - Admin';
                                 </a>
                             </div>
                             <p x-show="!customer?.id_image" class="vf-text-meta" style="font-style:italic;margin:0 0 14px;">No ID image uploaded.</p>
-                            <p x-show="customer?.id_reject_reason" class="vf-text-error" style="margin:0 0 12px;">Rejection reason: <span x-text="customer?.id_reject_reason"></span></p>
+                            <div x-show="customer?.id_status === 'Rejected'" class="verification-rejected-box" style="margin:0 0 14px;">
+                                <p class="verification-rejected-box__label">Rejection Reason</p>
+                                <p class="verification-rejected-box__text" x-text="customer?.id_reject_reason || 'No reason recorded.'"></p>
+                            </div>
 
                             <?php if ($can_manage_customer_verification): ?>
                             <div x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'" class="verification-action-section">
@@ -907,7 +914,9 @@ $page_title = 'Customer Verification - Admin';
                             <button type="button"
                                     class="btn-submit-action"
                                     x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'"
-                                    @click="submitSelectedIdAction()">Submit Action</button>
+                                    :disabled="idSubmitting"
+                                    @click="submitSelectedIdAction()"
+                                    x-text="idSubmitting ? 'Saving...' : 'Submit Action'"></button>
                             <?php endif; ?>
                         </div>
                     </div>
