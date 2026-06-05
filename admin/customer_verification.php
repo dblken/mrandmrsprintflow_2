@@ -242,6 +242,12 @@ $page_title = 'Customer Verification - Admin';
         .verification-action-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:4px; }
         .btn-submit-action { padding:10px 20px; background:#111827; color:#fff; border:1px solid #111827; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; min-width:140px; font-family:inherit; }
         .btn-submit-action:hover { background:#1f2937; }
+        #verification-modal .form-group { margin-bottom:16px; }
+        #verification-modal .form-group.has-error .verification-reject-select,
+        #verification-modal .form-group.has-error .verification-note-wrap textarea { border-color:#ef4444 !important; box-shadow:0 0 0 2px rgba(239,68,68,.15); }
+        #verification-modal .form-group.has-error .verification-action-cards .verification-action-card { border-color:#fca5a5 !important; }
+        #verification-modal .field-error { display:block; font-size:12px; color:#ef4444; margin-top:4px; min-height:18px; }
+        #verification-modal .verification-modal-footer { padding:16px 24px; border-top:1px solid #f3f4f6; display:flex; justify-content:flex-end; align-items:center; gap:12px; }
     </style>
 </head>
 <body>
@@ -360,6 +366,9 @@ $page_title = 'Customer Verification - Admin';
                     idActionSelection: '',
                     idRejectReason: '',
                     idRejectReasonOther: '',
+                    idActionError: '',
+                    idRejectReasonError: '',
+                    idNoteError: '',
 
                     init() {
                         window.addEventListener('filter-badge-update', e => { this.hasActiveFilters = (e.detail.badge > 0); });
@@ -401,10 +410,61 @@ $page_title = 'Customer Verification - Admin';
                         return data;
                     },
 
+                    clearIdActionErrors() {
+                        this.idActionError = '';
+                        this.idRejectReasonError = '';
+                        this.idNoteError = '';
+                    },
+
                     resetIdActionForm() {
                         this.idActionSelection = '';
                         this.idRejectReason = '';
                         this.idRejectReasonOther = '';
+                        this.clearIdActionErrors();
+                    },
+
+                    validateIdActionForm() {
+                        this.clearIdActionErrors();
+                        let valid = true;
+                        const action = (this.idActionSelection || '').trim();
+                        if (!action) {
+                            this.idActionError = 'Please select an action.';
+                            valid = false;
+                        }
+                        if (action === 'reject') {
+                            const selectedReason = (this.idRejectReason || '').trim();
+                            if (!selectedReason) {
+                                this.idRejectReasonError = 'Please select a rejection reason.';
+                                valid = false;
+                            }
+                            if (selectedReason === 'Other' && !(this.idRejectReasonOther || '').trim()) {
+                                this.idNoteError = 'Note is required when "Other" is selected.';
+                                valid = false;
+                            }
+                        }
+                        return valid;
+                    },
+
+                    onIdActionChange() {
+                        this.idActionError = '';
+                        if (this.idActionSelection !== 'reject') {
+                            this.idRejectReason = '';
+                            this.idRejectReasonOther = '';
+                            this.idRejectReasonError = '';
+                            this.idNoteError = '';
+                        }
+                    },
+
+                    onRejectReasonChange() {
+                        this.idRejectReasonError = '';
+                        if (this.idRejectReason !== 'Other') {
+                            this.idRejectReasonOther = '';
+                            this.idNoteError = '';
+                        }
+                    },
+
+                    onNoteInput() {
+                        if (this.idNoteError) this.idNoteError = '';
                     },
 
                     async openModal(customerId, sourceEl = null) {
@@ -428,14 +488,6 @@ $page_title = 'Customer Verification - Admin';
                         if (!this.customer?.customer_id) return;
                         const selectedReason = (this.idRejectReason || '').trim();
                         const otherReason = (this.idRejectReasonOther || '').trim();
-                        if (action === 'reject' && !selectedReason) {
-                            alert('Please select a rejection reason first.');
-                            return;
-                        }
-                        if (action === 'reject' && selectedReason === 'Other' && !otherReason) {
-                            alert('Please enter a rejection note for "Other".');
-                            return;
-                        }
                         const fd = new FormData();
                         fd.append('ajax', '1');
                         fd.append('id_action', action);
@@ -475,11 +527,8 @@ $page_title = 'Customer Verification - Admin';
                     },
 
                     async submitSelectedIdAction() {
+                        if (!this.validateIdActionForm()) return;
                         const action = (this.idActionSelection || '').trim();
-                        if (!action) {
-                            alert('Please choose Approve ID or Reject ID.');
-                            return;
-                        }
                         await this.submitIdAction(action);
                     },
                 };
@@ -718,7 +767,7 @@ $page_title = 'Customer Verification - Admin';
 
         <div x-show="showModal" x-cloak>
             <div class="modal-overlay" @click.self="showModal = false">
-                <div class="modal-panel" style="max-width:640px;" @click.stop>
+                <div class="modal-panel" id="verification-modal" style="max-width:640px;" @click.stop>
                     <div x-show="loading" style="padding:48px;text-align:center;">
                         <div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>
                         <p style="color:#6b7280;font-size:14px;">Loading verification record...</p>
@@ -766,39 +815,43 @@ $page_title = 'Customer Verification - Admin';
 
                             <?php if ($can_manage_customer_verification): ?>
                             <div x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'" class="verification-action-section">
-                                <p class="verification-action-label">Action</p>
-                                <div class="verification-action-cards">
-                                    <label class="verification-action-card approve-card" :class="{ selected: idActionSelection === 'approve' }">
-                                        <input type="radio" name="id_action_choice" value="approve" x-model="idActionSelection">
-                                        <span class="action-radio" aria-hidden="true"></span>
-                                        <span>Approve ID</span>
-                                    </label>
-                                    <label class="verification-action-card reject-card" :class="{ selected: idActionSelection === 'reject' }">
-                                        <input type="radio" name="id_action_choice" value="reject" x-model="idActionSelection">
-                                        <span class="action-radio" aria-hidden="true"></span>
-                                        <span>Reject ID</span>
-                                    </label>
+                                <div class="form-group" :class="{ 'has-error': idActionError }">
+                                    <p class="verification-action-label">Action</p>
+                                    <div class="verification-action-cards">
+                                        <label class="verification-action-card approve-card" :class="{ selected: idActionSelection === 'approve' }">
+                                            <input type="radio" name="id_action_choice" value="approve" x-model="idActionSelection" @change="onIdActionChange()">
+                                            <span class="action-radio" aria-hidden="true"></span>
+                                            <span>Approve ID</span>
+                                        </label>
+                                        <label class="verification-action-card reject-card" :class="{ selected: idActionSelection === 'reject' }">
+                                            <input type="radio" name="id_action_choice" value="reject" x-model="idActionSelection" @change="onIdActionChange()">
+                                            <span class="action-radio" aria-hidden="true"></span>
+                                            <span>Reject ID</span>
+                                        </label>
+                                    </div>
+                                    <span class="field-error" x-text="idActionError" x-show="idActionError"></span>
                                 </div>
 
                                 <div x-show="idActionSelection === 'reject'" x-cloak class="verification-reject-fields">
-                                    <p class="verification-action-label">Rejection Reason</p>
-                                    <select x-model="idRejectReason" class="verification-reject-select">
-                                        <option value="">Select rejection reason</option>
-                                        <?php foreach (PF_CUSTOMER_ID_REJECTION_OPTIONS as $reject_option): ?>
-                                        <option value="<?php echo htmlspecialchars($reject_option, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($reject_option); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
-
-                                    <p class="verification-action-label">Optional Note</p>
-                                    <div class="verification-note-wrap">
-                                        <textarea x-model="idRejectReasonOther" maxlength="500" placeholder="Add an optional note..."></textarea>
-                                        <span class="verification-char-count" x-text="(idRejectReasonOther || '').length + ' / 500'"></span>
+                                    <div class="form-group" :class="{ 'has-error': idRejectReasonError }">
+                                        <p class="verification-action-label">Rejection Reason</p>
+                                        <select x-model="idRejectReason" class="verification-reject-select" @change="onRejectReasonChange()">
+                                            <option value="">Select rejection reason</option>
+                                            <?php foreach (PF_CUSTOMER_ID_REJECTION_OPTIONS as $reject_option): ?>
+                                            <option value="<?php echo htmlspecialchars($reject_option, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($reject_option); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <span class="field-error" x-text="idRejectReasonError" x-show="idRejectReasonError"></span>
                                     </div>
-                                </div>
 
-                                <div class="verification-action-footer">
-                                    <button type="button" class="btn-secondary" @click="resetIdActionForm()">Cancel</button>
-                                    <button type="button" class="btn-submit-action" @click="submitSelectedIdAction()">Submit Action</button>
+                                    <div x-show="idRejectReason === 'Other'" class="form-group" :class="{ 'has-error': idNoteError }">
+                                        <p class="verification-action-label">Note</p>
+                                        <div class="verification-note-wrap">
+                                            <textarea x-model="idRejectReasonOther" maxlength="500" placeholder="Add a note..." @input="onNoteInput()"></textarea>
+                                            <span class="verification-char-count" x-text="(idRejectReasonOther || '').length + ' / 500'"></span>
+                                        </div>
+                                        <span class="field-error" x-text="idNoteError" x-show="idNoteError"></span>
+                                    </div>
                                 </div>
                             </div>
                             <p x-show="customer?.id_status === 'Verified'" style="font-size:12px;color:#16a34a;font-weight:600;margin:8px 0 0;">&#10003; ID Verified</p>
@@ -807,9 +860,14 @@ $page_title = 'Customer Verification - Admin';
                             <?php endif; ?>
                         </div>
 
-                        <div style="padding:16px 24px;border-top:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center;gap:12px;">
-                            <a :href="'<?php echo $base_path; ?>/admin/customers_management.php?open_customer=' + (customer?.customer_id || '')" class="btn-action teal">View customer profile</a>
-                            <button @click="showModal = false" class="btn-secondary">Close</button>
+                        <div class="verification-modal-footer">
+                            <button type="button" @click="showModal = false" class="btn-secondary">Cancel</button>
+                            <?php if ($can_manage_customer_verification): ?>
+                            <button type="button"
+                                    class="btn-submit-action"
+                                    x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'"
+                                    @click="submitSelectedIdAction()">Submit Action</button>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

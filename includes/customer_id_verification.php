@@ -410,7 +410,7 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
             <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
             <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status === 'Verified' ? 'Approved' : $id_status); ?></span></td>
             <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo $cid; ?>, this.closest('tr'))" class="btn-action blue">Review</button>
+                <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo $cid; ?>, this.closest('tr'))" class="btn-action blue">Verify</button>
                 <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo $cid; ?>'" class="btn-action teal">Profile</button>
             </td>
         </tr>
