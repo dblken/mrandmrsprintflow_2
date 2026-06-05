@@ -220,6 +220,28 @@ $page_title = 'Customer Verification - Admin';
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,.25); width:100%; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
         .btn-secondary { padding:8px 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:600; color:#374151; cursor:pointer; }
+        .verification-action-section { margin-top:8px; }
+        .verification-action-label { font-size:14px; font-weight:700; color:#111827; margin:0 0 10px; }
+        .verification-action-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
+        .verification-action-card { display:flex; align-items:center; gap:12px; padding:14px 16px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer; font-size:14px; font-weight:500; color:#111827; transition:border-color .15s,background .15s; position:relative; }
+        .verification-action-card input { position:absolute; opacity:0; pointer-events:none; }
+        .verification-action-card .action-radio { width:18px; height:18px; border:2px solid #d1d5db; border-radius:50%; flex-shrink:0; position:relative; box-sizing:border-box; }
+        .verification-action-card.approve-card { border-color:#86efac; }
+        .verification-action-card.approve-card.selected { background:#f0fdf4; }
+        .verification-action-card.approve-card.selected .action-radio { border-color:#22c55e; }
+        .verification-action-card.approve-card.selected .action-radio::after { content:''; position:absolute; inset:3px; background:#22c55e; border-radius:50%; }
+        .verification-action-card.reject-card.selected { border-color:#fca5a5; }
+        .verification-action-card.reject-card.selected .action-radio { border-color:#f97316; }
+        .verification-action-card.reject-card.selected .action-radio::after { content:''; position:absolute; inset:3px; background:#f97316; border-radius:50%; }
+        .verification-reject-fields { margin-bottom:20px; }
+        .verification-reject-fields .verification-action-label + select { margin-bottom:16px; }
+        .verification-reject-select { width:100%; height:44px; padding:0 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; background:#fff; color:#111827; box-sizing:border-box; }
+        .verification-note-wrap textarea { width:100%; min-height:100px; padding:12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; color:#111827; resize:vertical; box-sizing:border-box; font-family:inherit; }
+        .verification-note-wrap textarea:focus { outline:none; border-color:#9ca3af; }
+        .verification-char-count { display:block; text-align:right; font-size:12px; color:#9ca3af; margin-top:6px; }
+        .verification-action-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:4px; }
+        .btn-submit-action { padding:10px 20px; background:#111827; color:#fff; border:1px solid #111827; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; min-width:140px; font-family:inherit; }
+        .btn-submit-action:hover { background:#1f2937; }
     </style>
 </head>
 <body>
@@ -743,29 +765,40 @@ $page_title = 'Customer Verification - Admin';
                             <p x-show="customer?.id_reject_reason" style="font-size:12px;color:#dc2626;margin:0 0 12px;">Rejection reason: <span x-text="customer?.id_reject_reason"></span></p>
 
                             <?php if ($can_manage_customer_verification): ?>
-                            <div x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'" style="margin-top:8px;">
-                                <div style="border:1px solid #e5e7eb;border-radius:10px;padding:16px;background:#ffffff;">
-                                    <label style="display:flex;align-items:center;gap:10px;font-size:14px;color:#111827;cursor:pointer;">
-                                        <input type="radio" name="id_action_choice" value="approve" x-model="idActionSelection" style="margin:0;">
+                            <div x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'" class="verification-action-section">
+                                <p class="verification-action-label">Action</p>
+                                <div class="verification-action-cards">
+                                    <label class="verification-action-card approve-card" :class="{ selected: idActionSelection === 'approve' }">
+                                        <input type="radio" name="id_action_choice" value="approve" x-model="idActionSelection">
+                                        <span class="action-radio" aria-hidden="true"></span>
                                         <span>Approve ID</span>
                                     </label>
-                                    <label style="display:flex;align-items:center;gap:10px;font-size:14px;color:#111827;cursor:pointer;margin-top:12px;">
-                                        <input type="radio" name="id_action_choice" value="reject" x-model="idActionSelection" style="margin:0;">
+                                    <label class="verification-action-card reject-card" :class="{ selected: idActionSelection === 'reject' }">
+                                        <input type="radio" name="id_action_choice" value="reject" x-model="idActionSelection">
+                                        <span class="action-radio" aria-hidden="true"></span>
                                         <span>Reject ID</span>
                                     </label>
-                                    <div x-show="idActionSelection === 'reject'" style="margin-top:14px;">
-                                        <select x-model="idRejectReason" @change="if (idRejectReason !== 'Other') idRejectReasonOther = ''" style="width:100%;height:44px;padding:0 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;background:#fff;color:#111827;">
-                                            <option value="">Select rejection reason</option>
-                                            <?php foreach (PF_CUSTOMER_ID_REJECTION_OPTIONS as $reject_option): ?>
-                                            <option value="<?php echo htmlspecialchars($reject_option, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($reject_option); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <textarea x-show="idRejectReason === 'Other'" x-model="idRejectReasonOther" maxlength="250" placeholder="Optional note..." style="width:100%;margin-top:12px;min-height:92px;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;color:#111827;resize:vertical;"></textarea>
+                                </div>
+
+                                <div x-show="idActionSelection === 'reject'" x-cloak class="verification-reject-fields">
+                                    <p class="verification-action-label">Rejection Reason</p>
+                                    <select x-model="idRejectReason" class="verification-reject-select">
+                                        <option value="">Select rejection reason</option>
+                                        <?php foreach (PF_CUSTOMER_ID_REJECTION_OPTIONS as $reject_option): ?>
+                                        <option value="<?php echo htmlspecialchars($reject_option, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($reject_option); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+
+                                    <p class="verification-action-label">Optional Note</p>
+                                    <div class="verification-note-wrap">
+                                        <textarea x-model="idRejectReasonOther" maxlength="500" placeholder="Add an optional note..."></textarea>
+                                        <span class="verification-char-count" x-text="(idRejectReasonOther || '').length + ' / 500'"></span>
                                     </div>
                                 </div>
-                                <div style="display:flex;justify-content:flex-start;align-items:center;gap:12px;margin-top:16px;">
+
+                                <div class="verification-action-footer">
                                     <button type="button" class="btn-secondary" @click="resetIdActionForm()">Cancel</button>
-                                    <button type="button" class="btn-action blue" style="background:#111827;color:#fff;border-color:#111827;min-width:140px;" @click="submitSelectedIdAction()">Submit Action</button>
+                                    <button type="button" class="btn-submit-action" @click="submitSelectedIdAction()">Submit Action</button>
                                 </div>
                             </div>
                             <p x-show="customer?.id_status === 'Verified'" style="font-size:12px;color:#16a34a;font-weight:600;margin:8px 0 0;">&#10003; ID Verified</p>

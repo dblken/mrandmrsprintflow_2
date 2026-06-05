@@ -78,12 +78,12 @@ function pf_customer_id_rejection_reason(string $selected, string $custom = ''):
         if ($custom === '') {
             return 'ID could not be verified. Please resubmit a clearer photo.';
         }
-        return mb_substr($custom, 0, 250);
+        return mb_substr($custom, 0, 500);
     }
 
     if ($selected !== '') {
         if ($custom !== '') {
-            return mb_substr($selected . ': ' . $custom, 0, 250);
+            return mb_substr($selected . ': ' . $custom, 0, 500);
         }
         return $selected;
     }
