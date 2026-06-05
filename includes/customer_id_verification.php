@@ -131,12 +131,8 @@ function pf_customer_verification_has_image_sql(string $alias = ''): string
     return " ({$col} IS NOT NULL AND TRIM({$col}) <> '') ";
 }
 
-function pf_customer_id_verification_sql_filter(
-    string $status_filter,
-    string $upload_filter = '',
-    string $queue_filter = '',
-    bool $new_only = false
-): array {
+function pf_customer_id_verification_sql_filter(string $status_filter, string $upload_filter = ''): array
+{
     pf_ensure_customer_id_verification_columns();
 
     $sql = '';
@@ -157,18 +153,24 @@ function pf_customer_id_verification_sql_filter(
         $sql .= ' AND (id_image IS NULL OR TRIM(id_image) = \'\')';
     }
 
-    if ($queue_filter === 'priority') {
-        $sql .= ' AND (' . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql()
-            . " OR id_status = 'Rejected')";
-    }
-
-    if ($new_only) {
-        $sql .= ' AND ' . pf_customer_verification_pending_sql()
-            . ' AND ' . pf_customer_verification_has_image_sql()
-            . ' AND id_reviewed_at IS NULL';
-    }
-
     return [$sql, $types, $params];
+}
+
+function pf_customer_verification_sort_scope_sql(string $sort_by): array
+{
+    if ($sort_by !== 'new_submissions') {
+        return ['', '', []];
+    }
+
+    pf_ensure_customer_id_verification_columns();
+
+    return [
+        ' AND ' . pf_customer_verification_pending_sql()
+            . ' AND ' . pf_customer_verification_has_image_sql()
+            . ' AND id_reviewed_at IS NULL',
+        '',
+        [],
+    ];
 }
 
 function pf_customer_verification_sort_clause(string $sort_by): string
@@ -177,12 +179,7 @@ function pf_customer_verification_sort_clause(string $sort_by): string
         'oldest' => ' ORDER BY COALESCE(id_uploaded_at, created_at) ASC',
         'az' => ' ORDER BY first_name ASC, last_name ASC',
         'za' => ' ORDER BY first_name DESC, last_name DESC',
-        'priority_first', 'pending_first' => " ORDER BY CASE
-            WHEN " . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql() . " THEN 0
-            WHEN id_status = 'Rejected' THEN 1
-            WHEN " . pf_customer_verification_pending_sql() . " THEN 2
-            WHEN id_status = 'Verified' THEN 3
-            ELSE 4 END, COALESCE(id_uploaded_at, created_at) DESC",
+        'new_submissions' => ' ORDER BY COALESCE(id_uploaded_at, created_at) DESC',
         default => ' ORDER BY COALESCE(id_uploaded_at, created_at) DESC',
     };
 }
@@ -402,20 +399,20 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
         $status_style = pf_customer_id_status_badge_style($id_status);
         $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
         $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
-        $is_new = pf_customer_verification_is_new_submission($customer);
         $uploaded_label = !empty($customer['id_uploaded_at'])
             ? format_date($customer['id_uploaded_at'])
-            : ($has_id ? '—' : '—');
-        $row_class = 'verification-row' . ($is_new ? ' verification-row--new' : '');
+            : '—';
+        $row_class = match ($id_status) {
+            'Verified' => 'verification-row verification-row--approved',
+            'Rejected' => 'verification-row verification-row--rejected',
+            default => 'verification-row verification-row--pending',
+        };
         $name = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
         $email = strtolower((string)($customer['email'] ?? ''));
         $cid = (int)($customer['customer_id'] ?? 0);
         ?>
         <tr class="<?php echo $row_class; ?>" data-customer-id="<?php echo $cid; ?>" data-customer="<?php echo $payload_attr; ?>" onclick="openVerificationModal(<?php echo $cid; ?>, this)">
-            <td style="color:#1f2937;">
-                <?php if ($is_new): ?><span class="new-dot" title="New submission"></span><?php endif; ?>
-                <?php echo $cid; ?>
-            </td>
+            <td style="color:#1f2937;"><?php echo $cid; ?></td>
             <td style="font-weight:500;color:#1f2937;">
                 <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($name); ?>">
                     <?php echo htmlspecialchars($name); ?>

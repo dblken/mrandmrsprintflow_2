@@ -31,9 +31,14 @@ $date_from = trim((string)($_GET['date_from'] ?? ''));
 $date_to = trim((string)($_GET['date_to'] ?? ''));
 $status_filter = trim((string)($_GET['status_filter'] ?? ''));
 $upload_filter = trim((string)($_GET['upload_filter'] ?? ''));
-$queue_filter = trim((string)($_GET['queue_filter'] ?? ''));
-$new_only = !empty($_GET['new_only']);
 $sort_by = $_GET['sort'] ?? 'latest_upload';
+if ($sort_by === 'priority_first') {
+    $sort_by = 'new_submissions';
+}
+$allowed_sorts = ['latest_upload', 'oldest', 'new_submissions', 'az', 'za'];
+if (!in_array($sort_by, $allowed_sorts, true)) {
+    $sort_by = 'latest_upload';
+}
 $page = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 10;
 
@@ -66,10 +71,15 @@ if ($date_to !== '') {
     $types .= 's';
 }
 
-[$statusSql, $statusTypes, $statusParams] = pf_customer_id_verification_sql_filter($status_filter, $upload_filter, $queue_filter, $new_only);
+[$statusSql, $statusTypes, $statusParams] = pf_customer_id_verification_sql_filter($status_filter, $upload_filter);
 $sql .= $statusSql;
 $params = array_merge($params, $statusParams);
 $types .= $statusTypes;
+
+[$sortScopeSql, $sortScopeTypes, $sortScopeParams] = pf_customer_verification_sort_scope_sql($sort_by);
+$sql .= $sortScopeSql;
+$params = array_merge($params, $sortScopeParams);
+$types .= $sortScopeTypes;
 
 $count_sql = "SELECT COUNT(*) as total FROM ({$sql}) as count_wrap";
 $total_filtered = (int)(db_query($count_sql, $types, $params)[0]['total'] ?? 0);
@@ -110,9 +120,7 @@ if (isset($_GET['ajax'])) {
         'date_to' => $date_to,
         'status_filter' => $status_filter,
         'upload_filter' => $upload_filter,
-        'queue_filter' => $queue_filter,
-        'new_only' => $new_only ? '1' : '',
-        'sort' => $sort_by,
+        'sort' => $sort_by !== 'latest_upload' ? $sort_by : '',
     ], static fn($v) => $v !== null && $v !== '');
     echo render_pagination($page, $total_pages, $pagination_params);
     $pagination_html = ob_get_clean();
@@ -122,8 +130,7 @@ if (isset($_GET['ajax'])) {
         'table' => $table_html,
         'pagination' => $pagination_html,
         'count' => number_format($total_filtered),
-        'badge' => count(array_filter([$search, $date_from, $date_to, $status_filter, $queue_filter, $new_only ? '1' : ''])),
-        'status_counts' => $status_counts,
+        'badge' => count(array_filter([$search, $date_from, $date_to, $status_filter])),
     ]);
     exit;
 }
@@ -131,7 +138,6 @@ if (isset($_GET['ajax'])) {
 $pending_review = $status_counts['pending'];
 $verified_count = $status_counts['verified'];
 $rejected_count = $status_counts['rejected'];
-$new_submissions_count = $status_counts['new'];
 $no_id_count = (int)(db_query(
     'SELECT COUNT(*) AS c FROM customers WHERE 1=1' . $custBranchSql . ' AND (id_image IS NULL OR TRIM(id_image) = \'\')',
     $custBranchTypes,
@@ -208,22 +214,12 @@ $page_title = 'Customer Verification - Admin';
         .orders-table tbody tr { cursor:pointer; transition:background .1s; }
         .orders-table tbody tr:hover { background:#f9fafb; }
         .verification-row .actions { pointer-events:auto; }
-        .verification-row--new { background:#fffbeb; }
-        .verification-row--new:hover { background:#fef3c7 !important; }
-        .new-dot { display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:6px;vertical-align:middle;box-shadow:0 0 0 2px rgba(239,68,68,.2); }
-        .verification-status-tabs { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
-        .verification-status-tab { display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;color:#374151;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s; }
-        .verification-status-tab:hover { border-color:#d1d5db;background:#f9fafb; }
-        .verification-status-tab.active { background:#f0fdfa;border-color:#0d9488;color:#0f766e; }
-        .verification-status-tab .tab-badge { display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#f3f4f6;color:#4b5563;font-size:11px;font-weight:700; }
-        .verification-status-tab.active .tab-badge { background:#ccfbf1;color:#0f766e; }
-        .verification-status-tab.tab-pending.active .tab-badge { background:#fef3c7;color:#92400e; }
-        .verification-status-tab.tab-rejected.active .tab-badge { background:#fee2e2;color:#991b1b; }
-        .workflow-toggles { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
-        .workflow-toggle { display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#374151;cursor:pointer; }
-        .workflow-toggle.active { background:#fff7ed;border-color:#f59e0b;color:#b45309; }
-        .workflow-toggle .toggle-dot { width:8px;height:8px;border-radius:50%;background:#d1d5db; }
-        .workflow-toggle.active .toggle-dot { background:#f59e0b; }
+        .orders-table tbody tr.verification-row--pending { background:#fffbeb; }
+        .orders-table tbody tr.verification-row--pending:hover { background:#fef3c7 !important; }
+        .orders-table tbody tr.verification-row--approved { background:#f0fdf4; }
+        .orders-table tbody tr.verification-row--approved:hover { background:#dcfce7 !important; }
+        .orders-table tbody tr.verification-row--rejected { background:#fef2f2; }
+        .orders-table tbody tr.verification-row--rejected:hover { background:#fee2e2 !important; }
         [x-cloak] { display:none !important; }
         @keyframes spin { to { transform:rotate(360deg); } }
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
@@ -256,7 +252,6 @@ $page_title = 'Customer Verification - Admin';
                     date_from: () => document.getElementById('fp_date_from')?.value || '',
                     date_to: () => document.getElementById('fp_date_to')?.value || '',
                     status_filter: () => document.getElementById('fp_status_filter')?.value || '',
-                    queue_filter: () => document.getElementById('fp_queue_filter')?.value || '',
                 };
                 for (const [key, getter] of Object.entries(fields)) {
                     const val = (overrides[key] !== undefined) ? overrides[key] : getter();
@@ -267,11 +262,6 @@ $page_title = 'Customer Verification - Admin';
                     if (overrides.upload_filter) params.set('upload_filter', overrides.upload_filter);
                     else params.delete('upload_filter');
                 }
-                const newOnly = overrides.new_only !== undefined
-                    ? overrides.new_only
-                    : (document.getElementById('fp_new_only')?.value === '1');
-                if (newOnly) params.set('new_only', '1');
-                else params.delete('new_only');
                 if (overrides.sort !== undefined) {
                     if (overrides.sort && overrides.sort !== 'latest_upload') params.set('sort', overrides.sort);
                     else params.delete('sort');
@@ -301,7 +291,6 @@ $page_title = 'Customer Verification - Admin';
                         if (bc) bc.innerHTML = data.badge > 0 ? `<span class="filter-badge">${data.badge}</span>` : '';
                         const countEl = document.getElementById('verificationCountLabel');
                         if (countEl) countEl.textContent = data.count + ' records';
-                        if (data.status_counts) updateVerificationStatusTabs(data.status_counts);
                         window.dispatchEvent(new CustomEvent('filter-badge-update', { detail: { badge: data.badge } }));
                         const displayUrl = buildFilterURL(overrides, false);
                         window.history.replaceState({ path: displayUrl }, '', displayUrl);
@@ -334,55 +323,11 @@ $page_title = 'Customer Verification - Admin';
                 if (document.getElementById('fp_status_filter')) {
                     document.getElementById('fp_status_filter').value = status;
                 }
-                fetchUpdatedTable({ status_filter: status, upload_filter: upload, queue_filter: '', new_only: false });
-            }
-
-            function applyStatusTab(status) {
-                if (document.getElementById('fp_status_filter')) {
-                    document.getElementById('fp_status_filter').value = status;
-                }
-                document.querySelectorAll('.verification-status-tab').forEach(function (tab) {
-                    tab.classList.toggle('active', (tab.dataset.status || '') === status);
-                });
-                fetchUpdatedTable({ status_filter: status });
-            }
-
-            function toggleQueueFilter() {
-                const input = document.getElementById('fp_queue_filter');
-                const btn = document.getElementById('queueToggleBtn');
-                const nextActive = input.value !== 'priority';
-                input.value = nextActive ? 'priority' : '';
-                if (btn) btn.classList.toggle('active', nextActive);
-                fetchUpdatedTable({ queue_filter: nextActive ? 'priority' : '' });
-            }
-
-            function toggleNewOnly() {
-                const input = document.getElementById('fp_new_only');
-                const btn = document.getElementById('newOnlyToggleBtn');
-                const nextActive = input.value !== '1';
-                input.value = nextActive ? '1' : '';
-                if (btn) btn.classList.toggle('active', nextActive);
-                fetchUpdatedTable({ new_only: nextActive });
-            }
-
-            function updateVerificationStatusTabs(counts) {
-                const map = {
-                    '': counts.all,
-                    Pending: counts.pending,
-                    Verified: counts.verified,
-                    Rejected: counts.rejected,
-                };
-                document.querySelectorAll('.verification-status-tab').forEach(function (tab) {
-                    const badge = tab.querySelector('.tab-badge');
-                    const key = tab.dataset.status || '';
-                    if (badge && map[key] !== undefined) badge.textContent = map[key];
-                });
-                const newBadge = document.getElementById('newSubmissionsBadge');
-                if (newBadge && counts.new !== undefined) newBadge.textContent = counts.new;
+                fetchUpdatedTable({ status_filter: status, upload_filter: upload, sort: 'latest_upload' });
             }
 
             var _activeSortKey = '<?php echo $sort_by; ?>';
-            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter) || !empty($queue_filter) || $new_only) ? 'true' : 'false'; ?>;
+            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter)) ? 'true' : 'false'; ?>;
 
             function verificationModal() {
                 return {
@@ -621,9 +566,6 @@ $page_title = 'Customer Verification - Admin';
                 </a>
             </div>
 
-            <input type="hidden" id="fp_queue_filter" value="<?php echo htmlspecialchars($queue_filter); ?>">
-            <input type="hidden" id="fp_new_only" value="<?php echo $new_only ? '1' : ''; ?>">
-
             <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
                     <div>
@@ -641,9 +583,9 @@ $page_title = 'Customer Verification - Admin';
                             <div class="sort-dropdown" x-show="sortOpen" x-cloak @click.outside="sortOpen = false">
                                 <?php
                                 $sorts = [
-                                    'latest_upload' => 'Latest Upload',
-                                    'priority_first' => 'Priority Queue',
-                                    'oldest' => 'Oldest to Newest',
+                                    'latest_upload' => 'Newest (Latest Upload)',
+                                    'oldest' => 'Oldest',
+                                    'new_submissions' => 'New Submissions',
                                     'az' => 'A → Z',
                                     'za' => 'Z → A',
                                 ];
@@ -724,30 +666,6 @@ $page_title = 'Customer Verification - Admin';
                     </div>
                 </div>
 
-                <div class="verification-status-tabs">
-                    <button type="button" class="verification-status-tab <?php echo $status_filter === '' ? 'active' : ''; ?>" data-status="" onclick="applyStatusTab('')">
-                        All <span class="tab-badge"><?php echo (int)$status_counts['all']; ?></span>
-                    </button>
-                    <button type="button" class="verification-status-tab tab-pending <?php echo $status_filter === 'Pending' ? 'active' : ''; ?>" data-status="Pending" onclick="applyStatusTab('Pending')">
-                        Pending <span class="tab-badge"><?php echo (int)$status_counts['pending']; ?></span>
-                    </button>
-                    <button type="button" class="verification-status-tab <?php echo $status_filter === 'Verified' ? 'active' : ''; ?>" data-status="Verified" onclick="applyStatusTab('Verified')">
-                        Approved <span class="tab-badge"><?php echo (int)$status_counts['verified']; ?></span>
-                    </button>
-                    <button type="button" class="verification-status-tab tab-rejected <?php echo $status_filter === 'Rejected' ? 'active' : ''; ?>" data-status="Rejected" onclick="applyStatusTab('Rejected')">
-                        Rejected <span class="tab-badge"><?php echo (int)$status_counts['rejected']; ?></span>
-                    </button>
-                </div>
-
-                <div class="workflow-toggles">
-                    <button type="button" id="queueToggleBtn" class="workflow-toggle <?php echo $queue_filter === 'priority' ? 'active' : ''; ?>" onclick="toggleQueueFilter()">
-                        <span class="toggle-dot"></span> Priority Queue
-                    </button>
-                    <button type="button" id="newOnlyToggleBtn" class="workflow-toggle <?php echo $new_only ? 'active' : ''; ?>" onclick="toggleNewOnly()">
-                        <span class="toggle-dot"></span> New Submissions <span class="tab-badge" id="newSubmissionsBadge" style="margin-left:2px;"><?php echo (int)$new_submissions_count; ?></span>
-                    </button>
-                </div>
-
                 <div class="overflow-x-auto" id="verificationTableContainer">
                     <table class="orders-table">
                         <thead>
@@ -775,9 +693,7 @@ $page_title = 'Customer Verification - Admin';
                         'date_to' => $date_to,
                         'status_filter' => $status_filter,
                         'upload_filter' => $upload_filter,
-                        'queue_filter' => $queue_filter,
-                        'new_only' => $new_only ? '1' : '',
-                        'sort' => $sort_by,
+                        'sort' => $sort_by !== 'latest_upload' ? $sort_by : '',
                     ], static fn($v) => $v !== null && $v !== '');
                     echo render_pagination($page, $total_pages, $pagination_params);
                     ?>
