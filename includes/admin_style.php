@@ -961,6 +961,49 @@ endif; ?>
         overflow-anchor: none;
     }
 
+    .nav-group {
+        margin: 0 10px 6px;
+    }
+
+    .nav-item.nav-parent {
+        cursor: default;
+        margin: 0;
+    }
+
+    .nav-subitem {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px 8px 42px;
+        margin: 2px 0;
+        border-radius: 8px;
+        color: rgba(200, 230, 238, 0.78);
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 0.18s, color 0.18s;
+        position: relative;
+    }
+
+    .nav-subitem:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #f0fafc;
+    }
+
+    .nav-subitem.active {
+        background: rgba(255, 255, 255, 0.1);
+        color: #f8fffe;
+        box-shadow: inset 3px 0 0 rgba(240, 253, 250, 0.85);
+    }
+
+    .nav-subitem .nav-badge {
+        margin-left: auto;
+    }
+
+    .sidebar.collapsed .nav-group .nav-subitem {
+        display: none;
+    }
+
     .nav-section {
         margin-bottom: 24px;
     }

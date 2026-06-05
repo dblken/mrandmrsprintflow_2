@@ -783,7 +783,7 @@ function admin_notification_target_url(array $n): string {
         strpos($msg, 'submitted an id for verification') !== false ||
         strpos($msg, 'resubmitted an id for verification') !== false
     )) {
-        return $panelBase . '/customers_management.php?open_customer=' . $dataId;
+        return $panelBase . '/customer_verification.php?open_customer=' . $dataId;
     }
 
     if ($dataId > 0) {

@@ -9,6 +9,7 @@ require_once __DIR__ . '/shop_config.php';
 if (file_exists(__DIR__ . '/../config.php')) {
     require_once __DIR__ . '/../config.php';
 }
+require_once __DIR__ . '/customer_id_verification.php';
 $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 $logout_url = $base_path . '/logout';
 
@@ -79,12 +80,27 @@ if (isset($_SESSION['user_id'])) {
                 Customization
             </a>
 
-            <a href="<?php echo $base_path; ?>/admin/customers_management.php" class="nav-item <?php echo $current_page === 'customers_management.php' ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-                </svg>
-                Customers
-            </a>
+            <?php
+            $customers_nav_active = in_array($current_page, ['customers_management.php', 'customer_verification.php'], true);
+            $pending_verification_count = pf_count_customer_verification_pending();
+            ?>
+            <div class="nav-group <?php echo $customers_nav_active ? 'expanded' : ''; ?>">
+                <div class="nav-item nav-parent <?php echo $customers_nav_active ? 'active' : ''; ?>">
+                    <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    <span>Customers</span>
+                </div>
+                <a href="<?php echo $base_path; ?>/admin/customers_management.php" class="nav-subitem <?php echo $current_page === 'customers_management.php' ? 'active' : ''; ?>">
+                    Customers Management
+                </a>
+                <a href="<?php echo $base_path; ?>/admin/customer_verification.php" class="nav-subitem <?php echo $current_page === 'customer_verification.php' ? 'active' : ''; ?>">
+                    Customer Verification
+                    <?php if ($pending_verification_count > 0): ?>
+                    <span class="nav-badge"><?php echo $pending_verification_count > 99 ? '99+' : (int)$pending_verification_count; ?></span>
+                    <?php endif; ?>
+                </a>
+            </div>
             <a href="<?php echo $base_path; ?>/admin/products_management.php" class="nav-item <?php echo $current_page === 'products_management.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
