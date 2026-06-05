@@ -4948,7 +4948,10 @@ function get_base_url() {
  */
 function get_profile_image($image) {
     $base = rtrim(defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : ''), '/');
-    $fallback = $base . '/public/assets/uploads/profiles/default-avatar.png';
+    $fallback = $base . '/uploads/user.jpg';
+    if (!is_file(__DIR__ . '/../uploads/user.jpg')) {
+        $fallback = $base . '/public/assets/uploads/profiles/default-avatar.png';
+    }
     $image = trim((string)$image);
 
     if ($image === '' || strtolower($image) === 'null' || strtolower($image) === 'undefined') {

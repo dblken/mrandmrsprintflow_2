@@ -1077,48 +1077,50 @@ require_once __DIR__ . '/../includes/header.php';
                                onchange="const f=this.files[0];if(f){const r=new FileReader();r.onload=e=>{const p=document.getElementById('profile-preview');const ph=document.getElementById('profile-avatar-placeholder');p.src=e.target.result;p.style.display='block';if(ph){ph.style.display='none';}};r.readAsDataURL(f);}">
 
                         <div class="form-grid">
-                            <div class="pf-field-group">
-                                <label for="first_name" class="pf-label">First Name</label>
+                            <div class="pf-field-group" id="group_first_name">
+                                <label for="first_name" class="pf-label">First Name <span class="required-asterisk">*</span></label>
                                 <input type="text" id="first_name" name="first_name" class="pf-input validate-advanced-name" required value="<?php echo htmlspecialchars($customer['first_name']); ?>" maxlength="50">
                                 <div class="live-indicator" data-for="first_name"></div>
+                                <span class="field-error" id="error_first_name">Please enter your first name.</span>
                             </div>
-                            <div class="pf-field-group">
-                                <label for="middle_name" class="pf-label" style="display:flex; align-items:center; gap:0.5rem;">
-                                    <span>Middle Name</span>
-                                    <span style="font-size:0.72rem; font-weight:700; color:#64748b; background:#f8fafc; border:1px solid #cbd5e1; border-radius:999px; padding:0.12rem 0.5rem; letter-spacing:0.01em;">Optional</span>
-                                </label>
-                                <input type="text" id="middle_name" name="middle_name" class="pf-input validate-advanced-name" value="<?php echo htmlspecialchars($customer['middle_name'] ?? ''); ?>" maxlength="50">
+                            <div class="pf-field-group" id="group_middle_name">
+                                <label for="middle_name" class="pf-label">Middle Name</label>
+                                <input type="text" id="middle_name" name="middle_name" class="pf-input validate-advanced-name" placeholder="Optional" value="<?php echo htmlspecialchars($customer['middle_name'] ?? ''); ?>" maxlength="50">
                                 <div class="live-indicator" data-for="middle_name"></div>
                             </div>
-                            <div class="pf-field-group">
-                                <label for="last_name" class="pf-label">Last Name</label>
+                            <div class="pf-field-group" id="group_last_name">
+                                <label for="last_name" class="pf-label">Last Name <span class="required-asterisk">*</span></label>
                                 <input type="text" id="last_name" name="last_name" class="pf-input validate-advanced-name" required value="<?php echo htmlspecialchars($customer['last_name']); ?>" maxlength="50">
                                 <div class="live-indicator" data-for="last_name"></div>
+                                <span class="field-error" id="error_last_name">Please enter your last name.</span>
                             </div>
                             <div class="pf-field-group">
                                 <label class="pf-label">Email Address (Locked)</label>
                                 <input type="email" class="pf-input" style="background:#f1f5f9; cursor:not-allowed; color:#0f172a;" value="<?php echo htmlspecialchars($customer['email']); ?>" readonly>
                             </div>
-                            <div class="pf-field-group">
-                                <label for="contact_number" class="pf-label">Contact Number</label>
+                            <div class="pf-field-group" id="group_contact_number">
+                                <label for="contact_number" class="pf-label">Contact Number <span class="required-asterisk">*</span></label>
                                 <input type="tel" id="contact_number" name="contact_number" class="pf-input validate-advanced-contact" placeholder="09XXXXXXXXX" value="<?php echo htmlspecialchars($contact_display); ?>" maxlength="11" inputmode="numeric" required>
                                 <div class="live-indicator" data-for="contact_number"></div>
+                                <span class="field-error" id="error_contact_number">Please enter your contact number.</span>
                             </div>
                             <div class="pf-field-group">
                                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                    <div>
-                                        <label for="dob" class="pf-label">Birthday</label>
+                                    <div class="pf-field-group" id="group_dob" style="margin:0;">
+                                        <label for="dob" class="pf-label">Birthday <span class="required-asterisk">*</span></label>
                                         <input type="date" id="dob" name="dob" class="pf-input validate-advanced-dob" value="<?php echo htmlspecialchars($customer['dob'] ?? ''); ?>" min="<?php echo $min_birthday; ?>" max="<?php echo $max_birthday; ?>" required>
                                         <div class="live-indicator" data-for="dob"></div>
+                                        <span class="field-error" id="error_dob">Please select your birthday.</span>
                                     </div>
-                                    <div>
-                                        <label for="gender" class="pf-label">Gender</label>
+                                    <div class="pf-field-group" id="group_gender" style="margin:0;">
+                                        <label for="gender" class="pf-label">Gender <span class="required-asterisk">*</span></label>
                                         <select id="gender" name="gender" class="pf-input" required>
                                             <option value="">Select</option>
                                             <option value="Male" <?php echo ($customer['gender'] ?? '') === 'Male' ? 'selected' : ''; ?>>Male</option>
                                             <option value="Female" <?php echo ($customer['gender'] ?? '') === 'Female' ? 'selected' : ''; ?>>Female</option>
                                             <option value="Other" <?php echo ($customer['gender'] ?? '') === 'Other' ? 'selected' : ''; ?>>Other</option>
                                         </select>
+                                        <span class="field-error" id="error_gender">Please select your gender.</span>
                                     </div>
                                 </div>
                             </div>
@@ -1141,38 +1143,42 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php if ($profile_return_to !== ''): ?><input type="hidden" name="return" value="<?php echo htmlspecialchars($profile_return_to); ?>"><?php endif; ?>
                         
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem;">
-                            <div class="pf-field-group">
-                                <label class="pf-label" for="addr_province">Province *</label>
+                            <div class="pf-field-group" id="group_addr_province">
+                                <label class="pf-label" for="addr_province">Province <span class="required-asterisk">*</span></label>
                                 <div class="addr-select-wrap">
                                     <select id="addr_province" name="province" class="pf-input addr-select" data-level="province" required>
                                         <option value="">— Select Province —</option>
                                     </select>
                                     <span class="addr-spinner" id="spin_province"></span>
                                 </div>
+                                <span class="field-error" id="error_addr_province">Please select a province.</span>
                             </div>
-                            <div class="pf-field-group">
-                                <label class="pf-label" for="addr_city">City / Municipality *</label>
+                            <div class="pf-field-group" id="group_addr_city">
+                                <label class="pf-label" for="addr_city">City / Municipality <span class="required-asterisk">*</span></label>
                                 <div class="addr-select-wrap">
                                     <select id="addr_city" name="city" class="pf-input addr-select" data-level="city" disabled required>
                                         <option value="">— Select City / Municipality —</option>
                                     </select>
                                     <span class="addr-spinner" id="spin_city"></span>
                                 </div>
+                                <span class="field-error" id="error_addr_city">Please select a city or municipality.</span>
                             </div>
-                            <div class="pf-field-group">
-                                <label class="pf-label" for="addr_barangay">Barangay *</label>
+                            <div class="pf-field-group" id="group_addr_barangay">
+                                <label class="pf-label" for="addr_barangay">Barangay <span class="required-asterisk">*</span></label>
                                 <div class="addr-select-wrap">
                                     <select id="addr_barangay" name="barangay" class="pf-input addr-select" data-level="barangay" disabled required>
                                         <option value="">— Select Barangay —</option>
                                     </select>
                                     <span class="addr-spinner" id="spin_barangay"></span>
                                 </div>
+                                <span class="field-error" id="error_addr_barangay">Please select a barangay.</span>
                             </div>
                         </div>
 
-                        <div style="margin-top: 1.25rem;">
-                            <label class="pf-label" for="addr_street">Street Name, House No., Building Info</label>
+                        <div style="margin-top: 1.25rem;" class="pf-field-group" id="group_addr_street">
+                            <label class="pf-label" for="addr_street">Street Name, House No., Building Info <span class="required-asterisk">*</span></label>
                             <input type="text" id="addr_street" name="street_address" class="pf-input" placeholder="e.g. #123 Sampaguita st., Phase 2" value="<?php echo htmlspecialchars($customer['street_address'] ?? ''); ?>" required>
+                            <span class="field-error" id="error_addr_street">Please enter your street address.</span>
                         </div>
 
                         <div id="addr-preview" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-top:1.5rem; font-size:0.875rem;">
@@ -1541,6 +1547,25 @@ document.addEventListener('DOMContentLoaded', function () {
 .pf-field-group.is-invalid .error-message {
     display: block;
 }
+
+.field-error {
+    display: none;
+    font-size: 12px;
+    color: #ef4444;
+    margin-top: 4px;
+    min-height: 18px;
+    font-weight: 500;
+}
+
+.pf-field-group.is-invalid .field-error {
+    display: block;
+}
+
+.pf-field-group.is-invalid .pf-input,
+.pf-field-group.is-invalid select.pf-input {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
 </style>
 
 <script>
@@ -1748,11 +1773,64 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const HINTS = {
         first_name: 'Letters only',
-        middle_name: 'Letters only (optional)',
+        middle_name: 'Letters only',
         last_name: 'Letters only',
         contact_number: 'Format: 09XXXXXXXXX',
         dob: 'Age 13-100 years old'
     };
+
+    function clearProfileFieldError(fieldId) {
+        const group = document.getElementById('group_' + fieldId);
+        const errorEl = document.getElementById('error_' + fieldId);
+        const input = document.getElementById(fieldId);
+        if (group) group.classList.remove('is-invalid');
+        if (errorEl) errorEl.style.display = '';
+        if (input) input.classList.remove('input-error');
+    }
+
+    function showProfileFieldError(fieldId, message) {
+        const group = document.getElementById('group_' + fieldId);
+        const errorEl = document.getElementById('error_' + fieldId);
+        const input = document.getElementById(fieldId);
+        if (errorEl && message) errorEl.textContent = message;
+        if (group) group.classList.add('is-invalid');
+        if (input) input.classList.add('input-error');
+    }
+
+    function clearAllProfileFieldErrors(fieldIds) {
+        fieldIds.forEach(clearProfileFieldError);
+    }
+
+    function validateProfileFormOnSubmit() {
+        const requiredFields = [
+            { id: 'first_name', emptyMsg: 'Please enter your first name.' },
+            { id: 'last_name', emptyMsg: 'Please enter your last name.' },
+            { id: 'contact_number', emptyMsg: 'Please enter your contact number.' },
+            { id: 'dob', emptyMsg: 'Please select your birthday.' },
+            { id: 'gender', emptyMsg: 'Please select your gender.' },
+        ];
+        clearAllProfileFieldErrors(requiredFields.map(f => f.id));
+        let valid = true;
+
+        requiredFields.forEach(({ id, emptyMsg }) => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const value = (input.value || '').trim();
+            if (!value) {
+                showProfileFieldError(id, emptyMsg);
+                valid = false;
+                return;
+            }
+            const indicator = indicators[id];
+            if (indicator && indicator.dataset.valid === '0') {
+                const liveMsg = indicator.textContent.replace(/^\!\s*/, '').trim();
+                showProfileFieldError(id, liveMsg || emptyMsg);
+                valid = false;
+            }
+        });
+
+        return valid;
+    }
 
     function updateIndicator(fieldId, isValid, message) {
         const el = indicators[fieldId];
@@ -1805,9 +1883,9 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
 
-        btnSubmit.disabled = !allValid;
-        btnSubmit.style.opacity = allValid ? '1' : '0.5';
-        btnSubmit.style.cursor = allValid ? 'pointer' : 'not-allowed';
+        btnSubmit.disabled = false;
+        btnSubmit.style.opacity = allValid ? '1' : '0.85';
+        btnSubmit.style.cursor = 'pointer';
     }
 
     function normalizeSpaces(val) {
@@ -1932,6 +2010,19 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    document.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact').forEach(input => {
+        input.addEventListener('input', function() {
+            clearProfileFieldError(this.id);
+        });
+    });
+
+    const genderSelect = document.getElementById('gender');
+    if (genderSelect) {
+        genderSelect.addEventListener('change', function() {
+            clearProfileFieldError('gender');
+        });
+    }
+
     // DOB Validation
     const dobInput = document.querySelector('.validate-advanced-dob');
     if (dobInput) {
@@ -1975,10 +2066,64 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (fProfile) {
         fProfile.addEventListener('submit', function(e) {
-            checkFormValidity();
-            if (btnSubmit.disabled) {
+            document.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact').forEach(input => {
+                if (input.value.trim()) input.dispatchEvent(new Event('input'));
+            });
+            if (!validateProfileFormOnSubmit()) {
                 e.preventDefault();
-                showToast('Please correct all invalid fields before updating.');
+                const firstInvalid = fProfile.querySelector('.pf-field-group.is-invalid input, .pf-field-group.is-invalid select');
+                if (firstInvalid) firstInvalid.focus();
+            }
+        });
+    }
+
+    const addressForm = document.getElementById('address-form');
+    if (addressForm) {
+        const addressFields = [
+            { id: 'addr_province', group: 'addr_province', emptyMsg: 'Please select a province.' },
+            { id: 'addr_city', group: 'addr_city', emptyMsg: 'Please select a city or municipality.' },
+            { id: 'addr_barangay', group: 'addr_barangay', emptyMsg: 'Please select a barangay.' },
+            { id: 'addr_street', group: 'addr_street', emptyMsg: 'Please enter your street address.' },
+        ];
+
+        function clearAddressFieldError(groupKey) {
+            const group = document.getElementById('group_' + groupKey);
+            if (group) group.classList.remove('is-invalid');
+        }
+
+        function showAddressFieldError(groupKey, message) {
+            const group = document.getElementById('group_' + groupKey);
+            const errorEl = document.getElementById('error_' + groupKey);
+            const field = addressFields.find(f => f.group === groupKey);
+            const input = field ? document.getElementById(field.id) : null;
+            if (errorEl && message) errorEl.textContent = message;
+            if (group) group.classList.add('is-invalid');
+            if (input) input.classList.add('input-error');
+        }
+
+        addressFields.forEach(({ id, group }) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', () => clearAddressFieldError(group));
+            el.addEventListener('input', () => clearAddressFieldError(group));
+        });
+
+        addressForm.addEventListener('submit', function(e) {
+            let valid = true;
+            addressFields.forEach(({ id, group, emptyMsg }) => {
+                clearAddressFieldError(group);
+                const el = document.getElementById(id);
+                if (!el) return;
+                const value = (el.value || '').trim();
+                if (!value || (el.disabled && group !== 'addr_province')) {
+                    showAddressFieldError(group, emptyMsg);
+                    valid = false;
+                }
+            });
+            if (!valid) {
+                e.preventDefault();
+                const firstInvalid = addressForm.querySelector('.pf-field-group.is-invalid input, .pf-field-group.is-invalid select');
+                if (firstInvalid) firstInvalid.focus();
             }
         });
     }
