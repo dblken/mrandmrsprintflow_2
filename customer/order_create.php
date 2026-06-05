@@ -10,7 +10,7 @@ require_once __DIR__ . '/../includes/product_field_config_helper.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
-require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
 require_once __DIR__ . '/../includes/require_id_verified.php';
 
 function order_create_optional_query($sql, $types = '', $params = []) {
@@ -192,6 +192,11 @@ $initial_stock_branch_id = $initial_branch_id > 0 ? $initial_branch_id : $main_b
 $initial_stock_qty = $branch_stock_map[$initial_stock_branch_id]['stock'] ?? $main_branch_stock;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    $submission_action = strtolower(trim((string)($_POST['action'] ?? '')));
+    if (printflow_is_order_submission_action($submission_action)) {
+        printflow_block_order_submission_if_profile_incomplete();
+    }
+
     $branch_id  = (int)($_POST['branch_id'] ?? 0);
     $quantity   = max(1, min(999, (int)($_POST['quantity'] ?? 1)));
     $needed_date = trim($_POST['needed_date'] ?? '');
@@ -473,6 +478,8 @@ require_once __DIR__ . '/../includes/header.php';
             <span>/</span>
             <span class="font-semibold text-gray-900"><?php echo htmlspecialchars($product['name']); ?></span>
         </div>
+
+        <?php printflow_render_customer_profile_incomplete_banner(); ?>
 
         <?php if ($error): ?>
             <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6"><?php echo htmlspecialchars($error); ?></div>

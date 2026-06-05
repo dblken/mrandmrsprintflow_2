@@ -121,6 +121,11 @@ if (isset($_GET['address_action'])) {
 $customer_id = get_user_id();
 $error = '';
 $success = '';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
+$profile_completion_flash = printflow_consume_profile_completion_flash();
+if ($profile_completion_flash !== '') {
+    $error = $profile_completion_flash;
+}
 $profile_return_to = trim((string)($_POST['return'] ?? $_GET['return'] ?? ($_SESSION['profile_return_after_complete'] ?? '')));
 if ($profile_return_to !== '') {
     $return_path = parse_url($profile_return_to, PHP_URL_PATH);
