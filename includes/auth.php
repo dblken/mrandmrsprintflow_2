@@ -361,7 +361,63 @@ if (!function_exists('printflow_attempt_auto_login_via_remember_token')) {
 }
 
 /**
- * Add customers.auth_provider (password | google) when missing.
+ * Whether the customer signed up with email/password (local), including legacy "password" value.
+ */
+function printflow_is_customer_local_auth_provider($auth_provider): bool {
+    $ap = strtolower(trim((string)$auth_provider));
+    return $ap === '' || $ap === 'local' || $ap === 'password';
+}
+
+/**
+ * Redirect URL after customer login/registration (profile completion when required).
+ */
+function printflow_customer_post_auth_redirect(int $customer_id): string {
+    if (!is_profile_complete($customer_id)) {
+        return AUTH_REDIRECT_BASE . '/customer/profile.php?complete_profile=1';
+    }
+    return AUTH_REDIRECT_BASE . '/customer/services.php';
+}
+
+/**
+ * Establish an authenticated customer session.
+ */
+function printflow_establish_customer_session(array $customer, bool $remember_me = false): void {
+    $_SESSION['user_id'] = (int)$customer['customer_id'];
+    $_SESSION['user_type'] = 'Customer';
+    $_SESSION['user_name'] = trim(($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? ''));
+    $_SESSION['user_email'] = $customer['email'] ?? '';
+    SessionManager::regenerate();
+    if ($remember_me) {
+        SessionManager::applyRememberMe(REMEMBER_ME_CUSTOMER_DAYS);
+        printflow_store_remember_token((int)$customer['customer_id'], 'Customer', REMEMBER_ME_CUSTOMER_DAYS);
+    } else {
+        printflow_clear_remember_token();
+        SessionManager::clearRememberMe();
+    }
+    if (function_exists('load_customer_cart_into_session')) {
+        load_customer_cart_into_session((int)$customer['customer_id']);
+    }
+    SessionManager::commit();
+}
+
+/**
+ * Reject login when customer account status is disabled or suspended.
+ */
+function printflow_customer_account_status_error(array $customer): ?string {
+    if (!isset($customer['status'])) {
+        return null;
+    }
+    if ($customer['status'] === 'Disabled') {
+        return 'Your account has been disabled. Please contact support.';
+    }
+    if ($customer['status'] === 'Suspended') {
+        return 'Your account has been suspended. Please contact support.';
+    }
+    return null;
+}
+
+/**
+ * Add customers.auth_provider (local | google) when missing.
  */
 function printflow_ensure_customers_auth_provider_column() {
     static $done = false;
@@ -391,7 +447,10 @@ function printflow_google_placeholder_password_hash(): string {
 
 function printflow_customer_has_usable_password_hash($passwordHash): bool {
     $hash = trim((string)$passwordHash);
-    return $hash !== '' && $hash !== printflow_google_placeholder_password_hash();
+    if ($hash === '' || $hash === printflow_google_placeholder_password_hash()) {
+        return false;
+    }
+    return true;
 }
 
 // Helper functions for checking duplicate emails/phones
@@ -793,29 +852,11 @@ function login_customer($email, $password, $remember_me = false) {
         return ['success' => false, 'message' => 'Invalid email or password'];
     }
     
-    // Set session variables
-    $_SESSION['user_id'] = $customer['customer_id'];
-    $_SESSION['user_type'] = 'Customer';
-    $_SESSION['user_name'] = $customer['first_name'] . ' ' . $customer['last_name'];
-    $_SESSION['user_email'] = $customer['email'];
-
-    SessionManager::regenerate();
-    if ($remember_me) {
-        SessionManager::applyRememberMe(REMEMBER_ME_CUSTOMER_DAYS);
-        printflow_store_remember_token((int)$customer['customer_id'], 'Customer', REMEMBER_ME_CUSTOMER_DAYS);
-    } else {
-        printflow_clear_remember_token();
-        SessionManager::clearRememberMe();
-    }
-    // Load persisted cart from database
-    if (function_exists('load_customer_cart_into_session')) {
-        load_customer_cart_into_session($customer['customer_id']);
-    }
-    SessionManager::commit();
+    printflow_establish_customer_session($customer, $remember_me);
     return [
         'success' => true,
         'message' => 'Login successful',
-        'redirect' => AUTH_REDIRECT_BASE . '/customer/services.php'
+        'redirect' => printflow_customer_post_auth_redirect((int)$customer['customer_id']),
     ];
 }
 
@@ -849,52 +890,50 @@ function login_customer_by_google($email, $first_name, $last_name) {
     $existing = db_query("SELECT * FROM customers WHERE LOWER(TRIM(email)) = ? LIMIT 1", 's', [$email]);
     if (!empty($existing)) {
         $customer = $existing[0];
-        $ap = strtolower(trim((string)($customer['auth_provider'] ?? '')));
-        // Only allow Google if this customer account was created for Google (one email, one sign-in method).
-        if ($ap !== 'google') {
-            return [
-                'success' => false,
-                'message' => 'This email is already registered. Please use Sign in with your email and password — Google sign-in is not available for this address (one email, one sign-in method).',
-            ];
+        $status_error = printflow_customer_account_status_error($customer);
+        if ($status_error !== null) {
+            return ['success' => false, 'message' => $status_error];
         }
-        if (!printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null)) {
-            db_execute(
-                "UPDATE customers SET auth_provider = 'google', password_hash = ? WHERE customer_id = ?",
-                'si',
-                [printflow_google_placeholder_password_hash(), (int)$customer['customer_id']]
-            );
-        } else {
-            db_execute("UPDATE customers SET auth_provider = 'google' WHERE customer_id = ?", 'i', [(int)$customer['customer_id']]);
+        $cid = (int)$customer['customer_id'];
+        $hash = trim((string)($customer['password_hash'] ?? ''));
+        if ($hash === printflow_google_placeholder_password_hash()) {
+            db_execute('UPDATE customers SET password_hash = NULL WHERE customer_id = ?', 'i', [$cid]);
         }
-        $_SESSION['user_id'] = $customer['customer_id'];
-        $_SESSION['user_type'] = 'Customer';
-        $_SESSION['user_name'] = ($customer['first_name'] ?? '') . ' ' . ($customer['last_name'] ?? '');
-        $_SESSION['user_email'] = $customer['email'];
-        SessionManager::regenerate();
-        if (function_exists('load_customer_cart_into_session')) {
-            load_customer_cart_into_session($customer['customer_id']);
+        if (printflow_is_customer_local_auth_provider($customer['auth_provider'] ?? '')) {
+            db_execute("UPDATE customers SET auth_provider = 'local' WHERE customer_id = ?", 'i', [$cid]);
         }
-        SessionManager::commit();
-        return ['success' => true, 'message' => 'Login successful', 'redirect' => AUTH_REDIRECT_BASE . '/customer/services.php'];
+        printflow_establish_customer_session($customer);
+        return [
+            'success' => true,
+            'message' => 'Login successful',
+            'redirect' => printflow_customer_post_auth_redirect($cid),
+        ];
     }
-    $password_hash = printflow_google_placeholder_password_hash();
-    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system) VALUES (?, '', ?, NULL, NULL, ?, NULL, ?, 'google', 1)";
-    $cid = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $last_name, $email, $password_hash) {
-        return db_execute($sql, 'ssss', [$first_name, $last_name, $email, $password_hash]);
+
+    if (email_in_use_across_accounts($email)) {
+        return ['success' => false, 'message' => 'This email is already in use. Please sign in.'];
+    }
+
+    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system)
+            VALUES (?, '', ?, NULL, NULL, ?, NULL, NULL, 'google', 1)";
+    $cid = printflow_run_guarded_account_insert(function() use ($sql, $first_name, $last_name, $email) {
+        return db_execute($sql, 'sss', [$first_name, $last_name, $email]);
     });
     if (!$cid) {
         return ['success' => false, 'message' => 'Could not create account. Please try again.'];
     }
-    $_SESSION['user_id'] = $cid;
-    $_SESSION['user_type'] = 'Customer';
-    $_SESSION['user_name'] = $first_name . ' ' . $last_name;
-    $_SESSION['user_email'] = $email;
-    SessionManager::regenerate();
-    if (function_exists('load_customer_cart_into_session')) {
-        load_customer_cart_into_session($cid);
-    }
-    SessionManager::commit();
-    return ['success' => true, 'message' => 'Account created', 'redirect' => AUTH_REDIRECT_BASE . '/customer/services.php'];
+    $customer = [
+        'customer_id' => $cid,
+        'first_name' => $first_name,
+        'last_name' => $last_name,
+        'email' => $email,
+    ];
+    printflow_establish_customer_session($customer);
+    return [
+        'success' => true,
+        'message' => 'Account created',
+        'redirect' => printflow_customer_post_auth_redirect((int)$cid),
+    ];
 }
 
 /**
@@ -971,7 +1010,7 @@ function register_customer($data) {
     
     // Insert customer
     $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, auth_provider, created_by_system) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'password', 1)";
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local', 1)";
     
     $result = printflow_run_guarded_account_insert(function() use ($sql, $data, $password_hash) {
         return db_execute($sql, 'ssssssss', [
