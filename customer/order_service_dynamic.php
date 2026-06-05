@@ -221,7 +221,6 @@ function pf_review_video_candidates($path, $base_path, $review_id = 0) {
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
-require_once __DIR__ . '/../includes/require_id_verified.php';
 $customer_id = get_user_id();
 
 function pf_customer_absolute_url(string $path, array $query = []): string {

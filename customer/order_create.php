@@ -11,7 +11,6 @@ require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/customer_profile_completion.php';
-require_once __DIR__ . '/../includes/require_id_verified.php';
 
 function order_create_optional_query($sql, $types = '', $params = []) {
     try {
