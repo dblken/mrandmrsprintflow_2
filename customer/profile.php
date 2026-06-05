@@ -1068,7 +1068,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <h3 class="profile-card-title">Personal Information</h3>
                     <p class="profile-card-description">Update your personal identity details and profile information used across your customer account.</p>
                     
-                    <form method="POST" action="" enctype="multipart/form-data">
+                    <form method="POST" action="" enctype="multipart/form-data" novalidate>
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="update_profile" value="1">
                         <?php if ($requires_profile_completion): ?><input type="hidden" name="complete_profile" value="1"><?php endif; ?>
@@ -1079,20 +1079,17 @@ require_once __DIR__ . '/../includes/header.php';
                         <div class="form-grid">
                             <div class="pf-field-group" id="group_first_name">
                                 <label for="first_name" class="pf-label">First Name <span class="required-asterisk">*</span></label>
-                                <input type="text" id="first_name" name="first_name" class="pf-input validate-advanced-name" required value="<?php echo htmlspecialchars($customer['first_name']); ?>" maxlength="50">
-                                <div class="live-indicator" data-for="first_name"></div>
-                                <span class="field-error" id="error_first_name">Please enter your first name.</span>
+                                <input type="text" id="first_name" name="first_name" class="pf-input validate-advanced-name" value="<?php echo htmlspecialchars($customer['first_name']); ?>" maxlength="50">
+                                <span class="field-error" id="error_first_name">First name is required.</span>
                             </div>
                             <div class="pf-field-group" id="group_middle_name">
                                 <label for="middle_name" class="pf-label">Middle Name</label>
                                 <input type="text" id="middle_name" name="middle_name" class="pf-input validate-advanced-name" placeholder="Optional" value="<?php echo htmlspecialchars($customer['middle_name'] ?? ''); ?>" maxlength="50">
-                                <div class="live-indicator" data-for="middle_name"></div>
                             </div>
                             <div class="pf-field-group" id="group_last_name">
                                 <label for="last_name" class="pf-label">Last Name <span class="required-asterisk">*</span></label>
-                                <input type="text" id="last_name" name="last_name" class="pf-input validate-advanced-name" required value="<?php echo htmlspecialchars($customer['last_name']); ?>" maxlength="50">
-                                <div class="live-indicator" data-for="last_name"></div>
-                                <span class="field-error" id="error_last_name">Please enter your last name.</span>
+                                <input type="text" id="last_name" name="last_name" class="pf-input validate-advanced-name" value="<?php echo htmlspecialchars($customer['last_name']); ?>" maxlength="50">
+                                <span class="field-error" id="error_last_name">Last name is required.</span>
                             </div>
                             <div class="pf-field-group">
                                 <label class="pf-label">Email Address (Locked)</label>
@@ -1100,27 +1097,25 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
                             <div class="pf-field-group" id="group_contact_number">
                                 <label for="contact_number" class="pf-label">Contact Number <span class="required-asterisk">*</span></label>
-                                <input type="tel" id="contact_number" name="contact_number" class="pf-input validate-advanced-contact" placeholder="09XXXXXXXXX" value="<?php echo htmlspecialchars($contact_display); ?>" maxlength="11" inputmode="numeric" required>
-                                <div class="live-indicator" data-for="contact_number"></div>
-                                <span class="field-error" id="error_contact_number">Please enter your contact number.</span>
+                                <input type="tel" id="contact_number" name="contact_number" class="pf-input validate-advanced-contact" placeholder="09XXXXXXXXX" value="<?php echo htmlspecialchars($contact_display); ?>" maxlength="11" inputmode="numeric">
+                                <span class="field-error" id="error_contact_number">Contact number is required.</span>
                             </div>
                             <div class="pf-field-group">
                                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                                     <div class="pf-field-group" id="group_dob" style="margin:0;">
                                         <label for="dob" class="pf-label">Birthday <span class="required-asterisk">*</span></label>
-                                        <input type="date" id="dob" name="dob" class="pf-input validate-advanced-dob" value="<?php echo htmlspecialchars($customer['dob'] ?? ''); ?>" min="<?php echo $min_birthday; ?>" max="<?php echo $max_birthday; ?>" required>
-                                        <div class="live-indicator" data-for="dob"></div>
-                                        <span class="field-error" id="error_dob">Please select your birthday.</span>
+                                        <input type="date" id="dob" name="dob" class="pf-input validate-advanced-dob" value="<?php echo htmlspecialchars($customer['dob'] ?? ''); ?>" min="<?php echo $min_birthday; ?>" max="<?php echo $max_birthday; ?>">
+                                        <span class="field-error" id="error_dob">Birthday is required.</span>
                                     </div>
                                     <div class="pf-field-group" id="group_gender" style="margin:0;">
                                         <label for="gender" class="pf-label">Gender <span class="required-asterisk">*</span></label>
-                                        <select id="gender" name="gender" class="pf-input" required>
+                                        <select id="gender" name="gender" class="pf-input">
                                             <option value="">Select</option>
                                             <option value="Male" <?php echo ($customer['gender'] ?? '') === 'Male' ? 'selected' : ''; ?>>Male</option>
                                             <option value="Female" <?php echo ($customer['gender'] ?? '') === 'Female' ? 'selected' : ''; ?>>Female</option>
                                             <option value="Other" <?php echo ($customer['gender'] ?? '') === 'Other' ? 'selected' : ''; ?>>Other</option>
                                         </select>
-                                        <span class="field-error" id="error_gender">Please select your gender.</span>
+                                        <span class="field-error" id="error_gender">Gender is required.</span>
                                     </div>
                                 </div>
                             </div>
@@ -1136,7 +1131,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="profile-card settings-panel" id="section-address">
                     <h3 class="profile-card-title">Address</h3>
                     
-                    <form method="POST" action="" id="address-form">
+                    <form method="POST" action="" id="address-form" novalidate>
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="update_address" value="1">
                         <?php if ($requires_profile_completion): ?><input type="hidden" name="complete_profile" value="1"><?php endif; ?>
@@ -1151,7 +1146,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     </select>
                                     <span class="addr-spinner" id="spin_province"></span>
                                 </div>
-                                <span class="field-error" id="error_addr_province">Please select a province.</span>
+                                <span class="field-error" id="error_addr_province">Province is required.</span>
                             </div>
                             <div class="pf-field-group" id="group_addr_city">
                                 <label class="pf-label" for="addr_city">City / Municipality <span class="required-asterisk">*</span></label>
@@ -1161,7 +1156,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     </select>
                                     <span class="addr-spinner" id="spin_city"></span>
                                 </div>
-                                <span class="field-error" id="error_addr_city">Please select a city or municipality.</span>
+                                <span class="field-error" id="error_addr_city">City or municipality is required.</span>
                             </div>
                             <div class="pf-field-group" id="group_addr_barangay">
                                 <label class="pf-label" for="addr_barangay">Barangay <span class="required-asterisk">*</span></label>
@@ -1171,14 +1166,14 @@ require_once __DIR__ . '/../includes/header.php';
                                     </select>
                                     <span class="addr-spinner" id="spin_barangay"></span>
                                 </div>
-                                <span class="field-error" id="error_addr_barangay">Please select a barangay.</span>
+                                <span class="field-error" id="error_addr_barangay">Barangay is required.</span>
                             </div>
                         </div>
 
                         <div style="margin-top: 1.25rem;" class="pf-field-group" id="group_addr_street">
                             <label class="pf-label" for="addr_street">Street Name, House No., Building Info <span class="required-asterisk">*</span></label>
                             <input type="text" id="addr_street" name="street_address" class="pf-input" placeholder="e.g. #123 Sampaguita st., Phase 2" value="<?php echo htmlspecialchars($customer['street_address'] ?? ''); ?>" required>
-                            <span class="field-error" id="error_addr_street">Please enter your street address.</span>
+                            <span class="field-error" id="error_addr_street">Street address is required.</span>
                         </div>
 
                         <div id="addr-preview" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-top:1.5rem; font-size:0.875rem;">
@@ -1756,36 +1751,21 @@ document.addEventListener('DOMContentLoaded', function () {
 })();
 </script>
 <script>
-// Advanced Validations Logic
+// Profile form validation — single field-error message per field (products modal style)
 (function() {
-    const indicators = {};
-    document.querySelectorAll('.live-indicator').forEach(el => {
-        indicators[el.dataset.for] = el;
-    });
-
     const fProfile = document.getElementById('btn-update-profile')?.closest('form');
     const btnSubmit = document.getElementById('btn-update-profile');
-
-    const REGEX = {
-        name: /^[A-Za-z]+(?: [A-Za-z]+)*$/,
-        email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    };
-
-    const HINTS = {
-        first_name: 'Letters only',
-        middle_name: 'Letters only',
-        last_name: 'Letters only',
-        contact_number: 'Format: 09XXXXXXXXX',
-        dob: 'Age 13-100 years old'
-    };
+    const REGEX = { name: /^[A-Za-z]+(?: [A-Za-z]+)*$/ };
+    const requiredFieldIds = ['first_name', 'last_name', 'contact_number', 'dob', 'gender'];
 
     function clearProfileFieldError(fieldId) {
         const group = document.getElementById('group_' + fieldId);
-        const errorEl = document.getElementById('error_' + fieldId);
         const input = document.getElementById(fieldId);
         if (group) group.classList.remove('is-invalid');
-        if (errorEl) errorEl.style.display = '';
-        if (input) input.classList.remove('input-error');
+        if (input) {
+            input.classList.remove('input-error');
+            input.dataset.valid = '1';
+        }
     }
 
     function showProfileFieldError(fieldId, message) {
@@ -1794,98 +1774,74 @@ document.addEventListener('DOMContentLoaded', function () {
         const input = document.getElementById(fieldId);
         if (errorEl && message) errorEl.textContent = message;
         if (group) group.classList.add('is-invalid');
-        if (input) input.classList.add('input-error');
+        if (input) {
+            input.classList.add('input-error');
+            input.dataset.valid = '0';
+        }
     }
 
-    function clearAllProfileFieldErrors(fieldIds) {
-        fieldIds.forEach(clearProfileFieldError);
+    function validateNameField(fieldId, value, required) {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            if (!required) return null;
+            if (fieldId === 'first_name') return 'First name is required.';
+            if (fieldId === 'last_name') return 'Last name is required.';
+            return null;
+        }
+        if (!REGEX.name.test(trimmed)) {
+            if (/[0-9]/.test(trimmed)) return 'Numbers are not allowed.';
+            return 'Use letters only.';
+        }
+        return null;
+    }
+
+    function validateContactField(value) {
+        if (!value.trim()) return 'Contact number is required.';
+        if (!/^09\d{9}$/.test(value.trim())) return 'Use format 09XXXXXXXXX.';
+        return null;
+    }
+
+    function validateDobField(value) {
+        if (!value) return 'Birthday is required.';
+        const dob = new Date(value);
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        const m = today.getMonth() - dob.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+        if (dob > today) return 'Date cannot be in the future.';
+        if (age < 13) return 'You must be at least 13 years old.';
+        if (age > 100) return 'Age must be 100 years old or younger.';
+        return null;
+    }
+
+    function validateProfileField(fieldId, showErrors) {
+        const input = document.getElementById(fieldId);
+        if (!input) return true;
+        const value = (input.value || '').trim();
+        let message = null;
+
+        if (fieldId === 'first_name') message = validateNameField(fieldId, value, true);
+        else if (fieldId === 'last_name') message = validateNameField(fieldId, value, true);
+        else if (fieldId === 'middle_name') message = value ? validateNameField(fieldId, value, false) : null;
+        else if (fieldId === 'contact_number') message = validateContactField(input.value || '');
+        else if (fieldId === 'dob') message = validateDobField(input.value || '');
+        else if (fieldId === 'gender') message = !value ? 'Gender is required.' : null;
+
+        if (message) {
+            if (showErrors) showProfileFieldError(fieldId, message);
+            return false;
+        }
+        if (showErrors) clearProfileFieldError(fieldId);
+        return true;
     }
 
     function validateProfileFormOnSubmit() {
-        const requiredFields = [
-            { id: 'first_name', emptyMsg: 'Please enter your first name.' },
-            { id: 'last_name', emptyMsg: 'Please enter your last name.' },
-            { id: 'contact_number', emptyMsg: 'Please enter your contact number.' },
-            { id: 'dob', emptyMsg: 'Please select your birthday.' },
-            { id: 'gender', emptyMsg: 'Please select your gender.' },
-        ];
-        clearAllProfileFieldErrors(requiredFields.map(f => f.id));
+        requiredFieldIds.forEach(clearProfileFieldError);
         let valid = true;
-
-        requiredFields.forEach(({ id, emptyMsg }) => {
-            const input = document.getElementById(id);
-            if (!input) return;
-            const value = (input.value || '').trim();
-            if (!value) {
-                showProfileFieldError(id, emptyMsg);
-                valid = false;
-                return;
-            }
-            const indicator = indicators[id];
-            if (indicator && indicator.dataset.valid === '0') {
-                const liveMsg = indicator.textContent.replace(/^\!\s*/, '').trim();
-                showProfileFieldError(id, liveMsg || emptyMsg);
-                valid = false;
-            }
+        requiredFieldIds.forEach((fieldId) => {
+            if (!validateProfileField(fieldId, true)) valid = false;
         });
-
         return valid;
-    }
-
-    function updateIndicator(fieldId, isValid, message) {
-        const el = indicators[fieldId];
-        const input = document.getElementById(fieldId);
-        if (!el || !input) return;
-        
-        el.classList.remove('valid', 'error');
-        input.classList.remove('input-valid', 'input-error');
-        
-        if (isValid) {
-            el.innerHTML = '';
-            el.dataset.valid = '1';
-        } else {
-            el.innerHTML = '<span class="ind-icon">!</span> ' + message;
-            el.dataset.valid = '0';
-            el.classList.add('error');
-            input.classList.add('input-error');
-        }
-        checkFormValidity();
-    }
-
-    function showHint(fieldId) {
-        const el = indicators[fieldId];
-        if (!el || el.dataset.valid === '1' || el.dataset.valid === '0') return;
-        const hint = HINTS[fieldId];
-        if (hint) el.innerHTML = '<span class="hint">' + hint + '</span>';
-    }
-
-    function clearHint(fieldId) {
-        const el = indicators[fieldId];
-        if (el && !el.dataset.valid) el.innerHTML = '';
-    }
-
-    function checkFormValidity() {
-        if (!fProfile || !btnSubmit) return;
-        const inputs = fProfile.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact');
-        let allValid = true;
-        
-        inputs.forEach(input => {
-            const el = indicators[input.id];
-            if (!el || el.dataset.valid !== '1') {
-                if (input.required || (input.value.trim().length > 0)) {
-                    // For non-required fields like middle_name or contact_number, only mark as invalid if they have value but failed validation
-                    if ((input.id === 'middle_name' || input.id === 'contact_number') && input.value.trim().length === 0) {
-                        // skip
-                    } else {
-                        allValid = false;
-                    }
-                }
-            }
-        });
-
-        btnSubmit.disabled = false;
-        btnSubmit.style.opacity = allValid ? '1' : '0.85';
-        btnSubmit.style.cursor = 'pointer';
     }
 
     function normalizeSpaces(val) {
@@ -1896,179 +1852,65 @@ document.addEventListener('DOMContentLoaded', function () {
         return str.toLowerCase().replace(/\b\w/g, function(c) { return c.toUpperCase(); });
     }
 
-    // Name Validation
+    function normalizeContact(val) {
+        let digits = val.replace(/\D/g, '');
+        if (digits === '') return '';
+        if (digits.startsWith('63')) digits = '0' + digits.slice(2);
+        else if (digits.startsWith('9')) digits = '0' + digits;
+        else if (!digits.startsWith('09')) digits = digits.startsWith('0') ? '09' + digits.slice(1) : '09' + digits;
+        if (!digits.startsWith('09')) digits = '09' + digits.replace(/^0+/, '');
+        if (digits.length > 11) digits = digits.slice(0, 11);
+        return digits;
+    }
+
     document.querySelectorAll('.validate-advanced-name').forEach(input => {
         input.addEventListener('input', function() {
-            // Prevent numbers and special characters immediately
-            let val = this.value.replace(/[^A-Za-z ]/g, '');
-            // Prevent multiple consecutive spaces
-            val = val.replace(/ +(?= )/g, '');
-            // Auto capitalize first letter of each word
-            val = toTitleCase(val);
-            this.value = val;
-
-            const trimmed = val.trim();
-            if (trimmed.length === 0) {
-                if (this.required) {
-                    updateIndicator(this.id, false, 'This field is required');
-                } else {
-                    const ind = indicators[this.id];
-                    if (ind) {
-                        ind.innerHTML = '<span class="hint">' + (HINTS[this.id] || '') + '</span>';
-                        ind.dataset.valid = '1';
-                    }
-                    this.classList.remove('input-valid', 'input-error');
-                    checkFormValidity();
-                }
-                return;
-            }
-
-            if (!REGEX.name.test(trimmed)) {
-                let msg = 'Use letters only (e.g. Juan Carlos)';
-                if (/[0-9]/.test(trimmed)) msg = 'Numbers not allowed';
-                else if (/[^A-Za-z\s]/.test(trimmed)) msg = 'Letters and spaces only';
-                updateIndicator(this.id, false, msg);
-            } else {
-                updateIndicator(this.id, true);
-            }
+            let val = this.value.replace(/[^A-Za-z ]/g, '').replace(/ +(?= )/g, '');
+            this.value = toTitleCase(val);
+            clearProfileFieldError(this.id);
+            if (this.value.trim()) validateProfileField(this.id, true);
         });
-
         input.addEventListener('blur', function() {
             this.value = normalizeSpaces(this.value).trim();
-            this.dispatchEvent(new Event('input'));
-        });
-        input.addEventListener('focus', function() {
-            if (this.value.trim() === '' && indicators[this.id]) {
-                const hint = HINTS[this.id] || (this.required ? 'This field is required' : '');
-                if (hint) {
-                    indicators[this.id].innerHTML = '<span class="hint">' + hint + '</span>';
-                    indicators[this.id].dataset.valid = '';
-                    this.classList.remove('input-valid', 'input-error');
-                }
-            }
+            if (this.id !== 'middle_name' || this.value) validateProfileField(this.id, true);
         });
     });
 
-    // Contact Number Validation
     document.querySelectorAll('.validate-advanced-contact').forEach(input => {
-        const regexContact = /^09\d{9}$/;
-
-        function normalizeContact(val) {
-            let digits = val.replace(/\D/g, '');
-            if (digits === '') return '';
-            if (digits.startsWith('63')) {
-                digits = '0' + digits.slice(2);
-            } else if (digits.startsWith('9')) {
-                digits = '0' + digits;
-            } else if (!digits.startsWith('09')) {
-                if (digits.startsWith('0')) {
-                    digits = '09' + digits.slice(1);
-                } else {
-                    digits = '09' + digits;
-                }
-            }
-            if (!digits.startsWith('09')) {
-                digits = '09' + digits.replace(/^0+/, '');
-            }
-            if (digits.length > 11) digits = digits.slice(0, 11);
-            return digits;
-        }
-
         input.addEventListener('input', function() {
-            const val = normalizeContact(this.value);
-            this.value = val;
-
-            if (val.length === 0) {
-                updateIndicator(this.id, false, 'This field is required');
-                return;
-            }
-
-            if (!regexContact.test(val)) {
-                updateIndicator(this.id, false, 'Use format 09XXXXXXXXX');
-            } else {
-                updateIndicator(this.id, true);
-            }
+            this.value = normalizeContact(this.value);
+            clearProfileFieldError(this.id);
+            if (this.value.trim()) validateProfileField(this.id, true);
         });
-
         input.addEventListener('focus', function() {
-            if (!this.value) {
-                this.value = '09';
-            } else {
-                this.value = normalizeContact(this.value);
-            }
-            this.dispatchEvent(new Event('input'));
-            if (!regexContact.test(this.value.trim()) && indicators[this.id]) {
-                indicators[this.id].innerHTML = '<span class="hint">' + HINTS.contact_number + '</span>';
-            }
+            if (!this.value) this.value = '09';
         });
-
         input.addEventListener('paste', function(e) {
             e.preventDefault();
-            const paste = (e.clipboardData || window.clipboardData).getData('text') || '';
-            this.value = normalizeContact(paste);
-            this.dispatchEvent(new Event('input'));
+            this.value = normalizeContact((e.clipboardData || window.clipboardData).getData('text') || '');
+            clearProfileFieldError(this.id);
+            if (this.value.trim()) validateProfileField(this.id, true);
         });
     });
 
-    document.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact').forEach(input => {
-        input.addEventListener('input', function() {
+    const dobInput = document.querySelector('.validate-advanced-dob');
+    if (dobInput) {
+        dobInput.addEventListener('input', function() {
             clearProfileFieldError(this.id);
+            if (this.value) validateProfileField(this.id, true);
         });
-    });
+    }
 
     const genderSelect = document.getElementById('gender');
     if (genderSelect) {
         genderSelect.addEventListener('change', function() {
             clearProfileFieldError('gender');
+            if (this.value) validateProfileField('gender', true);
         });
     }
-
-    // DOB Validation
-    const dobInput = document.querySelector('.validate-advanced-dob');
-    if (dobInput) {
-        dobInput.addEventListener('focus', function() {
-            if (!this.value && indicators[this.id]) {
-                indicators[this.id].innerHTML = '<span class="hint">' + HINTS.dob + '</span>';
-                indicators[this.id].dataset.valid = '';
-            }
-        });
-        dobInput.addEventListener('input', function() {
-            if (!this.value) {
-                updateIndicator(this.id, false, 'Select your date of birth');
-                return;
-            }
-            const dob = new Date(this.value);
-            const today = new Date();
-            let age = today.getFullYear() - dob.getFullYear();
-            const m = today.getMonth() - dob.getMonth();
-            if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
-
-            if (dob > today) {
-                updateIndicator(this.id, false, 'Date cannot be in the future');
-            } else if (age < 13) {
-                updateIndicator(this.id, false, 'You must be at least 13 years old');
-            } else if (age > 100) {
-                updateIndicator(this.id, false, 'Age must be 100 years old or younger');
-            } else {
-                updateIndicator(this.id, true);
-            }
-        });
-    }
-
-    // Initial check on load - validate filled fields, show hints for empty
-    document.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact').forEach(input => {
-        if (input.value.trim()) {
-            input.dispatchEvent(new Event('input'));
-        } else if (indicators[input.id] && HINTS[input.id]) {
-            indicators[input.id].innerHTML = '<span class="hint">' + HINTS[input.id] + '</span>';
-        }
-    });
 
     if (fProfile) {
         fProfile.addEventListener('submit', function(e) {
-            document.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact').forEach(input => {
-                if (input.value.trim()) input.dispatchEvent(new Event('input'));
-            });
             if (!validateProfileFormOnSubmit()) {
                 e.preventDefault();
                 const firstInvalid = fProfile.querySelector('.pf-field-group.is-invalid input, .pf-field-group.is-invalid select');
@@ -2080,15 +1922,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const addressForm = document.getElementById('address-form');
     if (addressForm) {
         const addressFields = [
-            { id: 'addr_province', group: 'addr_province', emptyMsg: 'Please select a province.' },
-            { id: 'addr_city', group: 'addr_city', emptyMsg: 'Please select a city or municipality.' },
-            { id: 'addr_barangay', group: 'addr_barangay', emptyMsg: 'Please select a barangay.' },
-            { id: 'addr_street', group: 'addr_street', emptyMsg: 'Please enter your street address.' },
+            { id: 'addr_province', group: 'addr_province', emptyMsg: 'Province is required.' },
+            { id: 'addr_city', group: 'addr_city', emptyMsg: 'City or municipality is required.' },
+            { id: 'addr_barangay', group: 'addr_barangay', emptyMsg: 'Barangay is required.' },
+            { id: 'addr_street', group: 'addr_street', emptyMsg: 'Street address is required.' },
         ];
 
         function clearAddressFieldError(groupKey) {
             const group = document.getElementById('group_' + groupKey);
+            const field = addressFields.find(f => f.group === groupKey);
+            const input = field ? document.getElementById(field.id) : null;
             if (group) group.classList.remove('is-invalid');
+            if (input) input.classList.remove('input-error');
         }
 
         function showAddressFieldError(groupKey, message) {
@@ -2127,7 +1972,9 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+})();
 
+(function() {
     // Password validation (Google-only accounts: no current password field; first-time "set password")
     const profileOmitCurrentPassword = <?php echo !empty($omit_current_password_on_profile) ? 'true' : 'false'; ?>;
     const passwordForm = document.querySelector('form[action=""]');
