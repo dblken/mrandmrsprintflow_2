@@ -99,31 +99,25 @@ function pf_ensure_customer_id_verification_columns(): void
     }
     $done = true;
 
-    $conn = get_db_connection();
-    if (!$conn) {
+    global $conn;
+    if (empty($conn)) {
         return;
     }
 
-    $columns = [];
-    $result = $conn->query('SHOW COLUMNS FROM customers');
-    if ($result) {
-        while ($row = $result->fetch_assoc()) {
-            $columns[] = $row['Field'] ?? '';
-        }
+    if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_uploaded_at'"))) {
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_uploaded_at DATETIME NULL DEFAULT NULL AFTER id_reject_reason');
+    }
+    if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_reviewed_at'"))) {
+        @$conn->query('ALTER TABLE customers ADD COLUMN id_reviewed_at DATETIME NULL DEFAULT NULL AFTER id_uploaded_at');
     }
 
-    if (!in_array('id_uploaded_at', $columns, true)) {
-        $conn->query('ALTER TABLE customers ADD COLUMN id_uploaded_at DATETIME NULL DEFAULT NULL AFTER id_reject_reason');
+    if (!empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_uploaded_at'"))) {
+        @$conn->query(
+            "UPDATE customers
+             SET id_uploaded_at = created_at
+             WHERE id_image IS NOT NULL AND TRIM(id_image) <> '' AND id_uploaded_at IS NULL"
+        );
     }
-    if (!in_array('id_reviewed_at', $columns, true)) {
-        $conn->query('ALTER TABLE customers ADD COLUMN id_reviewed_at DATETIME NULL DEFAULT NULL AFTER id_uploaded_at');
-    }
-
-    $conn->query(
-        "UPDATE customers
-         SET id_uploaded_at = created_at
-         WHERE id_image IS NOT NULL AND TRIM(id_image) <> '' AND id_uploaded_at IS NULL"
-    );
 }
 
 function pf_customer_verification_pending_sql(): string
