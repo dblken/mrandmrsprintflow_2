@@ -157,6 +157,10 @@ $page_title = 'Customer Verification - Admin';
     <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
+        .customer-verification-page,
+        #verification-modal {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
         .kpi-row { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px; }
         @media (max-width:768px) { .kpi-row { grid-template-columns:repeat(2, 1fr); } }
         .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; cursor:pointer; transition:box-shadow .15s,border-color .15s; text-decoration:none; color:inherit; display:block; }
@@ -166,7 +170,7 @@ $page_title = 'Customer Verification - Admin';
         .kpi-card.emerald::before { background:linear-gradient(90deg,#059669,#34d399); }
         .kpi-card.rose::before { background:linear-gradient(90deg,#f43f5e,#fb7185); }
         .kpi-card.slate::before { background:linear-gradient(90deg,#64748b,#94a3b8); }
-        .kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:6px; }
+        .kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:6px; }
         .kpi-value { font-size:28px; font-weight:700; color:#1f2937; line-height:1.1; }
         .kpi-sub { font-size:12px; color:#6b7280; margin-top:4px; }
         .btn-action { display:inline-flex; align-items:center; justify-content:center; padding:6px 12px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; transition:all .2s; cursor:pointer; text-decoration:none; }
@@ -176,7 +180,7 @@ $page_title = 'Customer Verification - Admin';
         .btn-action.blue:hover { background:#3b82f6; color:#fff; }
         .orders-table td.actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:nowrap; }
         .orders-table td.actions .btn-action { min-height:30px; height:30px; padding:0 12px; box-sizing:border-box; line-height:1; font-family:inherit; white-space:nowrap; }
-        .toolbar-btn { display:inline-flex; align-items:center; gap:8px; padding:0 16px; height:38px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; color:#374151; font-size:13px; font-weight:500; cursor:pointer; transition:all .2s; }
+        .toolbar-btn { display:inline-flex; align-items:center; gap:8px; padding:0 16px; height:38px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; color:#374151; font-size:13px; font-weight:500; cursor:pointer; transition:all .2s; font-family:inherit; }
         .toolbar-btn:hover { background:#f9fafb; border-color:#d1d5db; }
         .toolbar-btn.active { background:#f0fdfa; border-color:#0d9488; color:#0d9488; }
         .sort-dropdown { position:absolute; top:calc(100% + 6px); right:0; min-width:200px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; padding:6px 0; overflow:hidden; }
@@ -193,17 +197,19 @@ $page_title = 'Customer Verification - Admin';
         .filter-reset-link { font-size:12px; font-weight:600; color:#0d9488; cursor:pointer; background:none; border:none; padding:0; }
         .filter-reset-link:hover { text-decoration:underline; }
         .filter-badge { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; background:#0d9488; color:#fff; font-size:10px; font-weight:700; border-radius:50%; margin-left:4px; }
-        .filter-input { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; font-size:13px; padding:0 10px; color:#1f2937; box-sizing:border-box; transition:border-color .15s; }
+        .filter-input { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; font-size:13px; padding:0 10px; color:#374151; box-sizing:border-box; transition:border-color .15s; font-family:inherit; }
         .filter-input:focus { outline:none; border-color:#0d9488; }
         .filter-date-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-        .filter-date-label { font-size:11px; color:#6b7280; margin-bottom:4px; }
+        .customer-verification-page .vf-section-title { font-size:16px; font-weight:700; color:#1f2937; margin:0; line-height:1.3; }
+        .customer-verification-page .vf-section-meta { font-size:12px; color:#6b7280; margin:4px 0 0; line-height:1.4; }
+        .filter-date-label { font-size:12px; font-weight:600; color:#6b7280; margin-bottom:4px; }
         .filter-search-wrap { position:relative; }
-        .filter-search-input { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; font-size:13px; padding:0 12px; color:#1f2937; box-sizing:border-box; }
+        .filter-search-input { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; font-size:13px; padding:0 12px; color:#374151; box-sizing:border-box; font-family:inherit; }
         .filter-search-input:focus { outline:none; border-color:#0d9488; }
         .filter-actions { display:flex; gap:8px; padding:14px 18px; border-top:1px solid #f3f4f6; }
         .filter-btn-reset { flex:1; height:36px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:500; color:#374151; cursor:pointer; }
         .filter-btn-reset:hover { background:#f9fafb; }
-        .orders-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .orders-table { width:100%; border-collapse:collapse; font-size:13px; font-family:inherit; }
         .orders-table th { padding:12px 16px; font-size:13px; font-weight:600; color:#6b7280; text-align:left; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
         .orders-table td { padding:12px 16px; border-bottom:1px solid #f3f4f6; vertical-align:middle; color:#374151; }
         .orders-table tbody tr { cursor:pointer; transition:background .1s; }
@@ -218,12 +224,25 @@ $page_title = 'Customer Verification - Admin';
         [x-cloak] { display:none !important; }
         @keyframes spin { to { transform:rotate(360deg); } }
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
-        .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,.25); width:100%; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
-        .btn-secondary { padding:8px 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:600; color:#374151; cursor:pointer; }
+        .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,.25); width:100%; max-height:88vh; overflow-y:auto; margin:16px; position:relative; font-size:13px; color:#374151; }
+        .btn-secondary { padding:8px 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:600; color:#374151; cursor:pointer; font-family:inherit; }
+        #verification-modal .vf-modal-header { padding:20px 24px; border-bottom:1px solid #f3f4f6; display:flex; align-items:center; justify-content:space-between; }
+        #verification-modal .vf-modal-title { font-size:18px; font-weight:700; color:#1f2937; margin:0; line-height:1.3; }
+        #verification-modal .vf-modal-subtitle { font-size:13px; color:#6b7280; margin:2px 0 0; font-weight:400; }
+        #verification-modal .vf-modal-body { padding:24px; }
+        #verification-modal .vf-field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+        #verification-modal .vf-field-label { font-size:13px; font-weight:600; color:#6b7280; margin:0 0 4px; line-height:1.4; }
+        #verification-modal .vf-field-value { font-size:13px; color:#374151; margin:0; font-weight:400; line-height:1.4; }
+        #verification-modal .vf-field-value--strong { font-size:13px; color:#1f2937; font-weight:500; margin:0; line-height:1.4; }
+        #verification-modal .vf-text-secondary { font-size:12px; color:#6b7280; line-height:1.4; }
+        #verification-modal .vf-text-meta { font-size:12px; color:#9ca3af; line-height:1.4; }
+        #verification-modal .vf-text-error { font-size:12px; color:#dc2626; line-height:1.4; }
+        #verification-modal .vf-text-success { font-size:12px; color:#16a34a; font-weight:600; line-height:1.4; }
+        #verification-modal .vf-loading-text { font-size:13px; color:#6b7280; }
         .verification-action-section { margin-top:8px; }
-        .verification-action-label { font-size:14px; font-weight:700; color:#111827; margin:0 0 10px; }
-        .verification-action-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
-        .verification-action-card { display:flex; align-items:center; gap:12px; padding:14px 16px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer; font-size:14px; font-weight:500; color:#111827; transition:border-color .15s,background .15s; position:relative; }
+        .verification-action-label { font-size:13px; font-weight:600; color:#374151; margin:0 0 8px; line-height:1.4; }
+        .verification-action-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
+        .verification-action-card { display:flex; align-items:center; gap:12px; padding:14px 16px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer; font-size:13px; font-weight:500; color:#374151; transition:border-color .15s,background .15s; position:relative; font-family:inherit; }
         .verification-action-card input { position:absolute; opacity:0; pointer-events:none; }
         .verification-action-card .action-radio { width:18px; height:18px; border:2px solid #d1d5db; border-radius:50%; flex-shrink:0; position:relative; box-sizing:border-box; }
         .verification-action-card.approve-card { border-color:#86efac; }
@@ -235,9 +254,10 @@ $page_title = 'Customer Verification - Admin';
         .verification-action-card.reject-card.selected .action-radio::after { content:''; position:absolute; inset:3px; background:#f97316; border-radius:50%; }
         .verification-reject-fields { margin-bottom:20px; }
         .verification-reject-fields .verification-action-label + select { margin-bottom:16px; }
-        .verification-reject-select { width:100%; height:44px; padding:0 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; background:#fff; color:#111827; box-sizing:border-box; }
-        .verification-note-wrap textarea { width:100%; min-height:100px; padding:12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; color:#111827; resize:vertical; box-sizing:border-box; font-family:inherit; }
-        .verification-note-wrap textarea:focus { outline:none; border-color:#9ca3af; }
+        .verification-reject-select { width:100%; height:38px; padding:0 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; background:#fff; color:#374151; box-sizing:border-box; font-family:inherit; }
+        .verification-reject-select:focus { outline:none; border-color:#0d9488; }
+        .verification-note-wrap textarea { width:100%; min-height:100px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; color:#374151; resize:vertical; box-sizing:border-box; font-family:inherit; line-height:1.5; }
+        .verification-note-wrap textarea:focus { outline:none; border-color:#0d9488; }
         .verification-char-count { display:block; text-align:right; font-size:12px; color:#9ca3af; margin-top:6px; }
         .verification-action-footer { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:4px; }
         .btn-submit-action { padding:10px 20px; background:#111827; color:#fff; border:1px solid #111827; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; min-width:140px; font-family:inherit; }
@@ -438,7 +458,7 @@ $page_title = 'Customer Verification - Admin';
                                 valid = false;
                             }
                             if (selectedReason === 'Other' && !(this.idRejectReasonOther || '').trim()) {
-                                this.idNoteError = 'Note is required when "Other" is selected.';
+                                this.idNoteError = 'Please enter something in the note.';
                                 valid = false;
                             }
                         }
@@ -602,7 +622,7 @@ $page_title = 'Customer Verification - Admin';
             document.addEventListener('printflow:page-init', printflowInitVerificationPage);
         </script>
 
-        <main x-data="verificationModal()">
+        <main x-data="verificationModal()" class="customer-verification-page">
             <?php if ($reviewed_flash): ?>
                 <div class="<?php echo $reviewed_flash['type'] === 'success' ? 'bg-green-100 border-green-400 text-green-700' : 'bg-red-100 border-red-400 text-red-700'; ?> border px-4 py-3 rounded relative mb-4">
                     <?php echo htmlspecialchars($reviewed_flash['message']); ?>
@@ -635,8 +655,8 @@ $page_title = 'Customer Verification - Admin';
             <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
                     <div>
-                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">Verification Requests</h3>
-                        <p id="verificationCountLabel" style="font-size:12px;color:#6b7280;margin:4px 0 0;"><?php echo number_format($total_filtered); ?> records</p>
+                        <h3 class="vf-section-title">Verification Requests</h3>
+                        <p id="verificationCountLabel" class="vf-section-meta"><?php echo number_format($total_filtered); ?> records</p>
                     </div>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                         <div style="position:relative;">
@@ -770,38 +790,38 @@ $page_title = 'Customer Verification - Admin';
                 <div class="modal-panel" id="verification-modal" style="max-width:640px;" @click.stop>
                     <div x-show="loading" style="padding:48px;text-align:center;">
                         <div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;"></div>
-                        <p style="color:#6b7280;font-size:14px;">Loading verification record...</p>
+                        <p class="vf-loading-text">Loading verification record...</p>
                     </div>
                     <div x-show="!loading">
-                        <div style="padding:20px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+                        <div class="vf-modal-header">
                             <div>
-                                <h3 style="font-size:18px;font-weight:700;color:#1f2937;margin:0;">Review ID Verification</h3>
-                                <p style="font-size:13px;color:#6b7280;margin:2px 0 0 0;" x-text="(customer?.first_name || '') + ' ' + (customer?.last_name || '')"></p>
+                                <h3 class="vf-modal-title">Review ID Verification</h3>
+                                <p class="vf-modal-subtitle" x-text="(customer?.first_name || '') + ' ' + (customer?.last_name || '')"></p>
                             </div>
                             <button @click="showModal = false" style="background:transparent;border:none;cursor:pointer;color:#6b7280;">
                                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                             </button>
                         </div>
 
-                        <div style="padding:24px;">
-                            <p x-show="errorMsg" style="color:#dc2626;font-size:13px;margin:0 0 12px;" x-text="errorMsg"></p>
+                        <div class="vf-modal-body">
+                            <p x-show="errorMsg" class="vf-text-error" style="margin:0 0 12px;" x-text="errorMsg"></p>
 
-                            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px;">
+                            <div class="vf-field-grid">
                                 <div>
-                                    <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Customer ID</p>
-                                    <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.customer_id || '—'"></p>
+                                    <p class="vf-field-label">Customer ID</p>
+                                    <p class="vf-field-value--strong" x-text="customer?.customer_id || '—'"></p>
                                 </div>
                                 <div>
-                                    <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Email</p>
-                                    <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.email || '—'"></p>
+                                    <p class="vf-field-label">Email</p>
+                                    <p class="vf-field-value--strong" x-text="customer?.email || '—'"></p>
                                 </div>
                                 <div>
-                                    <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">ID Type</p>
-                                    <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.id_type || 'Not provided'"></p>
+                                    <p class="vf-field-label">ID Type</p>
+                                    <p class="vf-field-value--strong" x-text="customer?.id_type || 'Not provided'"></p>
                                 </div>
                                 <div>
-                                    <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Status</p>
-                                    <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="(['Verified','Rejected'].includes(customer?.id_status) ? customer.id_status : 'Pending')"></p>
+                                    <p class="vf-field-label">Status</p>
+                                    <p class="vf-field-value--strong" x-text="(['Verified','Rejected'].includes(customer?.id_status) ? customer.id_status : 'Pending')"></p>
                                 </div>
                             </div>
 
@@ -810,8 +830,8 @@ $page_title = 'Customer Verification - Admin';
                                     <img :src="customer?.id_image" alt="Customer ID" style="width:100%;max-height:280px;object-fit:contain;border-radius:8px;border:1px solid #e5e7eb;cursor:zoom-in;">
                                 </a>
                             </div>
-                            <p x-show="!customer?.id_image" style="font-size:13px;color:#9ca3af;font-style:italic;margin:0 0 14px;">No ID image uploaded.</p>
-                            <p x-show="customer?.id_reject_reason" style="font-size:12px;color:#dc2626;margin:0 0 12px;">Rejection reason: <span x-text="customer?.id_reject_reason"></span></p>
+                            <p x-show="!customer?.id_image" class="vf-text-meta" style="font-style:italic;margin:0 0 14px;">No ID image uploaded.</p>
+                            <p x-show="customer?.id_reject_reason" class="vf-text-error" style="margin:0 0 12px;">Rejection reason: <span x-text="customer?.id_reject_reason"></span></p>
 
                             <?php if ($can_manage_customer_verification): ?>
                             <div x-show="customer?.id_image && customer?.id_status !== 'Verified' && customer?.id_status !== 'Rejected'" class="verification-action-section">
@@ -854,9 +874,9 @@ $page_title = 'Customer Verification - Admin';
                                     </div>
                                 </div>
                             </div>
-                            <p x-show="customer?.id_status === 'Verified'" style="font-size:12px;color:#16a34a;font-weight:600;margin:8px 0 0;">&#10003; ID Verified</p>
+                            <p x-show="customer?.id_status === 'Verified'" class="vf-text-success" style="margin:8px 0 0;">&#10003; ID Verified</p>
                             <?php else: ?>
-                            <p style="font-size:12px;color:#6b7280;margin:0;">Only admins can verify or reject customer IDs.</p>
+                            <p class="vf-text-secondary" style="margin:0;">Only admins can verify or reject customer IDs.</p>
                             <?php endif; ?>
                         </div>
 
