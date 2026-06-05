@@ -52,6 +52,8 @@ function pf_build_customer_modal_payload(array $customer, string $base_path): ar
         'profile_picture' => $profile_picture_raw !== '' ? $base_path . '/public/assets/uploads/profiles/' . ltrim($profile_picture_raw, '/') : null,
         'initial' => strtoupper(substr($first_name, 0, 1)),
         'id_status' => pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending'),
+        'id_status_label' => pf_admin_id_verification_status_display($customer)['label'],
+        'has_id_image' => $id_image_raw !== '',
         'id_type' => pf_decode_display_text((string)($customer['id_type'] ?? '')),
         'id_reject_reason' => pf_decode_display_text((string)($customer['id_reject_reason'] ?? '')),
         'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
@@ -162,15 +164,11 @@ if (isset($_GET['ajax'])) {
                     <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                 </tr>
                 <?php foreach ($customers as $customer): 
-                    $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
+                    $status_display = pf_admin_id_verification_status_display($customer);
                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                     $sign_in = pf_admin_customer_sign_in_label($customer);
-                    $status_style = match($id_status) {
-                        'Verified'   => 'background:#dcfce7;color:#166534;',
-                        'Rejected'   => 'background:#fee2e2;color:#991b1b;',
-                        'Pending'    => 'background:#fef9c3;color:#854d0e;',
-                        default      => 'background:#f3f4f6;color:#6b7280;'
-                    };
+                    $status_style = $status_display['style'];
+                    $status_label = $status_display['label'];
                 ?>
                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
@@ -197,7 +195,7 @@ if (isset($_GET['ajax'])) {
                             <?php endif; ?>
                         </td>
                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
+                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                             <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
@@ -1128,15 +1126,11 @@ $page_title = 'Customers Management - Admin';
                                     <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No customers found</td>
                                 </tr>
                                 <?php foreach ($customers as $customer):
-                                    $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
+                                    $status_display = pf_admin_id_verification_status_display($customer);
                                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                                     $sign_in = pf_admin_customer_sign_in_label($customer);
-                                    $status_style = match($id_status) {
-                                        'Verified'   => 'background:#dcfce7;color:#166534;',
-                                        'Rejected'   => 'background:#fee2e2;color:#991b1b;',
-                                        'Pending'    => 'background:#fef9c3;color:#854d0e;',
-                                        default      => 'background:#f3f4f6;color:#6b7280;'
-                                    };
+                                    $status_style = $status_display['style'];
+                                    $status_label = $status_display['label'];
                                 ?>
                                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
@@ -1163,7 +1157,7 @@ $page_title = 'Customers Management - Admin';
                                             <?php endif; ?>
                                         </td>
                                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
+                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                                             <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
@@ -1270,7 +1264,7 @@ $page_title = 'Customers Management - Admin';
                         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;">ID Verification</label>
                             <template x-if="customer">
-                                <span :style="(customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;')" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 16px;border-radius:9999px;font-size:12px;font-weight:500;line-height:1;border:none;box-shadow:none;" x-text="(['Verified','Rejected'].includes(customer.id_status) ? customer.id_status : 'Pending')"></span>
+                                <span :style="!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'))" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 16px;border-radius:9999px;font-size:12px;font-weight:500;line-height:1;border:none;box-shadow:none;" x-text="customer?.id_status_label || '—'"></span>
                             </template>
                         </div>
 
@@ -1281,7 +1275,7 @@ $page_title = 'Customers Management - Admin';
                             </div>
                             <div>
                                 <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Current Status</p>
-                                <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="(['Verified','Rejected'].includes(customer?.id_status) ? customer.id_status : 'Pending')"></p>
+                                <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.id_status_label || '—'"></p>
                             </div>
                         </div>
 

@@ -4944,14 +4944,29 @@ function get_base_url() {
 }
 
 /**
+ * Resolve the default profile image URL (user.jpg) for accounts without a photo.
+ */
+function pf_default_profile_image_url(): string
+{
+    $base = rtrim(defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : ''), '/');
+
+    if (is_file(__DIR__ . '/../public/assets/uploads/profiles/user.jpg')) {
+        return $base . '/public/assets/uploads/profiles/user.jpg';
+    }
+
+    if (is_file(__DIR__ . '/../uploads/user.jpg')) {
+        return $base . '/uploads/user.jpg';
+    }
+
+    return $base . '/public/assets/uploads/profiles/default.png';
+}
+
+/**
  * Build a public URL for a stored profile image.
  */
 function get_profile_image($image) {
     $base = rtrim(defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : ''), '/');
-    $fallback = $base . '/uploads/user.jpg';
-    if (!is_file(__DIR__ . '/../uploads/user.jpg')) {
-        $fallback = $base . '/public/assets/uploads/profiles/default-avatar.png';
-    }
+    $fallback = pf_default_profile_image_url();
     $image = trim((string)$image);
 
     if ($image === '' || strtolower($image) === 'null' || strtolower($image) === 'undefined') {
@@ -4976,7 +4991,7 @@ function get_profile_image($image) {
 
     $file_path = __DIR__ . '/../' . $relative_path;
     if (!is_file($file_path)) {
-        return $fallback;
+        return pf_default_profile_image_url();
     }
 
     return $base . '/' . $relative_path;

@@ -278,9 +278,6 @@ $page_title = 'Customer Verification - Admin';
         <header>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                 <h1 class="page-title">Customer Verification</h1>
-                <a href="<?php echo $base_path; ?>/admin/customers_management.php" class="toolbar-btn" style="text-decoration:none;">
-                    Customers Management
-                </a>
             </div>
         </header>
 
@@ -821,7 +818,7 @@ $page_title = 'Customer Verification - Admin';
                                 </div>
                                 <div>
                                     <p class="vf-field-label">Status</p>
-                                    <p class="vf-field-value--strong" x-text="(['Verified','Rejected'].includes(customer?.id_status) ? customer.id_status : 'Pending')"></p>
+                                    <p class="vf-field-value--strong" x-text="customer?.id_status_label || '—'"></p>
                                 </div>
                             </div>
 

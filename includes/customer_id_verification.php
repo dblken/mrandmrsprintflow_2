@@ -97,6 +97,34 @@ function pf_customer_id_profile_status_display(array $customer): array
     };
 }
 
+/**
+ * Admin table/modal ID verification status (shows — when no ID image uploaded).
+ *
+ * @return array{label:string,style:string,status:string,has_id:bool}
+ */
+function pf_admin_id_verification_status_display(array $customer): array
+{
+    $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
+    if (!$has_id) {
+        return [
+            'label' => '—',
+            'style' => 'background:#f3f4f6;color:#6b7280;',
+            'status' => 'none',
+            'has_id' => false,
+        ];
+    }
+
+    $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
+    $label = $id_status === 'Verified' ? 'Approved' : $id_status;
+
+    return [
+        'label' => $label,
+        'style' => pf_customer_id_status_badge_style($id_status),
+        'status' => $id_status,
+        'has_id' => true,
+    ];
+}
+
 function pf_customer_id_status_badge_style(string $status): string
 {
     return match (pf_customer_id_status_normalize($status)) {
@@ -271,6 +299,7 @@ function pf_build_customer_verification_payload(array $customer, string $base_pa
         'is_new_submission' => pf_customer_verification_is_new_submission($customer),
         'id_type' => pf_decode_display_text((string)($customer['id_type'] ?? '')),
         'id_status' => pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending'),
+        'id_status_label' => pf_admin_id_verification_status_display($customer)['label'],
         'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
         'id_reject_reason' => pf_decode_display_text((string)($customer['id_reject_reason'] ?? '')),
         'has_id_image' => $id_image_raw !== '',
@@ -422,18 +451,23 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
     echo '<tr id="emptyVerificationRow" style="display:none;"><td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td></tr>';
 
     foreach ($customers as $customer) {
-        $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
-        $status_style = pf_customer_id_status_badge_style($id_status);
-        $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
         $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
+        $status_display = pf_admin_id_verification_status_display($customer);
+        $id_status = $status_display['status'] === 'none' ? 'Pending' : $status_display['status'];
+        $status_style = $status_display['style'];
+        $status_label = $status_display['label'];
+        $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
         $uploaded_label = !empty($customer['id_uploaded_at'])
             ? format_date($customer['id_uploaded_at'])
             : '—';
-        $row_class = match ($id_status) {
-            'Verified' => 'verification-row verification-row--approved',
-            'Rejected' => 'verification-row verification-row--rejected',
-            default => 'verification-row verification-row--pending',
-        };
+        $row_class = 'verification-row';
+        if ($has_id) {
+            $row_class .= match ($id_status) {
+                'Verified' => ' verification-row--approved',
+                'Rejected' => ' verification-row--rejected',
+                default => ' verification-row--pending',
+            };
+        }
         $name = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
         $email = strtolower((string)($customer['email'] ?? ''));
         $cid = (int)($customer['customer_id'] ?? 0);
@@ -453,7 +487,7 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
             <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
             <td style="color:#6b7280;font-size:12px;"><?php echo htmlspecialchars($uploaded_label); ?></td>
             <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-            <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status === 'Verified' ? 'Approved' : $id_status); ?></span></td>
+            <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
             <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                 <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo $cid; ?>, this.closest('tr'))" class="btn-action blue">Verify</button>
                 <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo $cid; ?>'" class="btn-action teal">Profile</button>
