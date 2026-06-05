@@ -32,10 +32,10 @@ $date_to = trim((string)($_GET['date_to'] ?? ''));
 $status_filter = trim((string)($_GET['status_filter'] ?? ''));
 $upload_filter = trim((string)($_GET['upload_filter'] ?? ''));
 $sort_by = $_GET['sort'] ?? 'latest_upload';
-if ($sort_by === 'priority_first') {
-    $sort_by = 'new_submissions';
+if (in_array($sort_by, ['priority_first', 'new_submissions'], true)) {
+    $sort_by = 'latest_upload';
 }
-$allowed_sorts = ['latest_upload', 'oldest', 'new_submissions', 'az', 'za'];
+$allowed_sorts = ['latest_upload', 'oldest', 'az', 'za'];
 if (!in_array($sort_by, $allowed_sorts, true)) {
     $sort_by = 'latest_upload';
 }
@@ -75,11 +75,6 @@ if ($date_to !== '') {
 $sql .= $statusSql;
 $params = array_merge($params, $statusParams);
 $types .= $statusTypes;
-
-[$sortScopeSql, $sortScopeTypes, $sortScopeParams] = pf_customer_verification_sort_scope_sql($sort_by);
-$sql .= $sortScopeSql;
-$params = array_merge($params, $sortScopeParams);
-$types .= $sortScopeTypes;
 
 $count_sql = "SELECT COUNT(*) as total FROM ({$sql}) as count_wrap";
 $total_filtered = (int)(db_query($count_sql, $types, $params)[0]['total'] ?? 0);
@@ -585,7 +580,6 @@ $page_title = 'Customer Verification - Admin';
                                 $sorts = [
                                     'latest_upload' => 'Newest (Latest Upload)',
                                     'oldest' => 'Oldest',
-                                    'new_submissions' => 'New Submissions',
                                     'az' => 'A → Z',
                                     'za' => 'Z → A',
                                 ];

@@ -156,30 +156,12 @@ function pf_customer_id_verification_sql_filter(string $status_filter, string $u
     return [$sql, $types, $params];
 }
 
-function pf_customer_verification_sort_scope_sql(string $sort_by): array
-{
-    if ($sort_by !== 'new_submissions') {
-        return ['', '', []];
-    }
-
-    pf_ensure_customer_id_verification_columns();
-
-    return [
-        ' AND ' . pf_customer_verification_pending_sql()
-            . ' AND ' . pf_customer_verification_has_image_sql()
-            . ' AND id_reviewed_at IS NULL',
-        '',
-        [],
-    ];
-}
-
 function pf_customer_verification_sort_clause(string $sort_by): string
 {
     return match ($sort_by) {
         'oldest' => ' ORDER BY COALESCE(id_uploaded_at, created_at) ASC',
         'az' => ' ORDER BY first_name ASC, last_name ASC',
         'za' => ' ORDER BY first_name DESC, last_name DESC',
-        'new_submissions' => ' ORDER BY COALESCE(id_uploaded_at, created_at) DESC',
         default => ' ORDER BY COALESCE(id_uploaded_at, created_at) DESC',
     };
 }
