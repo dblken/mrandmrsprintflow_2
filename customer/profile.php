@@ -160,6 +160,13 @@ if (function_exists('printflow_ensure_customers_auth_provider_column')) {
     printflow_ensure_customers_auth_provider_column();
 }
 
+pf_ensure_customer_id_verification_columns();
+
+if (!empty($_SESSION['profile_id_upload_flash'])) {
+    $success = (string)$_SESSION['profile_id_upload_flash'];
+    unset($_SESSION['profile_id_upload_flash']);
+}
+
 // Get customer data
 $customer = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0];
 $customer_uses_google_signin = (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google');
@@ -420,16 +427,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
     }
 }
 
-// Ensure ID verification columns exist
-global $conn;
-if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_status'"))) {
-    $conn->query("ALTER TABLE customers ADD COLUMN id_image VARCHAR(255) DEFAULT NULL, ADD COLUMN id_type VARCHAR(100) DEFAULT NULL, ADD COLUMN id_status ENUM('None','Pending','Verified','Rejected') DEFAULT 'None', ADD COLUMN id_reject_reason VARCHAR(255) DEFAULT NULL");
-}
-
 // Handle ID upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_id'])) {
+    $currentIdStatus = pf_customer_id_status_normalize($customer['id_status'] ?? '');
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $error = 'Invalid request.';
+    } elseif (
+        $currentIdStatus === 'Pending'
+        && trim((string)($customer['id_image'] ?? '')) !== ''
+    ) {
+        $error = 'Your ID is already under review. Please wait for admin feedback before resubmitting.';
     } elseif (empty($_FILES['id_image']['tmp_name']) || $_FILES['id_image']['error'] !== UPLOAD_ERR_OK) {
         $error = 'Please select an ID image to upload.';
     } else {
@@ -468,8 +475,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_id'])) {
                         $customer_id,
                         ['Admin', 'Manager']
                     );
-                    $success = 'ID submitted for verification. We will review it shortly.';
-                    $customer = db_query("SELECT * FROM customers WHERE customer_id=?", 'i', [$customer_id])[0];
+                    $_SESSION['profile_id_upload_flash'] = 'ID submitted for verification. We will review it shortly.';
+                    $redirect = AUTH_REDIRECT_BASE . '/customer/profile.php?id_submitted=1#section-security';
+                    header('Location: ' . $redirect, true, 303);
+                    exit;
                 } else {
                     $error = 'Failed to upload ID image.';
                 }
@@ -1290,8 +1299,13 @@ require_once __DIR__ . '/../includes/header.php';
                     <div style="margin-bottom:1.25rem;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:0.875rem;color:#92400e;">
                         Your ID is currently under review. We'll notify you once the admin finishes reviewing it. If it is rejected, the admin's reason will appear here so you can upload a new ID again.
                     </div>
+                    <?php if (!empty($id_image)): ?>
+                    <div style="margin-top:1rem;">
+                        <p style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">Submitted ID:</p>
+                        <img src="<?php echo $base_path; ?>/uploads/ids/<?php echo htmlspecialchars($id_image); ?>" style="max-height:140px;border-radius:8px;border:1px solid #e2e8f0;">
+                    </div>
                     <?php endif; ?>
-
+                    <?php elseif (empty($id_image) || $id_status === 'Rejected'): ?>
                     <form method="POST" enctype="multipart/form-data">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="upload_id" value="1">
@@ -1323,6 +1337,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <button type="submit" class="pf-btn-primary"><?php echo $id_status==='Rejected'?'Resubmit ID':'Submit ID for Verification'; ?></button>
                         </div>
                     </form>
+                    <?php endif; ?>
                     <?php endif; ?>
                 </div>
 

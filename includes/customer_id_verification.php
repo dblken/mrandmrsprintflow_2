@@ -46,8 +46,10 @@ function pf_customer_id_status_normalize($status): string
 {
     $raw = trim((string)$status);
     return match (strtolower($raw)) {
-        'verified' => 'Verified',
+        'verified', 'approved' => 'Verified',
         'rejected' => 'Rejected',
+        'none', '' => 'None',
+        'pending', 'unverified' => 'Pending',
         default => 'Pending',
     };
 }
@@ -183,16 +185,23 @@ function pf_ensure_customer_id_verification_columns(): void
         @$conn->query('ALTER TABLE customers ADD COLUMN id_type VARCHAR(100) DEFAULT NULL');
     }
     if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_status'"))) {
-        @$conn->query("ALTER TABLE customers ADD COLUMN id_status ENUM('None','Pending','Unverified','Verified','Rejected') DEFAULT 'None'");
+        @$conn->query("ALTER TABLE customers ADD COLUMN id_status VARCHAR(32) NOT NULL DEFAULT 'None'");
     } else {
         $statusCol = db_query("SHOW COLUMNS FROM customers LIKE 'id_status'");
         $statusType = strtolower((string)($statusCol[0]['Type'] ?? ''));
-        if (str_starts_with($statusType, 'enum') && !str_contains($statusType, 'rejected')) {
-            @$conn->query("ALTER TABLE customers MODIFY COLUMN id_status ENUM('None','Pending','Unverified','Verified','Rejected') DEFAULT 'None'");
+        if (str_starts_with($statusType, 'enum')) {
+            // VARCHAR avoids silent ENUM coercion when saving Rejected/Verified on older schemas.
+            @$conn->query("ALTER TABLE customers MODIFY COLUMN id_status VARCHAR(32) NOT NULL DEFAULT 'None'");
         }
     }
     if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_reject_reason'"))) {
         @$conn->query('ALTER TABLE customers ADD COLUMN id_reject_reason VARCHAR(500) DEFAULT NULL');
+    } else {
+        $rejectCol = db_query("SHOW COLUMNS FROM customers LIKE 'id_reject_reason'");
+        $rejectType = strtolower((string)($rejectCol[0]['Type'] ?? ''));
+        if (preg_match('/varchar\((\d+)\)/', $rejectType, $rejectMatch) && (int)($rejectMatch[1] ?? 0) < 500) {
+            @$conn->query('ALTER TABLE customers MODIFY COLUMN id_reject_reason VARCHAR(500) DEFAULT NULL');
+        }
     }
     if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_uploaded_at'"))) {
         @$conn->query('ALTER TABLE customers ADD COLUMN id_uploaded_at DATETIME NULL DEFAULT NULL');
@@ -393,6 +402,11 @@ function pf_persist_customer_id_verification(int $cid, string $action, string $r
 
     if ($affected < 0) {
         return ['ok' => false, 'row' => [], 'error' => 'Failed to update the customer ID status.'];
+    }
+
+    global $conn;
+    if ($conn instanceof mysqli) {
+        $conn->commit();
     }
 
     $verifyRows = db_query(
