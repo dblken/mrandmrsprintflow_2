@@ -25,6 +25,8 @@ $can_manage_customer_verification = (($current_user['role'] ?? '') === 'Admin');
 $viewerBranch = printflow_branch_filter_for_user();
 
 $search = trim((string)($_GET['search'] ?? ''));
+$date_from = trim((string)($_GET['date_from'] ?? ''));
+$date_to = trim((string)($_GET['date_to'] ?? ''));
 $status_filter = trim((string)($_GET['status_filter'] ?? ''));
 $upload_filter = trim((string)($_GET['upload_filter'] ?? ''));
 $sort_by = $_GET['sort'] ?? 'newest';
@@ -45,6 +47,18 @@ if ($search !== '') {
     $sql .= " AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR CONCAT(first_name, ' ', last_name) LIKE ?)";
     $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]);
     $types .= 'ssss';
+}
+
+if ($date_from !== '') {
+    $sql .= " AND DATE(created_at) >= ?";
+    $params[] = $date_from;
+    $types .= 's';
+}
+
+if ($date_to !== '') {
+    $sql .= " AND DATE(created_at) <= ?";
+    $params[] = $date_to;
+    $types .= 's';
 }
 
 [$statusSql, $statusTypes, $statusParams] = pf_customer_id_verification_sql_filter($status_filter, $upload_filter);
@@ -117,12 +131,12 @@ if (isset($_GET['ajax'])) {
                                 <?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>
                             </div>
                         </td>
-                        <td><?php echo htmlspecialchars($customer['id_type'] ?: ($has_id ? 'Not specified' : '—')); ?></td>
+                        <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo (int)$customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Review</button>
-                            <a href="<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo (int)$customer['customer_id']; ?>" class="btn-action teal" onclick="event.stopPropagation()">Profile</a>
+                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action teal">Profile</button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -134,6 +148,8 @@ if (isset($_GET['ajax'])) {
     ob_start();
     $pagination_params = array_filter([
         'search' => $search,
+        'date_from' => $date_from,
+        'date_to' => $date_to,
         'status_filter' => $status_filter,
         'upload_filter' => $upload_filter,
         'sort' => $sort_by,
@@ -146,7 +162,7 @@ if (isset($_GET['ajax'])) {
         'table' => $table_html,
         'pagination' => $pagination_html,
         'count' => number_format($total_filtered),
-        'badge' => count(array_filter([$search, $status_filter, $upload_filter])),
+        'badge' => count(array_filter([$search, $date_from, $date_to, $status_filter])),
     ]);
     exit;
 }
@@ -215,25 +231,35 @@ $page_title = 'Customer Verification - Admin';
         .btn-action.teal:hover { background:#14b8a6; color:#fff; }
         .btn-action.blue { color:#3b82f6; border-color:#3b82f6; }
         .btn-action.blue:hover { background:#3b82f6; color:#fff; }
+        .orders-table td.actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:nowrap; }
+        .orders-table td.actions .btn-action { min-height:30px; height:30px; padding:0 12px; box-sizing:border-box; line-height:1; font-family:inherit; white-space:nowrap; }
         .toolbar-btn { display:inline-flex; align-items:center; gap:8px; padding:0 16px; height:38px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; color:#374151; font-size:13px; font-weight:500; cursor:pointer; transition:all .2s; }
         .toolbar-btn:hover { background:#f9fafb; border-color:#d1d5db; }
         .toolbar-btn.active { background:#f0fdfa; border-color:#0d9488; color:#0d9488; }
-        .sort-dropdown, .filter-panel { position:absolute; top:calc(100% + 6px); right:0; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; padding:6px 0; overflow:hidden; }
-        .sort-dropdown { min-width:220px; }
-        .filter-panel { width:300px; }
-        .sort-option { display:flex; align-items:center; gap:8px; padding:9px 16px; font-size:13px; color:#374151; cursor:pointer; }
+        .sort-dropdown { position:absolute; top:calc(100% + 6px); right:0; min-width:200px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; padding:6px 0; overflow:hidden; }
+        .sort-option { display:flex; align-items:center; gap:8px; padding:9px 16px; font-size:13px; color:#374151; cursor:pointer; transition:background .1s; }
         .sort-option:hover { background:#f9fafb; }
         .sort-option.selected { color:#0d9488; font-weight:600; background:#f0fdfa; }
         .sort-option .check { margin-left:auto; color:#0d9488; }
+        .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:300px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; overflow:hidden; }
         .filter-panel-header { padding:14px 18px; border-bottom:1px solid #f3f4f6; font-size:14px; font-weight:700; color:#111827; }
         .filter-section { padding:14px 18px; border-bottom:1px solid #f3f4f6; }
-        .filter-section-label { font-size:13px; font-weight:600; color:#374151; margin-bottom:8px; display:block; }
-        .filter-input { width:100%; height:38px; padding:0 12px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; }
+        .filter-section:last-of-type { border-bottom:none; }
+        .filter-section-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+        .filter-section-label { font-size:13px; font-weight:600; color:#374151; }
+        .filter-reset-link { font-size:12px; font-weight:600; color:#0d9488; cursor:pointer; background:none; border:none; padding:0; }
+        .filter-reset-link:hover { text-decoration:underline; }
+        .filter-badge { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; background:#0d9488; color:#fff; font-size:10px; font-weight:700; border-radius:50%; margin-left:4px; }
+        .filter-input { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; font-size:13px; padding:0 10px; color:#1f2937; box-sizing:border-box; transition:border-color .15s; }
+        .filter-input:focus { outline:none; border-color:#0d9488; }
+        .filter-date-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .filter-date-label { font-size:11px; color:#6b7280; margin-bottom:4px; }
+        .filter-search-wrap { position:relative; }
+        .filter-search-input { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; font-size:13px; padding:0 12px; color:#1f2937; box-sizing:border-box; }
+        .filter-search-input:focus { outline:none; border-color:#0d9488; }
         .filter-actions { display:flex; gap:8px; padding:14px 18px; border-top:1px solid #f3f4f6; }
-        .filter-btn-reset, .filter-btn-apply { flex:1; height:36px; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; }
-        .filter-btn-reset { border:1px solid #e5e7eb; background:#fff; color:#374151; }
-        .filter-btn-apply { border:none; background:#0d9488; color:#fff; }
-        .filter-badge { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#0d9488; color:#fff; font-size:11px; font-weight:700; margin-left:4px; }
+        .filter-btn-reset { flex:1; height:36px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:500; color:#374151; cursor:pointer; }
+        .filter-btn-reset:hover { background:#f9fafb; }
         .orders-table { width:100%; border-collapse:collapse; font-size:13px; }
         .orders-table th { padding:12px 16px; font-size:13px; font-weight:600; color:#6b7280; text-align:left; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
         .orders-table td { padding:12px 16px; border-bottom:1px solid #f3f4f6; vertical-align:middle; color:#374151; }
@@ -264,56 +290,87 @@ $page_title = 'Customer Verification - Admin';
         <script>
             var searchDebounceTimer = null;
 
-            function buildVerificationFilterURL(overrides = {}, isAjax = false) {
+            function buildFilterURL(overrides = {}, isAjax = false) {
                 const params = new URLSearchParams(window.location.search);
+                params.delete('branch_id');
                 const fields = {
                     search: () => document.getElementById('fp_search')?.value || '',
+                    date_from: () => document.getElementById('fp_date_from')?.value || '',
+                    date_to: () => document.getElementById('fp_date_to')?.value || '',
                     status_filter: () => document.getElementById('fp_status_filter')?.value || '',
-                    upload_filter: () => document.getElementById('fp_upload_filter')?.value || '',
                 };
-                Object.keys(fields).forEach((key) => {
-                    const val = overrides[key] !== undefined ? overrides[key] : fields[key]();
-                    if (val) params.set(key, val); else params.delete(key);
-                });
-                if (overrides.sort !== undefined) {
-                    if (overrides.sort) params.set('sort', overrides.sort); else params.delete('sort');
+                for (const [key, getter] of Object.entries(fields)) {
+                    const val = (overrides[key] !== undefined) ? overrides[key] : getter();
+                    if (val) params.set(key, val);
+                    else params.delete(key);
                 }
-                params.delete('page');
+                if (overrides.upload_filter !== undefined) {
+                    if (overrides.upload_filter) params.set('upload_filter', overrides.upload_filter);
+                    else params.delete('upload_filter');
+                }
+                if (overrides.sort !== undefined) {
+                    if (overrides.sort && overrides.sort !== 'newest') params.set('sort', overrides.sort);
+                    else params.delete('sort');
+                }
                 if (isAjax) params.set('ajax', '1');
                 else params.delete('ajax');
-                return 'customer_verification.php' + (params.toString() ? '?' + params.toString() : '');
+                params.delete('page');
+                return window.location.pathname + '?' + params.toString();
             }
 
-            function applyVerificationSort(sortKey) {
-                const url = buildVerificationFilterURL({ sort: sortKey });
-                window.location.href = url;
+            async function fetchUpdatedTable(overrides = {}) {
+                const url = buildFilterURL(overrides, true);
+                try {
+                    const resp = await fetch(url);
+                    const data = await resp.json();
+                    if (data.success) {
+                        const tc = document.getElementById('verificationTableContainer');
+                        if (tc) {
+                            tc.innerHTML = data.table;
+                            if (typeof Alpine !== 'undefined' && typeof Alpine.initTree === 'function') {
+                                Alpine.initTree(tc);
+                            }
+                        }
+                        const pc = document.getElementById('verificationPagination');
+                        if (pc) pc.innerHTML = data.pagination;
+                        const bc = document.getElementById('filterBadgeContainer');
+                        if (bc) bc.innerHTML = data.badge > 0 ? `<span class="filter-badge">${data.badge}</span>` : '';
+                        const countEl = document.getElementById('verificationCountLabel');
+                        if (countEl) countEl.textContent = data.count + ' records';
+                        window.dispatchEvent(new CustomEvent('filter-badge-update', { detail: { badge: data.badge } }));
+                        const displayUrl = buildFilterURL(overrides, false);
+                        window.history.replaceState({ path: displayUrl }, '', displayUrl);
+                    }
+                } catch (e) { console.error('Error updating table:', e); }
+            }
+
+            function applyFilters(resetAll = false) {
+                if (resetAll) {
+                    window.location.href = window.location.pathname;
+                } else {
+                    fetchUpdatedTable();
+                }
+            }
+
+            function applySortFilter(sortKey) {
+                window.dispatchEvent(new CustomEvent('sort-changed', { detail: { sortKey } }));
+                fetchUpdatedTable({ sort: sortKey });
+            }
+
+            function resetFilterField(fields) {
+                fields.forEach(f => {
+                    const el = document.getElementById('fp_' + f);
+                    if (el) el.value = '';
+                });
+                fetchUpdatedTable();
             }
 
             function applyVerificationKpiFilter(status, upload) {
-                const url = buildVerificationFilterURL({ status_filter: status, upload_filter: upload });
-                window.location.href = url;
+                fetchUpdatedTable({ status_filter: status, upload_filter: upload });
             }
 
-            async function fetchUpdatedVerificationTable() {
-                const url = buildVerificationFilterURL({}, true);
-                try {
-                    const res = await fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-                    const data = await res.json();
-                    if (!data.success) return;
-                    const container = document.getElementById('verificationTableContainer');
-                    const pagination = document.getElementById('verificationPagination');
-                    if (container) container.innerHTML = data.table;
-                    if (pagination) pagination.innerHTML = data.pagination;
-                    const badge = document.getElementById('filterBadgeContainer');
-                    if (badge) {
-                        badge.innerHTML = data.badge > 0 ? '<span class="filter-badge">' + data.badge + '</span>' : '';
-                    }
-                    const countEl = document.getElementById('verificationCountLabel');
-                    if (countEl) countEl.textContent = data.count + ' records';
-                } catch (e) {
-                    console.error(e);
-                }
-            }
+            var _activeSortKey = '<?php echo $sort_by; ?>';
+            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter)) ? 'true' : 'false'; ?>;
 
             function verificationModal() {
                 return {
@@ -321,10 +378,19 @@ $page_title = 'Customer Verification - Admin';
                     loading: false,
                     errorMsg: '',
                     customer: null,
+                    filterOpen: false,
+                    sortOpen: false,
+                    activeSort: _activeSortKey,
+                    hasActiveFilters: _hasActiveFilters,
                     idActionCsrfToken: <?php echo json_encode(generate_csrf_token()); ?>,
                     idActionSelection: '',
                     idRejectReason: '',
                     idRejectReasonOther: '',
+
+                    init() {
+                        window.addEventListener('filter-badge-update', e => { this.hasActiveFilters = (e.detail.badge > 0); });
+                        window.addEventListener('sort-changed', e => { this.activeSort = e.detail.sortKey; this.sortOpen = false; });
+                    },
 
                     getCustomerFromRow(sourceEl, fallbackId) {
                         const host = sourceEl?.closest?.('[data-customer]') || document.querySelector('[data-customer-id="' + fallbackId + '"]');
@@ -420,7 +486,7 @@ $page_title = 'Customer Verification - Admin';
                                         : (action === 'approve' ? '' : rejectReason),
                                 };
                                 this.resetIdActionForm();
-                                fetchUpdatedVerificationTable();
+                                fetchUpdatedTable();
                                 return;
                             }
                             if (data.code === 'csrf_mismatch' && data.csrf_token && attempt === 0) {
@@ -487,18 +553,30 @@ $page_title = 'Customer Verification - Admin';
             }
             autoOpenVerificationFromQuery();
 
-            document.addEventListener('DOMContentLoaded', function () {
+            function printflowInitVerificationPage() {
                 const searchInput = document.getElementById('fp_search');
                 if (searchInput && !searchInput._pf_bound) {
                     searchInput._pf_bound = true;
                     searchInput.addEventListener('input', function () {
                         clearTimeout(searchDebounceTimer);
-                        searchDebounceTimer = setTimeout(function () {
-                            fetchUpdatedVerificationTable();
-                        }, 500);
+                        searchDebounceTimer = setTimeout(function () { fetchUpdatedTable(); }, 500);
                     });
                 }
-            });
+                ['fp_date_from', 'fp_date_to', 'fp_status_filter'].forEach(function (id) {
+                    const el = document.getElementById(id);
+                    if (el && !el._pf_bound) {
+                        el._pf_bound = true;
+                        el.addEventListener('change', function () { fetchUpdatedTable(); });
+                    }
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', printflowInitVerificationPage);
+            } else {
+                printflowInitVerificationPage();
+            }
+            document.addEventListener('printflow:page-init', printflowInitVerificationPage);
         </script>
 
         <main x-data="verificationModal()">
@@ -538,8 +616,11 @@ $page_title = 'Customer Verification - Admin';
                         <p id="verificationCountLabel" style="font-size:12px;color:#6b7280;margin:4px 0 0;"><?php echo number_format($total_filtered); ?> records</p>
                     </div>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                        <div style="position:relative;" x-data="{ sortOpen: false, activeSort: '<?php echo htmlspecialchars($sort_by, ENT_QUOTES); ?>' }">
-                            <button type="button" class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false" style="height:38px;">
+                        <div style="position:relative;">
+                            <button type="button" class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false" id="sortBtn" style="height:38px;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
+                                </svg>
                                 Sort by
                             </button>
                             <div class="sort-dropdown" x-show="sortOpen" x-cloak @click.outside="sortOpen = false">
@@ -552,32 +633,56 @@ $page_title = 'Customer Verification - Admin';
                                     'za' => 'Z → A',
                                 ];
                                 foreach ($sorts as $key => $label): ?>
-                                <div class="sort-option <?php echo $sort_by === $key ? 'selected' : ''; ?>" onclick="applyVerificationSort('<?php echo $key; ?>')">
+                                <div class="sort-option"
+                                     :class="{ 'selected': activeSort === '<?php echo $key; ?>' }"
+                                     onclick="applySortFilter('<?php echo $key; ?>')">
                                     <?php echo htmlspecialchars($label); ?>
+                                    <svg x-show="activeSort === '<?php echo $key; ?>'" class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                                 </div>
                                 <?php endforeach; ?>
                             </div>
                         </div>
 
-                        <div style="position:relative;" x-data="{ filterOpen: false, hasActiveFilters: <?php echo json_encode($search !== '' || $status_filter !== '' || $upload_filter !== ''); ?> }">
-                            <button type="button" class="toolbar-btn" :class="{ active: filterOpen || hasActiveFilters }" @click="filterOpen = !filterOpen" style="height:38px;">
+                        <div style="position:relative;">
+                            <button class="toolbar-btn" :class="{ active: filterOpen || hasActiveFilters }" @click="filterOpen = !filterOpen; sortOpen = false" id="filterBtn" style="height:38px;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                                </svg>
                                 Filter
                                 <span id="filterBadgeContainer">
                                     <?php
-                                    $active_filters_count = count(array_filter([$search, $status_filter, $upload_filter]));
+                                    $active_filters_count = count(array_filter([$search, $date_from, $date_to, $status_filter], function ($v) { return $v !== null && $v !== ''; }));
                                     if ($active_filters_count > 0): ?>
                                     <span class="filter-badge"><?php echo $active_filters_count; ?></span>
                                     <?php endif; ?>
                                 </span>
                             </button>
-                            <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
-                                <div class="filter-panel-header">Filter verification records</div>
+
+                            <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" id="filterPanel">
+                                <div class="filter-panel-header">Filter</div>
+
                                 <div class="filter-section">
-                                    <label class="filter-section-label" for="fp_search">Search</label>
-                                    <input type="text" id="fp_search" class="filter-input" placeholder="Name or email" value="<?php echo htmlspecialchars($search); ?>">
+                                    <div class="filter-section-head">
+                                        <span class="filter-section-label">Date range</span>
+                                        <button class="filter-reset-link" onclick="resetFilterField(['date_from','date_to'])">Reset</button>
+                                    </div>
+                                    <div class="filter-date-row">
+                                        <div>
+                                            <div class="filter-date-label">From:</div>
+                                            <input type="date" id="fp_date_from" class="filter-input" value="<?php echo htmlspecialchars($date_from); ?>">
+                                        </div>
+                                        <div>
+                                            <div class="filter-date-label">To:</div>
+                                            <input type="date" id="fp_date_to" class="filter-input" value="<?php echo htmlspecialchars($date_to); ?>">
+                                        </div>
+                                    </div>
                                 </div>
+
                                 <div class="filter-section">
-                                    <label class="filter-section-label" for="fp_status_filter">Verification status</label>
+                                    <div class="filter-section-head">
+                                        <span class="filter-section-label">Verification status</span>
+                                        <button class="filter-reset-link" onclick="resetFilterField(['status_filter'])">Reset</button>
+                                    </div>
                                     <select id="fp_status_filter" class="filter-input">
                                         <option value="">All statuses</option>
                                         <option value="Pending" <?php echo $status_filter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
@@ -585,17 +690,19 @@ $page_title = 'Customer Verification - Admin';
                                         <option value="Rejected" <?php echo $status_filter === 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
                                     </select>
                                 </div>
+
                                 <div class="filter-section">
-                                    <label class="filter-section-label" for="fp_upload_filter">ID upload</label>
-                                    <select id="fp_upload_filter" class="filter-input">
-                                        <option value="">All customers</option>
-                                        <option value="with_id" <?php echo $upload_filter === 'with_id' ? 'selected' : ''; ?>>With ID image</option>
-                                        <option value="without_id" <?php echo $upload_filter === 'without_id' ? 'selected' : ''; ?>>Without ID image</option>
-                                    </select>
+                                    <div class="filter-section-head">
+                                        <span class="filter-section-label">Keyword search</span>
+                                        <button class="filter-reset-link" onclick="resetFilterField(['search'])">Reset</button>
+                                    </div>
+                                    <div class="filter-search-wrap">
+                                        <input type="text" id="fp_search" class="filter-search-input" placeholder="Search..." value="<?php echo htmlspecialchars($search); ?>">
+                                    </div>
                                 </div>
+
                                 <div class="filter-actions">
-                                    <button type="button" class="filter-btn-reset" onclick="window.location.href='customer_verification.php'">Reset</button>
-                                    <button type="button" class="filter-btn-apply" onclick="window.location.href=buildVerificationFilterURL()">Apply</button>
+                                    <button type="button" class="filter-btn-reset" style="width:100%;" onclick="applyFilters(true)">Reset all filters</button>
                                 </div>
                             </div>
                         </div>
@@ -642,12 +749,12 @@ $page_title = 'Customer Verification - Admin';
                                                 <?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>
                                             </div>
                                         </td>
-                                        <td><?php echo htmlspecialchars($customer['id_type'] ?: ($has_id ? 'Not specified' : '—')); ?></td>
+                                        <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
                                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
                                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo (int)$customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Review</button>
-                                            <a href="<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo (int)$customer['customer_id']; ?>" class="btn-action teal" onclick="event.stopPropagation()">Profile</a>
+                                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action teal">Profile</button>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -659,6 +766,8 @@ $page_title = 'Customer Verification - Admin';
                     <?php
                     $pagination_params = array_filter([
                         'search' => $search,
+                        'date_from' => $date_from,
+                        'date_to' => $date_to,
                         'status_filter' => $status_filter,
                         'upload_filter' => $upload_filter,
                         'sort' => $sort_by,

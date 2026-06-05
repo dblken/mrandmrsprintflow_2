@@ -17,6 +17,31 @@ if (!defined('PF_CUSTOMER_ID_REJECTION_OPTIONS')) {
     ]);
 }
 
+function pf_decode_display_text(string $text): string
+{
+    $text = trim($text);
+    if ($text === '') {
+        return '';
+    }
+
+    $decoded = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (str_contains($decoded, '&')) {
+        $decoded = html_entity_decode($decoded, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
+    return $decoded;
+}
+
+function pf_format_id_type_display(?string $id_type, bool $has_id = true): string
+{
+    $decoded = pf_decode_display_text((string)($id_type ?? ''));
+    if ($decoded === '') {
+        return $has_id ? 'Not specified' : '—';
+    }
+
+    return $decoded;
+}
+
 function pf_customer_id_status_normalize($status): string
 {
     $raw = trim((string)$status);
@@ -99,10 +124,10 @@ function pf_build_customer_verification_payload(array $customer, string $base_pa
         'email' => (string)($customer['email'] ?? ''),
         'contact_number' => (string)($customer['contact_number'] ?? ''),
         'created_at' => !empty($customer['created_at']) ? format_date($customer['created_at']) : '',
-        'id_type' => (string)($customer['id_type'] ?? ''),
+        'id_type' => pf_decode_display_text((string)($customer['id_type'] ?? '')),
         'id_status' => pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending'),
         'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
-        'id_reject_reason' => (string)($customer['id_reject_reason'] ?? ''),
+        'id_reject_reason' => pf_decode_display_text((string)($customer['id_reject_reason'] ?? '')),
         'has_id_image' => $id_image_raw !== '',
     ];
 }

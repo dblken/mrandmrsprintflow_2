@@ -52,9 +52,9 @@ function pf_build_customer_modal_payload(array $customer, string $base_path): ar
         'profile_picture' => $profile_picture_raw !== '' ? $base_path . '/public/assets/uploads/profiles/' . ltrim($profile_picture_raw, '/') : null,
         'initial' => strtoupper(substr($first_name, 0, 1)),
         'id_status' => pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending'),
-        'id_type' => (string)($customer['id_type'] ?? ''),
+        'id_type' => pf_decode_display_text((string)($customer['id_type'] ?? '')),
+        'id_reject_reason' => pf_decode_display_text((string)($customer['id_reject_reason'] ?? '')),
         'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
-        'id_reject_reason' => (string)($customer['id_reject_reason'] ?? ''),
         'sign_in' => pf_admin_customer_sign_in_label($customer),
     ];
 }
@@ -200,7 +200,7 @@ if (isset($_GET['ajax'])) {
                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
-                            <a href="<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>" class="btn-action amber" onclick="event.stopPropagation()">Verify</a>
+                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
                             <button type="button" onclick="event.stopPropagation();openTransactionModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action teal">Transactions</button>
                         </td>
                     </tr>
@@ -351,6 +351,22 @@ $page_title = 'Customers Management - Admin';
         .btn-action.red:hover { background: #ef4444; color: white; }
         .btn-action.amber { color: #d97706; border-color: #d97706; }
         .btn-action.amber:hover { background: #d97706; color: white; }
+        .orders-table td.actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+        .orders-table td.actions .btn-action {
+            min-height: 30px;
+            height: 30px;
+            padding: 0 12px;
+            box-sizing: border-box;
+            line-height: 1;
+            font-family: inherit;
+            white-space: nowrap;
+        }
 
         /* Toolbar Buttons */
         .toolbar-btn {
@@ -1150,7 +1166,7 @@ $page_title = 'Customers Management - Admin';
                                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
-                                            <a href="<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>" class="btn-action amber" onclick="event.stopPropagation()">Verify</a>
+                                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
                                             <button type="button" onclick="event.stopPropagation();openTransactionModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action teal">Transactions</button>
                                         </td>
                                     </tr>

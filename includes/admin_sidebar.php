@@ -352,7 +352,7 @@ document.addEventListener('click', function(event) {
         }
     }
 
-    function printflowSyncCustomersNavGroup() {
+    function printflowSyncCustomersNavActiveOnly() {
         var group = document.querySelector('[data-nav-group="customers"]');
         if (!group) return;
 
@@ -367,19 +367,24 @@ document.addEventListener('click', function(event) {
 
         var parent = group.querySelector('.nav-parent');
         if (parent) parent.classList.toggle('active', anyActive);
-
-        if (anyActive) {
-            printflowSetCustomersNavExpanded(group, true, false);
-        } else {
-            var saved = null;
-            try { saved = sessionStorage.getItem('printflow_nav_customers_expanded'); } catch (e) {}
-            printflowSetCustomersNavExpanded(group, saved === '1', false);
-        }
     }
 
     function printflowInitCustomersNavGroup() {
         var group = document.querySelector('[data-nav-group="customers"]');
         if (!group) return;
+
+        if (group.dataset.pfNavInitDone !== '1') {
+            group.dataset.pfNavInitDone = '1';
+            if (!group.classList.contains('expanded')) {
+                try {
+                    if (sessionStorage.getItem('printflow_nav_customers_expanded') === '1') {
+                        group.classList.add('expanded');
+                        var initBtn = group.querySelector('[data-nav-toggle]');
+                        if (initBtn) initBtn.setAttribute('aria-expanded', 'true');
+                    }
+                } catch (e) {}
+            }
+        }
 
         var btn = group.querySelector('[data-nav-toggle]');
         if (btn && btn.dataset.pfNavBound !== '1') {
@@ -390,11 +395,11 @@ document.addEventListener('click', function(event) {
             });
         }
 
-        printflowSyncCustomersNavGroup();
+        printflowSyncCustomersNavActiveOnly();
     }
 
     document.addEventListener('DOMContentLoaded', printflowInitCustomersNavGroup);
-    document.addEventListener('printflow:page-init', printflowSyncCustomersNavGroup);
+    document.addEventListener('printflow:page-init', printflowSyncCustomersNavActiveOnly);
 
     document.addEventListener('DOMContentLoaded', function() {
         var nav = document.querySelector('#printflow-persistent-sidebar .sidebar-nav') || document.querySelector('.sidebar-nav');

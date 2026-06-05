@@ -54,18 +54,15 @@
         } catch (e) { return ''; }
     }
 
-    /* ─── Sidebar active-state sync ──────────────────────────────────────── */
-    function printflowSyncSidebarNavFromPath() {
+    /* ─── Sidebar active-state sync (never toggles submenu expand/collapse) ─ */
+    function printflowSyncSidebarNavActiveOnly() {
         var live = document.getElementById('printflow-persistent-sidebar');
         if (!live) return;
 
         var current = normPath(window.location.href);
-        var matchedTop = false;
 
         live.querySelectorAll('a.nav-item').forEach(function (a) {
-            var isActive = normPath(a.href) === current;
-            a.classList.toggle('active', isActive);
-            if (isActive) matchedTop = true;
+            a.classList.toggle('active', normPath(a.href) === current);
         });
 
         var customersGroup = live.querySelector('[data-nav-group="customers"]');
@@ -79,11 +76,6 @@
 
             var parent = customersGroup.querySelector('.nav-parent');
             if (parent) parent.classList.toggle('active', anySubActive);
-
-            if (anySubActive) {
-                customersGroup.classList.add('expanded');
-                if (parent) parent.setAttribute('aria-expanded', 'true');
-            }
         }
     }
 
@@ -103,12 +95,8 @@
             });
             var group = live.querySelector('[data-nav-group="customers"]');
             if (group) {
-                group.classList.add('expanded');
                 var parent = group.querySelector('.nav-parent');
-                if (parent) {
-                    parent.classList.add('active');
-                    parent.setAttribute('aria-expanded', 'true');
-                }
+                if (parent) parent.classList.toggle('active', true);
             }
             return;
         }
@@ -121,7 +109,7 @@
         });
     });
 
-    document.addEventListener('turbo:load', printflowSyncSidebarNavFromPath);
+    document.addEventListener('turbo:load', printflowSyncSidebarNavActiveOnly);
 
     /* ─── Alpine: tear down only the swapped main column (not the whole body) ─
      * destroyTree(document.body) broke persistent sidebar + raced inline <script>
