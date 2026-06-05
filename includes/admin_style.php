@@ -1000,30 +1000,34 @@ endif; ?>
     }
 
     .nav-subitems {
+        display: none;
+        margin: 0 10px 6px;
+        padding: 4px 0 4px 0;
         position: relative;
-        margin: 2px 0 6px 27px;
-        padding: 2px 0 4px 14px;
-        border-left: 1px solid rgba(148, 200, 212, 0.3);
-        max-height: 0;
-        overflow: hidden;
-        opacity: 0;
-        pointer-events: none;
-        transition: max-height 0.22s ease, opacity 0.18s ease;
     }
 
     .nav-group.expanded .nav-subitems {
-        max-height: 120px;
-        opacity: 1;
-        pointer-events: auto;
+        display: block;
+    }
+
+    .nav-subitems::before {
+        content: '';
+        position: absolute;
+        left: 18px;
+        top: 8px;
+        bottom: 8px;
+        width: 1px;
+        background: rgba(148, 200, 212, 0.28);
+        pointer-events: none;
     }
 
     .nav-subitem {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 7px 12px 7px 10px;
+        padding: 8px 14px 8px 34px;
         margin: 2px 0;
-        border-radius: 8px;
+        border-radius: 10px;
         color: rgba(200, 230, 238, 0.78);
         font-size: 13px;
         font-weight: 600;
@@ -1035,23 +1039,23 @@ endif; ?>
     .nav-subitem::before {
         content: '';
         position: absolute;
-        left: -14px;
+        left: 18px;
         top: 50%;
         width: 10px;
         height: 1px;
-        background: rgba(148, 200, 212, 0.3);
+        background: rgba(148, 200, 212, 0.28);
         transform: translateY(-50%);
     }
 
     .nav-subitem:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.06);
         color: #f0fafc;
     }
 
     .nav-subitem.active {
-        background: linear-gradient(135deg, rgba(240, 253, 250, 0.14) 0%, rgba(224, 242, 244, 0.1) 100%);
-        color: #f8fffe;
-        box-shadow: inset 2px 0 0 rgba(240, 253, 250, 0.85);
+        background: linear-gradient(135deg, #f0fdfa 0%, #e0f2f4 45%, #d8eef2 100%);
+        color: #00232b;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
     }
 
     .nav-subitem .nav-badge {
@@ -1059,9 +1063,7 @@ endif; ?>
     }
 
     .sidebar.collapsed .nav-group .nav-subitems {
-        max-height: 0 !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
+        display: none !important;
     }
 
     .sidebar.collapsed .nav-group .nav-chevron {

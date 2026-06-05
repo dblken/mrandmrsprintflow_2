@@ -24,12 +24,16 @@ $current_user = get_logged_in_user();
 $can_manage_customer_verification = (($current_user['role'] ?? '') === 'Admin');
 $viewerBranch = printflow_branch_filter_for_user();
 
+pf_ensure_customer_id_verification_columns();
+
 $search = trim((string)($_GET['search'] ?? ''));
 $date_from = trim((string)($_GET['date_from'] ?? ''));
 $date_to = trim((string)($_GET['date_to'] ?? ''));
 $status_filter = trim((string)($_GET['status_filter'] ?? ''));
 $upload_filter = trim((string)($_GET['upload_filter'] ?? ''));
-$sort_by = $_GET['sort'] ?? 'newest';
+$queue_filter = trim((string)($_GET['queue_filter'] ?? ''));
+$new_only = !empty($_GET['new_only']);
+$sort_by = $_GET['sort'] ?? 'latest_upload';
 $page = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 10;
 
@@ -37,31 +41,32 @@ $per_page = 10;
     ? branch_customers_belong_where_sql((int)$viewerBranch, 'customers')
     : ['', '', []];
 
-$sql = "SELECT customer_id, first_name, last_name, email, contact_number, id_type, id_image, id_status, id_reject_reason, created_at
+$sql = "SELECT customer_id, first_name, last_name, email, contact_number, id_type, id_image, id_status, id_reject_reason, id_uploaded_at, id_reviewed_at, created_at
         FROM customers WHERE 1=1" . $custBranchSql;
 $params = $custBranchParams;
 $types = $custBranchTypes;
 
 if ($search !== '') {
     $search_term = '%' . $search . '%';
-    $sql .= " AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR CONCAT(first_name, ' ', last_name) LIKE ?)";
-    $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]);
-    $types .= 'ssss';
+    $sql .= " AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR CONCAT(first_name, ' ', last_name) LIKE ?
+              OR id_type LIKE ? OR CAST(customer_id AS CHAR) LIKE ?)";
+    $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term, $search_term, $search_term]);
+    $types .= 'ssssss';
 }
 
 if ($date_from !== '') {
-    $sql .= " AND DATE(created_at) >= ?";
+    $sql .= ' AND DATE(COALESCE(id_uploaded_at, created_at)) >= ?';
     $params[] = $date_from;
     $types .= 's';
 }
 
 if ($date_to !== '') {
-    $sql .= " AND DATE(created_at) <= ?";
+    $sql .= ' AND DATE(COALESCE(id_uploaded_at, created_at)) <= ?';
     $params[] = $date_to;
     $types .= 's';
 }
 
-[$statusSql, $statusTypes, $statusParams] = pf_customer_id_verification_sql_filter($status_filter, $upload_filter);
+[$statusSql, $statusTypes, $statusParams] = pf_customer_id_verification_sql_filter($status_filter, $upload_filter, $queue_filter, $new_only);
 $sql .= $statusSql;
 $params = array_merge($params, $statusParams);
 $types .= $statusTypes;
@@ -72,22 +77,9 @@ $total_pages = max(1, (int)ceil($total_filtered / $per_page));
 $page = min($page, $total_pages);
 $offset = ($page - 1) * $per_page;
 
-$sort_clause = match ($sort_by) {
-    'oldest' => ' ORDER BY created_at ASC',
-    'az' => ' ORDER BY first_name ASC, last_name ASC',
-    'za' => ' ORDER BY first_name DESC, last_name DESC',
-    'pending_first' => " ORDER BY CASE
-        WHEN (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))
-             AND id_image IS NOT NULL AND TRIM(id_image) <> '' THEN 0
-        WHEN COALESCE(NULLIF(id_status, ''), 'Pending') = 'Pending' THEN 1
-        WHEN id_status = 'Rejected' THEN 2
-        WHEN id_status = 'Verified' THEN 3
-        ELSE 4 END, created_at DESC",
-    default => ' ORDER BY created_at DESC',
-};
-
-$sql .= $sort_clause . " LIMIT $per_page OFFSET $offset";
+$sql .= pf_customer_verification_sort_clause($sort_by) . " LIMIT $per_page OFFSET $offset";
 $customers = db_query($sql, $types, $params);
+$status_counts = pf_customer_verification_status_counts($custBranchSql, $custBranchTypes, $custBranchParams);
 
 if (isset($_GET['ajax'])) {
     ob_start();
@@ -99,48 +91,14 @@ if (isset($_GET['ajax'])) {
                 <th>Customer</th>
                 <th>Email</th>
                 <th>ID Type</th>
+                <th>Uploaded</th>
                 <th>Registered</th>
                 <th>Status</th>
                 <th style="text-align:right;" class="no-print">Actions</th>
             </tr>
         </thead>
         <tbody id="verificationTableBody">
-            <?php if (empty($customers)): ?>
-                <tr id="emptyVerificationRow">
-                    <td colspan="7" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td>
-                </tr>
-            <?php else: ?>
-                <tr id="emptyVerificationRow" style="display:none;">
-                    <td colspan="7" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td>
-                </tr>
-                <?php foreach ($customers as $customer):
-                    $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
-                    $status_style = pf_customer_id_status_badge_style($id_status);
-                    $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
-                    $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
-                ?>
-                    <tr class="verification-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $payload_attr; ?>" onclick="openVerificationModal(<?php echo (int)$customer['customer_id']; ?>, this)">
-                        <td style="color:#1f2937;"><?php echo (int)$customer['customer_id']; ?></td>
-                        <td style="font-weight:500;color:#1f2937;">
-                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(trim($customer['first_name'] . ' ' . $customer['last_name'])); ?>">
-                                <?php echo htmlspecialchars(trim($customer['first_name'] . ' ' . $customer['last_name'])); ?>
-                            </div>
-                        </td>
-                        <td style="text-transform:lowercase;">
-                            <div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>">
-                                <?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>
-                            </div>
-                        </td>
-                        <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
-                        <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
-                        <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                            <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo (int)$customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Review</button>
-                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action teal">Profile</button>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
+            <?php echo pf_render_verification_table_rows($customers, $base_path); ?>
         </tbody>
     </table>
     <?php
@@ -152,6 +110,8 @@ if (isset($_GET['ajax'])) {
         'date_to' => $date_to,
         'status_filter' => $status_filter,
         'upload_filter' => $upload_filter,
+        'queue_filter' => $queue_filter,
+        'new_only' => $new_only ? '1' : '',
         'sort' => $sort_by,
     ], static fn($v) => $v !== null && $v !== '');
     echo render_pagination($page, $total_pages, $pagination_params);
@@ -162,38 +122,20 @@ if (isset($_GET['ajax'])) {
         'table' => $table_html,
         'pagination' => $pagination_html,
         'count' => number_format($total_filtered),
-        'badge' => count(array_filter([$search, $date_from, $date_to, $status_filter])),
+        'badge' => count(array_filter([$search, $date_from, $date_to, $status_filter, $queue_filter, $new_only ? '1' : ''])),
+        'status_counts' => $status_counts,
     ]);
     exit;
 }
 
-$kpi_base_sql = "SELECT COUNT(*) as c FROM customers WHERE 1=1" . $custBranchSql;
-$kpi_types = $custBranchTypes;
-$kpi_params = $custBranchParams;
-
-$pending_review = (int)(db_query(
-    $kpi_base_sql . " AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))
-     AND id_image IS NOT NULL AND TRIM(id_image) <> ''",
-    $kpi_types,
-    $kpi_params
-)[0]['c'] ?? 0);
-
-$verified_count = (int)(db_query(
-    $kpi_base_sql . " AND COALESCE(NULLIF(id_status, ''), 'Pending') = 'Verified'",
-    $kpi_types,
-    $kpi_params
-)[0]['c'] ?? 0);
-
-$rejected_count = (int)(db_query(
-    $kpi_base_sql . " AND id_status = 'Rejected'",
-    $kpi_types,
-    $kpi_params
-)[0]['c'] ?? 0);
-
+$pending_review = $status_counts['pending'];
+$verified_count = $status_counts['verified'];
+$rejected_count = $status_counts['rejected'];
+$new_submissions_count = $status_counts['new'];
 $no_id_count = (int)(db_query(
-    $kpi_base_sql . " AND (id_image IS NULL OR TRIM(id_image) = '')",
-    $kpi_types,
-    $kpi_params
+    'SELECT COUNT(*) AS c FROM customers WHERE 1=1' . $custBranchSql . ' AND (id_image IS NULL OR TRIM(id_image) = \'\')',
+    $custBranchTypes,
+    $custBranchParams
 )[0]['c'] ?? 0);
 
 $reviewed_flash = null;
@@ -266,6 +208,22 @@ $page_title = 'Customer Verification - Admin';
         .orders-table tbody tr { cursor:pointer; transition:background .1s; }
         .orders-table tbody tr:hover { background:#f9fafb; }
         .verification-row .actions { pointer-events:auto; }
+        .verification-row--new { background:#fffbeb; }
+        .verification-row--new:hover { background:#fef3c7 !important; }
+        .new-dot { display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:6px;vertical-align:middle;box-shadow:0 0 0 2px rgba(239,68,68,.2); }
+        .verification-status-tabs { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
+        .verification-status-tab { display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;color:#374151;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s; }
+        .verification-status-tab:hover { border-color:#d1d5db;background:#f9fafb; }
+        .verification-status-tab.active { background:#f0fdfa;border-color:#0d9488;color:#0f766e; }
+        .verification-status-tab .tab-badge { display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#f3f4f6;color:#4b5563;font-size:11px;font-weight:700; }
+        .verification-status-tab.active .tab-badge { background:#ccfbf1;color:#0f766e; }
+        .verification-status-tab.tab-pending.active .tab-badge { background:#fef3c7;color:#92400e; }
+        .verification-status-tab.tab-rejected.active .tab-badge { background:#fee2e2;color:#991b1b; }
+        .workflow-toggles { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px; }
+        .workflow-toggle { display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#374151;cursor:pointer; }
+        .workflow-toggle.active { background:#fff7ed;border-color:#f59e0b;color:#b45309; }
+        .workflow-toggle .toggle-dot { width:8px;height:8px;border-radius:50%;background:#d1d5db; }
+        .workflow-toggle.active .toggle-dot { background:#f59e0b; }
         [x-cloak] { display:none !important; }
         @keyframes spin { to { transform:rotate(360deg); } }
         .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
@@ -298,6 +256,7 @@ $page_title = 'Customer Verification - Admin';
                     date_from: () => document.getElementById('fp_date_from')?.value || '',
                     date_to: () => document.getElementById('fp_date_to')?.value || '',
                     status_filter: () => document.getElementById('fp_status_filter')?.value || '',
+                    queue_filter: () => document.getElementById('fp_queue_filter')?.value || '',
                 };
                 for (const [key, getter] of Object.entries(fields)) {
                     const val = (overrides[key] !== undefined) ? overrides[key] : getter();
@@ -308,8 +267,13 @@ $page_title = 'Customer Verification - Admin';
                     if (overrides.upload_filter) params.set('upload_filter', overrides.upload_filter);
                     else params.delete('upload_filter');
                 }
+                const newOnly = overrides.new_only !== undefined
+                    ? overrides.new_only
+                    : (document.getElementById('fp_new_only')?.value === '1');
+                if (newOnly) params.set('new_only', '1');
+                else params.delete('new_only');
                 if (overrides.sort !== undefined) {
-                    if (overrides.sort && overrides.sort !== 'newest') params.set('sort', overrides.sort);
+                    if (overrides.sort && overrides.sort !== 'latest_upload') params.set('sort', overrides.sort);
                     else params.delete('sort');
                 }
                 if (isAjax) params.set('ajax', '1');
@@ -337,6 +301,7 @@ $page_title = 'Customer Verification - Admin';
                         if (bc) bc.innerHTML = data.badge > 0 ? `<span class="filter-badge">${data.badge}</span>` : '';
                         const countEl = document.getElementById('verificationCountLabel');
                         if (countEl) countEl.textContent = data.count + ' records';
+                        if (data.status_counts) updateVerificationStatusTabs(data.status_counts);
                         window.dispatchEvent(new CustomEvent('filter-badge-update', { detail: { badge: data.badge } }));
                         const displayUrl = buildFilterURL(overrides, false);
                         window.history.replaceState({ path: displayUrl }, '', displayUrl);
@@ -366,11 +331,58 @@ $page_title = 'Customer Verification - Admin';
             }
 
             function applyVerificationKpiFilter(status, upload) {
-                fetchUpdatedTable({ status_filter: status, upload_filter: upload });
+                if (document.getElementById('fp_status_filter')) {
+                    document.getElementById('fp_status_filter').value = status;
+                }
+                fetchUpdatedTable({ status_filter: status, upload_filter: upload, queue_filter: '', new_only: false });
+            }
+
+            function applyStatusTab(status) {
+                if (document.getElementById('fp_status_filter')) {
+                    document.getElementById('fp_status_filter').value = status;
+                }
+                document.querySelectorAll('.verification-status-tab').forEach(function (tab) {
+                    tab.classList.toggle('active', (tab.dataset.status || '') === status);
+                });
+                fetchUpdatedTable({ status_filter: status });
+            }
+
+            function toggleQueueFilter() {
+                const input = document.getElementById('fp_queue_filter');
+                const btn = document.getElementById('queueToggleBtn');
+                const nextActive = input.value !== 'priority';
+                input.value = nextActive ? 'priority' : '';
+                if (btn) btn.classList.toggle('active', nextActive);
+                fetchUpdatedTable({ queue_filter: nextActive ? 'priority' : '' });
+            }
+
+            function toggleNewOnly() {
+                const input = document.getElementById('fp_new_only');
+                const btn = document.getElementById('newOnlyToggleBtn');
+                const nextActive = input.value !== '1';
+                input.value = nextActive ? '1' : '';
+                if (btn) btn.classList.toggle('active', nextActive);
+                fetchUpdatedTable({ new_only: nextActive });
+            }
+
+            function updateVerificationStatusTabs(counts) {
+                const map = {
+                    '': counts.all,
+                    Pending: counts.pending,
+                    Verified: counts.verified,
+                    Rejected: counts.rejected,
+                };
+                document.querySelectorAll('.verification-status-tab').forEach(function (tab) {
+                    const badge = tab.querySelector('.tab-badge');
+                    const key = tab.dataset.status || '';
+                    if (badge && map[key] !== undefined) badge.textContent = map[key];
+                });
+                const newBadge = document.getElementById('newSubmissionsBadge');
+                if (newBadge && counts.new !== undefined) newBadge.textContent = counts.new;
             }
 
             var _activeSortKey = '<?php echo $sort_by; ?>';
-            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter)) ? 'true' : 'false'; ?>;
+            var _hasActiveFilters = <?php echo (!empty($search) || !empty($date_from) || !empty($date_to) || !empty($status_filter) || !empty($queue_filter) || $new_only) ? 'true' : 'false'; ?>;
 
             function verificationModal() {
                 return {
@@ -609,15 +621,18 @@ $page_title = 'Customer Verification - Admin';
                 </a>
             </div>
 
+            <input type="hidden" id="fp_queue_filter" value="<?php echo htmlspecialchars($queue_filter); ?>">
+            <input type="hidden" id="fp_new_only" value="<?php echo $new_only ? '1' : ''; ?>">
+
             <div class="card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
                     <div>
                         <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">Verification Requests</h3>
                         <p id="verificationCountLabel" style="font-size:12px;color:#6b7280;margin:4px 0 0;"><?php echo number_format($total_filtered); ?> records</p>
                     </div>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                         <div style="position:relative;">
-                            <button type="button" class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'newest') }" @click="sortOpen = !sortOpen; filterOpen = false" id="sortBtn" style="height:38px;">
+                            <button type="button" class="toolbar-btn" :class="{ active: sortOpen || (activeSort !== 'latest_upload') }" @click="sortOpen = !sortOpen; filterOpen = false" id="sortBtn" style="height:38px;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
                                 </svg>
@@ -626,8 +641,8 @@ $page_title = 'Customer Verification - Admin';
                             <div class="sort-dropdown" x-show="sortOpen" x-cloak @click.outside="sortOpen = false">
                                 <?php
                                 $sorts = [
-                                    'pending_first' => 'Pending first',
-                                    'newest' => 'Newest to Oldest',
+                                    'latest_upload' => 'Latest Upload',
+                                    'priority_first' => 'Priority Queue',
                                     'oldest' => 'Oldest to Newest',
                                     'az' => 'A → Z',
                                     'za' => 'Z → A',
@@ -686,7 +701,7 @@ $page_title = 'Customer Verification - Admin';
                                     <select id="fp_status_filter" class="filter-input">
                                         <option value="">All statuses</option>
                                         <option value="Pending" <?php echo $status_filter === 'Pending' ? 'selected' : ''; ?>>Pending</option>
-                                        <option value="Verified" <?php echo $status_filter === 'Verified' ? 'selected' : ''; ?>>Verified</option>
+                                        <option value="Verified" <?php echo $status_filter === 'Verified' ? 'selected' : ''; ?>>Approved</option>
                                         <option value="Rejected" <?php echo $status_filter === 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
                                     </select>
                                 </div>
@@ -709,6 +724,30 @@ $page_title = 'Customer Verification - Admin';
                     </div>
                 </div>
 
+                <div class="verification-status-tabs">
+                    <button type="button" class="verification-status-tab <?php echo $status_filter === '' ? 'active' : ''; ?>" data-status="" onclick="applyStatusTab('')">
+                        All <span class="tab-badge"><?php echo (int)$status_counts['all']; ?></span>
+                    </button>
+                    <button type="button" class="verification-status-tab tab-pending <?php echo $status_filter === 'Pending' ? 'active' : ''; ?>" data-status="Pending" onclick="applyStatusTab('Pending')">
+                        Pending <span class="tab-badge"><?php echo (int)$status_counts['pending']; ?></span>
+                    </button>
+                    <button type="button" class="verification-status-tab <?php echo $status_filter === 'Verified' ? 'active' : ''; ?>" data-status="Verified" onclick="applyStatusTab('Verified')">
+                        Approved <span class="tab-badge"><?php echo (int)$status_counts['verified']; ?></span>
+                    </button>
+                    <button type="button" class="verification-status-tab tab-rejected <?php echo $status_filter === 'Rejected' ? 'active' : ''; ?>" data-status="Rejected" onclick="applyStatusTab('Rejected')">
+                        Rejected <span class="tab-badge"><?php echo (int)$status_counts['rejected']; ?></span>
+                    </button>
+                </div>
+
+                <div class="workflow-toggles">
+                    <button type="button" id="queueToggleBtn" class="workflow-toggle <?php echo $queue_filter === 'priority' ? 'active' : ''; ?>" onclick="toggleQueueFilter()">
+                        <span class="toggle-dot"></span> Priority Queue
+                    </button>
+                    <button type="button" id="newOnlyToggleBtn" class="workflow-toggle <?php echo $new_only ? 'active' : ''; ?>" onclick="toggleNewOnly()">
+                        <span class="toggle-dot"></span> New Submissions <span class="tab-badge" id="newSubmissionsBadge" style="margin-left:2px;"><?php echo (int)$new_submissions_count; ?></span>
+                    </button>
+                </div>
+
                 <div class="overflow-x-auto" id="verificationTableContainer">
                     <table class="orders-table">
                         <thead>
@@ -717,48 +756,14 @@ $page_title = 'Customer Verification - Admin';
                                 <th>Customer</th>
                                 <th>Email</th>
                                 <th>ID Type</th>
+                                <th>Uploaded</th>
                                 <th>Registered</th>
                                 <th>Status</th>
                                 <th style="text-align:right;" class="no-print">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="verificationTableBody">
-                            <?php if (empty($customers)): ?>
-                                <tr id="emptyVerificationRow">
-                                    <td colspan="7" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td>
-                                </tr>
-                            <?php else: ?>
-                                <tr id="emptyVerificationRow" style="display:none;">
-                                    <td colspan="7" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td>
-                                </tr>
-                                <?php foreach ($customers as $customer):
-                                    $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
-                                    $status_style = pf_customer_id_status_badge_style($id_status);
-                                    $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
-                                    $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
-                                ?>
-                                    <tr class="verification-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $payload_attr; ?>" onclick="openVerificationModal(<?php echo (int)$customer['customer_id']; ?>, this)">
-                                        <td style="color:#1f2937;"><?php echo (int)$customer['customer_id']; ?></td>
-                                        <td style="font-weight:500;color:#1f2937;">
-                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(trim($customer['first_name'] . ' ' . $customer['last_name'])); ?>">
-                                                <?php echo htmlspecialchars(trim($customer['first_name'] . ' ' . $customer['last_name'])); ?>
-                                            </div>
-                                        </td>
-                                        <td style="text-transform:lowercase;">
-                                            <div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>">
-                                                <?php echo htmlspecialchars(strtolower((string)($customer['email'] ?? ''))); ?>
-                                            </div>
-                                        </td>
-                                        <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
-                                        <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status); ?></span></td>
-                                        <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
-                                            <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo (int)$customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Review</button>
-                                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action teal">Profile</button>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
+                            <?php echo pf_render_verification_table_rows($customers, $base_path); ?>
                         </tbody>
                     </table>
                 </div>
@@ -770,6 +775,8 @@ $page_title = 'Customer Verification - Admin';
                         'date_to' => $date_to,
                         'status_filter' => $status_filter,
                         'upload_filter' => $upload_filter,
+                        'queue_filter' => $queue_filter,
+                        'new_only' => $new_only ? '1' : '',
                         'sort' => $sort_by,
                     ], static fn($v) => $v !== null && $v !== '');
                     echo render_pagination($page, $total_pages, $pagination_params);

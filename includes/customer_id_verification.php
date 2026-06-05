@@ -91,8 +91,60 @@ function pf_customer_id_rejection_reason(string $selected, string $custom = ''):
     return 'ID could not be verified. Please resubmit a clearer photo.';
 }
 
-function pf_customer_id_verification_sql_filter(string $status_filter, string $upload_filter = ''): array
+function pf_ensure_customer_id_verification_columns(): void
 {
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    $conn = get_db_connection();
+    if (!$conn) {
+        return;
+    }
+
+    $columns = [];
+    $result = $conn->query('SHOW COLUMNS FROM customers');
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $columns[] = $row['Field'] ?? '';
+        }
+    }
+
+    if (!in_array('id_uploaded_at', $columns, true)) {
+        $conn->query('ALTER TABLE customers ADD COLUMN id_uploaded_at DATETIME NULL DEFAULT NULL AFTER id_reject_reason');
+    }
+    if (!in_array('id_reviewed_at', $columns, true)) {
+        $conn->query('ALTER TABLE customers ADD COLUMN id_reviewed_at DATETIME NULL DEFAULT NULL AFTER id_uploaded_at');
+    }
+
+    $conn->query(
+        "UPDATE customers
+         SET id_uploaded_at = created_at
+         WHERE id_image IS NOT NULL AND TRIM(id_image) <> '' AND id_uploaded_at IS NULL"
+    );
+}
+
+function pf_customer_verification_pending_sql(): string
+{
+    return " (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified')) ";
+}
+
+function pf_customer_verification_has_image_sql(string $alias = ''): string
+{
+    $col = ($alias !== '' ? $alias . '.' : '') . 'id_image';
+    return " ({$col} IS NOT NULL AND TRIM({$col}) <> '') ";
+}
+
+function pf_customer_id_verification_sql_filter(
+    string $status_filter,
+    string $upload_filter = '',
+    string $queue_filter = '',
+    bool $new_only = false
+): array {
+    pf_ensure_customer_id_verification_columns();
+
     $sql = '';
     $types = '';
     $params = [];
@@ -102,16 +154,89 @@ function pf_customer_id_verification_sql_filter(string $status_filter, string $u
         $types .= 's';
         $params[] = $status_filter;
     } elseif ($status_filter === 'Pending') {
-        $sql .= " AND (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))";
+        $sql .= ' AND ' . pf_customer_verification_pending_sql();
     }
 
     if ($upload_filter === 'with_id') {
-        $sql .= " AND id_image IS NOT NULL AND TRIM(id_image) <> ''";
+        $sql .= ' AND ' . pf_customer_verification_has_image_sql();
     } elseif ($upload_filter === 'without_id') {
-        $sql .= " AND (id_image IS NULL OR TRIM(id_image) = '')";
+        $sql .= ' AND (id_image IS NULL OR TRIM(id_image) = \'\')';
+    }
+
+    if ($queue_filter === 'priority') {
+        $sql .= ' AND (' . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql()
+            . " OR id_status = 'Rejected')";
+    }
+
+    if ($new_only) {
+        $sql .= ' AND ' . pf_customer_verification_pending_sql()
+            . ' AND ' . pf_customer_verification_has_image_sql()
+            . ' AND id_reviewed_at IS NULL';
     }
 
     return [$sql, $types, $params];
+}
+
+function pf_customer_verification_sort_clause(string $sort_by): string
+{
+    return match ($sort_by) {
+        'oldest' => ' ORDER BY COALESCE(id_uploaded_at, created_at) ASC',
+        'az' => ' ORDER BY first_name ASC, last_name ASC',
+        'za' => ' ORDER BY first_name DESC, last_name DESC',
+        'priority_first', 'pending_first' => " ORDER BY CASE
+            WHEN " . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql() . " THEN 0
+            WHEN id_status = 'Rejected' THEN 1
+            WHEN " . pf_customer_verification_pending_sql() . " THEN 2
+            WHEN id_status = 'Verified' THEN 3
+            ELSE 4 END, COALESCE(id_uploaded_at, created_at) DESC",
+        default => ' ORDER BY COALESCE(id_uploaded_at, created_at) DESC',
+    };
+}
+
+function pf_customer_verification_status_counts(string $branchSql = '', string $branchTypes = '', array $branchParams = []): array
+{
+    pf_ensure_customer_id_verification_columns();
+
+    $base = "SELECT COUNT(*) AS c FROM customers WHERE 1=1" . $branchSql;
+    $pending = (int)(db_query(
+        $base . ' AND ' . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql(),
+        $branchTypes,
+        $branchParams
+    )[0]['c'] ?? 0);
+    $verified = (int)(db_query(
+        $base . " AND COALESCE(NULLIF(id_status, ''), 'Pending') = 'Verified'",
+        $branchTypes,
+        $branchParams
+    )[0]['c'] ?? 0);
+    $rejected = (int)(db_query(
+        $base . " AND id_status = 'Rejected'",
+        $branchTypes,
+        $branchParams
+    )[0]['c'] ?? 0);
+    $total = (int)(db_query($base, $branchTypes, $branchParams)[0]['c'] ?? 0);
+
+    return [
+        'all' => $total,
+        'pending' => $pending,
+        'verified' => $verified,
+        'rejected' => $rejected,
+        'new' => (int)(db_query(
+            $base . ' AND ' . pf_customer_verification_pending_sql()
+                . ' AND ' . pf_customer_verification_has_image_sql()
+                . ' AND id_reviewed_at IS NULL',
+            $branchTypes,
+            $branchParams
+        )[0]['c'] ?? 0),
+    ];
+}
+
+function pf_customer_verification_is_new_submission(array $customer): bool
+{
+    $status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
+    $hasImage = trim((string)($customer['id_image'] ?? '')) !== '';
+    $reviewedAt = trim((string)($customer['id_reviewed_at'] ?? ''));
+
+    return $status === 'Pending' && $hasImage && $reviewedAt === '';
 }
 
 function pf_build_customer_verification_payload(array $customer, string $base_path): array
@@ -124,6 +249,8 @@ function pf_build_customer_verification_payload(array $customer, string $base_pa
         'email' => (string)($customer['email'] ?? ''),
         'contact_number' => (string)($customer['contact_number'] ?? ''),
         'created_at' => !empty($customer['created_at']) ? format_date($customer['created_at']) : '',
+        'id_uploaded_at' => !empty($customer['id_uploaded_at']) ? format_date($customer['id_uploaded_at']) : '',
+        'is_new_submission' => pf_customer_verification_is_new_submission($customer),
         'id_type' => pf_decode_display_text((string)($customer['id_type'] ?? '')),
         'id_status' => pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending'),
         'id_image' => $id_image_raw !== '' ? $base_path . '/uploads/ids/' . ltrim($id_image_raw, '/') : null,
@@ -204,8 +331,10 @@ function pf_process_customer_id_verification_post(string $redirect_url = 'custom
     }
 
     $reason = '';
+    pf_ensure_customer_id_verification_columns();
+
     if ($action === 'approve') {
-        $updated = db_execute("UPDATE customers SET id_status='Verified', id_reject_reason=NULL WHERE customer_id=?", 'i', [$cid]) !== false;
+        $updated = db_execute("UPDATE customers SET id_status='Verified', id_reject_reason=NULL, id_reviewed_at=NOW() WHERE customer_id=?", 'i', [$cid]) !== false;
         if ($updated) {
             try {
                 create_notification($cid, 'Customer', 'Your ID has been verified! You can now place orders.', 'System', false, false);
@@ -218,7 +347,7 @@ function pf_process_customer_id_verification_post(string $redirect_url = 'custom
             (string)($_POST['reject_reason'] ?? ''),
             (string)($_POST['reject_reason_other'] ?? '')
         );
-        $updated = db_execute("UPDATE customers SET id_status='Rejected', id_reject_reason=? WHERE customer_id=?", 'si', [$reason, $cid]) !== false;
+        $updated = db_execute("UPDATE customers SET id_status='Rejected', id_reject_reason=?, id_reviewed_at=NOW() WHERE customer_id=?", 'si', [$reason, $cid]) !== false;
         if ($updated) {
             try {
                 create_notification($cid, 'Customer', 'Your ID verification was rejected: ' . $reason, 'System', false, false);
@@ -255,9 +384,65 @@ function pf_process_customer_id_verification_post(string $redirect_url = 'custom
 
 function pf_count_customer_verification_pending(): int
 {
+    pf_ensure_customer_id_verification_columns();
+
     return (int)(db_query(
-        "SELECT COUNT(*) AS c FROM customers
-         WHERE (id_status IS NULL OR id_status = '' OR id_status IN ('Pending', 'None', 'Unverified'))
-           AND id_image IS NOT NULL AND TRIM(id_image) <> ''"
+        'SELECT COUNT(*) AS c FROM customers
+         WHERE ' . pf_customer_verification_pending_sql() . ' AND ' . pf_customer_verification_has_image_sql()
     )[0]['c'] ?? 0);
+}
+
+function pf_render_verification_table_rows(array $customers, string $base_path): string
+{
+    ob_start();
+
+    if (empty($customers)) {
+        echo '<tr id="emptyVerificationRow"><td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td></tr>';
+        return ob_get_clean();
+    }
+
+    echo '<tr id="emptyVerificationRow" style="display:none;"><td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">No verification records found</td></tr>';
+
+    foreach ($customers as $customer) {
+        $id_status = pf_customer_id_status_normalize($customer['id_status'] ?? 'Pending');
+        $status_style = pf_customer_id_status_badge_style($id_status);
+        $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
+        $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
+        $is_new = pf_customer_verification_is_new_submission($customer);
+        $uploaded_label = !empty($customer['id_uploaded_at'])
+            ? format_date($customer['id_uploaded_at'])
+            : ($has_id ? '—' : '—');
+        $row_class = 'verification-row' . ($is_new ? ' verification-row--new' : '');
+        $name = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
+        $email = strtolower((string)($customer['email'] ?? ''));
+        $cid = (int)($customer['customer_id'] ?? 0);
+        ?>
+        <tr class="<?php echo $row_class; ?>" data-customer-id="<?php echo $cid; ?>" data-customer="<?php echo $payload_attr; ?>" onclick="openVerificationModal(<?php echo $cid; ?>, this)">
+            <td style="color:#1f2937;">
+                <?php if ($is_new): ?><span class="new-dot" title="New submission"></span><?php endif; ?>
+                <?php echo $cid; ?>
+            </td>
+            <td style="font-weight:500;color:#1f2937;">
+                <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($name); ?>">
+                    <?php echo htmlspecialchars($name); ?>
+                </div>
+            </td>
+            <td style="text-transform:lowercase;">
+                <div style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($email); ?>">
+                    <?php echo htmlspecialchars($email); ?>
+                </div>
+            </td>
+            <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
+            <td style="color:#6b7280;font-size:12px;"><?php echo htmlspecialchars($uploaded_label); ?></td>
+            <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
+            <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($id_status === 'Verified' ? 'Approved' : $id_status); ?></span></td>
+            <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
+                <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo $cid; ?>, this.closest('tr'))" class="btn-action blue">Review</button>
+                <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo $cid; ?>'" class="btn-action teal">Profile</button>
+            </td>
+        </tr>
+        <?php
+    }
+
+    return ob_get_clean();
 }

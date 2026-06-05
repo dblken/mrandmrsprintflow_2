@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_id_verification.php';
 
 require_role('Customer');
 
@@ -449,7 +450,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_id'])) {
                 if (!is_dir($id_dir)) mkdir($id_dir, 0755, true);
                 if (move_uploaded_file($_FILES['id_image']['tmp_name'], $id_dir . $fname2)) {
                     $hadExistingId = !empty($customer['id_image']);
-                    db_execute("UPDATE customers SET id_image=?, id_type=?, id_status='Pending', id_reject_reason=NULL WHERE customer_id=?", 'ssi', [$fname2, $id_type, $customer_id]);
+                    pf_ensure_customer_id_verification_columns();
+                    db_execute(
+                        "UPDATE customers SET id_image=?, id_type=?, id_status='Pending', id_reject_reason=NULL, id_uploaded_at=NOW(), id_reviewed_at=NULL WHERE customer_id=?",
+                        'ssi',
+                        [$fname2, $id_type, $customer_id]
+                    );
                     $customerName = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
                     if ($customerName === '') {
                         $customerName = 'A customer';

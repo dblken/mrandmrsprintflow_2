@@ -84,7 +84,7 @@ if (isset($_SESSION['user_id'])) {
             $customers_nav_active = in_array($current_page, ['customers_management.php', 'customer_verification.php'], true);
             $pending_verification_count = pf_count_customer_verification_pending();
             ?>
-            <div class="nav-group <?php echo $customers_nav_active ? 'expanded' : ''; ?>" data-nav-group="customers">
+            <div class="nav-group<?php echo $customers_nav_active ? ' expanded' : ''; ?>" data-nav-group="customers" data-nav-initial-expanded="<?php echo $customers_nav_active ? '1' : '0'; ?>">
                 <button
                     type="button"
                     class="nav-item nav-parent <?php echo $customers_nav_active ? 'active' : ''; ?>"
@@ -112,6 +112,25 @@ if (isset($_SESSION['user_id'])) {
                     </a>
                 </div>
             </div>
+            <script>
+            (function () {
+                var group = document.querySelector('[data-nav-group="customers"]');
+                if (!group) return;
+                try {
+                    var saved = sessionStorage.getItem('printflow_nav_customers_expanded');
+                    var btn = group.querySelector('[data-nav-toggle]');
+                    if (saved === '1') {
+                        group.classList.add('expanded');
+                        if (btn) btn.setAttribute('aria-expanded', 'true');
+                    } else if (saved === '0') {
+                        group.classList.remove('expanded');
+                        if (btn) btn.setAttribute('aria-expanded', 'false');
+                    } else if (group.dataset.navInitialExpanded === '1') {
+                        sessionStorage.setItem('printflow_nav_customers_expanded', '1');
+                    }
+                } catch (e) {}
+            })();
+            </script>
             <a href="<?php echo $base_path; ?>/admin/products_management.php" class="nav-item <?php echo $current_page === 'products_management.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
@@ -373,25 +392,21 @@ document.addEventListener('click', function(event) {
         var group = document.querySelector('[data-nav-group="customers"]');
         if (!group) return;
 
-        if (group.dataset.pfNavInitDone !== '1') {
-            group.dataset.pfNavInitDone = '1';
-            if (!group.classList.contains('expanded')) {
-                try {
-                    if (sessionStorage.getItem('printflow_nav_customers_expanded') === '1') {
-                        group.classList.add('expanded');
-                        var initBtn = group.querySelector('[data-nav-toggle]');
-                        if (initBtn) initBtn.setAttribute('aria-expanded', 'true');
-                    }
-                } catch (e) {}
-            }
-        }
-
         var btn = group.querySelector('[data-nav-toggle]');
         if (btn && btn.dataset.pfNavBound !== '1') {
             btn.dataset.pfNavBound = '1';
             btn.addEventListener('click', function () {
                 var expanded = !group.classList.contains('expanded');
                 printflowSetCustomersNavExpanded(group, expanded, true);
+            });
+        }
+
+        if (group.dataset.pfSubBound !== '1') {
+            group.dataset.pfSubBound = '1';
+            group.querySelectorAll('.nav-subitem').forEach(function (link) {
+                link.addEventListener('click', function () {
+                    printflowSetCustomersNavExpanded(group, true, true);
+                });
             });
         }
 
