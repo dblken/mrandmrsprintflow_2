@@ -52,6 +52,51 @@ function pf_customer_id_status_normalize($status): string
     };
 }
 
+/**
+ * Customer-facing ID verification status for profile UI.
+ *
+ * @return array{label:string,color:string,bg:string,status:string,has_id:bool}
+ */
+function pf_customer_id_profile_status_display(array $customer): array
+{
+    $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
+    if (!$has_id) {
+        return [
+            'label' => '—',
+            'color' => '#64748b',
+            'bg' => '#f1f5f9',
+            'status' => 'None',
+            'has_id' => false,
+        ];
+    }
+
+    $status = pf_customer_id_status_normalize($customer['id_status'] ?? '');
+
+    return match ($status) {
+        'Verified' => [
+            'label' => 'Approved',
+            'color' => '#16a34a',
+            'bg' => '#f0fdf4',
+            'status' => 'Verified',
+            'has_id' => true,
+        ],
+        'Rejected' => [
+            'label' => 'Rejected',
+            'color' => '#b91c1c',
+            'bg' => '#fef2f2',
+            'status' => 'Rejected',
+            'has_id' => true,
+        ],
+        default => [
+            'label' => 'Pending',
+            'color' => '#b45309',
+            'bg' => '#fffbeb',
+            'status' => 'Pending',
+            'has_id' => true,
+        ],
+    };
+}
+
 function pf_customer_id_status_badge_style(string $status): string
 {
     return match (pf_customer_id_status_normalize($status)) {

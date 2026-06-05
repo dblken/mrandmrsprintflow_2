@@ -608,6 +608,7 @@ require_once __DIR__ . '/../includes/header.php';
     width: 100%;
     height: 100%;
     object-fit: cover;
+    background: #eceff3;
 }
 
 .profile-avatar-edit-btn {
@@ -841,13 +842,14 @@ require_once __DIR__ . '/../includes/header.php';
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #e2e8f0;
-    color: #94a3b8;
+    background: #eceff3;
+    color: #b8c0cc;
+    border-radius: 50%;
 }
 
 .profile-avatar-placeholder svg {
-    width: 52%;
-    height: 52%;
+    width: 48%;
+    height: 48%;
 }
 
 .pf-btn-primary {
@@ -1006,14 +1008,11 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="profile-avatar-wrap">
                         <div class="profile-avatar-ring">
                             <?php
-                            $profile_avatar_placeholder = '<div class="profile-avatar-placeholder" id="profile-avatar-placeholder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg></div>';
-                            if (!empty($customer['profile_picture'])): ?>
-                                <img src="<?php echo get_profile_image($customer['profile_picture']); ?>?t=<?php echo time(); ?>" alt="Profile photo" id="profile-preview" style="width:100%;height:100%;object-fit:cover;" onerror="pfProfileAvatarFallback(this)">
-                                <?php echo str_replace('id="profile-avatar-placeholder"', 'id="profile-avatar-placeholder" style="display:none;"', $profile_avatar_placeholder); ?>
-                            <?php else: ?>
-                                <?php echo $profile_avatar_placeholder; ?>
-                                <img src="" alt="Profile photo" style="display:none;width:100%;height:100%;object-fit:cover;" id="profile-preview">
-                            <?php endif; ?>
+                            $profile_avatar_url = get_profile_image($customer['profile_picture'] ?? '');
+                            $profile_avatar_placeholder = '<div class="profile-avatar-placeholder" id="profile-avatar-placeholder" aria-hidden="true" style="display:none;"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg></div>';
+                            ?>
+                            <img src="<?php echo htmlspecialchars($profile_avatar_url); ?>?t=<?php echo time(); ?>" alt="Profile photo" id="profile-preview" style="width:100%;height:100%;object-fit:cover;" onerror="pfProfileAvatarFallback(this)">
+                            <?php echo $profile_avatar_placeholder; ?>
                         </div>
                         <label for="profile_picture" class="profile-avatar-edit-btn" title="Change photo">
                             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -1029,12 +1028,8 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="profile-info-pill" style="border-bottom: none;">
                             <span>Status</span>
-                            <?php
-                            $id_st = $customer['id_status'] ?? 'None';
-                            $st_color = $id_st==='Verified' ? '#16a34a' : ($id_st==='Pending' ? '#b45309' : ($id_st==='Rejected' ? '#b91c1c' : '#64748b'));
-                            $st_label = $id_st==='Verified' ? 'ID Verified' : ($id_st==='Pending' ? 'Pending Review' : ($id_st==='Rejected' ? 'ID Rejected' : 'Unverified'));
-                            ?>
-                            <span style="font-weight:700;color:<?php echo $st_color;?>"><?php echo $st_label; ?></span>
+                            <?php $id_profile_status = pf_customer_id_profile_status_display($customer); ?>
+                            <span style="font-weight:700;color:<?php echo htmlspecialchars($id_profile_status['color']); ?>"><?php echo htmlspecialchars($id_profile_status['label']); ?></span>
                         </div>
                     </div>
                 </div>
@@ -1248,17 +1243,14 @@ require_once __DIR__ . '/../includes/header.php';
 
                 <!-- ID Verification Section -->
                 <?php
-                $id_status = $customer['id_status'] ?? 'None';
+                $id_profile_status = pf_customer_id_profile_status_display($customer);
+                $id_status = $id_profile_status['status'];
                 $id_type   = $customer['id_type'] ?? '';
                 $id_image  = $customer['id_image'] ?? '';
-                $id_reject = $customer['id_reject_reason'] ?? '';
-                $status_colors = [
-                    'None'     => ['#64748b','#f1f5f9','Not Submitted'],
-                    'Pending'  => ['#b45309','#fffbeb','Under Review'],
-                    'Verified' => ['#15803d','#f0fdf4','Verified ✓'],
-                    'Rejected' => ['#b91c1c','#fef2f2','Rejected'],
-                ];
-                [$sc,$sbg,$slabel] = $status_colors[$id_status] ?? $status_colors['None'];
+                $id_reject = pf_decode_display_text((string)($customer['id_reject_reason'] ?? ''));
+                $sc = $id_profile_status['color'];
+                $sbg = $id_profile_status['bg'];
+                $slabel = $id_profile_status['label'];
                 ?>
                 <div class="profile-card settings-panel" id="section-security">
                     <h3 class="profile-card-title">
@@ -1341,11 +1333,18 @@ require_once __DIR__ . '/../includes/header.php';
 <script>
 function pfProfileAvatarFallback(img) {
     if (!img) return;
-    img.style.display = 'none';
-    var ph = document.getElementById('profile-avatar-placeholder');
-    if (ph) {
-        ph.style.display = 'flex';
+    var fallback = <?php echo json_encode(get_profile_image('')); ?>;
+    if (img.dataset.fallbackApplied === '1') {
+        img.style.display = 'none';
+        var ph = document.getElementById('profile-avatar-placeholder');
+        if (ph) ph.style.display = 'flex';
+        return;
     }
+    img.dataset.fallbackApplied = '1';
+    img.src = fallback;
+    img.style.display = 'block';
+    var ph = document.getElementById('profile-avatar-placeholder');
+    if (ph) ph.style.display = 'none';
 }
 
 document.addEventListener('DOMContentLoaded', function () {
