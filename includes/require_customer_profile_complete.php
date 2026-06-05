@@ -5,6 +5,9 @@
  */
 require_once __DIR__ . '/customer_profile_completion.php';
 
-if (printflow_customer_profile_incomplete()) {
-    printflow_redirect_customer_to_complete_profile();
+if (get_user_type() === 'Customer') {
+    $incomplete_section = printflow_first_incomplete_customer_account_section();
+    if ($incomplete_section !== null) {
+        printflow_redirect_customer_to_complete_profile(null, $incomplete_section);
+    }
 }

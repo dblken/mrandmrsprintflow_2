@@ -372,8 +372,14 @@ function printflow_is_customer_local_auth_provider($auth_provider): bool {
  * Redirect URL after customer login/registration (profile completion when required).
  */
 function printflow_customer_post_auth_redirect(int $customer_id): string {
-    if (!is_profile_complete($customer_id)) {
-        return AUTH_REDIRECT_BASE . '/customer/profile.php?complete_profile=1';
+    if (!function_exists('printflow_first_incomplete_customer_account_section')) {
+        require_once __DIR__ . '/customer_profile_completion.php';
+    }
+    $rows = db_query('SELECT * FROM customers WHERE customer_id = ? LIMIT 1', 'i', [$customer_id]);
+    $customer = $rows[0] ?? null;
+    $section = $customer ? printflow_first_incomplete_customer_account_section($customer) : printflow_first_incomplete_customer_account_section();
+    if ($section !== null) {
+        return AUTH_REDIRECT_BASE . '/customer/profile.php?complete_profile=1#' . $section;
     }
     return AUTH_REDIRECT_BASE . '/customer/services.php';
 }

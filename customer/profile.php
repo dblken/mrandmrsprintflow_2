@@ -165,7 +165,7 @@ $customer_uses_google_signin = (strtolower(trim((string)($customer['auth_provide
 $omit_current_password_on_profile = $customer_uses_google_signin && !printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
 
 function customer_profile_redirect_after_completion(string $return_to): void {
-    if ($return_to === '' || !is_profile_complete()) {
+    if ($return_to === '' || !printflow_customer_account_ready_for_order()) {
         return;
     }
 
@@ -484,6 +484,7 @@ if (strlen($contact_digits) === 12 && strncmp($contact_digits, '63', 2) === 0) {
     $contact_display = $contact_digits;
 }
 $profile_completion_status = customer_profile_completion_status($customer_id);
+$account_tab_status = printflow_customer_account_tab_status($customer);
 
 $page_title = 'My Profile - PrintFlow';
 $use_customer_css = true;
@@ -890,6 +891,21 @@ require_once __DIR__ . '/../includes/header.php';
 }
 .profile-nav-item a:hover { background: #fff; color: var(--pf-accent); }
 .profile-nav-item a.active { background: #fff; color: var(--pf-accent); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.profile-tab-alert {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.05rem;
+    height: 1.05rem;
+    margin-left: 0.45rem;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    vertical-align: middle;
+}
 
 /* Alerts */
 .pf-alert {
@@ -963,13 +979,10 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
 
-        <?php if ($requires_profile_completion && !$profile_completion_status['complete']): ?>
+        <?php if ($requires_profile_completion && !printflow_customer_account_ready_for_order($customer)): ?>
         <div class="pf-alert pf-alert-error" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412;">
-            <strong>Complete your profile first:</strong>
-            Please fill in all required personal information before placing an order.
-            <?php if (!empty($profile_completion_status['missing'])): ?>
-                Missing: <?php echo htmlspecialchars(implode(', ', $profile_completion_status['missing'])); ?>.
-            <?php endif; ?>
+            <strong>Complete your Customer Account:</strong>
+            Please fill in every section marked with <span class="profile-tab-alert" style="margin:0 0.2rem;">!</span> before placing an order.
         </div>
         <?php endif; ?>
 
@@ -1015,10 +1028,23 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="profile-nav-card">
                     <div style="padding:0.75rem 0.85rem 0.5rem;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Customer Account</div>
                     <ul class="profile-nav-list">
-                        <li class="profile-nav-item"><a href="#section-profile" class="account-nav-link active" data-section="section-profile">Personal Information</a></li>
-                        <li class="profile-nav-item"><a href="#section-address" class="account-nav-link" data-section="section-address">Address</a></li>
-                        <li class="profile-nav-item"><a href="#section-account" class="account-nav-link" data-section="section-account">Account Management</a></li>
-                        <li class="profile-nav-item"><a href="#section-security" class="account-nav-link" data-section="section-security">Security & Verification</a></li>
+                        <?php
+                        $profile_nav_sections = [
+                            'section-profile' => 'Personal Information',
+                            'section-address' => 'Address',
+                            'section-account' => 'Account Management',
+                            'section-security' => 'Security & Verification',
+                        ];
+                        foreach ($profile_nav_sections as $section_id => $section_label):
+                            $tab_complete = !empty($account_tab_status[$section_id]['complete']);
+                        ?>
+                        <li class="profile-nav-item">
+                            <a href="#<?php echo htmlspecialchars($section_id, ENT_QUOTES, 'UTF-8'); ?>" class="account-nav-link<?php echo $section_id === 'section-profile' ? ' active' : ''; ?>" data-section="<?php echo htmlspecialchars($section_id, ENT_QUOTES, 'UTF-8'); ?>">
+                                <?php echo htmlspecialchars($section_label); ?>
+                                <?php if (!$tab_complete): ?><span class="profile-tab-alert" title="Incomplete — please fill out this section">!</span><?php endif; ?>
+                            </a>
+                        </li>
+                        <?php endforeach; ?>
                     </ul>
                 </div>
 
@@ -1322,6 +1348,17 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    const hashSection = (window.location.hash || '').replace(/^#/, '');
+    if (hashSection && document.getElementById(hashSection)) {
+        activateSection(hashSection);
+        const hashPanel = document.getElementById(hashSection);
+        if (hashPanel) {
+            setTimeout(function () {
+                hashPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 120);
+        }
+    }
 });
 </script>
 
