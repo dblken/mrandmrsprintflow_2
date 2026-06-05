@@ -121,11 +121,6 @@ if (isset($_GET['address_action'])) {
 $customer_id = get_user_id();
 $error = '';
 $success = '';
-require_once __DIR__ . '/../includes/customer_profile_completion.php';
-$profile_completion_flash = printflow_consume_profile_completion_flash();
-if ($profile_completion_flash !== '') {
-    $error = $profile_completion_flash;
-}
 $profile_return_to = trim((string)($_POST['return'] ?? $_GET['return'] ?? ($_SESSION['profile_return_after_complete'] ?? '')));
 if ($profile_return_to !== '') {
     $return_path = parse_url($profile_return_to, PHP_URL_PATH);
@@ -136,6 +131,11 @@ if ($profile_return_to !== '') {
     }
 }
 $requires_profile_completion = isset($_GET['complete_profile']) || isset($_POST['complete_profile']) || $profile_return_to !== '';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
+$profile_completion_flash = printflow_consume_profile_completion_flash();
+if ($profile_completion_flash !== '' && !$requires_profile_completion) {
+    $error = $profile_completion_flash;
+}
 
 // Ensure address columns exist (one-time migration - add only missing columns)
 $existing_cols = [];
@@ -514,6 +514,9 @@ require_once __DIR__ . '/../includes/header.php';
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
     overflow: hidden;
     box-sizing: border-box;
+    font-size: 0.813rem;
+    color: #64748b;
+    line-height: 1.5;
 }
 
 /* Mobile: reduce padding and margin */
@@ -619,7 +622,7 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .profile-user-name {
-    font-size: 1.25rem;
+    font-size: inherit;
     font-weight: 700;
     color: #0f172a;
     margin-bottom: 0.25rem;
@@ -627,29 +630,17 @@ require_once __DIR__ . '/../includes/header.php';
     overflow-wrap: break-word;
     word-break: break-word;
     max-width: 100%;
-    line-height: 1.3;
-}
-
-@media (max-width: 768px) {
-    .profile-user-name {
-        font-size: 1.1rem;
-    }
+    line-height: 1.4;
 }
 
 .profile-user-email {
-    font-size: 0.875rem;
-    color: #64748b;
+    font-size: inherit;
+    color: inherit;
     margin-bottom: 1rem;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-all;
     max-width: 100%;
-}
-
-@media (max-width: 768px) {
-    .profile-user-email {
-        font-size: 0.813rem;
-    }
 }
 
 .profile-info-pill {
@@ -700,7 +691,7 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .profile-card-title {
-    font-size: 1.125rem;
+    font-size: inherit;
     font-weight: 700;
     color: #0f172a;
     margin-bottom: 1.5rem;
@@ -711,10 +702,10 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .profile-card-description {
-    font-size: 0.9rem;
-    color: #64748b;
+    font-size: inherit;
+    color: inherit;
     margin: -0.5rem 0 1.5rem;
-    line-height: 1.6;
+    line-height: 1.5;
 }
 
 .settings-tabs {
@@ -730,7 +721,7 @@ require_once __DIR__ . '/../includes/header.php';
     color: #476072;
     border-radius: 999px;
     padding: 0.7rem 1rem;
-    font-size: 0.84rem;
+    font-size: inherit;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -759,21 +750,20 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .helper-card-title {
-    font-size: 0.86rem;
+    font-size: inherit;
     font-weight: 700;
     color: #0f172a;
     margin-bottom: 0.3rem;
 }
 
 .helper-card-text {
-    font-size: 0.82rem;
-    color: #64748b;
-    line-height: 1.55;
+    font-size: inherit;
+    color: inherit;
+    line-height: 1.5;
 }
 
 @media (max-width: 768px) {
     .profile-card-title {
-        font-size: 1rem;
         margin-bottom: 1.25rem;
     }
 }
@@ -800,28 +790,27 @@ require_once __DIR__ . '/../includes/header.php';
 
 .pf-label {
     display: block;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #475569;
+    font-size: inherit;
+    font-weight: 400;
+    color: inherit;
     margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
+    letter-spacing: normal;
+    text-transform: none;
 }
 
 @media (max-width: 768px) {
     .pf-label {
-        font-size: 0.7rem;
         margin-bottom: 6px;
     }
 }
 
 .pf-input {
     width: 100%;
-    padding: 12px 14px;
+    padding: 10px 12px;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
-    font-size: 0.95rem;
-    color: #1e293b;
+    font-size: inherit;
+    color: #0f172a;
     background: #fff;
     box-sizing: border-box;
     transition: 0.2s;
@@ -829,8 +818,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 @media (max-width: 768px) {
     .pf-input {
-        padding: 14px 12px;
-        font-size: 1rem;
+        padding: 12px;
         min-height: 44px;
     }
 }
@@ -841,12 +829,28 @@ require_once __DIR__ . '/../includes/header.php';
     box-shadow: 0 0 0 3px rgba(83, 197, 224, 0.1);
 }
 
+.profile-avatar-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e2e8f0;
+    color: #94a3b8;
+}
+
+.profile-avatar-placeholder svg {
+    width: 52%;
+    height: 52%;
+}
+
 .pf-btn-primary {
     padding: 7px 24px;
     border-radius: 3px;
     border: none;
     background: #0a2530;
     color: #fff;
+    font-size: inherit;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
@@ -854,8 +858,7 @@ require_once __DIR__ . '/../includes/header.php';
     align-items: center;
     justify-content: center;
     gap: 8px;
-    text-transform: uppercase;
-    font-size: 0.8rem;
+    text-transform: none;
     text-decoration: none;
     min-height: 40px;
 }
@@ -864,7 +867,6 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-btn-primary {
         width: 100%;
         padding: 12px 20px;
-        font-size: 0.85rem;
         min-height: 48px;
     }
 }
@@ -887,10 +889,15 @@ require_once __DIR__ . '/../includes/header.php';
 .profile-nav-list { list-style: none; padding: 0; margin: 0; }
 .profile-nav-item a {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    border-radius: 8px; font-weight: 600; color: #64748b; text-decoration: none; transition: 0.2s;
+    border-radius: 8px; font-size: inherit; font-weight: 400; color: #64748b; text-decoration: none; transition: 0.2s;
 }
 .profile-nav-item a:hover { background: #fff; color: var(--pf-accent); }
-.profile-nav-item a.active { background: #fff; color: var(--pf-accent); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.profile-nav-item a.active {
+    font-weight: 700;
+    color: #0f172a;
+    background: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
 .profile-tab-alert {
     display: inline-flex;
     align-items: center;
@@ -913,13 +920,13 @@ require_once __DIR__ . '/../includes/header.php';
     border-radius: 8px;
     margin-bottom: 2rem;
     border-left: 4px solid transparent;
+    font-size: inherit;
 }
 
 @media (max-width: 768px) {
     .pf-alert {
         padding: 0.875rem 1rem;
         margin-bottom: 1.5rem;
-        font-size: 0.875rem;
     }
 }
 
@@ -936,7 +943,7 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .live-indicator {
-    font-size: 0.75rem;
+    font-size: inherit;
     margin-top: 4px;
     min-height: 1.25rem;
     transition: 0.2s;
@@ -992,13 +999,14 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="sidebar-content">
                     <div class="profile-avatar-wrap">
                         <div class="profile-avatar-ring">
-                            <?php if (!empty($customer['profile_picture'])): ?>
-                                <img src="<?php echo get_profile_image($customer['profile_picture']); ?>?t=<?php echo time(); ?>" alt="Avatar" id="profile-preview" onerror="this.onerror=null;this.src='<?php echo $base_path; ?>/public/assets/images/icon-192.png'">
+                            <?php
+                            $profile_avatar_placeholder = '<div class="profile-avatar-placeholder" id="profile-avatar-placeholder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg></div>';
+                            if (!empty($customer['profile_picture'])): ?>
+                                <img src="<?php echo get_profile_image($customer['profile_picture']); ?>?t=<?php echo time(); ?>" alt="Profile photo" id="profile-preview" style="width:100%;height:100%;object-fit:cover;" onerror="pfProfileAvatarFallback(this)">
+                                <?php echo str_replace('id="profile-avatar-placeholder"', 'id="profile-avatar-placeholder" style="display:none;"', $profile_avatar_placeholder); ?>
                             <?php else: ?>
-                                <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f1f5f9;">
-                                    <svg width="48" height="48" fill="none" stroke="#94a3b8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                                </div>
-                                <img src="" alt="Profile" style="display:none;width:100%;height:100%;object-fit:cover;" id="profile-preview">
+                                <?php echo $profile_avatar_placeholder; ?>
+                                <img src="" alt="Profile photo" style="display:none;width:100%;height:100%;object-fit:cover;" id="profile-preview">
                             <?php endif; ?>
                         </div>
                         <label for="profile_picture" class="profile-avatar-edit-btn" title="Change photo">
@@ -1026,7 +1034,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="profile-nav-card">
-                    <div style="padding:0.75rem 0.85rem 0.5rem;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Customer Account</div>
+                    <div style="padding:0.75rem 0.85rem 0.5rem;font-size:inherit;font-weight:700;color:#0f172a;">Customer Account</div>
                     <ul class="profile-nav-list">
                         <?php
                         $profile_nav_sections = [
@@ -1065,7 +1073,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php if ($requires_profile_completion): ?><input type="hidden" name="complete_profile" value="1"><?php endif; ?>
                         <?php if ($profile_return_to !== ''): ?><input type="hidden" name="return" value="<?php echo htmlspecialchars($profile_return_to); ?>"><?php endif; ?>
                         <input type="file" id="profile_picture" name="profile_picture" class="hidden" accept="image/*" style="display:none;"
-                               onchange="const f=this.files[0];if(f){const r=new FileReader();r.onload=e=>{const p=document.getElementById('profile-preview');p.src=e.target.result;p.style.display='block';const s=p.previousElementSibling;if(s && s.tagName==='DIV'){s.style.display='none';}};r.readAsDataURL(f);}">
+                               onchange="const f=this.files[0];if(f){const r=new FileReader();r.onload=e=>{const p=document.getElementById('profile-preview');const ph=document.getElementById('profile-avatar-placeholder');p.src=e.target.result;p.style.display='block';if(ph){ph.style.display='none';}};r.readAsDataURL(f);}">
 
                         <div class="form-grid">
                             <div class="pf-field-group">
@@ -1325,6 +1333,15 @@ require_once __DIR__ . '/../includes/header.php';
 </div><!-- /min-h-screen -->
 
 <script>
+function pfProfileAvatarFallback(img) {
+    if (!img) return;
+    img.style.display = 'none';
+    var ph = document.getElementById('profile-avatar-placeholder');
+    if (ph) {
+        ph.style.display = 'flex';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     const panels = Array.from(document.querySelectorAll('.settings-panel'));
     const tabButtons = Array.from(document.querySelectorAll('.settings-tab-btn'));
