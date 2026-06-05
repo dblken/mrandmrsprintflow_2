@@ -153,6 +153,7 @@ $page_title = 'Customer Verification - Admin';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
     <title><?php echo htmlspecialchars($page_title); ?></title>
     <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
@@ -392,6 +393,20 @@ $page_title = 'Customer Verification - Admin';
                         window.addEventListener('sort-changed', e => { this.activeSort = e.detail.sortKey; this.sortOpen = false; });
                     },
 
+                    getIdActionCsrfToken() {
+                        const meta = document.querySelector('meta[name="csrf-token"]');
+                        const fromMeta = meta && meta.getAttribute('content');
+                        if (fromMeta) return fromMeta;
+                        return this.idActionCsrfToken || '';
+                    },
+
+                    setIdActionCsrfToken(token) {
+                        if (!token) return;
+                        this.idActionCsrfToken = token;
+                        const meta = document.querySelector('meta[name="csrf-token"]');
+                        if (meta) meta.setAttribute('content', token);
+                    },
+
                     getCustomerFromRow(sourceEl, fallbackId) {
                         const host = sourceEl?.closest?.('[data-customer]') || document.querySelector('[data-customer-id="' + fallbackId + '"]');
                         if (!host?.dataset?.customer) return null;
@@ -511,29 +526,38 @@ $page_title = 'Customer Verification - Admin';
                         fd.append('cid', this.customer.customer_id);
                         fd.append('reject_reason', selectedReason);
                         fd.append('reject_reason_other', otherReason);
-                        fd.append('csrf_token', this.idActionCsrfToken);
+                        fd.append('csrf_token', this.getIdActionCsrfToken());
                         try {
                             const data = await this.fetchJsonResponse('<?php echo $base_path; ?>/admin/customer_verification.php', {
                                 method: 'POST',
                                 body: fd,
                             });
+                            if (data.csrf_token) {
+                                this.setIdActionCsrfToken(data.csrf_token);
+                            }
                             if (data.success) {
+                                const expectedStatus = action === 'approve' ? 'Verified' : 'Rejected';
+                                if ((data.id_status || '') !== expectedStatus) {
+                                    alert(data.error || 'The verification status did not save. Please try again.');
+                                    return;
+                                }
                                 const rejectReason = selectedReason === 'Other'
                                     ? (otherReason || 'ID could not be verified. Please resubmit a clearer photo.')
                                     : (selectedReason || 'ID could not be verified. Please resubmit a clearer photo.');
                                 this.customer = {
                                     ...this.customer,
-                                    id_status: data.id_status || (action === 'approve' ? 'Verified' : 'Rejected'),
+                                    id_status: data.id_status,
+                                    id_status_label: data.id_status_label || (expectedStatus === 'Verified' ? 'Approved' : expectedStatus),
                                     id_reject_reason: typeof data.id_reject_reason === 'string'
                                         ? data.id_reject_reason
                                         : (action === 'approve' ? '' : rejectReason),
                                 };
                                 this.resetIdActionForm();
-                                fetchUpdatedTable();
+                                await fetchUpdatedTable();
                                 return;
                             }
-                            if (data.code === 'csrf_mismatch' && data.csrf_token && attempt === 0) {
-                                this.idActionCsrfToken = data.csrf_token;
+                            if (data.code === 'csrf_mismatch' && data.csrf_token && attempt < 2) {
+                                this.setIdActionCsrfToken(data.csrf_token);
                                 return this.submitIdAction(action, attempt + 1);
                             }
                             alert(data.error || 'Failed to update customer ID status.');
