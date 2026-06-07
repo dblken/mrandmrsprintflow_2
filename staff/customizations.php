@@ -356,12 +356,13 @@ if ($showLatestCustomizationOnly) {
             white-space: nowrap;
         }
         .pf-entry-in {
+            background: #10b981;
             border-color: #10b981;
-            color: #10b981;
+            color: #ffffff;
         }
         .pf-entry-in:hover {
-            background: #10b981;
-            color: #fff;
+            background: #0f766e;
+            color: #ffffff;
         }
         .pf-entry-out {
             border-color: #ef4444;
@@ -2101,7 +2102,7 @@ if ($showLatestCustomizationOnly) {
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Revision</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'APPROVED'" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Confirm Approval &amp; Send to Payment</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve & Send to Pay</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve Payment</button>
