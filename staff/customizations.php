@@ -2105,7 +2105,7 @@ if ($showLatestCustomizationOnly) {
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve & Send to Pay</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
-                                <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve Payment</button>
+                                <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="min-width:140px; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
                                 <button type="button" @click="openRejectPaymentModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Reject</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="display:flex; gap:8px;">

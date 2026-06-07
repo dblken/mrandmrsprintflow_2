@@ -2032,8 +2032,8 @@ $page_title = 'Orders - Staff';
             if (isVerifyStatus) {
                 if (canVerifyPayment) {
                     actionsHTML = '<div style="margin-top:28px; display:grid; gap:12px;">' +
-                        '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Approve\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Approve Payment</button>' +
-                        '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Reject\')" style="width:100%; background:#ef4444; border-color:#ef4444; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Reject Payment</button>' +
+                        '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Approve\')" style="min-width:160px; background:#059669; color:white; border:none; padding:12px 16px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Approve</button>' +
+                        '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Reject\')" style="min-width:160px; background:#ef4444; border-color:#ef4444; color:white; border:none; padding:12px 16px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Reject</button>' +
                         '</div>';
                 } else {
                     actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#475569; font-size:13px;">This order is awaiting payment verification. No approval action is available until the customer uploads a payment proof.</div>';
