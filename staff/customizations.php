@@ -3421,19 +3421,27 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const revisionUrl = (item.revision_design_url || '').trim();
                 if (revisionUrl) return this.staffResolveMediaUrl(revisionUrl);
                 
-                // Priority 2: Check for standard design URL from API
-                const fromApi = (item.design_open_url || item.design_url || '').trim();
+                // Priority 2: Prefer the backend-resolved design endpoint for the exact order item.
+                const fromApi = (item.design_open_url || '').trim();
                 if (fromApi) return this.staffResolveOrderUploadUrl(fromApi);
 
-                // Priority 3: Use the persisted order_items.design_file path when present.
+                // Priority 3: Direct stored design file path.
                 const designFile = (item.design_file || '').trim();
                 if (designFile) return this.staffResolveOrderUploadUrl(designFile);
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
                 const artworkPath = (item.artwork_path || this.currentJo?.artwork_path || '').trim();
                 if (artworkPath) return this.staffResolveOrderUploadUrl(artworkPath);
+
+                // Priority 5: Reference file as last real upload fallback before placeholder behavior.
+                const referenceOpenUrl = (item.reference_open_url || item.reference_url || '').trim();
+                if (referenceOpenUrl) return this.staffResolveOrderUploadUrl(referenceOpenUrl);
                 
-                // Priority 5: Fallback to serve_design.php if we have order_item_id and filename
+                // Priority 6: Generic image/file URL only after the item-specific endpoint candidates.
+                const genericDesignUrl = (item.design_url || '').trim();
+                if (genericDesignUrl) return this.staffResolveOrderUploadUrl(genericDesignUrl);
+
+                // Priority 7: Fallback to serve_design.php if we have order_item_id and filename
                 if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }

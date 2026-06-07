@@ -1355,7 +1355,7 @@ class JobOrderService {
             ? $lineOrderItemId
             : (($lineOrderItemId === 0 && $fallbackDesignOrderItemId > 0) ? $fallbackDesignOrderItemId : 0);
         $designOpenUrl = null;
-        if ($hasStoredDesign && $lineOrderItemId > 0) {
+        if ($lineOrderItemId > 0 && ($hasStoredDesign || $customDesignPath !== null || trim((string)($item['design_image_name'] ?? '')) !== '')) {
             $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
         } elseif ($customDesignPath !== null) {
             $designOpenUrl = self::resolveStoredMediaPathToUrl($customDesignPath);
@@ -1475,6 +1475,13 @@ class JobOrderService {
             'reference_open_url' => $referenceOpenUrl,
             'reference_is_image' => $referenceIsImage,
             'reference_name' => $referenceName !== '' ? $referenceName : null,
+            'debug_order_item_id' => $lineOrderItemId > 0 ? $lineOrderItemId : null,
+            'debug_design_file' => trim((string)($item['design_file'] ?? '')) !== '' ? trim((string)($item['design_file'] ?? '')) : null,
+            'debug_design_image_name' => trim((string)($item['design_image_name'] ?? '')) !== '' ? trim((string)($item['design_image_name'] ?? '')) : null,
+            'debug_design_mime' => trim((string)($item['design_image_mime'] ?? '')) !== '' ? trim((string)($item['design_image_mime'] ?? '')) : null,
+            'debug_design_blob_size' => $designBlobBytes,
+            'debug_reference_image_file' => trim((string)($item['reference_image_file'] ?? '')) !== '' ? trim((string)($item['reference_image_file'] ?? '')) : null,
+            'debug_artwork_path' => trim((string)($item['artwork_path'] ?? '')) !== '' ? trim((string)($item['artwork_path'] ?? '')) : null,
         ];
     }
 

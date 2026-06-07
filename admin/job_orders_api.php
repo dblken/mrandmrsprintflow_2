@@ -1122,6 +1122,24 @@ try {
                 unset($itemRow);
             }
 
+                foreach ($items as &$itemRow) {
+                    if (!is_array($itemRow)) {
+                        continue;
+                    }
+                    $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
+                    if ($lineOrderItemId > 0) {
+                        $itemRow['design_open_url'] = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
+                    }
+                    $itemRow['debug_order_item_id'] = $lineOrderItemId > 0 ? $lineOrderItemId : null;
+                    $itemRow['debug_design_file'] = $itemRow['design_file'] ?? null;
+                    $itemRow['debug_design_image_name'] = $itemRow['design_image_name'] ?? null;
+                    $itemRow['debug_design_mime'] = $itemRow['design_image_mime'] ?? null;
+                    $itemRow['debug_design_blob_size'] = (int)($itemRow['debug_design_blob_size'] ?? $itemRow['pf_design_image_bytes'] ?? 0);
+                    $itemRow['debug_reference_image_file'] = $itemRow['reference_image_file'] ?? null;
+                    $itemRow['debug_artwork_path'] = $itemRow['artwork_path'] ?? ($linked_job['artwork_path'] ?? null);
+                }
+                unset($itemRow);
+
                 $linked_job_candidates = $linked_job_rows ?? [];
 
                 if (!empty($linked_job_candidates)) {
