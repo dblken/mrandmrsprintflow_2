@@ -352,9 +352,45 @@ function db_table_has_column(string $table, string $column, bool $refresh = fals
     }
     if (array_key_exists($key, $cache)) return (bool)$cache[$key];
 
-    $rows = db_query("SHOW COLUMNS FROM `{$t}` LIKE ?", 's', [$c]);
+    // SHOW statements do not work reliably with prepared LIKE placeholders on all MySQL builds.
+    $rows = db_query("SHOW COLUMNS FROM `{$t}` LIKE '{$c}'");
     $cache[$key] = !empty($rows);
     return (bool)$cache[$key];
+}
+
+function db_execute_affected_rows($sql, $types = '', $params = []) {
+    global $conn;
+
+    $stmt = null;
+
+    try {
+        if (empty($types) || empty($params)) {
+            if (!$conn->query($sql)) {
+                return -1;
+            }
+            return (int)$conn->affected_rows;
+        }
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return -1;
+        }
+
+        $stmt->bind_param($types, ...$params);
+        if (!$stmt->execute()) {
+            $stmt->close();
+            return -1;
+        }
+
+        $affected = (int)$stmt->affected_rows;
+        $stmt->close();
+        return $affected;
+    } catch (Throwable $e) {
+        if ($stmt instanceof mysqli_stmt) {
+            $stmt->close();
+        }
+        return -1;
+    }
 }
 
 function db_execute($sql, $types = '', $params = []) {

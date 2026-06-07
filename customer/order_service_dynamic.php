@@ -220,8 +220,7 @@ function pf_review_video_candidates($path, $base_path, $review_id = 0) {
 }
 
 require_role('Customer');
-require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
-require_once __DIR__ . '/../includes/require_id_verified.php';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
 $customer_id = get_user_id();
 
 function pf_customer_absolute_url(string $path, array $query = []): string {
@@ -283,6 +282,14 @@ if (!service_has_field_config($service_id)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    $submission_action = strtolower(trim((string)($_POST['action'] ?? '')));
+    if (isset($_POST['inquire_now'])) {
+        $submission_action = 'inquire_now';
+    }
+    if (printflow_is_order_submission_action($submission_action)) {
+        printflow_block_order_submission_if_profile_incomplete();
+    }
+
     // Get field configurations to validate dynamically
     $field_configs = get_service_field_config($service_id);
     
@@ -672,6 +679,8 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
             <span>/</span>
             <span class="font-semibold text-gray-900 text-ellipsis-single" title="<?php echo htmlspecialchars($service['name']); ?>"><?php echo htmlspecialchars($service['name']); ?></span>
         </div>
+
+        <?php printflow_render_customer_profile_incomplete_banner(); ?>
 
         <?php if ($error): ?>
             <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6" id="error-message">

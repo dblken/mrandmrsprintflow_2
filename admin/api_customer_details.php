@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/api_header.php';
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/customer_id_verification.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -79,9 +80,9 @@ try {
         'profile_picture' => $profile_picture,
         'initial' => strtoupper(substr($c['first_name'], 0, 1)),
         'id_status' => $normalized_id_status,
-        'id_type'   => $c['id_type'] ?? '',
+        'id_type'   => pf_decode_display_text((string)($c['id_type'] ?? '')),
         'id_image'  => !empty($c['id_image']) ? $base_path . '/uploads/ids/' . $c['id_image'] : null,
-        'id_reject_reason' => $c['id_reject_reason'] ?? ''
+        'id_reject_reason' => pf_decode_display_text((string)($c['id_reject_reason'] ?? ''))
     ];
 
     echo json_encode(

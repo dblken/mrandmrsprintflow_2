@@ -1,28 +1,13 @@
 <?php
 /**
- * Gate: require customers to finish their profile before ordering.
- * Include this after require_role('Customer') and before ID verification gates.
+ * Gate: require customers to finish their profile before ordering/checkout pages.
+ * Include this on submission/checkout endpoints — not on browse-only order forms.
  */
-if (get_user_type() === 'Customer' && !is_profile_complete()) {
-    $current_path = $_SERVER['REQUEST_URI'] ?? '';
-    $return_to = '';
-    if (is_string($current_path) && $current_path !== '') {
-        $path = parse_url($current_path, PHP_URL_PATH);
-        if (is_string($path) && preg_match('#^(/[^/?#]+)?/customer/[A-Za-z0-9_\-/]+\.php$#', $path)) {
-            $query = parse_url($current_path, PHP_URL_QUERY);
-            $return_to = $path . ($query ? '?' . $query : '');
-        }
-    }
+require_once __DIR__ . '/customer_profile_completion.php';
 
-    if ($return_to !== '') {
-        $_SESSION['profile_return_after_complete'] = $return_to;
+if (get_user_type() === 'Customer') {
+    $incomplete_section = printflow_first_incomplete_customer_account_section();
+    if ($incomplete_section !== null) {
+        printflow_redirect_customer_to_complete_profile(null, $incomplete_section);
     }
-
-    $target = rtrim(AUTH_REDIRECT_BASE, '/') . '/customer/profile.php?complete_profile=1';
-    if ($return_to !== '') {
-        $target .= '&return=' . rawurlencode($return_to);
-    }
-
-    header('Location: ' . $target, true, 302);
-    exit;
 }

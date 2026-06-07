@@ -961,6 +961,115 @@ endif; ?>
         overflow-anchor: none;
     }
 
+    .nav-group {
+        margin: 0 10px 6px;
+    }
+
+    .nav-item.nav-parent {
+        width: 100%;
+        margin: 0;
+        border: none;
+        background: transparent;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        box-sizing: border-box;
+    }
+
+    .nav-item.nav-parent .nav-label {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .nav-chevron {
+        width: 16px;
+        height: 16px;
+        margin-left: auto;
+        flex-shrink: 0;
+        opacity: 0.72;
+        transition: transform 0.2s ease, opacity 0.18s ease;
+    }
+
+    .nav-item.nav-parent:hover .nav-chevron,
+    .nav-item.nav-parent.active .nav-chevron {
+        opacity: 1;
+    }
+
+    .nav-group.expanded .nav-chevron {
+        transform: rotate(90deg);
+    }
+
+    .nav-subitems {
+        display: none;
+        margin: 0 10px 6px;
+        padding: 4px 0 4px 0;
+        position: relative;
+    }
+
+    .nav-group.expanded .nav-subitems {
+        display: block;
+    }
+
+    .nav-subitems::before {
+        content: '';
+        position: absolute;
+        left: 18px;
+        top: 8px;
+        bottom: 8px;
+        width: 1px;
+        background: rgba(148, 200, 212, 0.28);
+        pointer-events: none;
+    }
+
+    .nav-subitem {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px 8px 34px;
+        margin: 2px 0;
+        border-radius: 10px;
+        color: rgba(200, 230, 238, 0.78);
+        font-size: 13px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 0.18s, color 0.18s;
+        position: relative;
+    }
+
+    .nav-subitem::before {
+        content: '';
+        position: absolute;
+        left: 18px;
+        top: 50%;
+        width: 10px;
+        height: 1px;
+        background: rgba(148, 200, 212, 0.28);
+        transform: translateY(-50%);
+    }
+
+    .nav-subitem:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #f0fafc;
+    }
+
+    .nav-subitem.active {
+        background: linear-gradient(135deg, #f0fdfa 0%, #e0f2f4 45%, #d8eef2 100%);
+        color: #00232b;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
+
+    .nav-subitem .nav-badge {
+        margin-left: auto;
+    }
+
+    .sidebar.collapsed .nav-group .nav-subitems {
+        display: none !important;
+    }
+
+    .sidebar.collapsed .nav-group .nav-chevron {
+        display: none;
+    }
+
     .nav-section {
         margin-bottom: 24px;
     }

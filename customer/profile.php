@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_id_verification.php';
 
 require_role('Customer');
 
@@ -131,6 +132,11 @@ if ($profile_return_to !== '') {
     }
 }
 $requires_profile_completion = isset($_GET['complete_profile']) || isset($_POST['complete_profile']) || $profile_return_to !== '';
+require_once __DIR__ . '/../includes/customer_profile_completion.php';
+$profile_completion_flash = printflow_consume_profile_completion_flash();
+if ($profile_completion_flash !== '' && !$requires_profile_completion) {
+    $error = $profile_completion_flash;
+}
 
 // Ensure address columns exist (one-time migration - add only missing columns)
 $existing_cols = [];
@@ -154,13 +160,20 @@ if (function_exists('printflow_ensure_customers_auth_provider_column')) {
     printflow_ensure_customers_auth_provider_column();
 }
 
+pf_ensure_customer_id_verification_columns();
+
+if (!empty($_SESSION['profile_id_upload_flash'])) {
+    $success = (string)$_SESSION['profile_id_upload_flash'];
+    unset($_SESSION['profile_id_upload_flash']);
+}
+
 // Get customer data
 $customer = db_query("SELECT * FROM customers WHERE customer_id = ?", 'i', [$customer_id])[0];
 $customer_uses_google_signin = (strtolower(trim((string)($customer['auth_provider'] ?? ''))) === 'google');
 $omit_current_password_on_profile = $customer_uses_google_signin && !printflow_customer_has_usable_password_hash($customer['password_hash'] ?? null);
 
 function customer_profile_redirect_after_completion(string $return_to): void {
-    if ($return_to === '' || !is_profile_complete()) {
+    if ($return_to === '' || !printflow_customer_account_ready_for_order()) {
         return;
     }
 
@@ -414,16 +427,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
     }
 }
 
-// Ensure ID verification columns exist
-global $conn;
-if (empty(db_query("SHOW COLUMNS FROM customers LIKE 'id_status'"))) {
-    $conn->query("ALTER TABLE customers ADD COLUMN id_image VARCHAR(255) DEFAULT NULL, ADD COLUMN id_type VARCHAR(100) DEFAULT NULL, ADD COLUMN id_status ENUM('None','Pending','Verified','Rejected') DEFAULT 'None', ADD COLUMN id_reject_reason VARCHAR(255) DEFAULT NULL");
-}
-
 // Handle ID upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_id'])) {
+    $currentIdStatus = pf_customer_id_status_normalize($customer['id_status'] ?? '');
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $error = 'Invalid request.';
+    } elseif (
+        $currentIdStatus === 'Pending'
+        && trim((string)($customer['id_image'] ?? '')) !== ''
+    ) {
+        $error = 'Your ID is already under review. Please wait for admin feedback before resubmitting.';
     } elseif (empty($_FILES['id_image']['tmp_name']) || $_FILES['id_image']['error'] !== UPLOAD_ERR_OK) {
         $error = 'Please select an ID image to upload.';
     } else {
@@ -444,7 +457,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_id'])) {
                 if (!is_dir($id_dir)) mkdir($id_dir, 0755, true);
                 if (move_uploaded_file($_FILES['id_image']['tmp_name'], $id_dir . $fname2)) {
                     $hadExistingId = !empty($customer['id_image']);
-                    db_execute("UPDATE customers SET id_image=?, id_type=?, id_status='Pending', id_reject_reason=NULL WHERE customer_id=?", 'ssi', [$fname2, $id_type, $customer_id]);
+                    pf_ensure_customer_id_verification_columns();
+                    db_execute(
+                        "UPDATE customers SET id_image=?, id_type=?, id_status='Pending', id_reject_reason=NULL, id_uploaded_at=NOW(), id_reviewed_at=NULL WHERE customer_id=?",
+                        'ssi',
+                        [$fname2, $id_type, $customer_id]
+                    );
                     $customerName = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
                     if ($customerName === '') {
                         $customerName = 'A customer';
@@ -457,8 +475,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_id'])) {
                         $customer_id,
                         ['Admin', 'Manager']
                     );
-                    $success = 'ID submitted for verification. We will review it shortly.';
-                    $customer = db_query("SELECT * FROM customers WHERE customer_id=?", 'i', [$customer_id])[0];
+                    $_SESSION['profile_id_upload_flash'] = 'ID submitted for verification. We will review it shortly.';
+                    $redirect = AUTH_REDIRECT_BASE . '/customer/profile.php?id_submitted=1#section-security';
+                    header('Location: ' . $redirect, true, 303);
+                    exit;
                 } else {
                     $error = 'Failed to upload ID image.';
                 }
@@ -479,6 +499,7 @@ if (strlen($contact_digits) === 12 && strncmp($contact_digits, '63', 2) === 0) {
     $contact_display = $contact_digits;
 }
 $profile_completion_status = customer_profile_completion_status($customer_id);
+$account_tab_status = printflow_customer_account_tab_status($customer);
 
 $page_title = 'My Profile - PrintFlow';
 $use_customer_css = true;
@@ -508,6 +529,9 @@ require_once __DIR__ . '/../includes/header.php';
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
     overflow: hidden;
     box-sizing: border-box;
+    font-size: 0.813rem;
+    color: #64748b;
+    line-height: 1.5;
 }
 
 /* Mobile: reduce padding and margin */
@@ -593,6 +617,7 @@ require_once __DIR__ . '/../includes/header.php';
     width: 100%;
     height: 100%;
     object-fit: cover;
+    background: #eceff3;
 }
 
 .profile-avatar-edit-btn {
@@ -613,7 +638,7 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .profile-user-name {
-    font-size: 1.25rem;
+    font-size: inherit;
     font-weight: 700;
     color: #0f172a;
     margin-bottom: 0.25rem;
@@ -621,29 +646,17 @@ require_once __DIR__ . '/../includes/header.php';
     overflow-wrap: break-word;
     word-break: break-word;
     max-width: 100%;
-    line-height: 1.3;
-}
-
-@media (max-width: 768px) {
-    .profile-user-name {
-        font-size: 1.1rem;
-    }
+    line-height: 1.4;
 }
 
 .profile-user-email {
-    font-size: 0.875rem;
-    color: #64748b;
+    font-size: inherit;
+    color: inherit;
     margin-bottom: 1rem;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-all;
     max-width: 100%;
-}
-
-@media (max-width: 768px) {
-    .profile-user-email {
-        font-size: 0.813rem;
-    }
 }
 
 .profile-info-pill {
@@ -694,7 +707,7 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .profile-card-title {
-    font-size: 1.125rem;
+    font-size: inherit;
     font-weight: 700;
     color: #0f172a;
     margin-bottom: 1.5rem;
@@ -705,10 +718,10 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .profile-card-description {
-    font-size: 0.9rem;
-    color: #64748b;
+    font-size: inherit;
+    color: inherit;
     margin: -0.5rem 0 1.5rem;
-    line-height: 1.6;
+    line-height: 1.5;
 }
 
 .settings-tabs {
@@ -724,7 +737,7 @@ require_once __DIR__ . '/../includes/header.php';
     color: #476072;
     border-radius: 999px;
     padding: 0.7rem 1rem;
-    font-size: 0.84rem;
+    font-size: inherit;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -753,21 +766,20 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .helper-card-title {
-    font-size: 0.86rem;
+    font-size: inherit;
     font-weight: 700;
     color: #0f172a;
     margin-bottom: 0.3rem;
 }
 
 .helper-card-text {
-    font-size: 0.82rem;
-    color: #64748b;
-    line-height: 1.55;
+    font-size: inherit;
+    color: inherit;
+    line-height: 1.5;
 }
 
 @media (max-width: 768px) {
     .profile-card-title {
-        font-size: 1rem;
         margin-bottom: 1.25rem;
     }
 }
@@ -794,28 +806,27 @@ require_once __DIR__ . '/../includes/header.php';
 
 .pf-label {
     display: block;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #475569;
+    font-size: inherit;
+    font-weight: 400;
+    color: inherit;
     margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
+    letter-spacing: normal;
+    text-transform: none;
 }
 
 @media (max-width: 768px) {
     .pf-label {
-        font-size: 0.7rem;
         margin-bottom: 6px;
     }
 }
 
 .pf-input {
     width: 100%;
-    padding: 12px 14px;
+    padding: 10px 12px;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
-    font-size: 0.95rem;
-    color: #1e293b;
+    font-size: inherit;
+    color: #0f172a;
     background: #fff;
     box-sizing: border-box;
     transition: 0.2s;
@@ -823,8 +834,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 @media (max-width: 768px) {
     .pf-input {
-        padding: 14px 12px;
-        font-size: 1rem;
+        padding: 12px;
         min-height: 44px;
     }
 }
@@ -835,12 +845,29 @@ require_once __DIR__ . '/../includes/header.php';
     box-shadow: 0 0 0 3px rgba(83, 197, 224, 0.1);
 }
 
+.profile-avatar-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #eceff3;
+    color: #b8c0cc;
+    border-radius: 50%;
+}
+
+.profile-avatar-placeholder svg {
+    width: 48%;
+    height: 48%;
+}
+
 .pf-btn-primary {
     padding: 7px 24px;
     border-radius: 3px;
     border: none;
     background: #0a2530;
     color: #fff;
+    font-size: inherit;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
@@ -848,8 +875,7 @@ require_once __DIR__ . '/../includes/header.php';
     align-items: center;
     justify-content: center;
     gap: 8px;
-    text-transform: uppercase;
-    font-size: 0.8rem;
+    text-transform: none;
     text-decoration: none;
     min-height: 40px;
 }
@@ -858,7 +884,6 @@ require_once __DIR__ . '/../includes/header.php';
     .pf-btn-primary {
         width: 100%;
         padding: 12px 20px;
-        font-size: 0.85rem;
         min-height: 48px;
     }
 }
@@ -881,10 +906,30 @@ require_once __DIR__ . '/../includes/header.php';
 .profile-nav-list { list-style: none; padding: 0; margin: 0; }
 .profile-nav-item a {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    border-radius: 8px; font-weight: 600; color: #64748b; text-decoration: none; transition: 0.2s;
+    border-radius: 8px; font-size: inherit; font-weight: 400; color: #64748b; text-decoration: none; transition: 0.2s;
 }
 .profile-nav-item a:hover { background: #fff; color: var(--pf-accent); }
-.profile-nav-item a.active { background: #fff; color: var(--pf-accent); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.profile-nav-item a.active {
+    font-weight: 700;
+    color: #0f172a;
+    background: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+.profile-tab-alert {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.05rem;
+    height: 1.05rem;
+    margin-left: 0.45rem;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1;
+    vertical-align: middle;
+}
 
 /* Alerts */
 .pf-alert {
@@ -892,13 +937,13 @@ require_once __DIR__ . '/../includes/header.php';
     border-radius: 8px;
     margin-bottom: 2rem;
     border-left: 4px solid transparent;
+    font-size: inherit;
 }
 
 @media (max-width: 768px) {
     .pf-alert {
         padding: 0.875rem 1rem;
         margin-bottom: 1.5rem;
-        font-size: 0.875rem;
     }
 }
 
@@ -915,7 +960,7 @@ require_once __DIR__ . '/../includes/header.php';
 }
 
 .live-indicator {
-    font-size: 0.75rem;
+    font-size: inherit;
     margin-top: 4px;
     min-height: 1.25rem;
     transition: 0.2s;
@@ -958,13 +1003,10 @@ require_once __DIR__ . '/../includes/header.php';
         </div>
         <?php endif; ?>
 
-        <?php if ($requires_profile_completion && !$profile_completion_status['complete']): ?>
+        <?php if ($requires_profile_completion && !printflow_customer_account_ready_for_order($customer)): ?>
         <div class="pf-alert pf-alert-error" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412;">
-            <strong>Complete your profile first:</strong>
-            Please fill in all required personal information before placing an order.
-            <?php if (!empty($profile_completion_status['missing'])): ?>
-                Missing: <?php echo htmlspecialchars(implode(', ', $profile_completion_status['missing'])); ?>.
-            <?php endif; ?>
+            <strong>Complete your Customer Account:</strong>
+            Please fill in every section marked with <span class="profile-tab-alert" style="margin:0 0.2rem;">!</span> before placing an order.
         </div>
         <?php endif; ?>
 
@@ -974,14 +1016,12 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="sidebar-content">
                     <div class="profile-avatar-wrap">
                         <div class="profile-avatar-ring">
-                            <?php if (!empty($customer['profile_picture'])): ?>
-                                <img src="<?php echo get_profile_image($customer['profile_picture']); ?>?t=<?php echo time(); ?>" alt="Avatar" id="profile-preview" onerror="this.onerror=null;this.src='<?php echo $base_path; ?>/public/assets/images/icon-192.png'">
-                            <?php else: ?>
-                                <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f1f5f9;">
-                                    <svg width="48" height="48" fill="none" stroke="#94a3b8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-                                </div>
-                                <img src="" alt="Profile" style="display:none;width:100%;height:100%;object-fit:cover;" id="profile-preview">
-                            <?php endif; ?>
+                            <?php
+                            $profile_avatar_url = get_profile_image($customer['profile_picture'] ?? '');
+                            $profile_avatar_placeholder = '<div class="profile-avatar-placeholder" id="profile-avatar-placeholder" aria-hidden="true" style="display:none;"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-4.418 0-8 2.239-8 5v1h16v-1c0-2.761-3.582-5-8-5z"/></svg></div>';
+                            ?>
+                            <img src="<?php echo htmlspecialchars($profile_avatar_url); ?>?t=<?php echo time(); ?>" alt="Profile photo" id="profile-preview" style="width:100%;height:100%;object-fit:cover;" onerror="pfProfileAvatarFallback(this)">
+                            <?php echo $profile_avatar_placeholder; ?>
                         </div>
                         <label for="profile_picture" class="profile-avatar-edit-btn" title="Change photo">
                             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -997,23 +1037,32 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="profile-info-pill" style="border-bottom: none;">
                             <span>Status</span>
-                            <?php
-                            $id_st = $customer['id_status'] ?? 'None';
-                            $st_color = $id_st==='Verified' ? '#16a34a' : ($id_st==='Pending' ? '#b45309' : ($id_st==='Rejected' ? '#b91c1c' : '#64748b'));
-                            $st_label = $id_st==='Verified' ? 'ID Verified' : ($id_st==='Pending' ? 'Pending Review' : ($id_st==='Rejected' ? 'ID Rejected' : 'Unverified'));
-                            ?>
-                            <span style="font-weight:700;color:<?php echo $st_color;?>"><?php echo $st_label; ?></span>
+                            <?php $id_profile_status = pf_customer_id_profile_status_display($customer); ?>
+                            <span style="font-weight:700;color:<?php echo htmlspecialchars($id_profile_status['color']); ?>"><?php echo htmlspecialchars($id_profile_status['label']); ?></span>
                         </div>
                     </div>
                 </div>
 
                 <div class="profile-nav-card">
-                    <div style="padding:0.75rem 0.85rem 0.5rem;font-size:0.78rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Customer Account</div>
+                    <div style="padding:0.75rem 0.85rem 0.5rem;font-size:inherit;font-weight:700;color:#0f172a;">Customer Account</div>
                     <ul class="profile-nav-list">
-                        <li class="profile-nav-item"><a href="#section-profile" class="account-nav-link active" data-section="section-profile">Personal Information</a></li>
-                        <li class="profile-nav-item"><a href="#section-address" class="account-nav-link" data-section="section-address">Address</a></li>
-                        <li class="profile-nav-item"><a href="#section-account" class="account-nav-link" data-section="section-account">Account Management</a></li>
-                        <li class="profile-nav-item"><a href="#section-security" class="account-nav-link" data-section="section-security">Security & Verification</a></li>
+                        <?php
+                        $profile_nav_sections = [
+                            'section-profile' => 'Personal Information',
+                            'section-address' => 'Address',
+                            'section-account' => 'Account Management',
+                            'section-security' => 'Security & Verification',
+                        ];
+                        foreach ($profile_nav_sections as $section_id => $section_label):
+                            $tab_complete = !empty($account_tab_status[$section_id]['complete']);
+                        ?>
+                        <li class="profile-nav-item">
+                            <a href="#<?php echo htmlspecialchars($section_id, ENT_QUOTES, 'UTF-8'); ?>" class="account-nav-link<?php echo $section_id === 'section-profile' ? ' active' : ''; ?>" data-section="<?php echo htmlspecialchars($section_id, ENT_QUOTES, 'UTF-8'); ?>">
+                                <?php echo htmlspecialchars($section_label); ?>
+                                <?php if (!$tab_complete): ?><span class="profile-tab-alert" title="Incomplete — please fill out this section">!</span><?php endif; ?>
+                            </a>
+                        </li>
+                        <?php endforeach; ?>
                     </ul>
                 </div>
 
@@ -1028,57 +1077,54 @@ require_once __DIR__ . '/../includes/header.php';
                     <h3 class="profile-card-title">Personal Information</h3>
                     <p class="profile-card-description">Update your personal identity details and profile information used across your customer account.</p>
                     
-                    <form method="POST" action="" enctype="multipart/form-data">
+                    <form method="POST" action="" enctype="multipart/form-data" novalidate>
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="update_profile" value="1">
                         <?php if ($requires_profile_completion): ?><input type="hidden" name="complete_profile" value="1"><?php endif; ?>
                         <?php if ($profile_return_to !== ''): ?><input type="hidden" name="return" value="<?php echo htmlspecialchars($profile_return_to); ?>"><?php endif; ?>
                         <input type="file" id="profile_picture" name="profile_picture" class="hidden" accept="image/*" style="display:none;"
-                               onchange="const f=this.files[0];if(f){const r=new FileReader();r.onload=e=>{const p=document.getElementById('profile-preview');p.src=e.target.result;p.style.display='block';const s=p.previousElementSibling;if(s && s.tagName==='DIV'){s.style.display='none';}};r.readAsDataURL(f);}">
+                               onchange="const f=this.files[0];if(f){const r=new FileReader();r.onload=e=>{const p=document.getElementById('profile-preview');const ph=document.getElementById('profile-avatar-placeholder');p.src=e.target.result;p.style.display='block';if(ph){ph.style.display='none';}};r.readAsDataURL(f);}">
 
                         <div class="form-grid">
-                            <div class="pf-field-group">
-                                <label for="first_name" class="pf-label">First Name</label>
-                                <input type="text" id="first_name" name="first_name" class="pf-input validate-advanced-name" required value="<?php echo htmlspecialchars($customer['first_name']); ?>" maxlength="50">
-                                <div class="live-indicator" data-for="first_name"></div>
+                            <div class="pf-field-group" id="group_first_name">
+                                <label for="first_name" class="pf-label">First Name <span class="required-asterisk">*</span></label>
+                                <input type="text" id="first_name" name="first_name" class="pf-input validate-advanced-name" value="<?php echo htmlspecialchars($customer['first_name']); ?>" maxlength="50">
+                                <span class="field-error" id="error_first_name">First name is required.</span>
                             </div>
-                            <div class="pf-field-group">
-                                <label for="middle_name" class="pf-label" style="display:flex; align-items:center; gap:0.5rem;">
-                                    <span>Middle Name</span>
-                                    <span style="font-size:0.72rem; font-weight:700; color:#64748b; background:#f8fafc; border:1px solid #cbd5e1; border-radius:999px; padding:0.12rem 0.5rem; letter-spacing:0.01em;">Optional</span>
-                                </label>
-                                <input type="text" id="middle_name" name="middle_name" class="pf-input validate-advanced-name" value="<?php echo htmlspecialchars($customer['middle_name'] ?? ''); ?>" maxlength="50">
-                                <div class="live-indicator" data-for="middle_name"></div>
+                            <div class="pf-field-group" id="group_middle_name">
+                                <label for="middle_name" class="pf-label">Middle Name</label>
+                                <input type="text" id="middle_name" name="middle_name" class="pf-input validate-advanced-name" placeholder="Optional" value="<?php echo htmlspecialchars($customer['middle_name'] ?? ''); ?>" maxlength="50">
                             </div>
-                            <div class="pf-field-group">
-                                <label for="last_name" class="pf-label">Last Name</label>
-                                <input type="text" id="last_name" name="last_name" class="pf-input validate-advanced-name" required value="<?php echo htmlspecialchars($customer['last_name']); ?>" maxlength="50">
-                                <div class="live-indicator" data-for="last_name"></div>
+                            <div class="pf-field-group" id="group_last_name">
+                                <label for="last_name" class="pf-label">Last Name <span class="required-asterisk">*</span></label>
+                                <input type="text" id="last_name" name="last_name" class="pf-input validate-advanced-name" value="<?php echo htmlspecialchars($customer['last_name']); ?>" maxlength="50">
+                                <span class="field-error" id="error_last_name">Last name is required.</span>
                             </div>
                             <div class="pf-field-group">
                                 <label class="pf-label">Email Address (Locked)</label>
                                 <input type="email" class="pf-input" style="background:#f1f5f9; cursor:not-allowed; color:#0f172a;" value="<?php echo htmlspecialchars($customer['email']); ?>" readonly>
                             </div>
-                            <div class="pf-field-group">
-                                <label for="contact_number" class="pf-label">Contact Number</label>
-                                <input type="tel" id="contact_number" name="contact_number" class="pf-input validate-advanced-contact" placeholder="09XXXXXXXXX" value="<?php echo htmlspecialchars($contact_display); ?>" maxlength="11" inputmode="numeric" required>
-                                <div class="live-indicator" data-for="contact_number"></div>
+                            <div class="pf-field-group" id="group_contact_number">
+                                <label for="contact_number" class="pf-label">Contact Number <span class="required-asterisk">*</span></label>
+                                <input type="tel" id="contact_number" name="contact_number" class="pf-input validate-advanced-contact" placeholder="09XXXXXXXXX" value="<?php echo htmlspecialchars($contact_display); ?>" maxlength="11" inputmode="numeric">
+                                <span class="field-error" id="error_contact_number">Contact number is required.</span>
                             </div>
                             <div class="pf-field-group">
                                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                    <div>
-                                        <label for="dob" class="pf-label">Birthday</label>
-                                        <input type="date" id="dob" name="dob" class="pf-input validate-advanced-dob" value="<?php echo htmlspecialchars($customer['dob'] ?? ''); ?>" min="<?php echo $min_birthday; ?>" max="<?php echo $max_birthday; ?>" required>
-                                        <div class="live-indicator" data-for="dob"></div>
+                                    <div class="pf-field-group" id="group_dob" style="margin:0;">
+                                        <label for="dob" class="pf-label">Birthday <span class="required-asterisk">*</span></label>
+                                        <input type="date" id="dob" name="dob" class="pf-input validate-advanced-dob" value="<?php echo htmlspecialchars($customer['dob'] ?? ''); ?>" min="<?php echo $min_birthday; ?>" max="<?php echo $max_birthday; ?>">
+                                        <span class="field-error" id="error_dob">Birthday is required.</span>
                                     </div>
-                                    <div>
-                                        <label for="gender" class="pf-label">Gender</label>
-                                        <select id="gender" name="gender" class="pf-input" required>
+                                    <div class="pf-field-group" id="group_gender" style="margin:0;">
+                                        <label for="gender" class="pf-label">Gender <span class="required-asterisk">*</span></label>
+                                        <select id="gender" name="gender" class="pf-input">
                                             <option value="">Select</option>
                                             <option value="Male" <?php echo ($customer['gender'] ?? '') === 'Male' ? 'selected' : ''; ?>>Male</option>
                                             <option value="Female" <?php echo ($customer['gender'] ?? '') === 'Female' ? 'selected' : ''; ?>>Female</option>
                                             <option value="Other" <?php echo ($customer['gender'] ?? '') === 'Other' ? 'selected' : ''; ?>>Other</option>
                                         </select>
+                                        <span class="field-error" id="error_gender">Gender is required.</span>
                                     </div>
                                 </div>
                             </div>
@@ -1094,45 +1140,49 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="profile-card settings-panel" id="section-address">
                     <h3 class="profile-card-title">Address</h3>
                     
-                    <form method="POST" action="" id="address-form">
+                    <form method="POST" action="" id="address-form" novalidate>
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="update_address" value="1">
                         <?php if ($requires_profile_completion): ?><input type="hidden" name="complete_profile" value="1"><?php endif; ?>
                         <?php if ($profile_return_to !== ''): ?><input type="hidden" name="return" value="<?php echo htmlspecialchars($profile_return_to); ?>"><?php endif; ?>
                         
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem;">
-                            <div class="pf-field-group">
-                                <label class="pf-label" for="addr_province">Province *</label>
+                            <div class="pf-field-group" id="group_addr_province">
+                                <label class="pf-label" for="addr_province">Province <span class="required-asterisk">*</span></label>
                                 <div class="addr-select-wrap">
                                     <select id="addr_province" name="province" class="pf-input addr-select" data-level="province" required>
                                         <option value="">— Select Province —</option>
                                     </select>
                                     <span class="addr-spinner" id="spin_province"></span>
                                 </div>
+                                <span class="field-error" id="error_addr_province">Province is required.</span>
                             </div>
-                            <div class="pf-field-group">
-                                <label class="pf-label" for="addr_city">City / Municipality *</label>
+                            <div class="pf-field-group" id="group_addr_city">
+                                <label class="pf-label" for="addr_city">City / Municipality <span class="required-asterisk">*</span></label>
                                 <div class="addr-select-wrap">
                                     <select id="addr_city" name="city" class="pf-input addr-select" data-level="city" disabled required>
                                         <option value="">— Select City / Municipality —</option>
                                     </select>
                                     <span class="addr-spinner" id="spin_city"></span>
                                 </div>
+                                <span class="field-error" id="error_addr_city">City or municipality is required.</span>
                             </div>
-                            <div class="pf-field-group">
-                                <label class="pf-label" for="addr_barangay">Barangay *</label>
+                            <div class="pf-field-group" id="group_addr_barangay">
+                                <label class="pf-label" for="addr_barangay">Barangay <span class="required-asterisk">*</span></label>
                                 <div class="addr-select-wrap">
                                     <select id="addr_barangay" name="barangay" class="pf-input addr-select" data-level="barangay" disabled required>
                                         <option value="">— Select Barangay —</option>
                                     </select>
                                     <span class="addr-spinner" id="spin_barangay"></span>
                                 </div>
+                                <span class="field-error" id="error_addr_barangay">Barangay is required.</span>
                             </div>
                         </div>
 
-                        <div style="margin-top: 1.25rem;">
-                            <label class="pf-label" for="addr_street">Street Name, House No., Building Info</label>
+                        <div style="margin-top: 1.25rem;" class="pf-field-group" id="group_addr_street">
+                            <label class="pf-label" for="addr_street">Street Name, House No., Building Info <span class="required-asterisk">*</span></label>
                             <input type="text" id="addr_street" name="street_address" class="pf-input" placeholder="e.g. #123 Sampaguita st., Phase 2" value="<?php echo htmlspecialchars($customer['street_address'] ?? ''); ?>" required>
+                            <span class="field-error" id="error_addr_street">Street address is required.</span>
                         </div>
 
                         <div id="addr-preview" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-top:1.5rem; font-size:0.875rem;">
@@ -1203,17 +1253,14 @@ require_once __DIR__ . '/../includes/header.php';
 
                 <!-- ID Verification Section -->
                 <?php
-                $id_status = $customer['id_status'] ?? 'None';
+                $id_profile_status = pf_customer_id_profile_status_display($customer);
+                $id_status = $id_profile_status['status'];
                 $id_type   = $customer['id_type'] ?? '';
                 $id_image  = $customer['id_image'] ?? '';
-                $id_reject = $customer['id_reject_reason'] ?? '';
-                $status_colors = [
-                    'None'     => ['#64748b','#f1f5f9','Not Submitted'],
-                    'Pending'  => ['#b45309','#fffbeb','Under Review'],
-                    'Verified' => ['#15803d','#f0fdf4','Verified ✓'],
-                    'Rejected' => ['#b91c1c','#fef2f2','Rejected'],
-                ];
-                [$sc,$sbg,$slabel] = $status_colors[$id_status] ?? $status_colors['None'];
+                $id_reject = pf_decode_display_text((string)($customer['id_reject_reason'] ?? ''));
+                $sc = $id_profile_status['color'];
+                $sbg = $id_profile_status['bg'];
+                $slabel = $id_profile_status['label'];
                 ?>
                 <div class="profile-card settings-panel" id="section-security">
                     <h3 class="profile-card-title">
@@ -1252,8 +1299,13 @@ require_once __DIR__ . '/../includes/header.php';
                     <div style="margin-bottom:1.25rem;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:0.875rem;color:#92400e;">
                         Your ID is currently under review. We'll notify you once the admin finishes reviewing it. If it is rejected, the admin's reason will appear here so you can upload a new ID again.
                     </div>
+                    <?php if (!empty($id_image)): ?>
+                    <div style="margin-top:1rem;">
+                        <p style="font-size:0.75rem;color:#64748b;margin-bottom:6px;">Submitted ID:</p>
+                        <img src="<?php echo $base_path; ?>/uploads/ids/<?php echo htmlspecialchars($id_image); ?>" style="max-height:140px;border-radius:8px;border:1px solid #e2e8f0;">
+                    </div>
                     <?php endif; ?>
-
+                    <?php elseif (empty($id_image) || $id_status === 'Rejected'): ?>
                     <form method="POST" enctype="multipart/form-data">
                         <?php echo csrf_field(); ?>
                         <input type="hidden" name="upload_id" value="1">
@@ -1286,6 +1338,7 @@ require_once __DIR__ . '/../includes/header.php';
                         </div>
                     </form>
                     <?php endif; ?>
+                    <?php endif; ?>
                 </div>
 
             </div><!-- /main -->
@@ -1294,6 +1347,22 @@ require_once __DIR__ . '/../includes/header.php';
 </div><!-- /min-h-screen -->
 
 <script>
+function pfProfileAvatarFallback(img) {
+    if (!img) return;
+    var fallback = <?php echo json_encode(get_profile_image('')); ?>;
+    if (img.dataset.fallbackApplied === '1') {
+        img.style.display = 'none';
+        var ph = document.getElementById('profile-avatar-placeholder');
+        if (ph) ph.style.display = 'flex';
+        return;
+    }
+    img.dataset.fallbackApplied = '1';
+    img.src = fallback;
+    img.style.display = 'block';
+    var ph = document.getElementById('profile-avatar-placeholder');
+    if (ph) ph.style.display = 'none';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     const panels = Array.from(document.querySelectorAll('.settings-panel'));
     const tabButtons = Array.from(document.querySelectorAll('.settings-tab-btn'));
@@ -1317,6 +1386,17 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    const hashSection = (window.location.hash || '').replace(/^#/, '');
+    if (hashSection && document.getElementById(hashSection)) {
+        activateSection(hashSection);
+        const hashPanel = document.getElementById(hashSection);
+        if (hashPanel) {
+            setTimeout(function () {
+                hashPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 120);
+        }
+    }
 });
 </script>
 
@@ -1476,6 +1556,25 @@ document.addEventListener('DOMContentLoaded', function () {
 
 .pf-field-group.is-invalid .error-message {
     display: block;
+}
+
+.field-error {
+    display: none;
+    font-size: 12px;
+    color: #ef4444;
+    margin-top: 4px;
+    min-height: 18px;
+    font-weight: 500;
+}
+
+.pf-field-group.is-invalid .field-error {
+    display: block;
+}
+
+.pf-field-group.is-invalid .pf-input,
+.pf-field-group.is-invalid select.pf-input {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
 }
 </style>
 
@@ -1667,83 +1766,97 @@ document.addEventListener('DOMContentLoaded', function () {
 })();
 </script>
 <script>
-// Advanced Validations Logic
+// Profile form validation — single field-error message per field (products modal style)
 (function() {
-    const indicators = {};
-    document.querySelectorAll('.live-indicator').forEach(el => {
-        indicators[el.dataset.for] = el;
-    });
-
     const fProfile = document.getElementById('btn-update-profile')?.closest('form');
     const btnSubmit = document.getElementById('btn-update-profile');
+    const REGEX = { name: /^[A-Za-z]+(?: [A-Za-z]+)*$/ };
+    const requiredFieldIds = ['first_name', 'last_name', 'contact_number', 'dob', 'gender'];
 
-    const REGEX = {
-        name: /^[A-Za-z]+(?: [A-Za-z]+)*$/,
-        email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    };
-
-    const HINTS = {
-        first_name: 'Letters only',
-        middle_name: 'Letters only (optional)',
-        last_name: 'Letters only',
-        contact_number: 'Format: 09XXXXXXXXX',
-        dob: 'Age 13-100 years old'
-    };
-
-    function updateIndicator(fieldId, isValid, message) {
-        const el = indicators[fieldId];
+    function clearProfileFieldError(fieldId) {
+        const group = document.getElementById('group_' + fieldId);
         const input = document.getElementById(fieldId);
-        if (!el || !input) return;
-        
-        el.classList.remove('valid', 'error');
-        input.classList.remove('input-valid', 'input-error');
-        
-        if (isValid) {
-            el.innerHTML = '';
-            el.dataset.valid = '1';
-        } else {
-            el.innerHTML = '<span class="ind-icon">!</span> ' + message;
-            el.dataset.valid = '0';
-            el.classList.add('error');
-            input.classList.add('input-error');
+        if (group) group.classList.remove('is-invalid');
+        if (input) {
+            input.classList.remove('input-error');
+            input.dataset.valid = '1';
         }
-        checkFormValidity();
     }
 
-    function showHint(fieldId) {
-        const el = indicators[fieldId];
-        if (!el || el.dataset.valid === '1' || el.dataset.valid === '0') return;
-        const hint = HINTS[fieldId];
-        if (hint) el.innerHTML = '<span class="hint">' + hint + '</span>';
+    function showProfileFieldError(fieldId, message) {
+        const group = document.getElementById('group_' + fieldId);
+        const errorEl = document.getElementById('error_' + fieldId);
+        const input = document.getElementById(fieldId);
+        if (errorEl && message) errorEl.textContent = message;
+        if (group) group.classList.add('is-invalid');
+        if (input) {
+            input.classList.add('input-error');
+            input.dataset.valid = '0';
+        }
     }
 
-    function clearHint(fieldId) {
-        const el = indicators[fieldId];
-        if (el && !el.dataset.valid) el.innerHTML = '';
+    function validateNameField(fieldId, value, required) {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            if (!required) return null;
+            if (fieldId === 'first_name') return 'First name is required.';
+            if (fieldId === 'last_name') return 'Last name is required.';
+            return null;
+        }
+        if (!REGEX.name.test(trimmed)) {
+            if (/[0-9]/.test(trimmed)) return 'Numbers are not allowed.';
+            return 'Use letters only.';
+        }
+        return null;
     }
 
-    function checkFormValidity() {
-        if (!fProfile || !btnSubmit) return;
-        const inputs = fProfile.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact');
-        let allValid = true;
-        
-        inputs.forEach(input => {
-            const el = indicators[input.id];
-            if (!el || el.dataset.valid !== '1') {
-                if (input.required || (input.value.trim().length > 0)) {
-                    // For non-required fields like middle_name or contact_number, only mark as invalid if they have value but failed validation
-                    if ((input.id === 'middle_name' || input.id === 'contact_number') && input.value.trim().length === 0) {
-                        // skip
-                    } else {
-                        allValid = false;
-                    }
-                }
-            }
+    function validateContactField(value) {
+        if (!value.trim()) return 'Contact number is required.';
+        if (!/^09\d{9}$/.test(value.trim())) return 'Use format 09XXXXXXXXX.';
+        return null;
+    }
+
+    function validateDobField(value) {
+        if (!value) return 'Birthday is required.';
+        const dob = new Date(value);
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        const m = today.getMonth() - dob.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+        if (dob > today) return 'Date cannot be in the future.';
+        if (age < 13) return 'You must be at least 13 years old.';
+        if (age > 100) return 'Age must be 100 years old or younger.';
+        return null;
+    }
+
+    function validateProfileField(fieldId, showErrors) {
+        const input = document.getElementById(fieldId);
+        if (!input) return true;
+        const value = (input.value || '').trim();
+        let message = null;
+
+        if (fieldId === 'first_name') message = validateNameField(fieldId, value, true);
+        else if (fieldId === 'last_name') message = validateNameField(fieldId, value, true);
+        else if (fieldId === 'middle_name') message = value ? validateNameField(fieldId, value, false) : null;
+        else if (fieldId === 'contact_number') message = validateContactField(input.value || '');
+        else if (fieldId === 'dob') message = validateDobField(input.value || '');
+        else if (fieldId === 'gender') message = !value ? 'Gender is required.' : null;
+
+        if (message) {
+            if (showErrors) showProfileFieldError(fieldId, message);
+            return false;
+        }
+        if (showErrors) clearProfileFieldError(fieldId);
+        return true;
+    }
+
+    function validateProfileFormOnSubmit() {
+        requiredFieldIds.forEach(clearProfileFieldError);
+        let valid = true;
+        requiredFieldIds.forEach((fieldId) => {
+            if (!validateProfileField(fieldId, true)) valid = false;
         });
-
-        btnSubmit.disabled = !allValid;
-        btnSubmit.style.opacity = allValid ? '1' : '0.5';
-        btnSubmit.style.cursor = allValid ? 'pointer' : 'not-allowed';
+        return valid;
     }
 
     function normalizeSpaces(val) {
@@ -1754,171 +1867,129 @@ document.addEventListener('DOMContentLoaded', function () {
         return str.toLowerCase().replace(/\b\w/g, function(c) { return c.toUpperCase(); });
     }
 
-    // Name Validation
+    function normalizeContact(val) {
+        let digits = val.replace(/\D/g, '');
+        if (digits === '') return '';
+        if (digits.startsWith('63')) digits = '0' + digits.slice(2);
+        else if (digits.startsWith('9')) digits = '0' + digits;
+        else if (!digits.startsWith('09')) digits = digits.startsWith('0') ? '09' + digits.slice(1) : '09' + digits;
+        if (!digits.startsWith('09')) digits = '09' + digits.replace(/^0+/, '');
+        if (digits.length > 11) digits = digits.slice(0, 11);
+        return digits;
+    }
+
     document.querySelectorAll('.validate-advanced-name').forEach(input => {
         input.addEventListener('input', function() {
-            // Prevent numbers and special characters immediately
-            let val = this.value.replace(/[^A-Za-z ]/g, '');
-            // Prevent multiple consecutive spaces
-            val = val.replace(/ +(?= )/g, '');
-            // Auto capitalize first letter of each word
-            val = toTitleCase(val);
-            this.value = val;
-
-            const trimmed = val.trim();
-            if (trimmed.length === 0) {
-                if (this.required) {
-                    updateIndicator(this.id, false, 'This field is required');
-                } else {
-                    const ind = indicators[this.id];
-                    if (ind) {
-                        ind.innerHTML = '<span class="hint">' + (HINTS[this.id] || '') + '</span>';
-                        ind.dataset.valid = '1';
-                    }
-                    this.classList.remove('input-valid', 'input-error');
-                    checkFormValidity();
-                }
-                return;
-            }
-
-            if (!REGEX.name.test(trimmed)) {
-                let msg = 'Use letters only (e.g. Juan Carlos)';
-                if (/[0-9]/.test(trimmed)) msg = 'Numbers not allowed';
-                else if (/[^A-Za-z\s]/.test(trimmed)) msg = 'Letters and spaces only';
-                updateIndicator(this.id, false, msg);
-            } else {
-                updateIndicator(this.id, true);
-            }
+            let val = this.value.replace(/[^A-Za-z ]/g, '').replace(/ +(?= )/g, '');
+            this.value = toTitleCase(val);
+            clearProfileFieldError(this.id);
+            if (this.value.trim()) validateProfileField(this.id, true);
         });
-
         input.addEventListener('blur', function() {
             this.value = normalizeSpaces(this.value).trim();
-            this.dispatchEvent(new Event('input'));
-        });
-        input.addEventListener('focus', function() {
-            if (this.value.trim() === '' && indicators[this.id]) {
-                const hint = HINTS[this.id] || (this.required ? 'This field is required' : '');
-                if (hint) {
-                    indicators[this.id].innerHTML = '<span class="hint">' + hint + '</span>';
-                    indicators[this.id].dataset.valid = '';
-                    this.classList.remove('input-valid', 'input-error');
-                }
-            }
+            if (this.id !== 'middle_name' || this.value) validateProfileField(this.id, true);
         });
     });
 
-    // Contact Number Validation
     document.querySelectorAll('.validate-advanced-contact').forEach(input => {
-        const regexContact = /^09\d{9}$/;
-
-        function normalizeContact(val) {
-            let digits = val.replace(/\D/g, '');
-            if (digits === '') return '';
-            if (digits.startsWith('63')) {
-                digits = '0' + digits.slice(2);
-            } else if (digits.startsWith('9')) {
-                digits = '0' + digits;
-            } else if (!digits.startsWith('09')) {
-                if (digits.startsWith('0')) {
-                    digits = '09' + digits.slice(1);
-                } else {
-                    digits = '09' + digits;
-                }
-            }
-            if (!digits.startsWith('09')) {
-                digits = '09' + digits.replace(/^0+/, '');
-            }
-            if (digits.length > 11) digits = digits.slice(0, 11);
-            return digits;
-        }
-
         input.addEventListener('input', function() {
-            const val = normalizeContact(this.value);
-            this.value = val;
-
-            if (val.length === 0) {
-                updateIndicator(this.id, false, 'This field is required');
-                return;
-            }
-
-            if (!regexContact.test(val)) {
-                updateIndicator(this.id, false, 'Use format 09XXXXXXXXX');
-            } else {
-                updateIndicator(this.id, true);
-            }
+            this.value = normalizeContact(this.value);
+            clearProfileFieldError(this.id);
+            if (this.value.trim()) validateProfileField(this.id, true);
         });
-
         input.addEventListener('focus', function() {
-            if (!this.value) {
-                this.value = '09';
-            } else {
-                this.value = normalizeContact(this.value);
-            }
-            this.dispatchEvent(new Event('input'));
-            if (!regexContact.test(this.value.trim()) && indicators[this.id]) {
-                indicators[this.id].innerHTML = '<span class="hint">' + HINTS.contact_number + '</span>';
-            }
+            if (!this.value) this.value = '09';
         });
-
         input.addEventListener('paste', function(e) {
             e.preventDefault();
-            const paste = (e.clipboardData || window.clipboardData).getData('text') || '';
-            this.value = normalizeContact(paste);
-            this.dispatchEvent(new Event('input'));
+            this.value = normalizeContact((e.clipboardData || window.clipboardData).getData('text') || '');
+            clearProfileFieldError(this.id);
+            if (this.value.trim()) validateProfileField(this.id, true);
         });
     });
 
-    // DOB Validation
     const dobInput = document.querySelector('.validate-advanced-dob');
     if (dobInput) {
-        dobInput.addEventListener('focus', function() {
-            if (!this.value && indicators[this.id]) {
-                indicators[this.id].innerHTML = '<span class="hint">' + HINTS.dob + '</span>';
-                indicators[this.id].dataset.valid = '';
-            }
-        });
         dobInput.addEventListener('input', function() {
-            if (!this.value) {
-                updateIndicator(this.id, false, 'Select your date of birth');
-                return;
-            }
-            const dob = new Date(this.value);
-            const today = new Date();
-            let age = today.getFullYear() - dob.getFullYear();
-            const m = today.getMonth() - dob.getMonth();
-            if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
-
-            if (dob > today) {
-                updateIndicator(this.id, false, 'Date cannot be in the future');
-            } else if (age < 13) {
-                updateIndicator(this.id, false, 'You must be at least 13 years old');
-            } else if (age > 100) {
-                updateIndicator(this.id, false, 'Age must be 100 years old or younger');
-            } else {
-                updateIndicator(this.id, true);
-            }
+            clearProfileFieldError(this.id);
+            if (this.value) validateProfileField(this.id, true);
         });
     }
 
-    // Initial check on load - validate filled fields, show hints for empty
-    document.querySelectorAll('.validate-advanced-name, .validate-advanced-dob, .validate-advanced-contact').forEach(input => {
-        if (input.value.trim()) {
-            input.dispatchEvent(new Event('input'));
-        } else if (indicators[input.id] && HINTS[input.id]) {
-            indicators[input.id].innerHTML = '<span class="hint">' + HINTS[input.id] + '</span>';
-        }
-    });
+    const genderSelect = document.getElementById('gender');
+    if (genderSelect) {
+        genderSelect.addEventListener('change', function() {
+            clearProfileFieldError('gender');
+            if (this.value) validateProfileField('gender', true);
+        });
+    }
 
     if (fProfile) {
         fProfile.addEventListener('submit', function(e) {
-            checkFormValidity();
-            if (btnSubmit.disabled) {
+            if (!validateProfileFormOnSubmit()) {
                 e.preventDefault();
-                showToast('Please correct all invalid fields before updating.');
+                const firstInvalid = fProfile.querySelector('.pf-field-group.is-invalid input, .pf-field-group.is-invalid select');
+                if (firstInvalid) firstInvalid.focus();
             }
         });
     }
 
+    const addressForm = document.getElementById('address-form');
+    if (addressForm) {
+        const addressFields = [
+            { id: 'addr_province', group: 'addr_province', emptyMsg: 'Province is required.' },
+            { id: 'addr_city', group: 'addr_city', emptyMsg: 'City or municipality is required.' },
+            { id: 'addr_barangay', group: 'addr_barangay', emptyMsg: 'Barangay is required.' },
+            { id: 'addr_street', group: 'addr_street', emptyMsg: 'Street address is required.' },
+        ];
+
+        function clearAddressFieldError(groupKey) {
+            const group = document.getElementById('group_' + groupKey);
+            const field = addressFields.find(f => f.group === groupKey);
+            const input = field ? document.getElementById(field.id) : null;
+            if (group) group.classList.remove('is-invalid');
+            if (input) input.classList.remove('input-error');
+        }
+
+        function showAddressFieldError(groupKey, message) {
+            const group = document.getElementById('group_' + groupKey);
+            const errorEl = document.getElementById('error_' + groupKey);
+            const field = addressFields.find(f => f.group === groupKey);
+            const input = field ? document.getElementById(field.id) : null;
+            if (errorEl && message) errorEl.textContent = message;
+            if (group) group.classList.add('is-invalid');
+            if (input) input.classList.add('input-error');
+        }
+
+        addressFields.forEach(({ id, group }) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('change', () => clearAddressFieldError(group));
+            el.addEventListener('input', () => clearAddressFieldError(group));
+        });
+
+        addressForm.addEventListener('submit', function(e) {
+            let valid = true;
+            addressFields.forEach(({ id, group, emptyMsg }) => {
+                clearAddressFieldError(group);
+                const el = document.getElementById(id);
+                if (!el) return;
+                const value = (el.value || '').trim();
+                if (!value || (el.disabled && group !== 'addr_province')) {
+                    showAddressFieldError(group, emptyMsg);
+                    valid = false;
+                }
+            });
+            if (!valid) {
+                e.preventDefault();
+                const firstInvalid = addressForm.querySelector('.pf-field-group.is-invalid input, .pf-field-group.is-invalid select');
+                if (firstInvalid) firstInvalid.focus();
+            }
+        });
+    }
+})();
+
+(function() {
     // Password validation (Google-only accounts: no current password field; first-time "set password")
     const profileOmitCurrentPassword = <?php echo !empty($omit_current_password_on_profile) ? 'true' : 'false'; ?>;
     const passwordForm = document.querySelector('form[action=""]');

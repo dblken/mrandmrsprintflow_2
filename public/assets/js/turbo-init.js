@@ -54,20 +54,62 @@
         } catch (e) { return ''; }
     }
 
-    /* ─── Sidebar active-state sync ──────────────────────────────────────── */
+    /* ─── Sidebar active-state sync (never toggles submenu expand/collapse) ─ */
+    function printflowSyncSidebarNavActiveOnly() {
+        var live = document.getElementById('printflow-persistent-sidebar');
+        if (!live) return;
+
+        var current = normPath(window.location.href);
+
+        live.querySelectorAll('a.nav-item').forEach(function (a) {
+            a.classList.toggle('active', normPath(a.href) === current);
+        });
+
+        var customersGroup = live.querySelector('[data-nav-group="customers"]');
+        if (customersGroup) {
+            var anySubActive = false;
+            customersGroup.querySelectorAll('a.nav-subitem').forEach(function (a) {
+                var isActive = normPath(a.href) === current;
+                a.classList.toggle('active', isActive);
+                if (isActive) anySubActive = true;
+            });
+
+            var parent = customersGroup.querySelector('.nav-parent');
+            if (parent) parent.classList.toggle('active', anySubActive);
+        }
+    }
+
     document.addEventListener('turbo:before-render', function (ev) {
         var nb = ev.detail && ev.detail.newBody;
         if (!nb) return;
         var incoming = nb.querySelector('#printflow-persistent-sidebar');
         if (!incoming) return;
-        var newActive = incoming.querySelector('a.nav-item.active');
         var live = document.getElementById('printflow-persistent-sidebar');
-        if (!live || !newActive) return;
+        if (!live) return;
+
+        var newActiveSub = incoming.querySelector('a.nav-subitem.active');
+        if (newActiveSub) {
+            var wantSub = normPath(newActiveSub.href);
+            live.querySelectorAll('a.nav-subitem').forEach(function (a) {
+                a.classList.toggle('active', normPath(a.href) === wantSub);
+            });
+            var group = live.querySelector('[data-nav-group="customers"]');
+            if (group) {
+                var parent = group.querySelector('.nav-parent');
+                if (parent) parent.classList.toggle('active', true);
+            }
+            return;
+        }
+
+        var newActive = incoming.querySelector('a.nav-item.active');
+        if (!newActive) return;
         var want = normPath(newActive.href);
         live.querySelectorAll('a.nav-item').forEach(function (a) {
             a.classList.toggle('active', normPath(a.href) === want);
         });
     });
+
+    document.addEventListener('turbo:load', printflowSyncSidebarNavActiveOnly);
 
     /* ─── Alpine: tear down only the swapped main column (not the whole body) ─
      * destroyTree(document.body) broke persistent sidebar + raced inline <script>
