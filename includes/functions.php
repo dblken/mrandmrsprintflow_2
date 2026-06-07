@@ -2230,6 +2230,12 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     return printflow_notification_normalize_media_url($preview['image_url'] ?: $fallback);
 }
 
+function printflow_notification_is_default_thumbnail(string $url): bool {
+    $url = strtolower(trim($url));
+    return $url === ''
+        || (bool)preg_match('#/(default\.png|services/default\.png|assets/uploads/profiles/default\.png|icon-\d+\.png)(\?|$)#i', $url);
+}
+
 function printflow_notification_normalize_media_url(string $path): string {
     $path = trim(str_replace('\\', '/', $path));
     if ($path === '') {
@@ -2494,6 +2500,32 @@ function printflow_notification_service_image_from_name(string $serviceName): st
                  LIMIT 1",
                 's',
                 [$alias]
+            ) ?: [];
+            if (!empty($try)) {
+                $rows = $try;
+                break;
+            }
+        }
+    }
+    if (empty($rows)) {
+        foreach ($aliases as $alias) {
+            $alias = trim((string)$alias);
+            if ($alias === '') {
+                continue;
+            }
+            $like = '%' . $alias . '%';
+            $try = db_query(
+                "SELECT display_image, hero_image, image_path
+                 FROM services
+                 WHERE status <> 'Archived'
+                   AND (
+                        LOWER(TRIM(name)) LIKE LOWER(?)
+                        OR LOWER(TRIM(category)) LIKE LOWER(?)
+                   )
+                 ORDER BY service_id ASC
+                 LIMIT 1",
+                'ss',
+                [$like, $like]
             ) ?: [];
             if (!empty($try)) {
                 $rows = $try;
@@ -4368,7 +4400,7 @@ function printflow_order_notification_resolve_catalog_thumbnail(
                 return printflow_notification_normalize_media_url($url);
             }
             $url = get_service_image_url($nm);
-            if ($url !== '') {
+            if ($url !== '' && !printflow_notification_is_default_thumbnail($url)) {
                 return printflow_notification_normalize_media_url($url);
             }
         }
@@ -4703,10 +4735,26 @@ function printflow_order_notification_preview(int $order_id): array {
         if ($resolvedServiceIdForImage > 0) {
             $preview['image_url'] = printflow_notification_service_image_from_id($resolvedServiceIdForImage);
         }
-        if ($preview['image_url'] === '') {
+        if (printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
+            $preview['image_url'] = '';
             $serviceImage = printflow_notification_service_image_from_name($preview['display_name']);
             if ($serviceImage !== '') {
                 $preview['image_url'] = $serviceImage;
+            }
+        }
+        if (printflow_notification_is_default_thumbnail((string)$preview['image_url'])) {
+            $preview['image_url'] = '';
+            foreach ([
+                (string)($custom['service_type'] ?? ''),
+                (string)($row['first_customization_service_type'] ?? ''),
+                (string)($row['first_job_service_type'] ?? ''),
+                (string)($row['product_name'] ?? ''),
+            ] as $serviceNameCandidate) {
+                $serviceImage = printflow_notification_service_image_from_name($serviceNameCandidate);
+                if ($serviceImage !== '' && !printflow_notification_is_default_thumbnail($serviceImage)) {
+                    $preview['image_url'] = $serviceImage;
+                    break;
+                }
             }
         }
     }
