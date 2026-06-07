@@ -1523,7 +1523,6 @@ $page_title = 'Orders - Staff';
             tabCounts: <?php echo json_encode($all_counts); ?>,
             statusTabs: {
                 'ALL':       'ALL',
-                'Pending':   'PENDING',
                 'Completed': 'COMPLETED'
             },
             getProfileImage(image) {
