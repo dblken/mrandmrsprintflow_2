@@ -16,6 +16,8 @@ $branch_ctx    = init_branch_context(false);
 $staffBranchId = (int)$branch_ctx['selected_branch_id'];
 $branchName    = $branch_ctx['branch_name'];
 $staffOrderScopeSql = printflow_staff_order_source_sql('o');
+$staffAccessMeta = printflow_get_staff_access_meta();
+$is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
 // Auto-open modal if order_id is in URL
 $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
@@ -97,10 +99,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 }
 
 // Get filter parameters
-$status_filter = trim((string)($_GET['status'] ?? 'ALL'));
-$valid_status_filters = ['ALL', 'TO_VERIFY', 'COMPLETED', 'CANCELLED'];
+$status_filter = trim((string)($_GET['status'] ?? ($is_pos_staff ? 'COMPLETED' : 'ALL')));
+$valid_status_filters = $is_pos_staff
+    ? ['COMPLETED']
+    : ['ALL', 'TO_VERIFY', 'COMPLETED', 'CANCELLED'];
 if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
-    $status_filter = 'ALL';
+    $status_filter = $is_pos_staff ? 'COMPLETED' : 'ALL';
 }
 $date_from_filter = $_GET['date_from'] ?? '';
 $date_to_filter        = $_GET['date_to']   ?? '';
@@ -1535,10 +1539,14 @@ $page_title = 'Orders - Staff';
             activeTab: '<?php echo $status_filter; ?>',
             tabCounts: <?php echo json_encode($all_counts); ?>,
             statusTabs: {
+                <?php if ($is_pos_staff): ?>
+                'COMPLETED': 'COMPLETED'
+                <?php else: ?>
                 'ALL': 'ALL',
                 'TO_VERIFY': 'TO VERIFY',
                 'COMPLETED': 'COMPLETED',
                 'CANCELLED': 'CANCELLED'
+                <?php endif; ?>
             },
             getProfileImage(image) {
                 if (!image || image === 'null' || image === 'undefined') {
