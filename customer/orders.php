@@ -738,6 +738,8 @@ require_once __DIR__ . '/../includes/header.php';
     border: 1px solid #f3d1d1;
     border-left: 4px solid #dc2626;
     border-radius: 8px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .im-reject-title {
     font-size: 0.75rem;
@@ -752,6 +754,10 @@ require_once __DIR__ . '/../includes/header.php';
     line-height: 1.55;
     color: #7f1d1d;
     font-weight: 600;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    margin-bottom: 1rem;
 }
 .im-upload-picker {
     display: flex;
