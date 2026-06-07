@@ -102,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 $status_filter = trim((string)($_GET['status'] ?? ($is_pos_staff ? 'COMPLETED' : 'ALL')));
 $valid_status_filters = $is_pos_staff
     ? ['COMPLETED']
-    : ['ALL', 'TO_VERIFY', 'COMPLETED', 'CANCELLED'];
+    : ['ALL', 'TO_VERIFY', 'REJECTED', 'COMPLETED'];
 if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
     $status_filter = $is_pos_staff ? 'COMPLETED' : 'ALL';
 }
@@ -266,10 +266,10 @@ $types = '';
 if ($status_filter !== 'ALL') {
     if ($status_filter === 'TO_VERIFY') {
         $sql_conditions .= " AND o.status IN ('To Verify', 'Pending Verification', 'Verify Pay')";
+    } elseif ($status_filter === 'REJECTED') {
+        $sql_conditions .= " AND " . staff_orders_sql_payment_proof_rejected('o');
     } elseif ($status_filter === 'COMPLETED') {
         $sql_conditions .= " AND o.status = 'Completed'";
-    } elseif ($status_filter === 'CANCELLED') {
-        $sql_conditions .= " AND o.status = 'Cancelled'";
     }
 }
 $order_code_search_sql = "CONCAT(
@@ -365,8 +365,8 @@ $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 $all_counts = [
     'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'TO_VERIFY' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Verify', 'Pending Verification', 'Verify Pay') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'REJECTED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE " . staff_orders_sql_payment_proof_rejected('o') . " {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'CANCELLED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
 ];
 $total_count = $all_counts['ALL'];
 $total_revenue = db_query(
@@ -1379,12 +1379,13 @@ $page_title = 'Orders - Staff';
             'Partial':               'background: #fef3c7; color: #92400e;',
             'To Rate':               'background:#f3e8ff;color:#6b21a8;',
             'Rated':                 'background:#f3e8ff;color:#6b21a8;',
+            'Payment Rejected':      'background:#ffe4e6;color:#9f1239;border:1px solid #fecdd3;',
             'Rejected':              'background:#fee2e2;color:#991b1b;',
         };
-        var display = val;
-        if (val === 'Completed') display = 'Completed';
-        else if (val === 'Cancelled') display = 'Cancelled';
-        else display = 'Pending';
+        var display = (val || '').toString().trim();
+        if (!display || !map[display]) {
+            display = 'Pending';
+        }
         var style = map[display] || 'background: #F3F4F6; color: #374151;';
 
         return '<span class="pf-pill" style="' + style + '">' + display + '</span>';
@@ -1544,8 +1545,8 @@ $page_title = 'Orders - Staff';
                 <?php else: ?>
                 'ALL': 'ALL',
                 'TO_VERIFY': 'TO VERIFY',
-                'COMPLETED': 'COMPLETED',
-                'CANCELLED': 'CANCELLED'
+                'REJECTED': 'REJECTED',
+                'COMPLETED': 'COMPLETED'
                 <?php endif; ?>
             },
             getProfileImage(image) {
