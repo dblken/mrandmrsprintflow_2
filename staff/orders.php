@@ -97,7 +97,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 }
 
 // Get filter parameters
-$status_filter = 'Completed';
+$status_filter = trim((string)($_GET['status'] ?? 'ALL'));
+$valid_status_filters = ['ALL', 'TO_VERIFY', 'TO_PICKUP', 'COMPLETED', 'CANCELLED'];
+if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
+    $status_filter = 'ALL';
+}
 $date_from_filter = $_GET['date_from'] ?? '';
 $date_to_filter        = $_GET['date_to']   ?? '';
 $customer_filter       = $_GET['customer']  ?? '';
@@ -255,6 +259,17 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
 $sql_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $params = [];
 $types = '';
+if ($status_filter !== 'ALL') {
+    if ($status_filter === 'TO_VERIFY') {
+        $sql_conditions .= " AND o.status IN ('To Verify', 'Pending Verification', 'Verify Pay')";
+    } elseif ($status_filter === 'TO_PICKUP') {
+        $sql_conditions .= " AND o.status IN ('To Pickup', 'Ready for Pickup')";
+    } elseif ($status_filter === 'COMPLETED') {
+        $sql_conditions .= " AND o.status = 'Completed'";
+    } elseif ($status_filter === 'CANCELLED') {
+        $sql_conditions .= " AND o.status = 'Cancelled'";
+    }
+}
 $order_code_search_sql = "CONCAT(
     COALESCE(NULLIF((
         SELECT GROUP_CONCAT(DISTINCT p2.sku ORDER BY p2.sku SEPARATOR '-')
@@ -345,20 +360,34 @@ $kpi_types = '';
 $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
-$completed_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$total_count = $completed_count;
+$all_counts = [
+    'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'TO_VERIFY' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Verify', 'Pending Verification', 'Verify Pay') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'TO_PICKUP' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Pickup', 'Ready for Pickup') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'CANCELLED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+];
+$total_count = $all_counts['ALL'];
 $total_revenue = db_query(
     "SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}",
     $kpi_types ?: null,
     $kpi_params ?: null
 )[0]['total'] ?? 0;
 
-$all_counts = [
-    'Completed' => $completed_count,
-];
-
 function staff_orders_display_status(string $status): string {
-    if ($status === 'Completed' || $status === 'Cancelled') {
+    $status = trim($status);
+    $knownStatuses = [
+        'Completed',
+        'Cancelled',
+        'To Verify',
+        'Pending Verification',
+        'Verify Pay',
+        'To Pickup',
+        'Ready for Pickup',
+        'Rejected',
+        'Payment Rejected'
+    ];
+    if (in_array($status, $knownStatuses, true)) {
         return $status;
     }
     return 'Pending';
@@ -369,10 +398,13 @@ function staff_orders_status_pill_style(string $displayStatus): string {
         'PENDING' => 'background:#fef3c7;color:#92400e;',
         'REJECTED' => 'background:#fee2e2;color:#991b1b;border:1px solid #fecaca;',
         'TO VERIFY' => 'background:#fef9c3;color:#92400e;',
+        'PENDING VERIFICATION' => 'background:#fef9c3;color:#92400e;',
+        'VERIFY PAY' => 'background:#fef9c3;color:#92400e;',
         'APPROVED' => 'background:#dbeafe;color:#1e40af;',
         'PAYMENT REJECTED' => 'background:#ffe4e6;color:#9f1239;border:1px solid #fecdd3;',
         'TO PAY' => 'background:#fef3c7;color:#b45309;',
         'TO PICK UP' => 'background:#ede9fe;color:#5b21b6;',
+        'READY FOR PICKUP' => 'background:#dcfce7;color:#15803d;',
         'IN PRODUCTION' => 'background:#d1fae5;color:#065f46;',
         'COMPLETED' => 'background:#dcfce7;color:#166534;',
         'CANCELLED' => 'background:#fee2e2;color:#991b1b;',
@@ -1503,10 +1535,14 @@ $page_title = 'Orders - Staff';
             sortOpen:   false,
             activeSort: '<?php echo $sort_by; ?>',
             hasActiveFilters: <?php echo $active_filter_badge_count > 0 ? 'true' : 'false'; ?>,
-            activeTab: 'Completed',
+            activeTab: '<?php echo $status_filter; ?>',
             tabCounts: <?php echo json_encode($all_counts); ?>,
             statusTabs: {
-                'Completed': 'COMPLETED'
+                'ALL': 'ALL',
+                'TO_VERIFY': 'TO VERIFY',
+                'TO_PICKUP': 'TO PICK UP',
+                'COMPLETED': 'COMPLETED',
+                'CANCELLED': 'CANCELLED'
             },
             getProfileImage(image) {
                 if (!image || image === 'null' || image === 'undefined') {
@@ -2227,6 +2263,7 @@ $page_title = 'Orders - Staff';
                                     </div>
 
                                     <!-- Keyword Search -->
+                                    <input type="hidden" id="fp_status" value="<?php echo htmlspecialchars($status_filter); ?>">
                                     <div class="filter-section">
                                         <div class="filter-section-head">
                                             <span class="filter-label" style="margin:0;">Order code / Product name</span>
