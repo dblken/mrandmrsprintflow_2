@@ -774,6 +774,11 @@ class JobOrderService {
             }
         }
 
+        // Repair existing job orders with NULL order_item_id
+        if ($firstJobId !== null) {
+            self::repairMissingOrderItemLinks($orderId);
+        }
+
         return $firstJobId;
     }
 
@@ -1739,89 +1744,197 @@ class JobOrderService {
         return self::decodeOrderItemCustomizationData((string)($rows[0]['customization_details'] ?? ''));
     }
 
+    /**
+     * Universal staff order details resolver.
+     * Fetches complete specifications from order_items.customization_data
+     * and resolves design URLs for all services.
+     *
+     * @param int      $orderId       Store order ID
+     * @param int|null $jobOrderId    Job order ID (optional)
+     * @param int|null $orderItemId   Specific order item ID (optional)
+     * @return array   Resolved items with complete specifications
+     */
+    public static function resolveStaffOrderItems(int $orderId, ?int $jobOrderId = null, ?int $orderItemId = null): array {
+        if ($orderId <= 0) {
+            return [];
+        }
+
+        // Fetch order items with product/service data
+        if ($orderItemId > 0) {
+            $rows = db_query(
+                "SELECT oi.*, p.name, p.product_image, p.photo_path
+                 FROM order_items oi
+                 LEFT JOIN products p ON p.product_id = oi.product_id
+                 WHERE oi.order_item_id = ?",
+                'i',
+                [$orderItemId]
+            ) ?: [];
+        } else {
+            $rows = db_query(
+                "SELECT oi.*, p.name, p.product_image, p.photo_path
+                 FROM order_items oi
+                 LEFT JOIN products p ON p.product_id = oi.product_id
+                 WHERE oi.order_id = ?
+                 ORDER BY oi.order_item_id ASC",
+                'i',
+                [$orderId]
+            ) ?: [];
+        }
+
+        if ($rows === []) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            $itemOrderItemId = (int)($row['order_item_id'] ?? 0);
+            $itemOrderId = (int)($row['order_id'] ?? $orderId);
+
+            // Decode customization_data as primary source of specifications
+            $rawCustomization = (string)($row['customization_data'] ?? '');
+            $customization = [];
+            if ($rawCustomization !== '') {
+                $customization = self::decodeOrderItemCustomizationData($rawCustomization);
+            }
+
+            // Fallback to customizations table for POS orders
+            if ($customization === [] || count($customization) <= 2) {
+                $posCustomization = self::posCustomizationPayloadForItem($itemOrderId, $itemOrderItemId);
+                if ($posCustomization !== []) {
+                    $customization = printflow_overlay_nonempty_assoc($customization, $posCustomization);
+                }
+            }
+
+            // Final fallback: Quantity only
+            if ($customization === []) {
+                $qty = (int)($row['quantity'] ?? 1);
+                $customization = ['Quantity' => (string)$qty];
+            }
+
+            // Resolve product/service name
+            $productName = trim((string)($row['name'] ?? 'Custom Order'));
+
+            // Resolve design URLs
+            $designName = trim((string)($row['design_image_name'] ?? ''));
+            $designFile = trim((string)($row['design_file'] ?? ''));
+            $designOpenUrl = null;
+            if ($itemOrderItemId > 0 && ($designName !== '' || $designFile !== '')) {
+                $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $itemOrderItemId;
+            }
+
+            // Check for POS base64 design
+            $posDesign = self::posUploadMediaMeta($customization, 'design');
+            if ($posDesign !== []) {
+                $designName = $posDesign['name'] ?: $designName;
+                $designOpenUrl = $posDesign['url'];
+            }
+
+            // Resolve reference URLs
+            $referenceFile = trim((string)($row['reference_image_file'] ?? ''));
+            $referenceOpenUrl = null;
+            if ($itemOrderItemId > 0 && $referenceFile !== '') {
+                $referenceOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $itemOrderItemId . '&field=reference';
+            }
+
+            $posReference = self::posUploadMediaMeta($customization, 'reference');
+            if ($posReference !== []) {
+                $referenceOpenUrl = $posReference['url'];
+            }
+
+            // Resolve product image
+            $productImage = '';
+            if (!empty($row['photo_path'])) {
+                $productImage = (string)$row['photo_path'];
+            } elseif (!empty($row['product_image'])) {
+                $productImage = (string)$row['product_image'];
+            }
+
+            $items[] = [
+                'order_item_id' => $itemOrderItemId,
+                'order_id' => $itemOrderId,
+                'product_name' => $productName,
+                'quantity' => max(1, (int)($row['quantity'] ?? 1)),
+                'customization_data' => $rawCustomization,
+                'customization' => $customization,
+                'specifications' => $customization,
+                'design_name' => $designName !== '' ? $designName : null,
+                'design_file' => $designFile !== '' ? $designFile : null,
+                'design_open_url' => $designOpenUrl,
+                'design_image_name' => $designName,
+                'design_image_mime' => trim((string)($row['design_image_mime'] ?? '')),
+                'reference_name' => $referenceFile !== '' ? basename($referenceFile) : null,
+                'reference_open_url' => $referenceOpenUrl,
+                'reference_image_file' => $referenceFile,
+                'product_image' => $productImage,
+            ];
+        }
+
+        return $items;
+    }
+
     private static function finalHydrateStaffItemsFromOrderItems(array $items, int $storeOrderId): array {
         if ($items === [] || $storeOrderId <= 0) {
             return $items;
         }
 
-        $rows = db_query(
-            "SELECT order_item_id, order_id, quantity, customization_data,
-                    design_file, design_image_name, design_image_mime, reference_image_file
-             FROM order_items
-             WHERE order_id = ?
-             ORDER BY order_item_id ASC",
-            'i',
-            [$storeOrderId]
-        ) ?: [];
-        if ($rows === []) {
+        // Use universal resolver to get complete specifications
+        $resolvedItems = self::resolveStaffOrderItems($storeOrderId);
+        if ($resolvedItems === []) {
             return $items;
         }
 
+        // Map resolved items by order_item_id
         $byId = [];
-        foreach ($rows as $row) {
-            $byId[(int)($row['order_item_id'] ?? 0)] = $row;
+        foreach ($resolvedItems as $resolved) {
+            $byId[(int)($resolved['order_item_id'] ?? 0)] = $resolved;
         }
 
+        // Merge resolved data into existing items
         foreach ($items as $idx => &$item) {
             if (!is_array($item)) {
                 continue;
             }
 
             $orderItemId = (int)($item['order_item_id'] ?? 0);
-            $row = $byId[$orderItemId] ?? ($rows[$idx] ?? (count($rows) === 1 ? $rows[0] : null));
-            if (!$row) {
+            $resolved = $byId[$orderItemId] ?? ($resolvedItems[$idx] ?? (count($resolvedItems) === 1 ? $resolvedItems[0] : null));
+            if (!$resolved) {
                 continue;
             }
 
-            $rawCustomization = (string)($row['customization_data'] ?? '');
-            $decodedCustomization = self::decodeOrderItemCustomizationData($rawCustomization);
-            $posCustomization = self::posCustomizationPayloadForItem($storeOrderId, (int)($row['order_item_id'] ?? $orderItemId));
-            if ($posCustomization !== []) {
-                $decodedCustomization = printflow_overlay_nonempty_assoc($decodedCustomization, $posCustomization);
-            }
+            // Never overwrite full customization with Quantity-only
             $existingCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+            $resolvedCustomization = is_array($resolved['customization'] ?? null) ? $resolved['customization'] : [];
+            
+            $existingKeys = count($existingCustomization);
+            $resolvedKeys = count($resolvedCustomization);
+            $existingIsQuantityOnly = $existingKeys === 1 && isset($existingCustomization['Quantity']);
+            $resolvedIsQuantityOnly = $resolvedKeys === 1 && isset($resolvedCustomization['Quantity']);
 
-            if ($decodedCustomization !== []) {
-                $item['customization'] = printflow_overlay_nonempty_assoc($existingCustomization, $decodedCustomization);
+            if ($resolvedKeys > $existingKeys || ($resolvedKeys > 0 && $existingIsQuantityOnly && !$resolvedIsQuantityOnly)) {
+                $item['customization'] = $resolvedCustomization;
+                $item['specifications'] = $resolvedCustomization;
+            } elseif ($existingKeys > 0 && !$existingIsQuantityOnly) {
+                // Keep existing full specs, overlay resolved data
+                $item['customization'] = printflow_overlay_nonempty_assoc($resolvedCustomization, $existingCustomization);
                 $item['specifications'] = $item['customization'];
-            } elseif ($existingCustomization === []) {
-                $qty = (int)($row['quantity'] ?? $item['quantity'] ?? 0);
-                $item['customization'] = $qty > 0 ? ['Quantity' => (string)$qty] : [];
-                $item['specifications'] = $item['customization'];
+            } else {
+                $item['customization'] = $resolvedCustomization;
+                $item['specifications'] = $resolvedCustomization;
             }
 
-            $item['order_item_id'] = (int)($row['order_item_id'] ?? $orderItemId);
-            $item['order_id'] = (int)($row['order_id'] ?? $storeOrderId);
-            $item['quantity'] = max(1, (int)($row['quantity'] ?? $item['quantity'] ?? 1));
-            $item['customization_data'] = $rawCustomization;
-            $item['design_file'] = (string)($row['design_file'] ?? $item['design_file'] ?? '');
-            $item['design_image_name'] = (string)($row['design_image_name'] ?? $item['design_image_name'] ?? '');
-            $item['design_image_mime'] = (string)($row['design_image_mime'] ?? $item['design_image_mime'] ?? '');
-            $item['reference_image_file'] = (string)($row['reference_image_file'] ?? $item['reference_image_file'] ?? '');
-
-            if (trim((string)($item['design_name'] ?? '')) === '' && trim((string)$item['design_image_name']) !== '') {
-                $item['design_name'] = $item['design_image_name'];
-            }
-            if (trim((string)($item['design_open_url'] ?? '')) === '' && trim((string)$item['design_file']) !== '') {
-                $item['design_open_url'] = $item['design_file'];
-            }
-
-            $posDesign = self::posUploadMediaMeta($decodedCustomization, 'design');
-            if ($posDesign !== []) {
-                $item['design_name'] = $posDesign['name'] ?: ($item['design_name'] ?? null);
-                $item['design_open_url'] = $posDesign['url'];
-                $item['design_url'] = !empty($posDesign['is_image']) ? $posDesign['url'] : ($item['design_url'] ?? null);
-                $item['design_is_image'] = !empty($posDesign['is_image']);
-                $item['design_image_mime'] = $posDesign['mime'] ?: ($item['design_image_mime'] ?? '');
-            }
-
-            $posReference = self::posUploadMediaMeta($decodedCustomization, 'reference');
-            if ($posReference !== []) {
-                $item['reference_name'] = $posReference['name'] ?: ($item['reference_name'] ?? null);
-                $item['reference_open_url'] = $posReference['url'];
-                $item['reference_url'] = !empty($posReference['is_image']) ? $posReference['url'] : ($item['reference_url'] ?? null);
-                $item['reference_is_image'] = !empty($posReference['is_image']);
-            }
+            // Overlay other resolved fields
+            $item['order_item_id'] = $resolved['order_item_id'];
+            $item['order_id'] = $resolved['order_id'];
+            $item['quantity'] = $resolved['quantity'];
+            $item['customization_data'] = $resolved['customization_data'];
+            $item['design_file'] = $resolved['design_file'] ?? $item['design_file'] ?? '';
+            $item['design_image_name'] = $resolved['design_image_name'] ?? $item['design_image_name'] ?? '';
+            $item['design_image_mime'] = $resolved['design_image_mime'] ?? $item['design_image_mime'] ?? '';
+            $item['reference_image_file'] = $resolved['reference_image_file'] ?? $item['reference_image_file'] ?? '';
+            $item['design_name'] = $resolved['design_name'] ?? $item['design_name'] ?? null;
+            $item['design_open_url'] = $resolved['design_open_url'] ?? $item['design_open_url'] ?? null;
+            $item['reference_name'] = $resolved['reference_name'] ?? $item['reference_name'] ?? null;
+            $item['reference_open_url'] = $resolved['reference_open_url'] ?? $item['reference_open_url'] ?? null;
         }
         unset($item);
 
