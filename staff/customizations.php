@@ -3259,7 +3259,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return normalized;
             },
             getDisplayableCustom(custom, item = null) {
-                let sourceCustom = custom;
+                let sourceCustom = this.parseSpecsObject(custom);
+                if (Object.keys(sourceCustom).length === 0 && custom && typeof custom === 'object' && !Array.isArray(custom)) {
+                    sourceCustom = custom;
+                }
                 const itemSpecs = item ? {
                     ...this.parseSpecsObject(item.customization_data),
                     ...this.parseSpecsObject(item.specifications_raw),
@@ -3297,6 +3300,13 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (shouldMergeFallback) {
                         sourceCustom = { ...fallbackCustom, ...sourceCustom };
                     }
+                }
+                if (
+                    (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0)
+                    && item
+                    && item.quantity
+                ) {
+                    sourceCustom = { Quantity: item.quantity };
                 }
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
                 const isDetail = !!this.showDetailsModal;
@@ -3376,6 +3386,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 return this.staffResolveMediaUrl(raw);
             },
+            staffResolveOrderUploadUrl(raw) {
+                if (raw == null || raw === '') return '';
+                const text = String(raw).trim();
+                if (!text) return '';
+                if (/^https?:\/\//i.test(text) || text.startsWith('/') || text.includes('/')) {
+                    return this.staffResolveMediaUrl(text);
+                }
+                const base = document.body.getAttribute('data-base-url') || '';
+                return base + '/uploads/orders/' + text;
+            },
             staffDesignShowsAsImage(item) {
                 if (!item) return false;
                 if (item.design_is_image) return true;
@@ -3401,15 +3421,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 
                 // Priority 2: Check for standard design URL from API
                 const fromApi = (item.design_open_url || item.design_url || '').trim();
-                if (fromApi) return this.staffResolveMediaUrl(fromApi);
+                if (fromApi) return this.staffResolveOrderUploadUrl(fromApi);
 
                 // Priority 3: Use the persisted order_items.design_file path when present.
                 const designFile = (item.design_file || '').trim();
-                if (designFile) return this.staffResolveMediaUrl(designFile);
+                if (designFile) return this.staffResolveOrderUploadUrl(designFile);
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
                 const artworkPath = (item.artwork_path || this.currentJo?.artwork_path || '').trim();
-                if (artworkPath) return this.staffResolveMediaUrl(artworkPath);
+                if (artworkPath) return this.staffResolveOrderUploadUrl(artworkPath);
                 
                 // Priority 5: Fallback to serve_design.php if we have order_item_id and filename
                 if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {

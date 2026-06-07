@@ -83,10 +83,12 @@ function jo_api_require_staff_branch(?int $staffBranch, int $jobId): void {
 function jo_api_debug_staff_order_items(array $row, array $items = []): void {
     $firstItem = is_array($items[0] ?? null) ? $items[0] : [];
     error_log('JOB ORDER ID: ' . ($row['id'] ?? ''));
-    error_log('JOB ORDER ORDER_ID: ' . ($row['order_id'] ?? ''));
-    error_log('JOB ORDER ORDER_ITEM_ID: ' . ($row['order_item_id'] ?? ($firstItem['order_item_id'] ?? '')));
-    error_log('ORDER ITEM CUSTOMIZATION DATA: ' . ($firstItem['customization_data'] ?? 'NULL'));
-    error_log('ORDER ITEM DESIGN FILE: ' . ($firstItem['design_file'] ?? ($row['artwork_path'] ?? 'NULL')));
+    error_log('JO ORDER_ID: ' . ($row['order_id'] ?? 'NULL'));
+    error_log('JO ORDER_ITEM_ID: ' . ($row['order_item_id'] ?? 'NULL'));
+    error_log('OI ORDER_ITEM_ID: ' . ($firstItem['order_item_id'] ?? 'NULL'));
+    error_log('CUSTOMIZATION_DATA: ' . ($firstItem['customization_data'] ?? 'NULL'));
+    error_log('DESIGN_FILE: ' . ($firstItem['design_file'] ?? 'NULL'));
+    error_log('ARTWORK_PATH: ' . ($row['artwork_path'] ?? 'NULL'));
 }
 
 function jo_api_require_staff_order_branch(?int $staffBranch, int $orderId): void {

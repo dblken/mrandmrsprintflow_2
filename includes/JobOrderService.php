@@ -1636,6 +1636,88 @@ class JobOrderService {
         return $items;
     }
 
+    private static function decodeOrderItemCustomizationData($raw): array {
+        $rawText = trim((string)$raw);
+        if ($rawText === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawText, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return printflow_normalize_customization_for_modal($decoded);
+        }
+
+        return printflow_decode_modal_customization_payload($rawText);
+    }
+
+    private static function finalHydrateStaffItemsFromOrderItems(array $items, int $storeOrderId): array {
+        if ($items === [] || $storeOrderId <= 0) {
+            return $items;
+        }
+
+        $rows = db_query(
+            "SELECT order_item_id, order_id, quantity, customization_data,
+                    design_file, design_image_name, design_image_mime, reference_image_file
+             FROM order_items
+             WHERE order_id = ?
+             ORDER BY order_item_id ASC",
+            'i',
+            [$storeOrderId]
+        ) ?: [];
+        if ($rows === []) {
+            return $items;
+        }
+
+        $byId = [];
+        foreach ($rows as $row) {
+            $byId[(int)($row['order_item_id'] ?? 0)] = $row;
+        }
+
+        foreach ($items as $idx => &$item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            $row = $byId[$orderItemId] ?? ($rows[$idx] ?? (count($rows) === 1 ? $rows[0] : null));
+            if (!$row) {
+                continue;
+            }
+
+            $rawCustomization = (string)($row['customization_data'] ?? '');
+            $decodedCustomization = self::decodeOrderItemCustomizationData($rawCustomization);
+            $existingCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+
+            if ($decodedCustomization !== []) {
+                $item['customization'] = printflow_overlay_nonempty_assoc($existingCustomization, $decodedCustomization);
+                $item['specifications'] = $item['customization'];
+            } elseif ($existingCustomization === []) {
+                $qty = (int)($row['quantity'] ?? $item['quantity'] ?? 0);
+                $item['customization'] = $qty > 0 ? ['Quantity' => (string)$qty] : [];
+                $item['specifications'] = $item['customization'];
+            }
+
+            $item['order_item_id'] = (int)($row['order_item_id'] ?? $orderItemId);
+            $item['order_id'] = (int)($row['order_id'] ?? $storeOrderId);
+            $item['quantity'] = max(1, (int)($row['quantity'] ?? $item['quantity'] ?? 1));
+            $item['customization_data'] = $rawCustomization;
+            $item['design_file'] = (string)($row['design_file'] ?? $item['design_file'] ?? '');
+            $item['design_image_name'] = (string)($row['design_image_name'] ?? $item['design_image_name'] ?? '');
+            $item['design_image_mime'] = (string)($row['design_image_mime'] ?? $item['design_image_mime'] ?? '');
+            $item['reference_image_file'] = (string)($row['reference_image_file'] ?? $item['reference_image_file'] ?? '');
+
+            if (trim((string)($item['design_name'] ?? '')) === '' && trim((string)$item['design_image_name']) !== '') {
+                $item['design_name'] = $item['design_image_name'];
+            }
+            if (trim((string)($item['design_open_url'] ?? '')) === '' && trim((string)$item['design_file']) !== '') {
+                $item['design_open_url'] = $item['design_file'];
+            }
+        }
+        unset($item);
+
+        return $items;
+    }
+
     private static function sortStoreOrderModalCustomizationByServiceConfig(array $custom, int $serviceId): array {
         $serviceId = (int)$serviceId;
         if ($serviceId <= 0) {
@@ -2274,6 +2356,13 @@ class JobOrderService {
         }
 
         $items_out = self::backfillStaffItemCustomization($items_out, is_array($first_custom) ? $first_custom : []);
+        $items_out = self::finalHydrateStaffItemsFromOrderItems($items_out, $storeOrderId);
+        $first_custom = [];
+        foreach ($items_out as $hydratedItem) {
+            if (is_array($hydratedItem['customization'] ?? null)) {
+                $first_custom = printflow_overlay_nonempty_assoc($first_custom, $hydratedItem['customization']);
+            }
+        }
 
         return [
             'items' => $items_out,
