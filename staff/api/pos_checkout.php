@@ -759,6 +759,21 @@ try {
                     $pendingCustomizationId = (int)($pendingLink['customization_id'] ?? 0);
                 }
             }
+            if ($pendingCustomizationId <= 0 && $pendingOrderId > 0) {
+                $pendingCustomizationRows = db_query(
+                    "SELECT customization_id, order_item_id
+                     FROM customizations
+                     WHERE order_id = ?
+                     ORDER BY customization_id ASC
+                     LIMIT 1",
+                    'i',
+                    [$pendingOrderId]
+                ) ?: [];
+                if (!empty($pendingCustomizationRows)) {
+                    $pendingCustomizationId = (int)($pendingCustomizationRows[0]['customization_id'] ?? 0);
+                    $pendingOrderItemId = (int)($pendingCustomizationRows[0]['order_item_id'] ?? 0);
+                }
+            }
 
             $customization_result = false;
             if ($pendingCustomizationId > 0) {
@@ -772,7 +787,7 @@ try {
                 ) ?: [];
 
                 if (!empty($customizationExists)) {
-                    $pendingOrderItemId = (int)($customizationExists[0]['order_item_id'] ?? 0);
+                    $pendingOrderItemId = (int)($customizationExists[0]['order_item_id'] ?? $pendingOrderItemId);
                     if ($pendingOrderItemId > 0) {
                         pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
                     }

@@ -1347,15 +1347,15 @@ class JobOrderService {
             'reference_file',
         ]);
         $designBlobBytes = (int)($item['pf_design_image_bytes'] ?? 0);
-        $hasOwnDesign = $designBlobBytes > 0
+        $hasStoredDesign = $designBlobBytes > 0
             || !empty($item['design_image'])
-            || trim((string)($item['design_file'] ?? '')) !== ''
-            || $customDesignPath !== null;
+            || trim((string)($item['design_file'] ?? '')) !== '';
+        $hasOwnDesign = $hasStoredDesign || $customDesignPath !== null;
         $designServeId = $hasOwnDesign
             ? $lineOrderItemId
             : (($lineOrderItemId === 0 && $fallbackDesignOrderItemId > 0) ? $fallbackDesignOrderItemId : 0);
         $designOpenUrl = null;
-        if ($customDesignPath !== null && $lineOrderItemId > 0) {
+        if ($hasStoredDesign && $lineOrderItemId > 0) {
             $designOpenUrl = BASE_PATH . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
         } elseif ($customDesignPath !== null) {
             $designOpenUrl = self::resolveStoredMediaPathToUrl($customDesignPath);

@@ -1621,7 +1621,7 @@ if ($showLatestCustomizationOnly) {
                                                 <img :src="staffEffectiveDesignOpenUrl(item)" 
                                                      @click="previewFile = staffEffectiveDesignOpenUrl(item)"
                                                      style="width:140px; height:auto; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);" 
-                                                     onerror="this.src='<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/images/services/default.png', ENT_QUOTES, 'UTF-8'); ?>'">
+                                                     onerror="this.style.display='none';">
                                             </div>
                                         </div>
                                     </template>
