@@ -91,6 +91,58 @@ function jo_api_debug_staff_order_items(array $row, array $items = []): void {
     error_log('ARTWORK_PATH: ' . ($row['artwork_path'] ?? 'NULL'));
 }
 
+function jo_api_first_scalar_from_payload(array $payload, array $keys): string {
+    foreach ($keys as $key) {
+        if (!array_key_exists($key, $payload)) {
+            continue;
+        }
+        $value = $payload[$key];
+        if (is_array($value) || is_object($value)) {
+            continue;
+        }
+        $text = trim((string)$value);
+        if ($text !== '') {
+            return $text;
+        }
+    }
+    return '';
+}
+
+function jo_api_pos_upload_media_meta(array $payload, string $kind): array {
+    $isReference = $kind === 'reference';
+    $data = jo_api_first_scalar_from_payload($payload, $isReference
+        ? ['reference_upload_data', 'upload_reference_data', 'reference_data']
+        : ['design_upload_data', 'upload_design_data', 'design_data']
+    );
+    $name = jo_api_first_scalar_from_payload($payload, $isReference
+        ? ['reference_upload_name', 'reference_upload', 'reference_file', 'Reference Attachment']
+        : ['design_upload_name', 'design_upload', 'design_file', 'upload_design', 'Upload Design']
+    );
+    $mime = jo_api_first_scalar_from_payload($payload, $isReference
+        ? ['reference_upload_mime', 'reference_mime']
+        : ['design_upload_mime', 'design_mime']
+    );
+
+    if ($data === '') {
+        return [];
+    }
+    if (!preg_match('#^data:[^;]+;base64,#i', $data)) {
+        $resolvedMime = $mime !== '' ? $mime : 'application/octet-stream';
+        $data = 'data:' . $resolvedMime . ';base64,' . $data;
+    }
+
+    $imageLike = strpos(strtolower($mime), 'image/') === 0
+        || (bool)preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $name)
+        || preg_match('#^data:image/#i', $data);
+
+    return [
+        'name' => $name,
+        'url' => $data,
+        'mime' => $mime,
+        'is_image' => $imageLike,
+    ];
+}
+
 function jo_api_require_staff_order_branch(?int $staffBranch, int $orderId): void {
     if ($staffBranch === null || $orderId <= 0) {
         return;
@@ -1044,6 +1096,31 @@ try {
                         $items[0]['customization'] = printflow_overlay_nonempty_assoc($lineCustom, $details);
                     }
                 }
+
+            $posDesignMedia = jo_api_pos_upload_media_meta($details, 'design');
+            $posReferenceMedia = jo_api_pos_upload_media_meta($details, 'reference');
+            if (!empty($items) && (!empty($posDesignMedia) || !empty($posReferenceMedia))) {
+                foreach ($items as &$itemRow) {
+                    if (!is_array($itemRow)) {
+                        continue;
+                    }
+                    if (!empty($posDesignMedia)) {
+                        $itemRow['design_name'] = $posDesignMedia['name'] ?: ($itemRow['design_name'] ?? null);
+                        $itemRow['design_open_url'] = $posDesignMedia['url'];
+                        $itemRow['design_url'] = !empty($posDesignMedia['is_image']) ? $posDesignMedia['url'] : ($itemRow['design_url'] ?? null);
+                        $itemRow['design_is_image'] = !empty($posDesignMedia['is_image']);
+                        $itemRow['design_image_mime'] = $posDesignMedia['mime'] ?: ($itemRow['design_image_mime'] ?? '');
+                    }
+                    if (!empty($posReferenceMedia)) {
+                        $itemRow['reference_name'] = $posReferenceMedia['name'] ?: ($itemRow['reference_name'] ?? null);
+                        $itemRow['reference_open_url'] = $posReferenceMedia['url'];
+                        $itemRow['reference_url'] = !empty($posReferenceMedia['is_image']) ? $posReferenceMedia['url'] : ($itemRow['reference_url'] ?? null);
+                        $itemRow['reference_is_image'] = !empty($posReferenceMedia['is_image']);
+                    }
+                    break;
+                }
+                unset($itemRow);
+            }
 
                 $linked_job_candidates = $linked_job_rows ?? [];
 

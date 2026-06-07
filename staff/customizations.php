@@ -3358,6 +3358,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (raw == null || raw === '') return '';
                 const s = String(raw).trim();
                 if (!s) return '';
+                if (/^(data|blob):/i.test(s)) return s;
                 if (/^https?:\/\//i.test(s)) return s;
                 const base = document.body.getAttribute('data-base-url') || '';
                 if (s.startsWith('/')) {
@@ -3390,6 +3391,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (raw == null || raw === '') return '';
                 const text = String(raw).trim();
                 if (!text) return '';
+                if (/^(data|blob):/i.test(text)) return text;
                 if (/^https?:\/\//i.test(text) || text.startsWith('/') || text.includes('/')) {
                     return this.staffResolveMediaUrl(text);
                 }
