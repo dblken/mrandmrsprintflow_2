@@ -98,6 +98,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
 // Get filter parameters
 $status_filter = $_GET['status'] ?? '';
+$walkin_visible_status_filters = ['', 'Pending', 'Completed'];
+if (!in_array($status_filter, $walkin_visible_status_filters, true)) {
+    $status_filter = '';
+}
 $date_from_filter = $_GET['date_from'] ?? '';
 $date_to_filter        = $_GET['date_to']   ?? '';
 $customer_filter       = $_GET['customer']  ?? '';
@@ -271,16 +275,8 @@ $order_code_search_sql = "CONCAT(
 $sql_conditions .= branch_where('o', $staffBranchId, $types, $params);
 
 if ($status_filter !== '') {
-    $payRejectedSql = staff_orders_sql_payment_proof_rejected('o');
     if ($status_filter === 'Pending') {
-        $sql_conditions .= " AND (o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'))";
-        // Payment-rejected orders (awaiting resubmission) belong in REJECTED tab, not TO VERIFY.
-        $sql_conditions .= ' AND NOT ' . $payRejectedSql;
-    } elseif ($status_filter === 'Rejected') {
-        $sql_conditions .= ' AND ' . $payRejectedSql;
-    } elseif ($status_filter === 'Ready for Pickup') {
-        // Include legacy production statuses so they appear in TO PICK UP tab
-        $sql_conditions .= " AND (o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design'))";
+        $sql_conditions .= " AND o.status NOT IN ('Completed', 'Cancelled')";
     } else {
         $sql_conditions .= " AND o.status = ?";
         $params[] = $status_filter;
@@ -364,48 +360,29 @@ $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
 $total_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$payRejectedKpiSql = staff_orders_sql_payment_proof_rejected('o');
 $pending_count    = db_query(
-    "SELECT COUNT(*) as count FROM orders o WHERE (o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted')) AND NOT {$payRejectedKpiSql} {$kpi_conditions}",
+    "SELECT COUNT(*) as count FROM orders o WHERE o.status NOT IN ('Completed', 'Cancelled') {$kpi_conditions}",
     $kpi_types ?: null,
     $kpi_params ?: null
 )[0]['count'] ?? 0;
-$rejected_count = db_query(
-    "SELECT COUNT(*) as count FROM orders o WHERE {$payRejectedKpiSql} {$kpi_conditions}",
-    $kpi_types ?: null,
-    $kpi_params ?: null
-)[0]['count'] ?? 0;
-$ready_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
 $completed_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$cancelled_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$approved_count   = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Approved' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$topay_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'To Pay' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
 
 $all_counts = [
-    'ALL'              => $total_count,
-    'Pending'          => $pending_count,
-    'Rejected'         => $rejected_count,
-    'Ready for Pickup' => $ready_count,
-    'Completed'        => $completed_count,
-    'Cancelled'        => $cancelled_count
+    'ALL'       => $total_count,
+    'Pending'   => $pending_count,
+    'Completed' => $completed_count,
 ];
 
 function staff_orders_display_status(string $status): string {
-    $verification_statuses = ['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'];
-    if (in_array($status, $verification_statuses, true)) {
-        return 'To Verify';
+    if ($status === 'Completed' || $status === 'Cancelled') {
+        return $status;
     }
-    if (in_array($status, ['Processing', 'In Production', 'Printing', 'Approved Design'], true)) {
-        return 'To Pickup';
-    }
-    if ($status === 'Ready for Pickup') {
-        return 'To Pickup';
-    }
-    return $status;
+    return 'Pending';
 }
 
 function staff_orders_status_pill_style(string $displayStatus): string {
     return match (strtoupper(trim($displayStatus))) {
+        'PENDING' => 'background:#fef3c7;color:#92400e;',
         'REJECTED' => 'background:#fee2e2;color:#991b1b;border:1px solid #fecaca;',
         'TO VERIFY' => 'background:#fef9c3;color:#92400e;',
         'APPROVED' => 'background:#dbeafe;color:#1e40af;',
@@ -499,14 +476,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                 </td>
                 <td class="px-4 py-4 status-col-cell">
                     <?php
-                    // Normalize status for product orders — production statuses should display as 'Ready for Pickup'
+                    // Counter staff uses a simplified Pending/Completed display.
                     $display_order_status = staff_orders_display_status((string)$order['status']);
                     ?>
                     <div class="status-col-inner">
                         <?php echo staff_orders_status_pill_html($display_order_status); ?>
-                        <?php if (!empty($order['_staff_pay_rejected'])): ?>
-                            <div><?php echo staff_orders_status_pill_html('Payment rejected'); ?></div>
-                        <?php endif; ?>
                         <?php if (($order['design_status'] ?? '') === 'Revision Submitted'): ?>
                             <div>
                                 <?php echo staff_orders_status_pill_html('Revision Submitted'); ?>
@@ -1390,13 +1364,11 @@ $page_title = 'Orders - Staff';
             'Rated':                 'background:#f3e8ff;color:#6b21a8;',
             'Rejected':              'background:#fee2e2;color:#991b1b;',
         };
-        var style = map[val] || 'background: #F3F4F6; color: #374151;';
         var display = val;
-        if (val === 'Rejected') display = 'Rejected';
-        else if (['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'Downpayment Submitted'].includes(val)) display = 'To Verify';
-        else if (val === 'Ready for Pickup' || val === 'To Pickup') display = 'To Pickup';
-        else if (val === 'Completed') display = 'Completed';
+        if (val === 'Completed') display = 'Completed';
         else if (val === 'Cancelled') display = 'Cancelled';
+        else display = 'Pending';
+        var style = map[display] || 'background: #F3F4F6; color: #374151;';
 
         return '<span class="pf-pill" style="' + style + '">' + display + '</span>';
     }
@@ -1550,12 +1522,9 @@ $page_title = 'Orders - Staff';
             activeTab: '<?php echo $status_filter ?: 'ALL'; ?>',
             tabCounts: <?php echo json_encode($all_counts); ?>,
             statusTabs: {
-                'ALL':              'All',
-                'Pending':          'TO VERIFY',
-                'Rejected':         'REJECTED',
-                'Ready for Pickup': 'TO PICK UP',
-                'Completed':        'COMPLETED',
-                'Cancelled':        'CANCELLED'
+                'ALL':       'ALL',
+                'Pending':   'PENDING',
+                'Completed': 'COMPLETED'
             },
             getProfileImage(image) {
                 if (!image || image === 'null' || image === 'undefined') {
@@ -2027,37 +1996,22 @@ $page_title = 'Orders - Staff';
         var csrf = d.csrf_token || '';
 
         var actionsHTML = '';
-        var verificationStatuses = ['Pending', 'Pending Review', 'Pending Approval', 'To Pay', 'To Verify', 'TO VERIFY'];
-        var completionStatuses   = ['Ready for Pickup', 'TO PICK UP', 'To Pickup', 'Processing', 'In Production', 'Printing', 'Approved Design'];
-
-        if (d.status === 'Rejected') {
-            actionsHTML = '<div style="margin-top:24px;padding:14px;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;">' +
-                '<div style="font-size:12px;font-weight:700;color:#b91c1c;text-transform:uppercase;margin-bottom:6px;">Payment rejected</div>' +
-                '<div style="font-size:13px;color:#991b1b;line-height:1.45;">The customer\'s proof was declined. They can upload a new proof from their account. Previous proof stays below for audit.</div>' +
-                '</div>';
-        } else if (verificationStatuses.includes(d.status)) {
-            // Check if it's a POS order needing a price (total is 0 or very small)
+        var isViewOnlyStatus = ['Completed', 'Cancelled'].includes(d.status);
+        if (!isViewOnlyStatus) {
             if (d.order_source === 'pos' && d.total_raw <= 0) {
                 actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc;">' +
-                    '<label style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; display:block; margin-bottom:12px;">💰 Set Negotiated Price</label>' +
+                    '<label style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; display:block; margin-bottom:12px;">Set Negotiated Price</label>' +
                     '<div style="position:relative; margin-bottom:16px;">' +
                         '<span style="position:absolute; left:12px; top:12px; font-weight:700; color:#94a3b8;">₱</span>' +
                         '<input type="number" id="omPriceInput" style="width:100%; padding:12px 12px 12px 28px; border:1px solid #cbd5e1; border-radius:10px; font-size:18px; font-weight:700; outline:none;" placeholder="0.00">' +
                     '</div>' +
-                    '<button class="btn-primary" onclick="setOrderPrice(' + d.order_id + ')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Approve & Set Price</button>' +
+                    '<button class="btn-primary" onclick="setOrderPrice(' + d.order_id + ')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Save Price</button>' +
                     '</div>';
             } else {
-                // VERIFICATION STAGE: Always show Payment Approve/Reject as requested
-                actionsHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:28px;">' +
-                    '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Approve\')" style="background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Approve Payment</button>' +
-                    '<button class="btn-secondary" onclick="verifyPaymentProof(' + d.order_id + ', \'Reject\')" style="color:#ef4444; border:1px solid #fee2e2; background:transparent; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Reject Payment</button>' +
+                actionsHTML = '<div style="margin-top:28px;">' +
+                    '<button class="btn-primary" onclick="markOrderCompleted(' + d.order_id + ', \'' + csrf + '\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Mark as Completed</button>' +
                     '</div>';
             }
-        } else if (completionStatuses.includes(d.status)) {
-            // COMPLETION STAGE
-            actionsHTML = '<div style="margin-top:28px;">' +
-                '<button class="btn-primary" onclick="markOrderCompleted(' + d.order_id + ', \'' + csrf + '\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Mark as Completed</button>' +
-                '</div>';
         }
 
         // --- Start Building UI ---
@@ -2207,28 +2161,21 @@ $page_title = 'Orders - Staff';
             <div class="kpi-row">
                 <div class="kpi-card indigo">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Orders</span>
+                        <span class="kpi-label">Total Walk-in Orders</span>
                         <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
-                        <span class="kpi-sub">Lifetime orders</span>
+                        <span class="kpi-sub">All in-store transactions</span>
                     </span>
                 </div>
                 <div class="kpi-card amber">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">TO VERIFY</span>
+                        <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo $pending_count; ?></span>
-                        <span class="kpi-sub">Awaiting action</span>
-                    </span>
-                </div>
-                <div class="kpi-card emerald">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">TO PICK UP</span>
-                        <span class="kpi-value"><?php echo $ready_count; ?></span>
-                        <span class="kpi-sub">Awaiting customer</span>
+                        <span class="kpi-sub">Awaiting completion</span>
                     </span>
                 </div>
                 <div class="kpi-card blue">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">COMPLETED</span>
+                        <span class="kpi-label">Completed Orders</span>
                         <span class="kpi-value"><?php echo $completed_count; ?></span>
                         <span class="kpi-sub">Processed successfully</span>
                     </span>
@@ -2305,11 +2252,8 @@ $page_title = 'Orders - Staff';
                                         </div>
                                         <select id="fp_status" class="filter-select" @change="applyFilters()">
                                             <option value="">All statuses</option>
-                                            <option value="Pending"               <?php echo $status_filter === 'Pending'               ? 'selected' : ''; ?>>TO VERIFY</option>
-                                            <option value="Rejected"               <?php echo $status_filter === 'Rejected'               ? 'selected' : ''; ?>>REJECTED PAYMENT</option>
-                                            <option value="Ready for Pickup"      <?php echo $status_filter === 'Ready for Pickup'      ? 'selected' : ''; ?>>TO PICK UP</option>
+                                            <option value="Pending"               <?php echo $status_filter === 'Pending'               ? 'selected' : ''; ?>>PENDING</option>
                                             <option value="Completed"             <?php echo $status_filter === 'Completed'             ? 'selected' : ''; ?>>COMPLETED</option>
-                                            <option value="Cancelled"             <?php echo $status_filter === 'Cancelled'             ? 'selected' : ''; ?>>CANCELLED</option>
                                         </select>
                                     </div>
 
@@ -2409,9 +2353,6 @@ $page_title = 'Orders - Staff';
                                         <?php $display_order_status2 = staff_orders_display_status((string)$order['status']); ?>
                                         <div class="status-col-inner">
                                             <?php echo staff_orders_status_pill_html($display_order_status2); ?>
-                                            <?php if (!empty($order['_staff_pay_rejected'])): ?>
-                                                <div><?php echo staff_orders_status_pill_html('Payment rejected'); ?></div>
-                                            <?php endif; ?>
                                             <?php if (($order['design_status'] ?? '') === 'Revision Submitted'): ?>
                                                 <div>
                                                     <?php echo staff_orders_status_pill_html('Revision Submitted'); ?>

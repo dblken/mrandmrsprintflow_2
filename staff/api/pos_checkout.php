@@ -401,6 +401,16 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
     ) ?: [];
 
     $normalizedTargetStatus = strtoupper(trim($targetStatus));
+    if ($normalizedTargetStatus === 'PENDING') {
+        foreach ($jobs as $job) {
+            $jobId = (int)($job['id'] ?? 0);
+            if ($jobId > 0) {
+                db_execute("UPDATE job_orders SET status = 'PENDING', updated_at = NOW() WHERE id = ?", 'i', [$jobId]);
+            }
+        }
+        return;
+    }
+
     // POS service requirement: deduct in IN_PRODUCTION stage, but do it safely so
     // checkout stays successful even if inventory sync needs follow-up.
     if (in_array($normalizedTargetStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
@@ -647,8 +657,7 @@ try {
     $conn->begin_transaction();
     $transaction_open = true;
 
-    // Create Order
-    // For POS walk-ins, we use status 'In Production' and payment_status 'Paid', skipping 'To Pay' and 'To Verify'
+    // Create walk-in orders as Pending; counter staff completes them after in-person payment/service completion.
     $branch_id = (int)($_SESSION['branch_id'] ?? 1);
     if ($branch_id < 1) $branch_id = 1;
 
@@ -661,7 +670,7 @@ try {
         }
     }
     $order_type = $has_service ? 'custom' : 'product';
-    $order_status = $has_service ? 'In Production' : 'Completed';
+    $order_status = 'Pending';
     $reference_id = $items[0]['id'] ?? null;
 
     $order_result = db_execute(
@@ -863,7 +872,7 @@ try {
                 ));
             }
             $post_commit_job_sync[$order_id] = [
-                'status' => 'IN_PRODUCTION',
+                'status' => 'PENDING',
                 'pending_order_id' => $pendingOrderId
             ];
             
@@ -874,7 +883,7 @@ try {
                      SET payment_status = 'Paid',
                          payment_method = ?,
                          total_amount = ?,
-                         status = 'In Production',
+                         status = 'Pending',
                          order_source = 'pos_merged',
                          updated_at = NOW()
                      WHERE order_id = ?",
@@ -886,10 +895,10 @@ try {
             }
         }
 
-        // Deduct product stock for actual product items immediately for POS sales.
-        // Services/custom items skip deduction (handled via job/material flow).
+        // Product stock is deducted when counter staff marks the walk-in order Completed.
+        // Services/custom items continue through the job/material completion flow.
         $current_user_id = (int)($_SESSION['user_id'] ?? 0);
-        if (!$is_service && $is_actual_product) {
+        if ($order_status === 'Completed' && !$is_service && $is_actual_product) {
             // Reduce branch/product stock atomically (will fail if insufficient)
             $deducted = printflow_product_deduct_stock_for_branch($product_id, $branch_id, $qty);
             if ($deducted === false) {
@@ -932,26 +941,20 @@ try {
         }
     }
 
-    // Safety net: always enforce production-stage sync for custom POS sales.
-    // This guards against flag mismatches that could skip per-item sync and
-    // accidentally postpone deduction until Completed.
+    // Safety net: keep custom POS jobs aligned to the Pending walk-in order.
+    // Final material deduction happens when counter staff marks the order Completed.
     if (($order_type ?? '') === 'custom' && !empty($order_id)) {
         try {
-            JobOrderService::syncStoreOrderToStatus((int)$order_id, 'IN_PRODUCTION', null, '', true);
+            db_execute(
+                "UPDATE job_orders SET status = 'PENDING', updated_at = NOW() WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
+                'i',
+                [(int)$order_id]
+            );
         } catch (Throwable $forceSyncError) {
             if ($sync_warning === '') {
                 $sync_warning = 'Sale completed, but production sync needs follow-up.';
             }
-            error_log('PrintFlow POS forced production sync warning for order #' . (int)$order_id . ': ' . $forceSyncError->getMessage());
-        }
-
-        try {
-            JobOrderService::ensureStoreOrderProductionDeductions((int)$order_id);
-        } catch (Throwable $forceDeductError) {
-            if ($sync_warning === '') {
-                $sync_warning = 'Sale completed, but production sync needs follow-up.';
-            }
-            error_log('PrintFlow POS forced deduction sync warning for order #' . (int)$order_id . ': ' . $forceDeductError->getMessage());
+            error_log('PrintFlow POS forced pending sync warning for order #' . (int)$order_id . ': ' . $forceSyncError->getMessage());
         }
     }
 
