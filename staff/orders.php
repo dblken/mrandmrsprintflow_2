@@ -97,23 +97,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 }
 
 // Get filter parameters
-$status_filter = $_GET['status'] ?? '';
-$walkin_visible_status_filters = ['', 'Pending', 'Completed'];
-if (!in_array($status_filter, $walkin_visible_status_filters, true)) {
-    $status_filter = '';
-}
+$status_filter = 'Completed';
 $date_from_filter = $_GET['date_from'] ?? '';
 $date_to_filter        = $_GET['date_to']   ?? '';
 $customer_filter       = $_GET['customer']  ?? '';
 $sort_by               = $_GET['sort']           ?? 'newest';
 
 $active_filters = [];
-if ($status_filter !== '')         $active_filters['status']         = $status_filter;
 if ($date_from_filter !== '')      $active_filters['date_from']      = $date_from_filter;
 if ($date_to_filter !== '')        $active_filters['date_to']        = $date_to_filter;
 if ($customer_filter !== '')       $active_filters['customer']       = $customer_filter;
 if ($sort_by !== 'newest')         $active_filters['sort']           = $sort_by;
-$active_filter_badge_count = count(array_filter([$status_filter, $customer_filter, $date_from_filter, $date_to_filter], function($v) { return $v !== null && $v !== ''; }));
+$active_filter_badge_count = count(array_filter([$customer_filter, $date_from_filter, $date_to_filter], function($v) { return $v !== null && $v !== ''; }));
 
 /**
  * SQL predicate: store order row is in "payment proof rejected — awaiting resubmission".
@@ -273,16 +268,7 @@ $order_code_search_sql = "CONCAT(
 
 // Apply branch filtering
 $sql_conditions .= branch_where('o', $staffBranchId, $types, $params);
-
-if ($status_filter !== '') {
-    if ($status_filter === 'Pending') {
-        $sql_conditions .= " AND o.status NOT IN ('Completed', 'Cancelled')";
-    } else {
-        $sql_conditions .= " AND o.status = ?";
-        $params[] = $status_filter;
-        $types .= 's';
-    }
-}
+$sql_conditions .= " AND o.status = 'Completed'";
 if ($date_from_filter !== '') {
     $sql_conditions .= " AND DATE(o.order_date) >= ?";
     $params[] = $date_from_filter;
@@ -354,22 +340,20 @@ unset($order);
 
 // Get KPI statistics (branch-specific)
 // Note: o.order_type = 'product' filter from line 108 is preserved in $sql_conditions
-$kpi_conditions = " AND o.order_type = 'product'";
+$kpi_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $kpi_types = '';
 $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
-$total_count      = db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
-$pending_count    = db_query(
-    "SELECT COUNT(*) as count FROM orders o WHERE o.status NOT IN ('Completed', 'Cancelled') {$kpi_conditions}",
+$completed_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
+$total_count = $completed_count;
+$total_revenue = db_query(
+    "SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}",
     $kpi_types ?: null,
     $kpi_params ?: null
-)[0]['count'] ?? 0;
-$completed_count  = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0;
+)[0]['total'] ?? 0;
 
 $all_counts = [
-    'ALL'       => $total_count,
-    'Pending'   => $pending_count,
     'Completed' => $completed_count,
 ];
 
@@ -1519,10 +1503,9 @@ $page_title = 'Orders - Staff';
             sortOpen:   false,
             activeSort: '<?php echo $sort_by; ?>',
             hasActiveFilters: <?php echo $active_filter_badge_count > 0 ? 'true' : 'false'; ?>,
-            activeTab: '<?php echo $status_filter ?: 'ALL'; ?>',
+            activeTab: 'Completed',
             tabCounts: <?php echo json_encode($all_counts); ?>,
             statusTabs: {
-                'ALL':       'ALL',
                 'Completed': 'COMPLETED'
             },
             getProfileImage(image) {
@@ -2144,8 +2127,8 @@ $page_title = 'Orders - Staff';
     <div class="main-content">
         <header>
             <div>
-                <h1 class="page-title">Orders Management</h1>
-                <p class="page-subtitle">Track and manage all customer orders and job statuses</p>
+                <h1 class="page-title">Walk-in Sales</h1>
+                <p class="page-subtitle">View completed in-store product transactions.</p>
             </div>
         </header>
 
@@ -2160,23 +2143,23 @@ $page_title = 'Orders - Staff';
             <div class="kpi-row">
                 <div class="kpi-card indigo">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Walk-in Orders</span>
+                        <span class="kpi-label">Total Walk-in Sales</span>
                         <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
-                        <span class="kpi-sub">All in-store transactions</span>
-                    </span>
-                </div>
-                <div class="kpi-card amber">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Pending Orders</span>
-                        <span class="kpi-value"><?php echo $pending_count; ?></span>
-                        <span class="kpi-sub">Awaiting completion</span>
+                        <span class="kpi-sub">Completed product sales</span>
                     </span>
                 </div>
                 <div class="kpi-card blue">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Completed Orders</span>
-                        <span class="kpi-value"><?php echo $completed_count; ?></span>
-                        <span class="kpi-sub">Processed successfully</span>
+                        <span class="kpi-label">Completed Sales</span>
+                        <span class="kpi-value"><?php echo number_format($completed_count); ?></span>
+                        <span class="kpi-sub">Paid and released</span>
+                    </span>
+                </div>
+                <div class="kpi-card emerald">
+                    <span class="kpi-card-inner">
+                        <span class="kpi-label">Total Revenue</span>
+                        <span class="kpi-value"><?php echo format_currency((float)$total_revenue); ?></span>
+                        <span class="kpi-sub">Completed walk-in sales</span>
                     </span>
                 </div>
             </div>
@@ -2185,7 +2168,7 @@ $page_title = 'Orders - Staff';
             <div class="card staff-orders-table-card overflow-visible">
                 <div class="toolbar-container" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-wrap: wrap !important; gap: 16px !important; width: 100% !important;">
                     <div class="toolbar-group toolbar-group--title" style="flex: 0 1 auto !important;">
-                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0; white-space:nowrap;">Orders List</h3>
+                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0; white-space:nowrap;">Completed Walk-in Sales</h3>
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="display: flex !important; gap: 8px !important; margin-left: auto !important; flex: 0 1 auto !important; justify-content: flex-end !important;">
 
@@ -2241,19 +2224,6 @@ $page_title = 'Orders - Staff';
                                             <input type="date" id="fp_date_from" class="filter-input" value="<?php echo htmlspecialchars($date_from_filter); ?>" @change="applyFilters()">
                                             <input type="date" id="fp_date_to" class="filter-input" value="<?php echo htmlspecialchars($date_to_filter); ?>" @change="applyFilters()">
                                         </div>
-                                    </div>
-
-                                    <!-- Status -->
-                                    <div class="filter-section">
-                                        <div class="filter-section-head">
-                                            <span class="filter-label" style="margin:0;">Status</span>
-                                            <button @click="resetFilterField(['status'])" class="filter-reset-link">Reset</button>
-                                        </div>
-                                        <select id="fp_status" class="filter-select" @change="applyFilters()">
-                                            <option value="">All statuses</option>
-                                            <option value="Pending"               <?php echo $status_filter === 'Pending'               ? 'selected' : ''; ?>>PENDING</option>
-                                            <option value="Completed"             <?php echo $status_filter === 'Completed'             ? 'selected' : ''; ?>>COMPLETED</option>
-                                        </select>
                                     </div>
 
                                     <!-- Keyword Search -->

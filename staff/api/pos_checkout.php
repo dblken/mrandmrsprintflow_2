@@ -657,7 +657,7 @@ try {
     $conn->begin_transaction();
     $transaction_open = true;
 
-    // Create walk-in orders as Pending; counter staff completes them after in-person payment/service completion.
+    // Fixed-product walk-in sales complete immediately; service/custom POS items keep their own workflow.
     $branch_id = (int)($_SESSION['branch_id'] ?? 1);
     if ($branch_id < 1) $branch_id = 1;
 
@@ -670,7 +670,7 @@ try {
         }
     }
     $order_type = $has_service ? 'custom' : 'product';
-    $order_status = 'Pending';
+    $order_status = $has_service ? 'Pending' : 'Completed';
     $reference_id = $items[0]['id'] ?? null;
 
     $order_result = db_execute(
