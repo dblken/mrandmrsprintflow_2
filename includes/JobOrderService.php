@@ -62,10 +62,13 @@ class JobOrderService {
             return 0;
         }
         $row = db_query(
-            'SELECT order_item_id FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1',
+            'SELECT MIN(order_item_id) AS order_item_id, COUNT(*) AS item_count FROM order_items WHERE order_id = ?',
             'i',
             [$orderId]
         ) ?: [];
+        if ((int)($row[0]['item_count'] ?? 0) !== 1) {
+            return 0;
+        }
         return (int)($row[0]['order_item_id'] ?? 0);
     }
 
@@ -115,12 +118,13 @@ class JobOrderService {
         }
 
         $itemCount = count($items);
-        foreach ($jobs as $idx => $job) {
+        if ($itemCount !== 1) {
+            return;
+        }
+
+        $item = $items[0];
+        foreach ($jobs as $job) {
             $currentOrderItemId = (int)($job['order_item_id'] ?? 0);
-            $item = $items[$idx] ?? ($itemCount === 1 ? $items[0] : null);
-            if (!$item) {
-                continue;
-            }
             $resolvedOrderItemId = (int)($item['order_item_id'] ?? 0);
             if ($resolvedOrderItemId <= 0) {
                 continue;
