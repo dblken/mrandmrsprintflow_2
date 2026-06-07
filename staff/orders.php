@@ -1845,7 +1845,7 @@ $page_title = 'Orders - Staff';
         
         const confirmed = await pfConfirm({
             title: 'Verify Payment',
-            text: 'Are you sure you want to approve this payment proof? The order will move to TO PICK UP.',
+            text: 'Are you sure you want to approve this payment proof? This will move the order to the next processing stage.',
             iconBg: '#f0fdf4',
             iconColor: '#16a34a',
             confirmText: 'Yes, Approve',
@@ -1875,6 +1875,12 @@ $page_title = 'Orders - Staff';
 
     function openPaymentRejectionModal(orderId) {
         document.getElementById('payRejOrderId').value = orderId;
+        var sel = document.getElementById('payRejReasonSelect');
+        var otherWrapper = document.getElementById('payRejOtherWrapper');
+        var otherInput = document.getElementById('payRejOtherInput');
+        sel.value = '';
+        otherInput.value = '';
+        otherWrapper.style.display = 'none';
         document.getElementById('paymentRejectionModal').classList.add('open');
     }
 
@@ -2018,9 +2024,21 @@ $page_title = 'Orders - Staff';
         var csrf = d.csrf_token || '';
 
         var actionsHTML = '';
-        var isViewOnlyStatus = ['Completed', 'Cancelled'].includes(d.status);
+        var isViewOnlyStatus = ['Completed', 'Cancelled', 'Rejected'].includes(d.status);
+        var verifyStatuses = ['To Verify', 'Pending Verification', 'Verify Pay'];
+        var isVerifyStatus = verifyStatuses.includes(d.status);
+        var canVerifyPayment = isVerifyStatus && d.payment_proof && d.payment_proof !== 'null' && d.payment_proof !== 'undefined';
         if (!isViewOnlyStatus) {
-            if (d.order_source === 'pos' && d.total_raw <= 0) {
+            if (isVerifyStatus) {
+                if (canVerifyPayment) {
+                    actionsHTML = '<div style="margin-top:28px; display:grid; gap:12px;">' +
+                        '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Approve\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Approve Payment</button>' +
+                        '<button class="btn-primary" onclick="verifyPaymentProof(' + d.order_id + ', \'Reject\')" style="width:100%; background:#ef4444; border-color:#ef4444; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Reject Payment</button>' +
+                        '</div>';
+                } else {
+                    actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#475569; font-size:13px;">This order is awaiting payment verification. No approval action is available until the customer uploads a payment proof.</div>';
+                }
+            } else if (d.order_source === 'pos' && d.total_raw <= 0) {
                 actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc;">' +
                     '<label style="font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; display:block; margin-bottom:12px;">Set Negotiated Price</label>' +
                     '<div style="position:relative; margin-bottom:16px;">' +

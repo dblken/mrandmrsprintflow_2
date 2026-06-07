@@ -35,8 +35,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         if ($upload_result['success']) {
             $file_path = $upload_result['file_path'];
             
-            db_execute("UPDATE orders SET payment_status = 'Pending Verification', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ?",
+            db_execute("UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ?",
                 'sssi', [$payment_method, $reference_number, $file_path, $order_id]);
+            
+            if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+                db_execute('UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ?', 'i', [$order_id]);
+            }
             
             notify_shop_users("Payment proof uploaded for Order #{$order_id}", 'Payment', true, false, $order_id);
             
