@@ -34,6 +34,9 @@ $ready_orders = $ready_orders_result[0]['count'] ?? 0;
 
 // TikTok style tabs (redirect removed tabs to completed / merged tab)
 $active_tab = $_GET['tab'] ?? 'all';
+if ($active_tab === 'production') {
+    $active_tab = 'all';
+}
 if (in_array($active_tab, ['torate', 'totalorders'], true)) {
     $active_tab = 'completed';
 }
@@ -1063,7 +1066,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <a href="?tab=all" class="tt-tab <?php echo $active_tab === 'all' ? 'active' : ''; ?>">All <span class="tt-tab-count"><?php echo $tab_counts['all']; ?></span></a>
                         <a href="?tab=pending" class="tt-tab <?php echo $active_tab === 'pending' ? 'active' : ''; ?>">Pending <span class="tt-tab-count"><?php echo $tab_counts['pending']; ?></span></a>
                         <a href="?tab=topay" class="tt-tab <?php echo $active_tab === 'topay' ? 'active' : ''; ?>">To Pay <span class="tt-tab-count"><?php echo $tab_counts['topay']; ?></span></a>
-                        <a href="?tab=production" class="tt-tab <?php echo $active_tab === 'production' ? 'active' : ''; ?>">Production <span class="tt-tab-count"><?php echo $tab_counts['production']; ?></span></a>
                         <a href="?tab=pickup" class="tt-tab <?php echo $active_tab === 'pickup' ? 'active' : ''; ?>">Ready <span class="tt-tab-count"><?php echo $tab_counts['pickup']; ?></span></a>
                         <a href="?tab=completed" class="tt-tab <?php echo $active_tab === 'completed' ? 'active' : ''; ?>">Completed <span class="tt-tab-count"><?php echo $tab_counts['completed']; ?></span></a>
                         <a href="?tab=cancelled_rejected" class="tt-tab <?php echo $active_tab === 'cancelled_rejected' ? 'active' : ''; ?>">Cancelled/Rejected <span class="tt-tab-count"><?php echo $tab_counts['cancelled_rejected']; ?></span></a>
