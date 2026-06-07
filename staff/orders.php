@@ -98,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
 // Get filter parameters
 $status_filter = trim((string)($_GET['status'] ?? 'ALL'));
-$valid_status_filters = ['ALL', 'TO_VERIFY', 'TO_PICKUP', 'COMPLETED', 'CANCELLED'];
+$valid_status_filters = ['ALL', 'TO_VERIFY', 'COMPLETED', 'CANCELLED'];
 if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
     $status_filter = 'ALL';
 }
@@ -262,8 +262,6 @@ $types = '';
 if ($status_filter !== 'ALL') {
     if ($status_filter === 'TO_VERIFY') {
         $sql_conditions .= " AND o.status IN ('To Verify', 'Pending Verification', 'Verify Pay')";
-    } elseif ($status_filter === 'TO_PICKUP') {
-        $sql_conditions .= " AND o.status IN ('To Pickup', 'Ready for Pickup')";
     } elseif ($status_filter === 'COMPLETED') {
         $sql_conditions .= " AND o.status = 'Completed'";
     } elseif ($status_filter === 'CANCELLED') {
@@ -363,7 +361,6 @@ $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 $all_counts = [
     'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'TO_VERIFY' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Verify', 'Pending Verification', 'Verify Pay') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'TO_PICKUP' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Pickup', 'Ready for Pickup') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'CANCELLED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
 ];
@@ -1540,7 +1537,6 @@ $page_title = 'Orders - Staff';
             statusTabs: {
                 'ALL': 'ALL',
                 'TO_VERIFY': 'TO VERIFY',
-                'TO_PICKUP': 'TO PICK UP',
                 'COMPLETED': 'COMPLETED',
                 'CANCELLED': 'CANCELLED'
             },
