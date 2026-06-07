@@ -1654,6 +1654,84 @@ class JobOrderService {
         return printflow_decode_modal_customization_payload($rawText);
     }
 
+    private static function firstPayloadScalar(array $payload, array $keys): string {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $payload)) {
+                continue;
+            }
+            $value = $payload[$key];
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+        return '';
+    }
+
+    private static function posUploadMediaMeta(array $payload, string $kind): array {
+        $isReference = $kind === 'reference';
+        $data = self::firstPayloadScalar($payload, $isReference
+            ? ['reference_upload_data', 'upload_reference_data', 'reference_data']
+            : ['design_upload_data', 'upload_design_data', 'design_data']
+        );
+        if ($data === '') {
+            return [];
+        }
+
+        $name = self::firstPayloadScalar($payload, $isReference
+            ? ['reference_upload_name', 'reference_upload', 'reference_file', 'Reference Attachment']
+            : ['design_upload_name', 'design_upload', 'design_file', 'upload_design', 'Upload Design', 'Design']
+        );
+        $mime = self::firstPayloadScalar($payload, $isReference
+            ? ['reference_upload_mime', 'reference_mime']
+            : ['design_upload_mime', 'design_mime']
+        );
+        if (!preg_match('#^data:[^;]+;base64,#i', $data)) {
+            $data = 'data:' . ($mime !== '' ? $mime : 'application/octet-stream') . ';base64,' . $data;
+        }
+        $isImage = strpos(strtolower($mime), 'image/') === 0
+            || preg_match('#^data:image/#i', $data)
+            || (bool)preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $name);
+
+        return [
+            'url' => $data,
+            'name' => $name,
+            'mime' => $mime,
+            'is_image' => $isImage,
+        ];
+    }
+
+    private static function posCustomizationPayloadForItem(int $storeOrderId, int $orderItemId): array {
+        if ($storeOrderId <= 0) {
+            return [];
+        }
+        $params = [$storeOrderId];
+        $types = 'i';
+        $itemClause = '';
+        if ($orderItemId > 0) {
+            $itemClause = ' AND (order_item_id = ? OR order_item_id IS NULL OR order_item_id = 0)';
+            $params[] = $orderItemId;
+            $types .= 'i';
+        }
+        $rows = db_query(
+            "SELECT customization_details
+             FROM customizations
+             WHERE order_id = ?
+             $itemClause
+             ORDER BY CASE WHEN order_item_id = ? THEN 0 ELSE 1 END, customization_id DESC
+             LIMIT 1",
+            $types . 'i',
+            array_merge($params, [$orderItemId])
+        ) ?: [];
+        if (empty($rows)) {
+            return [];
+        }
+        return self::decodeOrderItemCustomizationData((string)($rows[0]['customization_details'] ?? ''));
+    }
+
     private static function finalHydrateStaffItemsFromOrderItems(array $items, int $storeOrderId): array {
         if ($items === [] || $storeOrderId <= 0) {
             return $items;
@@ -1690,6 +1768,10 @@ class JobOrderService {
 
             $rawCustomization = (string)($row['customization_data'] ?? '');
             $decodedCustomization = self::decodeOrderItemCustomizationData($rawCustomization);
+            $posCustomization = self::posCustomizationPayloadForItem($storeOrderId, (int)($row['order_item_id'] ?? $orderItemId));
+            if ($posCustomization !== []) {
+                $decodedCustomization = printflow_overlay_nonempty_assoc($decodedCustomization, $posCustomization);
+            }
             $existingCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
 
             if ($decodedCustomization !== []) {
@@ -1715,6 +1797,23 @@ class JobOrderService {
             }
             if (trim((string)($item['design_open_url'] ?? '')) === '' && trim((string)$item['design_file']) !== '') {
                 $item['design_open_url'] = $item['design_file'];
+            }
+
+            $posDesign = self::posUploadMediaMeta($decodedCustomization, 'design');
+            if ($posDesign !== []) {
+                $item['design_name'] = $posDesign['name'] ?: ($item['design_name'] ?? null);
+                $item['design_open_url'] = $posDesign['url'];
+                $item['design_url'] = !empty($posDesign['is_image']) ? $posDesign['url'] : ($item['design_url'] ?? null);
+                $item['design_is_image'] = !empty($posDesign['is_image']);
+                $item['design_image_mime'] = $posDesign['mime'] ?: ($item['design_image_mime'] ?? '');
+            }
+
+            $posReference = self::posUploadMediaMeta($decodedCustomization, 'reference');
+            if ($posReference !== []) {
+                $item['reference_name'] = $posReference['name'] ?: ($item['reference_name'] ?? null);
+                $item['reference_open_url'] = $posReference['url'];
+                $item['reference_url'] = !empty($posReference['is_image']) ? $posReference['url'] : ($item['reference_url'] ?? null);
+                $item['reference_is_image'] = !empty($posReference['is_image']);
             }
         }
         unset($item);
