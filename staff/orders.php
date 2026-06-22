@@ -112,11 +112,16 @@ $customer_filter       = $_GET['customer']  ?? '';
 $sort_by               = $_GET['sort']           ?? 'newest';
 
 $active_filters = [];
+if (!$is_pos_staff && $status_filter !== 'ALL') $active_filters['status'] = $status_filter;
 if ($date_from_filter !== '')      $active_filters['date_from']      = $date_from_filter;
 if ($date_to_filter !== '')        $active_filters['date_to']        = $date_to_filter;
 if ($customer_filter !== '')       $active_filters['customer']       = $customer_filter;
 if ($sort_by !== 'newest')         $active_filters['sort']           = $sort_by;
-$active_filter_badge_count = count(array_filter([$customer_filter, $date_from_filter, $date_to_filter], function($v) { return $v !== null && $v !== ''; }));
+$active_filter_parts = [$customer_filter, $date_from_filter, $date_to_filter];
+if (!$is_pos_staff && $status_filter !== 'ALL') {
+    $active_filter_parts[] = $status_filter;
+}
+$active_filter_badge_count = count(array_filter($active_filter_parts, function($v) { return $v !== null && $v !== ''; }));
 
 /**
  * SQL predicate: store order row is in "payment proof rejected — awaiting resubmission".
@@ -285,7 +290,9 @@ $order_code_search_sql = "CONCAT(
 
 // Apply branch filtering
 $sql_conditions .= branch_where('o', $staffBranchId, $types, $params);
-$sql_conditions .= " AND o.status = 'Completed'";
+if ($is_pos_staff) {
+    $sql_conditions .= " AND o.status = 'Completed'";
+}
 if ($date_from_filter !== '') {
     $sql_conditions .= " AND DATE(o.order_date) >= ?";
     $params[] = $date_from_filter;
@@ -369,6 +376,9 @@ $all_counts = [
     'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
 ];
 $total_count = $all_counts['ALL'];
+$to_verify_count = $all_counts['TO_VERIFY'];
+$rejected_count = $all_counts['REJECTED'];
+$completed_count = $all_counts['COMPLETED'];
 $total_revenue = db_query(
     "SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}",
     $kpi_types ?: null,
@@ -2186,8 +2196,13 @@ $page_title = 'Orders - Staff';
     <div class="main-content">
         <header>
             <div>
-                <h1 class="page-title">Walk-in Sales</h1>
-                <p class="page-subtitle">View completed in-store product transactions.</p>
+                <?php if ($is_pos_staff): ?>
+                    <h1 class="page-title">Walk-in Sales</h1>
+                    <p class="page-subtitle">View completed in-store product transactions.</p>
+                <?php else: ?>
+                    <h1 class="page-title">Orders Management</h1>
+                    <p class="page-subtitle">Track and manage all customer orders and payment statuses.</p>
+                <?php endif; ?>
             </div>
         </header>
 
@@ -2200,34 +2215,65 @@ $page_title = 'Orders - Staff';
 
             <!-- Standardized KPI Row -->
             <div class="kpi-row">
-                <div class="kpi-card indigo">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Walk-in Sales</span>
-                        <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
-                        <span class="kpi-sub">Completed product sales</span>
-                    </span>
-                </div>
-                <div class="kpi-card blue">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Completed Sales</span>
-                        <span class="kpi-value"><?php echo number_format($completed_count); ?></span>
-                        <span class="kpi-sub">Paid and released</span>
-                    </span>
-                </div>
-                <div class="kpi-card emerald">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Revenue</span>
-                        <span class="kpi-value"><?php echo format_currency((float)$total_revenue); ?></span>
-                        <span class="kpi-sub">Completed walk-in sales</span>
-                    </span>
-                </div>
+                <?php if ($is_pos_staff): ?>
+                    <div class="kpi-card indigo">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Total Walk-in Sales</span>
+                            <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
+                            <span class="kpi-sub">Completed product sales</span>
+                        </span>
+                    </div>
+                    <div class="kpi-card blue">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Completed Sales</span>
+                            <span class="kpi-value"><?php echo number_format($completed_count); ?></span>
+                            <span class="kpi-sub">Paid and released</span>
+                        </span>
+                    </div>
+                    <div class="kpi-card emerald">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Total Revenue</span>
+                            <span class="kpi-value"><?php echo format_currency((float)$total_revenue); ?></span>
+                            <span class="kpi-sub">Completed walk-in sales</span>
+                        </span>
+                    </div>
+                <?php else: ?>
+                    <div class="kpi-card indigo">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Total Orders</span>
+                            <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
+                            <span class="kpi-sub">All online product orders</span>
+                        </span>
+                    </div>
+                    <div class="kpi-card amber">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">To Verify</span>
+                            <span class="kpi-value"><?php echo number_format($to_verify_count); ?></span>
+                            <span class="kpi-sub">Awaiting payment check</span>
+                        </span>
+                    </div>
+                    <div class="kpi-card red">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Rejected</span>
+                            <span class="kpi-value"><?php echo number_format($rejected_count); ?></span>
+                            <span class="kpi-sub">Needs resubmission</span>
+                        </span>
+                    </div>
+                    <div class="kpi-card blue">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Completed</span>
+                            <span class="kpi-value"><?php echo number_format($completed_count); ?></span>
+                            <span class="kpi-sub">Finished orders</span>
+                        </span>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <!-- Orders Table -->
             <div class="card staff-orders-table-card overflow-visible">
                 <div class="toolbar-container" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-wrap: wrap !important; gap: 16px !important; width: 100% !important;">
                     <div class="toolbar-group toolbar-group--title" style="flex: 0 1 auto !important;">
-                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0; white-space:nowrap;">Completed Walk-in Sales</h3>
+                        <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0; white-space:nowrap;"><?php echo $is_pos_staff ? 'Completed Walk-in Sales' : 'Orders List'; ?></h3>
                     </div>
                     <div class="toolbar-group toolbar-group--actions" style="display: flex !important; gap: 8px !important; margin-left: auto !important; flex: 0 1 auto !important; justify-content: flex-end !important;">
 
