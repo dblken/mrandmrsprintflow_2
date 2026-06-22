@@ -560,7 +560,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             }
                         }
                         if (trim((string)($custom['source_page'] ?? '')) === '') {
-                            $custom['source_page'] = trim((string)($item['source_page'] ?? 'services')) ?: 'services';
+                            $fallbackSourcePage = review_item_is_service($item) ? 'services' : 'products';
+                            $custom['source_page'] = trim((string)($item['source_page'] ?? $fallbackSourcePage)) ?: $fallbackSourcePage;
                         }
                         $uploadedFilesMeta = [];
                         $custom_data   = printflow_encode_customization_payload($custom);

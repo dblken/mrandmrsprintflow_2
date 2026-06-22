@@ -2518,13 +2518,23 @@ try {
 
         async function addToCartWithCustomization(p, price, name, customization) {
             const itemName = name || p.product_name || p.name;
+            const srcPage = String(customization?.source_page || '').trim().toLowerCase();
+            const serviceLike = !!(
+                customization
+                && (
+                    customization.service_id
+                    || customization.service_type
+                    || srcPage === 'services'
+                    || srcPage === 'service'
+                )
+            );
             await syncedCartAction('add', {
                 product_id: p.product_id,
                 name: itemName,
                 price: price,
                 qty: 1,
                 customization: customization,
-                is_service: (customization !== null)
+                is_service: serviceLike
             });
         }
 

@@ -264,18 +264,14 @@ try {
                 $types .= 'i';
             }
             if ($serviceOnly) {
-                // Match staff/customizations.php job scope: custom + product checkouts with non–fixed-price lines
-                // (service/placeholder lines use product rows that are often typed "fixed" in inventory).
+                // Match staff/customizations.php scope: only true custom orders.
                 $sql .= " AND (
                     jo.order_id IS NULL
                     OR EXISTS (
                         SELECT 1
                         FROM orders o_scope
-                        JOIN order_items oi_scope ON oi_scope.order_id = o_scope.order_id
-                        LEFT JOIN products p_scope ON p_scope.product_id = oi_scope.product_id
                         WHERE o_scope.order_id = jo.order_id
-                          AND o_scope.order_type IN ('custom', 'product')
-                          AND COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
+                          AND o_scope.order_type = 'custom'
                     )
                 )";
             }
@@ -507,6 +503,7 @@ try {
                         'Processing', 'In Production', 'Printing', 'Paid – In Process', 'Paid - In Process', 'Ready for Pickup',
                         'Completed', 'Rejected', 'Cancelled'
                     )"
+                    . ($serviceOnly ? " AND o.order_type = 'custom'" : "")
                     . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                     GROUP BY o.order_id
                     ORDER BY o.order_date DESC

@@ -19,10 +19,6 @@ function pos_payload_item_is_service(array $item): bool {
         if (!empty($customization['service_id']) || !empty($customization['service_type'])) {
             return true;
         }
-        $source = strtoupper(trim((string)($customization['source'] ?? '')));
-        if ($source === 'POS') {
-            return true;
-        }
     }
 
     return false;

@@ -700,7 +700,7 @@ class JobOrderService {
         $branchId = (int)($order['branch_id'] ?? 0);
 
         $items = db_query(
-            "SELECT oi.*, p.name AS product_name, p.category AS product_category
+            "SELECT oi.*, p.name AS product_name, p.category AS product_category, p.product_type
              FROM order_items oi
              LEFT JOIN products p ON oi.product_id = p.product_id
              WHERE oi.order_id = ?
@@ -716,6 +716,14 @@ class JobOrderService {
         $firstJobId = null;
         foreach ($items as $item) {
             $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+            $routingItem = [
+                'product_type' => (string)($item['product_type'] ?? ''),
+                'category' => (string)($item['product_category'] ?? ''),
+            ];
+            // Never create production jobs for fixed/ready-made product lines.
+            if (!self::isServiceStoreOrderItem($routingItem, $custom)) {
+                continue;
+            }
             $pname = (string)($item['product_name'] ?? '');
             $pcat = (string)($item['product_category'] ?? '');
             $service_type = get_service_name_from_customization($custom, '');
@@ -1325,7 +1333,7 @@ class JobOrderService {
             return true;
         }
 
-        if (in_array($productType, ['fixed', 'fixed product'], true)) {
+        if (in_array($productType, ['fixed', 'fixed product', 'product'], true)) {
             return false;
         }
         if (in_array($productType, ['custom', 'service'], true)) {
@@ -2276,18 +2284,6 @@ class JobOrderService {
                 }
             }
         }
-        if (
-            !$isServiceOrder
-            && $orderTypeNormalized === 'product'
-            && (int)($order['reference_id'] ?? 0) > 0
-            && (
-                !function_exists('customer_orders_custom_order_is_catalog_product')
-                || !customer_orders_custom_order_is_catalog_product($firstItemCustomization)
-            )
-        ) {
-            $isServiceOrder = true;
-        }
-
         if (
             !$isServiceOrder
             && $orderTypeNormalized === 'custom'

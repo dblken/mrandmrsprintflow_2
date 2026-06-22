@@ -83,11 +83,8 @@ $jobCustomizationScopeSql = " AND (
     OR EXISTS (
         SELECT 1
         FROM orders o_scope
-        JOIN order_items oi_scope ON oi_scope.order_id = o_scope.order_id
-        LEFT JOIN products p_scope ON p_scope.product_id = oi_scope.product_id
         WHERE o_scope.order_id = jo.order_id
-          AND o_scope.order_type IN ('custom', 'product')
-          AND COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
+          AND o_scope.order_type = 'custom'
     )
 )";
 
@@ -165,11 +162,8 @@ $job_rows = db_query(
         OR EXISTS (
             SELECT 1
             FROM orders o_scope
-            JOIN order_items oi_scope ON oi_scope.order_id = o_scope.order_id
-            LEFT JOIN products p_scope ON p_scope.product_id = oi_scope.product_id
             WHERE o_scope.order_id = jo.order_id
-              AND o_scope.order_type IN ('custom', 'product')
-              AND COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
+              AND o_scope.order_type = 'custom'
         )
      )" . $joBranchSql . "
      ORDER BY jo.created_at DESC

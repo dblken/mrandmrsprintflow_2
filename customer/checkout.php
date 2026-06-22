@@ -274,7 +274,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     }
                 }
                 if (trim((string)($custom['source_page'] ?? '')) === '') {
-                    $custom['source_page'] = trim((string)($item['source_page'] ?? 'services')) ?: 'services';
+                    $fallbackSourcePage = checkout_item_is_service($item) ? 'services' : 'products';
+                    $custom['source_page'] = trim((string)($item['source_page'] ?? $fallbackSourcePage)) ?: $fallbackSourcePage;
                 }
 
                 $custom_data    = printflow_encode_customization_payload($custom);

@@ -92,7 +92,10 @@ if ($service_name === '') {
     $service_name = printflow_resolve_order_item_name($items_out[0]['product_name'] ?? 'Standard Order', $first_custom, 'Standard Order');
 }
 
-$linked_job_id = JobOrderService::ensureJobsForStoreOrder($order_id);
+$linked_job_id = null;
+if (strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
+    $linked_job_id = JobOrderService::ensureJobsForStoreOrder($order_id);
+}
 
 $materials = [];
 if ($linked_job_id) {
