@@ -137,7 +137,9 @@ try {
             [$order_id]
         ) ?: [];
         $hasProductionJobs = !empty($jobs);
-        $isPlainProductOrder = (($order['order_type'] ?? '') === 'product') && !$hasProductionJobs;
+        // Ready-made product orders must always skip production workflow and go straight to pickup,
+        // even if legacy/misclassified job_orders rows already exist.
+        $isPlainProductOrder = (($order['order_type'] ?? '') === 'product');
         if (!$isPlainProductOrder && !$hasProductionJobs) {
             throw new Exception('Cannot verify payment: no linked production job found for this service order.');
         }
