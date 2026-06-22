@@ -1254,7 +1254,7 @@ if ($showLatestCustomizationOnly) {
                 </div>
                 <div class="kpi-card rose">
                     <span class="kpi-card-inner">
-                        <span class="kpi-label">Closed</span>
+                        <span class="kpi-label">Cancelled</span>
                         <span class="kpi-value"><?php echo number_format($online_closed_count); ?></span>
                         <span class="kpi-sub">Rejected or cancelled</span>
                     </span>
@@ -1395,7 +1395,7 @@ if ($showLatestCustomizationOnly) {
                             <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
                         <button type="button" @click="activeStatus = 'CLOSED'" :class="activeStatus === 'CLOSED' ? 'active' : ''" class="pill-tab">
-                            <span>CLOSED</span>
+                            <span>CANCELLED</span>
                             <span class="tab-count" x-text="getStatusCount('CLOSED')"></span>
                         </button>
                         <?php else: ?>
