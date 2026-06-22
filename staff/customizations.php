@@ -216,8 +216,14 @@ if (!function_exists('printflow_online_customization_stage_bucket')) {
         if (in_array($normalized, ['REJECTED', 'CANCELLED'], true)) {
             return 'CLOSED';
         }
-        if (in_array($normalized, ['COMPLETED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'], true)) {
+        if (in_array($normalized, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
             return 'PRODUCTION';
+        }
+        if (in_array($normalized, ['TO_RECEIVE', 'READY_TO_COLLECT'], true)) {
+            return 'TO_RECEIVE';
+        }
+        if (in_array($normalized, ['COMPLETED'], true)) {
+            return 'COMPLETED';
         }
         if (in_array($normalized, ['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)) {
             return 'PAYMENT';
@@ -3656,9 +3662,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                             'IN_PRODUCTION': 'PRODUCTION',
                             'PROCESSING': 'PRODUCTION',
                             'PRINTING': 'PRODUCTION',
-                            'TO_RECEIVE': 'PRODUCTION',
-                            'READY_TO_COLLECT': 'PRODUCTION',
-                            'COMPLETED': 'PRODUCTION',
+                            'TO_RECEIVE': 'TO_RECEIVE',
+                            'READY_TO_COLLECT': 'TO_RECEIVE',
+                            'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CLOSED',
                             'CANCELLED': 'CLOSED'
                         };
@@ -3925,7 +3931,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!row) return 'INQUIRY';
                 const s = String(row.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (s === 'REJECTED' || s === 'CANCELLED') return 'CLOSED';
-                if (['COMPLETED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'PRODUCTION';
+                if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
+                if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
+                if (s === 'COMPLETED') return 'COMPLETED';
                 if (['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
             },
