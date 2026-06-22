@@ -231,6 +231,123 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
     return $source !== '' ? $source : 'customer';
 }
 
+/**
+ * Hydrate staff order item responses with raw data directly from order_items.
+ * Guarantees customization_data (verbatim DB JSON), a real product/service name,
+ * and a working design_open_url, bypassing any processing-pipeline gaps.
+ *
+ * @param int   $orderId The orders.order_id whose order_items to read.
+ * @param array &$items  Items array from getStoreOrderItemsPayload — patched in-place.
+ */
+function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
+    if ($orderId <= 0 || empty($items)) {
+        return;
+    }
+
+    $rawRows = db_query(
+        "SELECT order_item_id, customization_data, design_file, design_image_name, design_image_mime
+         FROM order_items
+         WHERE order_id = ?
+         ORDER BY order_item_id ASC",
+        'i', [$orderId]
+    ) ?: [];
+
+    if (empty($rawRows)) {
+        return;
+    }
+
+    $rawByItemId = [];
+    foreach ($rawRows as $r) {
+        $rawByItemId[(int)$r['order_item_id']] = $r;
+    }
+
+    $svcCache = [];
+    $bp = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+
+    foreach ($items as &$item) {
+        $itemId = (int)($item['order_item_id'] ?? 0);
+        $raw = $rawByItemId[$itemId] ?? (count($rawRows) === 1 ? $rawRows[0] : null);
+        if (!$raw) {
+            continue;
+        }
+
+        // 1. Ensure customization_data is always the verbatim DB JSON
+        if (empty($item['customization_data']) && !empty($raw['customization_data'])) {
+            $item['customization_data'] = (string)$raw['customization_data'];
+        }
+
+        // 2. Decode customization_data for service_id / service_type
+        $rawCdStr = (string)($item['customization_data'] ?? '');
+        $decodedCd = [];
+        if ($rawCdStr !== '') {
+            $tmp = json_decode($rawCdStr, true);
+            if (is_array($tmp)) {
+                $decodedCd = $tmp;
+            }
+        }
+
+        // 3. Fix product_name when it is generic or empty
+        $currentName = trim((string)($item['product_name'] ?? ''));
+        $isGeneric = $currentName === ''
+            || (function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($currentName));
+
+        if ($isGeneric) {
+            // 3a. Look up services table using service_id stored in customization_data
+            $svcId = (int)($decodedCd['service_id'] ?? 0);
+            if ($svcId > 0) {
+                if (!isset($svcCache[$svcId])) {
+                    $svcRows = db_query('SELECT name FROM services WHERE service_id = ? LIMIT 1', 'i', [$svcId]);
+                    $svcCache[$svcId] = trim((string)($svcRows[0]['name'] ?? ''));
+                }
+                if ($svcCache[$svcId] !== '') {
+                    $item['product_name'] = $svcCache[$svcId];
+                    $isGeneric = false;
+                }
+            }
+            // 3b. Fall back to service_type string from customization_data
+            if ($isGeneric) {
+                $svcType = trim((string)($decodedCd['service_type'] ?? ''));
+                if ($svcType !== ''
+                    && !(function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($svcType))
+                ) {
+                    $item['product_name'] = $svcType;
+                }
+            }
+        }
+
+        // 4. Fix design_open_url / design_url when missing
+        $hasDesignUrl = !empty($item['design_open_url']) || !empty($item['design_url']);
+        if (!$hasDesignUrl) {
+            $designFile = (string)($raw['design_file'] ?? '');
+            if ($designFile !== '') {
+                $item['design_open_url'] = $bp . '/public/serve_design.php?type=order_item&id=' . (int)$raw['order_item_id'];
+                $item['design_url'] = $item['design_open_url'];
+            } elseif ($itemId > 0) {
+                $blobRow = db_query(
+                    "SELECT IFNULL(LENGTH(design_image), 0) AS blen FROM order_items WHERE order_item_id = ? LIMIT 1",
+                    'i', [$itemId]
+                ) ?: [];
+                if (!empty($blobRow) && (int)($blobRow[0]['blen'] ?? 0) > 0) {
+                    $item['design_open_url'] = $bp . '/public/serve_design.php?type=order_item&id=' . $itemId;
+                    $item['design_url'] = $item['design_open_url'];
+                }
+            }
+        }
+
+        // 5. Fix design_name when missing
+        if (empty($item['design_name'])) {
+            $din = (string)($raw['design_image_name'] ?? '');
+            $dfp = (string)($raw['design_file'] ?? '');
+            if ($din !== '') {
+                $item['design_name'] = $din;
+            } elseif ($dfp !== '') {
+                $item['design_name'] = basename($dfp);
+            }
+        }
+    }
+    unset($item);
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $serviceOnly = in_array(strtolower((string)($_GET['service_only'] ?? $_POST['service_only'] ?? '')), ['1', 'true', 'yes'], true);
 
@@ -694,6 +811,9 @@ try {
             if (!$order) throw new Exception("Order not found.");
             $order['readiness'] = JobOrderService::getMaterialReadiness($id);
             $order['order_code'] = printflow_get_job_inventory_reference($id)['code'] ?? printflow_format_job_code($id);
+            if (is_array($order['items'] ?? null)) {
+                jo_api_hydrate_items_raw((int)($order['order_id'] ?? 0), $order['items']);
+            }
             jo_api_debug_staff_order_items($order, is_array($order['items'] ?? null) ? $order['items'] : []);
             jo_api_json_response(['success' => true, 'data' => $order]);
             break;
@@ -1301,6 +1421,11 @@ try {
                 }
             }
 
+            // Hydrate items with raw customization_data, real service name, and design URLs
+            if (!empty($cust['order_id'])) {
+                jo_api_hydrate_items_raw((int)$cust['order_id'], $items);
+            }
+
             $data = [
                 'id'                       => $cust['customization_id'],
                 'order_id'                 => $cust['order_id'],
@@ -1459,6 +1584,7 @@ try {
 
             $payload = JobOrderService::getStoreOrderItemsPayload($order_id, $serviceOnly, true);
             $items_out = $payload['items'];
+            jo_api_hydrate_items_raw($order_id, $items_out);
             $width_ft = $payload['width_ft'];
             $height_ft = $payload['height_ft'];
             $total_qty = (int)($payload['line_qty'] ?? 0);

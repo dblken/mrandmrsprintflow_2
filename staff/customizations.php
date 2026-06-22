@@ -3074,8 +3074,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const itemCustom = (item && item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
                     ? item.customization
                     : {};
-                const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
-                const fromCustomLine = String(custom?.service_type || custom?.product_type || '').trim();
+                // Also try raw customization_data for service_type in case processing pipeline stripped it
+                const rawCustom = this.parseSpecsObject(item && item.customization_data);
+                const custom = Object.keys(itemCustom).length > 0 ? itemCustom : (Object.keys(rawCustom).length > 0 ? rawCustom : fallbackCustom);
+                const fromCustomLine = String(custom?.service_type || custom?.product_type || rawCustom?.service_type || '').trim();
                 if (fromCustomLine && !this.isGenericServiceLabel(fromCustomLine)) {
                     return fromCustomLine;
                 }
@@ -3083,7 +3085,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (productName && !this.isGenericServiceLabel(productName)) {
                     return productName;
                 }
-                const explicitService = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();
+                const explicitService = String(custom?.service_type || custom?.product_type || item?.product_name || rawCustom?.service_type || '').trim();
                 if (explicitService) {
                     return explicitService;
                 }
@@ -3219,6 +3221,52 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const clean = String(path).split('?')[0].replace(/\\/g, '/');
                 return clean.split('/').filter(Boolean).pop() || '';
             },
+            /**
+             * Collapse aliased customization keys into a single canonical display key.
+             * - needed_date / Needed_Date / due_date  → "Needed Date"
+             * - notes / additional_notes / job_notes  → "Notes"
+             * - Sizes / Size (Ft) / Dimensions / Dimensions (ft) / dimension → "Size"
+             * - branch_name / pickup_branch            → "Branch"
+             * The first non-empty value encountered for each alias group wins.
+             */
+            normalizeSpecAliases(obj) {
+                if (!obj || typeof obj !== 'object') return obj;
+
+                // Returns canonical key for a given raw key, or null if no alias match.
+                const alias = (k) => {
+                    const kl = k.toLowerCase().replace(/[\s_()\-]+/g, '');
+                    if (kl === 'neededdate' || kl === 'duedate' || kl === 'needed_date') return 'Needed Date';
+                    if (kl === 'notes' || kl === 'additionalnotes' || kl === 'jobnotes' || kl === 'customernotes') return 'Notes';
+                    if (kl === 'sizes' || kl === 'sizeft' || kl === 'sizesft' ||
+                        kl === 'dimensions' || kl === 'dimensionsft' || kl === 'dimension')
+                        return 'Size';
+                    if (kl === 'branchname' || kl === 'pickupbranch') return 'Branch';
+                    return null;
+                };
+
+                // Internal-only keys that should never appear in the specs grid
+                const INTERNAL = new Set([
+                    'branch_id', 'Branch_ID', 'source_page', 'source',
+                    'product_id', 'product_type',
+                ]);
+
+                const out = {};
+                const seenCanonical = {};
+
+                for (const [k, v] of Object.entries(obj)) {
+                    if (v === null || v === undefined || v === '') continue;
+                    if (INTERNAL.has(k)) continue;
+
+                    const canonical = alias(k) || k;
+
+                    if (!seenCanonical[canonical]) {
+                        out[canonical] = v;
+                        seenCanonical[canonical] = true;
+                    }
+                    // If canonical already exists, keep the existing value (first non-empty wins).
+                }
+                return out;
+            },
             normalizeStaffOrderDetail(order) {
                 if (!order || typeof order !== 'object') return order;
                 const normalized = { ...order };
@@ -3226,15 +3274,28 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 normalized.items = normalized.items.map((item) => {
                     if (!item || typeof item !== 'object') return item;
-                    const decodedCustomization = this.parseSpecsObject(item.customization_data);
+
+                    // Raw customization_data from the DB is the authoritative source.
+                    // Merge it over the processed item.customization so every field is visible.
+                    const rawDecoded = this.parseSpecsObject(item.customization_data);
                     const existingCustomization = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
                         ? item.customization
                         : {};
-                    const customization = Object.keys(decodedCustomization).length > 0
-                        ? { ...existingCustomization, ...decodedCustomization }
+
+                    // rawDecoded wins for overlapping keys (it is the verbatim DB payload).
+                    const merged = Object.keys(rawDecoded).length > 0
+                        ? { ...existingCustomization, ...rawDecoded }
                         : existingCustomization;
+
+                    // Collapse aliased keys into their canonical display form.
+                    const customization = this.normalizeSpecAliases(merged);
+
                     const designName = item.design_name || item.design_image_name || this.staffBasename(item.design_file);
-                    const designOpenUrl = item.design_open_url || item.design_file || item.design_url || '';
+                    // If design_open_url is still missing but we have an order_item_id, build a serve URL.
+                    let designOpenUrl = item.design_open_url || item.design_file || item.design_url || '';
+                    if (!designOpenUrl && item.order_item_id) {
+                        designOpenUrl = this.staffOrderItemDesignServeUrl(item);
+                    }
                     const productImage = item.product_image || '';
                     const serviceImage = item.service_image || '';
 
@@ -3302,8 +3363,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
                 const isDetail = !!this.showDetailsModal;
-                const skip = isDetail 
-                    ? ['design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime', 'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file'] 
+                const skip = isDetail
+                    ? [
+                        'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
+                        'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file',
+                        // Internal / structural keys — never shown as customer specs
+                        'source_page', 'source', 'branch_id', 'Branch_ID',
+                        'product_id', 'product_type',
+                        // Service/item type already shown as modal title
+                        'service_type', 'service_id',
+                      ]
                     : this.customFieldSkip;
                 
                 return Object.entries(sourceCustom).filter(([k, v]) => {
@@ -3373,6 +3442,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const raw = item.product_image || item.service_image || '';
                 if (!raw) return '';
                 const text = String(raw).trim();
+                // Suppress the generic default service placeholder — it is not a real item image
+                if (/default\.png$/i.test(text) || /\/assets\/images\/services\/default/i.test(text)) return '';
                 if (item.product_image && text && !/^https?:\/\//i.test(text) && !text.startsWith('/') && !text.includes('/')) {
                     const base = document.body.getAttribute('data-base-url') || '';
                     return base + '/uploads/products/' + text;
@@ -3438,6 +3509,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
                 if (item.order_item_id && item.design_name) {
+                    return this.staffOrderItemDesignServeUrl(item);
+                }
+                // Priority 8: Last resort — try serve_design.php by order_item_id alone.
+                // The server-side handler will return 404 if no file exists, so this is safe.
+                if (item.order_item_id) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
                 return '';
