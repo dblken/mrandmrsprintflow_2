@@ -1428,8 +1428,7 @@ if ($showLatestCustomizationOnly) {
                                 <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
                                 <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[25%]' : 'w-[28%]'; ?> border-b border-gray-100">Customization Info</th>
                                 <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[18%]'; ?> border-b border-gray-100 text-center">Status</th>
-                                <th class="px-4 py-4 w-[8%] border-b border-gray-100 text-center">Source</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[12%]' : 'w-[14%]'; ?> border-b border-gray-100">Customer</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[16%]' : 'w-[20%]'; ?> border-b border-gray-100">Customer</th>
                                 <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[10%]' : 'w-[10%]'; ?> border-b border-gray-100 text-right">Created</th>
                                 <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[20%]' : 'w-[10%]'; ?> border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
@@ -1458,14 +1457,6 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4 text-center">
-                                        <template x-if="['pos','walk-in'].includes((jo.order_source || '').toLowerCase())">
-                                            <span class="pf-pill source-badge-pill pos">Pos</span>
-                                        </template>
-                                        <template x-if="!['pos','walk-in'].includes((jo.order_source || '').toLowerCase())">
-                                            <span class="pf-pill source-badge-pill online">Online</span>
-                                        </template>
-                                    </td>
                                     <td class="px-4 py-4">
                                         <div class="table-text-main truncate-ellipsis" :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()" x-text="jo.first_name + ' ' + (jo.last_name || '')"></div>
                                     </td>
@@ -1481,7 +1472,7 @@ if ($showLatestCustomizationOnly) {
                                 </tr>
                             </template>
                             <tr x-show="filteredOrders.length === 0">
-                                <td colspan="7" class="px-6 py-24 text-center">
+                                <td colspan="6" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
                             </tr>
