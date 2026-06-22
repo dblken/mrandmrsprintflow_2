@@ -102,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 $status_filter = trim((string)($_GET['status'] ?? ($is_pos_staff ? 'COMPLETED' : 'ALL')));
 $valid_status_filters = $is_pos_staff
     ? ['COMPLETED']
-    : ['ALL', 'TO_VERIFY', 'REJECTED', 'COMPLETED'];
+    : ['ALL', 'TO_VERIFY', 'TO_PICK_UP', 'COMPLETED', 'CANCELLED'];
 if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
     $status_filter = $is_pos_staff ? 'COMPLETED' : 'ALL';
 }
@@ -270,11 +270,13 @@ $params = [];
 $types = '';
 if ($status_filter !== 'ALL') {
     if ($status_filter === 'TO_VERIFY') {
-        $sql_conditions .= " AND o.status IN ('To Verify', 'Pending Verification', 'Verify Pay')";
-    } elseif ($status_filter === 'REJECTED') {
-        $sql_conditions .= " AND " . staff_orders_sql_payment_proof_rejected('o');
+        $sql_conditions .= " AND o.status IN ('To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted')";
+    } elseif ($status_filter === 'TO_PICK_UP') {
+        $sql_conditions .= " AND o.status IN ('Ready for Pickup', 'To Pickup', 'To Pick Up')";
     } elseif ($status_filter === 'COMPLETED') {
         $sql_conditions .= " AND o.status = 'Completed'";
+    } elseif ($status_filter === 'CANCELLED') {
+        $sql_conditions .= " AND o.status = 'Cancelled'";
     }
 }
 $order_code_search_sql = "CONCAT(
@@ -371,14 +373,16 @@ $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
 $all_counts = [
     'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'TO_VERIFY' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Verify', 'Pending Verification', 'Verify Pay') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'REJECTED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE " . staff_orders_sql_payment_proof_rejected('o') . " {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'TO_VERIFY' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'TO_PICK_UP' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('Ready for Pickup', 'To Pickup', 'To Pick Up') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'CANCELLED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
 ];
 $total_count = $all_counts['ALL'];
 $to_verify_count = $all_counts['TO_VERIFY'];
-$rejected_count = $all_counts['REJECTED'];
+$to_pick_up_count = $all_counts['TO_PICK_UP'];
 $completed_count = $all_counts['COMPLETED'];
+$cancelled_count = $all_counts['CANCELLED'];
 $total_revenue = db_query(
     "SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}",
     $kpi_types ?: null,
@@ -1555,8 +1559,9 @@ $page_title = 'Orders - Staff';
                 <?php else: ?>
                 'ALL': 'ALL',
                 'TO_VERIFY': 'TO VERIFY',
-                'REJECTED': 'REJECTED',
-                'COMPLETED': 'COMPLETED'
+                'TO_PICK_UP': 'TO PICK UP',
+                'COMPLETED': 'COMPLETED',
+                'CANCELLED': 'CANCELLED'
                 <?php endif; ?>
             },
             getProfileImage(image) {
@@ -2252,11 +2257,11 @@ $page_title = 'Orders - Staff';
                             <span class="kpi-sub">Awaiting payment check</span>
                         </span>
                     </div>
-                    <div class="kpi-card red">
+                    <div class="kpi-card emerald">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Rejected</span>
-                            <span class="kpi-value"><?php echo number_format($rejected_count); ?></span>
-                            <span class="kpi-sub">Needs resubmission</span>
+                            <span class="kpi-label">To Pick Up</span>
+                            <span class="kpi-value"><?php echo number_format($to_pick_up_count); ?></span>
+                            <span class="kpi-sub">Ready for release</span>
                         </span>
                     </div>
                     <div class="kpi-card blue">
