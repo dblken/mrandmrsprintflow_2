@@ -264,7 +264,7 @@ if ($action === 'buy_now') {
                     $ext = strtolower(pathinfo($value['name'], PATHINFO_EXTENSION));
                     $new_name = uniqid('design_') . '_' . time() . '.' . $ext;
                     if (copy($value['tmp_path'], $upload_dir . '/' . $new_name)) {
-                        $design_file_path = '/printflow/uploads/orders/' . $new_name;
+                        $design_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
                     }
                     $design_mime = $value['mime'];
                     $design_name = $value['name'];

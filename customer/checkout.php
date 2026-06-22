@@ -301,7 +301,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     }
                     $new_name = uniqid('design_') . '_' . time() . '.' . $ext;
                     if (copy($item['design_tmp_path'], $upload_dir . '/' . $new_name)) {
-                        $design_file_path = '/printflow/uploads/orders/' . $new_name;
+                        $design_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
                     }
                 }
 
@@ -313,7 +313,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     }
                     $new_reference_name = uniqid('ref_') . '_' . time() . '.' . $ref_ext;
                     if (copy($item['reference_tmp_path'], $upload_dir . '/' . $new_reference_name)) {
-                        $reference_file_path = '/printflow/uploads/orders/' . $new_reference_name;
+                        $reference_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_reference_name;
                     }
                 }
 

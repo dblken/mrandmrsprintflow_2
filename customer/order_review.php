@@ -581,7 +581,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $ext = strtolower(pathinfo($design_name, PATHINFO_EXTENSION));
                             $new_name = uniqid('design_') . '_' . time() . '.' . $ext;
                             if (copy($item['design_tmp_path'], $upload_dir . '/' . $new_name)) {
-                                $design_file_path = '/printflow/uploads/orders/' . $new_name;
+                                $design_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
                             }
                         }
 
@@ -590,7 +590,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $ext = strtolower(pathinfo($ref_name, PATHINFO_EXTENSION));
                             $new_name = uniqid('ref_') . '_' . time() . '.' . $ext;
                             if (copy($item['reference_tmp_path'], $upload_dir . '/' . $new_name)) {
-                                $reference_file_path = '/printflow/uploads/orders/' . $new_name;
+                                $reference_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
                             }
                         }
 
@@ -608,7 +608,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                     $uploadedFilesMeta[] = [
                                         'label' => $label,
                                         'name' => $origName,
-                                        'path' => '/printflow/uploads/orders/' . $newName,
+                                        'path' => (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $newName,
                                         'mime' => (string)($upload['mime'] ?? ''),
                                     ];
                                 }
