@@ -29,6 +29,9 @@ class CustomizationService
 {
     private CustomizationRepository $repo;
 
+    /** @var array<int,array<string,mixed>|null> */
+    private static array $storePayloadCache = [];
+
     /**
      * Friendly labels for known internal keys. This is ONLY cosmetic — any key
      * not present here is still rendered (humanised from snake_case). Mirrors
@@ -385,6 +388,120 @@ class CustomizationService
         return $pseudo;
     }
 
+    /**
+     * Load (and cache) the canonical store-order payload for an order.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function loadStorePayload(int $orderId): ?array
+    {
+        if ($orderId <= 0) {
+            return null;
+        }
+        if (array_key_exists($orderId, self::$storePayloadCache)) {
+            return self::$storePayloadCache[$orderId];
+        }
+
+        if (!class_exists('JobOrderService')) {
+            $path = __DIR__ . '/JobOrderService.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemsPayload')) {
+            self::$storePayloadCache[$orderId] = null;
+            return null;
+        }
+
+        try {
+            $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+            self::$storePayloadCache[$orderId] = is_array($payload) ? $payload : null;
+        } catch (\Throwable $e) {
+            error_log('CustomizationService::loadStorePayload failed: ' . $e->getMessage());
+            self::$storePayloadCache[$orderId] = null;
+        }
+
+        return self::$storePayloadCache[$orderId];
+    }
+
+    /**
+     * Find the matching payload line for a raw order_items row.
+     *
+     * @param array<string,mixed> $item
+     * @return array<string,mixed>|null
+     */
+    private function resolveStorePayloadLine(int $orderId, array $item): ?array
+    {
+        $payload = $this->loadStorePayload($orderId);
+        if ($payload === null) {
+            return null;
+        }
+
+        $lines = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        if ($lines === []) {
+            return null;
+        }
+
+        $targetId = (int)($item['order_item_id'] ?? 0);
+        if ($targetId > 0) {
+            foreach ($lines as $line) {
+                if ((int)($line['order_item_id'] ?? 0) === $targetId) {
+                    return $line;
+                }
+            }
+        }
+
+        return $lines[0];
+    }
+
+    /**
+     * Merge a JobOrderService payload line into a pseudo-item for rendering.
+     *
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $line
+     * @return array<string,mixed>
+     */
+    private function mergeItemWithPayloadLine(array $item, array $line, int $orderId): array
+    {
+        $payload = $this->loadStorePayload($orderId) ?? [];
+        $rootCustom = is_array($payload['customization_details'] ?? null) ? $payload['customization_details'] : [];
+
+        $custom = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+        if ($custom === [] && is_array($line['specifications'] ?? null)) {
+            $custom = $line['specifications'];
+        }
+        if ($rootCustom !== []) {
+            $custom = function_exists('printflow_overlay_nonempty_assoc')
+                ? printflow_overlay_nonempty_assoc($rootCustom, $custom)
+                : array_merge($rootCustom, $custom);
+        }
+
+        $productName = trim((string)($line['product_name'] ?? ''));
+        if ($productName !== '' && $this->isGenericServiceLabel($productName)) {
+            $productName = '';
+        }
+
+        $designOpenUrl = trim((string)($line['design_open_url'] ?? ($line['design_url'] ?? '')));
+        $referenceOpenUrl = trim((string)($line['reference_open_url'] ?? ($line['reference_url'] ?? '')));
+
+        return array_merge($item, [
+            'order_item_id'           => (int)($line['order_item_id'] ?? $item['order_item_id'] ?? 0),
+            'order_id'                => $orderId,
+            'quantity'                => max(1, (int)($line['quantity'] ?? $item['quantity'] ?? 1)),
+            'unit_price'              => (float)($line['unit_price'] ?? $item['unit_price'] ?? 0),
+            'pf_from_job_payload'     => true,
+            'pf_product_name'         => $productName,
+            'pf_payload_service_type' => trim((string)($payload['service_type'] ?? '')),
+            'pf_category'             => trim((string)($line['category'] ?? '')),
+            'pf_customization'        => $custom,
+            'pf_design_open_url'      => $designOpenUrl !== '' ? $designOpenUrl : null,
+            'pf_reference_open_url'   => $referenceOpenUrl !== '' ? $referenceOpenUrl : null,
+            'pf_design_name'          => trim((string)($line['design_name'] ?? ($line['design_image_name'] ?? ''))),
+            'design_file'             => trim((string)($line['design_file'] ?? ($item['design_file'] ?? ''))),
+            'design_image_bytes'      => (int)($line['pf_design_image_bytes'] ?? ($item['design_image_bytes'] ?? 0)),
+        ]);
+    }
+
     // ----------------------------------------------------------------------
     // DETAIL
     // ----------------------------------------------------------------------
@@ -465,7 +582,20 @@ class CustomizationService
             return $this->buildItemViewFromStorePayload($item, $order);
         }
 
-        // --- 1. Decode payload exactly like the customer review page does. ----
+        // Always prefer the proven JobOrderService store payload — the same
+        // engine that powers the old staff page and customer order review.
+        // This guarantees every spec (Layout, Print Type, Upload Design, etc.)
+        // renders identically for online, POS, and job-only orders.
+        $orderId = (int)($order['order_id'] ?? $item['order_id'] ?? 0);
+        $payloadLine = $this->resolveStorePayloadLine($orderId, $item);
+        if ($payloadLine !== null) {
+            return $this->buildItemViewFromStorePayload(
+                $this->mergeItemWithPayloadLine($item, $payloadLine, $orderId),
+                $order
+            );
+        }
+
+        // --- Fallback when store payload is unavailable. --------------------
         $rawDecoded = customer_orders_decode_customization_payload($item['customization_data'] ?? '');
         $savedSpecs = customer_orders_decode_customization_payload($item['specifications'] ?? '');
         if ($savedSpecs !== [] && function_exists('printflow_overlay_nonempty_assoc')) {
@@ -560,6 +690,17 @@ class CustomizationService
         }
 
         $specs = $this->extractSpecificationsFromDisplayCustom($custom);
+        if ($specs === []) {
+            $rawDecoded = customer_orders_decode_customization_payload($item['customization_data'] ?? '');
+            $savedSpecs = customer_orders_decode_customization_payload($item['specifications'] ?? '');
+            if ($savedSpecs !== [] && function_exists('printflow_overlay_nonempty_assoc')) {
+                $rawDecoded = printflow_overlay_nonempty_assoc($rawDecoded, $savedSpecs);
+            }
+            $rawCustom = printflow_decode_modal_customization_payload(
+                $rawDecoded !== [] ? json_encode($rawDecoded) : ($item['customization_data'] ?? '')
+            );
+            $specs = $this->extractSpecifications($rawCustom);
+        }
         $notes = $this->resolveStorePayloadNotes($custom, $item, $order);
         $neededDate = $this->extractNeededDateFromCustom($custom);
         $images = $this->resolveStorePayloadImages($item, $custom, $order, $name);
@@ -641,7 +782,7 @@ class CustomizationService
         $skipNormalized = [
             'quantity', 'qty', 'jobnotes', 'notes', 'specialinstructions',
             'otherinstructions', 'additionalnotes', 'designnotes',
-            'servicetype', 'producttype', 'serviceid', 'sourcepage',
+            'servicetype', 'producttype',
         ];
 
         foreach ($custom as $key => $value) {
@@ -728,32 +869,39 @@ class CustomizationService
         $orderItemId = (int)($item['order_item_id'] ?? 0);
         $base = $this->baseUrl();
 
+        $hasStoredDesign = (int)($item['design_image_bytes'] ?? 0) > 0
+            || trim((string)($item['design_file'] ?? '')) !== '';
+        $hasUploadInSpecs = $this->customHasUploadDesign($custom);
+        $hasDesign = $hasStoredDesign
+            || $hasUploadInSpecs
+            || trim((string)($item['pf_design_name'] ?? '')) !== '';
+
         $designUrl = trim((string)($item['pf_design_open_url'] ?? ''));
-        if ($designUrl === '' && $orderItemId > 0) {
+        if ($designUrl === '' && $hasStoredDesign && $orderItemId > 0) {
             $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
         }
-        if ($designUrl === '') {
+        if ($designUrl === '' && $hasUploadInSpecs) {
             $designUrl = (string)($this->resolveDesignUrlFromCustom($custom, $orderId) ?? '');
+            if ($designUrl === '' && $orderItemId > 0) {
+                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
+            }
         }
         if ($designUrl === '' && $orderId > 0) {
             foreach ($this->repo->getJobArtworkPaths($orderId) as $path) {
                 $resolved = $this->resolveMediaPathToUrl($path);
                 if ($resolved !== null) {
                     $designUrl = $resolved;
+                    $hasDesign = true;
                     break;
                 }
             }
         }
 
         $referenceUrl = trim((string)($item['pf_reference_open_url'] ?? ''));
-        if ($referenceUrl === '' && $orderItemId > 0) {
+        $hasReference = $referenceUrl !== '' || $this->payloadHasMedia($custom, 'reference');
+        if ($referenceUrl === '' && $hasReference && $orderItemId > 0) {
             $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
         }
-
-        $hasDesign = $designUrl !== ''
-            || trim((string)($item['pf_design_name'] ?? '')) !== ''
-            || $this->customHasUploadDesign($custom);
-        $hasReference = $referenceUrl !== '' || $this->payloadHasMedia($custom, 'reference');
 
         $productImageUrl = null;
         if (!$hasDesign && function_exists('get_service_image_url')) {
@@ -761,11 +909,11 @@ class CustomizationService
         }
 
         return [
-            'design_url'        => $designUrl !== '' ? $designUrl : null,
+            'design_url'        => ($hasDesign && $designUrl !== '') ? $designUrl : null,
             'reference_url'     => ($hasReference && $referenceUrl !== '') ? $referenceUrl : null,
             'product_image_url' => $productImageUrl,
-            'has_design'        => $hasDesign,
-            'has_reference'     => $hasReference,
+            'has_design'        => $hasDesign && $designUrl !== '',
+            'has_reference'     => $hasReference && $referenceUrl !== '',
         ];
     }
 
@@ -779,12 +927,24 @@ class CustomizationService
                 continue;
             }
             $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$k));
-            if (strpos($nk, 'uploaddesign') !== false || $nk === 'designupload' || $nk === 'designfile') {
+            if ($this->isUploadDesignKey($nk)) {
                 return true;
             }
         }
 
         return $this->payloadHasMedia($custom, 'design');
+    }
+
+    private function isUploadDesignKey(string $normalizedKey): bool
+    {
+        if (in_array($normalizedKey, ['designupload', 'desingupload', 'designfile', 'uploaddesign'], true)) {
+            return true;
+        }
+
+        $hasUpload = strpos($normalizedKey, 'upload') !== false || strpos($normalizedKey, 'desing') !== false;
+        $hasDesign = strpos($normalizedKey, 'design') !== false || strpos($normalizedKey, 'desing') !== false;
+
+        return $hasUpload && $hasDesign;
     }
 
     /**
@@ -797,7 +957,7 @@ class CustomizationService
                 continue;
             }
             $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$k));
-            if (strpos($nk, 'uploaddesign') !== false || $nk === 'designupload' || $nk === 'designfile') {
+            if ($this->isUploadDesignKey($nk)) {
                 $url = $this->resolveMediaPathToUrl(trim((string)$v));
                 if ($url !== null) {
                     return $url;
