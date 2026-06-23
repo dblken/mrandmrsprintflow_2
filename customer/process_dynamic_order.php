@@ -279,44 +279,31 @@ if ($action === 'buy_now') {
         
         $order_item_id = 0;
         if ($design_binary) {
-            $insertSql = $hasSpecificationsColumn
-                ? "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
-                                        design_image, design_image_mime, design_image_name, design_file, specifications)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                : "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
-                                        design_image, design_image_mime, design_image_name, design_file)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $stmt = $conn->prepare(
-                $insertSql
+            $order_item_id = printflow_order_items_insert_line(
+                (int)$order_id,
+                (int)$product_id,
+                (int)$quantity,
+                (float)$unit_price,
+                $custom_json,
+                $design_binary,
+                $design_mime,
+                $design_name,
+                $design_file_path,
+                null
             );
-            if ($stmt) {
-                $null = NULL;
-                if ($hasSpecificationsColumn) {
-                    $stmt->bind_param('iiidssssss', $order_id, $product_id, $quantity, $unit_price, $custom_json, $null, $design_mime, $design_name, $design_file_path, $custom_json);
-                } else {
-                    $stmt->bind_param('iiidsssss', $order_id, $product_id, $quantity, $unit_price, $custom_json, $null, $design_mime, $design_name, $design_file_path);
-                }
-                $stmt->send_long_data(5, $design_binary);
-                $stmt->execute();
-                $order_item_id = (int)$conn->insert_id;
-                $stmt->close();
-            }
         } else {
-            if ($hasSpecificationsColumn) {
-                $order_item_id = (int)db_execute(
-                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, specifications) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    'iiidsss',
-                    [$order_id, $product_id, $quantity, $unit_price, $custom_json, $design_file_path, $custom_json]
-                );
-            } else {
-                $order_item_id = (int)db_execute(
-                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file) 
-                     VALUES (?, ?, ?, ?, ?, ?)",
-                    'iiidss',
-                    [$order_id, $product_id, $quantity, $unit_price, $custom_json, $design_file_path]
-                );
-            }
+            $order_item_id = printflow_order_items_insert_line(
+                (int)$order_id,
+                (int)$product_id,
+                (int)$quantity,
+                (float)$unit_price,
+                $custom_json,
+                null,
+                null,
+                null,
+                $design_file_path,
+                null
+            );
         }
 
         if ($order_item_id > 0) {

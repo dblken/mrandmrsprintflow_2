@@ -534,6 +534,10 @@ class CustomizationService
         }
 
         $items = $this->resolveRawItems($orderId);
+        if ($items === [] && function_exists('printflow_repair_order_missing_line_items')) {
+            printflow_repair_order_missing_line_items($orderId);
+            $items = $this->resolveRawItems($orderId);
+        }
         $itemViews = [];
         foreach ($items as $item) {
             $itemViews[] = $this->buildItemView($item, $order);

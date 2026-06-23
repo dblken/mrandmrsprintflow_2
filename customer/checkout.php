@@ -221,9 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         
         if ($order_id) {
             $_SESSION['checkout_submit_guard']['order_id'] = (int)$order_id;
-            $hasSpecificationsColumn = function_exists('printflow_ensure_order_items_specifications_column')
-                ? printflow_ensure_order_items_specifications_column()
-                : false;
+            $hasSpecificationsColumn = printflow_ensure_order_items_columns();
             // 2. Insert Order Items (design stored as LONGBLOB, never on disk)
             $inserted_order_item_ids = [];
             foreach ($cart_items as $pid => $item) {
@@ -317,6 +315,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     }
                 }
 
+                $custom = printflow_attach_upload_paths_to_customization(
+                    $custom,
+                    $design_file_path,
+                    $reference_file_path,
+                    $design_name
+                );
+                $custom_data = printflow_encode_customization_payload($custom);
+                $cart_items[$pid]['customization'] = $custom;
+
                 // Ensure unit_price is per item, not total
                 $unit_price = (float)$item['price'];
                 $quantity_val = (int)$item['quantity'];
@@ -327,86 +334,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     // Likely a total price, convert to unit price
                     $unit_price = round($unit_price / $quantity_val, 2);
                 }
-                
-                $order_item_id = 0;
-                if ($design_binary) {
-                    // INSERT with BLOB using send_long_data
-                    $itemSql = $hasSpecificationsColumn
-                        ? "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_image, design_image_mime, design_image_name, design_file, reference_image_file, specifications)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                        : "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_image, design_image_mime, design_image_name, design_file, reference_image_file)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                    $item_stmt = $conn->prepare(
-                        $itemSql
+
+                $product_id = printflow_resolve_order_item_product_id($item, $custom);
+
+                if (checkout_item_is_service($item)) {
+                    printflow_persist_service_customization_row(
+                        (int)$order_id,
+                        0,
+                        (int)$customer_id,
+                        (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
+                        $custom_data
                     );
-                    if ($item_stmt) {
-                        $null = NULL;
-                        if ($hasSpecificationsColumn) {
-                            $item_stmt->bind_param('iiidsbsssss',
-                                $order_id,
-                                $item['product_id'],
-                                $item['quantity'],
-                                $unit_price,
-                                $custom_data,
-                                $null,          // placeholder for BLOB
-                                $design_mime,
-                                $design_name,
-                                $design_file_path,
-                                $reference_file_path,
-                                $specifications_json
-                            );
-                        } else {
-                            $item_stmt->bind_param('iiidsbssss',
-                                $order_id,
-                                $item['product_id'],
-                                $item['quantity'],
-                                $unit_price,
-                                $custom_data,
-                                $null,          // placeholder for BLOB
-                                $design_mime,
-                                $design_name,
-                                $design_file_path,
-                                $reference_file_path
-                            );
-                        }
-                        $item_stmt->send_long_data(5, $design_binary);
-                        $item_stmt->execute();
-                        $order_item_id = (int)$conn->insert_id;
-                        $inserted_order_item_ids[$pid] = $order_item_id;
-                        $item_stmt->close();
-                    }
-                } else {
-                    // No design uploaded — insert without BLOB
-                    if ($hasSpecificationsColumn) {
-                        $order_item_id = (int)db_execute(
-                            "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file, specifications)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            'iiidssss',
-                            [$order_id, $item['product_id'], $item['quantity'], $unit_price, $custom_data, $design_file_path, $reference_file_path, $specifications_json]
-                        );
-                    } else {
-                        $order_item_id = (int)db_execute(
-                            "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file)
-                             VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            'iiidsss',
-                            [$order_id, $item['product_id'], $item['quantity'], $unit_price, $custom_data, $design_file_path, $reference_file_path]
-                        );
-                    }
-                    $inserted_order_item_ids[$pid] = $order_item_id;
                 }
 
-                if (checkout_item_is_service($item) && $order_item_id > 0) {
-                    db_execute(
-                        "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, 'Pending Review', NOW(), NOW())",
-                        'iiiss',
-                        [
-                            $order_id,
-                            $order_item_id,
-                            $customer_id,
-                            (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
-                            $custom_data
-                        ]
+                $order_item_id = printflow_order_items_insert_line(
+                    (int)$order_id,
+                    (int)$product_id,
+                    (int)$quantity_val,
+                    (float)$unit_price,
+                    $custom_data,
+                    $design_binary,
+                    $design_mime,
+                    $design_name,
+                    $design_file_path,
+                    $reference_file_path
+                );
+                $inserted_order_item_ids[$pid] = $order_item_id;
+
+                if (checkout_item_is_service($item)) {
+                    printflow_persist_service_customization_row(
+                        (int)$order_id,
+                        (int)$order_item_id,
+                        (int)$customer_id,
+                        (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
+                        $custom_data
                     );
                 }
             }

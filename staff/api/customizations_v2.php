@@ -207,6 +207,32 @@ try {
             break;
         }
 
+        case 'repair': {
+            $orderId = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                cv2_json(['success' => false, 'message' => 'order_id is required.'], 400);
+            }
+            if (!function_exists('printflow_repair_order_missing_line_items')) {
+                cv2_json(['success' => false, 'message' => 'Repair helper unavailable.'], 500);
+            }
+            $result = printflow_repair_order_missing_line_items($orderId);
+            cv2_json([
+                'success' => !empty($result['repaired']),
+                'data'    => $result,
+            ], !empty($result['repaired']) ? 200 : 422);
+            break;
+        }
+
+        case 'repair_all': {
+            if (!function_exists('printflow_repair_all_orders_missing_line_items')) {
+                cv2_json(['success' => false, 'message' => 'Repair helper unavailable.'], 500);
+            }
+            $limit = (int)($_GET['limit'] ?? 500);
+            $result = printflow_repair_all_orders_missing_line_items($limit);
+            cv2_json(['success' => true, 'data' => $result]);
+            break;
+        }
+
         default:
             cv2_json(['success' => false, 'message' => 'Unknown action.'], 400);
     }

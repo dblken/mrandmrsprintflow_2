@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/functions.php';
 
 echo "Starting database migration...\n\n";
 
@@ -25,11 +26,15 @@ echo "Done.\n\n";
 
 // 2. Alter order_items table
 echo "Updating `order_items` table...\n";
+printflow_ensure_order_items_columns();
 $alter_order_items = [
-    "ADD COLUMN IF NOT EXISTS customization_data TEXT NULL",
-    "ADD COLUMN IF NOT EXISTS design_image VARCHAR(255) NULL",
-    "ADD COLUMN IF NOT EXISTS design_file VARCHAR(255) NULL",
-    "ADD COLUMN IF NOT EXISTS reference_image_file VARCHAR(255) NULL"
+    "ADD COLUMN IF NOT EXISTS customization_data LONGTEXT NULL",
+    "ADD COLUMN IF NOT EXISTS design_image LONGBLOB NULL",
+    "ADD COLUMN IF NOT EXISTS design_image_mime VARCHAR(128) NULL",
+    "ADD COLUMN IF NOT EXISTS design_image_name VARCHAR(255) NULL",
+    "ADD COLUMN IF NOT EXISTS design_file VARCHAR(512) NULL",
+    "ADD COLUMN IF NOT EXISTS reference_image_file VARCHAR(512) NULL",
+    "ADD COLUMN IF NOT EXISTS specifications LONGTEXT NULL",
 ];
 foreach ($alter_order_items as $alter) {
     try {
@@ -192,5 +197,11 @@ foreach ($tables as $sql) {
     }
 }
 echo "Done.\n";
+
+echo "\nRepairing custom orders missing order_items...\n";
+if (function_exists('printflow_repair_all_orders_missing_line_items')) {
+    $repair = printflow_repair_all_orders_missing_line_items(2000);
+    echo 'Scanned: ' . (int)($repair['scanned'] ?? 0) . ', repaired: ' . (int)($repair['repaired'] ?? 0) . ', failed: ' . (int)($repair['failed'] ?? 0) . "\n";
+}
 
 echo "\nMigration completed successfully.\n";

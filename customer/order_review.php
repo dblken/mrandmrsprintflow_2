@@ -497,12 +497,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     error_log('Order created successfully with ID: ' . $order_id);
                     error_log('Order type: ' . $order_type);
                     error_log('Branch ID: ' . $branch_id);
-                    $hasSpecificationsColumn = function_exists('printflow_ensure_order_items_specifications_column')
-                        ? printflow_ensure_order_items_specifications_column()
-                        : false;
+                    $hasSpecificationsColumn = printflow_ensure_order_items_columns();
                     
                     // 3. Process each item and insert into order_items
                     $created_order_item_ids_by_key = [];
+                    $checkout_line_failures = [];
                     foreach ($items_to_review as $key => $item) {
                         $custom = review_item_customization($item);
                         $postedSnapshot = $_POST['spec_snapshot'][$key] ?? null;
@@ -564,8 +563,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $custom['source_page'] = trim((string)($item['source_page'] ?? $fallbackSourcePage)) ?: $fallbackSourcePage;
                         }
                         $uploadedFilesMeta = [];
-                        $custom_data   = printflow_encode_customization_payload($custom);
-                        $items_to_review[$key]['customization'] = $custom;
                         $design_binary = null;
                         $design_mime   = $item['design_mime']   ?? null;
                         $design_name   = $item['design_name']   ?? null;
@@ -617,87 +614,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
 
                         if (!empty($uploadedFilesMeta)) {
                             $custom['_uploaded_files'] = $uploadedFilesMeta;
-                            $custom_data = printflow_encode_customization_payload($custom);
                         }
+
+                        $custom = printflow_attach_upload_paths_to_customization(
+                            $custom,
+                            $design_file_path,
+                            $reference_file_path,
+                            $design_name
+                        );
+                        $custom_data = printflow_encode_customization_payload($custom);
+                        $items_to_review[$key]['customization'] = $custom;
                         $specifications_json = $custom_data;
 
-                        $product_id = !empty($item['product_id']) ? (int)$item['product_id'] : null;
-                        $service_type = $custom['service_type'] ?? ($item['category'] ?? ($item['name'] ?? ''));
-                        
-                        // Guard FK: ensure product_id exists
-                        $product_exists = false;
-                        if ($product_id !== null && $product_id > 0) {
-                            $chk = db_query("SELECT product_id FROM products WHERE product_id = ? LIMIT 1", 'i', [$product_id]);
-                            $product_exists = !empty($chk);
-                        }
-                        if (!$product_exists) {
-                            $product_id = 3; // Fallback
-                        }
+                        $product_id = printflow_resolve_order_item_product_id($item, $custom);
 
                         // FIXED: Save estimated price to order_items so it displays correctly
-                        // For service/custom orders, save estimated unit_price (staff can update later)
-                        // For product orders, use the price as-is (it's already per-item unit price)
                         $unit_price = review_item_unit_price($item);
                         $quantity_val = review_item_quantity($item);
 
-                        $order_item_id = 0;
-                        if ($design_binary) {
-                            $insertItemSql = $hasSpecificationsColumn
-                                ? "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
-                                                        design_image, design_image_mime, design_image_name, design_file, reference_image_file, specifications)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                                : "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, 
-                                                        design_image, design_image_mime, design_image_name, design_file, reference_image_file)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-                            $stmt = $conn->prepare(
-                                $insertItemSql
+                        // Backup customization BEFORE insert so specs are never lost.
+                        if (review_item_is_service($item)) {
+                            printflow_persist_service_customization_row(
+                                (int)$order_id,
+                                0,
+                                (int)$customer_id,
+                                (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
+                                $custom_data
                             );
-                            if ($stmt) {
-                                $null = NULL;
-                                if ($hasSpecificationsColumn) {
-                                    $stmt->bind_param('iiidsssssss', $order_id, $product_id, $quantity_val, $unit_price, $custom_data, $null, $design_mime, $design_name, $design_file_path, $reference_file_path, $specifications_json);
-                                } else {
-                                    $stmt->bind_param('iiidssssss', $order_id, $product_id, $quantity_val, $unit_price, $custom_data, $null, $design_mime, $design_name, $design_file_path, $reference_file_path);
-                                }
-                                $stmt->send_long_data(5, $design_binary);
-                                $stmt->execute();
-                                $order_item_id = (int)$conn->insert_id;
-                                $stmt->close();
-                            }
-                        } else {
-                            if ($hasSpecificationsColumn) {
-                                $order_item_id = (int)db_execute(
-                                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file, specifications) 
-                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                                    'iiidssss',
-                                    [$order_id, $product_id, $quantity_val, $unit_price, $custom_data, $design_file_path, $reference_file_path, $specifications_json]
-                                );
-                            } else {
-                                $order_item_id = (int)db_execute(
-                                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, customization_data, design_file, reference_image_file) 
-                                     VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                    'iiidsss',
-                                    [$order_id, $product_id, $quantity_val, $unit_price, $custom_data, $design_file_path, $reference_file_path]
-                                );
-                            }
                         }
+
+                        $order_item_id = printflow_order_items_insert_line(
+                            (int)$order_id,
+                            (int)$product_id,
+                            (int)$quantity_val,
+                            (float)$unit_price,
+                            $custom_data,
+                            $design_binary,
+                            $design_mime,
+                            $design_name,
+                            $design_file_path,
+                            $reference_file_path
+                        );
 
                         if ($order_item_id > 0) {
                             $created_order_item_ids_by_key[$key] = $order_item_id;
+                        } elseif (review_item_is_service($item)) {
+                            $checkout_line_failures[] = (string)($item['name'] ?? $key);
                         }
 
-                        if (review_item_is_service($item) && $order_item_id > 0) {
-                            db_execute(
-                                "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at)
-                                 VALUES (?, ?, ?, ?, ?, 'Pending Review', NOW(), NOW())",
-                                'iiiss',
-                                [
-                                    $order_id,
-                                    $order_item_id,
-                                    $customer_id,
-                                    (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
-                                    $custom_data
-                                ]
+                        if (review_item_is_service($item)) {
+                            printflow_persist_service_customization_row(
+                                (int)$order_id,
+                                (int)$order_item_id,
+                                (int)$customer_id,
+                                (string)($custom['service_type'] ?? ($item['name'] ?? 'Service')),
+                                $custom_data
                             );
                         }
 
@@ -710,6 +681,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                     @unlink($tmpPath);
                                 }
                             }
+                        }
+                    }
+
+                    if ($checkout_line_failures !== [] && $order_type === 'custom') {
+                        error_log(
+                            'order_review: order_items insert failed for order #' . $order_id
+                            . ' lines: ' . implode(', ', $checkout_line_failures)
+                        );
+                        $repair = printflow_repair_order_missing_line_items((int)$order_id);
+                        if (!empty($repair['order_item_id'])) {
+                            $created_order_item_ids_by_key['__repaired__'] = (int)$repair['order_item_id'];
                         }
                     }
 
