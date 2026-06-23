@@ -464,7 +464,7 @@ const CV2 = (function () {
         const blocks = [];
         if (it.has_design && it.design_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Uploaded Design</div><img src="${esc(it.design_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
         if (it.has_reference && it.reference_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(it.reference_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        if (it.product_image_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product / Service Image</div><img src="${esc(it.product_image_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        if (it.product_image_url && !it.has_design) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product / Service Image</div><img src="${esc(it.product_image_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
         const media = blocks.length ? `<div class="cv2-media-row">${blocks.join('')}</div>` : '';
 
         const notes = it.notes ? `<div class="cv2-notes"><div class="cv2-nl">Special Instructions &amp; Notes</div><div class="cv2-nv">${esc(it.notes)}</div></div>` : '';

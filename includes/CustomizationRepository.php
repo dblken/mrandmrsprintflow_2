@@ -269,6 +269,8 @@ class CustomizationRepository
             ? 'oi.variant_id' : 'NULL AS variant_id';
         $cols[] = $this->hasColumn('order_items', 'customization_data')
             ? 'oi.customization_data' : 'NULL AS customization_data';
+        $cols[] = $this->hasColumn('order_items', 'specifications')
+            ? 'oi.specifications' : 'NULL AS specifications';
         $cols[] = $this->hasColumn('order_items', 'design_image')
             ? 'IFNULL(LENGTH(oi.design_image), 0) AS design_image_bytes' : '0 AS design_image_bytes';
         $cols[] = $this->hasColumn('order_items', 'design_image_mime')

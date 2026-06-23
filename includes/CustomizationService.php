@@ -236,7 +236,7 @@ class CustomizationService
     private function resolveRawItems(int $orderId): array
     {
         $items = $this->repo->getOrderItems($orderId);
-        if (!empty($items)) {
+        if ($this->itemsHaveMeaningfulCustomization($items)) {
             return $items;
         }
 
@@ -246,6 +246,34 @@ class CustomizationService
         }
 
         return $this->pseudoItemsFromJobPayload($orderId);
+    }
+
+    /**
+     * True when at least one order_items row carries real customization JSON.
+     *
+     * @param array<int,array<string,mixed>> $items
+     */
+    private function itemsHaveMeaningfulCustomization(array $items): bool
+    {
+        if ($items === []) {
+            return false;
+        }
+
+        foreach ($items as $item) {
+            $raw = trim((string)($item['customization_data'] ?? ''));
+            $specRaw = trim((string)($item['specifications'] ?? ''));
+            foreach ([$raw, $specRaw] as $candidate) {
+                if ($candidate === '' || in_array($candidate, ['[]', '{}', 'null'], true)) {
+                    continue;
+                }
+                $decoded = customer_orders_decode_customization_payload($candidate);
+                if ($decoded !== []) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -278,31 +306,44 @@ class CustomizationService
         }
 
         $payloadItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        $rootCustom = is_array($payload['customization_details'] ?? null) ? $payload['customization_details'] : [];
+        $payloadServiceType = trim((string)($payload['service_type'] ?? ''));
         $out = [];
         foreach ($payloadItems as $it) {
             $custom = is_array($it['customization'] ?? null) ? $it['customization'] : [];
             if ($custom === [] && is_array($it['specifications'] ?? null)) {
                 $custom = $it['specifications'];
             }
-
-            // Make sure a usable service/product name is carried for the parser.
-            $name = trim((string)($it['product_name'] ?? ''));
-            if ($name !== '' && trim((string)($custom['service_type'] ?? '')) === '' && trim((string)($custom['product_type'] ?? '')) === '') {
-                $custom['service_type'] = $name;
+            if ($rootCustom !== []) {
+                $custom = function_exists('printflow_overlay_nonempty_assoc')
+                    ? printflow_overlay_nonempty_assoc($rootCustom, $custom)
+                    : array_merge($rootCustom, $custom);
             }
 
+            $productName = trim((string)($it['product_name'] ?? ''));
+            if ($productName !== '' && $this->isGenericServiceLabel($productName)) {
+                $productName = '';
+            }
+
+            $designOpenUrl = trim((string)($it['design_open_url'] ?? ($it['design_url'] ?? '')));
+            $referenceOpenUrl = trim((string)($it['reference_open_url'] ?? ($it['reference_url'] ?? '')));
+
             $out[] = [
-                'order_item_id'      => (int)($it['order_item_id'] ?? 0),
-                'order_id'           => $orderId,
-                'product_id'         => (int)($it['product_id'] ?? 0),
-                'quantity'           => max(1, (int)($it['quantity'] ?? 1)),
-                'unit_price'         => (float)($it['unit_price'] ?? 0),
-                'customization_data' => json_encode($custom),
-                'design_image_bytes' => 0,
-                // Pre-resolved asset URLs from the proven payload builder so the
-                // V2 image resolver can use them even when order_item_id is 0.
-                'pf_design_url'      => $it['design_url'] ?? ($it['design_open_url'] ?? null),
-                'pf_reference_url'   => $it['reference_url'] ?? ($it['reference_open_url'] ?? null),
+                'order_item_id'           => (int)($it['order_item_id'] ?? 0),
+                'order_id'                => $orderId,
+                'product_id'              => (int)($it['product_id'] ?? 0),
+                'quantity'                => max(1, (int)($it['quantity'] ?? 1)),
+                'unit_price'              => (float)($it['unit_price'] ?? 0),
+                'customization_data'      => json_encode($custom),
+                'design_image_bytes'      => 0,
+                'pf_from_job_payload'     => true,
+                'pf_product_name'         => $productName,
+                'pf_payload_service_type' => $payloadServiceType,
+                'pf_category'             => trim((string)($it['category'] ?? '')),
+                'pf_customization'        => $custom,
+                'pf_design_open_url'      => $designOpenUrl !== '' ? $designOpenUrl : null,
+                'pf_reference_open_url'   => $referenceOpenUrl !== '' ? $referenceOpenUrl : null,
+                'pf_design_name'          => trim((string)($it['design_name'] ?? ($it['design_image_name'] ?? ''))),
             ];
         }
 
@@ -420,9 +461,25 @@ class CustomizationService
      */
     public function buildItemView(array $item, array $order): array
     {
+        if (!empty($item['pf_from_job_payload'])) {
+            return $this->buildItemViewFromStorePayload($item, $order);
+        }
+
         // --- 1. Decode payload exactly like the customer review page does. ----
         $rawDecoded = customer_orders_decode_customization_payload($item['customization_data'] ?? '');
-        $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+        $savedSpecs = customer_orders_decode_customization_payload($item['specifications'] ?? '');
+        if ($savedSpecs !== [] && function_exists('printflow_overlay_nonempty_assoc')) {
+            $rawDecoded = printflow_overlay_nonempty_assoc($rawDecoded, $savedSpecs);
+        } elseif ($savedSpecs !== []) {
+            $rawDecoded = array_merge($rawDecoded, $savedSpecs);
+        }
+
+        $custom = printflow_decode_modal_customization_payload(
+            $rawDecoded !== [] ? json_encode($rawDecoded) : ($item['customization_data'] ?? '')
+        );
+        if ($custom === [] && $savedSpecs !== []) {
+            $custom = printflow_decode_modal_customization_payload($item['specifications'] ?? '');
+        }
         $custom = pf_order_ui_normalize_review_customization($custom, $item, false);
 
         // --- 2. Resolve whether this is a service or a fixed product. --------
@@ -478,6 +535,319 @@ class CustomizationService
         ];
     }
 
+    /**
+     * Build an item view from the proven JobOrderService store payload (same
+     * shape the old staff page + customer modal use). Avoids re-decoding that
+     * would drop flattened display labels like "Print Type", "Upload Design".
+     *
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $order
+     * @return array<string,mixed>
+     */
+    private function buildItemViewFromStorePayload(array $item, array $order): array
+    {
+        $custom = is_array($item['pf_customization'] ?? null) ? $item['pf_customization'] : [];
+        if ($custom === []) {
+            $custom = customer_orders_decode_customization_payload($item['customization_data'] ?? '');
+        }
+
+        $orderId = (int)($item['order_id'] ?? $order['order_id'] ?? 0);
+        $name = $this->resolveStorePayloadItemName($item, $order, $custom);
+        $category = trim((string)($item['pf_category'] ?? ''));
+        if ($category === '' || $this->isGenericServiceLabel($category)) {
+            $serviceId = (int)($custom['service_id'] ?? ($order['reference_id'] ?? 0));
+            $category = $this->resolveCategory($custom, $serviceId, true, '');
+        }
+
+        $specs = $this->extractSpecificationsFromDisplayCustom($custom);
+        $notes = $this->resolveStorePayloadNotes($custom, $item, $order);
+        $neededDate = $this->extractNeededDateFromCustom($custom);
+        $images = $this->resolveStorePayloadImages($item, $custom, $order, $name);
+
+        return [
+            'order_item_id'     => (int)($item['order_item_id'] ?? 0),
+            'name'              => $name,
+            'category'          => $category !== '' ? $category : 'Service',
+            'is_service'        => true,
+            'quantity'          => max(1, (int)($item['quantity'] ?? 1)),
+            'unit_price'        => (float)($item['unit_price'] ?? 0),
+            'specs'             => $specs,
+            'notes'             => $notes,
+            'needed_date'       => $neededDate,
+            'design_url'        => $images['design_url'],
+            'reference_url'     => $images['reference_url'],
+            'product_image_url' => $images['product_image_url'],
+            'has_design'        => $images['has_design'],
+            'has_reference'     => $images['has_reference'],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $order
+     * @param array<string,mixed> $custom
+     */
+    private function resolveStorePayloadItemName(array $item, array $order, array $custom): string
+    {
+        $candidates = [
+            trim((string)($item['pf_product_name'] ?? '')),
+            trim((string)($item['pf_payload_service_type'] ?? '')),
+            trim((string)($custom['service_type'] ?? '')),
+        ];
+
+        if (function_exists('get_service_name_from_customization')) {
+            $fromCustom = trim((string)get_service_name_from_customization($custom, ''));
+            if ($fromCustom !== '') {
+                $candidates[] = $fromCustom;
+            }
+        }
+
+        $ref = (int)($order['reference_id'] ?? ($custom['service_id'] ?? 0));
+        if ($ref > 0) {
+            $svc = $this->repo->getServiceById($ref);
+            $candidates[] = trim((string)($svc['name'] ?? ''));
+        }
+
+        if ($orderId = (int)($order['order_id'] ?? 0)) {
+            $jobRows = db_query(
+                'SELECT job_title, service_type FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1',
+                'i',
+                [$orderId]
+            ) ?: [];
+            if (!empty($jobRows[0])) {
+                $candidates[] = trim((string)($jobRows[0]['service_type'] ?? ''));
+                $candidates[] = trim((string)($jobRows[0]['job_title'] ?? ''));
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if ($candidate !== '' && !$this->isGenericServiceLabel($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return 'Order Item';
+    }
+
+    /**
+     * Extract spec tiles from the flattened customer/staff display payload.
+     *
+     * @param array<string,mixed> $custom
+     * @return array<int,array{label:string,value:string}>
+     */
+    private function extractSpecificationsFromDisplayCustom(array $custom): array
+    {
+        $specs = [];
+        $skipNormalized = [
+            'quantity', 'qty', 'jobnotes', 'notes', 'specialinstructions',
+            'otherinstructions', 'additionalnotes', 'designnotes',
+            'servicetype', 'producttype', 'serviceid', 'sourcepage',
+        ];
+
+        foreach ($custom as $key => $value) {
+            if (!is_string($key) && !is_int($key)) {
+                continue;
+            }
+            $key = (string)$key;
+            if ($key === '' || $value === '' || $value === null) {
+                continue;
+            }
+
+            $normalized = strtolower(preg_replace('/[^a-z0-9]/', '', $key));
+            if (in_array($normalized, $skipNormalized, true)) {
+                continue;
+            }
+            if (in_array($key, self::SKIP_KEYS, true)) {
+                continue;
+            }
+
+            $text = trim(pf_order_ui_value_to_text($value));
+            if ($text === '') {
+                continue;
+            }
+
+            $label = self::FIELD_LABELS[$key] ?? $key;
+            if ($label === $key) {
+                $label = ucwords(str_replace(['_', '-'], ' ', $key));
+            }
+
+            $specs[] = ['label' => $label, 'value' => $text];
+        }
+
+        return $specs;
+    }
+
+    /**
+     * @param array<string,mixed> $custom
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $order
+     */
+    private function resolveStorePayloadNotes(array $custom, array $item, array $order): string
+    {
+        $notes = pf_order_ui_resolve_special_instructions_text($custom, $item);
+        if ($notes !== '') {
+            return $notes;
+        }
+
+        foreach (['Job Notes', 'job_notes', 'notes', 'Notes', 'Special Instructions'] as $key) {
+            if (!empty($custom[$key]) && is_scalar($custom[$key])) {
+                $text = trim((string)$custom[$key]);
+                if ($text !== '') {
+                    return $text;
+                }
+            }
+        }
+
+        return trim((string)($order['notes'] ?? ''));
+    }
+
+    /**
+     * @param array<string,mixed> $custom
+     */
+    private function extractNeededDateFromCustom(array $custom): string
+    {
+        foreach ($custom as $k => $v) {
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$k));
+            if (in_array($nk, ['neededdate', 'dateneeded', 'orderneededdate'], true) && trim((string)$v) !== '') {
+                return trim(pf_order_ui_value_to_text($v));
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $custom
+     * @param array<string,mixed> $order
+     * @return array{design_url:?string,reference_url:?string,product_image_url:?string,has_design:bool,has_reference:bool}
+     */
+    private function resolveStorePayloadImages(array $item, array $custom, array $order, string $name): array
+    {
+        $orderId = (int)($item['order_id'] ?? $order['order_id'] ?? 0);
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        $base = $this->baseUrl();
+
+        $designUrl = trim((string)($item['pf_design_open_url'] ?? ''));
+        if ($designUrl === '' && $orderItemId > 0) {
+            $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
+        }
+        if ($designUrl === '') {
+            $designUrl = (string)($this->resolveDesignUrlFromCustom($custom, $orderId) ?? '');
+        }
+        if ($designUrl === '' && $orderId > 0) {
+            foreach ($this->repo->getJobArtworkPaths($orderId) as $path) {
+                $resolved = $this->resolveMediaPathToUrl($path);
+                if ($resolved !== null) {
+                    $designUrl = $resolved;
+                    break;
+                }
+            }
+        }
+
+        $referenceUrl = trim((string)($item['pf_reference_open_url'] ?? ''));
+        if ($referenceUrl === '' && $orderItemId > 0) {
+            $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
+        }
+
+        $hasDesign = $designUrl !== ''
+            || trim((string)($item['pf_design_name'] ?? '')) !== ''
+            || $this->customHasUploadDesign($custom);
+        $hasReference = $referenceUrl !== '' || $this->payloadHasMedia($custom, 'reference');
+
+        $productImageUrl = null;
+        if (!$hasDesign && function_exists('get_service_image_url')) {
+            $productImageUrl = get_service_image_url($name) ?: null;
+        }
+
+        return [
+            'design_url'        => $designUrl !== '' ? $designUrl : null,
+            'reference_url'     => ($hasReference && $referenceUrl !== '') ? $referenceUrl : null,
+            'product_image_url' => $productImageUrl,
+            'has_design'        => $hasDesign,
+            'has_reference'     => $hasReference,
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $custom
+     */
+    private function customHasUploadDesign(array $custom): bool
+    {
+        foreach ($custom as $k => $v) {
+            if (!is_scalar($v) || trim((string)$v) === '') {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$k));
+            if (strpos($nk, 'uploaddesign') !== false || $nk === 'designupload' || $nk === 'designfile') {
+                return true;
+            }
+        }
+
+        return $this->payloadHasMedia($custom, 'design');
+    }
+
+    /**
+     * @param array<string,mixed> $custom
+     */
+    private function resolveDesignUrlFromCustom(array $custom, int $orderId): ?string
+    {
+        foreach ($custom as $k => $v) {
+            if (!is_scalar($v) || trim((string)$v) === '') {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$k));
+            if (strpos($nk, 'uploaddesign') !== false || $nk === 'designupload' || $nk === 'designfile') {
+                $url = $this->resolveMediaPathToUrl(trim((string)$v));
+                if ($url !== null) {
+                    return $url;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveMediaPathToUrl(string $path): ?string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return null;
+        }
+
+        if (function_exists('pf_order_ui_asset_url')) {
+            $url = pf_order_ui_asset_url($path);
+            if ($url !== null && $url !== '') {
+                return $url;
+            }
+        }
+
+        if (preg_match('#^https?://#i', $path)) {
+            return $path;
+        }
+
+        $normalized = str_replace('\\', '/', $path);
+        $base = $this->baseUrl();
+        if (strpos($normalized, '/uploads/') !== false) {
+            $normalized = substr($normalized, strpos($normalized, '/uploads/'));
+        } elseif ($normalized !== '' && $normalized[0] !== '/') {
+            $normalized = '/uploads/orders/' . ltrim($normalized, '/');
+        }
+
+        return $base . $normalized;
+    }
+
+    private function isGenericServiceLabel(string $name): bool
+    {
+        $normalized = strtolower(trim($name));
+        if ($normalized === '' || $normalized === 'service') {
+            return true;
+        }
+
+        return function_exists('customer_orders_is_generic_item_name')
+            && customer_orders_is_generic_item_name($name);
+    }
+
     // ----------------------------------------------------------------------
     // Resolution helpers
     // ----------------------------------------------------------------------
@@ -501,10 +871,10 @@ class CustomizationService
             $raw = trim((string)($custom['service_type'] ?? ''));
             $resolved = printflow_resolve_order_item_name($raw !== '' ? $raw : $productName, $custom, 'Service');
             $resolved = trim((string)$resolved);
-            if ($resolved !== '' && !customer_orders_is_generic_item_name($resolved)) {
+            if ($resolved !== '' && !$this->isGenericServiceLabel($resolved)) {
                 return $resolved;
             }
-            if ($raw !== '' && !customer_orders_is_generic_item_name($raw)) {
+            if ($raw !== '' && !$this->isGenericServiceLabel($raw)) {
                 return $raw;
             }
         }
@@ -647,8 +1017,8 @@ class CustomizationService
 
         // Pre-resolved URLs from the job-order payload fallback take priority —
         // they already point at the correct asset even when order_item_id is 0.
-        $preDesignUrl = trim((string)($item['pf_design_url'] ?? ''));
-        $preReferenceUrl = trim((string)($item['pf_reference_url'] ?? ''));
+        $preDesignUrl = trim((string)($item['pf_design_open_url'] ?? ($item['pf_design_url'] ?? '')));
+        $preReferenceUrl = trim((string)($item['pf_reference_open_url'] ?? ($item['pf_reference_url'] ?? '')));
 
         $designUrl = $preDesignUrl !== ''
             ? $preDesignUrl
@@ -687,6 +1057,12 @@ class CustomizationService
             if ($productImageUrl === null && function_exists('get_service_image_url')) {
                 $productImageUrl = get_service_image_url($name) ?: null;
             }
+        }
+
+        if ($hasDesign) {
+            $productImageUrl = null;
+        } elseif ($isService && $productImageUrl !== null && $this->isGenericServiceLabel($name)) {
+            $productImageUrl = null;
         }
 
         return [
