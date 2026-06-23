@@ -131,53 +131,48 @@ class CustomizationRepository
             return null;
         }
 
-        $hasOrderSource = $this->hasColumn('orders', 'order_source');
-        $hasOrderType   = $this->hasColumn('orders', 'order_type');
-        $hasEstimated   = $this->hasColumn('orders', 'estimated_price');
-        $hasDesignStat  = $this->hasColumn('orders', 'design_status');
-        $hasReference   = $this->hasColumn('orders', 'reference_id');
-        $hasRevReason   = $this->hasColumn('orders', 'revision_reason');
-        $hasRejReason   = $this->hasColumn('orders', 'rejection_reason');
-
-        $select = [
-            'o.*',
-            'c.first_name',
-            'c.last_name',
-            'c.email AS customer_email',
-            'c.contact_number AS customer_contact',
-            'c.customer_type',
-            'c.profile_picture AS customer_profile_picture',
-            'c.address AS customer_address',
-            'c.street AS customer_street',
-            'c.barangay AS customer_barangay',
-            'c.city AS customer_city',
-            'c.province AS customer_province',
-            'b.branch_name',
-        ];
-
-        $rows = db_query(
-            'SELECT ' . implode(', ', $select) . '
-             FROM orders o
-             LEFT JOIN customers c ON c.customer_id = o.customer_id
-             LEFT JOIN branches b ON b.id = o.branch_id
-             WHERE o.order_id = ?
-             LIMIT 1',
-            'i',
-            [$orderId]
-        );
-
+        // Schema-safe: pull each table separately with wildcard selects so we
+        // never reference an optional column (address/profile_picture/etc.)
+        // that may not exist on a given environment's schema.
+        $rows = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
         if (empty($rows)) {
             return null;
         }
-
         $order = $rows[0];
-        // Normalise optional columns so callers can read them safely.
+
+        // Normalise optional order columns so callers can read them safely.
         foreach (['order_type', 'order_source', 'estimated_price', 'design_status', 'reference_id', 'revision_reason', 'rejection_reason'] as $optional) {
             if (!array_key_exists($optional, $order)) {
                 $order[$optional] = null;
             }
         }
-        unset($hasOrderSource, $hasOrderType, $hasEstimated, $hasDesignStat, $hasReference, $hasRevReason, $hasRejReason);
+
+        // Customer (optional columns resolved defensively).
+        $customerId = (int)($order['customer_id'] ?? 0);
+        $cust = [];
+        if ($customerId > 0) {
+            $cRows = db_query('SELECT * FROM customers WHERE customer_id = ? LIMIT 1', 'i', [$customerId]);
+            $cust = $cRows[0] ?? [];
+        }
+        $order['first_name']                = $cust['first_name'] ?? '';
+        $order['last_name']                 = $cust['last_name'] ?? '';
+        $order['customer_email']            = $cust['email'] ?? '';
+        $order['customer_contact']          = $cust['contact_number'] ?? '';
+        $order['customer_type']             = $cust['customer_type'] ?? '';
+        $order['customer_profile_picture']  = $cust['profile_picture'] ?? '';
+        $order['customer_address']          = $cust['address'] ?? '';
+        $order['customer_street']           = $cust['street'] ?? '';
+        $order['customer_barangay']         = $cust['barangay'] ?? '';
+        $order['customer_city']             = $cust['city'] ?? '';
+        $order['customer_province']         = $cust['province'] ?? '';
+
+        // Branch name (optional).
+        $order['branch_name'] = '';
+        $branchId = (int)($order['branch_id'] ?? 0);
+        if ($branchId > 0) {
+            $bRows = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$branchId]);
+            $order['branch_name'] = (string)($bRows[0]['branch_name'] ?? '');
+        }
 
         return $order;
     }
@@ -195,26 +190,47 @@ class CustomizationRepository
         }
 
         return db_query(
-            "SELECT
-                oi.order_item_id,
-                oi.order_id,
-                oi.product_id,
-                oi.variant_id,
-                oi.quantity,
-                oi.unit_price,
-                oi.sku,
-                oi.customization_data,
-                IFNULL(LENGTH(oi.design_image), 0) AS design_image_bytes,
-                oi.design_image_mime,
-                oi.design_image_name,
-                oi.design_file,
-                oi.reference_image_file
+            'SELECT ' . $this->orderItemSelect() . '
              FROM order_items oi
              WHERE oi.order_id = ?
-             ORDER BY oi.order_item_id ASC",
+             ORDER BY oi.order_item_id ASC',
             'i',
             [$orderId]
         ) ?: [];
+    }
+
+    /**
+     * Build a schema-safe SELECT list for order_items. Optional columns that
+     * may not exist on a given schema are emitted as typed NULL/0 aliases so
+     * downstream code can always read them by key.
+     */
+    private function orderItemSelect(): string
+    {
+        $cols = [
+            'oi.order_item_id',
+            'oi.order_id',
+            'oi.product_id',
+            'oi.quantity',
+            'oi.unit_price',
+            'oi.sku',
+        ];
+
+        $cols[] = $this->hasColumn('order_items', 'variant_id')
+            ? 'oi.variant_id' : 'NULL AS variant_id';
+        $cols[] = $this->hasColumn('order_items', 'customization_data')
+            ? 'oi.customization_data' : 'NULL AS customization_data';
+        $cols[] = $this->hasColumn('order_items', 'design_image')
+            ? 'IFNULL(LENGTH(oi.design_image), 0) AS design_image_bytes' : '0 AS design_image_bytes';
+        $cols[] = $this->hasColumn('order_items', 'design_image_mime')
+            ? 'oi.design_image_mime' : 'NULL AS design_image_mime';
+        $cols[] = $this->hasColumn('order_items', 'design_image_name')
+            ? 'oi.design_image_name' : 'NULL AS design_image_name';
+        $cols[] = $this->hasColumn('order_items', 'design_file')
+            ? 'oi.design_file' : 'NULL AS design_file';
+        $cols[] = $this->hasColumn('order_items', 'reference_image_file')
+            ? 'oi.reference_image_file' : 'NULL AS reference_image_file';
+
+        return implode(', ', $cols);
     }
 
     /**
@@ -229,23 +245,10 @@ class CustomizationRepository
         }
 
         $rows = db_query(
-            "SELECT
-                oi.order_item_id,
-                oi.order_id,
-                oi.product_id,
-                oi.variant_id,
-                oi.quantity,
-                oi.unit_price,
-                oi.sku,
-                oi.customization_data,
-                IFNULL(LENGTH(oi.design_image), 0) AS design_image_bytes,
-                oi.design_image_mime,
-                oi.design_image_name,
-                oi.design_file,
-                oi.reference_image_file
+            'SELECT ' . $this->orderItemSelect() . '
              FROM order_items oi
              WHERE oi.order_item_id = ?
-             LIMIT 1",
+             LIMIT 1',
             'i',
             [$orderItemId]
         );
