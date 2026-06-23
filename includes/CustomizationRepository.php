@@ -86,10 +86,11 @@ class CustomizationRepository
         if ($hasOrderType) {
             $where[] = "o.order_type = 'custom'";
         }
-        // Never surface hidden POS draft orders.
+        // Never surface hidden POS draft orders (work-in-progress carts).
         if ($hasOrderSource) {
             $where[] = "LOWER(TRIM(COALESCE(o.order_source, ''))) <> 'pos_draft'";
         }
+        $where[] = "LOWER(TRIM(COALESCE(o.status, ''))) <> 'draft'";
         // Only include orders that actually have at least one order item.
         $where[] = "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)";
 

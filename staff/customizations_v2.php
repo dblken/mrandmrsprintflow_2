@@ -2,23 +2,24 @@
 /**
  * Staff: Customizations V2  (BRAND NEW IMPLEMENTATION)
  * --------------------------------------------------------------------------
- * Clean-architecture rebuild of the customizations review screen.
+ * Clean-architecture rebuild of the customizations review screen. The layout
+ * intentionally mirrors the legacy staff/customizations.php (KPI cards + a
+ * tabbed "Customization List" table with a View action) so the workflow feels
+ * identical — but every record is powered by the corrected V2 backend:
  *
- *   Page (this file)  ->  staff/api/customizations_v2.php  (JSON)
- *                     ->  includes/CustomizationService.php (logic + parser)
+ *   Page (this file)  ->  staff/api/customizations_v2.php  (JSON detail/actions)
+ *                     ->  includes/CustomizationService.php (universal parser)
  *                     ->  includes/CustomizationRepository.php (data access)
  *
- * Goal: display EXACTLY what the customer submitted (online OR POS), reading
- * order_items as the source of truth and decoding customization_data with a
- * universal parser — no hard-coded fields, no whitelists.
- *
- * The legacy staff/customizations.php is intentionally left UNTOUCHED and this
- * page is NOT linked anywhere yet (kept hidden until V2 is verified).
+ * Source of truth = order_items (online + POS), decoded with a universal
+ * parser so ALL specifications render — fixing the legacy page where many
+ * specs disappeared. The legacy staff/customizations.php is left UNTOUCHED.
  */
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/CustomizationService.php';
 
 if (!defined('BASE_URL')) {
     define('BASE_URL', defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : ''));
@@ -31,7 +32,52 @@ if (function_exists('printflow_require_staff_module')) {
 
 $page_title = 'Customizations V2 - PrintFlow';
 $csrf_token = generate_csrf_token();
-$api_base = BASE_URL . '/staff/api/customizations_v2.php';
+$api_base   = BASE_URL . '/staff/api/customizations_v2.php';
+
+$branchFilter = function_exists('printflow_branch_filter_for_user')
+    ? printflow_branch_filter_for_user()
+    : null;
+
+$service = new CustomizationService();
+$rows = $service->listOrderSummaries($branchFilter, null, 400);
+
+// ---- Aggregate counts for KPI cards & list tabs --------------------------
+$buckets = ['INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0, 'TO_PICKUP' => 0, 'COMPLETED' => 0, 'CANCELLED' => 0];
+foreach ($rows as $r) {
+    $b = $r['status_bucket'] ?? 'INQUIRY';
+    if (isset($buckets[$b])) {
+        $buckets[$b]++;
+    }
+}
+$totalRows = count($rows);
+
+$tabs = [
+    'all'        => ['label' => 'All',               'count' => $totalRows],
+    'INQUIRY'    => ['label' => 'Inquiry & Design',  'count' => $buckets['INQUIRY']],
+    'PAYMENT'    => ['label' => 'Payment',           'count' => $buckets['PAYMENT']],
+    'PRODUCTION' => ['label' => 'Production',         'count' => $buckets['PRODUCTION']],
+    'TO_PICKUP'  => ['label' => 'To Pickup',         'count' => $buckets['TO_PICKUP']],
+    'COMPLETED'  => ['label' => 'Completed',         'count' => $buckets['COMPLETED']],
+    'CANCELLED'  => ['label' => 'Cancelled',         'count' => $buckets['CANCELLED']],
+];
+
+function cv2_status_class(string $bucket): string
+{
+    return [
+        'INQUIRY'    => 'cv2-badge-amber',
+        'PAYMENT'    => 'cv2-badge-blue',
+        'PRODUCTION' => 'cv2-badge-indigo',
+        'TO_PICKUP'  => 'cv2-badge-cyan',
+        'COMPLETED'  => 'cv2-badge-green',
+        'CANCELLED'  => 'cv2-badge-red',
+    ][$bucket] ?? 'cv2-badge-gray';
+}
+
+function cv2_fmt_date(string $raw): string
+{
+    $ts = strtotime($raw);
+    return $ts ? date('M j, Y', $ts) : '—';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -44,45 +90,67 @@ $api_base = BASE_URL . '/staff/api/customizations_v2.php';
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        :root {
-            --cv2-bg: #0a2530;
-            --cv2-accent: #53c5e0;
-            --cv2-line: rgba(83,197,224,0.18);
-        }
-        .cv2-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:20px; }
-        .cv2-tabs { display:inline-flex; background:#f1f5f9; border-radius:12px; padding:4px; gap:4px; }
-        .cv2-tab { border:none; background:transparent; padding:8px 16px; border-radius:9px; font-weight:700; font-size:13px; color:#475569; cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:6px; }
-        .cv2-tab .cv2-count { background:#e2e8f0; color:#475569; border-radius:999px; font-size:11px; padding:1px 8px; font-weight:700; }
-        .cv2-tab.active { background:#fff; color:#0a2530; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
-        .cv2-tab.active .cv2-count { background:var(--cv2-accent); color:#fff; }
+        :root { --cv2-accent:#53c5e0; }
+
+        /* KPI cards */
+        .cv2-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
+        .cv2-kpi { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:18px 20px; border-top:3px solid #cbd5e1; }
+        .cv2-kpi.k-inquiry { border-top-color:#f59e0b; }
+        .cv2-kpi.k-payment { border-top-color:#3b82f6; }
+        .cv2-kpi.k-production { border-top-color:#6366f1; }
+        .cv2-kpi.k-cancelled { border-top-color:#ef4444; }
+        .cv2-kpi-title { font-size:13px; font-weight:800; color:#0f172a; }
+        .cv2-kpi-num { font-size:30px; font-weight:900; color:#0f172a; margin:6px 0 2px; line-height:1; }
+        .cv2-kpi-sub { font-size:11.5px; color:#94a3b8; }
+        @media (max-width:900px){ .cv2-kpis { grid-template-columns:repeat(2,1fr); } }
+        @media (max-width:520px){ .cv2-kpis { grid-template-columns:1fr; } }
+
+        /* List card */
+        .cv2-listcard { background:#fff; border:1px solid #e5e7eb; border-radius:16px; overflow:hidden; }
+        .cv2-listhead { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:18px 20px 0; }
+        .cv2-listhead h2 { margin:0; font-size:17px; font-weight:800; color:#0f172a; }
         .cv2-search { position:relative; }
-        .cv2-search input { width:280px; max-width:60vw; padding:10px 14px 10px 38px; border:1px solid #d1d5db; border-radius:10px; font-size:14px; outline:none; transition:border-color .15s; }
+        .cv2-search input { width:260px; max-width:60vw; padding:9px 12px 9px 34px; border:1px solid #d1d5db; border-radius:9px; font-size:13.5px; outline:none; }
         .cv2-search input:focus { border-color:var(--cv2-accent); }
-        .cv2-search svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); width:16px; height:16px; color:#94a3b8; }
+        .cv2-search svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:#94a3b8; }
 
-        .cv2-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:18px; }
-        .cv2-card { background:#fff; border:1px solid #e5e7eb; border-radius:16px; overflow:hidden; cursor:pointer; transition:transform .15s, box-shadow .15s, border-color .15s; display:flex; flex-direction:column; }
-        .cv2-card:hover { transform:translateY(-3px); box-shadow:0 12px 28px rgba(2,12,18,0.12); border-color:var(--cv2-accent); }
-        .cv2-card-top { display:flex; gap:14px; padding:16px; }
-        .cv2-thumb { width:74px; height:74px; border-radius:12px; object-fit:cover; background:#0a2530; flex-shrink:0; border:1px solid var(--cv2-line); }
-        .cv2-thumb-fallback { width:74px; height:74px; border-radius:12px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#0a2530,#0f3340); color:var(--cv2-accent); font-weight:800; font-size:24px; }
-        .cv2-card-title { font-size:15px; font-weight:800; color:#0f172a; line-height:1.3; margin:0 0 4px; }
-        .cv2-card-meta { font-size:12px; color:#64748b; display:flex; flex-wrap:wrap; gap:6px 12px; }
-        .cv2-pill { font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:2px 8px; border-radius:999px; }
-        .cv2-pill-online { background:#e0f2fe; color:#0369a1; }
-        .cv2-pill-pos { background:#fef3c7; color:#b45309; }
-        .cv2-card-foot { margin-top:auto; padding:10px 16px; border-top:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; background:#fbfdff; }
-        .cv2-status { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; padding:3px 10px; border-radius:999px; background:#f1f5f9; color:#475569; }
-        .cv2-order-id { font-size:12px; color:#94a3b8; font-weight:700; }
+        .cv2-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:14px 20px 0; border-bottom:1px solid #eef2f7; }
+        .cv2-tab { border:none; background:transparent; padding:9px 14px; font-size:12.5px; font-weight:800; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; display:inline-flex; align-items:center; gap:7px; }
+        .cv2-tab .cv2-c { background:#e2e8f0; color:#475569; font-size:11px; border-radius:999px; padding:1px 8px; font-weight:800; }
+        .cv2-tab.active { color:#0a2530; border-bottom-color:var(--cv2-accent); }
+        .cv2-tab.active .cv2-c { background:var(--cv2-accent); color:#fff; }
 
-        .cv2-empty, .cv2-loading { text-align:center; padding:60px 20px; color:#94a3b8; font-size:15px; }
-        .cv2-spinner { width:34px; height:34px; border:3px solid #e2e8f0; border-top-color:var(--cv2-accent); border-radius:50%; animation:cv2spin .8s linear infinite; margin:0 auto 14px; }
-        @keyframes cv2spin { to { transform:rotate(360deg); } }
+        .cv2-table { width:100%; border-collapse:collapse; }
+        .cv2-table thead th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; padding:14px 20px; border-bottom:1px solid #eef2f7; white-space:nowrap; }
+        .cv2-table tbody td { padding:14px 20px; border-bottom:1px solid #f1f5f9; font-size:13.5px; color:#0f172a; vertical-align:middle; }
+        .cv2-table tbody tr { transition:background .12s; }
+        .cv2-table tbody tr:hover { background:#f8fafc; }
+        .cv2-code { font-weight:800; color:#0f172a; }
+        .cv2-info-main { font-weight:700; }
+        .cv2-info-sub { font-size:11.5px; color:#94a3b8; margin-top:2px; }
+        .cv2-src { display:inline-block; font-size:10px; font-weight:800; text-transform:uppercase; padding:1px 7px; border-radius:999px; margin-left:6px; }
+        .cv2-src-online { background:#e0f2fe; color:#0369a1; }
+        .cv2-src-pos { background:#fef3c7; color:#b45309; }
+
+        .cv2-badge { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; padding:4px 11px; border-radius:999px; white-space:nowrap; }
+        .cv2-badge-amber { background:#fef3c7; color:#b45309; }
+        .cv2-badge-blue { background:#dbeafe; color:#1d4ed8; }
+        .cv2-badge-indigo { background:#e0e7ff; color:#4338ca; }
+        .cv2-badge-cyan { background:#cffafe; color:#0e7490; }
+        .cv2-badge-green { background:#dcfce7; color:#15803d; }
+        .cv2-badge-red { background:#fee2e2; color:#b91c1c; }
+        .cv2-badge-gray { background:#f1f5f9; color:#475569; }
+
+        .cv2-view-btn { border:1px solid var(--cv2-accent); background:#fff; color:#0e7490; font-weight:800; font-size:12.5px; padding:7px 16px; border-radius:9px; cursor:pointer; transition:all .15s; }
+        .cv2-view-btn:hover { background:var(--cv2-accent); color:#fff; }
+
+        .cv2-empty { text-align:center; padding:50px 20px; color:#94a3b8; font-size:14px; }
+        .cv2-table-wrap { overflow-x:auto; }
 
         /* Detail drawer */
         .cv2-overlay { position:fixed; inset:0; background:rgba(2,12,18,0.55); backdrop-filter:blur(3px); z-index:9000; display:none; }
         .cv2-overlay.open { display:block; }
-        .cv2-drawer { position:fixed; top:0; right:0; height:100%; width:min(680px, 100vw); background:#f8fafc; z-index:9001; transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); display:flex; flex-direction:column; box-shadow:-12px 0 40px rgba(0,0,0,0.25); }
+        .cv2-drawer { position:fixed; top:0; right:0; height:100%; width:min(680px,100vw); background:#f8fafc; z-index:9001; transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); display:flex; flex-direction:column; box-shadow:-12px 0 40px rgba(0,0,0,0.25); }
         .cv2-drawer.open { transform:translateX(0); }
         .cv2-drawer-head { padding:18px 22px; background:#0a2530; color:#fff; display:flex; align-items:center; justify-content:space-between; gap:12px; }
         .cv2-drawer-head h2 { margin:0; font-size:18px; font-weight:800; }
@@ -95,7 +163,7 @@ $api_base = BASE_URL . '/staff/api/customizations_v2.php';
         .cv2-section { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:16px; }
         .cv2-section h3 { margin:0 0 14px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:#0a2530; display:flex; align-items:center; gap:8px; }
         .cv2-section h3 .cv2-dot { width:7px; height:7px; border-radius:50%; background:var(--cv2-accent); }
-        .cv2-kv { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:12px; }
+        .cv2-kv { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
         .cv2-kv-item .cv2-k { font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:#94a3b8; margin-bottom:3px; }
         .cv2-kv-item .cv2-v { font-size:14px; font-weight:700; color:#0f172a; word-break:break-word; }
 
@@ -104,7 +172,7 @@ $api_base = BASE_URL . '/staff/api/customizations_v2.php';
         .cv2-item-head .cv2-it-title { font-size:15px; font-weight:800; margin:0; }
         .cv2-item-head .cv2-it-cat { font-size:11px; font-weight:700; color:var(--cv2-accent); text-transform:uppercase; letter-spacing:.05em; }
         .cv2-item-body { padding:16px; }
-        .cv2-specs { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:10px; }
+        .cv2-specs { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
         .cv2-spec { background:#f8fafc; border:1px solid #eef2f7; border-radius:10px; padding:9px 11px; }
         .cv2-spec .cv2-sl { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; color:#94a3b8; margin-bottom:3px; line-height:1.2; }
         .cv2-spec .cv2-sv { font-size:13.5px; font-weight:700; color:#0f172a; word-break:break-word; line-height:1.3; }
@@ -140,14 +208,12 @@ $api_base = BASE_URL . '/staff/api/customizations_v2.php';
         .cv2-banner-err { background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; }
         .cv2-banner-info { background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; }
 
+        .cv2-spinner { width:32px; height:32px; border:3px solid #e2e8f0; border-top-color:var(--cv2-accent); border-radius:50%; animation:cv2spin .8s linear infinite; margin:30px auto; }
+        @keyframes cv2spin { to { transform:rotate(360deg); } }
+
         .cv2-lightbox { position:fixed; inset:0; background:rgba(2,12,18,0.85); z-index:9999; display:none; align-items:center; justify-content:center; padding:20px; cursor:zoom-out; }
         .cv2-lightbox.open { display:flex; }
         .cv2-lightbox img { max-width:94vw; max-height:92vh; border-radius:12px; box-shadow:0 20px 60px rgba(0,0,0,0.5); }
-
-        @media (max-width:640px) {
-            .cv2-grid { grid-template-columns:1fr; }
-            .cv2-search input { width:100%; }
-        }
     </style>
 </head>
 <body>
@@ -158,24 +224,98 @@ $api_base = BASE_URL . '/staff/api/customizations_v2.php';
     <div class="main-content">
         <header>
             <h1 class="page-title">Customizations <span style="font-size:12px; background:#53c5e0; color:#fff; padding:3px 9px; border-radius:999px; vertical-align:middle; margin-left:6px;">V2</span></h1>
-            <p style="color:#64748b; font-size:14px; margin-top:4px;">Reviews exactly what the customer submitted — online &amp; POS.</p>
+            <p style="color:#64748b; font-size:14px; margin-top:4px;">Track and manage all custom jobs — shows exactly what the customer submitted (online &amp; POS).</p>
         </header>
 
         <main>
-            <div class="cv2-toolbar">
-                <div class="cv2-tabs" id="cv2Tabs">
-                    <button class="cv2-tab active" data-source="all">All <span class="cv2-count" data-count="all">0</span></button>
-                    <button class="cv2-tab" data-source="online">Online <span class="cv2-count" data-count="online">0</span></button>
-                    <button class="cv2-tab" data-source="pos">POS <span class="cv2-count" data-count="pos">0</span></button>
+            <!-- KPI cards -->
+            <div class="cv2-kpis">
+                <div class="cv2-kpi k-inquiry">
+                    <div class="cv2-kpi-title">Inquiry &amp; Design</div>
+                    <div class="cv2-kpi-num"><?php echo $buckets['INQUIRY']; ?></div>
+                    <div class="cv2-kpi-sub">Review, revisions, materials, pricing</div>
                 </div>
-                <div class="cv2-search">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                    <input type="text" id="cv2Search" placeholder="Search by name, service, order #…" autocomplete="off">
+                <div class="cv2-kpi k-payment">
+                    <div class="cv2-kpi-title">Payment</div>
+                    <div class="cv2-kpi-num"><?php echo $buckets['PAYMENT']; ?></div>
+                    <div class="cv2-kpi-sub">To pay and for verification</div>
+                </div>
+                <div class="cv2-kpi k-production">
+                    <div class="cv2-kpi-title">Production</div>
+                    <div class="cv2-kpi-num"><?php echo $buckets['PRODUCTION']; ?></div>
+                    <div class="cv2-kpi-sub">Printing, pickup, completed</div>
+                </div>
+                <div class="cv2-kpi k-cancelled">
+                    <div class="cv2-kpi-title">Cancelled</div>
+                    <div class="cv2-kpi-num"><?php echo $buckets['CANCELLED']; ?></div>
+                    <div class="cv2-kpi-sub">Rejected or cancelled</div>
                 </div>
             </div>
 
-            <div id="cv2List">
-                <div class="cv2-loading"><div class="cv2-spinner"></div>Loading customizations…</div>
+            <!-- Customization list -->
+            <div class="cv2-listcard">
+                <div class="cv2-listhead">
+                    <h2>Customization List</h2>
+                    <div class="cv2-search">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <input type="text" id="cv2Search" placeholder="Search order #, name, customer…" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="cv2-tabs" id="cv2Tabs">
+                    <?php $first = true; foreach ($tabs as $key => $tab): ?>
+                    <button class="cv2-tab <?php echo $first ? 'active' : ''; ?>" data-bucket="<?php echo htmlspecialchars($key); ?>">
+                        <?php echo htmlspecialchars($tab['label']); ?>
+                        <span class="cv2-c"><?php echo (int)$tab['count']; ?></span>
+                    </button>
+                    <?php $first = false; endforeach; ?>
+                </div>
+
+                <div class="cv2-table-wrap">
+                    <table class="cv2-table">
+                        <thead>
+                            <tr>
+                                <th>Order Code</th>
+                                <th>Customization Info</th>
+                                <th>Status</th>
+                                <th>Customer</th>
+                                <th>Created</th>
+                                <th style="text-align:right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cv2Body">
+                            <?php if (empty($rows)): ?>
+                                <tr><td colspan="6"><div class="cv2-empty">No customizations found.</div></td></tr>
+                            <?php else: foreach ($rows as $r):
+                                $bucket = $r['status_bucket'] ?? 'INQUIRY';
+                                $extra  = (int)($r['extra_items'] ?? 0);
+                                $hay = strtolower(trim(($r['order_code'] ?? '') . ' ' . ($r['title'] ?? '') . ' ' . ($r['customer_name'] ?? '') . ' ' . ($r['order_id'] ?? '')));
+                            ?>
+                            <tr class="cv2-row"
+                                data-bucket="<?php echo htmlspecialchars($bucket); ?>"
+                                data-search="<?php echo htmlspecialchars($hay); ?>"
+                                data-order-id="<?php echo (int)$r['order_id']; ?>">
+                                <td><span class="cv2-code"><?php echo htmlspecialchars($r['order_code']); ?></span></td>
+                                <td>
+                                    <div class="cv2-info-main">
+                                        <?php echo htmlspecialchars($r['title']); ?>
+                                        <span class="cv2-src <?php echo $r['is_pos'] ? 'cv2-src-pos' : 'cv2-src-online'; ?>"><?php echo $r['is_pos'] ? 'POS' : 'Online'; ?></span>
+                                    </div>
+                                    <div class="cv2-info-sub">
+                                        Qty: <?php echo (int)$r['quantity']; ?><?php echo $extra > 0 ? ' · +' . $extra . ' more item' . ($extra > 1 ? 's' : '') : ''; ?>
+                                        <?php if (!empty($r['branch_name'])): ?> · <?php echo htmlspecialchars($r['branch_name']); ?><?php endif; ?>
+                                    </div>
+                                </td>
+                                <td><span class="cv2-badge <?php echo cv2_status_class($bucket); ?>"><?php echo htmlspecialchars($r['status'] ?: '—'); ?></span></td>
+                                <td><?php echo htmlspecialchars($r['customer_name']); ?></td>
+                                <td><?php echo htmlspecialchars(cv2_fmt_date((string)$r['order_date'])); ?></td>
+                                <td style="text-align:right;"><button class="cv2-view-btn" onclick="CV2.openDrawer(<?php echo (int)$r['order_id']; ?>)">View</button></td>
+                            </tr>
+                            <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                    <div id="cv2NoMatch" class="cv2-empty" style="display:none;">No customizations match this filter.</div>
+                </div>
             </div>
         </main>
     </div>
@@ -204,8 +344,7 @@ $api_base = BASE_URL . '/staff/api/customizations_v2.php';
 const CV2 = (function () {
     const API = <?php echo json_encode($api_base); ?>;
     const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-    let allRows = [];
-    let currentSource = 'all';
+    let currentBucket = 'all';
     let currentDetail = null;
 
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -217,90 +356,18 @@ const CV2 = (function () {
         return d.toLocaleString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
     }
 
-    function initials(name) {
-        const parts = String(name || 'C').trim().split(/\s+/);
-        return (parts[0]?.[0] || 'C').toUpperCase();
-    }
-
-    async function loadList() {
-        const list = document.getElementById('cv2List');
-        list.innerHTML = '<div class="cv2-loading"><div class="cv2-spinner"></div>Loading customizations…</div>';
-        try {
-            const res = await fetch(`${API}?action=list&source=all&_=${Date.now()}`, { cache: 'no-store' });
-            const json = await res.json();
-            if (!json.success) throw new Error(json.message || 'Failed to load');
-            allRows = json.data || [];
-            updateCounts();
-            render();
-        } catch (e) {
-            list.innerHTML = `<div class="cv2-empty">Could not load customizations.<br><small>${esc(e.message)}</small></div>`;
-        }
-    }
-
-    function updateCounts() {
-        const counts = { all: allRows.length, online: 0, pos: 0 };
-        allRows.forEach(r => r.is_pos ? counts.pos++ : counts.online++);
-        document.querySelectorAll('.cv2-count').forEach(el => {
-            el.textContent = counts[el.getAttribute('data-count')] ?? 0;
-        });
-    }
-
-    function filtered() {
+    function applyFilter() {
         const q = document.getElementById('cv2Search').value.trim().toLowerCase();
-        return allRows.filter(r => {
-            if (currentSource === 'online' && r.is_pos) return false;
-            if (currentSource === 'pos' && !r.is_pos) return false;
-            if (q) {
-                const hay = `${r.title} ${r.service_name} ${r.customer_name} ${r.order_id} ${r.category}`.toLowerCase();
-                if (!hay.includes(q)) return false;
-            }
-            return true;
+        const rows = document.querySelectorAll('.cv2-row');
+        let visible = 0;
+        rows.forEach(row => {
+            const bucketOk = currentBucket === 'all' || row.getAttribute('data-bucket') === currentBucket;
+            const searchOk = !q || row.getAttribute('data-search').includes(q);
+            const show = bucketOk && searchOk;
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
         });
-    }
-
-    function render() {
-        const list = document.getElementById('cv2List');
-        const rows = filtered();
-        if (!rows.length) {
-            list.innerHTML = '<div class="cv2-empty">No customizations found.</div>';
-            return;
-        }
-        const grid = document.createElement('div');
-        grid.className = 'cv2-grid';
-        rows.forEach(r => grid.appendChild(card(r)));
-        list.innerHTML = '';
-        list.appendChild(grid);
-    }
-
-    function card(r) {
-        const el = document.createElement('div');
-        el.className = 'cv2-card';
-        el.onclick = () => openDrawer(r.order_id);
-        const thumb = r.thumb_url
-            ? `<img class="cv2-thumb" src="${esc(r.thumb_url)}" alt="" onerror="this.outerHTML='<div class=\\'cv2-thumb-fallback\\'>${esc(initials(r.title))}</div>'">`
-            : `<div class="cv2-thumb-fallback">${esc(initials(r.title))}</div>`;
-        const pill = r.is_pos
-            ? '<span class="cv2-pill cv2-pill-pos">POS</span>'
-            : '<span class="cv2-pill cv2-pill-online">Online</span>';
-        const extra = r.extra_items > 0 ? ` <span style="color:#94a3b8;">+${r.extra_items} more</span>` : '';
-        el.innerHTML = `
-            <div class="cv2-card-top">
-                ${thumb}
-                <div style="min-width:0; flex:1;">
-                    <h4 class="cv2-card-title">${esc(r.title)}${extra}</h4>
-                    <div class="cv2-card-meta">
-                        ${pill}
-                        <span>👤 ${esc(r.customer_name)}</span>
-                        <span>🔢 Qty: ${esc(r.quantity)}</span>
-                        ${r.branch_name ? `<span>📍 ${esc(r.branch_name)}</span>` : ''}
-                    </div>
-                </div>
-            </div>
-            <div class="cv2-card-foot">
-                <span class="cv2-order-id">Order #${esc(r.order_id)}</span>
-                <span class="cv2-status">${esc(r.status || '—')}</span>
-            </div>`;
-        return el;
+        document.getElementById('cv2NoMatch').style.display = visible === 0 ? 'block' : 'none';
     }
 
     async function openDrawer(orderId) {
@@ -310,7 +377,7 @@ const CV2 = (function () {
         const foot = document.getElementById('cv2DrawerFoot');
         document.getElementById('cv2DrawerTitle').textContent = `Order #${orderId}`;
         document.getElementById('cv2DrawerSub').textContent = 'Loading…';
-        body.innerHTML = '<div class="cv2-loading"><div class="cv2-spinner"></div>Loading details…</div>';
+        body.innerHTML = '<div class="cv2-spinner"></div>';
         foot.innerHTML = '';
         overlay.classList.add('open');
         drawer.classList.add('open');
@@ -328,13 +395,10 @@ const CV2 = (function () {
     }
 
     function renderDetail(d) {
-        document.getElementById('cv2DrawerSub').textContent =
-            `${d.source_label} · ${fmtDate(d.order_date)}`;
-
+        document.getElementById('cv2DrawerSub').textContent = `${d.source_label} · ${fmtDate(d.order_date)}`;
         const c = d.customer;
         let html = '<div class="cv2-banner" id="cv2Banner"></div>';
 
-        // Customer details
         html += `<div class="cv2-section">
             <h3><span class="cv2-dot"></span>Customer Details</h3>
             <div class="cv2-kv">
@@ -346,7 +410,6 @@ const CV2 = (function () {
             </div>
         </div>`;
 
-        // Order details
         const price = d.estimated_price > 0 ? d.estimated_price : d.total_amount;
         html += `<div class="cv2-section">
             <h3><span class="cv2-dot"></span>Order Details</h3>
@@ -363,18 +426,13 @@ const CV2 = (function () {
             ${d.revision_reason ? `<div class="cv2-notes" style="background:#eff6ff;border-color:#bfdbfe;border-left-color:#3b82f6;"><div class="cv2-nl" style="color:#1d4ed8;">Revision Requested</div><div class="cv2-nv" style="color:#1e40af;">${esc(d.revision_reason)}</div></div>` : ''}
         </div>`;
 
-        // Items
-        (d.items || []).forEach((it, idx) => {
-            html += renderItem(it, (d.items.length > 1) ? (idx + 1) : 0);
-        });
+        (d.items || []).forEach((it, idx) => { html += renderItem(it, (d.items.length > 1) ? (idx + 1) : 0); });
 
-        // Global order notes
         if (d.order_notes) {
             html += `<div class="cv2-section"><h3><span class="cv2-dot"></span>Order Notes</h3>
                 <div class="cv2-notes"><div class="cv2-nl">Customer Notes</div><div class="cv2-nv">${esc(d.order_notes)}</div></div></div>`;
         }
 
-        // Revision panel (hidden until requested)
         html += `<div class="cv2-revise-panel" id="cv2RevisePanel">
             <label>Reason for revision</label>
             <select id="cv2ReviseSelect" onchange="CV2.onReviseSelect()">
@@ -394,7 +452,7 @@ const CV2 = (function () {
 
     function renderItem(it, num) {
         const title = num ? `${num}. ${esc(it.name)}` : esc(it.name);
-        let specs = '';
+        let specs;
         if (it.specs && it.specs.length) {
             specs = '<div class="cv2-specs">' + it.specs.map(s =>
                 `<div class="cv2-spec"><div class="cv2-sl">${esc(s.label)}</div><div class="cv2-sv">${esc(s.value)}</div></div>`
@@ -403,22 +461,13 @@ const CV2 = (function () {
             specs = '<div class="cv2-nospec">No specifications submitted.</div>';
         }
 
-        let media = '';
         const blocks = [];
-        if (it.has_design && it.design_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Uploaded Design</div><img src="${esc(it.design_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        }
-        if (it.has_reference && it.reference_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(it.reference_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        }
-        if (it.product_image_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product / Service Image</div><img src="${esc(it.product_image_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        }
-        if (blocks.length) media = `<div class="cv2-media-row">${blocks.join('')}</div>`;
+        if (it.has_design && it.design_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Uploaded Design</div><img src="${esc(it.design_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        if (it.has_reference && it.reference_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(it.reference_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        if (it.product_image_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product / Service Image</div><img src="${esc(it.product_image_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        const media = blocks.length ? `<div class="cv2-media-row">${blocks.join('')}</div>` : '';
 
-        const notes = it.notes
-            ? `<div class="cv2-notes"><div class="cv2-nl">Special Instructions &amp; Notes</div><div class="cv2-nv">${esc(it.notes)}</div></div>`
-            : '';
+        const notes = it.notes ? `<div class="cv2-notes"><div class="cv2-nl">Special Instructions &amp; Notes</div><div class="cv2-nv">${esc(it.notes)}</div></div>` : '';
 
         return `<div class="cv2-item">
             <div class="cv2-item-head">
@@ -431,17 +480,12 @@ const CV2 = (function () {
                     <div style="font-size:16px; font-weight:800;">${esc(it.quantity)}</div>
                 </div>
             </div>
-            <div class="cv2-item-body">
-                ${specs}
-                ${media}
-                ${notes}
-            </div>
+            <div class="cv2-item-body">${specs}${media}${notes}</div>
         </div>`;
     }
 
     function renderFooter(d) {
-        const foot = document.getElementById('cv2DrawerFoot');
-        foot.innerHTML = `
+        document.getElementById('cv2DrawerFoot').innerHTML = `
             <button class="cv2-btn cv2-btn-revise" onclick="CV2.toggleRevise()">↩ Request Revision</button>
             <button class="cv2-btn cv2-btn-close" onclick="CV2.act('close')">✓ Close</button>
             <button class="cv2-btn cv2-btn-approve" onclick="CV2.act('approve')">✓ Approve</button>`;
@@ -449,15 +493,13 @@ const CV2 = (function () {
 
     function onReviseSelect() {
         const sel = document.getElementById('cv2ReviseSelect');
-        const txt = document.getElementById('cv2ReviseText');
-        txt.style.display = (sel.value === '__other') ? 'block' : 'none';
+        document.getElementById('cv2ReviseText').style.display = (sel.value === '__other') ? 'block' : 'none';
     }
 
     function toggleRevise() {
         const panel = document.getElementById('cv2RevisePanel');
         const open = panel.classList.toggle('open');
         if (open) {
-            // Second click on the button confirms submission.
             const btn = document.querySelector('.cv2-btn-revise');
             btn.textContent = '↩ Submit Revision Request';
             btn.onclick = () => CV2.submitRevise();
@@ -489,7 +531,7 @@ const CV2 = (function () {
             const json = await res.json();
             if (!json.success) throw new Error(json.message || 'Action failed');
             banner(json.message || 'Done.', 'ok');
-            setTimeout(() => { closeDrawer(); loadList(); }, 700);
+            setTimeout(() => location.reload(), 800);
         } catch (e) {
             banner(e.message, 'err');
             btns.forEach(b => b.disabled = false);
@@ -523,10 +565,10 @@ const CV2 = (function () {
             if (!tab) return;
             document.querySelectorAll('.cv2-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-            currentSource = tab.getAttribute('data-source');
-            render();
+            currentBucket = tab.getAttribute('data-bucket');
+            applyFilter();
         });
-        document.getElementById('cv2Search').addEventListener('input', render);
+        document.getElementById('cv2Search').addEventListener('input', applyFilter);
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 document.getElementById('cv2Lightbox').classList.remove('open');
@@ -534,10 +576,9 @@ const CV2 = (function () {
             }
         });
 
-        // Deep-link support: ?order_id=123 opens the drawer directly.
         const params = new URLSearchParams(location.search);
         const deepId = parseInt(params.get('order_id') || '0', 10);
-        loadList().then(() => { if (deepId > 0) openDrawer(deepId); });
+        if (deepId > 0) openDrawer(deepId);
     }
 
     document.addEventListener('DOMContentLoaded', bind);

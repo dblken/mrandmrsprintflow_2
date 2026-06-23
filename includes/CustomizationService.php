@@ -104,6 +104,46 @@ class CustomizationService
         return $this->repo;
     }
 
+    /**
+     * Map any raw order/customization status string into one of the staff
+     * workflow buckets used by the V2 list tabs & KPI cards.
+     *
+     * Buckets: INQUIRY | PAYMENT | PRODUCTION | TO_PICKUP | COMPLETED | CANCELLED
+     */
+    public static function statusBucket(string $status): string
+    {
+        $s = strtoupper(trim(preg_replace('/[\s\-\/]+/', '_', $status)));
+
+        $map = [
+            'CANCELLED' => 'CANCELLED', 'REJECTED' => 'CANCELLED',
+            'COMPLETED' => 'COMPLETED', 'DONE' => 'COMPLETED',
+            'READY_FOR_PICKUP' => 'TO_PICKUP', 'TO_RECEIVE' => 'TO_PICKUP',
+            'READY_TO_COLLECT' => 'TO_PICKUP', 'TO_PICKUP' => 'TO_PICKUP',
+            'PROCESSING' => 'PRODUCTION', 'IN_PRODUCTION' => 'PRODUCTION', 'PRINTING' => 'PRODUCTION',
+            'TO_PAY' => 'PAYMENT', 'PENDING_VERIFICATION' => 'PAYMENT',
+            'VERIFY_PAY' => 'PAYMENT', 'DOWNPAYMENT_SUBMITTED' => 'PAYMENT', 'PAYMENT' => 'PAYMENT',
+        ];
+
+        // Everything else (Pending, Pending Review, Approved, For Revision,
+        // Draft, Inquiry, …) is part of the Inquiry & Design stage.
+        return $map[$s] ?? 'INQUIRY';
+    }
+
+    /**
+     * Human label for a bucket key.
+     */
+    public static function bucketLabel(string $bucket): string
+    {
+        return [
+            'INQUIRY'    => 'Inquiry & Design',
+            'PAYMENT'    => 'Payment',
+            'PRODUCTION' => 'Production',
+            'TO_PICKUP'  => 'To Pickup',
+            'COMPLETED'  => 'Completed',
+            'CANCELLED'  => 'Cancelled',
+        ][$bucket] ?? $bucket;
+    }
+
     private function baseUrl(): string
     {
         if (defined('BASE_URL')) {
@@ -149,8 +189,17 @@ class CustomizationService
                 $customerName = 'Customer';
             }
 
+            $status = (string)($order['status'] ?? '');
+            $orderCode = function_exists('printflow_get_order_inventory_reference')
+                ? (string)(printflow_get_order_inventory_reference($orderId)['code'] ?? '')
+                : '';
+            if ($orderCode === '') {
+                $orderCode = 'ORD-' . $orderId;
+            }
+
             $out[] = [
                 'order_id'       => $orderId,
+                'order_code'     => $orderCode,
                 'title'          => $firstView['name'],
                 'service_name'   => $firstView['name'],
                 'category'       => $firstView['category'],
@@ -161,7 +210,8 @@ class CustomizationService
                 'customer_type'  => (string)($order['customer_type'] ?? ''),
                 'branch_name'    => (string)($order['branch_name'] ?? ''),
                 'order_date'     => (string)($order['order_date'] ?? ''),
-                'status'         => (string)($order['status'] ?? ''),
+                'status'         => $status,
+                'status_bucket'  => self::statusBucket($status),
                 'payment_status' => (string)($order['payment_status'] ?? ''),
                 'is_pos'         => $this->repo->rowIsPos($order),
                 'source_label'   => $this->repo->rowIsPos($order) ? 'POS / Walk-in' : 'Online',
