@@ -484,13 +484,19 @@ class CustomizationService
         $designOpenUrl = trim((string)($line['design_open_url'] ?? ($line['design_url'] ?? '')));
         $referenceOpenUrl = trim((string)($line['reference_open_url'] ?? ($line['reference_url'] ?? '')));
 
+        $referenceFile = trim((string)($item['reference_image_file'] ?? ''));
+        if ($referenceFile === '') {
+            $referenceFile = trim((string)($line['debug_reference_image_file'] ?? ''));
+        }
+
         return array_merge($item, [
             'order_item_id'           => (int)($line['order_item_id'] ?? $item['order_item_id'] ?? 0),
             'order_id'                => $orderId,
             'quantity'                => max(1, (int)($line['quantity'] ?? $item['quantity'] ?? 1)),
             'unit_price'              => (float)($line['unit_price'] ?? $item['unit_price'] ?? 0),
+            'product_name'            => trim((string)($line['product_name'] ?? ($item['product_name'] ?? ''))),
             'pf_from_job_payload'     => true,
-            'pf_product_name'         => $productName,
+            'pf_product_name'         => $productName !== '' ? $productName : trim((string)($line['product_name'] ?? '')),
             'pf_payload_service_type' => trim((string)($payload['service_type'] ?? '')),
             'pf_category'             => trim((string)($line['category'] ?? '')),
             'pf_customization'        => $custom,
@@ -498,7 +504,15 @@ class CustomizationService
             'pf_reference_open_url'   => $referenceOpenUrl !== '' ? $referenceOpenUrl : null,
             'pf_design_name'          => trim((string)($line['design_name'] ?? ($line['design_image_name'] ?? ''))),
             'design_file'             => trim((string)($line['design_file'] ?? ($item['design_file'] ?? ''))),
-            'design_image_bytes'      => (int)($line['pf_design_image_bytes'] ?? ($item['design_image_bytes'] ?? 0)),
+            'design_image_name'       => trim((string)($item['design_image_name'] ?? ''))
+                ?: trim((string)($line['design_image_name'] ?? ($line['design_name'] ?? ''))),
+            'design_image_mime'       => trim((string)($item['design_image_mime'] ?? ''))
+                ?: trim((string)($line['design_image_mime'] ?? '')),
+            'reference_image_file'    => $referenceFile,
+            'design_image_bytes'      => max(
+                (int)($item['design_image_bytes'] ?? 0),
+                (int)($line['pf_design_image_bytes'] ?? 0)
+            ),
         ]);
     }
 
@@ -524,6 +538,7 @@ class CustomizationService
         foreach ($items as $item) {
             $itemViews[] = $this->buildItemView($item, $order);
         }
+        $this->consolidateItemNotes($order, $itemViews);
 
         $address = $this->composeAddress($order);
         $customerName = trim((string)($order['first_name'] ?? '') . ' ' . (string)($order['last_name'] ?? ''));
@@ -548,7 +563,7 @@ class CustomizationService
             'order_date'     => (string)($order['order_date'] ?? ''),
             'total_amount'   => (float)($order['total_amount'] ?? 0),
             'estimated_price' => isset($order['estimated_price']) ? (float)$order['estimated_price'] : 0.0,
-            'order_notes'    => trim((string)($order['notes'] ?? '')),
+            'order_notes'    => '',
             'revision_reason' => trim((string)($order['revision_reason'] ?? $order['rejection_reason'] ?? '')),
             'is_pos'         => $this->repo->rowIsPos($order),
             'source_label'   => $this->repo->rowIsPos($order) ? 'POS / Walk-in' : 'Online',
@@ -586,9 +601,46 @@ class CustomizationService
             }
         }
 
+        // Primary path: JobOrderService store payload (same engine as customer modal + old staff page).
+        $payloadLine = $this->resolveStorePayloadLine($orderId, $item);
+        if ($payloadLine !== null) {
+            $mergedItem = $this->mergeItemWithPayloadLine($item, $payloadLine, $orderId);
+            $payloadCustom = is_array($mergedItem['pf_customization'] ?? null) ? $mergedItem['pf_customization'] : [];
+            if ($payloadCustom !== []) {
+                return $this->buildItemViewFromStorePayload($mergedItem, $order);
+            }
+        }
+
         $custom = $this->resolveCanonicalCustomization($item, $order);
 
         return $this->assembleItemViewFromCustom($item, $order, $custom);
+    }
+
+    /**
+     * One notes block per order: promote order-level notes to the first item
+     * when line items have none; never duplicate order + item notes in the UI.
+     *
+     * @param array<string,mixed> $order
+     * @param array<int,array<string,mixed>> $itemViews
+     */
+    private function consolidateItemNotes(array $order, array &$itemViews): void
+    {
+        if ($itemViews === []) {
+            return;
+        }
+
+        $orderNotes = trim((string)($order['notes'] ?? ''));
+        $hasItemNotes = false;
+        foreach ($itemViews as $view) {
+            if (trim((string)($view['notes'] ?? '')) !== '') {
+                $hasItemNotes = true;
+                break;
+            }
+        }
+
+        if (!$hasItemNotes && $orderNotes !== '') {
+            $itemViews[0]['notes'] = $orderNotes;
+        }
     }
 
     /**
@@ -657,6 +709,26 @@ class CustomizationService
         }
 
         $custom = pf_order_ui_normalize_review_customization($custom, $item, false);
+
+        $serviceId = (int)($custom['service_id'] ?? 0);
+        if ($serviceId <= 0 && function_exists('printflow_resolve_service_catalog_service_id_for_order_line')) {
+            $serviceId = printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item);
+            if ($serviceId > 0) {
+                $custom['service_id'] = $serviceId;
+            }
+        }
+        if ($serviceId <= 0) {
+            $serviceId = (int)($order['reference_id'] ?? 0);
+        }
+        if ($serviceId > 0 && function_exists('printflow_apply_service_field_config_display_labels')) {
+            $custom = printflow_apply_service_field_config_display_labels($custom, $serviceId, [
+                'branch_name'    => (string)($order['branch_name'] ?? ''),
+                'quantity'       => max(1, (int)($item['quantity'] ?? 1)),
+                'design_name'    => trim((string)($item['design_image_name'] ?? '')),
+                'reference_name' => basename((string)($item['reference_image_file'] ?? '')),
+                'dimension_unit' => trim((string)($custom['unit'] ?? '')),
+            ]);
+        }
 
         // Flatten to the same human-readable labels the customer modal uses.
         $qty = max(1, (int)($item['quantity'] ?? 1));
@@ -779,9 +851,9 @@ class CustomizationService
     {
         $skip = [
             'design_upload', 'reference_upload', 'notes', 'additional_notes',
-            'other_instructions', 'design_notes', 'Branch_ID', 'service_type',
-            'product_type', 'unit', 'install_province', 'install_city',
-            'install_barangay', 'install_street',
+            'other_instructions', 'design_notes', 'job_notes', 'Job Notes',
+            'Branch_ID', 'service_type', 'product_type', 'unit',
+            'install_province', 'install_city', 'install_barangay', 'install_street',
         ];
         $specs = [];
 
@@ -794,6 +866,10 @@ class CustomizationService
             }
             $ck = (string)$ck;
             if (in_array($ck, $skip, true) || stripos($ck, 'description') !== false) {
+                continue;
+            }
+            $ckNorm = strtolower(preg_replace('/[^a-z0-9]/', '', $ck));
+            if (in_array($ckNorm, ['jobnotes', 'specialinstructions', 'otherinstructions', 'additionalnotes'], true)) {
                 continue;
             }
 
@@ -833,7 +909,10 @@ class CustomizationService
         $base = $this->baseUrl();
 
         $payloadLine = $this->resolveStorePayloadLine($orderId, $item);
-        $designUrl = trim((string)($payloadLine['design_open_url'] ?? ($payloadLine['design_url'] ?? '')));
+        $designUrl = trim((string)($item['pf_design_open_url'] ?? ''));
+        if ($designUrl === '' && $payloadLine !== null) {
+            $designUrl = trim((string)($payloadLine['design_open_url'] ?? ($payloadLine['design_url'] ?? '')));
+        }
 
         $hasStoredDesign = (int)($item['design_image_bytes'] ?? 0) > 0
             || trim((string)($item['design_file'] ?? '')) !== '';
@@ -846,6 +925,12 @@ class CustomizationService
             $designUrl = (string)($this->resolveDesignUrlFromCustom($custom, $orderId) ?? '');
             if ($designUrl === '' && $orderItemId > 0) {
                 $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
+            }
+        }
+        if ($designUrl === '' && $orderId > 0) {
+            $fallbackId = $this->findFallbackDesignOrderItemId($orderId);
+            if ($fallbackId > 0) {
+                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $fallbackId;
             }
         }
         if ($designUrl === '' && $orderId > 0) {
@@ -863,8 +948,13 @@ class CustomizationService
         $hasReference = trim((string)($item['reference_image_file'] ?? '')) !== ''
             || $this->payloadHasMedia($custom, 'reference');
         $referenceUrl = null;
-        if ($hasReference && $orderItemId > 0) {
-            $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
+        if ($hasReference) {
+            $refItemId = $orderItemId > 0 ? $orderItemId : $this->findFallbackReferenceOrderItemId($orderId);
+            if ($refItemId > 0) {
+                $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $refItemId . '&field=reference';
+            } elseif (trim((string)($item['pf_reference_open_url'] ?? '')) !== '') {
+                $referenceUrl = trim((string)$item['pf_reference_open_url']);
+            }
         }
 
         // Never show catalog/sample images in staff V2 — staff need the upload.
@@ -1061,7 +1151,50 @@ class CustomizationService
             }
         }
 
-        return trim((string)($order['notes'] ?? ''));
+        return '';
+    }
+
+    /**
+     * First order_items row on this order that has a stored design file/BLOB.
+     */
+    private function findFallbackDesignOrderItemId(int $orderId): int
+    {
+        if ($orderId <= 0 || !$this->repo->hasColumn('order_items', 'design_image')) {
+            return 0;
+        }
+
+        $rows = db_query(
+            "SELECT order_item_id FROM order_items
+             WHERE order_id = ?
+               AND (design_image IS NOT NULL OR (design_file IS NOT NULL AND TRIM(COALESCE(design_file, '')) != ''))
+             ORDER BY order_item_id ASC LIMIT 1",
+            'i',
+            [$orderId]
+        ) ?: [];
+
+        return !empty($rows[0]) ? (int)($rows[0]['order_item_id'] ?? 0) : 0;
+    }
+
+    /**
+     * First order_items row on this order that has a reference attachment.
+     */
+    private function findFallbackReferenceOrderItemId(int $orderId): int
+    {
+        if ($orderId <= 0 || !$this->repo->hasColumn('order_items', 'reference_image_file')) {
+            return 0;
+        }
+
+        $rows = db_query(
+            "SELECT order_item_id FROM order_items
+             WHERE order_id = ?
+               AND reference_image_file IS NOT NULL
+               AND TRIM(COALESCE(reference_image_file, '')) != ''
+             ORDER BY order_item_id ASC LIMIT 1",
+            'i',
+            [$orderId]
+        ) ?: [];
+
+        return !empty($rows[0]) ? (int)($rows[0]['order_item_id'] ?? 0) : 0;
     }
 
     /**
@@ -1102,6 +1235,13 @@ class CustomizationService
         if ($designUrl === '' && $hasStoredDesign && $orderItemId > 0) {
             $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
         }
+        if ($designUrl === '' && $orderId > 0) {
+            $fallbackId = $this->findFallbackDesignOrderItemId($orderId);
+            if ($fallbackId > 0) {
+                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $fallbackId;
+                $hasDesign = true;
+            }
+        }
         if ($designUrl === '' && $hasUploadInSpecs) {
             $designUrl = (string)($this->resolveDesignUrlFromCustom($custom, $orderId) ?? '');
             if ($designUrl === '' && $orderItemId > 0) {
@@ -1120,20 +1260,20 @@ class CustomizationService
         }
 
         $referenceUrl = trim((string)($item['pf_reference_open_url'] ?? ''));
-        $hasReference = $referenceUrl !== '' || $this->payloadHasMedia($custom, 'reference');
-        if ($referenceUrl === '' && $hasReference && $orderItemId > 0) {
-            $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
-        }
-
-        $productImageUrl = null;
-        if (!$hasDesign && function_exists('get_service_image_url')) {
-            $productImageUrl = get_service_image_url($name) ?: null;
+        $hasReference = $referenceUrl !== ''
+            || trim((string)($item['reference_image_file'] ?? '')) !== ''
+            || $this->payloadHasMedia($custom, 'reference');
+        if ($referenceUrl === '' && $hasReference) {
+            $refItemId = $orderItemId > 0 ? $orderItemId : $this->findFallbackReferenceOrderItemId($orderId);
+            if ($refItemId > 0) {
+                $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $refItemId . '&field=reference';
+            }
         }
 
         return [
             'design_url'        => ($hasDesign && $designUrl !== '') ? $designUrl : null,
             'reference_url'     => ($hasReference && $referenceUrl !== '') ? $referenceUrl : null,
-            'product_image_url' => $productImageUrl,
+            'product_image_url' => null,
             'has_design'        => $hasDesign && $designUrl !== '',
             'has_reference'     => $hasReference && $referenceUrl !== '',
         ];

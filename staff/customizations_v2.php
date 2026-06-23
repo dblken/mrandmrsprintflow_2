@@ -428,11 +428,6 @@ const CV2 = (function () {
 
         (d.items || []).forEach((it, idx) => { html += renderItem(it, (d.items.length > 1) ? (idx + 1) : 0); });
 
-        if (d.order_notes) {
-            html += `<div class="cv2-section"><h3><span class="cv2-dot"></span>Order Notes</h3>
-                <div class="cv2-notes"><div class="cv2-nl">Customer Notes</div><div class="cv2-nv">${esc(d.order_notes)}</div></div></div>`;
-        }
-
         html += `<div class="cv2-revise-panel" id="cv2RevisePanel">
             <label>Reason for revision</label>
             <select id="cv2ReviseSelect" onchange="CV2.onReviseSelect()">
@@ -471,7 +466,7 @@ const CV2 = (function () {
         if (it.product_image_url && !it.design_url && !it.has_design) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product Image</div><img src="${esc(it.product_image_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
         const media = blocks.length ? `<div class="cv2-media-row">${blocks.join('')}</div>` : '';
 
-        const notes = it.notes ? `<div class="cv2-notes"><div class="cv2-nl">Special Instructions &amp; Notes</div><div class="cv2-nv">${esc(it.notes)}</div></div>` : '';
+        const notes = it.notes ? `<div class="cv2-notes"><div class="cv2-nl">Notes</div><div class="cv2-nv">${esc(it.notes)}</div></div>` : '';
 
         return `<div class="cv2-item">
             <div class="cv2-item-head">
