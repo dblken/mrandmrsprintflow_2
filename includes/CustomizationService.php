@@ -175,13 +175,7 @@ class CustomizationService
                 continue;
             }
 
-            $items = $this->repo->getOrderItems($orderId);
-
-            // Legacy/online service orders may persist only a customizations
-            // row (no order_items). Synthesize a pseudo-item so they still show.
-            if (empty($items)) {
-                $items = $this->pseudoItemsFromCustomizations($orderId);
-            }
+            $items = $this->resolveRawItems($orderId);
             if (empty($items)) {
                 continue;
             }
@@ -223,6 +217,92 @@ class CustomizationService
                 'source_label'   => $this->repo->rowIsPos($order) ? 'POS / Walk-in' : 'Online',
                 'thumb_url'      => $firstView['design_url'] ?: $firstView['product_image_url'],
                 'quantity'       => $firstView['quantity'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Resolve "raw" item rows for an order through a robust fallback chain so a
+     * customization is NEVER lost regardless of how it was persisted:
+     *   1. real order_items rows (the normal path)
+     *   2. customizations table rows (online/POS service inquiries)
+     *   3. job_orders payload (orders that only created an order + job_order,
+     *      with no order_items/customizations at all)
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function resolveRawItems(int $orderId): array
+    {
+        $items = $this->repo->getOrderItems($orderId);
+        if (!empty($items)) {
+            return $items;
+        }
+
+        $items = $this->pseudoItemsFromCustomizations($orderId);
+        if (!empty($items)) {
+            return $items;
+        }
+
+        return $this->pseudoItemsFromJobPayload($orderId);
+    }
+
+    /**
+     * Build pseudo order_item rows from the existing, battle-tested store-order
+     * payload builder (the SAME engine the old staff page and the customer
+     * modal use). This guarantees V2 shows exactly what the old page shows for
+     * orders that only have a job_orders row (no order_items/customizations).
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function pseudoItemsFromJobPayload(int $orderId): array
+    {
+        if (!class_exists('JobOrderService')) {
+            $path = __DIR__ . '/JobOrderService.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemsPayload')) {
+            return [];
+        }
+
+        try {
+            // detailMode=true synthesizes line(s) from order + job_orders even
+            // when order_items is empty (mirrors the old customizations page).
+            $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+        } catch (\Throwable $e) {
+            error_log('CustomizationService::pseudoItemsFromJobPayload failed: ' . $e->getMessage());
+            return [];
+        }
+
+        $payloadItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        $out = [];
+        foreach ($payloadItems as $it) {
+            $custom = is_array($it['customization'] ?? null) ? $it['customization'] : [];
+            if ($custom === [] && is_array($it['specifications'] ?? null)) {
+                $custom = $it['specifications'];
+            }
+
+            // Make sure a usable service/product name is carried for the parser.
+            $name = trim((string)($it['product_name'] ?? ''));
+            if ($name !== '' && trim((string)($custom['service_type'] ?? '')) === '' && trim((string)($custom['product_type'] ?? '')) === '') {
+                $custom['service_type'] = $name;
+            }
+
+            $out[] = [
+                'order_item_id'      => (int)($it['order_item_id'] ?? 0),
+                'order_id'           => $orderId,
+                'product_id'         => (int)($it['product_id'] ?? 0),
+                'quantity'           => max(1, (int)($it['quantity'] ?? 1)),
+                'unit_price'         => (float)($it['unit_price'] ?? 0),
+                'customization_data' => json_encode($custom),
+                'design_image_bytes' => 0,
+                // Pre-resolved asset URLs from the proven payload builder so the
+                // V2 image resolver can use them even when order_item_id is 0.
+                'pf_design_url'      => $it['design_url'] ?? ($it['design_open_url'] ?? null),
+                'pf_reference_url'   => $it['reference_url'] ?? ($it['reference_open_url'] ?? null),
             ];
         }
 
@@ -281,18 +361,10 @@ class CustomizationService
             return null;
         }
 
-        $items = $this->repo->getOrderItems($orderId);
+        $items = $this->resolveRawItems($orderId);
         $itemViews = [];
         foreach ($items as $item) {
             $itemViews[] = $this->buildItemView($item, $order);
-        }
-
-        // Fallback: if there are genuinely no order_items (legacy), surface
-        // whatever the customizations table holds so nothing is lost.
-        if (empty($itemViews)) {
-            foreach ($this->pseudoItemsFromCustomizations($orderId) as $pseudoItem) {
-                $itemViews[] = $this->buildItemView($pseudoItem, $order);
-            }
         }
 
         $address = $this->composeAddress($order);
@@ -573,13 +645,28 @@ class CustomizationService
             }
         }
 
-        $designUrl = ($hasDesign && $orderItemId > 0)
-            ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId
-            : null;
+        // Pre-resolved URLs from the job-order payload fallback take priority —
+        // they already point at the correct asset even when order_item_id is 0.
+        $preDesignUrl = trim((string)($item['pf_design_url'] ?? ''));
+        $preReferenceUrl = trim((string)($item['pf_reference_url'] ?? ''));
 
-        $referenceUrl = ($hasReference && $orderItemId > 0)
-            ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference'
-            : null;
+        $designUrl = $preDesignUrl !== ''
+            ? $preDesignUrl
+            : (($hasDesign && $orderItemId > 0)
+                ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId
+                : null);
+        if ($preDesignUrl !== '') {
+            $hasDesign = true;
+        }
+
+        $referenceUrl = $preReferenceUrl !== ''
+            ? $preReferenceUrl
+            : (($hasReference && $orderItemId > 0)
+                ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference'
+                : null);
+        if ($preReferenceUrl !== '') {
+            $hasReference = true;
+        }
 
         // ---- Product / service catalog image. ------------------------------
         $productImageUrl = null;

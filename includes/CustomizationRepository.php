@@ -111,6 +111,9 @@ class CustomizationRepository
         //   - order_type = 'custom'
         //   - an order_item carries non-empty customization_data
         //   - a customizations table row exists for the order
+        //   - a job_orders row exists (some online service flows persist only
+        //     an order + job_order, with NO order_items/customizations rows)
+        $hasJobOrders = $this->hasTable('job_orders');
         $customConditions = [];
         if ($hasOrderType) {
             $customConditions[] = "o.order_type = 'custom'";
@@ -121,16 +124,23 @@ class CustomizationRepository
         if ($this->hasTable('customizations')) {
             $customConditions[] = "EXISTS (SELECT 1 FROM customizations cz WHERE cz.order_id = o.order_id)";
         }
+        if ($hasJobOrders) {
+            $customConditions[] = "EXISTS (SELECT 1 FROM job_orders jo WHERE jo.order_id = o.order_id)";
+        }
         if (!empty($customConditions)) {
             $where[] = '(' . implode(' OR ', $customConditions) . ')';
         }
 
         // Only include orders that are actually resolvable to customization
         // detail — i.e. they have at least one order_item OR a customizations
-        // row (some legacy/online service flows persist only the latter).
+        // row OR a job_orders row (some legacy/online service flows persist
+        // only the latter, with no order_items at all).
         $resolvable = ['EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)'];
         if ($this->hasTable('customizations')) {
             $resolvable[] = 'EXISTS (SELECT 1 FROM customizations cz WHERE cz.order_id = o.order_id)';
+        }
+        if ($hasJobOrders) {
+            $resolvable[] = 'EXISTS (SELECT 1 FROM job_orders jo WHERE jo.order_id = o.order_id)';
         }
         $where[] = '(' . implode(' OR ', $resolvable) . ')';
 
