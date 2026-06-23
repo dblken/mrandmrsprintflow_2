@@ -43,6 +43,21 @@ class CustomizationRepository
     }
 
     /**
+     * Schema-safe table existence check (cached).
+     */
+    public function hasTable(string $table): bool
+    {
+        $key = '__table__.' . $table;
+        if (array_key_exists($key, self::$columnCache)) {
+            return self::$columnCache[$key];
+        }
+
+        $t = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
+        $rows = db_query("SHOW TABLES LIKE '{$t}'");
+        return self::$columnCache[$key] = !empty($rows);
+    }
+
+    /**
      * List "customization" orders (online services + POS service/custom orders).
      *
      * We intentionally drive this off the orders table filtered to custom
@@ -83,16 +98,41 @@ class CustomizationRepository
         $types = '';
         $params = [];
 
-        if ($hasOrderType) {
-            $where[] = "o.order_type = 'custom'";
-        }
         // Never surface hidden POS draft orders (work-in-progress carts).
         if ($hasOrderSource) {
             $where[] = "LOWER(TRIM(COALESCE(o.order_source, ''))) <> 'pos_draft'";
         }
         $where[] = "LOWER(TRIM(COALESCE(o.status, ''))) <> 'draft'";
-        // Only include orders that actually have at least one order item.
-        $where[] = "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)";
+
+        // A "customization" order is any order that the customer actually
+        // customised. We DON'T rely solely on order_type='custom' because some
+        // online flows persist customization_data while leaving order_type as
+        // 'product'. Inclusion rule (any of):
+        //   - order_type = 'custom'
+        //   - an order_item carries non-empty customization_data
+        //   - a customizations table row exists for the order
+        $customConditions = [];
+        if ($hasOrderType) {
+            $customConditions[] = "o.order_type = 'custom'";
+        }
+        if ($this->hasColumn('order_items', 'customization_data')) {
+            $customConditions[] = "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id AND TRIM(COALESCE(oi.customization_data, '')) NOT IN ('', '[]', '{}', 'null'))";
+        }
+        if ($this->hasTable('customizations')) {
+            $customConditions[] = "EXISTS (SELECT 1 FROM customizations cz WHERE cz.order_id = o.order_id)";
+        }
+        if (!empty($customConditions)) {
+            $where[] = '(' . implode(' OR ', $customConditions) . ')';
+        }
+
+        // Only include orders that are actually resolvable to customization
+        // detail — i.e. they have at least one order_item OR a customizations
+        // row (some legacy/online service flows persist only the latter).
+        $resolvable = ['EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)'];
+        if ($this->hasTable('customizations')) {
+            $resolvable[] = 'EXISTS (SELECT 1 FROM customizations cz WHERE cz.order_id = o.order_id)';
+        }
+        $where[] = '(' . implode(' OR ', $resolvable) . ')';
 
         if ($branchId !== null) {
             $where[] = 'o.branch_id = ?';

@@ -176,6 +176,12 @@ class CustomizationService
             }
 
             $items = $this->repo->getOrderItems($orderId);
+
+            // Legacy/online service orders may persist only a customizations
+            // row (no order_items). Synthesize a pseudo-item so they still show.
+            if (empty($items)) {
+                $items = $this->pseudoItemsFromCustomizations($orderId);
+            }
             if (empty($items)) {
                 continue;
             }
@@ -223,6 +229,41 @@ class CustomizationService
         return $out;
     }
 
+    /**
+     * Build pseudo order_item rows from the customizations table for orders
+     * that have no real order_items (legacy / online service inquiries).
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function pseudoItemsFromCustomizations(int $orderId): array
+    {
+        $pseudo = [];
+        foreach ($this->repo->getCustomizations($orderId) as $cust) {
+            $payload = (string)($cust['customization_details'] ?? '');
+            if (!empty($cust['service_type'])) {
+                $decoded = customer_orders_decode_customization_payload($payload);
+                if (empty($decoded['service_type'])) {
+                    $payload = json_encode(array_merge(
+                        is_array($decoded) ? $decoded : [],
+                        ['service_type' => $cust['service_type']]
+                    ));
+                }
+            }
+
+            $pseudo[] = [
+                'order_item_id'      => (int)($cust['order_item_id'] ?? 0),
+                'order_id'           => $orderId,
+                'product_id'         => 0,
+                'quantity'           => 1,
+                'unit_price'         => 0,
+                'customization_data' => $payload,
+                'design_image_bytes' => 0,
+            ];
+        }
+
+        return $pseudo;
+    }
+
     // ----------------------------------------------------------------------
     // DETAIL
     // ----------------------------------------------------------------------
@@ -249,25 +290,7 @@ class CustomizationService
         // Fallback: if there are genuinely no order_items (legacy), surface
         // whatever the customizations table holds so nothing is lost.
         if (empty($itemViews)) {
-            foreach ($this->repo->getCustomizations($orderId) as $cust) {
-                $pseudoItem = [
-                    'order_item_id'     => (int)($cust['order_item_id'] ?? 0),
-                    'order_id'          => $orderId,
-                    'product_id'        => 0,
-                    'quantity'          => 1,
-                    'unit_price'        => 0,
-                    'customization_data' => (string)($cust['customization_details'] ?? ''),
-                    'design_image_bytes' => 0,
-                ];
-                if (!empty($cust['service_type'])) {
-                    $decoded = customer_orders_decode_customization_payload((string)($cust['customization_details'] ?? ''));
-                    if (empty($decoded['service_type'])) {
-                        $pseudoItem['customization_data'] = json_encode(array_merge(
-                            is_array($decoded) ? $decoded : [],
-                            ['service_type' => $cust['service_type']]
-                        ));
-                    }
-                }
+            foreach ($this->pseudoItemsFromCustomizations($orderId) as $pseudoItem) {
                 $itemViews[] = $this->buildItemView($pseudoItem, $order);
             }
         }
