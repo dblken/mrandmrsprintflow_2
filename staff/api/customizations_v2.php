@@ -119,6 +119,94 @@ try {
             break;
         }
 
+        case 'diagnose': {
+            // Diagnostic endpoint: explains exactly why a given order does or
+            // does not appear in the V2 list. Safe (read-only) and staff-gated.
+            $orderId = (int)($_GET['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                cv2_json(['success' => false, 'message' => 'order_id is required.'], 400);
+            }
+
+            $repo = $service->repository();
+
+            $orderRow = db_query(
+                'SELECT order_id, customer_id, branch_id, order_type, order_source, status, payment_status, order_date, total_amount
+                 FROM orders WHERE order_id = ? LIMIT 1',
+                'i',
+                [$orderId]
+            );
+            $orderRow = $orderRow[0] ?? null;
+
+            $itemRows = db_query(
+                'SELECT order_item_id, product_id, quantity, customization_data
+                 FROM order_items WHERE order_id = ?',
+                'i',
+                [$orderId]
+            ) ?: [];
+            $itemsInfo = array_map(static function ($r) {
+                $cd = (string)($r['customization_data'] ?? '');
+                return [
+                    'order_item_id'       => (int)($r['order_item_id'] ?? 0),
+                    'product_id'          => (int)($r['product_id'] ?? 0),
+                    'quantity'            => (int)($r['quantity'] ?? 0),
+                    'customization_len'   => strlen($cd),
+                    'customization_blank' => in_array(trim($cd), ['', '[]', '{}', 'null'], true),
+                    'customization_head'  => mb_substr($cd, 0, 160),
+                ];
+            }, $itemRows);
+
+            $custRows = $repo->hasTable('customizations')
+                ? (db_query('SELECT customization_id, order_item_id, status FROM customizations WHERE order_id = ?', 'i', [$orderId]) ?: [])
+                : [];
+
+            $jobRows = db_query('SELECT id, status, order_item_id FROM job_orders WHERE order_id = ?', 'i', [$orderId]) ?: [];
+
+            // Does the broad list include it? (run unfiltered + branch-filtered)
+            $listAll       = $repo->listOrders(null, null, 1000);
+            $listBranch    = $repo->listOrders($branchFilter, null, 1000);
+            $inListAll     = false;
+            $inListBranch  = false;
+            foreach ($listAll as $o) {
+                if ((int)($o['order_id'] ?? 0) === $orderId) { $inListAll = true; break; }
+            }
+            foreach ($listBranch as $o) {
+                if ((int)($o['order_id'] ?? 0) === $orderId) { $inListBranch = true; break; }
+            }
+
+            // Does the summary builder include it?
+            $summaries = $service->listOrderSummaries($branchFilter, null, 1000);
+            $inSummaries = false;
+            foreach ($summaries as $s) {
+                if ((int)($s['order_id'] ?? 0) === $orderId) { $inSummaries = true; break; }
+            }
+
+            cv2_json([
+                'success' => true,
+                'data' => [
+                    'order_id'              => $orderId,
+                    'resolved_branch_filter' => $branchFilter,
+                    'order_row'             => $orderRow,
+                    'schema' => [
+                        'orders.order_type'            => $repo->hasColumn('orders', 'order_type'),
+                        'orders.order_source'          => $repo->hasColumn('orders', 'order_source'),
+                        'order_items.customization_data' => $repo->hasColumn('order_items', 'customization_data'),
+                        'customizations_table'         => $repo->hasTable('customizations'),
+                    ],
+                    'order_items_count'     => count($itemRows),
+                    'order_items'           => $itemsInfo,
+                    'customizations_count'  => count($custRows),
+                    'customizations'        => $custRows,
+                    'job_orders_count'      => count($jobRows),
+                    'job_orders'            => $jobRows,
+                    'in_listOrders_all'     => $inListAll,
+                    'in_listOrders_branch'  => $inListBranch,
+                    'in_listOrderSummaries' => $inSummaries,
+                    'total_listOrders_branch' => count($listBranch),
+                ],
+            ]);
+            break;
+        }
+
         default:
             cv2_json(['success' => false, 'message' => 'Unknown action.'], 400);
     }
