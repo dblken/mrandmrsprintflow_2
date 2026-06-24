@@ -357,6 +357,7 @@ function cv2_fmt_date(string $raw): string
 const CV2 = (function () {
     const API = <?php echo json_encode($api_base); ?>;
     const STAFF_BASE = <?php echo json_encode(BASE_PATH . '/staff/'); ?>;
+    const APP_BASE = <?php echo json_encode(rtrim(BASE_PATH, '/') . '/'); ?>;
     const ADMIN_API = <?php echo json_encode(BASE_PATH . '/admin/'); ?>;
     const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     let currentBucket = 'all';
@@ -489,6 +490,35 @@ const CV2 = (function () {
         </div>`;
     }
 
+    function looksLikeCatalogImage(url) {
+        const u = String(url || '').trim();
+        if (!u) return true;
+        if (/^data:/i.test(u)) return false;
+        if (/serve_design\.php/i.test(u)) return false;
+        return /\/assets\/images\/services\//i.test(u)
+            || /\/public\/images\/products\/product_\d+/i.test(u)
+            || /\/uploads\/products\//i.test(u)
+            || /default\.png(\?|$)/i.test(u);
+    }
+
+    function effectiveDesignUrl(it) {
+        let url = String(it.design_url || '').trim();
+        const itemId = parseInt(it.order_item_id || 0, 10);
+        if ((!url || looksLikeCatalogImage(url)) && itemId > 0) {
+            url = `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}`;
+        }
+        return url;
+    }
+
+    function effectiveReferenceUrl(it) {
+        let url = String(it.reference_url || '').trim();
+        const itemId = parseInt(it.order_item_id || 0, 10);
+        if ((!url || looksLikeCatalogImage(url)) && itemId > 0 && it.has_reference) {
+            url = `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}&field=reference`;
+        }
+        return url;
+    }
+
     function filterDisplaySpecs(specs, notes, it) {
         const notesNorm = String(notes || '').trim().toLowerCase();
         const skipLabel = /^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|upload\s*design|reference\s*(attachment|image|upload))$/i;
@@ -519,14 +549,13 @@ const CV2 = (function () {
         }
 
         const blocks = [];
-        if (it.design_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(it.design_url)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        const designSrc = effectiveDesignUrl(it);
+        if (designSrc && !looksLikeCatalogImage(designSrc)) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
         }
-        if (it.reference_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(it.reference_url)}" alt="Reference image" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        }
-        if (it.product_image_url && !it.design_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product Image</div><img src="${esc(it.product_image_url)}" alt="Product image" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        const refSrc = effectiveReferenceUrl(it);
+        if (refSrc && !looksLikeCatalogImage(refSrc)) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(refSrc)}" alt="Reference image" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
         }
         const media = blocks.length ? `<div class="cv2-media-row">${blocks.join('')}</div>` : '';
 

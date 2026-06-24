@@ -930,76 +930,24 @@ class CustomizationService
     private function resolveStaffDesignImages(array $item, array $order, array $custom, bool $isService): array
     {
         $orderId = (int)($order['order_id'] ?? $item['order_id'] ?? 0);
-        $orderItemId = (int)($item['order_item_id'] ?? 0);
-        $base = $this->baseUrl();
-
         $payloadLine = $this->resolveStorePayloadLine($orderId, $item);
-        $designUrl = trim((string)($item['pf_design_open_url'] ?? ''));
-        if ($designUrl === '' && $payloadLine !== null) {
-            $designUrl = trim((string)($payloadLine['design_open_url'] ?? ($payloadLine['design_url'] ?? '')));
+        $candidate = trim((string)($item['pf_design_open_url'] ?? ''));
+        if ($candidate === '' && $payloadLine !== null) {
+            $candidate = trim((string)($payloadLine['design_open_url'] ?? ($payloadLine['design_url'] ?? '')));
         }
 
-        $hasStoredDesign = (int)($item['design_image_bytes'] ?? 0) > 0
-            || trim((string)($item['design_file'] ?? '')) !== '';
-        $hasUploadInSpecs = $this->customHasUploadDesign($custom);
-
-        if ($designUrl === '' && $hasStoredDesign && $orderItemId > 0) {
-            $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
-        }
-        if ($designUrl === '' && $hasUploadInSpecs) {
-            $designUrl = (string)($this->resolveDesignUrlFromCustom($custom, $orderId) ?? '');
-            if ($designUrl === '' && $orderItemId > 0) {
-                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
-            }
-        }
-        if ($designUrl === '' && $orderId > 0) {
-            $fallbackId = $this->findFallbackDesignOrderItemId($orderId);
-            if ($fallbackId > 0) {
-                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $fallbackId;
-            }
-        }
-        if ($designUrl === '' && $orderId > 0) {
-            foreach ($this->repo->getJobArtworkPaths($orderId) as $path) {
-                $resolved = $this->resolveMediaPathToUrl($path);
-                if ($resolved !== null) {
-                    $designUrl = $resolved;
-                    break;
-                }
-            }
+        $candidateRef = trim((string)($item['pf_reference_open_url'] ?? ''));
+        if ($candidateRef === '' && $payloadLine !== null) {
+            $candidateRef = trim((string)($payloadLine['reference_open_url'] ?? ($payloadLine['reference_url'] ?? '')));
         }
 
-        $hasDesign = ($designUrl !== '') || $hasStoredDesign || $hasUploadInSpecs;
-
-        $hasReference = trim((string)($item['reference_image_file'] ?? '')) !== ''
-            || $this->payloadHasMedia($custom, 'reference');
-        $referenceUrl = null;
-        if ($hasReference) {
-            $refItemId = $orderItemId > 0 ? $orderItemId : $this->findFallbackReferenceOrderItemId($orderId);
-            if ($refItemId > 0) {
-                $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $refItemId . '&field=reference';
-            } elseif (trim((string)($item['pf_reference_open_url'] ?? '')) !== '') {
-                $referenceUrl = trim((string)$item['pf_reference_open_url']);
-            }
-        }
-
-        // Never show catalog/sample images in staff V2 — staff need the upload.
-        $productImageUrl = null;
-        if (!$isService && !$hasDesign && $orderItemId <= 0) {
-            $product = $this->repo->getProductById((int)($item['product_id'] ?? 0));
-            if ($product !== null) {
-                $img = pf_order_ui_asset_url((string)($product['photo_path'] ?? ''))
-                    ?: pf_order_ui_asset_url((string)($product['product_image'] ?? ''));
-                $productImageUrl = $img ?: null;
-            }
-        }
-
-        return [
-            'design_url'        => ($hasDesign && $designUrl !== '') ? $designUrl : null,
-            'reference_url'     => $referenceUrl,
-            'product_image_url' => $productImageUrl,
-            'has_design'        => $hasDesign && $designUrl !== '',
-            'has_reference'     => $hasReference && $referenceUrl !== null,
-        ];
+        return $this->finalizeStaffDesignView(
+            $item,
+            $order,
+            $custom,
+            $candidate !== '' ? $candidate : null,
+            $candidateRef !== '' ? $candidateRef : null
+        );
     }
 
     /**
@@ -1241,63 +1189,16 @@ class CustomizationService
      */
     private function resolveStorePayloadImages(array $item, array $custom, array $order, string $name): array
     {
-        $orderId = (int)($item['order_id'] ?? $order['order_id'] ?? 0);
-        $orderItemId = (int)($item['order_item_id'] ?? 0);
-        $base = $this->baseUrl();
+        $candidate = trim((string)($item['pf_design_open_url'] ?? ''));
+        $candidateRef = trim((string)($item['pf_reference_open_url'] ?? ''));
 
-        $hasStoredDesign = (int)($item['design_image_bytes'] ?? 0) > 0
-            || trim((string)($item['design_file'] ?? '')) !== '';
-        $hasUploadInSpecs = $this->customHasUploadDesign($custom);
-        $hasDesign = $hasStoredDesign
-            || $hasUploadInSpecs
-            || trim((string)($item['pf_design_name'] ?? '')) !== '';
-
-        $designUrl = trim((string)($item['pf_design_open_url'] ?? ''));
-        if ($designUrl === '' && $hasStoredDesign && $orderItemId > 0) {
-            $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
-        }
-        if ($designUrl === '' && $orderId > 0) {
-            $fallbackId = $this->findFallbackDesignOrderItemId($orderId);
-            if ($fallbackId > 0) {
-                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $fallbackId;
-                $hasDesign = true;
-            }
-        }
-        if ($designUrl === '' && $hasUploadInSpecs) {
-            $designUrl = (string)($this->resolveDesignUrlFromCustom($custom, $orderId) ?? '');
-            if ($designUrl === '' && $orderItemId > 0) {
-                $designUrl = $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
-            }
-        }
-        if ($designUrl === '' && $orderId > 0) {
-            foreach ($this->repo->getJobArtworkPaths($orderId) as $path) {
-                $resolved = $this->resolveMediaPathToUrl($path);
-                if ($resolved !== null) {
-                    $designUrl = $resolved;
-                    $hasDesign = true;
-                    break;
-                }
-            }
-        }
-
-        $referenceUrl = trim((string)($item['pf_reference_open_url'] ?? ''));
-        $hasReference = $referenceUrl !== ''
-            || trim((string)($item['reference_image_file'] ?? '')) !== ''
-            || $this->payloadHasMedia($custom, 'reference');
-        if ($referenceUrl === '' && $hasReference) {
-            $refItemId = $orderItemId > 0 ? $orderItemId : $this->findFallbackReferenceOrderItemId($orderId);
-            if ($refItemId > 0) {
-                $referenceUrl = $base . '/public/serve_design.php?type=order_item&id=' . $refItemId . '&field=reference';
-            }
-        }
-
-        return [
-            'design_url'        => ($hasDesign && $designUrl !== '') ? $designUrl : null,
-            'reference_url'     => ($hasReference && $referenceUrl !== '') ? $referenceUrl : null,
-            'product_image_url' => null,
-            'has_design'        => $hasDesign && $designUrl !== '',
-            'has_reference'     => $hasReference && $referenceUrl !== '',
-        ];
+        return $this->finalizeStaffDesignView(
+            $item,
+            $order,
+            $custom,
+            $candidate !== '' ? $candidate : null,
+            $candidateRef !== '' ? $candidateRef : null
+        );
     }
 
     /**
@@ -1480,6 +1381,365 @@ class CustomizationService
         return $base . $normalized;
     }
 
+    /**
+     * Resolve an uploaded order file path — never map bare filenames to /products/.
+     *
+     * @param array<string,mixed> $custom
+     */
+    private function resolveOrderUploadPathUrl(array $item, array $custom): ?string
+    {
+        $candidates = [
+            trim((string)($item['design_file'] ?? '')),
+        ];
+
+        foreach ($custom as $key => $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$key));
+            if (!$this->isUploadDesignKey($nk)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text === '' || preg_match('#^data:#i', $text)) {
+                continue;
+            }
+            $candidates[] = $text;
+        }
+
+        $base = $this->baseUrl();
+        foreach (array_unique(array_filter($candidates)) as $path) {
+            if (preg_match('#^https?://#i', $path)) {
+                if (!$this->isLikelyCatalogOrPlaceholderImageUrl($path, [], $custom)) {
+                    return $path;
+                }
+                continue;
+            }
+
+            $normalized = str_replace('\\', '/', $path);
+            if (strpos($normalized, '/uploads/orders/') !== false) {
+                $normalized = substr($normalized, strpos($normalized, '/uploads/orders/'));
+            } elseif (strpos($normalized, '/uploads/') === false && $normalized !== '' && $normalized[0] !== '/') {
+                $normalized = '/uploads/orders/' . ltrim($normalized, '/');
+            } elseif ($normalized !== '' && $normalized[0] !== '/') {
+                $normalized = '/' . ltrim($normalized, '/');
+            }
+
+            $abs = dirname(__DIR__) . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
+            if (is_file($abs)) {
+                return $base . $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Inline base64/data-URL uploaded by the customer (POS or online checkout).
+     *
+     * @param array<string,mixed> $payload
+     */
+    private function extractInlineMediaDataUrl(array $payload, string $field): ?string
+    {
+        $isReference = $field === 'reference';
+        $dataKeys = $isReference
+            ? ['reference_upload_data', 'upload_reference_data', 'reference_data']
+            : ['design_upload_data', 'upload_design_data', 'design_data'];
+        $nameKeys = $isReference
+            ? ['reference_upload_name', 'reference_upload', 'reference_file', 'Reference Attachment', 'Reference Image']
+            : ['design_upload_name', 'design_upload', 'design_file', 'upload_design', 'Upload Design', 'Design'];
+
+        $data = '';
+        foreach ($dataKeys as $key) {
+            if (!empty($payload[$key]) && is_scalar($payload[$key])) {
+                $data = trim((string)$payload[$key]);
+                break;
+            }
+        }
+        if ($data === '') {
+            return null;
+        }
+
+        if (preg_match('#^data:[^;]+;base64,#i', $data)) {
+            return $data;
+        }
+
+        $name = '';
+        foreach ($nameKeys as $key) {
+            if (!empty($payload[$key]) && is_scalar($payload[$key])) {
+                $name = trim((string)$payload[$key]);
+                if ($name !== '') {
+                    break;
+                }
+            }
+        }
+
+        $mime = '';
+        $mimeKey = $isReference ? 'reference_upload_mime' : 'design_upload_mime';
+        if (!empty($payload[$mimeKey]) && is_scalar($payload[$mimeKey])) {
+            $mime = trim((string)$payload[$mimeKey]);
+        }
+        if ($mime === '' && preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $name, $m)) {
+            $mime = 'image/' . strtolower($m[1] === 'jpg' ? 'jpeg' : $m[1]);
+        }
+        if ($mime === '') {
+            $mime = 'application/octet-stream';
+        }
+
+        return 'data:' . $mime . ';base64,' . $data;
+    }
+
+    /**
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $custom
+     */
+    private function itemHasUploadEvidence(array $item, array $custom, int $orderId = 0): bool
+    {
+        if ((int)($item['design_image_bytes'] ?? 0) > 0) {
+            return true;
+        }
+
+        $designFile = trim((string)($item['design_file'] ?? ''));
+        if ($designFile !== '' && !$this->isLikelyCatalogOrPlaceholderImageUrl($designFile, [], $custom)) {
+            return true;
+        }
+
+        $designName = trim((string)($item['design_image_name'] ?? ($item['pf_design_name'] ?? '')));
+        if ($designName !== '' && $this->looksLikeFilename($designName)) {
+            return true;
+        }
+
+        if ($this->payloadHasInlineMediaData($custom, 'design')) {
+            return true;
+        }
+
+        foreach ($custom as $key => $value) {
+            if (!is_scalar($value) || trim((string)$value) === '') {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$key));
+            if (!$this->isUploadDesignKey($nk)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if (preg_match('#^data:#i', $text)) {
+                return true;
+            }
+            if ($this->looksLikeFilename($text) && !$this->isLikelyCatalogOrPlaceholderImageUrl($text, [], $custom)) {
+                return true;
+            }
+        }
+
+        if ($orderId > 0) {
+            foreach ($this->repo->getCustomizations($orderId) as $custRow) {
+                $payload = customer_orders_decode_customization_payload((string)($custRow['customization_details'] ?? ''));
+                if ($this->payloadHasInlineMediaData($payload, 'design') || $this->payloadHasMedia($payload, 'design')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     */
+    private function payloadHasInlineMediaData(array $payload, string $field): bool
+    {
+        $keys = $field === 'reference'
+            ? ['reference_upload_data', 'upload_reference_data', 'reference_data']
+            : ['design_upload_data', 'upload_design_data', 'design_data'];
+
+        foreach ($keys as $key) {
+            if (!empty($payload[$key]) && is_scalar($payload[$key]) && trim((string)$payload[$key]) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Detect service catalog / stock art URLs that must never be shown as customer uploads.
+     *
+     * @param array<string,mixed> $order
+     * @param array<string,mixed> $custom
+     */
+    private function isLikelyCatalogOrPlaceholderImageUrl(string $url, array $order = [], array $custom = []): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return true;
+        }
+
+        if (preg_match('#^data:#i', $url)) {
+            return false;
+        }
+
+        if (stripos($url, 'serve_design.php') !== false) {
+            return false;
+        }
+
+        if (function_exists('printflow_notification_is_default_thumbnail')
+            && printflow_notification_is_default_thumbnail($url)) {
+            return true;
+        }
+
+        if (preg_match('#/(assets/images/services/|public/assets/images/services/)#i', $url)) {
+            return true;
+        }
+
+        if (preg_match('#/public/images/products/product_\d+\.(jpe?g|png|webp|gif)#i', $url)) {
+            return true;
+        }
+
+        if (preg_match('#/uploads/products/#i', $url)) {
+            return true;
+        }
+
+        $serviceId = (int)($custom['service_id'] ?? $order['reference_id'] ?? 0);
+        if ($serviceId > 0 && function_exists('get_service_image_url')) {
+            $catalog = trim((string)get_service_image_url('', $serviceId));
+            if ($catalog !== '' && $this->urlsLikelySame($url, $catalog)) {
+                return true;
+            }
+        }
+
+        $serviceName = trim((string)($custom['service_type'] ?? ''));
+        if ($serviceName !== '' && function_exists('get_service_image_url')) {
+            $catalog = trim((string)get_service_image_url($serviceName, $serviceId));
+            if ($catalog !== '' && $this->urlsLikelySame($url, $catalog)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function urlsLikelySame(string $a, string $b): bool
+    {
+        $norm = static function (string $url): string {
+            $url = trim(strtolower($url));
+            $url = preg_replace('#^https?://[^/]+#', '', $url) ?? $url;
+            return rtrim($url, '/');
+        };
+
+        $na = $norm($a);
+        $nb = $norm($b);
+
+        return $na !== '' && ($na === $nb || str_ends_with($na, $nb) || str_ends_with($nb, $na));
+    }
+
+    /**
+     * Authoritative customer-upload design URL for staff V2 (never the service catalog icon).
+     *
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $order
+     * @param array<string,mixed> $custom
+     */
+    private function resolveAuthenticCustomerDesignUrl(
+        array $item,
+        array $order,
+        array $custom,
+        ?string $candidateUrl = null
+    ): ?string {
+        $orderId = (int)($order['order_id'] ?? $item['order_id'] ?? 0);
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        $base = $this->baseUrl();
+
+        $inline = $this->extractInlineMediaDataUrl($custom, 'design');
+        if ($inline !== null) {
+            return $inline;
+        }
+
+        if ($orderId > 0) {
+            foreach ($this->repo->getCustomizations($orderId) as $custRow) {
+                if ($orderItemId > 0 && (int)($custRow['order_item_id'] ?? 0) > 0
+                    && (int)$custRow['order_item_id'] !== $orderItemId) {
+                    continue;
+                }
+                $payload = customer_orders_decode_customization_payload((string)($custRow['customization_details'] ?? ''));
+                $fromTable = $this->extractInlineMediaDataUrl($payload, 'design');
+                if ($fromTable !== null) {
+                    return $fromTable;
+                }
+            }
+        }
+
+        if ($orderItemId > 0 && $this->itemHasUploadEvidence($item, $custom, $orderId)) {
+            return $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
+        }
+
+        $pathUrl = $this->resolveOrderUploadPathUrl($item, $custom);
+        if ($pathUrl !== null) {
+            return $pathUrl;
+        }
+
+        if ($candidateUrl !== null && trim($candidateUrl) !== '') {
+            $candidateUrl = trim($candidateUrl);
+            if (!$this->isLikelyCatalogOrPlaceholderImageUrl($candidateUrl, $order, $custom)) {
+                if (stripos($candidateUrl, 'serve_design.php') !== false) {
+                    return $candidateUrl;
+                }
+                if (preg_match('#^data:#i', $candidateUrl)) {
+                    return $candidateUrl;
+                }
+                if (strpos($candidateUrl, '/uploads/orders/') !== false) {
+                    return $candidateUrl;
+                }
+            }
+        }
+
+        if ($orderId > 0) {
+            $fallbackId = $this->findFallbackDesignOrderItemId($orderId);
+            if ($fallbackId > 0) {
+                return $base . '/public/serve_design.php?type=order_item&id=' . $fallbackId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string,mixed> $item
+     * @param array<string,mixed> $order
+     * @param array<string,mixed> $custom
+     * @return array{design_url:?string,reference_url:?string,product_image_url:?string,has_design:bool,has_reference:bool}
+     */
+    private function finalizeStaffDesignView(
+        array $item,
+        array $order,
+        array $custom,
+        ?string $candidateDesignUrl,
+        ?string $candidateReferenceUrl
+    ): array {
+        $designUrl = $this->resolveAuthenticCustomerDesignUrl($item, $order, $custom, $candidateDesignUrl);
+        $hasDesign = $designUrl !== null;
+
+        $referenceUrl = $candidateReferenceUrl;
+        if ($referenceUrl !== null && $this->isLikelyCatalogOrPlaceholderImageUrl($referenceUrl, $order, $custom)) {
+            $referenceUrl = null;
+        }
+        $inlineRef = $this->extractInlineMediaDataUrl($custom, 'reference');
+        if ($inlineRef !== null) {
+            $referenceUrl = $inlineRef;
+        }
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        if ($referenceUrl === null && $orderItemId > 0
+            && (trim((string)($item['reference_image_file'] ?? '')) !== '' || $this->payloadHasMedia($custom, 'reference'))) {
+            $referenceUrl = $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
+        }
+
+        return [
+            'design_url'        => $designUrl,
+            'reference_url'     => $referenceUrl,
+            'product_image_url' => null,
+            'has_design'        => $hasDesign,
+            'has_reference'     => $referenceUrl !== null,
+        ];
+    }
+
     private function isGenericServiceLabel(string $name): bool
     {
         $normalized = strtolower(trim($name));
@@ -1619,102 +1879,16 @@ class CustomizationService
      */
     private function resolveImages(array $item, array $rawDecoded, array $order, bool $isService, ?array $product, string $name): array
     {
-        $base = $this->baseUrl();
-        $orderItemId = (int)($item['order_item_id'] ?? 0);
-        $orderId = (int)($item['order_id'] ?? $order['order_id'] ?? 0);
-
-        // ---- Detect a real design exists (so we never show empty boxes). ----
-        $hasDesign = (int)($item['design_image_bytes'] ?? 0) > 0
-            || trim((string)($item['design_file'] ?? '')) !== ''
-            || trim((string)($item['design_image_name'] ?? '')) !== ''
-            || $this->payloadHasMedia($rawDecoded, 'design');
-
-        if (!$hasDesign && $orderId > 0) {
-            // POS / legacy: design may live in customizations payload or job artwork.
-            if (!empty($this->repo->getJobArtworkPaths($orderId))) {
-                $hasDesign = true;
-            } else {
-                foreach ($this->repo->getCustomizations($orderId) as $cust) {
-                    $payload = customer_orders_decode_customization_payload((string)($cust['customization_details'] ?? ''));
-                    if ($this->payloadHasMedia($payload, 'design')) {
-                        $hasDesign = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // ---- Detect a reference image. -------------------------------------
-        $hasReference = trim((string)($item['reference_image_file'] ?? '')) !== ''
-            || $this->payloadHasMedia($rawDecoded, 'reference');
-
-        if (!$hasReference && $orderId > 0) {
-            foreach ($this->repo->getCustomizations($orderId) as $cust) {
-                $payload = customer_orders_decode_customization_payload((string)($cust['customization_details'] ?? ''));
-                if ($this->payloadHasMedia($payload, 'reference')) {
-                    $hasReference = true;
-                    break;
-                }
-            }
-        }
-
-        // Pre-resolved URLs from the job-order payload fallback take priority —
-        // they already point at the correct asset even when order_item_id is 0.
         $preDesignUrl = trim((string)($item['pf_design_open_url'] ?? ($item['pf_design_url'] ?? '')));
         $preReferenceUrl = trim((string)($item['pf_reference_open_url'] ?? ($item['pf_reference_url'] ?? '')));
 
-        $designUrl = $preDesignUrl !== ''
-            ? $preDesignUrl
-            : (($hasDesign && $orderItemId > 0)
-                ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId
-                : null);
-        if ($preDesignUrl !== '') {
-            $hasDesign = true;
-        }
-
-        $referenceUrl = $preReferenceUrl !== ''
-            ? $preReferenceUrl
-            : (($hasReference && $orderItemId > 0)
-                ? $base . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference'
-                : null);
-        if ($preReferenceUrl !== '') {
-            $hasReference = true;
-        }
-
-        // ---- Product / service catalog image. ------------------------------
-        $productImageUrl = null;
-        if (!$isService && $product !== null) {
-            $img = pf_order_ui_asset_url((string)($product['photo_path'] ?? ''))
-                ?: pf_order_ui_asset_url((string)($product['product_image'] ?? ''));
-            $productImageUrl = $img ?: null;
-        } else {
-            // Service: prefer catalog image, fall back to service-type image map.
-            $serviceId = (int)($rawDecoded['service_id'] ?? 0);
-            if ($serviceId > 0) {
-                $svc = $this->repo->getServiceById($serviceId);
-                $display = trim((string)($svc['display_image'] ?? ''));
-                $hero = trim((string)($svc['hero_image'] ?? ''));
-                $first = $display !== '' ? trim(explode(',', $display)[0]) : $hero;
-                $productImageUrl = pf_order_ui_asset_url($first) ?: null;
-            }
-            if ($productImageUrl === null && function_exists('get_service_image_url')) {
-                $productImageUrl = get_service_image_url($name) ?: null;
-            }
-        }
-
-        if ($hasDesign) {
-            $productImageUrl = null;
-        } elseif ($isService && $productImageUrl !== null && $this->isGenericServiceLabel($name)) {
-            $productImageUrl = null;
-        }
-
-        return [
-            'design_url'        => $designUrl,
-            'reference_url'     => $referenceUrl,
-            'product_image_url' => $productImageUrl,
-            'has_design'        => $hasDesign,
-            'has_reference'     => $hasReference,
-        ];
+        return $this->finalizeStaffDesignView(
+            $item,
+            $order,
+            $rawDecoded,
+            $preDesignUrl !== '' ? $preDesignUrl : null,
+            $preReferenceUrl !== '' ? $preReferenceUrl : null
+        );
     }
 
     /**

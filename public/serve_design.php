@@ -236,12 +236,33 @@ function pf_serve_design_try_customization_payload_media(int $orderItemId, strin
         'i',
         [$orderItemId]
     ) ?: [];
-    if (empty($rows)) {
-        return false;
+    if (!empty($rows) && pf_serve_design_emit_payload_media(
+        pf_serve_design_decode_json_payload((string)($rows[0]['customization_details'] ?? '')),
+        $field
+    )) {
+        return true;
     }
 
-    $payload = pf_serve_design_decode_json_payload((string)($rows[0]['customization_details'] ?? ''));
-    if (empty($payload)) {
+    $itemRows = db_query(
+        "SELECT customization_data
+         FROM order_items
+         WHERE order_item_id = ?
+         LIMIT 1",
+        'i',
+        [$orderItemId]
+    ) ?: [];
+    if (!empty($itemRows)) {
+        return pf_serve_design_emit_payload_media(
+            pf_serve_design_decode_json_payload((string)($itemRows[0]['customization_data'] ?? '')),
+            $field
+        );
+    }
+
+    return false;
+}
+
+function pf_serve_design_emit_payload_media(array $payload, string $field = 'design'): bool {
+    if ($payload === []) {
         return false;
     }
 
@@ -314,57 +335,24 @@ function pf_serve_design_try_customization_payload_media_by_order(int $orderId, 
 
     foreach ($rows as $row) {
         $payload = pf_serve_design_decode_json_payload((string)($row['customization_details'] ?? ''));
-        if ($payload === []) {
-            continue;
-        }
-
-        if ($field === 'reference') {
-            $dataUrl = pf_serve_design_first_nonempty_scalar($payload, [
-                'reference_upload_data',
-                'upload_reference_data',
-                'reference_data',
-            ]);
-            if ($dataUrl !== null && pf_serve_design_emit_data_url_if_present($dataUrl, (string)(pf_serve_design_first_nonempty_scalar($payload, [
-                'reference_upload_name',
-                'reference_upload',
-                'reference_file',
-            ]) ?? 'reference'))) {
-                return true;
-            }
-
-            $path = pf_serve_design_first_nonempty_scalar($payload, [
-                'reference_upload_path',
-                'upload_reference_path',
-                'reference_file',
-                'reference_upload',
-            ]);
-            if ($path !== null && pf_serve_design_read_file($path)) {
-                return true;
-            }
-            continue;
-        }
-
-        $dataUrl = pf_serve_design_first_nonempty_scalar($payload, [
-            'design_upload_data',
-            'upload_design_data',
-            'design_data',
-        ]);
-        if ($dataUrl !== null && pf_serve_design_emit_data_url_if_present($dataUrl, (string)(pf_serve_design_first_nonempty_scalar($payload, [
-            'design_upload_name',
-            'design_upload',
-            'design_file',
-        ]) ?? 'design'))) {
+        if ($payload !== [] && pf_serve_design_emit_payload_media($payload, $field)) {
             return true;
         }
+    }
 
-        $path = pf_serve_design_first_nonempty_scalar($payload, [
-            'design_upload_path',
-            'upload_design_path',
-            'design_file',
-            'design_upload',
-            'layout_file',
-        ]);
-        if ($path !== null && pf_serve_design_read_file($path)) {
+    $itemRows = db_query(
+        "SELECT customization_data
+         FROM order_items
+         WHERE order_id = ?
+         ORDER BY CASE WHEN order_item_id = ? THEN 0 ELSE 1 END, order_item_id ASC
+         LIMIT 10",
+        'ii',
+        [$orderId, $preferredOrderItemId]
+    ) ?: [];
+
+    foreach ($itemRows as $row) {
+        $payload = pf_serve_design_decode_json_payload((string)($row['customization_data'] ?? ''));
+        if ($payload !== [] && pf_serve_design_emit_payload_media($payload, $field)) {
             return true;
         }
     }
