@@ -156,7 +156,11 @@ $sql = "SELECT o.*,
             (SELECT c2.service_type FROM customizations c2 WHERE c2.order_id = o.order_id ORDER BY c2.customization_id ASC LIMIT 1)
         )) as first_customization_service_type,
         (SELECT oi.order_item_id FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_id,
-        (SELECT IF(oi.design_image IS NOT NULL AND oi.design_image != '', 1, 0) FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_has_design,
+        (SELECT IF(
+            IFNULL(LENGTH(oi.design_image), 0) > 0
+            OR TRIM(COALESCE(oi.design_file, '')) <> '',
+            1, 0
+        ) FROM order_items oi WHERE oi.order_id = o.order_id ORDER BY oi.order_item_id ASC LIMIT 1) as first_item_has_design,
         (SELECT COALESCE(SUM(oi.quantity), 0) FROM order_items oi WHERE oi.order_id = o.order_id) as total_quantity,
         (SELECT r.rating FROM reviews r WHERE r.order_id = o.order_id LIMIT 1) as rating_value,
         (SELECT jo.payment_rejection_reason
@@ -1106,7 +1110,12 @@ require_once __DIR__ . '/../includes/header.php';
                             
                             $c_json = (array)($order['_first_item_customization_resolved'] ?? customer_orders_primary_customization($order));
                             $d_name = (string)($order['_first_item_display_name'] ?? customer_orders_primary_item_name($order));
-                            $preview_url = get_preview_image_for_order_ui($order, $d_name);
+                            $preview_url = function_exists('printflow_resolve_order_preview_image_url')
+                                ? printflow_resolve_order_preview_image_url($order, $d_name)
+                                : get_preview_image_for_order_ui($order, $d_name);
+                            $catalog_fallback_url = function_exists('printflow_resolve_order_service_catalog_image_url')
+                                ? printflow_resolve_order_service_catalog_image_url($order, $d_name)
+                                : (BASE_URL . '/public/assets/images/services/default.png');
                             $timestamp_meta = $order['_display_timestamp_meta'] ?? printflow_customer_order_timestamp_meta($order);
                         ?>
                         <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
@@ -1116,7 +1125,7 @@ require_once __DIR__ . '/../includes/header.php';
                             </div>
 
                             <div class="card-content">
-                                <div class="img-preview-box"><img src="<?php echo htmlspecialchars($preview_url); ?>" alt="Preview" onerror="this.src='<?php echo BASE_URL; ?>/public/assets/images/services/default.png';"></div>
+                                <div class="img-preview-box"><img src="<?php echo htmlspecialchars($preview_url); ?>" alt="Preview" data-fallback="<?php echo htmlspecialchars($catalog_fallback_url); ?>" onerror="if(!this.dataset.fallbackApplied){this.dataset.fallbackApplied='1';this.src=this.dataset.fallback||'<?php echo BASE_URL; ?>/public/assets/images/services/default.png';}else{this.onerror=null;}"></div>
                                 <div class="details-column">
                                     <h3 class="order-title"><?php echo htmlspecialchars($d_name); ?></h3>
                                     <div class="qty-tag"><?php echo max(1, (int)($order['total_quantity'] ?? 0)); ?> Items</div>
@@ -1184,6 +1193,10 @@ require_once __DIR__ . '/../includes/header.php';
 <?php 
 // Inline helper for this specific page theme
 function get_preview_image_for_order_ui($order, $display_name) {
+    if (function_exists('printflow_resolve_order_preview_image_url')) {
+        return printflow_resolve_order_preview_image_url((array)$order, (string)$display_name);
+    }
+
     $custom = function_exists('customer_orders_primary_customization')
         ? customer_orders_primary_customization((array)$order)
         : [];
@@ -1194,8 +1207,10 @@ function get_preview_image_for_order_ui($order, $display_name) {
         || (int)($custom['service_id'] ?? 0) > 0
         || in_array(strtolower(trim((string)($custom['source_page'] ?? ''))), ['services', 'service'], true);
 
-    if (!empty($order['first_item_has_design']) && !empty($order['first_item_id'])) {
-        return BASE_URL . "/public/serve_design.php?type=order_item&id=" . (int)$order['first_item_id'];
+    $firstItemId = (int)($order['first_item_id'] ?? 0);
+    if ($firstItemId > 0 && function_exists('printflow_order_item_has_retrievable_design_by_id')
+        && printflow_order_item_has_retrievable_design_by_id($firstItemId)) {
+        return BASE_URL . "/public/serve_design.php?type=order_item&id=" . $firstItemId;
     }
 
     if (!$is_service_order) {

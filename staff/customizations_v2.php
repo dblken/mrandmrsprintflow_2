@@ -553,8 +553,10 @@ const CV2 = (function () {
         if (it.has_design) {
             const designSrc = effectiveDesignUrl(it);
             if (designSrc && !looksLikeCatalogImage(designSrc)) {
-                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').innerHTML='<div class=\\'cv2-ml\\'>Design Preview</div><div style=\\'padding:12px;color:#64748b;font-size:13px;\\'>Customer upload is not available. Ask them to re-send the file.</div>'"></div>`);
             }
+        } else if (it.design_upload_name || (it.specs || []).some(s => /upload\s*design/i.test(String(s.label||'')))) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">Customer upload is not available. Ask them to re-send the file.</div></div>`);
         }
         const refSrc = effectiveReferenceUrl(it);
         if (refSrc && !looksLikeCatalogImage(refSrc)) {

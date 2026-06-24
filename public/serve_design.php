@@ -41,21 +41,17 @@ function pf_serve_design_emit_file(string $path, string $mime = '', string $file
 function pf_serve_design_emit_fallback(string $reason = '', bool $allowDefaultImage = true): void {
     global $default_fallback_image;
 
+    pf_serve_design_no_cache_headers();
+
     if ($allowDefaultImage && is_file($default_fallback_image)) {
+        http_response_code(200);
         pf_serve_design_emit_file($default_fallback_image, 'image/png', 'default.png');
     }
 
-    http_response_code($allowDefaultImage ? 200 : 404);
-    pf_serve_design_no_cache_headers();
-    header('Content-Type: image/svg+xml; charset=UTF-8');
-    $label = $reason !== '' ? htmlspecialchars($reason, ENT_QUOTES, 'UTF-8') : 'Image unavailable';
-    echo '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">'
-        . '<rect width="320" height="240" rx="16" fill="#f8fafc"/>'
-        . '<rect x="24" y="24" width="272" height="192" rx="12" fill="#e2e8f0"/>'
-        . '<text x="160" y="118" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#475569">'
-        . $label
-        . '</text>'
-        . '</svg>';
+    // Empty 404 so <img onerror> handlers can fall back to catalog/default art.
+    http_response_code(404);
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo $reason !== '' ? $reason : 'Image unavailable';
     exit;
 }
 

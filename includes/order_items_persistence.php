@@ -340,6 +340,140 @@ if (!function_exists('printflow_heal_order_item_design_from_payload')) {
     }
 }
 
+if (!function_exists('printflow_order_item_has_retrievable_design_by_id')) {
+    function printflow_order_item_has_retrievable_design_by_id(int $orderItemId): bool
+    {
+        if ($orderItemId <= 0) {
+            return false;
+        }
+
+        $rows = db_query(
+            'SELECT design_file, IFNULL(LENGTH(design_image), 0) AS blob_len, design_image, customization_data
+             FROM order_items WHERE order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+
+        if ($rows === []) {
+            return false;
+        }
+
+        if (printflow_order_item_row_has_retrievable_design($rows[0])) {
+            return true;
+        }
+
+        if (!printflow_heal_order_item_design_from_payload($orderItemId)) {
+            return false;
+        }
+
+        $healed = db_query(
+            'SELECT design_file, IFNULL(LENGTH(design_image), 0) AS blob_len, design_image
+             FROM order_items WHERE order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+
+        return $healed !== [] && printflow_order_item_row_has_retrievable_design($healed[0]);
+    }
+}
+
+if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
+    /**
+     * Same catalog art as customer/services.php (not customer uploads).
+     *
+     * @param array<string,mixed> $order
+     */
+    function printflow_resolve_order_service_catalog_image_url(array $order, string $displayName = ''): string
+    {
+        $custom = function_exists('customer_orders_primary_customization')
+            ? customer_orders_primary_customization($order)
+            : [];
+
+        $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+        $isServiceOrder = ($orderType === 'custom')
+            || !empty($custom['service_type'])
+            || (int)($custom['service_id'] ?? 0) > 0
+            || in_array(strtolower(trim((string)($custom['source_page'] ?? ''))), ['services', 'service'], true);
+
+        if (!$isServiceOrder) {
+            if (!empty($order['first_product_image'])) {
+                $resolved = pf_order_ui_asset_url((string)$order['first_product_image']);
+                if ($resolved !== null && $resolved !== '') {
+                    return $resolved;
+                }
+            }
+
+            $prodId = (int)($order['first_product_id'] ?? 0);
+            if ($prodId > 0) {
+                $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : '';
+                $imgBase = dirname(__DIR__) . '/public/images/products/product_' . $prodId;
+                foreach (['jpg', 'png', 'jpeg', 'webp'] as $ext) {
+                    if (is_file($imgBase . '.' . $ext)) {
+                        return $base . '/public/images/products/product_' . $prodId . '.' . $ext;
+                    }
+                }
+            }
+        }
+
+        $serviceName = trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? '')));
+        if ($serviceName === '' || (function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($serviceName))) {
+            $serviceName = trim((string)(function_exists('get_service_name_from_customization')
+                ? get_service_name_from_customization($custom, '')
+                : ''));
+        }
+        if (($serviceName === '' || (function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($serviceName)))
+            && trim($displayName) !== '') {
+            $serviceName = trim($displayName);
+        }
+
+        $sid = (int)($custom['service_id'] ?? 0);
+        if ($sid <= 0 && $orderType === 'custom') {
+            $sid = (int)($order['reference_id'] ?? 0);
+        }
+
+        if ($sid > 0 && function_exists('printflow_notification_service_image_from_id')) {
+            $fromId = printflow_notification_service_image_from_id($sid);
+            if ($fromId !== '') {
+                return $fromId;
+            }
+        }
+
+        if ($serviceName !== '' && function_exists('printflow_notification_service_image_from_name')) {
+            $fromName = printflow_notification_service_image_from_name($serviceName);
+            if ($fromName !== '') {
+                return $fromName;
+            }
+        }
+
+        if (function_exists('get_service_image_url')) {
+            return get_service_image_url($serviceName !== '' ? $serviceName : $displayName, $sid);
+        }
+
+        $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '');
+        return $base . '/public/assets/images/services/default.png';
+    }
+}
+
+if (!function_exists('printflow_resolve_order_preview_image_url')) {
+    /**
+     * Order list thumbnail: customer upload when retrievable, else service catalog art.
+     *
+     * @param array<string,mixed> $order
+     */
+    function printflow_resolve_order_preview_image_url(array $order, string $displayName = ''): string
+    {
+        $base = defined('BASE_URL') ? rtrim((string)BASE_URL, '/') : (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '');
+        $catalogFallback = printflow_resolve_order_service_catalog_image_url($order, $displayName);
+
+        $firstItemId = (int)($order['first_item_id'] ?? 0);
+        if ($firstItemId > 0 && printflow_order_item_has_retrievable_design_by_id($firstItemId)) {
+            return $base . '/public/serve_design.php?type=order_item&id=' . $firstItemId;
+        }
+
+        return $catalogFallback !== '' ? $catalogFallback : ($base . '/public/assets/images/services/default.png');
+    }
+}
+
 if (!function_exists('printflow_resolve_order_item_product_id')) {
     /**
      * FK-safe product_id for order_items (services may not have a catalog product row).
