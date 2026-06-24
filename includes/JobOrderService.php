@@ -2550,14 +2550,31 @@ class JobOrderService {
             $customForPayload = self::buildStaffCustomizationPayload($custom, $quantity);
             $customForPayload = printflow_overlay_nonempty_assoc($customForPayload, $orderItemCustomization);
 
+            $serviceIdForImage = (int)($custom['service_id'] ?? 0);
+            if ($serviceIdForImage <= 0) {
+                $serviceIdForImage = (int)($order['reference_id'] ?? 0);
+            }
+            $catalogServiceImage = function_exists('get_service_image_url')
+                ? get_service_image_url($name, $serviceIdForImage)
+                : '';
+            $isServiceLine = $isServiceOrder
+                || $serviceIdForImage > 0
+                || trim((string)($custom['service_type'] ?? '')) !== ''
+                || strtolower(trim((string)($custom['source'] ?? ''))) === 'pos';
+            $productImage = (string)($item['product_image'] ?? '');
+            if ($isServiceLine) {
+                $productImage = '';
+            }
+
             $items_out[] = array_merge([
                 'order_item_id' => (int)($item['order_item_id'] ?? 0),
                 'order_id' => (int)($item['order_id'] ?? 0),
                 'product_name' => $name,
                 'product_type' => $item['product_type'] ?? 'custom',
                 'category' => $item['category'] ?? '',
-                'product_image' => (string)($item['product_image'] ?? ''),
-                'service_image' => function_exists('get_service_image_url') ? get_service_image_url($name) : '',
+                'product_image' => $productImage,
+                'service_image' => $catalogServiceImage,
+                'catalog_service_image' => $catalogServiceImage,
                 'quantity' => $quantity,
                 'customization' => $customForPayload,
                 'customization_data' => (string)($item['customization_data'] ?? ''),

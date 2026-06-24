@@ -1837,13 +1837,22 @@ try {
                 const label = row ? row.querySelector('.shopee-form-label') : null;
                 const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
                 customization[labelText] = payload.name;
-                if (fileInput.name === 'design_file') {
+
+                const nameLc = String(fileInput.name || '').toLowerCase();
+                const labelLc = String(labelText || '').toLowerCase();
+                const isDesignField = nameLc === 'design_file'
+                    || nameLc.includes('design')
+                    || (labelLc.includes('upload') && labelLc.includes('design'));
+                const isReferenceField = nameLc === 'reference_file'
+                    || nameLc.includes('reference')
+                    || (labelLc.includes('upload') && labelLc.includes('reference'));
+
+                if (isDesignField) {
                     customization.design_upload = payload.name;
                     customization.design_upload_name = payload.name;
                     customization.design_upload_mime = payload.mime;
                     customization.design_upload_data = payload.data;
-                }
-                if (fileInput.name === 'reference_file') {
+                } else if (isReferenceField) {
                     customization.reference_upload = payload.name;
                     customization.reference_upload_name = payload.name;
                     customization.reference_upload_mime = payload.mime;
@@ -1851,7 +1860,7 @@ try {
                 }
             }
 
-            // Add service to cart with price = 0 (will be set in customizations page)
+            // Add service to cart with price = 0 (will be set in Customizations V2)
             const result = await syncedCartAction('add', {
                 product_id: serviceId,
                 name: serviceName,
@@ -2993,15 +3002,13 @@ try {
                     body: JSON.stringify(payload)
                 });
                 const data = await res.json();
-                if (data.success && data.customization_id) {
-                    // Redirect to customizations page
-                    const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);
-                    redirectUrl.searchParams.set('status', 'APPROVED');
-                    redirectUrl.searchParams.set('order_id', data.customization_id);
-                    redirectUrl.searchParams.set('job_type', 'CUSTOMIZATION');
+                if (data.success && data.order_id) {
+                    // Redirect to Customizations V2 to set price, then return to POS
+                    const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations_v2.php'); ?>, window.location.origin);
+                    redirectUrl.searchParams.set('order_id', data.order_id);
                     redirectUrl.searchParams.set('return_to_pos', '1');
-                    if (data.order_id) {
-                        redirectUrl.searchParams.set('source_order_id', data.order_id);
+                    if (data.customization_id) {
+                        redirectUrl.searchParams.set('customization_id', data.customization_id);
                     }
                     window.location.href = redirectUrl.toString();
                 } else {

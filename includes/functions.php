@@ -5636,8 +5636,24 @@ function get_services_image_map() {
  * @param string $service_type_or_name e.g. "T-Shirt Printing", "Tarpaulin", "Custom T-Shirt"
  * @return string URL path to image (same file as Services page)
  */
-function get_service_image_url($service_type_or_name) {
-    $cat = strtolower(trim(preg_replace('/\s+/', ' ', (string)$service_type_or_name)));
+function get_service_image_url($service_type_or_name, $service_id = 0) {
+    $service_id = (int)$service_id;
+    if ($service_id > 0 && function_exists('printflow_notification_service_image_from_id')) {
+        $fromId = printflow_notification_service_image_from_id($service_id);
+        if ($fromId !== '') {
+            return $fromId;
+        }
+    }
+
+    $name = trim((string)$service_type_or_name);
+    if ($name !== '' && function_exists('printflow_notification_service_image_from_name')) {
+        $fromName = printflow_notification_service_image_from_name($name);
+        if ($fromName !== '') {
+            return $fromName;
+        }
+    }
+
+    $cat = strtolower(trim(preg_replace('/\s+/', ' ', $name)));
     $base = defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : '/printflow');
     if ($cat === '') return $base . '/public/assets/images/services/default.png';
 

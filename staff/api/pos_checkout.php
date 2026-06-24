@@ -116,6 +116,41 @@ function pos_find_pending_service_link(int $customerId, int $branchId, int $prod
     ];
 }
 
+function pos_normalize_media_upload_keys(array &$customization): void {
+    foreach ($customization as $key => $value) {
+        if (!is_string($key)) {
+            continue;
+        }
+        $norm = strtolower(preg_replace('/[^a-z0-9]/', '', $key));
+        if (str_contains($norm, 'upload') && str_contains($norm, 'design')) {
+            if (empty($customization['design_upload']) && is_scalar($value) && trim((string)$value) !== '') {
+                $customization['design_upload'] = trim((string)$value);
+            }
+            $dataKey = $key . '_data';
+            if (!empty($customization[$dataKey]) && empty($customization['design_upload_data'])) {
+                $customization['design_upload_data'] = $customization[$dataKey];
+            }
+            $mimeKey = $key . '_mime';
+            if (!empty($customization[$mimeKey]) && empty($customization['design_upload_mime'])) {
+                $customization['design_upload_mime'] = $customization[$mimeKey];
+            }
+            $nameKey = $key . '_name';
+            if (!empty($customization[$nameKey]) && empty($customization['design_upload_name'])) {
+                $customization['design_upload_name'] = $customization[$nameKey];
+            }
+        }
+        if (str_contains($norm, 'upload') && str_contains($norm, 'reference')) {
+            if (empty($customization['reference_upload']) && is_scalar($value) && trim((string)$value) !== '') {
+                $customization['reference_upload'] = trim((string)$value);
+            }
+            $dataKey = $key . '_data';
+            if (!empty($customization[$dataKey]) && empty($customization['reference_upload_data'])) {
+                $customization['reference_upload_data'] = $customization[$dataKey];
+            }
+        }
+    }
+}
+
 function pos_extract_inline_media_payload(array &$customization, string $prefix): array {
     $data = trim((string)($customization[$prefix . '_data'] ?? ''));
     $name = trim((string)($customization[$prefix . '_name'] ?? $customization[$prefix] ?? ''));
@@ -152,12 +187,16 @@ function pos_store_order_item_inline_media(int $orderItemId, array $designPayloa
         return;
     }
 
+    printflow_ensure_order_items_columns();
+
     $uploadDir = dirname(__DIR__, 2) . '/uploads/orders';
     if (!is_dir($uploadDir)) {
         @mkdir($uploadDir, 0775, true);
     }
 
-    if (!empty($designPayload['blob'])) {
+    global $conn;
+
+    if (!empty($designPayload['blob']) && $conn instanceof mysqli) {
         $storedDesignPath = null;
         if (is_dir($uploadDir) && is_writable($uploadDir)) {
             $baseName = trim((string)($designPayload['name'] ?? 'design_upload'));
@@ -172,19 +211,25 @@ function pos_store_order_item_inline_media(int $orderItemId, array $designPayloa
             }
         }
 
-        db_execute(
-            "UPDATE order_items
+        $blob = $designPayload['blob'];
+        $mime = (string)($designPayload['mime'] ?? 'application/octet-stream');
+        $name = (string)($designPayload['name'] ?? 'design_upload');
+        $path = (string)($storedDesignPath ?? '');
+
+        $stmt = $conn->prepare(
+            'UPDATE order_items
              SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
-             WHERE order_item_id = ?",
-            'ssssi',
-            [
-                $designPayload['blob'],
-                (string)($designPayload['mime'] ?? 'application/octet-stream'),
-                (string)($designPayload['name'] ?? 'design_upload'),
-                $storedDesignPath,
-                $orderItemId
-            ]
+             WHERE order_item_id = ?'
         );
+        if ($stmt) {
+            $nullBlob = null;
+            $stmt->bind_param('bsssi', $nullBlob, $mime, $name, $path, $orderItemId);
+            $stmt->send_long_data(0, $blob);
+            if (!$stmt->execute()) {
+                error_log('pos_store_order_item_inline_media design failed: ' . $stmt->error);
+            }
+            $stmt->close();
+        }
     }
 
     if (!empty($referencePayload['blob'])) {
@@ -577,6 +622,8 @@ if (empty($data['items'])) {
     exit;
 }
 
+printflow_ensure_order_items_columns();
+
 $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
 
 if ($customer_id === null) {
@@ -700,6 +747,10 @@ try {
         
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];
+        if ($is_service && empty($custom_details['service_id'])) {
+            $custom_details['service_id'] = $product_id;
+        }
+        pos_normalize_media_upload_keys($custom_details);
         $designPayload = pos_extract_inline_media_payload($custom_details, 'design_upload');
         $referencePayload = pos_extract_inline_media_payload($custom_details, 'reference_upload');
 

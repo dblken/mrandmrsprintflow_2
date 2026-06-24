@@ -3297,7 +3297,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         designOpenUrl = this.staffOrderItemDesignServeUrl(item);
                     }
                     const productImage = item.product_image || '';
-                    const serviceImage = item.service_image || '';
+                    const serviceImage = item.service_image || item.catalog_service_image || '';
 
                     return {
                         ...item,
@@ -3305,7 +3305,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                         design_name: designName,
                         design_open_url: designOpenUrl,
                         product_image: productImage,
-                        service_image: serviceImage
+                        service_image: serviceImage,
+                        catalog_service_image: item.catalog_service_image || serviceImage
                     };
                 });
 
@@ -3437,13 +3438,31 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!name) return false;
                 return /\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i.test(String(name));
             },
+            staffIsGenericServicePlaceholder(url) {
+                const text = String(url || '').trim();
+                if (!text) return true;
+                return /default\.png$/i.test(text) || /\/assets\/images\/services\/default/i.test(text);
+            },
+            staffItemIsServiceLine(item) {
+                if (!item) return false;
+                const custom = (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
+                    ? item.customization
+                    : {};
+                return !!(custom.service_id || custom.service_type || String(custom.source || '').toUpperCase() === 'POS');
+            },
             staffProductServiceImageUrl(item) {
                 if (!item) return '';
-                const raw = item.product_image || item.service_image || '';
+                const isService = this.staffItemIsServiceLine(item);
+                const catalog = item.catalog_service_image || item.service_image || '';
+                if (catalog && !this.staffIsGenericServicePlaceholder(catalog)) {
+                    return this.staffResolveMediaUrl(catalog);
+                }
+                if (isService) {
+                    return '';
+                }
+                const raw = item.product_image || '';
                 if (!raw) return '';
                 const text = String(raw).trim();
-                // Suppress the generic default service placeholder — it is not a real item image
-                if (/default\.png$/i.test(text) || /\/assets\/images\/services\/default/i.test(text)) return '';
                 if (item.product_image && text && !/^https?:\/\//i.test(text) && !text.startsWith('/') && !text.includes('/')) {
                     const base = document.body.getAttribute('data-base-url') || '';
                     return base + '/uploads/products/' + text;
@@ -3464,10 +3483,24 @@ window.pfCustomizationPreloadedOrders = (() => {
             staffDesignShowsAsImage(item) {
                 if (!item) return false;
                 if (item.design_is_image) return true;
+                if (!this.staffItemHasStoredDesign(item)) return false;
                 return this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
                     || this.staffFilenameLooksLikeImage(item.design_file)
                     || this.staffFilenameLooksLikeImage(item.artwork_path || this.currentJo?.artwork_path);
+            },
+            staffItemHasStoredDesign(item) {
+                if (!item) return false;
+                const custom = (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
+                    ? item.customization
+                    : {};
+                return !!(item.design_is_image
+                    || item.design_image_bytes > 0
+                    || (item.design_name && String(item.design_name).trim())
+                    || (item.design_image_name && String(item.design_image_name).trim())
+                    || (item.design_file && String(item.design_file).trim())
+                    || (custom.design_upload && String(custom.design_upload).trim())
+                    || (custom['Upload Design'] && String(custom['Upload Design']).trim()));
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
@@ -3504,16 +3537,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const genericDesignUrl = (item.design_url || '').trim();
                 if (genericDesignUrl) return this.staffResolveOrderUploadUrl(genericDesignUrl);
 
-                // Priority 7: Fallback to serve_design.php if we have order_item_id and filename
-                if (item.order_item_id && (this.staffFilenameLooksLikeImage(item.design_name) || item.design_is_image)) {
-                    return this.staffOrderItemDesignServeUrl(item);
-                }
-                if (item.order_item_id && item.design_name) {
-                    return this.staffOrderItemDesignServeUrl(item);
-                }
-                // Priority 8: Last resort — try serve_design.php by order_item_id alone.
-                // The server-side handler will return 404 if no file exists, so this is safe.
-                if (item.order_item_id) {
+                // Priority 7: Fallback to serve_design.php when we know a design was stored
+                if (item.order_item_id && this.staffItemHasStoredDesign(item)) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
                 return '';

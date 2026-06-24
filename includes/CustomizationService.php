@@ -567,6 +567,8 @@ class CustomizationService
             'order_date'     => (string)($order['order_date'] ?? ''),
             'total_amount'   => (float)($order['total_amount'] ?? 0),
             'estimated_price' => isset($order['estimated_price']) ? (float)$order['estimated_price'] : 0.0,
+            'order_source'   => (string)($order['order_source'] ?? ''),
+            'customization_id' => $this->resolvePrimaryCustomizationId($orderId),
             'order_notes'    => '',
             'revision_reason' => trim((string)($order['revision_reason'] ?? $order['rejection_reason'] ?? '')),
             'is_pos'         => $this->repo->rowIsPos($order),
@@ -645,6 +647,16 @@ class CustomizationService
         if (!$hasItemNotes && $orderNotes !== '') {
             $itemViews[0]['notes'] = $orderNotes;
         }
+    }
+
+    private function resolvePrimaryCustomizationId(int $orderId): int
+    {
+        $rows = $this->repo->getCustomizations($orderId);
+        if ($rows === []) {
+            return 0;
+        }
+
+        return (int)($rows[0]['customization_id'] ?? 0);
     }
 
     /**

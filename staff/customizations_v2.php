@@ -196,6 +196,17 @@ function cv2_fmt_date(string $raw): string
         .cv2-btn-revise:hover:not(:disabled) { background:#d97706; }
         .cv2-btn-close { background:#e2e8f0; color:#334155; }
         .cv2-btn-close:hover:not(:disabled) { background:#cbd5e1; }
+        .cv2-btn-pos { background:#0d9488; color:#fff; flex:1; justify-content:center; }
+        .cv2-btn-pos:hover:not(:disabled) { background:#0f766e; }
+
+        .cv2-pos-price { margin-bottom:14px; padding:16px; border-radius:12px; border:1px solid #99f6e4; background:#f0fdfa; }
+        .cv2-pos-price label { display:block; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#0f766e; margin-bottom:10px; }
+        .cv2-pos-price-wrap { position:relative; }
+        .cv2-pos-price-wrap span { position:absolute; left:14px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:18px; }
+        .cv2-pos-price input { width:100%; box-sizing:border-box; height:44px; padding:0 12px 0 38px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#fff; }
+        .cv2-pos-price input:focus { border-color:#0d9488; box-shadow:0 0 0 3px rgba(6,161,161,0.08); }
+        .cv2-pos-price-hint { margin-top:8px; font-size:12px; color:#0f766e; line-height:1.45; }
+        .cv2-drawer-foot.pos-mode { flex-direction:column; align-items:stretch; gap:10px; }
 
         .cv2-revise-panel { display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:12px; padding:14px; margin-bottom:14px; }
         .cv2-revise-panel.open { display:block; }
@@ -343,9 +354,13 @@ function cv2_fmt_date(string $raw): string
 <script>
 const CV2 = (function () {
     const API = <?php echo json_encode($api_base); ?>;
+    const STAFF_BASE = <?php echo json_encode(BASE_PATH . '/staff/'); ?>;
+    const ADMIN_API = <?php echo json_encode(BASE_PATH . '/admin/'); ?>;
     const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     let currentBucket = 'all';
     let currentDetail = null;
+    let returnToPos = false;
+    let posCustomizationId = 0;
 
     const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -442,7 +457,29 @@ const CV2 = (function () {
         </div>`;
 
         document.getElementById('cv2DrawerBody').innerHTML = html;
-        renderFooter(d);
+        renderFooter(d, isPosSetPriceMode(d));
+    }
+
+    function isPosSetPriceMode(d) {
+        if (!returnToPos || !d) return false;
+        const source = String(d.order_source || '').toLowerCase();
+        return d.is_pos || source === 'pos_draft' || source === 'pos' || source === 'walk-in';
+    }
+
+    function renderPosPricePanel(d) {
+        const current = d.total_amount > 0 ? d.total_amount : (d.estimated_price > 0 ? d.estimated_price : '');
+        const formatted = current ? Number(current).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        return `<div class="cv2-pos-price">
+            <label>Set Final Price</label>
+            ${d.estimated_price > 0 ? `<div style="font-size:12px;color:#0f766e;margin-bottom:10px;">Estimated: ₱${Number(d.estimated_price).toLocaleString('en-PH',{minimumFractionDigits:2})}</div>` : ''}
+            <div class="cv2-pos-price-wrap">
+                <span>₱</span>
+                <input type="text" id="cv2PosPrice" inputmode="decimal" placeholder="0.00" value="${esc(formatted)}"
+                    oninput="this.value=this.value.replace(/[^0-9.,]/g,'')"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();CV2.submitPosPrice();}">
+            </div>
+            <div class="cv2-pos-price-hint">Enter the amount for this POS service, then save to return to checkout.</div>
+        </div>`;
     }
 
     function renderItem(it, num) {
@@ -483,11 +520,90 @@ const CV2 = (function () {
         </div>`;
     }
 
-    function renderFooter(d) {
-        document.getElementById('cv2DrawerFoot').innerHTML = `
+    function renderFooter(d, posMode = false) {
+        const foot = document.getElementById('cv2DrawerFoot');
+        foot.classList.toggle('pos-mode', posMode);
+
+        if (posMode) {
+            foot.innerHTML = `${renderPosPricePanel(d)}
+                <button class="cv2-btn cv2-btn-pos" onclick="CV2.submitPosPrice()">Save Price & Return to POS</button>
+                <button class="cv2-btn cv2-btn-close" onclick="CV2.closeDrawer()">Cancel</button>`;
+            return;
+        }
+
+        foot.innerHTML = `
             <button class="cv2-btn cv2-btn-revise" onclick="CV2.toggleRevise()">↩ Request Revision</button>
             <button class="cv2-btn cv2-btn-close" onclick="CV2.act('close')">✓ Close</button>
             <button class="cv2-btn cv2-btn-approve" onclick="CV2.act('approve')">✓ Approve</button>`;
+    }
+
+    async function submitPosPrice() {
+        if (!currentDetail) return;
+
+        const raw = String(document.getElementById('cv2PosPrice')?.value || '').replace(/,/g, '');
+        const price = parseFloat(raw);
+        if (!price || price <= 0 || Number.isNaN(price)) {
+            banner('Please enter a valid price greater than 0.', 'err');
+            return;
+        }
+
+        const customizationId = posCustomizationId || parseInt(currentDetail.customization_id || 0, 10);
+        if (customizationId <= 0) {
+            banner('Could not find the linked customization record.', 'err');
+            return;
+        }
+
+        const btns = document.querySelectorAll('.cv2-drawer-foot .cv2-btn');
+        btns.forEach(b => b.disabled = true);
+        banner('Saving price…', 'info');
+
+        try {
+            const fd = new FormData();
+            fd.append('action', 'update_customization');
+            fd.append('id', customizationId);
+            fd.append('status', 'APPROVED');
+            fd.append('price', price);
+            const res = await fetch(`${ADMIN_API}job_orders_api.php`, { method: 'POST', body: fd });
+            const json = await res.json();
+            if (!json.success) {
+                throw new Error(json.error || json.message || 'Failed to save price.');
+            }
+
+            const savedState = sessionStorage.getItem('pos_cart_state');
+            if (savedState) {
+                const state = JSON.parse(savedState);
+                const itemIndex = state.item_index;
+                await fetch(`${STAFF_BASE}api/pos_cart_handler.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update_price', index: itemIndex, price })
+                });
+                await fetch(`${STAFF_BASE}api/pos_cart_handler.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'update_service_link',
+                        index: itemIndex,
+                        pending_order_id: parseInt(currentDetail.order_id || 0, 10) || 0,
+                        customization_id: customizationId
+                    })
+                });
+            }
+
+            clearDeepLinkParams();
+            window.location.href = `${STAFF_BASE}pos.php?from_customizations=1`;
+        } catch (e) {
+            banner(e.message, 'err');
+            btns.forEach(b => b.disabled = false);
+        }
+    }
+
+    function clearDeepLinkParams() {
+        try {
+            const url = new URL(window.location.href);
+            ['order_id', 'return_to_pos', 'customization_id', 'status', 'job_type', 'source_order_id'].forEach(key => url.searchParams.delete(key));
+            window.history.replaceState({}, document.title, url.toString());
+        } catch (_e) {}
     }
 
     function onReviseSelect() {
@@ -576,13 +692,15 @@ const CV2 = (function () {
         });
 
         const params = new URLSearchParams(location.search);
+        returnToPos = params.get('return_to_pos') === '1';
+        posCustomizationId = parseInt(params.get('customization_id') || '0', 10);
         const deepId = parseInt(params.get('order_id') || '0', 10);
         if (deepId > 0) openDrawer(deepId);
     }
 
     document.addEventListener('DOMContentLoaded', bind);
 
-    return { openDrawer, closeDrawer, act, toggleRevise, submitRevise, onReviseSelect, zoom };
+    return { openDrawer, closeDrawer, act, toggleRevise, submitRevise, onReviseSelect, zoom, submitPosPrice };
 })();
 </script>
 </body>
