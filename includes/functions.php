@@ -5607,6 +5607,157 @@ function printflow_resolve_order_item_name($raw_name, $custom, $fallback = 'Orde
 }
 
 /**
+ * Normalize a service image path the same way customer/services.php does.
+ */
+function pf_normalize_service_image_path($path, $base_path, $default_img) {
+    $path = trim((string)$path);
+    if ($path === '') {
+        return $default_img;
+    }
+    $path = str_replace('\\', '/', $path);
+    if (preg_match('#^https?://#i', $path)) {
+        return $path;
+    }
+    if (preg_match('#^[A-Za-z]:/#', $path)) {
+        $path = preg_replace('#^[A-Za-z]:#', '', $path);
+    }
+    $public_pos = strpos($path, '/public/');
+    if ($public_pos !== false) {
+        $path = substr($path, $public_pos);
+    }
+    $uploads_pos = strpos($path, '/uploads/');
+    if ($uploads_pos !== false && ($public_pos === false || $uploads_pos < $public_pos)) {
+        $path = substr($path, $uploads_pos);
+    }
+    if ($base_path === '' && strpos($path, '/printflow/') === 0) {
+        $path = substr($path, strlen('/printflow'));
+    }
+    if ($path !== '' && $path[0] !== '/') {
+        $path = '/' . ltrim($path, '/');
+    }
+    if ($base_path !== '' && strpos($path, $base_path . '/') !== 0) {
+        $path = $base_path . $path;
+    }
+    return $path;
+}
+
+/**
+ * First still image from display_image CSV, else first media, then hero — same as services.php cards.
+ */
+function pf_service_card_primary_image(string $display_csv, string $hero, string $base_path, string $default_img): string {
+    $candidates = [];
+    if (trim($display_csv) !== '') {
+        foreach (array_filter(array_map('trim', explode(',', $display_csv))) as $p) {
+            if ($p !== '') {
+                $candidates[] = $p;
+            }
+        }
+    }
+    if (trim($hero) !== '') {
+        $candidates[] = trim($hero);
+    }
+
+    $pick = '';
+    foreach ($candidates as $raw) {
+        if (!printflow_is_video_media_path($raw)) {
+            $pick = $raw;
+            break;
+        }
+    }
+    if ($pick === '' && $candidates !== []) {
+        $pick = $candidates[0];
+    }
+    if ($pick === '') {
+        return $default_img;
+    }
+
+    return pf_normalize_service_image_path($pick, $base_path, $default_img);
+}
+
+/**
+ * Catalog card image URL for a service row (matches customer/services.php).
+ *
+ * @param array<string,mixed> $svcRow
+ */
+function printflow_service_catalog_image_from_row(array $svcRow, string $default_img = ''): string {
+    $base = function_exists('pf_app_base_path') ? pf_app_base_path() : printflow_notification_base_path();
+    if ($default_img === '') {
+        $default_img = rtrim($base, '/') . '/public/assets/images/services/default.png';
+    }
+
+    return pf_service_card_primary_image(
+        (string)($svcRow['display_image'] ?? ''),
+        (string)($svcRow['hero_image'] ?? ''),
+        $base,
+        $default_img
+    );
+}
+
+function printflow_service_catalog_image_from_id(int $serviceId): string {
+    $serviceId = (int)$serviceId;
+    if ($serviceId <= 0) {
+        return '';
+    }
+
+    $rows = db_query(
+        "SELECT display_image, hero_image, image_path
+         FROM services
+         WHERE service_id = ?
+           AND status <> 'Archived'
+         LIMIT 1",
+        'i',
+        [$serviceId]
+    ) ?: [];
+
+    if ($rows === []) {
+        return '';
+    }
+
+    return printflow_service_catalog_image_from_row($rows[0]);
+}
+
+function printflow_service_catalog_image_from_name(string $serviceName): string {
+    $serviceName = trim($serviceName);
+    if ($serviceName === '') {
+        return '';
+    }
+
+    $aliases = function_exists('printflow_service_name_aliases')
+        ? printflow_service_name_aliases($serviceName)
+        : [$serviceName];
+    $aliases = array_values(array_unique(array_filter(array_map(
+        static fn($v) => trim((string)$v),
+        $aliases
+    ))));
+    if ($aliases === []) {
+        return '';
+    }
+
+    $conds = [];
+    $params = [];
+    foreach ($aliases as $alias) {
+        $conds[] = 'LOWER(TRIM(name)) = LOWER(TRIM(?))';
+        $params[] = $alias;
+    }
+
+    $rows = db_query(
+        'SELECT display_image, hero_image, image_path
+         FROM services
+         WHERE status <> \'Archived\'
+           AND (' . implode(' OR ', $conds) . ')
+         LIMIT 1',
+        str_repeat('s', count($params)),
+        $params
+    ) ?: [];
+
+    if ($rows === []) {
+        return '';
+    }
+
+    return printflow_service_catalog_image_from_row($rows[0]);
+}
+
+/**
  * Service image mapping - SAME as Services page ($core_services).
  * Source of truth: /customer/services.php
  */

@@ -128,9 +128,18 @@ if (!function_exists('printflow_resolve_order_upload_disk_path')) {
             return null;
         }
 
-        $abs = dirname(__DIR__) . str_replace('/', DIRECTORY_SEPARATOR, $webPath);
-        if (is_file($abs)) {
-            return $abs;
+        $root = dirname(__DIR__);
+        $candidates = [
+            $root . str_replace('/', DIRECTORY_SEPARATOR, $webPath),
+        ];
+        if (str_starts_with($webPath, '/uploads/')) {
+            $candidates[] = $root . DIRECTORY_SEPARATOR . 'public' . str_replace('/', DIRECTORY_SEPARATOR, $webPath);
+        }
+
+        foreach ($candidates as $abs) {
+            if (is_file($abs)) {
+                return $abs;
+            }
         }
 
         return null;
@@ -336,6 +345,58 @@ if (!function_exists('printflow_heal_order_item_design_from_payload')) {
             return printflow_persist_order_item_design_media($orderItemId, $binary, '', $name) !== null;
         }
 
+        $custRows = db_query(
+            'SELECT customization_details FROM customizations WHERE order_item_id = ? ORDER BY customization_id DESC LIMIT 3',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        foreach ($custRows as $custRow) {
+            $custPayload = function_exists('customer_orders_decode_customization_payload')
+                ? customer_orders_decode_customization_payload((string)($custRow['customization_details'] ?? ''))
+                : [];
+            if ($custPayload === []) {
+                continue;
+            }
+            foreach (['design_upload_data', 'upload_design_data', 'design_data'] as $dataKey) {
+                if (empty($custPayload[$dataKey]) || !is_scalar($custPayload[$dataKey])) {
+                    continue;
+                }
+                $raw = trim((string)$custPayload[$dataKey]);
+                if ($raw === '') {
+                    continue;
+                }
+                $binary = null;
+                $mime = trim((string)($custPayload['design_upload_mime'] ?? ''));
+                if (preg_match('#^data:([^;]+);base64,(.+)$#s', $raw, $matches)) {
+                    $binary = base64_decode($matches[2], true);
+                    if ($mime === '') {
+                        $mime = trim((string)$matches[1]);
+                    }
+                } else {
+                    $binary = base64_decode(preg_replace('/\s+/', '', $raw), true);
+                }
+                if ($binary !== false && $binary !== '') {
+                    $name = trim((string)($custPayload['design_upload_name'] ?? ($custPayload['design_upload'] ?? 'design')));
+                    return printflow_persist_order_item_design_media($orderItemId, $binary, $mime, $name) !== null;
+                }
+            }
+            foreach (['design_upload_path', 'design_file', 'upload_design_path'] as $pathKey) {
+                if (empty($custPayload[$pathKey]) || !is_scalar($custPayload[$pathKey])) {
+                    continue;
+                }
+                $disk = printflow_resolve_order_upload_disk_path((string)$custPayload[$pathKey]);
+                if ($disk === null) {
+                    continue;
+                }
+                $binary = @file_get_contents($disk);
+                if ($binary === false || $binary === '') {
+                    continue;
+                }
+                $name = trim((string)($custPayload['design_upload_name'] ?? ($custPayload['design_upload'] ?? basename($disk))));
+                return printflow_persist_order_item_design_media($orderItemId, $binary, '', $name) !== null;
+            }
+        }
+
         return false;
     }
 }
@@ -431,15 +492,15 @@ if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
             $sid = (int)($order['reference_id'] ?? 0);
         }
 
-        if ($sid > 0 && function_exists('printflow_notification_service_image_from_id')) {
-            $fromId = printflow_notification_service_image_from_id($sid);
+        if ($sid > 0 && function_exists('printflow_service_catalog_image_from_id')) {
+            $fromId = printflow_service_catalog_image_from_id($sid);
             if ($fromId !== '') {
                 return $fromId;
             }
         }
 
-        if ($serviceName !== '' && function_exists('printflow_notification_service_image_from_name')) {
-            $fromName = printflow_notification_service_image_from_name($serviceName);
+        if ($serviceName !== '' && function_exists('printflow_service_catalog_image_from_name')) {
+            $fromName = printflow_service_catalog_image_from_name($serviceName);
             if ($fromName !== '') {
                 return $fromName;
             }

@@ -1749,6 +1749,39 @@ try {
             });
         }
 
+        async function posStageMediaUpload(file, field = 'design') {
+            const fd = new FormData();
+            fd.append('field', field);
+            fd.append(field === 'reference' ? 'reference_file' : 'design_file', file);
+            const res = await fetch(staffUrl('staff/api/pos_upload_design.php'), {
+                method: 'POST',
+                body: fd
+            });
+            const data = await res.json();
+            if (!data || !data.success || !data.path) {
+                throw new Error((data && data.message) ? data.message : 'Failed to stage upload.');
+            }
+            return data;
+        }
+
+        async function posApplyStagedUpload(customization, file, field = 'design') {
+            const staged = await posStageMediaUpload(file, field);
+            if (field === 'reference') {
+                customization.reference_upload = staged.name;
+                customization.reference_upload_name = staged.name;
+                customization.reference_upload_mime = staged.mime;
+                customization.reference_upload_path = staged.path;
+                delete customization.reference_upload_data;
+            } else {
+                customization.design_upload = staged.name;
+                customization.design_upload_name = staged.name;
+                customization.design_upload_mime = staged.mime;
+                customization.design_upload_path = staged.path;
+                delete customization.design_upload_data;
+            }
+            return staged;
+        }
+
         async function confirmServiceModal() {
             const overlay = document.getElementById('service-modal-overlay');
             const serviceId = parseInt(overlay.dataset.serviceId);
@@ -1832,11 +1865,9 @@ try {
                     continue;
                 }
                 const file = fileInput.files[0];
-                const payload = await posReadFilePayload(file);
                 const row = fileInput.closest('.shopee-form-row');
                 const label = row ? row.querySelector('.shopee-form-label') : null;
                 const labelText = label ? label.innerText.replace('*', '').trim() : (fileInput.name || 'File');
-                customization[labelText] = payload.name;
 
                 const nameLc = String(fileInput.name || '').toLowerCase();
                 const labelLc = String(labelText || '').toLowerCase();
@@ -1847,16 +1878,20 @@ try {
                     || nameLc.includes('reference')
                     || (labelLc.includes('upload') && labelLc.includes('reference'));
 
-                if (isDesignField) {
-                    customization.design_upload = payload.name;
-                    customization.design_upload_name = payload.name;
-                    customization.design_upload_mime = payload.mime;
-                    customization.design_upload_data = payload.data;
-                } else if (isReferenceField) {
-                    customization.reference_upload = payload.name;
-                    customization.reference_upload_name = payload.name;
-                    customization.reference_upload_mime = payload.mime;
-                    customization.reference_upload_data = payload.data;
+                try {
+                    if (isDesignField) {
+                        await posApplyStagedUpload(customization, file, 'design');
+                        customization[labelText] = customization.design_upload_name;
+                    } else if (isReferenceField) {
+                        await posApplyStagedUpload(customization, file, 'reference');
+                        customization[labelText] = customization.reference_upload_name;
+                    } else {
+                        const payload = await posReadFilePayload(file);
+                        customization[labelText] = payload.name;
+                    }
+                } catch (uploadErr) {
+                    await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+                    return;
                 }
             }
 
@@ -2409,19 +2444,20 @@ try {
                 if (!(el && el.files && el.files.length > 0)) {
                     continue;
                 }
-                const payload = await posReadFilePayload(el.files[0]);
-                customization[name] = payload.name;
-                if (name === 'design_file') {
-                    customization.design_upload = payload.name;
-                    customization.design_upload_name = payload.name;
-                    customization.design_upload_mime = payload.mime;
-                    customization.design_upload_data = payload.data;
-                }
-                if (name === 'reference_file') {
-                    customization.reference_upload = payload.name;
-                    customization.reference_upload_name = payload.name;
-                    customization.reference_upload_mime = payload.mime;
-                    customization.reference_upload_data = payload.data;
+                try {
+                    if (name === 'design_file') {
+                        await posApplyStagedUpload(customization, el.files[0], 'design');
+                        customization[name] = customization.design_upload_name;
+                    } else if (name === 'reference_file') {
+                        await posApplyStagedUpload(customization, el.files[0], 'reference');
+                        customization[name] = customization.reference_upload_name;
+                    } else {
+                        const payload = await posReadFilePayload(el.files[0]);
+                        customization[name] = payload.name;
+                    }
+                } catch (uploadErr) {
+                    await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+                    return;
                 }
             }
         }
@@ -3005,6 +3041,7 @@ try {
                 if (data.success && data.order_id) {
                     const hadDesignUpload = !!(
                         item.customization?.design_upload_data
+                        || item.customization?.design_upload_path
                         || item.customization?.design_upload
                     );
                     if (hadDesignUpload && !data.design_saved) {

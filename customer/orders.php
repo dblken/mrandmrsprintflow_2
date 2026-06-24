@@ -12,7 +12,6 @@ require_role('Customer');
 ensure_ratings_table_exists();
 
 $customer_id = get_user_id();
-if (!defined('BASE_URL')) define('BASE_URL', '/printflow');
 // Mark notification as read if parameter present
 if (isset($_GET['mark_read'])) {
     $notification_id = (int)$_GET['mark_read'];

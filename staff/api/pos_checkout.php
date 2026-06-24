@@ -164,6 +164,43 @@ function pos_extract_inline_media_payload(array &$customization, string $prefix)
     ];
 
     if ($data === '') {
+        $pathKeys = $prefix === 'reference_upload'
+            ? ['reference_upload_path', 'reference_file']
+            : ['design_upload_path', 'design_file', 'design_tmp_path'];
+        foreach ($pathKeys as $pathKey) {
+            $storedPath = trim((string)($customization[$pathKey] ?? ''));
+            if ($storedPath === '') {
+                continue;
+            }
+            $disk = function_exists('printflow_resolve_order_upload_disk_path')
+                ? printflow_resolve_order_upload_disk_path($storedPath)
+                : null;
+            if ($disk === null || !is_file($disk)) {
+                continue;
+            }
+            $binary = @file_get_contents($disk);
+            if ($binary === false || $binary === '') {
+                continue;
+            }
+            $payload['blob'] = $binary;
+            if ($payload['name'] === 'design_upload' || $payload['name'] === 'reference_upload') {
+                $payload['name'] = basename($disk);
+            }
+            if ($payload['mime'] === '') {
+                $detected = @mime_content_type($disk);
+                $payload['mime'] = is_string($detected) && $detected !== '' ? $detected : 'application/octet-stream';
+            }
+            break;
+        }
+
+        if ($payload['blob'] !== null) {
+            unset(
+                $customization[$prefix . '_data'],
+                $customization[$prefix . '_name'],
+                $customization[$prefix . '_mime']
+            );
+        }
+
         return $payload;
     }
 

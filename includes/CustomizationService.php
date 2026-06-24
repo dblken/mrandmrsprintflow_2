@@ -845,6 +845,8 @@ class CustomizationService
             (bool)($images['has_reference'] ?? false)
         );
 
+        $designUploadName = trim((string)($custom['design_upload_name'] ?? ($custom['design_upload'] ?? '')));
+
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
             'name'              => $name,
@@ -860,6 +862,7 @@ class CustomizationService
             'product_image_url' => $images['product_image_url'],
             'has_design'        => $images['has_design'],
             'has_reference'     => $images['has_reference'],
+            'design_upload_name'=> $designUploadName,
         ];
     }
 
@@ -1764,11 +1767,20 @@ class CustomizationService
     ): array {
         $designUrl = $this->resolveAuthenticCustomerDesignUrl($item, $order, $custom, $candidateDesignUrl);
         $orderItemId = (int)($item['order_item_id'] ?? 0);
+
+        if ($orderItemId > 0 && function_exists('printflow_heal_order_item_design_from_payload')) {
+            printflow_heal_order_item_design_from_payload($orderItemId);
+        }
+
         $hasDesign = $designUrl !== null && (
             preg_match('#^data:#i', (string)$designUrl)
             || strpos((string)$designUrl, '/uploads/orders/') !== false
             || ($orderItemId > 0 && $this->verifyOrderItemHasStoredDesign($orderItemId))
         );
+        if (!$hasDesign && $orderItemId > 0 && $this->verifyOrderItemHasStoredDesign($orderItemId)) {
+            $designUrl = $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId;
+            $hasDesign = true;
+        }
         if (!$hasDesign) {
             $designUrl = null;
         }

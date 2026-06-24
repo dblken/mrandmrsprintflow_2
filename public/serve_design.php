@@ -38,17 +38,10 @@ function pf_serve_design_emit_file(string $path, string $mime = '', string $file
     exit;
 }
 
-function pf_serve_design_emit_fallback(string $reason = '', bool $allowDefaultImage = true): void {
+function pf_serve_design_emit_fallback(string $reason = '', bool $allowDefaultImage = false): void {
     global $default_fallback_image;
 
     pf_serve_design_no_cache_headers();
-
-    if ($allowDefaultImage && is_file($default_fallback_image)) {
-        http_response_code(200);
-        pf_serve_design_emit_file($default_fallback_image, 'image/png', 'default.png');
-    }
-
-    // Empty 404 so <img onerror> handlers can fall back to catalog/default art.
     http_response_code(404);
     header('Content-Type: text/plain; charset=UTF-8');
     echo $reason !== '' ? $reason : 'Image unavailable';
