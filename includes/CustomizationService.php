@@ -838,6 +838,12 @@ class CustomizationService
 
         $neededDate = $this->extractNeededDateFromCustom($custom);
         $images = $this->resolveStaffDesignImages($item, $order, $custom, $isService);
+        $specs = $this->sanitizeSpecsForItemView(
+            $specs,
+            $notes,
+            (bool)($images['has_design'] ?? false),
+            (bool)($images['has_reference'] ?? false)
+        );
 
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
@@ -882,6 +888,9 @@ class CustomizationService
             }
             $ck = (string)$ck;
             if (in_array($ck, $skip, true) || stripos($ck, 'description') !== false) {
+                continue;
+            }
+            if ($this->shouldSkipSpecificationKey($ck)) {
                 continue;
             }
             $ckNorm = strtolower(preg_replace('/[^a-z0-9]/', '', $ck));
@@ -1032,6 +1041,12 @@ class CustomizationService
         $notes = $this->resolveStorePayloadNotes($custom, $item, $order);
         $neededDate = $this->extractNeededDateFromCustom($custom);
         $images = $this->resolveStorePayloadImages($item, $custom, $order, $name);
+        $specs = $this->sanitizeSpecsForItemView(
+            $specs,
+            $notes,
+            (bool)($images['has_design'] ?? false),
+            (bool)($images['has_reference'] ?? false)
+        );
 
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
@@ -1107,11 +1122,6 @@ class CustomizationService
     private function extractSpecificationsFromDisplayCustom(array $custom): array
     {
         $specs = [];
-        $skipNormalized = [
-            'quantity', 'qty', 'jobnotes', 'notes', 'specialinstructions',
-            'otherinstructions', 'additionalnotes', 'designnotes',
-            'servicetype', 'producttype',
-        ];
 
         foreach ($custom as $key => $value) {
             if (!is_string($key) && !is_int($key)) {
@@ -1121,12 +1131,7 @@ class CustomizationService
             if ($key === '' || $value === '' || $value === null) {
                 continue;
             }
-
-            $normalized = strtolower(preg_replace('/[^a-z0-9]/', '', $key));
-            if (in_array($normalized, $skipNormalized, true)) {
-                continue;
-            }
-            if (in_array($key, self::SKIP_KEYS, true)) {
+            if ($this->shouldSkipSpecificationKey($key)) {
                 continue;
             }
 
@@ -1325,6 +1330,106 @@ class CustomizationService
         return $hasUpload && $hasDesign;
     }
 
+    private function isReferenceUploadKey(string $normalizedKey): bool
+    {
+        if (in_array($normalizedKey, ['referenceupload', 'referenceattachment', 'referenceimage', 'uploadreference'], true)) {
+            return true;
+        }
+
+        $hasReference = strpos($normalizedKey, 'reference') !== false;
+        $hasUpload = strpos($normalizedKey, 'upload') !== false
+            || strpos($normalizedKey, 'attachment') !== false
+            || strpos($normalizedKey, 'image') !== false;
+
+        return $hasReference && $hasUpload;
+    }
+
+    /**
+     * Whether a customization key/label should never appear as a spec tile.
+     */
+    private function shouldSkipSpecificationKey(string $key): bool
+    {
+        if ($key === '' || in_array($key, self::SKIP_KEYS, true)) {
+            return true;
+        }
+
+        if (stripos($key, 'description') !== false) {
+            return true;
+        }
+
+        $normalized = strtolower(preg_replace('/[^a-z0-9]/', '', $key));
+        if (in_array($normalized, [
+            'quantity', 'qty', 'jobnotes', 'notes', 'note',
+            'specialinstructions', 'otherinstructions', 'additionalnotes', 'designnotes',
+            'servicetype', 'producttype', 'ordernotes',
+        ], true)) {
+            return true;
+        }
+
+        if ($this->isUploadDesignKey($normalized) || $this->isReferenceUploadKey($normalized)) {
+            return true;
+        }
+
+        if (preg_match('/upload\s*design/iu', $key)) {
+            return true;
+        }
+
+        if (preg_match('/reference\s*(attachment|image|upload)/iu', $key)) {
+            return true;
+        }
+
+        if (preg_match('/^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?)$/iu', trim($key))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function looksLikeFilename(string $text): bool
+    {
+        return (bool) preg_match('/\.(jpe?g|png|gif|webp|pdf|ai|psd|svg|bmp|tiff?|heic)$/i', trim($text));
+    }
+
+    /**
+     * Remove upload filenames and duplicate notes from spec tiles.
+     *
+     * @param array<int,array{label:string,value:string}> $specs
+     * @return array<int,array{label:string,value:string}>
+     */
+    private function sanitizeSpecsForItemView(array $specs, string $notes, bool $hasDesign, bool $hasReference): array
+    {
+        $notesNorm = strtolower(trim(preg_replace('/\s+/', ' ', $notes)));
+        $out = [];
+
+        foreach ($specs as $spec) {
+            $label = trim((string)($spec['label'] ?? ''));
+            $value = trim((string)($spec['value'] ?? ''));
+            if ($label === '' || $value === '') {
+                continue;
+            }
+            if ($this->shouldSkipSpecificationKey($label)) {
+                continue;
+            }
+
+            $valueNorm = strtolower(trim(preg_replace('/\s+/', ' ', $value)));
+            if ($notesNorm !== '' && $valueNorm === $notesNorm) {
+                continue;
+            }
+
+            if ($hasDesign && $this->looksLikeFilename($value) && preg_match('/design|upload/iu', $label)) {
+                continue;
+            }
+
+            if ($hasReference && $this->looksLikeFilename($value) && preg_match('/reference|upload/iu', $label)) {
+                continue;
+            }
+
+            $out[] = ['label' => $label, 'value' => $value];
+        }
+
+        return $out;
+    }
+
     /**
      * @param array<string,mixed> $custom
      */
@@ -1469,7 +1574,7 @@ class CustomizationService
             if ($value === '' || $value === null) {
                 continue;
             }
-            if (in_array($key, self::SKIP_KEYS, true)) {
+            if ($this->shouldSkipSpecificationKey($key)) {
                 continue;
             }
             // *description* fields are folded into Notes (matches customer view).

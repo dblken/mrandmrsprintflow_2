@@ -147,31 +147,31 @@ function cv2_fmt_date(string $raw): string
         .cv2-empty { text-align:center; padding:50px 20px; color:#94a3b8; font-size:14px; }
         .cv2-table-wrap { overflow-x:auto; }
 
-        /* Detail drawer */
-        .cv2-overlay { position:fixed; inset:0; background:rgba(2,12,18,0.55); backdrop-filter:blur(3px); z-index:9000; display:none; }
-        .cv2-overlay.open { display:block; }
-        .cv2-drawer { position:fixed; top:0; right:0; height:100%; width:min(680px,100vw); background:#f8fafc; z-index:9001; transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); display:flex; flex-direction:column; box-shadow:-12px 0 40px rgba(0,0,0,0.25); }
-        .cv2-drawer.open { transform:translateX(0); }
-        .cv2-drawer-head { padding:18px 22px; background:#0a2530; color:#fff; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-        .cv2-drawer-head h2 { margin:0; font-size:18px; font-weight:800; }
-        .cv2-drawer-head .cv2-sub { font-size:12px; color:#9fc4d4; margin-top:2px; }
-        .cv2-close { background:rgba(255,255,255,0.12); border:none; color:#fff; width:36px; height:36px; border-radius:10px; cursor:pointer; font-size:20px; line-height:1; flex-shrink:0; }
-        .cv2-close:hover { background:rgba(255,255,255,0.22); }
-        .cv2-drawer-body { padding:20px 22px 30px; overflow-y:auto; flex:1; }
-        .cv2-drawer-foot { padding:14px 22px; background:#fff; border-top:1px solid #e5e7eb; display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+        /* Detail modal (centered, like legacy customizations) */
+        .cv2-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9000; display:none; align-items:center; justify-content:center; padding:16px; }
+        .cv2-overlay.open { display:flex; }
+        .cv2-modal { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:680px; max-height:88vh; display:none; flex-direction:column; overflow:hidden; position:relative; }
+        .cv2-modal.open { display:flex; }
+        .cv2-modal-head { padding:20px 24px; border-bottom:1px solid #f3f4f6; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; background:#fff; flex-shrink:0; }
+        .cv2-modal-head h2 { margin:0; font-size:18px; font-weight:700; color:#1f2937; }
+        .cv2-modal-head .cv2-sub { font-size:12px; color:#6b7280; margin-top:2px; }
+        .cv2-close { background:transparent; border:none; color:#6b7280; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:22px; line-height:1; flex-shrink:0; }
+        .cv2-close:hover { background:#f3f4f6; color:#374151; }
+        .cv2-modal-body { padding:20px 24px 24px; overflow-y:auto; flex:1; background:#fff; }
+        .cv2-modal-foot { padding:16px 24px; background:#fff; border-top:1px solid #f3f4f6; display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; flex-shrink:0; }
 
-        .cv2-section { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:18px; margin-bottom:16px; }
-        .cv2-section h3 { margin:0 0 14px; font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:#0a2530; display:flex; align-items:center; gap:8px; }
-        .cv2-section h3 .cv2-dot { width:7px; height:7px; border-radius:50%; background:var(--cv2-accent); }
+        .cv2-section { background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:16px; }
+        .cv2-section h3 { margin:0 0 12px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#9ca3af; display:flex; align-items:center; gap:8px; }
+        .cv2-section h3 .cv2-dot { display:none; }
         .cv2-kv { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
         .cv2-kv-item .cv2-k { font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:#94a3b8; margin-bottom:3px; }
         .cv2-kv-item .cv2-v { font-size:14px; font-weight:700; color:#0f172a; word-break:break-word; }
 
-        .cv2-item { border:1px solid #e5e7eb; border-radius:14px; overflow:hidden; margin-bottom:16px; background:#fff; }
-        .cv2-item-head { background:#0a2530; color:#fff; padding:14px 16px; display:flex; align-items:center; gap:12px; }
-        .cv2-item-head .cv2-it-title { font-size:15px; font-weight:800; margin:0; }
-        .cv2-item-head .cv2-it-cat { font-size:11px; font-weight:700; color:var(--cv2-accent); text-transform:uppercase; letter-spacing:.05em; }
-        .cv2-item-body { padding:16px; }
+        .cv2-item { border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; margin-bottom:16px; background:#fff; }
+        .cv2-item-head { background:#fff; color:#1f2937; padding:12px 14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid #e5e7eb; }
+        .cv2-item-head .cv2-it-title { font-size:14px; font-weight:700; margin:0; color:#1f2937; }
+        .cv2-item-head .cv2-it-cat { font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; }
+        .cv2-item-body { padding:14px; }
         .cv2-specs { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
         .cv2-spec { background:#f8fafc; border:1px solid #eef2f7; border-radius:10px; padding:9px 11px; }
         .cv2-spec .cv2-sl { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; color:#94a3b8; margin-bottom:3px; line-height:1.2; }
@@ -181,7 +181,7 @@ function cv2_fmt_date(string $raw): string
         .cv2-media-row { display:flex; flex-wrap:wrap; gap:14px; margin-top:14px; }
         .cv2-media { flex:1 1 150px; }
         .cv2-media .cv2-ml { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:#64748b; margin-bottom:6px; }
-        .cv2-media img { width:100%; max-width:200px; border-radius:10px; border:1px solid #e5e7eb; cursor:zoom-in; background:#f1f5f9; display:block; transition:transform .15s; }
+        .cv2-media img { width:100%; max-width:280px; max-height:320px; object-fit:contain; border-radius:10px; border:1px solid #e5e7eb; cursor:zoom-in; background:#f8fafc; display:block; transition:transform .15s; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); }
         .cv2-media img:hover { transform:scale(1.02); }
 
         .cv2-notes { margin-top:14px; background:#fffbeb; border:1px solid #fde68a; border-left:4px solid #f59e0b; border-radius:10px; padding:12px 14px; }
@@ -206,7 +206,8 @@ function cv2_fmt_date(string $raw): string
         .cv2-pos-price input { width:100%; box-sizing:border-box; height:44px; padding:0 12px 0 38px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#fff; }
         .cv2-pos-price input:focus { border-color:#0d9488; box-shadow:0 0 0 3px rgba(6,161,161,0.08); }
         .cv2-pos-price-hint { margin-top:8px; font-size:12px; color:#0f766e; line-height:1.45; }
-        .cv2-drawer-foot.pos-mode { flex-direction:column; align-items:stretch; gap:10px; }
+        .cv2-drawer-foot.pos-mode,
+        .cv2-modal-foot.pos-mode { flex-direction:column; align-items:stretch; gap:10px; }
 
         .cv2-revise-panel { display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:12px; padding:14px; margin-bottom:14px; }
         .cv2-revise-panel.open { display:block; }
@@ -332,18 +333,19 @@ function cv2_fmt_date(string $raw): string
     </div>
 </div>
 
-<!-- Detail drawer -->
-<div class="cv2-overlay" id="cv2Overlay" onclick="CV2.closeDrawer()"></div>
-<div class="cv2-drawer" id="cv2Drawer" aria-hidden="true">
-    <div class="cv2-drawer-head">
-        <div>
-            <h2 id="cv2DrawerTitle">Order</h2>
-            <div class="cv2-sub" id="cv2DrawerSub"></div>
+<!-- Detail modal -->
+<div class="cv2-overlay" id="cv2Overlay" onclick="CV2.closeDrawer()">
+    <div class="cv2-modal" id="cv2Drawer" aria-hidden="true" onclick="event.stopPropagation()">
+        <div class="cv2-modal-head">
+            <div>
+                <h2 id="cv2DrawerTitle">Order</h2>
+                <div class="cv2-sub" id="cv2DrawerSub"></div>
+            </div>
+            <button class="cv2-close" onclick="CV2.closeDrawer()" aria-label="Close">&times;</button>
         </div>
-        <button class="cv2-close" onclick="CV2.closeDrawer()" aria-label="Close">&times;</button>
+        <div class="cv2-modal-body" id="cv2DrawerBody"></div>
+        <div class="cv2-modal-foot" id="cv2DrawerFoot"></div>
     </div>
-    <div class="cv2-drawer-body" id="cv2DrawerBody"></div>
-    <div class="cv2-drawer-foot" id="cv2DrawerFoot"></div>
 </div>
 
 <!-- Lightbox -->
@@ -386,7 +388,7 @@ const CV2 = (function () {
     }
 
     async function openDrawer(orderId) {
-        const drawer = document.getElementById('cv2Drawer');
+        const modal = document.getElementById('cv2Drawer');
         const overlay = document.getElementById('cv2Overlay');
         const body = document.getElementById('cv2DrawerBody');
         const foot = document.getElementById('cv2DrawerFoot');
@@ -395,8 +397,9 @@ const CV2 = (function () {
         body.innerHTML = '<div class="cv2-spinner"></div>';
         foot.innerHTML = '';
         overlay.classList.add('open');
-        drawer.classList.add('open');
-        drawer.setAttribute('aria-hidden', 'false');
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
 
         try {
             const res = await fetch(`${API}?action=detail&order_id=${encodeURIComponent(orderId)}&_=${Date.now()}`, { cache: 'no-store' });
@@ -443,6 +446,10 @@ const CV2 = (function () {
 
         (d.items || []).forEach((it, idx) => { html += renderItem(it, (d.items.length > 1) ? (idx + 1) : 0); });
 
+        if (isPosSetPriceMode(d)) {
+            html += renderPosPricePanel(d);
+        }
+
         html += `<div class="cv2-revise-panel" id="cv2RevisePanel">
             <label>Reason for revision</label>
             <select id="cv2ReviseSelect" onchange="CV2.onReviseSelect()">
@@ -482,11 +489,29 @@ const CV2 = (function () {
         </div>`;
     }
 
+    function filterDisplaySpecs(specs, notes, it) {
+        const notesNorm = String(notes || '').trim().toLowerCase();
+        const skipLabel = /^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|upload\s*design|reference\s*(attachment|image|upload))$/i;
+        const filename = /\.(jpe?g|png|gif|webp|pdf|ai|psd|svg|bmp|tiff?|heic)$/i;
+
+        return (specs || []).filter(s => {
+            const label = String(s.label || '').trim();
+            const value = String(s.value || '').trim();
+            if (!label || !value) return false;
+            if (skipLabel.test(label)) return false;
+            if (notesNorm && value.toLowerCase() === notesNorm) return false;
+            if (it.design_url && filename.test(value) && /design|upload/i.test(label)) return false;
+            if (it.reference_url && filename.test(value) && /reference|upload/i.test(label)) return false;
+            return true;
+        });
+    }
+
     function renderItem(it, num) {
         const title = num ? `${num}. ${esc(it.name)}` : esc(it.name);
+        const displaySpecs = filterDisplaySpecs(it.specs, it.notes, it);
         let specs;
-        if (it.specs && it.specs.length) {
-            specs = '<div class="cv2-specs">' + it.specs.map(s =>
+        if (displaySpecs.length) {
+            specs = '<div class="cv2-specs">' + displaySpecs.map(s =>
                 `<div class="cv2-spec"><div class="cv2-sl">${esc(s.label)}</div><div class="cv2-sv">${esc(s.value)}</div></div>`
             ).join('') + '</div>';
         } else {
@@ -494,13 +519,15 @@ const CV2 = (function () {
         }
 
         const blocks = [];
-        if (it.has_design && it.design_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Uploaded Design</div><img src="${esc(it.design_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        } else if (it.design_url && !it.product_image_url) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Uploaded Design</div><img src="${esc(it.design_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        if (it.design_url) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(it.design_url)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
         }
-        if (it.has_reference && it.reference_url) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(it.reference_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
-        if (it.product_image_url && !it.design_url && !it.has_design) blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product Image</div><img src="${esc(it.product_image_url)}" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        if (it.reference_url) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Reference Image</div><img src="${esc(it.reference_url)}" alt="Reference image" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        }
+        if (it.product_image_url && !it.design_url) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Product Image</div><img src="${esc(it.product_image_url)}" alt="Product image" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        }
         const media = blocks.length ? `<div class="cv2-media-row">${blocks.join('')}</div>` : '';
 
         const notes = it.notes ? `<div class="cv2-notes"><div class="cv2-nl">Notes</div><div class="cv2-nv">${esc(it.notes)}</div></div>` : '';
@@ -512,8 +539,8 @@ const CV2 = (function () {
                     <h4 class="cv2-it-title">${title}</h4>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:11px; color:#9fc4d4;">Qty</div>
-                    <div style="font-size:16px; font-weight:800;">${esc(it.quantity)}</div>
+                    <div style="font-size:11px; color:#6b7280;">Qty</div>
+                    <div style="font-size:16px; font-weight:700; color:#1f2937;">${esc(it.quantity)}</div>
                 </div>
             </div>
             <div class="cv2-item-body">${specs}${media}${notes}</div>
@@ -525,7 +552,7 @@ const CV2 = (function () {
         foot.classList.toggle('pos-mode', posMode);
 
         if (posMode) {
-            foot.innerHTML = `${renderPosPricePanel(d)}
+            foot.innerHTML = `
                 <button class="cv2-btn cv2-btn-pos" onclick="CV2.submitPosPrice()">Save Price & Return to POS</button>
                 <button class="cv2-btn cv2-btn-close" onclick="CV2.closeDrawer()">Cancel</button>`;
             return;
@@ -553,7 +580,7 @@ const CV2 = (function () {
             return;
         }
 
-        const btns = document.querySelectorAll('.cv2-drawer-foot .cv2-btn');
+        const btns = document.querySelectorAll('.cv2-modal-foot .cv2-btn');
         btns.forEach(b => b.disabled = true);
         banner('Saving price…', 'info');
 
@@ -633,7 +660,7 @@ const CV2 = (function () {
     async function act(action, extra = {}) {
         if (!currentDetail) return;
         const orderId = currentDetail.order_id;
-        const btns = document.querySelectorAll('.cv2-drawer-foot .cv2-btn');
+        const btns = document.querySelectorAll('.cv2-modal-foot .cv2-btn');
         btns.forEach(b => b.disabled = true);
         banner('Working…', 'info');
         try {
@@ -663,10 +690,11 @@ const CV2 = (function () {
 
     function closeDrawer() {
         document.getElementById('cv2Overlay').classList.remove('open');
-        const drawer = document.getElementById('cv2Drawer');
-        drawer.classList.remove('open');
-        drawer.setAttribute('aria-hidden', 'true');
+        const modal = document.getElementById('cv2Drawer');
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
         currentDetail = null;
+        document.body.style.overflow = '';
     }
 
     function zoom(src) {
