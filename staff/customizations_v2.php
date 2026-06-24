@@ -502,6 +502,7 @@ const CV2 = (function () {
     }
 
     function effectiveDesignUrl(it) {
+        if (!it || !it.has_design) return '';
         let url = String(it.design_url || '').trim();
         const itemId = parseInt(it.order_item_id || 0, 10);
         if ((!url || looksLikeCatalogImage(url)) && itemId > 0) {
@@ -549,9 +550,11 @@ const CV2 = (function () {
         }
 
         const blocks = [];
-        const designSrc = effectiveDesignUrl(it);
-        if (designSrc && !looksLikeCatalogImage(designSrc)) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+        if (it.has_design) {
+            const designSrc = effectiveDesignUrl(it);
+            if (designSrc && !looksLikeCatalogImage(designSrc)) {
+                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').style.display='none'"></div>`);
+            }
         }
         const refSrc = effectiveReferenceUrl(it);
         if (refSrc && !looksLikeCatalogImage(refSrc)) {

@@ -1495,6 +1495,11 @@ class CustomizationService
      */
     private function itemHasUploadEvidence(array $item, array $custom, int $orderId = 0): bool
     {
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        if ($orderItemId > 0 && $this->verifyOrderItemHasStoredDesign($orderItemId)) {
+            return true;
+        }
+
         if ((int)($item['design_image_bytes'] ?? 0) > 0) {
             return true;
         }
@@ -1536,6 +1541,59 @@ class CustomizationService
                 if ($this->payloadHasInlineMediaData($payload, 'design') || $this->payloadHasMedia($payload, 'design')) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * True only when the order item actually has retrievable design bytes or a file on disk.
+     */
+    private function verifyOrderItemHasStoredDesign(int $orderItemId): bool
+    {
+        if ($orderItemId <= 0) {
+            return false;
+        }
+
+        $rows = db_query(
+            "SELECT design_file, IFNULL(LENGTH(design_image), 0) AS blob_len, customization_data
+             FROM order_items
+             WHERE order_item_id = ?
+             LIMIT 1",
+            'i',
+            [$orderItemId]
+        ) ?: [];
+
+        if ($rows === []) {
+            return false;
+        }
+
+        $row = $rows[0];
+        if ((int)($row['blob_len'] ?? 0) > 0) {
+            return true;
+        }
+
+        $designFile = trim((string)($row['design_file'] ?? ''));
+        if ($designFile !== '' && $this->resolveOrderUploadPathUrl(['design_file' => $designFile], []) !== null) {
+            return true;
+        }
+
+        $payload = customer_orders_decode_customization_payload((string)($row['customization_data'] ?? ''));
+        if ($this->payloadHasInlineMediaData($payload, 'design')) {
+            return true;
+        }
+
+        foreach (['design_upload_path', 'upload_design_path', 'design_file', 'layout_file'] as $key) {
+            if (empty($payload[$key]) || !is_scalar($payload[$key])) {
+                continue;
+            }
+            $path = trim((string)$payload[$key]);
+            if ($path === '' || preg_match('#^data:#i', $path)) {
+                continue;
+            }
+            if ($this->resolveOrderUploadPathUrl(['design_file' => $path], $payload) !== null) {
+                return true;
             }
         }
 
@@ -1715,7 +1773,15 @@ class CustomizationService
         ?string $candidateReferenceUrl
     ): array {
         $designUrl = $this->resolveAuthenticCustomerDesignUrl($item, $order, $custom, $candidateDesignUrl);
-        $hasDesign = $designUrl !== null;
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        $hasDesign = $designUrl !== null && (
+            preg_match('#^data:#i', (string)$designUrl)
+            || strpos((string)$designUrl, '/uploads/orders/') !== false
+            || ($orderItemId > 0 && $this->verifyOrderItemHasStoredDesign($orderItemId))
+        );
+        if (!$hasDesign) {
+            $designUrl = null;
+        }
 
         $referenceUrl = $candidateReferenceUrl;
         if ($referenceUrl !== null && $this->isLikelyCatalogOrPlaceholderImageUrl($referenceUrl, $order, $custom)) {
@@ -1725,7 +1791,6 @@ class CustomizationService
         if ($inlineRef !== null) {
             $referenceUrl = $inlineRef;
         }
-        $orderItemId = (int)($item['order_item_id'] ?? 0);
         if ($referenceUrl === null && $orderItemId > 0
             && (trim((string)($item['reference_image_file'] ?? '')) !== '' || $this->payloadHasMedia($custom, 'reference'))) {
             $referenceUrl = $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';

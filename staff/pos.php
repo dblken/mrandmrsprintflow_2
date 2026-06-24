@@ -3003,6 +3003,17 @@ try {
                 });
                 const data = await res.json();
                 if (data.success && data.order_id) {
+                    const hadDesignUpload = !!(
+                        item.customization?.design_upload_data
+                        || item.customization?.design_upload
+                    );
+                    if (hadDesignUpload && !data.design_saved) {
+                        await showPOSAlert(
+                            'Upload Warning',
+                            'Your design file may not have saved correctly. If the preview is wrong in Customizations, re-add the item with the image and try Set Price again.',
+                            'warning'
+                        );
+                    }
                     // Redirect to Customizations V2 to set price, then return to POS
                     const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations_v2.php'); ?>, window.location.origin);
                     redirectUrl.searchParams.set('order_id', data.order_id);

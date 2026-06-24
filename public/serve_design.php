@@ -37,14 +37,14 @@ function pf_serve_design_emit_file(string $path, string $mime = '', string $file
     exit;
 }
 
-function pf_serve_design_emit_fallback(string $reason = ''): void {
+function pf_serve_design_emit_fallback(string $reason = '', bool $allowDefaultImage = true): void {
     global $default_fallback_image;
 
-    if (is_file($default_fallback_image)) {
+    if ($allowDefaultImage && is_file($default_fallback_image)) {
         pf_serve_design_emit_file($default_fallback_image, 'image/png', 'default.png');
     }
 
-    http_response_code(200);
+    http_response_code($allowDefaultImage ? 200 : 404);
     pf_serve_design_no_cache_headers();
     header('Content-Type: image/svg+xml; charset=UTF-8');
     $label = $reason !== '' ? htmlspecialchars($reason, ENT_QUOTES, 'UTF-8') : 'Image unavailable';
@@ -443,7 +443,7 @@ if ($type === 'order_item') {
     )[0] ?? null;
 
     if (!$item) {
-        pf_serve_design_emit_fallback('Image not found');
+        pf_serve_design_emit_fallback('Image not found', false);
     }
 
     if ($field === 'revision_design') {
@@ -451,7 +451,7 @@ if ($type === 'order_item') {
         if (pf_serve_design_read_file($item['revision_design_path'] ?? '')) {
             exit;
         }
-        pf_serve_design_emit_fallback('Revision not found');
+        pf_serve_design_emit_fallback('Revision not found', false);
     } elseif ($field === 'reference') {
         if (pf_serve_design_read_file($item['reference_image_file'] ?? '')) {
             exit;
@@ -506,7 +506,7 @@ if ($type === 'order_item') {
         }
     }
 
-    pf_serve_design_emit_fallback('Image unavailable');
+    pf_serve_design_emit_fallback('Image unavailable', false);
 }
 
 if ($type === 'service_file') {
