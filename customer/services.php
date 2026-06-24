@@ -14,39 +14,6 @@ require_role('Customer');
 $base_path = pf_app_base_path();
 $default_service_img = $base_path . '/public/assets/images/services/default.png';
 
-function pf_normalize_service_image_path($path, $base_path, $default_img) {
-    $path = trim((string)$path);
-    if ($path === '') {
-        return $default_img;
-    }
-    $path = str_replace('\\', '/', $path);
-    // Absolute URLs must be used as-is so images load from CDNs or absolute hosts.
-    if (preg_match('#^https?://#i', $path)) {
-        return $path;
-    }
-    if (preg_match('#^[A-Za-z]:/#', $path)) {
-        $path = preg_replace('#^[A-Za-z]:#', '', $path);
-    }
-    $public_pos = strpos($path, '/public/');
-    if ($public_pos !== false) {
-        $path = substr($path, $public_pos);
-    }
-    $uploads_pos = strpos($path, '/uploads/');
-    if ($uploads_pos !== false && ($public_pos === false || $uploads_pos < $public_pos)) {
-        $path = substr($path, $uploads_pos);
-    }
-    if ($base_path === '' && strpos($path, '/printflow/') === 0) {
-        $path = substr($path, strlen('/printflow'));
-    }
-    if ($path !== '' && $path[0] !== '/') {
-        $path = '/' . ltrim($path, '/');
-    }
-    if ($base_path !== '' && strpos($path, $base_path . '/') !== 0) {
-        $path = $base_path . $path;
-    }
-    return $path;
-}
-
 function pf_service_local_asset_exists($urlPath, $base_path): bool {
     $urlPath = trim((string)$urlPath);
     if ($urlPath === '' || preg_match('#^https?://#i', $urlPath)) {
@@ -89,38 +56,6 @@ function pf_service_local_asset_exists($urlPath, $base_path): bool {
     }
 
     return false;
-}
-
-/**
- * First image (non-video) from display_image CSV, else first media, then hero.
- */
-function pf_service_card_primary_image(string $display_csv, string $hero, string $base_path, string $default_img): string {
-    $candidates = [];
-    if (trim($display_csv) !== '') {
-        foreach (array_filter(array_map('trim', explode(',', $display_csv))) as $p) {
-            if ($p !== '') {
-                $candidates[] = $p;
-            }
-        }
-    }
-    if (trim($hero) !== '') {
-        $candidates[] = trim($hero);
-    }
-
-    $pick = '';
-    foreach ($candidates as $raw) {
-        if (!pf_service_media_is_video($raw)) {
-            $pick = $raw;
-            break;
-        }
-    }
-    if ($pick === '' && $candidates !== []) {
-        $pick = $candidates[0];
-    }
-    if ($pick === '') {
-        return $default_img;
-    }
-    return pf_normalize_service_image_path($pick, $base_path, $default_img);
 }
 
 function pf_service_media_is_video($path) {
