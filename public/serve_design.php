@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/order_items_persistence.php';
 
 // Base directories used by older and newer upload code.
 $htdocs_root = realpath(__DIR__ . '/../../');
@@ -118,8 +119,53 @@ function pf_serve_design_file_candidates(?string $storedPath): array {
     return array_values(array_unique($candidates));
 }
 
+function pf_serve_design_try_order_item_blob(int $orderItemId): bool {
+    if ($orderItemId <= 0) {
+        return false;
+    }
+
+    $metaRows = db_query(
+        "SELECT IFNULL(LENGTH(design_image), 0) AS blob_len, design_image_mime, design_image_name
+         FROM order_items
+         WHERE order_item_id = ?
+         LIMIT 1",
+        'i',
+        [$orderItemId]
+    ) ?: [];
+    if ($metaRows === [] || (int)($metaRows[0]['blob_len'] ?? 0) <= 0) {
+        return false;
+    }
+
+    $blobRows = db_query(
+        "SELECT design_image FROM order_items WHERE order_item_id = ? LIMIT 1",
+        'i',
+        [$orderItemId]
+    ) ?: [];
+    if ($blobRows === [] || !isset($blobRows[0]['design_image'])) {
+        return false;
+    }
+
+    $blob = (string)$blobRows[0]['design_image'];
+    if ($blob === '') {
+        return false;
+    }
+
+    pf_serve_design_emit_blob(
+        $blob,
+        (string)($metaRows[0]['design_image_mime'] ?: 'image/jpeg'),
+        (string)($metaRows[0]['design_image_name'] ?? 'design')
+    );
+}
+
 function pf_serve_design_read_file(?string $storedPath): bool {
     global $htdocs_root, $printflow_root;
+
+    if (function_exists('printflow_resolve_order_upload_disk_path')) {
+        $resolved = printflow_resolve_order_upload_disk_path((string)$storedPath);
+        if ($resolved !== null && is_file($resolved)) {
+            pf_serve_design_emit_file($resolved);
+        }
+    }
 
     $allowedRoots = array_values(array_filter([
         $printflow_root ? realpath($printflow_root) : null,
@@ -464,13 +510,12 @@ if ($type === 'order_item') {
             exit;
         }
     } else {
-        // Try BLOB first
-        if (!empty($item['design_image'])) {
-            pf_serve_design_emit_blob(
-                (string)$item['design_image'],
-                (string)($item['design_image_mime'] ?: 'image/jpeg'),
-                (string)($item['design_image_name'] ?? 'design')
-            );
+        if (function_exists('printflow_heal_order_item_design_from_payload')) {
+            printflow_heal_order_item_design_from_payload($id);
+        }
+
+        if (pf_serve_design_try_order_item_blob($id)) {
+            exit;
         }
         // Then try File
         if (pf_serve_design_read_file($item['design_file'] ?? '')) {

@@ -575,19 +575,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
 
                         if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
                             $design_binary = file_get_contents($item['design_tmp_path']);
-                            $ext = strtolower(pathinfo($design_name, PATHINFO_EXTENSION));
-                            $new_name = uniqid('design_') . '_' . time() . '.' . $ext;
-                            if (copy($item['design_tmp_path'], $upload_dir . '/' . $new_name)) {
-                                $design_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
-                            }
                         }
 
                         if (!empty($item['reference_tmp_path']) && file_exists($item['reference_tmp_path'])) {
                             $ref_name = $item['reference_name'] ?? 'reference.jpg';
                             $ext = strtolower(pathinfo($ref_name, PATHINFO_EXTENSION));
+                            if ($ext === '') {
+                                $ext = 'jpg';
+                            }
                             $new_name = uniqid('ref_') . '_' . time() . '.' . $ext;
                             if (copy($item['reference_tmp_path'], $upload_dir . '/' . $new_name)) {
-                                $reference_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
+                                $reference_file_path = '/uploads/orders/' . $new_name;
                             }
                         }
 
@@ -605,7 +603,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                                     $uploadedFilesMeta[] = [
                                         'label' => $label,
                                         'name' => $origName,
-                                        'path' => (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $newName,
+                                        'path' => '/uploads/orders/' . $newName,
                                         'mime' => (string)($upload['mime'] ?? ''),
                                     ];
                                 }
@@ -658,6 +656,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
 
                         if ($order_item_id > 0) {
                             $created_order_item_ids_by_key[$key] = $order_item_id;
+
+                            if ($design_binary !== null && $design_binary !== '') {
+                                $persistedDesignPath = printflow_persist_order_item_design_media(
+                                    (int)$order_item_id,
+                                    (string)$design_binary,
+                                    (string)($design_mime ?? ''),
+                                    (string)($design_name ?? 'design'),
+                                    (string)($item['design_tmp_path'] ?? '')
+                                );
+                                if ($persistedDesignPath !== null && $persistedDesignPath !== '') {
+                                    $design_file_path = $persistedDesignPath;
+                                    $custom = printflow_attach_upload_paths_to_customization(
+                                        $custom,
+                                        $design_file_path,
+                                        $reference_file_path,
+                                        $design_name
+                                    );
+                                    $custom_data = printflow_encode_customization_payload($custom);
+                                    $items_to_review[$key]['customization'] = $custom;
+                                    db_execute(
+                                        'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
+                                        'si',
+                                        [$custom_data, $order_item_id]
+                                    );
+                                }
+                            }
                         } elseif (review_item_is_service($item)) {
                             $checkout_line_failures[] = (string)($item['name'] ?? $key);
                         }

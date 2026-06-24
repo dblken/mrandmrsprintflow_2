@@ -54,6 +54,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../includes/order_items_persistence.php';
 
 require_role('Customer');
 
@@ -442,7 +443,8 @@ if (!empty($first_item_raw_customization[0]['customization_data'])) {
 
     // Get items with design info
     $items = db_query("
-    SELECT oi.*, p.name as product_name, p.category
+    SELECT oi.*, p.name as product_name, p.category,
+           IFNULL(LENGTH(oi.design_image), 0) AS design_image_bytes
     FROM order_items oi
     LEFT JOIN products p ON oi.product_id = p.product_id
     WHERE oi.order_id = ?
@@ -594,6 +596,36 @@ if ($any_design_order_item_id > 0) {
 }
 
 foreach ($items as $lineIndex => $item) {
+    $orderItemId = (int)($item['order_item_id'] ?? 0);
+    if ($orderItemId > 0 && !printflow_order_item_row_has_retrievable_design($item)) {
+        $restoreItem = $session_restore_items[$lineIndex] ?? null;
+        if (is_array($restoreItem) && !empty($restoreItem['design_tmp_path']) && is_file((string)$restoreItem['design_tmp_path'])) {
+            $healedPath = printflow_persist_order_item_design_media(
+                $orderItemId,
+                null,
+                (string)($restoreItem['design_mime'] ?? ''),
+                (string)($restoreItem['design_name'] ?? 'design'),
+                (string)$restoreItem['design_tmp_path']
+            );
+            if ($healedPath !== null) {
+                $item['design_file'] = $healedPath;
+                $item['design_image_bytes'] = max(1, (int)($item['design_image_bytes'] ?? 0));
+            }
+        } else {
+            printflow_heal_order_item_design_from_payload($orderItemId);
+            $healedRows = db_query(
+                'SELECT design_file, IFNULL(LENGTH(design_image), 0) AS design_image_bytes
+                 FROM order_items WHERE order_item_id = ? LIMIT 1',
+                'i',
+                [$orderItemId]
+            ) ?: [];
+            if (!empty($healedRows[0])) {
+                $item['design_file'] = (string)($healedRows[0]['design_file'] ?? $item['design_file'] ?? '');
+                $item['design_image_bytes'] = (int)($healedRows[0]['design_image_bytes'] ?? 0);
+            }
+        }
+    }
+
     $custom_data = customer_order_items_decode_customization_payload((string)($item['customization_data'] ?? ''));
     $session_restore_custom = isset($session_restore_items[$lineIndex])
         ? customer_order_items_restore_customization_from_session($session_restore_items[$lineIndex])
@@ -742,11 +774,11 @@ foreach ($items as $lineIndex => $item) {
     }
 
     $line_oid = (int)($item['order_item_id'] ?? 0);
-    $has_own_design = !empty($item['design_image']) || (isset($item['design_file']) && trim((string)$item['design_file']) !== '');
+    $has_own_design = printflow_order_item_row_has_retrievable_design($item);
     $design_serve_id = $has_own_design
         ? $line_oid
         : (($line_oid === 0 && $any_design_order_item_id > 0) ? $any_design_order_item_id : 0);
-    $has_design_thumb = $design_serve_id > 0;
+    $has_design_thumb = $design_serve_id > 0 && $has_own_design;
 
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,

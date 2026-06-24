@@ -221,57 +221,17 @@ function pos_store_order_item_inline_media(int $orderItemId, array $designPayloa
     global $conn;
 
     if (!empty($designPayload['blob'])) {
-        $storedDesignPath = null;
-        if (is_dir($uploadDir) && is_writable($uploadDir)) {
-            $baseName = trim((string)($designPayload['name'] ?? 'design_upload'));
-            $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', $baseName);
-            if ($safeName === '' || $safeName === null) {
-                $safeName = 'design_upload';
-            }
-            $targetName = time() . '_design_' . $orderItemId . '_' . $safeName;
-            $targetPath = $uploadDir . '/' . $targetName;
-            if (@file_put_contents($targetPath, $designPayload['blob']) !== false) {
-                $storedDesignPath = '/uploads/orders/' . $targetName;
-                $result['design_path'] = $storedDesignPath;
-            }
+        $webPath = printflow_persist_order_item_design_media(
+            $orderItemId,
+            (string)$designPayload['blob'],
+            (string)($designPayload['mime'] ?? 'application/octet-stream'),
+            (string)($designPayload['name'] ?? 'design_upload')
+        );
+        if ($webPath !== null) {
+            $result['design_path'] = $webPath;
+            $result['design_name'] = (string)($designPayload['name'] ?? 'design_upload');
+            $result['design_blob_saved'] = true;
         }
-
-        $blob = $designPayload['blob'];
-        $mime = (string)($designPayload['mime'] ?? 'application/octet-stream');
-        $name = (string)($designPayload['name'] ?? 'design_upload');
-        $path = (string)($storedDesignPath ?? '');
-        $result['design_name'] = $name;
-
-        $blobSaved = false;
-        if ($conn instanceof mysqli) {
-            $stmt = $conn->prepare(
-                'UPDATE order_items
-                 SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
-                 WHERE order_item_id = ?'
-            );
-            if ($stmt) {
-                $nullBlob = null;
-                $stmt->bind_param('bsssi', $nullBlob, $mime, $name, $path, $orderItemId);
-                $stmt->send_long_data(0, $blob);
-                $blobSaved = $stmt->execute();
-                if (!$blobSaved) {
-                    error_log('pos_store_order_item_inline_media design blob failed: ' . $stmt->error);
-                }
-                $stmt->close();
-            }
-        }
-
-        if (!$blobSaved) {
-            db_execute(
-                'UPDATE order_items
-                 SET design_image_mime = ?, design_image_name = ?, design_file = ?
-                 WHERE order_item_id = ?',
-                'sssi',
-                [$mime, $name, $path, $orderItemId]
-            );
-        }
-
-        $result['design_blob_saved'] = $blobSaved || $storedDesignPath !== null;
     }
 
     if (!empty($referencePayload['blob'])) {
@@ -302,7 +262,9 @@ function pos_store_order_item_inline_media(int $orderItemId, array $designPayloa
 
 function pos_apply_stored_media_to_customization(array &$customization, array $stored): void {
     if (!empty($stored['design_path'])) {
-        $path = (string)$stored['design_path'];
+        $path = function_exists('printflow_normalize_order_upload_web_path')
+            ? printflow_normalize_order_upload_web_path((string)$stored['design_path'])
+            : (string)$stored['design_path'];
         $customization['design_upload_path'] = $path;
         $customization['design_file'] = $path;
         $name = trim((string)($stored['design_name'] ?? ''));
@@ -313,7 +275,9 @@ function pos_apply_stored_media_to_customization(array &$customization, array $s
     }
 
     if (!empty($stored['reference_path'])) {
-        $path = (string)$stored['reference_path'];
+        $path = function_exists('printflow_normalize_order_upload_web_path')
+            ? printflow_normalize_order_upload_web_path((string)$stored['reference_path'])
+            : (string)$stored['reference_path'];
         $customization['reference_upload_path'] = $path;
         $customization['reference_file'] = $path;
         $name = trim((string)($stored['reference_name'] ?? ''));

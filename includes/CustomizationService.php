@@ -1557,7 +1557,7 @@ class CustomizationService
         }
 
         $rows = db_query(
-            "SELECT design_file, IFNULL(LENGTH(design_image), 0) AS blob_len, customization_data
+            "SELECT design_file, IFNULL(LENGTH(design_image), 0) AS blob_len, design_image, customization_data
              FROM order_items
              WHERE order_item_id = ?
              LIMIT 1",
@@ -1569,31 +1569,21 @@ class CustomizationService
             return false;
         }
 
-        $row = $rows[0];
-        if ((int)($row['blob_len'] ?? 0) > 0) {
+        if (function_exists('printflow_order_item_row_has_retrievable_design')
+            && printflow_order_item_row_has_retrievable_design($rows[0])) {
             return true;
         }
 
-        $designFile = trim((string)($row['design_file'] ?? ''));
-        if ($designFile !== '' && $this->resolveOrderUploadPathUrl(['design_file' => $designFile], []) !== null) {
-            return true;
-        }
-
-        $payload = customer_orders_decode_customization_payload((string)($row['customization_data'] ?? ''));
-        if ($this->payloadHasInlineMediaData($payload, 'design')) {
-            return true;
-        }
-
-        foreach (['design_upload_path', 'upload_design_path', 'design_file', 'layout_file'] as $key) {
-            if (empty($payload[$key]) || !is_scalar($payload[$key])) {
-                continue;
-            }
-            $path = trim((string)$payload[$key]);
-            if ($path === '' || preg_match('#^data:#i', $path)) {
-                continue;
-            }
-            if ($this->resolveOrderUploadPathUrl(['design_file' => $path], $payload) !== null) {
-                return true;
+        if (function_exists('printflow_heal_order_item_design_from_payload')
+            && printflow_heal_order_item_design_from_payload($orderItemId)) {
+            $healed = db_query(
+                "SELECT design_file, IFNULL(LENGTH(design_image), 0) AS blob_len, design_image
+                 FROM order_items WHERE order_item_id = ? LIMIT 1",
+                'i',
+                [$orderItemId]
+            ) ?: [];
+            if ($healed !== [] && function_exists('printflow_order_item_row_has_retrievable_design')) {
+                return printflow_order_item_row_has_retrievable_design($healed[0]);
             }
         }
 
