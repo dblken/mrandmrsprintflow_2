@@ -1112,7 +1112,8 @@ require_once __DIR__ . '/../includes/header.php';
                             $preview_url = function_exists('printflow_resolve_order_preview_image_url')
                                 ? printflow_resolve_order_preview_image_url($order, $d_name)
                                 : get_preview_image_for_order_ui($order, $d_name);
-                            $catalog_fallback_url = $preview_url;
+                            $catalog_fallback_url = (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : rtrim((string)BASE_URL, '/'))
+                                . '/public/assets/images/services/default.png';
                             $timestamp_meta = $order['_display_timestamp_meta'] ?? printflow_customer_order_timestamp_meta($order);
                         ?>
                         <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">

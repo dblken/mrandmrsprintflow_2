@@ -3518,6 +3518,86 @@ function printflow_resolve_service_catalog_service_id(?string $serviceName): int
 }
 
 /**
+ * Resolve services.service_id for My Orders list thumbnails.
+ * Prefer live catalog name (same as customer/services.php) over orders.reference_id, which is often a placeholder product_id.
+ *
+ * @param array<string,mixed> $order
+ * @param array<string,mixed> $custom
+ */
+function printflow_resolve_order_list_catalog_service_id(array $order, array $custom, string $displayName = ''): int {
+    $validateServicePk = static function (int $sid): int {
+        if ($sid <= 0 || !function_exists('db_query')) {
+            return 0;
+        }
+        $hit = db_query(
+            "SELECT service_id FROM services WHERE service_id = ? AND LOWER(TRIM(COALESCE(status,''))) <> 'archived' LIMIT 1",
+            'i',
+            [$sid]
+        );
+
+        return !empty($hit) ? $sid : 0;
+    };
+
+    $resolveName = static function (string $hint) use ($validateServicePk): int {
+        $hint = trim($hint);
+        if ($hint === '' || !function_exists('printflow_resolve_service_catalog_service_id')) {
+            return 0;
+        }
+        $sid = printflow_resolve_service_catalog_service_id($hint);
+        return $validateServicePk($sid);
+    };
+
+    $displayName = trim($displayName);
+    $serviceName = trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? '')));
+    if ($serviceName === '' || (function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($serviceName))) {
+        $serviceName = trim((string)(function_exists('get_service_name_from_customization')
+            ? get_service_name_from_customization($custom, '')
+            : ''));
+    }
+    if (($serviceName === '' || (function_exists('customer_orders_is_generic_item_name') && customer_orders_is_generic_item_name($serviceName)))
+        && $displayName !== '') {
+        $serviceName = $displayName;
+    }
+
+    $nameCandidates = array_values(array_unique(array_filter([
+        $displayName,
+        $serviceName,
+        trim((string)($order['first_job_title'] ?? '')),
+        trim((string)($order['first_job_service_type'] ?? '')),
+    ], static fn($v) => trim((string)$v) !== '')));
+
+    foreach ($nameCandidates as $hint) {
+        $fromName = $resolveName((string)$hint);
+        if ($fromName > 0) {
+            return $fromName;
+        }
+    }
+
+    $fromCustom = $validateServicePk((int)($custom['service_id'] ?? 0));
+    if ($fromCustom > 0) {
+        return $fromCustom;
+    }
+
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    if ($orderType === 'custom') {
+        $fromRef = $validateServicePk((int)($order['reference_id'] ?? 0));
+        if ($fromRef > 0) {
+            return $fromRef;
+        }
+    }
+
+    if (!empty($order['first_product_id'])) {
+        $probePid = (int)$order['first_product_id'];
+        $fromProductPk = $validateServicePk($probePid);
+        if ($fromProductPk > 0) {
+            return $fromProductPk;
+        }
+    }
+
+    return 0;
+}
+
+/**
  * Resolve catalog service_id for an existing order line (modal / history). Mirrors Plates-style reliability when
  * JSON carries service_id; fills gaps from orders.reference_id, product label, or job metadata.
  */
