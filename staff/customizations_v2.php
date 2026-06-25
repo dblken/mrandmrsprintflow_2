@@ -502,13 +502,26 @@ const CV2 = (function () {
     }
 
     function effectiveDesignUrl(it) {
-        if (!it || !it.has_design) return '';
-        let url = String(it.design_url || '').trim();
-        const itemId = parseInt(it.order_item_id || 0, 10);
-        if ((!url || looksLikeCatalogImage(url)) && itemId > 0) {
-            url = `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}`;
+        if (!it) return '';
+        if (it.design_url && !looksLikeCatalogImage(it.design_url)) {
+            return String(it.design_url).trim();
         }
-        return url;
+        if (it.design_serve_url) {
+            return String(it.design_serve_url).trim();
+        }
+        const itemId = parseInt(it.order_item_id || 0, 10);
+        if (itemId > 0 && (it.has_design || it.design_exists)) {
+            return `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}`;
+        }
+        return '';
+    }
+
+    function designMissingMessage(it) {
+        const path = String(it.design_missing_path || it.design_file || '').trim();
+        if (path) {
+            return `Missing file:<br><code style="font-size:12px;word-break:break-all;">${esc(path)}</code>`;
+        }
+        return 'Customer upload is not available. Ask them to re-send the file.';
     }
 
     function effectiveReferenceUrl(it) {
@@ -550,13 +563,13 @@ const CV2 = (function () {
         }
 
         const blocks = [];
-        if (it.has_design) {
+        if (it.has_design || it.design_exists) {
             const designSrc = effectiveDesignUrl(it);
             if (designSrc && !looksLikeCatalogImage(designSrc)) {
-                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').innerHTML='<div class=\\'cv2-ml\\'>Design Preview</div><div style=\\'padding:12px;color:#64748b;font-size:13px;\\'>Customer upload is not available. Ask them to re-send the file.</div>'"></div>`);
+                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').innerHTML='<div class=\\'cv2-ml\\'>Design Preview</div><div style=\\'padding:12px;color:#64748b;font-size:13px;\\'>${designMissingMessage(it)}</div>'"></div>`);
             }
-        } else if (it.design_upload_name || (it.specs || []).some(s => /upload\s*design/i.test(String(s.label||'')))) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">Customer upload is not available. Ask them to re-send the file.</div></div>`);
+        } else if (it.design_upload_requested || it.design_upload_name || (it.specs || []).some(s => /upload\s*design/i.test(String(s.label||'')))) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">${designMissingMessage(it)}</div></div>`);
         }
         const refSrc = effectiveReferenceUrl(it);
         if (refSrc && !looksLikeCatalogImage(refSrc)) {

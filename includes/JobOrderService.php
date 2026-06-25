@@ -1476,6 +1476,23 @@ class JobOrderService {
             }
         }
 
+        if (function_exists('getOrderDesignImage')) {
+            $resolvedDesign = getOrderDesignImage($item, [
+                'customization' => $custom,
+                'heal'          => true,
+            ]);
+            if (!empty($resolvedDesign['exists'])) {
+                $designOpenUrl = $resolvedDesign['serve_url'] ?? $resolvedDesign['direct_url'] ?? $resolvedDesign['url'] ?? $designOpenUrl;
+                $designIsImage = !empty($resolvedDesign['is_image']) || $designIsImage;
+                if (!empty($resolvedDesign['stored_path'])) {
+                    $item['design_file'] = $resolvedDesign['stored_path'];
+                }
+                if ($designName === '' && !empty($resolvedDesign['design_name'])) {
+                    $designName = (string)$resolvedDesign['design_name'];
+                }
+            }
+        }
+
         return [
             'design_url' => $designIsImage ? $designOpenUrl : null,
             'design_open_url' => $designOpenUrl,

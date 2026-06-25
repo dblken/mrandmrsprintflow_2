@@ -293,13 +293,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                 // Read binary from temp file (session only stores path, not raw bytes)
                 if (!empty($item['design_tmp_path']) && file_exists($item['design_tmp_path'])) {
                     $design_binary = file_get_contents($item['design_tmp_path']);
-                    $ext = strtolower(pathinfo((string)$design_name, PATHINFO_EXTENSION));
-                    if ($ext === '') {
-                        $ext = 'bin';
-                    }
-                    $new_name = uniqid('design_') . '_' . time() . '.' . $ext;
-                    if (copy($item['design_tmp_path'], $upload_dir . '/' . $new_name)) {
-                        $design_file_path = (defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '') . '/uploads/orders/' . $new_name;
+                    $design_file_path = printflow_copy_cart_design_to_orders_dir(
+                        (string)$item['design_tmp_path'],
+                        (string)$design_name
+                    );
+                    if ($design_file_path === null && $design_binary !== false && $design_binary !== '') {
+                        error_log('checkout: design copy failed for tmp ' . (string)$item['design_tmp_path']);
                     }
                 }
 
@@ -360,6 +359,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     $reference_file_path
                 );
                 $inserted_order_item_ids[$pid] = $order_item_id;
+
+                if ($order_item_id > 0) {
+                    if (($design_binary !== null && $design_binary !== '')
+                        || (!empty($item['design_tmp_path']) && is_file((string)$item['design_tmp_path']))) {
+                        $persistedPath = printflow_persist_order_item_design_media(
+                            (int)$order_item_id,
+                            $design_binary !== false ? (string)$design_binary : null,
+                            (string)($design_mime ?? ''),
+                            (string)($design_name ?? 'design'),
+                            (string)($item['design_tmp_path'] ?? '')
+                        );
+                        if ($persistedPath !== null && $persistedPath !== '') {
+                            $design_file_path = $persistedPath;
+                            $custom = printflow_attach_upload_paths_to_customization(
+                                $custom,
+                                $design_file_path,
+                                $reference_file_path,
+                                $design_name
+                            );
+                            $custom_data = printflow_encode_customization_payload($custom);
+                            $cart_items[$pid]['customization'] = $custom;
+                            db_execute(
+                                'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
+                                'si',
+                                [$custom_data, $order_item_id]
+                            );
+                        }
+                    }
+                    $cart_items[$pid]['design_file_path'] = $design_file_path;
+                    printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
+                    error_log('ORDER ITEM ID: ' . $order_item_id);
+                    error_log('DESIGN FILE: ' . (string)($design_file_path ?? ''));
+                    error_log('FULL PATH: ' . (string)(printflow_resolve_order_upload_disk_path((string)($design_file_path ?? '')) ?? 'null'));
+                }
 
                 if (checkout_item_is_service($item)) {
                     printflow_persist_service_customization_row(
@@ -443,7 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                         'due_date'        => null,
                         'priority'        => 'NORMAL',
                         'order_item_id'   => $oi_id,
-                        'artwork_path'    => null,
+                        'artwork_path'    => $item['design_file_path'] ?? ($custom['design_upload_path'] ?? null),
                         'created_by'      => null,
                     ]);
                 } catch (Exception $e) {

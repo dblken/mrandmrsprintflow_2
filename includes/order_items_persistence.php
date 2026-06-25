@@ -4,6 +4,8 @@
  * Ensures checkout always saves order_items + customizations with correct schema/types.
  */
 
+require_once __DIR__ . '/design_resolver.php';
+
 if (!function_exists('printflow_ensure_order_items_columns')) {
     /**
      * Ensure order_items has every column checkout/staff need, with safe types.

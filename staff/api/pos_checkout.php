@@ -693,6 +693,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         $order_item_id = $conn->insert_id;
         $storedMedia = pos_store_order_item_inline_media($order_item_id, $draftDesignPayload, $draftReferencePayload);
         pos_apply_stored_media_to_customization($customization, $storedMedia);
+        printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
 
         $details_json = json_encode($customization ?: new stdClass());
         $customization_result = db_execute(
@@ -911,6 +912,10 @@ try {
         $order_item_id = $conn->insert_id;
         $storedMedia = pos_store_order_item_inline_media($order_item_id, $designPayload, $referencePayload);
         pos_apply_stored_media_to_customization($custom_details, $storedMedia);
+        printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
+        error_log('ORDER ITEM ID: ' . $order_item_id);
+        error_log('DESIGN FILE: ' . (string)($storedMedia['design_path'] ?? ''));
+        error_log('FULL PATH: ' . (string)(printflow_resolve_order_upload_disk_path((string)($storedMedia['design_path'] ?? '')) ?? 'null'));
         $customization_json = json_encode($custom_details ?: new stdClass());
         db_execute(
             'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
