@@ -171,6 +171,48 @@ if (!function_exists('pf_order_ui_normalize_review_customization')) {
     }
 }
 
+if (!function_exists('pf_order_ui_cart_has_design_upload')) {
+    function pf_order_ui_cart_has_design_upload(array $item): bool
+    {
+        if (!empty($item['design_tmp_path']) && is_file((string)$item['design_tmp_path'])) {
+            return true;
+        }
+        if (!empty($item['design_name']) || !empty($item['design_mime'])) {
+            return true;
+        }
+        if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+            foreach ($item['uploaded_files'] as $upload) {
+                $field = strtolower(trim((string)($upload['field'] ?? '')));
+                if ($field === '' || str_contains($field, 'design')) {
+                    return true;
+                }
+            }
+        }
+
+        $custom = is_array($item['customization'] ?? null)
+            ? $item['customization']
+            : (is_string($item['customization'] ?? null) ? json_decode((string)$item['customization'], true) : []);
+        if (!is_array($custom)) {
+            return false;
+        }
+
+        foreach ($custom as $key => $value) {
+            if (!is_scalar($value) || trim((string)$value) === '') {
+                continue;
+            }
+            $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$key));
+            if (in_array($nk, ['designupload', 'desingupload', 'designfile', 'uploaddesign'], true)) {
+                return true;
+            }
+            if (str_contains($nk, 'design') && (str_contains($nk, 'upload') || str_contains($nk, 'file'))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
 if (!function_exists('pf_order_ui_temp_preview_url')) {
     function pf_order_ui_temp_preview_url(array $item, string $field): ?string {
         $cart_key = (string)($item['_cart_key'] ?? '');
@@ -211,7 +253,7 @@ if (!function_exists('pf_order_ui_resolve_item_design_urls')) {
             $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
             if ($tmp_design) {
                 $design_url = $tmp_design;
-            } elseif (!empty($item['product_image'])) {
+            } elseif (!pf_order_ui_cart_has_design_upload($item) && !empty($item['product_image'])) {
                 $design_url = pf_order_ui_asset_url($item['product_image']);
             }
             if ($tmp_reference) {
@@ -238,7 +280,9 @@ if (!function_exists('pf_order_ui_resolve_item_design_urls')) {
         }
 
         if (!$design_url && function_exists('printflow_resolve_order_service_catalog_image_url')) {
-            $design_url = printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
+            if (!$is_cart_item || !pf_order_ui_cart_has_design_upload($item)) {
+                $design_url = printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
+            }
         }
 
         return ['design_url' => $design_url, 'ref_url' => $ref_url];
@@ -570,10 +614,11 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
  */
 function render_order_item_clean($item, $is_cart_item = false, $show_price = true, $show_quantity = true) {
     // 1. Data Normalization
-    $custom = $is_cart_item
+    $rawCustom = $is_cart_item
         ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
         : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
-    $custom = pf_order_ui_normalize_review_customization($custom, $item, $is_cart_item);
+    $custom = pf_order_ui_normalize_review_customization($rawCustom, $item, $is_cart_item);
+    $notesCombined = pf_order_ui_resolve_special_instructions_text($rawCustom, $item);
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? 'Order Item'), $custom, 'Order Item');
     
     $category = $item['category'] ?? 'General';
@@ -681,10 +726,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
             </div>
 
             <!-- Notes -->
-            <?php
-            $notesCombined = pf_order_ui_resolve_special_instructions_text($custom, $item);
-            if ($notesCombined !== ''):
-            ?>
+            <?php if ($notesCombined !== ''): ?>
                 <div style="margin-top: 1.5rem; padding: 1.25rem; background: rgba(83, 197, 224, 0.08); border: 1px solid rgba(83, 197, 224, 0.22); border-left: 4px solid #53c5e0; border-radius: 12px;">
                     <div style="font-size: 0.75rem; font-weight: 800; color: #53c5e0; text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
                         Special Instructions & Notes

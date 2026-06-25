@@ -70,6 +70,11 @@ if (empty($order_result)) {
 }
 $order = $order_result[0];
 
+$customManagementUrl = printflow_staff_order_management_url($order_id, false);
+if (strpos($customManagementUrl, '/staff/customizations_v2.php') !== false) {
+    redirect($customManagementUrl);
+}
+
 // Get order items
 $items = db_query("
     SELECT oi.*, p.name as product_name, p.sku, p.category

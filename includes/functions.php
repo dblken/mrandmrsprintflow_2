@@ -688,7 +688,7 @@ function staff_notification_target_url(array $n): string {
         }
 
         if (strpos($type, 'job order') !== false || strpos($type, 'payment issue') !== false) {
-            return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=JOB';
+            return $base . '/staff/customizations_v2.php?order_id=' . $data_id;
         }
 
         if (
@@ -706,7 +706,7 @@ function staff_notification_target_url(array $n): string {
             [$data_id]
         );
         if (!empty($job_row)) {
-            return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=JOB';
+            return $base . '/staff/customizations_v2.php?order_id=' . $data_id;
         }
 
         $ord_row = db_query(
@@ -2730,7 +2730,7 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
     }
 
     if ($isCustom) {
-        $url = $base . '/staff/customizations.php?order_id=' . $orderId . '&job_type=ORDER';
+        $url = $base . '/staff/customizations_v2.php?order_id=' . $orderId;
         // For custom orders, we often want to default to PENDING status if they haven't been reviewed
         if ($preferPendingStatus && $orderSource !== 'pos' && $orderSource !== 'walk-in') {
             $url .= '&status=PENDING';

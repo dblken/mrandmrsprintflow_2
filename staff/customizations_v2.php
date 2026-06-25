@@ -464,6 +464,7 @@ const CV2 = (function () {
                 ${price > 0 ? `<div class="cv2-kv-item"><div class="cv2-k">${d.estimated_price > 0 ? 'Estimated' : 'Total'}</div><div class="cv2-v">₱${Number(price).toLocaleString('en-PH',{minimumFractionDigits:2})}</div></div>` : ''}
             </div>
             ${d.revision_reason ? `<div class="cv2-notes" style="background:#eff6ff;border-color:#bfdbfe;border-left-color:#3b82f6;"><div class="cv2-nl" style="color:#1d4ed8;">Awaiting Customer Response</div><div class="cv2-nv" style="color:#1e40af;">${esc(d.revision_reason)}</div></div>` : ''}
+            ${d.order_notes ? `<div class="cv2-notes"><div class="cv2-nl">Customer Notes</div><div class="cv2-nv">${esc(d.order_notes)}</div></div>` : ''}
         </div>`;
 
         (d.items || []).forEach((it, idx) => { html += renderItem(it, (d.items.length > 1) ? (idx + 1) : 0); });
@@ -532,17 +533,10 @@ const CV2 = (function () {
             return String(it.design_url).trim();
         }
         const itemId = parseInt(it.order_item_id || 0, 10);
-        if (itemId > 0) {
+        if (itemId > 0 && (it.has_design || it.design_exists)) {
             return `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}`;
         }
         return '';
-    }
-
-    function shouldShowDesign(it) {
-        if (!it) return false;
-        if (it.has_design || it.design_exists || it.design_url || it.design_serve_url) return true;
-        if (it.design_upload_requested || it.design_upload_name) return true;
-        return parseInt(it.order_item_id || 0, 10) > 0;
     }
 
     function designMissingMessage(it) {
@@ -592,13 +586,13 @@ const CV2 = (function () {
         }
 
         const blocks = [];
-        if (shouldShowDesign(it)) {
+        if (it.has_design || it.design_exists) {
             const designSrc = effectiveDesignUrl(it);
             if (designSrc && !looksLikeCatalogImage(designSrc)) {
                 blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').innerHTML='<div class=\\'cv2-ml\\'>Design Preview</div><div style=\\'padding:12px;color:#64748b;font-size:13px;\\'>${designMissingMessage(it)}</div>'"></div>`);
-            } else {
-                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">${designMissingMessage(it)}</div></div>`);
             }
+        } else if (it.design_upload_requested || it.design_upload_name || (it.specs || []).some(s => /upload\s*design/i.test(String(s.label||'')))) {
+            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">${designMissingMessage(it)}</div></div>`);
         }
         const refSrc = effectiveReferenceUrl(it);
         if (refSrc && !looksLikeCatalogImage(refSrc)) {

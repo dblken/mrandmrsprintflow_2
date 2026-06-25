@@ -71,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['error'] = "Failed to update order status.";
     }
 
-    redirect("order_details.php?id=$order_id");
+    redirect(BASE_PATH . '/staff/customizations_v2.php?order_id=' . $order_id);
 } else {
     redirect('orders.php');
 }
