@@ -2048,7 +2048,7 @@ class CustomizationService
     }
 
     /**
-     * Request a revision from the customer.
+     * Request additional details from the customer (workflow status unchanged).
      *
      * @return array{success:bool,message:string}
      */
@@ -2056,7 +2056,7 @@ class CustomizationService
     {
         $reason = trim($reason);
         if ($reason === '') {
-            return ['success' => false, 'message' => 'A revision reason is required.'];
+            return ['success' => false, 'message' => 'Please provide details for the customer.'];
         }
 
         $order = $this->repo->getOrder($orderId);
@@ -2068,7 +2068,27 @@ class CustomizationService
         $this->repo->updateOrderStatus($orderId, 'For Revision', 'Revision Requested', $reason);
         $this->sendChat($orderId, 'for_revision', ['reason' => $reason]);
 
-        return ['success' => true, 'message' => 'Revision requested.'];
+        return ['success' => true, 'message' => 'Additional details request sent successfully.'];
+    }
+
+    /**
+     * Reject the customization order.
+     *
+     * @return array{success:bool,message:string}
+     */
+    public function reject(int $orderId): array
+    {
+        $order = $this->repo->getOrder($orderId);
+        if ($order === null) {
+            return ['success' => false, 'message' => 'Order not found.'];
+        }
+
+        $this->repo->updateCustomizationStatus($orderId, 'Rejected');
+        $this->repo->updateOrderStatus($orderId, 'Rejected', 'Rejected');
+        $this->syncJobs($orderId, 'REJECTED');
+        $this->sendChat($orderId, 'cancelled');
+
+        return ['success' => true, 'message' => 'Order rejected.'];
     }
 
     /**

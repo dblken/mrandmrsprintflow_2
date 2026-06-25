@@ -78,6 +78,14 @@ function cv2_fmt_date(string $raw): string
     $ts = strtotime($raw);
     return $ts ? date('M j, Y', $ts) : '—';
 }
+
+function cv2_display_status(string $status): string
+{
+    if ($status === 'For Revision') {
+        return 'Awaiting Customer Response';
+    }
+    return $status;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -92,6 +100,13 @@ function cv2_fmt_date(string $raw): string
     <style>
         :root { --cv2-accent:#53c5e0; }
 
+        .main-content,
+        .cv2-listcard,
+        .cv2-modal,
+        .cv2-drawer {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
         /* KPI cards */
         .cv2-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
         .cv2-kpi { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:18px 20px; border-top:3px solid #cbd5e1; }
@@ -99,40 +114,40 @@ function cv2_fmt_date(string $raw): string
         .cv2-kpi.k-payment { border-top-color:#3b82f6; }
         .cv2-kpi.k-production { border-top-color:#6366f1; }
         .cv2-kpi.k-cancelled { border-top-color:#ef4444; }
-        .cv2-kpi-title { font-size:13px; font-weight:800; color:#0f172a; }
-        .cv2-kpi-num { font-size:30px; font-weight:900; color:#0f172a; margin:6px 0 2px; line-height:1; }
-        .cv2-kpi-sub { font-size:11.5px; color:#94a3b8; }
+        .cv2-kpi-title { font-size:13px; font-weight:600; color:#0f172a; }
+        .cv2-kpi-num { font-size:30px; font-weight:700; color:#0f172a; margin:6px 0 2px; line-height:1; }
+        .cv2-kpi-sub { font-size:12px; color:#64748b; font-weight:400; }
         @media (max-width:900px){ .cv2-kpis { grid-template-columns:repeat(2,1fr); } }
         @media (max-width:520px){ .cv2-kpis { grid-template-columns:1fr; } }
 
         /* List card */
         .cv2-listcard { background:#fff; border:1px solid #e5e7eb; border-radius:16px; overflow:hidden; }
         .cv2-listhead { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:18px 20px 0; }
-        .cv2-listhead h2 { margin:0; font-size:17px; font-weight:800; color:#0f172a; }
+        .cv2-listhead h2 { margin:0; font-size:17px; font-weight:600; color:#0f172a; }
         .cv2-search { position:relative; }
         .cv2-search input { width:260px; max-width:60vw; padding:9px 12px 9px 34px; border:1px solid #d1d5db; border-radius:9px; font-size:13.5px; outline:none; }
         .cv2-search input:focus { border-color:var(--cv2-accent); }
         .cv2-search svg { position:absolute; left:11px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:#94a3b8; }
 
         .cv2-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:14px 20px 0; border-bottom:1px solid #eef2f7; }
-        .cv2-tab { border:none; background:transparent; padding:9px 14px; font-size:12.5px; font-weight:800; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; display:inline-flex; align-items:center; gap:7px; }
-        .cv2-tab .cv2-c { background:#e2e8f0; color:#475569; font-size:11px; border-radius:999px; padding:1px 8px; font-weight:800; }
+        .cv2-tab { border:none; background:transparent; padding:9px 14px; font-size:13px; font-weight:600; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; display:inline-flex; align-items:center; gap:7px; }
+        .cv2-tab .cv2-c { background:#e2e8f0; color:#475569; font-size:11px; border-radius:999px; padding:1px 8px; font-weight:600; }
         .cv2-tab.active { color:#0a2530; border-bottom-color:var(--cv2-accent); }
         .cv2-tab.active .cv2-c { background:var(--cv2-accent); color:#fff; }
 
         .cv2-table { width:100%; border-collapse:collapse; }
-        .cv2-table thead th { text-align:left; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; padding:14px 20px; border-bottom:1px solid #eef2f7; white-space:nowrap; }
-        .cv2-table tbody td { padding:14px 20px; border-bottom:1px solid #f1f5f9; font-size:13.5px; color:#0f172a; vertical-align:middle; }
+        .cv2-table thead th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:#64748b; padding:14px 20px; border-bottom:1px solid #eef2f7; white-space:nowrap; }
+        .cv2-table tbody td { padding:14px 20px; border-bottom:1px solid #f1f5f9; font-size:14px; color:#0f172a; vertical-align:middle; }
         .cv2-table tbody tr { transition:background .12s; }
         .cv2-table tbody tr:hover { background:#f8fafc; }
-        .cv2-code { font-weight:800; color:#0f172a; }
-        .cv2-info-main { font-weight:700; }
+        .cv2-code { font-weight:600; color:#0f172a; }
+        .cv2-info-main { font-weight:600; }
         .cv2-info-sub { font-size:11.5px; color:#94a3b8; margin-top:2px; }
-        .cv2-src { display:inline-block; font-size:10px; font-weight:800; text-transform:uppercase; padding:1px 7px; border-radius:999px; margin-left:6px; }
+        .cv2-src { display:inline-block; font-size:10px; font-weight:600; text-transform:uppercase; padding:1px 7px; border-radius:999px; margin-left:6px; }
         .cv2-src-online { background:#e0f2fe; color:#0369a1; }
         .cv2-src-pos { background:#fef3c7; color:#b45309; }
 
-        .cv2-badge { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; padding:4px 11px; border-radius:999px; white-space:nowrap; }
+        .cv2-badge { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.02em; padding:4px 11px; border-radius:999px; white-space:nowrap; }
         .cv2-badge-amber { background:#fef3c7; color:#b45309; }
         .cv2-badge-blue { background:#dbeafe; color:#1d4ed8; }
         .cv2-badge-indigo { background:#e0e7ff; color:#4338ca; }
@@ -141,7 +156,7 @@ function cv2_fmt_date(string $raw): string
         .cv2-badge-red { background:#fee2e2; color:#b91c1c; }
         .cv2-badge-gray { background:#f1f5f9; color:#475569; }
 
-        .cv2-view-btn { border:1px solid var(--cv2-accent); background:#fff; color:#0e7490; font-weight:800; font-size:12.5px; padding:7px 16px; border-radius:9px; cursor:pointer; transition:all .15s; }
+        .cv2-view-btn { border:1px solid var(--cv2-accent); background:#fff; color:#0e7490; font-weight:600; font-size:13px; padding:7px 16px; border-radius:9px; cursor:pointer; transition:all .15s; }
         .cv2-view-btn:hover { background:var(--cv2-accent); color:#fff; }
 
         .cv2-empty { text-align:center; padding:50px 20px; color:#94a3b8; font-size:14px; }
@@ -153,7 +168,7 @@ function cv2_fmt_date(string $raw): string
         .cv2-modal { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:680px; max-height:88vh; display:none; flex-direction:column; overflow:hidden; position:relative; }
         .cv2-modal.open { display:flex; }
         .cv2-modal-head { padding:20px 24px; border-bottom:1px solid #f3f4f6; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; background:#fff; flex-shrink:0; }
-        .cv2-modal-head h2 { margin:0; font-size:18px; font-weight:700; color:#1f2937; }
+        .cv2-modal-head h2 { margin:0; font-size:18px; font-weight:600; color:#1f2937; }
         .cv2-modal-head .cv2-sub { font-size:12px; color:#6b7280; margin-top:2px; }
         .cv2-close { background:transparent; border:none; color:#6b7280; width:32px; height:32px; border-radius:8px; cursor:pointer; font-size:22px; line-height:1; flex-shrink:0; }
         .cv2-close:hover { background:#f3f4f6; color:#374151; }
@@ -164,7 +179,7 @@ function cv2_fmt_date(string $raw): string
         .cv2-section h3 { margin:0 0 12px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#9ca3af; display:flex; align-items:center; gap:8px; }
         .cv2-section h3 .cv2-dot { display:none; }
         .cv2-kv { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
-        .cv2-kv-item .cv2-k { font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:#94a3b8; margin-bottom:3px; }
+        .cv2-kv-item .cv2-k { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:#64748b; margin-bottom:3px; }
         .cv2-kv-item .cv2-v { font-size:14px; font-weight:700; color:#0f172a; word-break:break-word; }
 
         .cv2-item { border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; margin-bottom:16px; background:#fff; }
@@ -174,33 +189,35 @@ function cv2_fmt_date(string $raw): string
         .cv2-item-body { padding:14px; }
         .cv2-specs { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
         .cv2-spec { background:#f8fafc; border:1px solid #eef2f7; border-radius:10px; padding:9px 11px; }
-        .cv2-spec .cv2-sl { font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.02em; color:#94a3b8; margin-bottom:3px; line-height:1.2; }
+        .cv2-spec .cv2-sl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.02em; color:#64748b; margin-bottom:3px; line-height:1.2; }
         .cv2-spec .cv2-sv { font-size:13.5px; font-weight:700; color:#0f172a; word-break:break-word; line-height:1.3; }
         .cv2-nospec { font-size:13px; color:#94a3b8; font-style:italic; }
 
         .cv2-media-row { display:flex; flex-wrap:wrap; gap:14px; margin-top:14px; }
         .cv2-media { flex:1 1 150px; }
-        .cv2-media .cv2-ml { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:#64748b; margin-bottom:6px; }
+        .cv2-media .cv2-ml { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; color:#64748b; margin-bottom:6px; }
         .cv2-media img { width:100%; max-width:280px; max-height:320px; object-fit:contain; border-radius:10px; border:1px solid #e5e7eb; cursor:zoom-in; background:#f8fafc; display:block; transition:transform .15s; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); }
         .cv2-media img:hover { transform:scale(1.02); }
 
         .cv2-notes { margin-top:14px; background:#fffbeb; border:1px solid #fde68a; border-left:4px solid #f59e0b; border-radius:10px; padding:12px 14px; }
-        .cv2-notes .cv2-nl { font-size:11px; font-weight:800; text-transform:uppercase; color:#92400e; margin-bottom:5px; }
+        .cv2-notes .cv2-nl { font-size:11px; font-weight:600; text-transform:uppercase; color:#92400e; margin-bottom:5px; }
         .cv2-notes .cv2-nv { font-size:13.5px; color:#b45309; line-height:1.5; font-weight:600; white-space:pre-wrap; word-break:break-word; }
 
-        .cv2-btn { border:none; border-radius:10px; padding:10px 18px; font-size:13px; font-weight:800; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:7px; }
+        .cv2-btn { border:none; border-radius:10px; padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; transition:all .15s; display:inline-flex; align-items:center; gap:7px; }
         .cv2-btn:disabled { opacity:.55; cursor:not-allowed; }
         .cv2-btn-approve { background:#16a34a; color:#fff; }
         .cv2-btn-approve:hover:not(:disabled) { background:#15803d; }
         .cv2-btn-revise { background:#f59e0b; color:#fff; }
         .cv2-btn-revise:hover:not(:disabled) { background:#d97706; }
+        .cv2-btn-reject { background:#dc2626; color:#fff; }
+        .cv2-btn-reject:hover:not(:disabled) { background:#b91c1c; }
         .cv2-btn-close { background:#e2e8f0; color:#334155; }
         .cv2-btn-close:hover:not(:disabled) { background:#cbd5e1; }
         .cv2-btn-pos { background:#0d9488; color:#fff; flex:1; justify-content:center; }
         .cv2-btn-pos:hover:not(:disabled) { background:#0f766e; }
 
         .cv2-pos-price { margin-bottom:14px; padding:16px; border-radius:12px; border:1px solid #99f6e4; background:#f0fdfa; }
-        .cv2-pos-price label { display:block; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:#0f766e; margin-bottom:10px; }
+        .cv2-pos-price label { display:block; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:#0f766e; margin-bottom:10px; }
         .cv2-pos-price-wrap { position:relative; }
         .cv2-pos-price-wrap span { position:absolute; left:14px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:18px; }
         .cv2-pos-price input { width:100%; box-sizing:border-box; height:44px; padding:0 12px 0 38px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#fff; }
@@ -212,7 +229,7 @@ function cv2_fmt_date(string $raw): string
         .cv2-revise-panel { display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:12px; padding:14px; margin-bottom:14px; }
         .cv2-revise-panel.open { display:block; }
         .cv2-revise-panel select, .cv2-revise-panel textarea { width:100%; padding:9px 11px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:10px; outline:none; box-sizing:border-box; }
-        .cv2-revise-panel label { font-size:12px; font-weight:800; color:#9a3412; display:block; margin-bottom:6px; }
+        .cv2-revise-panel label { font-size:13px; font-weight:600; color:#9a3412; display:block; margin-bottom:6px; }
 
         .cv2-banner { border-radius:10px; padding:11px 14px; font-size:13px; font-weight:700; margin-bottom:14px; display:none; }
         .cv2-banner.show { display:block; }
@@ -245,7 +262,7 @@ function cv2_fmt_date(string $raw): string
                 <div class="cv2-kpi k-inquiry">
                     <div class="cv2-kpi-title">Inquiry &amp; Design</div>
                     <div class="cv2-kpi-num"><?php echo $buckets['INQUIRY']; ?></div>
-                    <div class="cv2-kpi-sub">Review, revisions, materials, pricing</div>
+                    <div class="cv2-kpi-sub">Review, detail requests, materials, pricing</div>
                 </div>
                 <div class="cv2-kpi k-payment">
                     <div class="cv2-kpi-title">Payment</div>
@@ -318,7 +335,7 @@ function cv2_fmt_date(string $raw): string
                                         <?php if (!empty($r['branch_name'])): ?> · <?php echo htmlspecialchars($r['branch_name']); ?><?php endif; ?>
                                     </div>
                                 </td>
-                                <td><span class="cv2-badge <?php echo cv2_status_class($bucket); ?>"><?php echo htmlspecialchars($r['status'] ?: '—'); ?></span></td>
+                                <td><span class="cv2-badge <?php echo cv2_status_class($bucket); ?>"><?php echo htmlspecialchars(cv2_display_status($r['status'] ?: '—')); ?></span></td>
                                 <td><?php echo htmlspecialchars($r['customer_name']); ?></td>
                                 <td><?php echo htmlspecialchars(cv2_fmt_date((string)$r['order_date'])); ?></td>
                                 <td style="text-align:right;"><button class="cv2-view-btn" onclick="CV2.openDrawer(<?php echo (int)$r['order_id']; ?>)">View</button></td>
@@ -372,6 +389,11 @@ const CV2 = (function () {
         const d = new Date(String(s).replace(' ', 'T'));
         if (isNaN(d)) return esc(s);
         return d.toLocaleString('en-PH', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+
+    function displayStatus(status) {
+        if (status === 'For Revision') return 'Awaiting Customer Response';
+        return status || '—';
     }
 
     function applyFilter() {
@@ -434,14 +456,14 @@ const CV2 = (function () {
             <h3><span class="cv2-dot"></span>Order Details</h3>
             <div class="cv2-kv">
                 <div class="cv2-kv-item"><div class="cv2-k">Order #</div><div class="cv2-v">${esc(d.order_id)}</div></div>
-                <div class="cv2-kv-item"><div class="cv2-k">Status</div><div class="cv2-v">${esc(d.status || '—')}</div></div>
+                <div class="cv2-kv-item"><div class="cv2-k">Status</div><div class="cv2-v">${esc(displayStatus(d.status))}</div></div>
                 <div class="cv2-kv-item"><div class="cv2-k">Payment</div><div class="cv2-v">${esc(d.payment_status || '—')}</div></div>
                 ${d.branch.name ? `<div class="cv2-kv-item"><div class="cv2-k">Branch</div><div class="cv2-v">${esc(d.branch.name)}</div></div>` : ''}
                 ${d.needed_date ? `<div class="cv2-kv-item"><div class="cv2-k">Needed Date</div><div class="cv2-v">${esc(d.needed_date)}</div></div>` : ''}
                 <div class="cv2-kv-item"><div class="cv2-k">Placed</div><div class="cv2-v">${fmtDate(d.order_date)}</div></div>
                 ${price > 0 ? `<div class="cv2-kv-item"><div class="cv2-k">${d.estimated_price > 0 ? 'Estimated' : 'Total'}</div><div class="cv2-v">₱${Number(price).toLocaleString('en-PH',{minimumFractionDigits:2})}</div></div>` : ''}
             </div>
-            ${d.revision_reason ? `<div class="cv2-notes" style="background:#eff6ff;border-color:#bfdbfe;border-left-color:#3b82f6;"><div class="cv2-nl" style="color:#1d4ed8;">Revision Requested</div><div class="cv2-nv" style="color:#1e40af;">${esc(d.revision_reason)}</div></div>` : ''}
+            ${d.revision_reason ? `<div class="cv2-notes" style="background:#eff6ff;border-color:#bfdbfe;border-left-color:#3b82f6;"><div class="cv2-nl" style="color:#1d4ed8;">Awaiting Customer Response</div><div class="cv2-nv" style="color:#1e40af;">${esc(d.revision_reason)}</div></div>` : ''}
         </div>`;
 
         (d.items || []).forEach((it, idx) => { html += renderItem(it, (d.items.length > 1) ? (idx + 1) : 0); });
@@ -451,7 +473,7 @@ const CV2 = (function () {
         }
 
         html += `<div class="cv2-revise-panel" id="cv2RevisePanel">
-            <label>Reason for revision</label>
+            <label>Details needed from customer</label>
             <select id="cv2ReviseSelect" onchange="CV2.onReviseSelect()">
                 <option value="">Select a reason…</option>
                 <option>Design quality is too low / blurry</option>
@@ -460,7 +482,7 @@ const CV2 = (function () {
                 <option>File format not supported</option>
                 <option value="__other">Other (specify)</option>
             </select>
-            <textarea id="cv2ReviseText" rows="3" placeholder="Add details for the customer…" style="display:none;"></textarea>
+            <textarea id="cv2ReviseText" rows="3" placeholder="Describe the additional details or information needed from the customer…" style="display:none;"></textarea>
         </div>`;
 
         document.getElementById('cv2DrawerBody').innerHTML = html;
@@ -605,9 +627,9 @@ const CV2 = (function () {
         }
 
         foot.innerHTML = `
-            <button class="cv2-btn cv2-btn-revise" onclick="CV2.toggleRevise()">↩ Request Revision</button>
-            <button class="cv2-btn cv2-btn-close" onclick="CV2.act('close')">✓ Close</button>
-            <button class="cv2-btn cv2-btn-approve" onclick="CV2.act('approve')">✓ Approve</button>`;
+            <button class="cv2-btn cv2-btn-revise" onclick="CV2.toggleRevise()">Request Additional Details</button>
+            <button class="cv2-btn cv2-btn-reject" onclick="CV2.act('reject')">Reject</button>
+            <button class="cv2-btn cv2-btn-approve" onclick="CV2.act('approve')">Approve</button>`;
     }
 
     async function submitPosPrice() {
@@ -686,12 +708,15 @@ const CV2 = (function () {
 
     function toggleRevise() {
         const panel = document.getElementById('cv2RevisePanel');
+        const btn = document.querySelector('.cv2-btn-revise');
         const open = panel.classList.toggle('open');
         if (open) {
-            const btn = document.querySelector('.cv2-btn-revise');
-            btn.textContent = '↩ Submit Revision Request';
+            btn.textContent = 'Submit Request';
             btn.onclick = () => CV2.submitRevise();
             panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            btn.textContent = 'Request Additional Details';
+            btn.onclick = () => CV2.toggleRevise();
         }
     }
 
@@ -699,12 +724,13 @@ const CV2 = (function () {
         const sel = document.getElementById('cv2ReviseSelect');
         let reason = sel.value;
         if (reason === '__other') reason = document.getElementById('cv2ReviseText').value.trim();
-        if (!reason) { banner('Please choose or enter a revision reason.', 'err'); return; }
+        if (!reason) { banner('Please choose or enter the details you need from the customer.', 'err'); return; }
         act('request_revision', { reason });
     }
 
     async function act(action, extra = {}) {
         if (!currentDetail) return;
+        if (action === 'reject' && !confirm('Reject this customization order? The customer will be notified.')) return;
         const orderId = currentDetail.order_id;
         const btns = document.querySelectorAll('.cv2-modal-foot .cv2-btn');
         btns.forEach(b => b.disabled = true);

@@ -1559,8 +1559,8 @@ function openItemsModal(orderId, event) {
                     <div class="mt-auto pt-4 space-y-3">
                         ${data.design_status === 'Revision Requested' ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Revision requested</div>
-                                <p class="im-reject-copy">${escIM(data.revision_reason || 'Please upload the corrected design, then submit it again for shop review.')}</p>
+                                <div class="im-reject-title">Awaiting Customer Response</div>
+                                <p class="im-reject-copy">${escIM(data.revision_reason || 'Please provide the requested information, updated specifications, or revised files to continue processing your order.')}</p>
                                 <div style="display:flex; flex-direction:column; gap:0.85rem; margin-top:1rem;">
                                     <label for="designReuploadInput-${data.order_id}" class="im-upload-picker">Choose updated design</label>
                                     <input type="file" id="designReuploadInput-${data.order_id}" style="display:none;" onchange="handleDesignFilePick(this, ${data.order_id})" accept="image/*,application/pdf">

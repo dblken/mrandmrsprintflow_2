@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             create_notification(
                 $customer_id, 
                 'Customer', 
-                "Revision requested for Order #$order_id: $revision_reason", 
+                "Additional details requested for Order #$order_id: $revision_reason", 
                 'Order', 
                 true, // Send email
                 false, // Send SMS
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        $_SESSION['success'] = "Revision request sent successfully to the customer.";
+        $_SESSION['success'] = "Additional details request sent successfully.";
     } else {
         $_SESSION['error'] = "Failed to update order status.";
     }

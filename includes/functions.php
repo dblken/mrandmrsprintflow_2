@@ -6483,7 +6483,7 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
             'action_url'   => '',
         ],
         'for_revision' => [
-            'message'      => "Revision required: {reason}. Please check the requirements and resubmit.",
+            'message'      => "The staff has requested additional details regarding your customization request. Please review the request and submit the required information. Details: {reason}",
             'message_type' => 'order_card',
             'action_type' => 'view_details',
             'action_url'  => '',

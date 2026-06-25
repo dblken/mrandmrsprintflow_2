@@ -11,6 +11,7 @@
  *   GET  ?action=detail &order_id=ID
  *   POST  action=approve            (order_id)
  *   POST  action=request_revision   (order_id, reason)
+ *   POST  action=reject             (order_id)
  *   POST  action=close              (order_id)
  *
  * The old staff/customizations.php and admin/job_orders_api.php remain
@@ -84,6 +85,7 @@ try {
 
         case 'approve':
         case 'request_revision':
+        case 'reject':
         case 'close': {
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                 cv2_json(['success' => false, 'message' => 'POST required.'], 405);
@@ -109,6 +111,8 @@ try {
 
             if ($action === 'approve') {
                 $result = $service->approve($orderId);
+            } elseif ($action === 'reject') {
+                $result = $service->reject($orderId);
             } elseif ($action === 'close') {
                 $result = $service->close($orderId);
             } else {

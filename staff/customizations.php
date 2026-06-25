@@ -2090,7 +2090,7 @@ if ($showLatestCustomizationOnly) {
                             </div>
                             <div x-show="!isPosSimplifiedView && isPendingReviewStatus(currentJo) && !isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="jobAction('APPROVED')" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Approve to Set Price</button>
-                                <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Revision</button>
+                                <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'APPROVED'" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve & Send to Pay</button>
@@ -2182,7 +2182,7 @@ if ($showLatestCustomizationOnly) {
                         border:1px solid #fee2e2; overflow:hidden;">
                 <!-- Header -->
                 <div style="padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
-                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Revision</h3>
+                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Additional Details</h3>
                     <button @click="closeRevisionModal()" style="background:none; border:none; color:#f87171; cursor:pointer;" onmouseover="this.style.color='#b91c1c'" onmouseout="this.style.color='#f87171'">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
@@ -5080,7 +5080,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     finalReason = this.revisionReasonText.trim();
                 }
                 if (!finalReason) {
-                    this.revisionModalError = 'Please select or specify a reason for the revision request.';
+                    this.revisionModalError = 'Please select or specify the details you need from the customer.';
                     return;
                 }
                 this.revisionModalError = '';
@@ -5089,7 +5089,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 try {
                     const ok = await this.updateStatus(oid, 'For Revision', null, finalReason);
                     if (ok) {
-                        this.showStaffAlert('Success', 'Revision requested successfully.');
+                        this.showStaffAlert('Success', 'Additional details request sent successfully.');
                     }
                 } finally {
                     this.endModalAction();

@@ -26,7 +26,7 @@ class NotificationService {
         'TO_RECEIVE'   => 'Order Ready! Your order is now ready for pickup. Thank you for choosing Mr. and Mrs. Print!',
         'COMPLETED'    => 'Order Completed. Your order has been successfully picked up. We hope to see you again!',
         'CANCELLED'    => 'Your order has been cancelled. Please contact us for assistance.',
-        'FOR REVISION' => 'Revision requested for your order. Reason: {reason}',
+        'FOR REVISION' => 'The staff has requested additional details regarding your customization request. Please review the request and submit the required information. Details: {reason}',
     ];
 
     /**
