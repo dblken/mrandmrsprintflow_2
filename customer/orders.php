@@ -1109,11 +1109,8 @@ require_once __DIR__ . '/../includes/header.php';
                             
                             $c_json = (array)($order['_first_item_customization_resolved'] ?? customer_orders_primary_customization($order));
                             $d_name = (string)($order['_first_item_display_name'] ?? customer_orders_primary_item_name($order));
-                            $preview_url = function_exists('printflow_resolve_order_preview_image_url')
-                                ? printflow_resolve_order_preview_image_url($order, $d_name)
-                                : get_preview_image_for_order_ui($order, $d_name);
-                            $catalog_fallback_url = (function_exists('pf_app_base_path') ? rtrim((string)pf_app_base_path(), '/') : rtrim((string)BASE_URL, '/'))
-                                . '/public/assets/images/services/default.png';
+                            $preview_url = printflow_order_list_thumbnail_url($order, $d_name);
+                            $catalog_fallback_url = rtrim((string)pf_app_base_path(), '/') . '/public/assets/images/services/default.png';
                             $timestamp_meta = $order['_display_timestamp_meta'] ?? printflow_customer_order_timestamp_meta($order);
                         ?>
                         <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
@@ -1191,116 +1188,7 @@ require_once __DIR__ . '/../includes/header.php';
 <?php 
 // Inline helper for this specific page theme
 function get_preview_image_for_order_ui($order, $display_name) {
-    if (function_exists('printflow_resolve_order_service_catalog_image_url')) {
-        return printflow_resolve_order_service_catalog_image_url((array)$order, (string)$display_name);
-    }
-    if (function_exists('printflow_resolve_order_preview_image_url')) {
-        return printflow_resolve_order_preview_image_url((array)$order, (string)$display_name);
-    }
-
-    $custom = function_exists('customer_orders_primary_customization')
-        ? customer_orders_primary_customization((array)$order)
-        : [];
-
-    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
-    $is_service_order = ($orderType === 'custom')
-        || !empty($custom['service_type'])
-        || (int)($custom['service_id'] ?? 0) > 0
-        || in_array(strtolower(trim((string)($custom['source_page'] ?? ''))), ['services', 'service'], true);
-
-    if (!$is_service_order) {
-        if (!empty($order['first_product_image'])) {
-            $img = (string)$order['first_product_image'];
-            if ($img !== '') {
-                if (preg_match('#^https?://#i', $img)) {
-                    return $img;
-                }
-
-                $clean = '/' . ltrim($img, '/');
-                $trimmed_base = rtrim(BASE_URL, '/');
-                if ($trimmed_base !== '' && strncmp($clean, $trimmed_base . '/', strlen($trimmed_base) + 1) === 0) {
-                    $clean = substr($clean, strlen($trimmed_base));
-                    $clean = '/' . ltrim((string)$clean, '/');
-                }
-
-                foreach ([
-                    $clean,
-                    '/uploads/products/' . basename($clean),
-                    '/public/assets/uploads/products/' . basename($clean),
-                    '/public/images/products/' . basename($clean),
-                ] as $candidate) {
-                    $full = __DIR__ . '/..' . $candidate;
-                    if (is_file($full)) {
-                        return BASE_URL . $candidate;
-                    }
-                }
-            }
-        }
-
-        $prod_id = (int)($order['first_product_id'] ?? 0);
-        if ($prod_id > 0) {
-            $img_base = __DIR__ . "/../public/images/products/product_" . $prod_id;
-            if (file_exists($img_base . ".jpg")) return BASE_URL . "/public/images/products/product_" . $prod_id . ".jpg";
-            if (file_exists($img_base . ".png")) return BASE_URL . "/public/images/products/product_" . $prod_id . ".png";
-            if (file_exists($img_base . ".jpeg")) return BASE_URL . "/public/images/products/product_" . $prod_id . ".jpeg";
-            if (file_exists($img_base . ".webp")) return BASE_URL . "/public/images/products/product_" . $prod_id . ".webp";
-        }
-    }
-
-    $service_name = trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? '')));
-    if ($service_name === '' || customer_orders_is_generic_item_name($service_name)) {
-        $service_name = trim((string)(get_service_name_from_customization($custom, '') ?: ''));
-    }
-    if (($service_name === '' || customer_orders_is_generic_item_name($service_name)) && trim((string)$display_name) !== '') {
-        $service_name = trim((string)$display_name);
-    }
-
-    $sid = (int)($custom['service_id'] ?? 0);
-    if ($sid <= 0 && $orderType === 'custom') {
-        $sid = (int)($order['reference_id'] ?? 0);
-    }
-    if ($sid > 0) {
-        $service_rows = db_query(
-            "SELECT name, display_image, hero_image FROM services WHERE service_id = ? LIMIT 1",
-            'i',
-            [$sid]
-        );
-        if (!empty($service_rows)) {
-            if ($service_name === '' || customer_orders_is_generic_item_name($service_name)) {
-                $service_name = trim((string)($service_rows[0]['name'] ?? $service_name));
-            }
-            $display_image = trim((string)($service_rows[0]['display_image'] ?? ''));
-            $hero_image = trim((string)($service_rows[0]['hero_image'] ?? ''));
-            $candidate = $display_image !== '' ? trim(explode(',', $display_image)[0]) : $hero_image;
-            if ($candidate !== '') {
-                $resolved = pf_order_ui_asset_url($candidate);
-                if (!empty($resolved)) {
-                    return $resolved;
-                }
-            }
-        }
-    }
-
-    if ($service_name !== '') {
-        $service_rows = db_query(
-            "SELECT display_image, hero_image FROM services WHERE name = ? LIMIT 1",
-            's',
-            [$service_name]
-        );
-        if (!empty($service_rows)) {
-            $display_image = trim((string)($service_rows[0]['display_image'] ?? ''));
-            $hero_image = trim((string)($service_rows[0]['hero_image'] ?? ''));
-            $candidate = $display_image !== '' ? trim(explode(',', $display_image)[0]) : $hero_image;
-            if ($candidate !== '') {
-                $resolved = pf_order_ui_asset_url($candidate);
-                if (!empty($resolved)) {
-                    return $resolved;
-                }
-            }
-        }
-    }
-
-    return get_service_image_url($service_name !== '' ? $service_name : $display_name);
+    return printflow_order_list_thumbnail_url((array)$order, (string)$display_name);
 }
 ?>
 

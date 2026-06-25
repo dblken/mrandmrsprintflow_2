@@ -5773,6 +5773,168 @@ function printflow_service_catalog_image_from_row(array $svcRow, string $default
     );
 }
 
+/**
+ * Resolve an Activated catalog service_id (same rules as customer/services.php visible tiles).
+ */
+function printflow_resolve_active_service_catalog_id(string $serviceName): int {
+    $serviceName = trim($serviceName);
+    if ($serviceName === '' || !function_exists('db_query')) {
+        return 0;
+    }
+
+    $candidates = [$serviceName];
+    if (function_exists('normalize_service_name')) {
+        $norm = normalize_service_name($serviceName, '');
+        if (is_string($norm) && trim($norm) !== '' && strcasecmp(trim($norm), $serviceName) !== 0) {
+            $candidates[] = trim($norm);
+        }
+    }
+    if (function_exists('printflow_service_name_aliases')) {
+        foreach (printflow_service_name_aliases($serviceName) as $alias) {
+            $alias = trim((string)$alias);
+            if ($alias !== '') {
+                $candidates[] = $alias;
+            }
+        }
+    }
+
+    foreach (array_values(array_unique($candidates)) as $cand) {
+        $rows = db_query(
+            "SELECT service_id FROM services
+             WHERE LOWER(TRIM(COALESCE(name,''))) = LOWER(?)
+               AND LOWER(TRIM(COALESCE(status,''))) = 'activated'
+             ORDER BY updated_at DESC, service_id DESC
+             LIMIT 1",
+            's',
+            [$cand]
+        ) ?: [];
+        if (!empty($rows[0]['service_id'])) {
+            return (int)$rows[0]['service_id'];
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * My Orders list thumbnail — live Activated service art only (mirrors customer/services.php cards).
+ *
+ * @param array<string,mixed> $order
+ */
+function printflow_order_list_thumbnail_url(array $order, string $displayName = ''): string {
+    $appBase = pf_app_base_path();
+    $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
+
+    $custom = function_exists('customer_orders_primary_customization')
+        ? customer_orders_primary_customization($order)
+        : [];
+    $displayName = trim($displayName);
+    if ($displayName === '' && function_exists('customer_orders_primary_item_name')) {
+        $displayName = trim(customer_orders_primary_item_name($order));
+    }
+
+    $nameHints = array_values(array_unique(array_filter([
+        $displayName,
+        trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? ''))),
+        trim((string)(function_exists('get_service_name_from_customization')
+            ? get_service_name_from_customization($custom, '')
+            : '')),
+        (int)($custom['service_id'] ?? 0) > 0 && function_exists('customer_orders_resolve_service_name_by_id')
+            ? customer_orders_resolve_service_name_by_id((int)$custom['service_id'])
+            : '',
+        trim((string)($order['first_job_title'] ?? '')),
+        trim((string)($order['first_job_service_type'] ?? '')),
+    ], static fn($v) => trim((string)$v) !== '')));
+
+    $sid = 0;
+    foreach ($nameHints as $hint) {
+        $sid = printflow_resolve_active_service_catalog_id((string)$hint);
+        if ($sid > 0) {
+            break;
+        }
+    }
+
+    if ($sid <= 0) {
+        $customSid = (int)($custom['service_id'] ?? 0);
+        if ($customSid > 0) {
+            $hit = db_query(
+                "SELECT service_id FROM services
+                 WHERE service_id = ?
+                   AND LOWER(TRIM(COALESCE(status,''))) = 'activated'
+                 LIMIT 1",
+                'i',
+                [$customSid]
+            ) ?: [];
+            if (!empty($hit[0]['service_id'])) {
+                $sid = $customSid;
+            }
+        }
+    }
+
+    if ($sid <= 0 && strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+        $ref = (int)($order['reference_id'] ?? 0);
+        if ($ref > 0) {
+            $hit = db_query(
+                "SELECT service_id FROM services
+                 WHERE service_id = ?
+                   AND LOWER(TRIM(COALESCE(status,''))) = 'activated'
+                 LIMIT 1",
+                'i',
+                [$ref]
+            ) ?: [];
+            if (!empty($hit[0]['service_id'])) {
+                $sid = $ref;
+            }
+        }
+    }
+
+    $row = null;
+    if ($sid > 0) {
+        $rows = db_query(
+            "SELECT display_image, hero_image, updated_at
+             FROM services
+             WHERE service_id = ?
+               AND LOWER(TRIM(COALESCE(status,''))) = 'activated'
+             LIMIT 1",
+            'i',
+            [$sid]
+        ) ?: [];
+        $row = $rows[0] ?? null;
+    }
+
+    if (!$row && $displayName !== '') {
+        $rows = db_query(
+            "SELECT display_image, hero_image, updated_at
+             FROM services
+             WHERE LOWER(TRIM(COALESCE(name,''))) = LOWER(?)
+               AND LOWER(TRIM(COALESCE(status,''))) = 'activated'
+             ORDER BY updated_at DESC, service_id DESC
+             LIMIT 1",
+            's',
+            [$displayName]
+        ) ?: [];
+        $row = $rows[0] ?? null;
+    }
+
+    if (is_array($row)) {
+        $url = pf_service_card_primary_image(
+            (string)($row['display_image'] ?? ''),
+            (string)($row['hero_image'] ?? ''),
+            $appBase,
+            $defaultImg
+        );
+        if ($url !== '' && $url !== $defaultImg) {
+            $v = (int)(strtotime((string)($row['updated_at'] ?? '')) ?: 0);
+            if ($v > 0) {
+                $url .= (strpos($url, '?') === false ? '?' : '&') . 'v=' . $v;
+            }
+            return $url;
+        }
+    }
+
+    return $defaultImg;
+}
+
 function printflow_service_catalog_image_from_id(int $serviceId): string {
     $serviceId = (int)$serviceId;
     if ($serviceId <= 0) {

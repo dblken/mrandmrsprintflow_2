@@ -448,71 +448,12 @@ if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
      */
     function printflow_resolve_order_service_catalog_image_url(array $order, string $displayName = ''): string
     {
-        $custom = function_exists('customer_orders_primary_customization')
-            ? customer_orders_primary_customization($order)
-            : [];
+        if (function_exists('printflow_order_list_thumbnail_url')) {
+            return printflow_order_list_thumbnail_url($order, $displayName);
+        }
 
-        $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
-        $isServiceOrder = ($orderType === 'custom')
-            || !empty($custom['service_type'])
-            || (int)($custom['service_id'] ?? 0) > 0
-            || in_array(strtolower(trim((string)($custom['source_page'] ?? ''))), ['services', 'service'], true);
-        $isCatalogProductOrder = ($orderType === 'product')
-            && function_exists('customer_orders_custom_order_is_catalog_product')
-            && customer_orders_custom_order_is_catalog_product($custom);
-
-        $displayName = trim($displayName);
         $appBase = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
-        $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
-
-        $sid = function_exists('printflow_resolve_order_list_catalog_service_id')
-            ? printflow_resolve_order_list_catalog_service_id($order, $custom, $displayName)
-            : 0;
-
-        if ($sid > 0 && function_exists('printflow_service_catalog_image_from_id')) {
-            $fromId = printflow_service_catalog_image_from_id($sid);
-            if ($fromId !== '' && $fromId !== $defaultImg) {
-                return $fromId;
-            }
-        }
-
-        $nameHints = array_values(array_unique(array_filter([
-            $displayName,
-            trim((string)($custom['service_type'] ?? ($order['first_customization_service_type'] ?? ''))),
-            trim((string)(function_exists('get_service_name_from_customization')
-                ? get_service_name_from_customization($custom, '')
-                : '')),
-        ], static fn($v) => trim((string)$v) !== '')));
-
-        if (function_exists('printflow_service_catalog_image_from_name')) {
-            foreach ($nameHints as $hint) {
-                $fromName = printflow_service_catalog_image_from_name((string)$hint);
-                if ($fromName !== '' && $fromName !== $defaultImg) {
-                    return $fromName;
-                }
-            }
-        }
-
-        if (!$isServiceOrder && $isCatalogProductOrder) {
-            if (!empty($order['first_product_image'])) {
-                $resolved = pf_order_ui_asset_url((string)$order['first_product_image']);
-                if ($resolved !== null && $resolved !== '') {
-                    return $resolved;
-                }
-            }
-
-            $prodId = (int)($order['first_product_id'] ?? 0);
-            if ($prodId > 0) {
-                $imgBase = dirname(__DIR__) . '/public/images/products/product_' . $prodId;
-                foreach (['jpg', 'png', 'jpeg', 'webp'] as $ext) {
-                    if (is_file($imgBase . '.' . $ext)) {
-                        return rtrim($appBase, '/') . '/public/images/products/product_' . $prodId . '.' . $ext;
-                    }
-                }
-            }
-        }
-
-        return $defaultImg;
+        return rtrim($appBase, '/') . '/public/assets/images/services/default.png';
     }
 }
 
@@ -524,6 +465,9 @@ if (!function_exists('printflow_resolve_order_preview_image_url')) {
      */
     function printflow_resolve_order_preview_image_url(array $order, string $displayName = ''): string
     {
+        if (function_exists('printflow_order_list_thumbnail_url')) {
+            return printflow_order_list_thumbnail_url($order, $displayName);
+        }
         return printflow_resolve_order_service_catalog_image_url($order, $displayName);
     }
 }
