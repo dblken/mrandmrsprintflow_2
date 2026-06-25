@@ -524,17 +524,25 @@ const CV2 = (function () {
 
     function effectiveDesignUrl(it) {
         if (!it) return '';
+        if (it.design_serve_url) {
+            const serve = String(it.design_serve_url).trim();
+            if (serve) return serve;
+        }
         if (it.design_url && !looksLikeCatalogImage(it.design_url)) {
             return String(it.design_url).trim();
         }
-        if (it.design_serve_url) {
-            return String(it.design_serve_url).trim();
-        }
         const itemId = parseInt(it.order_item_id || 0, 10);
-        if (itemId > 0 && (it.has_design || it.design_exists)) {
+        if (itemId > 0) {
             return `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}`;
         }
         return '';
+    }
+
+    function shouldShowDesign(it) {
+        if (!it) return false;
+        if (it.has_design || it.design_exists || it.design_url || it.design_serve_url) return true;
+        if (it.design_upload_requested || it.design_upload_name) return true;
+        return parseInt(it.order_item_id || 0, 10) > 0;
     }
 
     function designMissingMessage(it) {
@@ -584,13 +592,13 @@ const CV2 = (function () {
         }
 
         const blocks = [];
-        if (it.has_design || it.design_exists) {
+        if (shouldShowDesign(it)) {
             const designSrc = effectiveDesignUrl(it);
             if (designSrc && !looksLikeCatalogImage(designSrc)) {
                 blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><img src="${esc(designSrc)}" alt="Uploaded design" onclick="CV2.zoom(this.src)" onerror="this.closest('.cv2-media').innerHTML='<div class=\\'cv2-ml\\'>Design Preview</div><div style=\\'padding:12px;color:#64748b;font-size:13px;\\'>${designMissingMessage(it)}</div>'"></div>`);
+            } else {
+                blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">${designMissingMessage(it)}</div></div>`);
             }
-        } else if (it.design_upload_requested || it.design_upload_name || (it.specs || []).some(s => /upload\s*design/i.test(String(s.label||'')))) {
-            blocks.push(`<div class="cv2-media"><div class="cv2-ml">Design Preview</div><div style="padding:12px;color:#64748b;font-size:13px;">${designMissingMessage(it)}</div></div>`);
         }
         const refSrc = effectiveReferenceUrl(it);
         if (refSrc && !looksLikeCatalogImage(refSrc)) {
@@ -731,6 +739,7 @@ const CV2 = (function () {
     async function act(action, extra = {}) {
         if (!currentDetail) return;
         if (action === 'reject' && !confirm('Reject this customization order? The customer will be notified.')) return;
+        if (action === 'approve' && !confirm('Approve this customization order? The customer will be notified and can proceed to payment.')) return;
         const orderId = currentDetail.order_id;
         const btns = document.querySelectorAll('.cv2-modal-foot .cv2-btn');
         btns.forEach(b => b.disabled = true);

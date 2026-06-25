@@ -1797,9 +1797,19 @@ class CustomizationService
             $designUrl = trim($candidateDesignUrl);
         }
 
-        $hasDesign = (bool)$designMeta['exists'];
+        $serveUrl = $orderItemId > 0
+            ? $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId
+            : null;
+
+        $hasStoredDesign = trim((string)($item['design_file'] ?? '')) !== ''
+            || (int)($item['design_image_bytes'] ?? 0) > 0;
         $uploadRequested = $this->itemHasUploadEvidence($item, $custom, $orderId)
             || $this->customHasUploadDesign($custom);
+        $hasDesign = (bool)$designMeta['exists'] || $hasStoredDesign;
+
+        if ($designUrl === null && $orderItemId > 0 && ($hasDesign || $uploadRequested)) {
+            $designUrl = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $serveUrl;
+        }
 
         $referenceUrl = $candidateReferenceUrl;
         if ($referenceUrl !== null && $this->isLikelyCatalogOrPlaceholderImageUrl($referenceUrl, $order, $custom)) {
@@ -1818,12 +1828,12 @@ class CustomizationService
             'design_url'         => $designUrl,
             'reference_url'      => $referenceUrl,
             'product_image_url'  => null,
-            'has_design'         => $hasDesign,
+            'has_design'         => $hasDesign || ($orderItemId > 0 && $uploadRequested),
             'has_reference'      => $referenceUrl !== null,
             'design_exists'      => $hasDesign,
             'design_missing_path'=> $hasDesign ? null : ($designMeta['missing_path'] ?? $designMeta['stored_path']),
             'design_source'      => $designMeta['source'] ?? 'none',
-            'design_serve_url'   => $designMeta['serve_url'] ?? null,
+            'design_serve_url'   => $designMeta['serve_url'] ?? $serveUrl,
             'design_upload_requested' => !$hasDesign && $uploadRequested,
         ];
     }
