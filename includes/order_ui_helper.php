@@ -238,54 +238,90 @@ if (!function_exists('pf_order_ui_temp_preview_url')) {
     }
 }
 
+if (!function_exists('pf_order_ui_resolve_customer_upload_url')) {
+    function pf_order_ui_resolve_customer_upload_url(array $item, bool $is_cart_item): ?string
+    {
+        $base_url = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
+
+        if ($is_cart_item) {
+            $tmp = pf_order_ui_temp_preview_url($item, 'design');
+            if ($tmp) {
+                return $tmp;
+            }
+
+            $custom = is_array($item['customization'] ?? null)
+                ? $item['customization']
+                : (is_string($item['customization'] ?? null) ? json_decode((string)$item['customization'], true) : []);
+            if (is_array($custom)) {
+                foreach (['design_upload_data', 'upload_design_data', 'design_upload', 'design_data'] as $key) {
+                    $val = trim((string)($custom[$key] ?? ''));
+                    if ($val !== '' && str_starts_with($val, 'data:')) {
+                        return $val;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        if (function_exists('getOrderDesignImage') && (int)($item['order_item_id'] ?? 0) > 0) {
+            $resolved = getOrderDesignImage($item, ['heal' => true]);
+            if (!empty($resolved['exists'])) {
+                return $resolved['direct_url'] ?? $resolved['serve_url'] ?? $resolved['url'];
+            }
+        }
+
+        $has_design = !empty($item['design_image']) || !empty($item['design_file']);
+        if ($has_design && (int)($item['order_item_id'] ?? 0) > 0) {
+            return rtrim($base_url, '/') . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'];
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('pf_order_ui_resolve_catalog_image_url')) {
+    function pf_order_ui_resolve_catalog_image_url(array $item, bool $is_cart_item, string $fallbackName = ''): ?string
+    {
+        if (!empty($item['product_image'])) {
+            $url = pf_order_ui_asset_url($item['product_image']);
+            if ($url) {
+                return $url;
+            }
+        }
+
+        if (pf_order_ui_is_service_item($item, $is_cart_item)
+            && function_exists('printflow_resolve_order_service_catalog_image_url')) {
+            return printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
+        }
+
+        return null;
+    }
+}
+
 if (!function_exists('pf_order_ui_resolve_item_design_urls')) {
     /**
-     * @return array{design_url:?string,ref_url:?string}
+     * @return array{design_url:?string,upload_url:?string,catalog_url:?string,ref_url:?string}
      */
     function pf_order_ui_resolve_item_design_urls(array $item, bool $is_cart_item, string $fallbackName = ''): array
     {
         $base_url = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
-        $design_url = null;
+        $upload_url = pf_order_ui_resolve_customer_upload_url($item, $is_cart_item);
+        $catalog_url = pf_order_ui_resolve_catalog_image_url($item, $is_cart_item, $fallbackName);
         $ref_url = null;
 
         if ($is_cart_item) {
-            $tmp_design = pf_order_ui_temp_preview_url($item, 'design');
-            $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
-            if ($tmp_design) {
-                $design_url = $tmp_design;
-            } elseif (!pf_order_ui_cart_has_design_upload($item) && !empty($item['product_image'])) {
-                $design_url = pf_order_ui_asset_url($item['product_image']);
-            }
-            if ($tmp_reference) {
-                $ref_url = $tmp_reference;
-            }
-        } elseif (function_exists('getOrderDesignImage') && (int)($item['order_item_id'] ?? 0) > 0) {
-            $resolved = getOrderDesignImage($item, ['heal' => true]);
-            if (!empty($resolved['exists'])) {
-                $design_url = $resolved['direct_url'] ?? $resolved['serve_url'] ?? $resolved['url'];
-            }
-            if (!empty($item['reference_image_file'])) {
-                $ref_url = $base_url . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference';
-            }
-        } else {
-            $has_design = !empty($item['design_image']) || !empty($item['design_file']);
-            if ($has_design && (int)($item['order_item_id'] ?? 0) > 0) {
-                $design_url = $base_url . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'];
-            } elseif (!empty($item['product_image'])) {
-                $design_url = pf_order_ui_asset_url($item['product_image']);
-            }
-            if (!empty($item['reference_image_file']) && (int)($item['order_item_id'] ?? 0) > 0) {
-                $ref_url = $base_url . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference';
-            }
+            $ref_url = pf_order_ui_temp_preview_url($item, 'reference');
+        } elseif (!empty($item['reference_image_file']) && (int)($item['order_item_id'] ?? 0) > 0) {
+            $ref_url = rtrim($base_url, '/') . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference';
         }
 
-        if (!$design_url && function_exists('printflow_resolve_order_service_catalog_image_url')) {
-            if (!$is_cart_item || !pf_order_ui_cart_has_design_upload($item)) {
-                $design_url = printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
-            }
-        }
-
-        return ['design_url' => $design_url, 'ref_url' => $ref_url];
+        return [
+            'upload_url'  => $upload_url,
+            'catalog_url' => $catalog_url,
+            'design_url'  => $upload_url ?: $catalog_url,
+            'ref_url'     => $ref_url,
+        ];
     }
 }
 
@@ -487,7 +523,9 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
     $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
-    $design_url = $media['design_url'];
+    $upload_url = $media['upload_url'] ?? null;
+    $catalog_url = $media['catalog_url'] ?? null;
+    $header_image_url = $is_service_item ? $catalog_url : ($catalog_url ?: $upload_url);
     $ref_url = $media['ref_url'];
 
     // Field Map for Labels
@@ -522,8 +560,8 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
         <!-- Top Section: Core Info -->
         <div style="padding: 1.5rem; border-bottom: 2px solid #000; display: flex; gap: 1.5rem; align-items: flex-start;">
             <div style="width: 120px; height: 120px; border: 2px solid #000; border-radius: 8px; overflow: hidden; background: #f3f4f6; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                <?php if ($design_url): ?>
-                    <img src="<?php echo htmlspecialchars($design_url); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                <?php if ($header_image_url): ?>
+                    <img src="<?php echo htmlspecialchars($header_image_url); ?>" style="width: 100%; height: 100%; object-fit: cover;">
                 <?php else: ?>
                     <span style="font-size: 2.5rem; color: #9ca3af; text-align: center;">Item</span>
                 <?php endif; ?>
@@ -629,7 +667,9 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
     $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
-    $design_url = $media['design_url'];
+    $upload_url = $media['upload_url'] ?? null;
+    $catalog_url = $media['catalog_url'] ?? null;
+    $header_image_url = $is_service_item ? $catalog_url : ($catalog_url ?: $upload_url);
     $ref_url = $media['ref_url'];
 
     $field_map = [
@@ -662,8 +702,8 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
         <!-- Core Info -->
         <div class="order-item-header" style="padding: 1.25rem; display: flex; gap: 1.25rem; align-items: flex-start; border-bottom: 1px solid rgba(83, 197, 224, 0.15); background: rgba(255,255,255,0.02);">
             <div class="order-item-image" style="width: 130px; height: 130px; border-radius: 12px; overflow: hidden; background: rgba(0,0,0,0.35); border: 1px solid rgba(83, 197, 224, 0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);">
-                <?php if ($design_url): ?>
-                    <img src="<?php echo htmlspecialchars($design_url); ?>" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease-in-out;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
+                <?php if ($header_image_url): ?>
+                    <img src="<?php echo htmlspecialchars($header_image_url); ?>" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s ease-in-out;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
                 <?php else: ?>
                     <span style="font-size: 2.2rem; color: rgba(255,255,255,0.15);">Item</span>
                 <?php endif; ?>
@@ -719,6 +759,14 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                         <div class="pf-spec-value" style="font-size: 0.95rem; font-weight: 700; color: #eaf6fb; overflow-wrap: break-word; word-break: break-word; line-height: 1.3;"><?php echo pf_order_ui_escape($display_val); ?></div>
                     </div>
                 <?php endforeach; ?>
+
+                <?php if ($upload_url): ?>
+                    <div class="review-spec-tile order-item-spec-tile order-item-upload-design" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
+                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Uploaded Design</div>
+                        <img src="<?php echo htmlspecialchars($upload_url); ?>" alt="Uploaded design preview" class="review-order-item" style="width: 100%; max-width: 320px; max-height: 280px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; cursor: zoom-in;">
+                    </div>
+                    <?php $has_specs = true; ?>
+                <?php endif; ?>
                 
                 <?php if (!$has_specs): ?>
                     <p style="font-size: 0.9rem; color: #9fc4d4; font-style: italic; white-space: nowrap;">No specific customizations.</p>
