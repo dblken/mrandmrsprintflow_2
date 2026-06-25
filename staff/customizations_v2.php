@@ -414,7 +414,7 @@ const CV2 = (function () {
     }
 
     function renderDetail(d) {
-        document.getElementById('cv2DrawerSub').textContent = `${d.source_label} · ${fmtDate(d.order_date)}`;
+        document.getElementById('cv2DrawerSub').textContent = fmtDate(d.order_date);
         const c = d.customer;
         let html = '<div class="cv2-banner" id="cv2Banner"></div>';
 
@@ -436,7 +436,6 @@ const CV2 = (function () {
                 <div class="cv2-kv-item"><div class="cv2-k">Order #</div><div class="cv2-v">${esc(d.order_id)}</div></div>
                 <div class="cv2-kv-item"><div class="cv2-k">Status</div><div class="cv2-v">${esc(d.status || '—')}</div></div>
                 <div class="cv2-kv-item"><div class="cv2-k">Payment</div><div class="cv2-v">${esc(d.payment_status || '—')}</div></div>
-                <div class="cv2-kv-item"><div class="cv2-k">Source</div><div class="cv2-v">${esc(d.source_label)}</div></div>
                 ${d.branch.name ? `<div class="cv2-kv-item"><div class="cv2-k">Branch</div><div class="cv2-v">${esc(d.branch.name)}</div></div>` : ''}
                 ${d.needed_date ? `<div class="cv2-kv-item"><div class="cv2-k">Needed Date</div><div class="cv2-v">${esc(d.needed_date)}</div></div>` : ''}
                 <div class="cv2-kv-item"><div class="cv2-k">Placed</div><div class="cv2-v">${fmtDate(d.order_date)}</div></div>
@@ -535,7 +534,7 @@ const CV2 = (function () {
 
     function filterDisplaySpecs(specs, notes, it) {
         const notesNorm = String(notes || '').trim().toLowerCase();
-        const skipLabel = /^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|upload\s*design|reference\s*(attachment|image|upload))$/i;
+        const skipLabel = /^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|upload\s*design|reference\s*(attachment|image|upload)|quantity|qty|source\s*page|service\s*id|source)$/i;
         const filename = /\.(jpe?g|png|gif|webp|pdf|ai|psd|svg|bmp|tiff?|heic)$/i;
 
         return (specs || []).filter(s => {

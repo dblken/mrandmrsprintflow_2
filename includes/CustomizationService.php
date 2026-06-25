@@ -1292,7 +1292,7 @@ class CustomizationService
             return true;
         }
 
-        if (preg_match('/^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?)$/iu', trim($key))) {
+        if (preg_match('/^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?|source\s*page|service\s*id|source|quantity|qty)$/iu', trim($key))) {
             return true;
         }
 

@@ -774,11 +774,21 @@ foreach ($items as $lineIndex => $item) {
     }
 
     $line_oid = (int)($item['order_item_id'] ?? 0);
-    $has_own_design = printflow_order_item_row_has_retrievable_design($item);
+    $designMeta = function_exists('getOrderDesignImage')
+        ? getOrderDesignImage($item, ['order_id' => $order_id, 'heal' => true])
+        : null;
+    $has_own_design = is_array($designMeta) ? !empty($designMeta['exists']) : printflow_order_item_row_has_retrievable_design($item);
     $design_serve_id = $has_own_design
         ? $line_oid
         : (($line_oid === 0 && $any_design_order_item_id > 0) ? $any_design_order_item_id : 0);
-    $has_design_thumb = $design_serve_id > 0 && $has_own_design;
+    $has_design_thumb = $has_own_design && ($design_serve_id > 0 || !empty($designMeta['direct_url']));
+    $design_url = null;
+    if ($has_own_design && is_array($designMeta)) {
+        $design_url = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $designMeta['url'] ?? null;
+    }
+    if ($design_url === null && $has_design_thumb && $design_serve_id > 0) {
+        $design_url = $base_path . '/public/serve_design.php?type=order_item&id=' . $design_serve_id;
+    }
 
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
@@ -800,9 +810,7 @@ foreach ($items as $lineIndex => $item) {
                 ? pf_asset_kind($fallback_design_meta['design_image_mime'] ?? '', $fallback_design_meta['design_file'] ?? '')
                 : pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')),
         'reference_kind'=> pf_asset_kind('', $item['reference_image_file'] ?? ''),
-        'design_url'    => $has_design_thumb
-                            ? $base_path . '/public/serve_design.php?type=order_item&id=' . $design_serve_id
-                            : null,
+        'design_url'    => $design_url,
         'reference_url' => !empty($item['reference_image_file'])
                             ? $base_path . '/public/serve_design.php?type=order_item&id=' . $line_oid . '&field=reference'
                             : null,

@@ -78,14 +78,58 @@ if (!function_exists('pf_order_ui_resolve_special_instructions_text')) {
     }
 }
 
+if (!function_exists('pf_order_ui_should_skip_spec_key')) {
+    /**
+     * Keys/labels that belong in the header, notes block, or design preview — not spec tiles.
+     */
+    function pf_order_ui_should_skip_spec_key(string $key): bool
+    {
+        $key = trim($key);
+        if ($key === '') {
+            return true;
+        }
+
+        static $skipExact = [
+            'design_upload', 'reference_upload', 'notes', 'additional_notes', 'other_instructions',
+            'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit',
+            'install_province', 'install_city', 'install_barangay', 'install_street',
+            'source_page', 'source', 'service_id', 'quantity', 'Quantity', 'Notes', 'Note',
+            'design_upload_path', 'design_file', 'reference_file', 'layout_file',
+        ];
+        if (in_array($key, $skipExact, true)) {
+            return true;
+        }
+
+        $normalized = strtolower(preg_replace('/[^a-z0-9]/', '', $key));
+        if (in_array($normalized, [
+            'quantity', 'qty', 'notes', 'note', 'jobnotes', 'specialinstructions',
+            'otherinstructions', 'additionalnotes', 'designnotes', 'sourcepage', 'serviceid',
+            'source', 'uploaddesign', 'designupload', 'designfile', 'designuploadpath',
+            'referenceupload', 'referencefile',
+        ], true)) {
+            return true;
+        }
+
+        if (preg_match('/upload\s*design/iu', $key)) {
+            return true;
+        }
+        if (preg_match('/reference\s*(attachment|image|upload)/iu', $key)) {
+            return true;
+        }
+        if (preg_match('/^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?|source\s*page|service\s*id)$/iu', $key)) {
+            return true;
+        }
+
+        return false;
+    }
+}
+
 if (!function_exists('pf_order_ui_normalize_review_customization')) {
     /**
      * Order review / cart item cards: remove duplicate needed-date tiles and redundant
-     * "Upload Design" filename rows when the Reference Attachment preview already shows the file.
+     * quantity / notes / upload filename rows (shown elsewhere on the card).
      */
     function pf_order_ui_normalize_review_customization(array $custom, array $item, bool $is_cart_item): array {
-        $ref_preview = $is_cart_item ? pf_order_ui_temp_preview_url($item, 'reference') : null;
-
         $needed_val = null;
         foreach ($custom as $ck => $cv) {
             if ($cv === '' || $cv === null) {
@@ -104,6 +148,9 @@ if (!function_exists('pf_order_ui_normalize_review_customization')) {
             if ($cv === '' || $cv === null) {
                 continue;
             }
+            if (pf_order_ui_should_skip_spec_key((string)$ck)) {
+                continue;
+            }
             $nk = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$ck));
             if (in_array($nk, ['neededdate', 'dateneeded', 'orderneededdate'], true)) {
                 if ($needed_written) {
@@ -111,12 +158,6 @@ if (!function_exists('pf_order_ui_normalize_review_customization')) {
                 }
                 $needed_written = true;
                 $out['needed_date'] = $needed_val ?? $cv;
-                continue;
-            }
-            if ($ref_preview && is_string($ck) && preg_match('/upload\s*design/i', $ck)) {
-                continue;
-            }
-            if ($ref_preview && is_string($ck) && preg_match('/reference\s*(attachment|image|upload)/i', $ck)) {
                 continue;
             }
             $out[$ck] = $cv;
@@ -152,6 +193,55 @@ if (!function_exists('pf_order_ui_temp_preview_url')) {
 
         $base = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
         return rtrim($base, '/') . '/customer/temp_upload_preview.php?item=' . rawurlencode($cart_key) . '&field=' . rawurlencode($field);
+    }
+}
+
+if (!function_exists('pf_order_ui_resolve_item_design_urls')) {
+    /**
+     * @return array{design_url:?string,ref_url:?string}
+     */
+    function pf_order_ui_resolve_item_design_urls(array $item, bool $is_cart_item, string $fallbackName = ''): array
+    {
+        $base_url = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
+        $design_url = null;
+        $ref_url = null;
+
+        if ($is_cart_item) {
+            $tmp_design = pf_order_ui_temp_preview_url($item, 'design');
+            $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
+            if ($tmp_design) {
+                $design_url = $tmp_design;
+            } elseif (!empty($item['product_image'])) {
+                $design_url = pf_order_ui_asset_url($item['product_image']);
+            }
+            if ($tmp_reference) {
+                $ref_url = $tmp_reference;
+            }
+        } elseif (function_exists('getOrderDesignImage') && (int)($item['order_item_id'] ?? 0) > 0) {
+            $resolved = getOrderDesignImage($item, ['heal' => true]);
+            if (!empty($resolved['exists'])) {
+                $design_url = $resolved['direct_url'] ?? $resolved['serve_url'] ?? $resolved['url'];
+            }
+            if (!empty($item['reference_image_file'])) {
+                $ref_url = $base_url . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference';
+            }
+        } else {
+            $has_design = !empty($item['design_image']) || !empty($item['design_file']);
+            if ($has_design && (int)($item['order_item_id'] ?? 0) > 0) {
+                $design_url = $base_url . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'];
+            } elseif (!empty($item['product_image'])) {
+                $design_url = pf_order_ui_asset_url($item['product_image']);
+            }
+            if (!empty($item['reference_image_file']) && (int)($item['order_item_id'] ?? 0) > 0) {
+                $ref_url = $base_url . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference';
+            }
+        }
+
+        if (!$design_url && function_exists('printflow_resolve_order_service_catalog_image_url')) {
+            $design_url = printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
+        }
+
+        return ['design_url' => $design_url, 'ref_url' => $ref_url];
     }
 }
 
@@ -352,54 +442,9 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
     $subtotal = $unit_price * $quantity;
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
-    $base_url = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
-    
-    // Design previews
-    $design_url = null;
-    $ref_url = null;
-    
-    if ($is_cart_item) {
-        $tmp_design = pf_order_ui_temp_preview_url($item, 'design');
-        $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
-
-        if ($is_service_item && !empty($item['product_image'])) {
-            $design_url = pf_order_ui_asset_url($item['product_image']);
-        } else {
-            $design_url = $tmp_design;
-            if (!$design_url && !empty($item['product_image'])) {
-                $design_url = pf_order_ui_asset_url($item['product_image']);
-            }
-        }
-
-        if ($tmp_reference) {
-            $ref_url = $tmp_reference;
-        } elseif ($tmp_design) {
-            $ref_url = $tmp_design;
-        }
-    } else {
-        $has_design = !empty($item['design_image']) || !empty($item['design_file']);
-        if ($has_design) {
-            $design_url = $base_url . "/public/serve_design.php?type=order_item&id=" . (int)$item['order_item_id'];
-        } else if (!empty($item['product_image'])) {
-            $design_url = pf_order_ui_asset_url($item['product_image']);
-        }
-
-        if (!empty($item['reference_image_file'])) {
-            $ref_url = $base_url . "/public/serve_design.php?type=order_item&id=" . (int)$item['order_item_id'] . "&field=reference";
-        }
-    }
-
-    // Fallback logic for design_url if still null
-    if (!$design_url) {
-        $cat_comb = strtolower(($item['category'] ?? '') . ' ' . ($name ?? ''));
-        if (strpos($cat_comb, 't-shirt') !== false || strpos($cat_comb, 'tshirt') !== false) {
-            $design_url = $base_url . "/public/images/products/product_31.jpg";
-        } else if (strpos($cat_comb, 'tarpaulin') !== false) {
-            $design_url = $base_url . "/public/images/products/product_42.jpg";
-        } else if (strpos($cat_comb, 'reflectorized') !== false || strpos($cat_comb, 'signage') !== false || strpos($cat_comb, 'sticker') !== false || strpos($cat_comb, 'decal') !== false) {
-            $design_url = $base_url . "/public/images/products/product_21.jpg";
-        }
-    }
+    $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
+    $design_url = $media['design_url'];
+    $ref_url = $media['ref_url'];
 
     // Field Map for Labels
     $field_map = [
@@ -427,7 +472,6 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
         'needed_date' => 'Needed Date',
         'installation_fee' => 'Installation Fee',
     ];
-    $skip = ['design_upload', 'reference_upload', 'notes', 'additional_notes', 'other_instructions', 'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit', 'install_province', 'install_city', 'install_barangay', 'install_street'];
     
     ?>
     <div style="border: 2px solid #000; background: #fff; margin-bottom: 2rem; overflow: hidden; box-shadow: 8px 8px 0px rgba(0,0,0,1);">
@@ -476,7 +520,7 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
                 <?php 
                 $has_specs = false;
                 foreach ($custom as $ck => $cv): 
-                    if (empty($cv) || in_array($ck, $skip) || stripos($ck, 'description') !== false) continue;
+                    if (empty($cv) || pf_order_ui_should_skip_spec_key((string)$ck) || stripos((string)$ck, 'description') !== false) continue;
                     $has_specs = true;
                     $label = $field_map[$ck] ?? ucwords(str_replace(['_', '-'], ' ', (string)$ck));
                     $display_val = ($ck === 'tshirt_provider' && $cv === 'shop') ? 'Shop will provide' : (($ck === 'tshirt_provider' && $cv === 'customer') ? 'Customer will provide' : (($ck === 'installation_fee' && is_numeric($cv)) ? format_currency((float)$cv) : pf_order_ui_value_to_text($cv)));
@@ -539,53 +583,9 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $subtotal = $unit_price * $quantity;
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
-    $base_url = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
-    
-    $design_url = null;
-    $ref_url = null;
-    
-    if ($is_cart_item) {
-        $tmp_design = pf_order_ui_temp_preview_url($item, 'design');
-        $tmp_reference = pf_order_ui_temp_preview_url($item, 'reference');
-
-        if ($is_service_item && !empty($item['product_image'])) {
-            $design_url = pf_order_ui_asset_url($item['product_image']);
-        } else {
-            $design_url = $tmp_design;
-            if (!$design_url && !empty($item['product_image'])) {
-                $design_url = pf_order_ui_asset_url($item['product_image']);
-            }
-        }
-
-        if ($tmp_reference) {
-            $ref_url = $tmp_reference;
-        } elseif ($tmp_design) {
-            $ref_url = $tmp_design;
-        }
-    } else {
-        $has_design = !empty($item['design_image']) || !empty($item['design_file']);
-        if ($has_design) {
-            $design_url = $base_url . "/public/serve_design.php?type=order_item&id=" . (int)$item['order_item_id'];
-        } else if (!empty($item['product_image'])) {
-            $design_url = pf_order_ui_asset_url($item['product_image']);
-        }
-
-        if (!empty($item['reference_image_file'])) {
-            $ref_url = $base_url . "/public/serve_design.php?type=order_item&id=" . (int)$item['order_item_id'] . "&field=reference";
-        }
-    }
-
-    // Fallback logic for design_url if still null
-    if (!$design_url) {
-        $cat_comb = strtolower(($item['category'] ?? '') . ' ' . ($name ?? ''));
-        if (strpos($cat_comb, 't-shirt') !== false || strpos($cat_comb, 'tshirt') !== false) {
-            $design_url = $base_url . "/public/images/products/product_31.jpg";
-        } else if (strpos($cat_comb, 'tarpaulin') !== false) {
-            $design_url = $base_url . "/public/images/products/product_42.jpg";
-        } else if (strpos($cat_comb, 'reflectorized') !== false || strpos($cat_comb, 'signage') !== false || strpos($cat_comb, 'sticker') !== false || strpos($cat_comb, 'decal') !== false) {
-            $design_url = $base_url . "/public/images/products/product_21.jpg";
-        }
-    }
+    $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
+    $design_url = $media['design_url'];
+    $ref_url = $media['ref_url'];
 
     $field_map = [
         'size' => 'Size',
@@ -612,7 +612,6 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
         'needed_date' => 'Needed Date',
         'installation_fee' => 'Installation Fee',
     ];
-    $skip = ['design_upload', 'reference_upload', 'notes', 'additional_notes', 'other_instructions', 'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit', 'install_province', 'install_city', 'install_barangay', 'install_street'];
     ?>
     <div style="background: #0a2530; padding: 0; overflow: hidden; border: 1px solid rgba(83, 197, 224, 0.24); border-radius: 16px; margin-bottom: 1.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 100%; max-width: 100%; box-sizing: border-box;">
         <!-- Core Info -->
@@ -665,7 +664,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                 <?php 
                 $has_specs = false;
                 foreach ($custom as $ck => $cv): 
-                    if (empty($cv) || in_array($ck, $skip) || stripos($ck, 'description') !== false) continue;
+                    if (empty($cv) || pf_order_ui_should_skip_spec_key((string)$ck) || stripos((string)$ck, 'description') !== false) continue;
                     $has_specs = true;
                     $label = $field_map[$ck] ?? ucwords(str_replace(['_', '-'], ' ', (string)$ck));
                     $display_val = ($ck === 'tshirt_provider' && $cv === 'shop') ? 'Shop will provide' : (($ck === 'tshirt_provider' && $cv === 'customer') ? 'Customer will provide' : (($ck === 'installation_fee' && is_numeric($cv)) ? format_currency((float)$cv) : pf_order_ui_value_to_text($cv)));
