@@ -227,32 +227,38 @@ function render_service_card($srv) {
         gap: 8px;
     }
 
-    .shopee-card {
+    .ct-product-grid .shopee-card,
+    body.customer-theme .ct-product-grid .shopee-card {
         background: var(--shopee-card-bg);
         border: 1px solid var(--shopee-border);
         border-radius: 4px;
         transition: box-shadow 0.2s ease, transform 0.2s ease;
         cursor: pointer;
         overflow: hidden;
-        display: flex;
-        flex-direction: column;
+        display: flex !important;
+        flex-direction: column !important;
+        grid-template-columns: unset !important;
+        gap: 0 !important;
+        padding: 0 !important;
+        margin-bottom: 0 !important;
         min-height: 0;
         max-width: 100%;
         position: relative;
         box-shadow: var(--shopee-glass-shadow);
     }
 
-    .shopee-card::before,
-    .shopee-card::after {
+    .ct-product-grid .shopee-card::before,
+    .ct-product-grid .shopee-card::after {
         display: none;
     }
 
-    .shopee-card:hover {
+    .ct-product-grid .shopee-card:hover {
         transform: translateY(-2px);
         box-shadow: var(--shopee-glass-shadow-hover);
     }
 
-    .shopee-img {
+    .ct-product-grid .shopee-img,
+    body.customer-theme .ct-product-grid .shopee-img {
         width: 100%;
         min-width: 100%;
         display: block;
@@ -406,12 +412,14 @@ function render_service_card($srv) {
             gap: 8px !important;
         }
 
-        body.customer-theme .shopee-card {
+        body.customer-theme .ct-product-grid .shopee-card {
             border-radius: 4px;
             min-width: 0;
+            padding: 0 !important;
+            gap: 0 !important;
         }
 
-        body.customer-theme .shopee-img {
+        body.customer-theme .ct-product-grid .shopee-img {
             width: 100%;
             margin: 0;
             padding: 0;

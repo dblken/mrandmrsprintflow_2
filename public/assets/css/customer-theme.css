@@ -261,6 +261,25 @@ body.customer-theme .ct-product-grid {
     }
 }
 
+/* Catalog tiles (services/products grids) — not the order-form .shopee-card layout */
+body.customer-theme .ct-product-grid .shopee-card,
+body.customer-theme .shopee-grid .shopee-card {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: unset !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+body.customer-theme .ct-product-grid .shopee-img,
+body.customer-theme .shopee-grid .shopee-img {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+}
+
 /* ===== Product Card ===== */
 body.customer-theme .ct-product-card {
     background: linear-gradient(165deg, rgba(10, 37, 48, 0.9), rgba(7, 26, 34, 0.92));
@@ -832,7 +851,7 @@ body.customer-theme select.input-field {
     padding: 2rem 1rem;
 }
 
-.shopee-card {
+.shopee-layout-container .shopee-card {
     display: grid;
     grid-template-columns: 450px 1fr;
     gap: 40px;
@@ -1009,7 +1028,7 @@ body.customer-theme select.input-field {
 }
 
 @media (max-width: 1024px) {
-    .shopee-card { grid-template-columns: 1fr; gap: 20px; }
+    .shopee-layout-container .shopee-card { grid-template-columns: 1fr; gap: 20px; }
     .shopee-form-row { flex-direction: column !important; align-items: stretch !important; gap: 8px !important; }
     .shopee-form-label { width: auto !important; }
 }
@@ -1023,7 +1042,7 @@ body.customer-theme select.input-field {
         padding: 1rem 0.75rem;
     }
     
-    .shopee-card {
+    .shopee-layout-container .shopee-card {
         grid-template-columns: 1fr !important;
         gap: 1.5rem !important;
         padding: 1rem !important;
