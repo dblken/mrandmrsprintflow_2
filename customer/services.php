@@ -264,7 +264,7 @@ function render_service_card($srv) {
         display: block;
         margin: 0;
         padding: 0;
-        aspect-ratio: 1;
+        aspect-ratio: 4 / 5;
         object-fit: cover;
         border-radius: 0;
         box-shadow: none;
@@ -423,7 +423,7 @@ function render_service_card($srv) {
             width: 100%;
             margin: 0;
             padding: 0;
-            aspect-ratio: 1;
+            aspect-ratio: 4 / 5;
             border-radius: 0;
         }
 

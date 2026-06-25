@@ -278,6 +278,8 @@ body.customer-theme .shopee-grid .shopee-img {
     margin: 0 !important;
     padding: 0 !important;
     display: block !important;
+    aspect-ratio: 4 / 5 !important;
+    object-fit: cover !important;
 }
 
 /* ===== Product Card ===== */
