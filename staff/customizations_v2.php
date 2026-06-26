@@ -525,14 +525,16 @@ const CV2 = (function () {
     function effectiveDesignUrl(it) {
         if (!it) return '';
         const itemId = parseInt(it.order_item_id || 0, 10);
-        const canServe = !!(it.has_design || it.design_exists);
+        const designUrl = String(it.design_url || '').trim();
+        const serveUrl = String(it.design_serve_url || '').trim();
+        const canServe = !!(it.has_design || it.design_exists || designUrl || serveUrl);
 
-        if (canServe && it.design_serve_url) {
+        if (serveUrl) {
             const serve = String(it.design_serve_url).trim();
             if (serve) return serve;
         }
-        if (canServe && it.design_url && !looksLikeCatalogImage(it.design_url)) {
-            return String(it.design_url).trim();
+        if (designUrl && !looksLikeCatalogImage(designUrl)) {
+            return designUrl;
         }
         if (itemId > 0 && canServe) {
             return `${API}?action=design&order_item_id=${itemId}`;
