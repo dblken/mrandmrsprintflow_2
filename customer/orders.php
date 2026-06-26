@@ -1298,6 +1298,9 @@ function imIsLongFormSpecKey(k) {
     if (!s) {
         return false;
     }
+    if (s.includes('design upload data') || s.includes('upload design data') || s.includes('design data')) {
+        return true;
+    }
     if (/\bnotes\b/.test(s)) {
         return true;
     }
@@ -1417,7 +1420,7 @@ function openItemsModal(orderId, event) {
                     if (v === null || v === undefined || v === '') return false;
                     const nk = String(k).toLowerCase().replace(/\s+/g, '_');
                     if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
-                    if (['design_upload', 'reference_upload'].includes(k) || String(k).startsWith('_')) return false;
+                    if (['design_upload', 'design_upload_name', 'design_upload_data', 'upload_design_data', 'design_data', 'reference_upload'].includes(k) || String(k).startsWith('_')) return false;
                     return true;
                 });
                 const specParts = [];
@@ -1429,7 +1432,7 @@ function openItemsModal(orderId, event) {
                     const dispStr = String(disp);
                     const kl = String(k).toLowerCase();
                     if (imIsLongFormSpecKey(k)) {
-                        if (kl === 'notes' && dispStr.trim() !== '' && dispStr.trim() === String(data.notes || '').trim()) {
+                        if (dispStr.trim() !== '' && dispStr.trim() === String(data.notes || '').trim()) {
                             continue;
                         }
                         const label = String(k).replace(/_/g, ' ');
