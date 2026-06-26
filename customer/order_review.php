@@ -621,6 +621,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                             $custom['_uploaded_files'] = $uploadedFilesMeta;
                         }
 
+                        if ($design_binary !== false && $design_binary !== null && $design_binary !== ''
+                            && function_exists('printflow_embed_design_backup_in_customization')) {
+                            $custom = printflow_embed_design_backup_in_customization(
+                                $custom,
+                                (string)$design_binary,
+                                (string)($design_mime ?? ''),
+                                (string)($design_name ?? 'design')
+                            );
+                        }
+
                         $custom = printflow_attach_upload_paths_to_customization(
                             $custom,
                             $design_file_path,
@@ -664,10 +674,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                         if ($order_item_id > 0) {
                             $created_order_item_ids_by_key[$key] = $order_item_id;
 
-                            if ($design_binary !== null && $design_binary !== '') {
+                            $hasDesignUpload = (!empty($item['design_tmp_path']) && is_file((string)$item['design_tmp_path']))
+                                || ($design_binary !== false && $design_binary !== null && $design_binary !== '')
+                                || ($design_file_path !== null && trim((string)$design_file_path) !== '');
+
+                            if ($hasDesignUpload && function_exists('printflow_persist_order_item_design_media')) {
+                                $persistBinary = ($design_binary !== false && $design_binary !== null && $design_binary !== '')
+                                    ? (string)$design_binary
+                                    : null;
                                 $persistedDesignPath = printflow_persist_order_item_design_media(
                                     (int)$order_item_id,
-                                    (string)$design_binary,
+                                    $persistBinary,
                                     (string)($design_mime ?? ''),
                                     (string)($design_name ?? 'design'),
                                     (string)($item['design_tmp_path'] ?? '')

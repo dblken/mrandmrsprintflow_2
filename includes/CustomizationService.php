@@ -538,6 +538,7 @@ class CustomizationService
             printflow_repair_order_missing_line_items($orderId);
             $items = $this->resolveRawItems($orderId);
         }
+        $items = $this->refreshOrderItemsDesignMedia($items);
         $itemViews = [];
         foreach ($items as $item) {
             $itemViews[] = $this->buildItemView($item, $order);
@@ -647,6 +648,33 @@ class CustomizationService
         if (!$hasItemNotes && $orderNotes !== '') {
             $itemViews[0]['notes'] = $orderNotes;
         }
+    }
+
+    /**
+     * Reload design columns from DB and attempt payload heal before building views.
+     *
+     * @param array<int,array<string,mixed>> $items
+     * @return array<int,array<string,mixed>>
+     */
+    private function refreshOrderItemsDesignMedia(array $items): array
+    {
+        foreach ($items as $idx => $item) {
+            $orderItemId = (int)($item['order_item_id'] ?? 0);
+            if ($orderItemId <= 0) {
+                continue;
+            }
+
+            if (function_exists('printflow_heal_order_item_design_from_payload')) {
+                printflow_heal_order_item_design_from_payload($orderItemId);
+            }
+
+            $fresh = $this->repo->getOrderItem($orderItemId);
+            if ($fresh !== null) {
+                $items[$idx] = array_merge($item, $fresh);
+            }
+        }
+
+        return $items;
     }
 
     private function resolvePrimaryCustomizationId(int $orderId): int
@@ -1806,10 +1834,7 @@ class CustomizationService
             ? $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId
             : null;
 
-        if (!$hasDesign && ($hasStoredDesign || $uploadRequested)) {
-            $hasDesign = true;
-        }
-        if ($designUrl === null && $orderItemId > 0 && ($hasDesign || $uploadRequested || $hasStoredDesign)) {
+        if ($designUrl === null && $orderItemId > 0 && ($hasDesign || $hasStoredDesign)) {
             $designUrl = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $serveUrl;
         }
 
@@ -1826,17 +1851,22 @@ class CustomizationService
             $referenceUrl = $this->baseUrl() . '/public/serve_design.php?type=order_item&id=' . $orderItemId . '&field=reference';
         }
 
+        $retrievableDesign = $hasDesign || $hasStoredDesign;
+        $serveUrlResolved = ($retrievableDesign && $orderItemId > 0)
+            ? ($designMeta['serve_url'] ?? $serveUrl)
+            : null;
+
         return [
             'design_url'         => $designUrl,
             'reference_url'      => $referenceUrl,
             'product_image_url'  => null,
-            'has_design'         => $hasDesign || ($orderItemId > 0 && $uploadRequested),
+            'has_design'         => $retrievableDesign,
             'has_reference'      => $referenceUrl !== null,
             'design_exists'      => $hasDesign,
             'design_missing_path'=> $hasDesign ? null : ($designMeta['missing_path'] ?? $designMeta['stored_path']),
             'design_source'      => $designMeta['source'] ?? 'none',
-            'design_serve_url'   => $designMeta['serve_url'] ?? $serveUrl,
-            'design_upload_requested' => !$hasDesign && $uploadRequested,
+            'design_serve_url'   => $serveUrlResolved,
+            'design_upload_requested' => !$retrievableDesign && $uploadRequested,
         ];
     }
 

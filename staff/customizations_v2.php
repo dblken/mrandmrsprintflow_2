@@ -524,16 +524,18 @@ const CV2 = (function () {
 
     function effectiveDesignUrl(it) {
         if (!it) return '';
-        if (it.design_serve_url) {
+        const itemId = parseInt(it.order_item_id || 0, 10);
+        const canServe = !!(it.has_design || it.design_exists);
+
+        if (canServe && it.design_serve_url) {
             const serve = String(it.design_serve_url).trim();
             if (serve) return serve;
         }
-        if (it.design_url && !looksLikeCatalogImage(it.design_url)) {
+        if (canServe && it.design_url && !looksLikeCatalogImage(it.design_url)) {
             return String(it.design_url).trim();
         }
-        const itemId = parseInt(it.order_item_id || 0, 10);
-        if (itemId > 0) {
-            return `${APP_BASE}public/serve_design.php?type=order_item&id=${itemId}`;
+        if (itemId > 0 && canServe) {
+            return `${API}?action=design&order_item_id=${itemId}`;
         }
         return '';
     }
@@ -542,7 +544,7 @@ const CV2 = (function () {
         if (!it) return false;
         if (it.has_design || it.design_exists || it.design_url || it.design_serve_url) return true;
         if (it.design_upload_requested || it.design_upload_name) return true;
-        return parseInt(it.order_item_id || 0, 10) > 0;
+        return false;
     }
 
     function designMissingMessage(it) {

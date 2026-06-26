@@ -314,6 +314,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                     }
                 }
 
+                if ($design_binary !== false && $design_binary !== null && $design_binary !== ''
+                    && function_exists('printflow_embed_design_backup_in_customization')) {
+                    $custom = printflow_embed_design_backup_in_customization(
+                        $custom,
+                        (string)$design_binary,
+                        (string)($design_mime ?? ''),
+                        (string)($design_name ?? 'design')
+                    );
+                }
+
                 $custom = printflow_attach_upload_paths_to_customization(
                     $custom,
                     $design_file_path,

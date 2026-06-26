@@ -347,11 +347,28 @@ if (!function_exists('printflow_heal_order_item_design_from_payload')) {
             return printflow_persist_order_item_design_media($orderItemId, $binary, '', $name) !== null;
         }
 
+        $orderId = 0;
+        $orderIdRows = db_query(
+            'SELECT order_id FROM order_items WHERE order_item_id = ? LIMIT 1',
+            'i',
+            [$orderItemId]
+        ) ?: [];
+        if (!empty($orderIdRows[0]['order_id'])) {
+            $orderId = (int)$orderIdRows[0]['order_id'];
+        }
+
         $custRows = db_query(
             'SELECT customization_details FROM customizations WHERE order_item_id = ? ORDER BY customization_id DESC LIMIT 3',
             'i',
             [$orderItemId]
         ) ?: [];
+        if ($custRows === [] && $orderId > 0) {
+            $custRows = db_query(
+                'SELECT customization_details FROM customizations WHERE order_id = ? ORDER BY customization_id DESC LIMIT 5',
+                'i',
+                [$orderId]
+            ) ?: [];
+        }
         foreach ($custRows as $custRow) {
             $custPayload = function_exists('customer_orders_decode_customization_payload')
                 ? customer_orders_decode_customization_payload((string)($custRow['customization_details'] ?? ''))
@@ -725,6 +742,41 @@ if (!function_exists('printflow_persist_service_customization_row')) {
             'iiiss',
             [$orderId, $orderItemId > 0 ? $orderItemId : 0, $customerId, $serviceType, $customizationJson]
         );
+    }
+}
+
+if (!function_exists('printflow_embed_design_backup_in_customization')) {
+    /**
+     * Store a base64 backup in customization JSON so heal can recover the file
+     * when disk copy or BLOB insert fails during checkout.
+     *
+     * @param array<string,mixed> $custom
+     * @return array<string,mixed>
+     */
+    function printflow_embed_design_backup_in_customization(
+        array $custom,
+        ?string $binary,
+        ?string $mime = null,
+        ?string $name = null,
+        int $maxBytes = 3145728
+    ): array {
+        if ($binary === null || $binary === '') {
+            return $custom;
+        }
+
+        $binary = (string)$binary;
+        if (strlen($binary) === 0 || strlen($binary) > $maxBytes) {
+            return $custom;
+        }
+
+        $mime = trim((string)$mime) !== '' ? trim((string)$mime) : 'application/octet-stream';
+        $name = trim((string)$name) !== '' ? trim((string)$name) : 'design';
+
+        $custom['design_upload_data'] = 'data:' . $mime . ';base64,' . base64_encode($binary);
+        $custom['design_upload_mime'] = $mime;
+        $custom['design_upload_name'] = $name;
+
+        return $custom;
     }
 }
 

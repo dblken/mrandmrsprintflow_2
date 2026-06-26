@@ -9,6 +9,7 @@
  * Actions:
  *   GET  ?action=list   [&source=all|online|pos]
  *   GET  ?action=detail &order_id=ID
+ *   GET  ?action=design &order_item_id=ID [&field=design|reference]
  *   POST  action=approve            (order_id)
  *   POST  action=request_revision   (order_id, reason)
  *   POST  action=reject             (order_id)
@@ -22,8 +23,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/CustomizationService.php';
-
-header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../../includes/order_items_persistence.php';
 
 if (!defined('BASE_URL')) {
     define('BASE_URL', defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : ''));
@@ -31,6 +31,9 @@ if (!defined('BASE_URL')) {
 
 function cv2_json($payload, int $code = 200): void
 {
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+    }
     http_response_code($code);
     $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
     if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
@@ -52,6 +55,51 @@ $service = new CustomizationService();
 $branchFilter = function_exists('printflow_branch_filter_for_user')
     ? printflow_branch_filter_for_user()
     : null;
+
+if ($action === 'design') {
+    $orderItemId = (int)($_GET['order_item_id'] ?? 0);
+    if ($orderItemId <= 0) {
+        http_response_code(400);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'order_item_id is required.';
+        exit;
+    }
+
+    $check = db_query(
+        'SELECT oi.order_id, o.branch_id
+         FROM order_items oi
+         INNER JOIN orders o ON o.order_id = oi.order_id
+         WHERE oi.order_item_id = ?
+         LIMIT 1',
+        'i',
+        [$orderItemId]
+    ) ?: [];
+    if ($check === []) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Order item not found.';
+        exit;
+    }
+
+    if ($branchFilter !== null && (int)($check[0]['branch_id'] ?? 0) !== (int)$branchFilter) {
+        http_response_code(403);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'This order belongs to another branch.';
+        exit;
+    }
+
+    if (function_exists('printflow_heal_order_item_design_from_payload')) {
+        printflow_heal_order_item_design_from_payload($orderItemId);
+    }
+
+    $_GET['type'] = 'order_item';
+    $_GET['id'] = (string)$orderItemId;
+    $_GET['field'] = trim((string)($_GET['field'] ?? 'design'));
+    require __DIR__ . '/../../public/serve_design.php';
+    exit;
+}
+
+header('Content-Type: application/json; charset=utf-8');
 
 try {
     switch ($action) {
@@ -142,17 +190,27 @@ try {
             $orderRow = $orderRow[0] ?? null;
 
             $itemRows = db_query(
-                'SELECT order_item_id, product_id, quantity, customization_data
+                'SELECT order_item_id, product_id, quantity, design_file,
+                        IFNULL(LENGTH(design_image), 0) AS design_blob_len,
+                        design_image_name, customization_data
                  FROM order_items WHERE order_id = ?',
                 'i',
                 [$orderId]
             ) ?: [];
             $itemsInfo = array_map(static function ($r) {
                 $cd = (string)($r['customization_data'] ?? '');
+                $decoded = function_exists('customer_orders_decode_customization_payload')
+                    ? customer_orders_decode_customization_payload($cd)
+                    : [];
                 return [
                     'order_item_id'       => (int)($r['order_item_id'] ?? 0),
                     'product_id'          => (int)($r['product_id'] ?? 0),
                     'quantity'            => (int)($r['quantity'] ?? 0),
+                    'design_file'         => trim((string)($r['design_file'] ?? '')),
+                    'design_blob_len'     => (int)($r['design_blob_len'] ?? 0),
+                    'design_image_name'   => trim((string)($r['design_image_name'] ?? '')),
+                    'has_design_upload_data' => !empty($decoded['design_upload_data']),
+                    'design_upload_path'  => trim((string)($decoded['design_upload_path'] ?? ($decoded['design_file'] ?? ''))),
                     'customization_len'   => strlen($cd),
                     'customization_blank' => in_array(trim($cd), ['', '[]', '{}', 'null'], true),
                     'customization_head'  => mb_substr($cd, 0, 160),
