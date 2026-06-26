@@ -94,6 +94,8 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit',
             'install_province', 'install_city', 'install_barangay', 'install_street',
             'source_page', 'source', 'service_id', 'quantity', 'Quantity', 'Notes', 'Note',
+            'design_upload_data', 'upload_design_data', 'design_data',
+            'reference_upload_data', 'upload_reference_data', 'reference_data',
             'design_upload_path', 'design_file', 'reference_file', 'layout_file',
         ];
         if (in_array($key, $skipExact, true)) {
@@ -105,7 +107,9 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             'quantity', 'qty', 'notes', 'note', 'jobnotes', 'specialinstructions',
             'otherinstructions', 'additionalnotes', 'designnotes', 'sourcepage', 'serviceid',
             'source', 'uploaddesign', 'designupload', 'designfile', 'designuploadpath',
-            'referenceupload', 'referencefile',
+            'designuploaddata', 'uploaddesigndata', 'designdata',
+            'referenceupload', 'referencefile', 'referenceuploaddata', 'uploadreferencedata',
+            'referencedata',
         ], true)) {
             return true;
         }
