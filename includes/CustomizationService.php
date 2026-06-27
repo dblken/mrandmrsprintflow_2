@@ -1822,22 +1822,42 @@ class CustomizationService
             'order_id'       => $orderId,
             'customization'  => $custom,
             'heal'           => true,
-            'debug'          => true,
+            'debug'          => false,
         ]);
 
         $designUrl = null;
+        $hasDesign = false;
+        
         if ($designMeta['exists']) {
+            $hasDesign = true;
             if (!empty($designMeta['is_image'])) {
                 $designUrl = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $designMeta['url'];
             } else {
                 $designUrl = $designMeta['serve_url'] ?? $designMeta['url'];
             }
-        } elseif ($candidateDesignUrl !== null && trim($candidateDesignUrl) !== ''
-            && !$this->isLikelyCatalogOrPlaceholderImageUrl(trim($candidateDesignUrl), $order, $custom)) {
-            $designUrl = trim($candidateDesignUrl);
         }
-
-        $hasDesign = (bool)$designMeta['exists'];
+        
+        if (!$hasDesign && $candidateDesignUrl !== null && trim($candidateDesignUrl) !== '') {
+            $candidateDesignUrl = trim($candidateDesignUrl);
+            if (!$this->isLikelyCatalogOrPlaceholderImageUrl($candidateDesignUrl, $order, $custom)) {
+                $designUrl = $candidateDesignUrl;
+                $hasDesign = true;
+            }
+        }
+        
+        if (!$hasDesign) {
+            foreach (['design_upload_data', 'upload_design_data', 'design_data'] as $dataKey) {
+                if (empty($custom[$dataKey]) || !is_scalar($custom[$dataKey])) {
+                    continue;
+                }
+                $raw = trim((string)$custom[$dataKey]);
+                if ($raw !== '' && preg_match('#^data:#i', $raw)) {
+                    $designUrl = $raw;
+                    $hasDesign = true;
+                    break;
+                }
+            }
+        }
         $uploadRequested = $this->itemHasUploadEvidence($item, $custom, $orderId)
             || $this->customHasUploadDesign($custom)
             || trim((string)($custom['design_upload_name'] ?? '')) !== ''
