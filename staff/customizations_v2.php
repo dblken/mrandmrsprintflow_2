@@ -546,6 +546,7 @@ const CV2 = (function () {
         if (!it) return false;
         if (it.has_design || it.design_exists || it.design_url || it.design_serve_url) return true;
         if (it.design_upload_requested || it.design_upload_name) return true;
+        if (it.design_source && it.design_source !== 'none') return true;
         return false;
     }
 
@@ -554,7 +555,10 @@ const CV2 = (function () {
         if (path) {
             return `Missing file:<br><code style="font-size:12px;word-break:break-all;">${esc(path)}</code>`;
         }
-        return 'Customer upload is not available. Ask them to re-send the file.';
+        if (it.design_upload_name || it.design_upload_requested) {
+            return 'Design file is temporarily unavailable. Refreshing page may help.';
+        }
+        return 'No design file was uploaded with this order.';
     }
 
     function effectiveReferenceUrl(it) {

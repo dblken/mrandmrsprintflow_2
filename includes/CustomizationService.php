@@ -873,7 +873,10 @@ class CustomizationService
             (bool)($images['has_reference'] ?? false)
         );
 
-        $designUploadName = trim((string)($custom['design_upload_name'] ?? ($custom['design_upload'] ?? '')));
+        $designUploadName = trim((string)($custom['design_upload_name'] ?? ($custom['design_upload'] ?? ($item['design_image_name'] ?? ''))));
+        if ($designUploadName === '' && trim((string)($item['design_file'] ?? '')) !== '') {
+            $designUploadName = basename(trim((string)$item['design_file']));
+        }
 
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
@@ -1032,6 +1035,14 @@ class CustomizationService
             (bool)($images['has_reference'] ?? false)
         );
 
+        $designUploadName = trim((string)($custom['design_upload_name'] ?? ($custom['design_upload'] ?? '')));
+        if ($designUploadName === '' && trim((string)($item['design_image_name'] ?? '')) !== '') {
+            $designUploadName = trim((string)$item['design_image_name']);
+        }
+        if ($designUploadName === '' && trim((string)($item['pf_design_name'] ?? '')) !== '') {
+            $designUploadName = trim((string)$item['pf_design_name']);
+        }
+
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
             'name'              => $name,
@@ -1052,6 +1063,7 @@ class CustomizationService
             'design_source'     => $images['design_source'] ?? null,
             'design_serve_url'  => $images['design_serve_url'] ?? null,
             'design_upload_requested' => (bool)($images['design_upload_requested'] ?? false),
+            'design_upload_name'=> $designUploadName,
         ];
     }
 
@@ -1827,7 +1839,9 @@ class CustomizationService
 
         $hasDesign = (bool)$designMeta['exists'];
         $uploadRequested = $this->itemHasUploadEvidence($item, $custom, $orderId)
-            || $this->customHasUploadDesign($custom);
+            || $this->customHasUploadDesign($custom)
+            || trim((string)($custom['design_upload_name'] ?? '')) !== ''
+            || trim((string)($item['design_image_name'] ?? '')) !== '';
         $hasStoredDesign = trim((string)($item['design_file'] ?? '')) !== ''
             || (int)($item['design_image_bytes'] ?? 0) > 0;
         $serveUrl = $orderItemId > 0
