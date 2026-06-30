@@ -46,6 +46,26 @@ function pos_table_has_column(string $table, string $column): bool {
     return $cache[$key] = !empty($rows);
 }
 
+function pos_ensure_customizations_table(): void {
+    db_execute(
+        "CREATE TABLE IF NOT EXISTS `customizations` (
+          `customization_id` INT AUTO_INCREMENT PRIMARY KEY,
+          `order_id` INT NOT NULL,
+          `order_item_id` INT DEFAULT NULL,
+          `customer_id` INT NOT NULL,
+          `service_type` VARCHAR(100) NOT NULL,
+          `customization_details` LONGTEXT NULL,
+          `status` VARCHAR(50) NOT NULL DEFAULT 'Pending Review',
+          `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY `idx_order` (`order_id`),
+          KEY `idx_customer` (`customer_id`),
+          KEY `idx_status` (`status`),
+          KEY `idx_order_item` (`order_item_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+    );
+}
+
 function pos_get_service_placeholder_product_id(): int {
     $existing = db_query("SELECT product_id FROM products WHERE sku = 'POS-SERVICE' LIMIT 1") ?: [];
     if (!empty($existing)) {
@@ -617,6 +637,9 @@ if (!$data) {
 
 // Handle create_pending_customization action
 if (isset($data['action']) && $data['action'] === 'create_pending_customization') {
+    printflow_ensure_order_items_columns();
+    pos_ensure_customizations_table();
+
     $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
     $transaction_open = false;
     
@@ -738,6 +761,7 @@ if (empty($data['items'])) {
 }
 
 printflow_ensure_order_items_columns();
+pos_ensure_customizations_table();
 
 $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
 

@@ -889,10 +889,14 @@ class CustomizationService
             'notes'             => $notes,
             'needed_date'       => $neededDate,
             'design_url'        => $images['design_url'],
+            'design_open_url'   => $images['design_serve_url'] ?? $images['design_url'],
             'reference_url'     => $images['reference_url'],
             'product_image_url' => $images['product_image_url'],
             'has_design'        => $images['has_design'],
             'has_reference'     => $images['has_reference'],
+            'design_name'       => $designUploadName,
+            'design_is_image'   => $this->isImageUploadName($designUploadName)
+                || $this->isImageUploadName((string)($images['design_url'] ?? '')),
             'design_upload_name'=> $designUploadName,
             'design_exists'     => (bool)($images['design_exists'] ?? $images['has_design'] ?? false),
             'design_missing_path' => $images['design_missing_path'] ?? null,
@@ -1054,10 +1058,14 @@ class CustomizationService
             'notes'             => $notes,
             'needed_date'       => $neededDate,
             'design_url'        => $images['design_url'],
+            'design_open_url'   => $images['design_serve_url'] ?? $images['design_url'],
             'reference_url'     => $images['reference_url'],
             'product_image_url' => $images['product_image_url'],
             'has_design'        => $images['has_design'],
             'has_reference'     => $images['has_reference'],
+            'design_name'       => $designUploadName,
+            'design_is_image'   => $this->isImageUploadName($designUploadName)
+                || $this->isImageUploadName((string)($images['design_url'] ?? '')),
             'design_exists'     => (bool)($images['design_exists'] ?? $images['has_design'] ?? false),
             'design_missing_path' => $images['design_missing_path'] ?? null,
             'design_source'     => $images['design_source'] ?? null,
@@ -1342,6 +1350,11 @@ class CustomizationService
     private function looksLikeFilename(string $text): bool
     {
         return (bool) preg_match('/\.(jpe?g|png|gif|webp|pdf|ai|psd|svg|bmp|tiff?|heic)$/i', trim($text));
+    }
+
+    private function isImageUploadName(string $text): bool
+    {
+        return (bool) preg_match('/\.(jpe?g|png|gif|webp|svg|bmp|tiff?|heic|avif)$/i', trim($text));
     }
 
     /**
