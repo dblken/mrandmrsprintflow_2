@@ -3051,8 +3051,8 @@ try {
                             'warning'
                         );
                     }
-                    // Redirect to Customizations V2 to set price, then return to POS
-                    const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations_v2.php'); ?>, window.location.origin);
+                    // Redirect to the legacy Customizations page to set price, then return to POS
+                    const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);
                     redirectUrl.searchParams.set('order_id', data.order_id);
                     redirectUrl.searchParams.set('return_to_pos', '1');
                     if (data.customization_id) {
