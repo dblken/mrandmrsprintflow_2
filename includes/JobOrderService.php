@@ -2109,12 +2109,17 @@ class JobOrderService {
             } else if (empty($item['product_name']) || in_array(strtolower(trim((string)$name)), ['custom order', 'customer order', 'service order', 'order item', 'sticker pack'])) {
                 $name = get_service_name_from_customization($custom, $item['product_name'] ?: 'Custom Order');
             }
+            $serviceIdForImage = (int)($custom['service_id'] ?? 0);
+            if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
+                $serviceIdForImage = printflow_resolve_active_service_catalog_id((string)$name);
+            }
             $items_out[] = [
                 'order_item_id'   => $item['order_item_id'],
                 'product_name'    => $name,
                 'product_type'    => $item['product_type'] ?? 'custom',
                 'product_image'   => (string)($item['product_image'] ?? ''),
-                'service_image'   => function_exists('get_service_image_url') ? get_service_image_url($name) : '',
+                'service_id'      => $serviceIdForImage,
+                'service_image'   => function_exists('get_service_image_url') ? get_service_image_url($name, $serviceIdForImage) : '',
                 'quantity'        => (int)$item['quantity'],
                 'customization'   => $custom,
                 'specifications'   => $custom,
@@ -2568,6 +2573,9 @@ class JobOrderService {
             $customForPayload = printflow_overlay_nonempty_assoc($customForPayload, $orderItemCustomization);
 
             $serviceIdForImage = (int)($custom['service_id'] ?? 0);
+            if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
+                $serviceIdForImage = printflow_resolve_active_service_catalog_id((string)$name);
+            }
             $catalogServiceImage = function_exists('get_service_image_url')
                 ? get_service_image_url($name, $serviceIdForImage)
                 : '';
@@ -2587,6 +2595,7 @@ class JobOrderService {
                 'product_type' => $item['product_type'] ?? 'custom',
                 'category' => $item['category'] ?? '',
                 'product_image' => $productImage,
+                'service_id' => $serviceIdForImage,
                 'service_image' => $catalogServiceImage,
                 'catalog_service_image' => $catalogServiceImage,
                 'quantity' => $quantity,
