@@ -1637,6 +1637,12 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </div>
                                     </template>
+                                    <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
+                                        <div style="margin-top:12px;">
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
+                                            <div style="font-size:12px; color:#6b7280; font-style:italic;">No design uploaded.</div>
+                                        </div>
+                                    </template>
                                     <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
@@ -3516,12 +3522,18 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             staffFieldLooksLikeDesignUpload(key, value) {
                 const normalizedKey = String(key || '').toLowerCase().replace(/\s+/g, '_');
+                const normalizedValue = String(value || '').trim().toLowerCase();
                 const isDesignKey = normalizedKey === 'design_upload'
                     || normalizedKey === 'design_upload_name'
                     || normalizedKey === 'design_upload_path'
                     || normalizedKey === 'design_file'
+                    || normalizedKey === 'desing_upload'
+                    || normalizedKey === 'desing_upload_name'
+                    || normalizedKey === 'desing_upload_path'
+                    || normalizedKey === 'desing_file'
                     || normalizedKey.includes('upload') && normalizedKey.includes('design');
-                return isDesignKey && value != null && String(value).trim() !== '';
+                const looksLikeDesignFile = /\.(jpe?g|png|gif|webp|bmp|svg|avif|pdf)$/i.test(normalizedValue);
+                return (isDesignKey || looksLikeDesignFile) && value != null && String(value).trim() !== '';
             },
             staffFieldUploadIsImage(key, value) {
                 if (!this.staffFieldLooksLikeDesignUpload(key, value)) return false;
