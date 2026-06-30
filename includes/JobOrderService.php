@@ -1836,8 +1836,23 @@ class JobOrderService {
                 $customization = ['Quantity' => (string)$qty];
             }
 
-            // Resolve product/service name
+            // Resolve product/service name. POS service orders store a placeholder
+            // product_id, so the customization payload is the source of truth.
             $productName = trim((string)($row['name'] ?? 'Custom Order'));
+            $customServiceName = trim((string)($customization['service_type'] ?? ''));
+            $customProductType = trim((string)($customization['product_type'] ?? ''));
+            $isServiceLine = $customServiceName !== ''
+                || (int)($customization['service_id'] ?? 0) > 0
+                || strtolower(trim((string)($customization['source'] ?? ''))) === 'pos';
+            if ($isServiceLine) {
+                $serviceName = $customServiceName !== '' ? $customServiceName : $customProductType;
+                if ($serviceName === '' && function_exists('get_service_name_from_customization')) {
+                    $serviceName = get_service_name_from_customization($customization, '');
+                }
+                if ($serviceName !== '') {
+                    $productName = $serviceName;
+                }
+            }
 
             // Resolve design URLs
             $designName = trim((string)($row['design_image_name'] ?? ''));
@@ -1853,6 +1868,14 @@ class JobOrderService {
                 $designName = $posDesign['name'] ?: $designName;
                 $designOpenUrl = $posDesign['url'];
             }
+            $designMime = trim((string)($row['design_image_mime'] ?? ''));
+            $designBlobBytes = isset($row['design_image'])
+                ? strlen((string)$row['design_image'])
+                : (int)($row['pf_design_image_bytes'] ?? 0);
+            $designIsImage = ($posDesign !== [] && !empty($posDesign['is_image']))
+                || (strpos(strtolower($designMime), 'image/') === 0)
+                || ($designName !== '' && (bool)preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $designName))
+                || ($designFile !== '' && (bool)preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $designFile));
 
             // Resolve reference URLs
             $referenceFile = trim((string)($row['reference_image_file'] ?? ''));
@@ -1865,10 +1888,22 @@ class JobOrderService {
             if ($posReference !== []) {
                 $referenceOpenUrl = $posReference['url'];
             }
+            $referenceIsImage = ($posReference !== [] && !empty($posReference['is_image']))
+                || ($referenceFile !== '' && (bool)preg_match('/\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i', $referenceFile));
 
-            // Resolve product image
+            // Resolve product/service image. Service rows should not use the
+            // placeholder product image because product/service IDs can overlap.
             $productImage = '';
-            if (!empty($row['photo_path'])) {
+            $serviceIdForImage = (int)($customization['service_id'] ?? 0);
+            if ($serviceIdForImage <= 0 && $isServiceLine && function_exists('printflow_resolve_active_service_catalog_id')) {
+                $serviceIdForImage = printflow_resolve_active_service_catalog_id($productName);
+            }
+            $serviceImage = ($isServiceLine && function_exists('get_service_image_url'))
+                ? get_service_image_url($productName, $serviceIdForImage)
+                : '';
+            if ($isServiceLine) {
+                $productImage = '';
+            } elseif (!empty($row['photo_path'])) {
                 $productImage = (string)$row['photo_path'];
             } elseif (!empty($row['product_image'])) {
                 $productImage = (string)$row['product_image'];
@@ -1885,12 +1920,20 @@ class JobOrderService {
                 'design_name' => $designName !== '' ? $designName : null,
                 'design_file' => $designFile !== '' ? $designFile : null,
                 'design_open_url' => $designOpenUrl,
+                'design_url' => $designIsImage ? $designOpenUrl : null,
+                'design_is_image' => $designIsImage,
+                'design_image_bytes' => $designBlobBytes,
                 'design_image_name' => $designName,
-                'design_image_mime' => trim((string)($row['design_image_mime'] ?? '')),
+                'design_image_mime' => $designMime,
                 'reference_name' => $referenceFile !== '' ? basename($referenceFile) : null,
                 'reference_open_url' => $referenceOpenUrl,
+                'reference_url' => $referenceIsImage ? $referenceOpenUrl : null,
+                'reference_is_image' => $referenceIsImage,
                 'reference_image_file' => $referenceFile,
                 'product_image' => $productImage,
+                'service_id' => $serviceIdForImage,
+                'service_image' => $serviceImage,
+                'catalog_service_image' => $serviceImage,
             ];
         }
 
@@ -1958,8 +2001,33 @@ class JobOrderService {
             $item['reference_image_file'] = $resolved['reference_image_file'] ?? $item['reference_image_file'] ?? '';
             $item['design_name'] = $resolved['design_name'] ?? $item['design_name'] ?? null;
             $item['design_open_url'] = $resolved['design_open_url'] ?? $item['design_open_url'] ?? null;
+            $item['design_url'] = $resolved['design_url'] ?? $item['design_url'] ?? null;
+            $item['design_is_image'] = $resolved['design_is_image'] ?? $item['design_is_image'] ?? false;
+            $item['design_image_bytes'] = $resolved['design_image_bytes'] ?? $item['design_image_bytes'] ?? $item['pf_design_image_bytes'] ?? 0;
             $item['reference_name'] = $resolved['reference_name'] ?? $item['reference_name'] ?? null;
             $item['reference_open_url'] = $resolved['reference_open_url'] ?? $item['reference_open_url'] ?? null;
+            $item['reference_url'] = $resolved['reference_url'] ?? $item['reference_url'] ?? null;
+            $item['reference_is_image'] = $resolved['reference_is_image'] ?? $item['reference_is_image'] ?? false;
+
+            $mergedCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
+            $serviceLike = trim((string)($mergedCustomization['service_type'] ?? '')) !== ''
+                || (int)($mergedCustomization['service_id'] ?? 0) > 0
+                || strtolower(trim((string)($mergedCustomization['source'] ?? ''))) === 'pos';
+            if ($serviceLike) {
+                $resolvedName = trim((string)($resolved['product_name'] ?? ''));
+                if ($resolvedName !== '' && !customer_orders_is_generic_item_name($resolvedName)) {
+                    $item['product_name'] = $resolvedName;
+                }
+                $item['product_image'] = '';
+                foreach (['service_id', 'service_image', 'catalog_service_image'] as $serviceField) {
+                    if (!empty($resolved[$serviceField])) {
+                        $item[$serviceField] = $resolved[$serviceField];
+                    }
+                }
+            } else {
+                $item['product_name'] = $resolved['product_name'] ?? $item['product_name'] ?? 'Order Item';
+                $item['product_image'] = $resolved['product_image'] ?? $item['product_image'] ?? '';
+            }
         }
         unset($item);
 
