@@ -1637,6 +1637,18 @@ if ($showLatestCustomizationOnly) {
                                             </div>
                                         </div>
                                     </template>
+                                    <template x-if="!staffEffectiveDesignOpenUrl(item) && staffItemHasStoredDesign(item)">
+                                        <div style="margin-top:12px;">
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
+                                            <a :href="staffOrderItemDesignServeUrl(item)"
+                                               target="_blank"
+                                               rel="noopener noreferrer"
+                                               style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
+                                                <span style="font-size:14px;">FILE</span>
+                                                <span x-text="item.design_name || item.design_image_name || 'Open uploaded design'"></span>
+                                            </a>
+                                        </div>
+                                    </template>
                                     <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
