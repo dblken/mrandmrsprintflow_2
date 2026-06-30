@@ -2568,9 +2568,6 @@ class JobOrderService {
             $customForPayload = printflow_overlay_nonempty_assoc($customForPayload, $orderItemCustomization);
 
             $serviceIdForImage = (int)($custom['service_id'] ?? 0);
-            if ($serviceIdForImage <= 0) {
-                $serviceIdForImage = (int)($order['reference_id'] ?? 0);
-            }
             $catalogServiceImage = function_exists('get_service_image_url')
                 ? get_service_image_url($name, $serviceIdForImage)
                 : '';
