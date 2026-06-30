@@ -1601,7 +1601,27 @@ if ($showLatestCustomizationOnly) {
                                         <template x-for="([k, v]) in getDisplayableCustom(item.customization, item)" :key="k">
                                             <div style="padding:8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; min-width:0; overflow-wrap:break-word;">
                                                 <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:2px;" x-text="getCustomLabel(k)"></div>
-                                                <div style="font-size:12px; font-weight:500; color:#1f2937; word-break:break-word; overflow-wrap:break-word;" x-text="formatCustomValuePlain(v)"></div>
+                                                <template x-if="staffFieldLooksLikeDesignUpload(k, v) && staffFieldUploadUrl(v)">
+                                                    <div>
+                                                        <template x-if="staffFieldUploadIsImage(k, v)">
+                                                            <img :src="staffFieldUploadUrl(v)"
+                                                                 @click="previewFile = staffFieldUploadUrl(v)"
+                                                                 style="width:100%; max-width:120px; height:auto; border-radius:8px; border:1px solid #e2e8f0; cursor:zoom-in; background:#f8fafc;"
+                                                                 onerror="this.style.display='none'">
+                                                        </template>
+                                                        <template x-if="!staffFieldUploadIsImage(k, v)">
+                                                            <a :href="staffFieldUploadUrl(v)"
+                                                               target="_blank"
+                                                               rel="noopener noreferrer"
+                                                               style="font-size:12px;font-weight:500;color:#1f2937;word-break:break-word;overflow-wrap:break-word;text-decoration:none;">
+                                                                <span x-text="staffFieldUploadName(v) || formatCustomValuePlain(v)"></span>
+                                                            </a>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <div x-show="!staffFieldLooksLikeDesignUpload(k, v)"
+                                                     style="font-size:12px; font-weight:500; color:#1f2937; word-break:break-word; overflow-wrap:break-word;"
+                                                     x-text="formatCustomValuePlain(v)"></div>
                                                 <a x-show="isDisplayableLink(v)" :href="sanitizeStaffLink(v)" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#4f46e5;font-weight:600;margin-top:4px;display:inline-block;">Open link →</a>
                                             </div>
                                         </template>
@@ -3481,6 +3501,33 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 const base = document.body.getAttribute('data-base-url') || '';
                 return base + '/uploads/orders/' + text;
+            },
+            staffFieldUploadUrl(value) {
+                if (value == null || value === '') return '';
+                const text = String(value).trim();
+                if (!text) return '';
+                return this.staffResolveOrderUploadUrl(text);
+            },
+            staffFieldUploadName(value) {
+                if (value == null || value === '') return '';
+                const text = String(value).trim();
+                if (!text) return '';
+                return text.split('/').pop().split('\\').pop();
+            },
+            staffFieldLooksLikeDesignUpload(key, value) {
+                const normalizedKey = String(key || '').toLowerCase().replace(/\s+/g, '_');
+                const isDesignKey = normalizedKey === 'design_upload'
+                    || normalizedKey === 'design_upload_name'
+                    || normalizedKey === 'design_upload_path'
+                    || normalizedKey === 'design_file'
+                    || normalizedKey.includes('upload') && normalizedKey.includes('design');
+                return isDesignKey && value != null && String(value).trim() !== '';
+            },
+            staffFieldUploadIsImage(key, value) {
+                if (!this.staffFieldLooksLikeDesignUpload(key, value)) return false;
+                const url = this.staffFieldUploadUrl(value);
+                const name = this.staffFieldUploadName(value);
+                return this.staffFilenameLooksLikeImage(url) || this.staffFilenameLooksLikeImage(name);
             },
             staffDesignShowsAsImage(item) {
                 if (!item) return false;
