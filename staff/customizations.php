@@ -3290,9 +3290,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                     // Collapse aliased keys into their canonical display form.
                     const customization = this.normalizeSpecAliases(merged);
 
-                    const designName = item.design_name || item.design_image_name || this.staffBasename(item.design_file);
+                    const customizationDesignPath = (existingCustomization.design_upload_path || rawDecoded.design_upload_path || '').trim();
+                    const customizationDesignName = (existingCustomization.design_upload_name || rawDecoded.design_upload_name || existingCustomization.design_upload || rawDecoded.design_upload || '').trim();
+                    const designName = item.design_name || item.design_image_name || customizationDesignName || this.staffBasename(item.design_file || customizationDesignPath);
                     // If design_open_url is still missing but we have an order_item_id, build a serve URL.
-                    let designOpenUrl = item.design_open_url || item.design_file || item.design_url || '';
+                    let designOpenUrl = item.design_open_url || item.design_file || item.design_url || customizationDesignPath || '';
                     if (!designOpenUrl && item.order_item_id) {
                         designOpenUrl = this.staffOrderItemDesignServeUrl(item);
                     }
@@ -3487,6 +3489,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
                     || this.staffFilenameLooksLikeImage(item.design_file)
+                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_name || item.customization?.design_upload)
+                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_path)
                     || this.staffFilenameLooksLikeImage(item.artwork_path || this.currentJo?.artwork_path);
             },
             staffItemHasStoredDesign(item) {
@@ -3499,6 +3503,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                     || (item.design_name && String(item.design_name).trim())
                     || (item.design_image_name && String(item.design_image_name).trim())
                     || (item.design_file && String(item.design_file).trim())
+                    || (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization) && (
+                        (item.customization.design_upload && String(item.customization.design_upload).trim())
+                        || (item.customization.design_upload_name && String(item.customization.design_upload_name).trim())
+                        || (item.customization.design_upload_path && String(item.customization.design_upload_path).trim())
+                    ))
                     || (custom.design_upload && String(custom.design_upload).trim())
                     || (custom['Upload Design'] && String(custom['Upload Design']).trim()));
             },
@@ -3524,6 +3533,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Priority 3: Direct stored design file path.
                 const designFile = (item.design_file || '').trim();
                 if (designFile) return this.staffResolveOrderUploadUrl(designFile);
+
+                // Priority 3b: POS-staged upload path stored in customization payload.
+                const customizationDesignPath = (item.customization?.design_upload_path || '').trim();
+                if (customizationDesignPath) return this.staffResolveOrderUploadUrl(customizationDesignPath);
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
                 const artworkPath = (item.artwork_path || this.currentJo?.artwork_path || '').trim();
