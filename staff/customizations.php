@@ -3332,7 +3332,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     const customizationDesignName = (existingCustomization.design_upload_name || rawDecoded.design_upload_name || existingCustomization.design_upload || rawDecoded.design_upload || '').trim();
                     const designName = item.design_name || item.design_image_name || customizationDesignName || this.staffBasename(item.design_file || customizationDesignPath);
                     // If design_open_url is still missing but we have an order_item_id, build a serve URL.
-                    let designOpenUrl = item.design_open_url || item.design_file || item.design_url || customizationDesignPath || '';
+                    let designOpenUrl = item.design_open_url || item.design_serve_url || item.design_url || item.design_file || customizationDesignPath || '';
                     if (!designOpenUrl && item.order_item_id) {
                         designOpenUrl = this.staffOrderItemDesignServeUrl(item);
                     }
@@ -3598,7 +3598,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (revisionUrl) return this.staffResolveMediaUrl(revisionUrl);
                 
                 // Priority 2: Prefer the backend-resolved design endpoint for the exact order item.
-                const fromApi = (item.design_open_url || '').trim();
+                const fromApi = (item.design_open_url || item.design_serve_url || '').trim();
                 if (fromApi) return this.staffResolveOrderUploadUrl(fromApi);
 
                 // Priority 3: Direct stored design file path.

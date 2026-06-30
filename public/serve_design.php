@@ -185,6 +185,83 @@ function pf_serve_design_read_file(?string $storedPath): bool {
     return false;
 }
 
+function pf_serve_design_order_item_id_from_alias(int $id): int {
+    if ($id <= 0) {
+        return 0;
+    }
+
+    $customRows = db_query(
+        "SELECT order_item_id
+         FROM customizations
+         WHERE customization_id = ?
+           AND order_item_id IS NOT NULL
+           AND order_item_id > 0
+         LIMIT 1",
+        'i',
+        [$id]
+    ) ?: [];
+    if (!empty($customRows[0]['order_item_id'])) {
+        return (int)$customRows[0]['order_item_id'];
+    }
+
+    $jobRows = db_query(
+        "SELECT order_item_id
+         FROM job_orders
+         WHERE id = ?
+           AND order_item_id IS NOT NULL
+           AND order_item_id > 0
+         LIMIT 1",
+        'i',
+        [$id]
+    ) ?: [];
+    if (!empty($jobRows[0]['order_item_id'])) {
+        return (int)$jobRows[0]['order_item_id'];
+    }
+
+    return 0;
+}
+
+function pf_serve_design_try_job_order_by_id(int $jobOrderId, string $field = 'design'): bool {
+    if ($jobOrderId <= 0 || $field === 'reference') {
+        return false;
+    }
+
+    $rows = db_query(
+        "SELECT artwork_path
+         FROM job_orders
+         WHERE id = ?
+           AND TRIM(COALESCE(artwork_path, '')) <> ''
+         LIMIT 1",
+        'i',
+        [$jobOrderId]
+    ) ?: [];
+
+    return !empty($rows[0]['artwork_path']) && pf_serve_design_read_file((string)$rows[0]['artwork_path']);
+}
+
+function pf_serve_design_try_customization_by_id(int $customizationId, string $field = 'design'): bool {
+    if ($customizationId <= 0) {
+        return false;
+    }
+
+    $rows = db_query(
+        "SELECT customization_details
+         FROM customizations
+         WHERE customization_id = ?
+         LIMIT 1",
+        'i',
+        [$customizationId]
+    ) ?: [];
+    if (empty($rows[0])) {
+        return false;
+    }
+
+    return pf_serve_design_emit_payload_media(
+        pf_serve_design_decode_json_payload((string)($rows[0]['customization_details'] ?? '')),
+        $field
+    );
+}
+
 function pf_serve_design_find_related_order_item(int $orderId, int $excludeOrderItemId, string $field = 'design'): ?array {
     if ($orderId <= 0) {
         return null;
@@ -449,6 +526,37 @@ if (!$id) {
 $user_id = get_user_id();
 $is_staff = is_staff() || is_admin() || is_manager();
 
+if ($type === 'job_order') {
+    $jobRows = db_query(
+        "SELECT jo.order_id, jo.order_item_id, jo.artwork_path, o.customer_id
+         FROM job_orders jo
+         LEFT JOIN orders o ON o.order_id = jo.order_id
+         WHERE jo.id = ?
+         LIMIT 1",
+        'i',
+        [$id]
+    ) ?: [];
+    if (empty($jobRows[0])) {
+        pf_serve_design_emit_fallback('File not found');
+    }
+
+    if (!$is_staff && (int)($jobRows[0]['customer_id'] ?? 0) !== (int)$user_id) {
+        http_response_code(403);
+        die('Unauthorized access to this file.');
+    }
+
+    $jobOrderItemId = (int)($jobRows[0]['order_item_id'] ?? 0);
+    if ($jobOrderItemId > 0) {
+        $_GET['id'] = (string)$jobOrderItemId;
+        $id = $jobOrderItemId;
+        $type = 'order_item';
+    } elseif (pf_serve_design_read_file((string)($jobRows[0]['artwork_path'] ?? ''))) {
+        exit;
+    } else {
+        pf_serve_design_emit_fallback('File unavailable');
+    }
+}
+
 if ($type === 'order_item') {
     // 1. Check if user has access to this order
     $check = db_query(
@@ -478,7 +586,42 @@ if ($type === 'order_item') {
     )[0] ?? null;
 
     if (!$item) {
-        pf_serve_design_emit_fallback('Image not found', false);
+        $aliasOrderItemId = pf_serve_design_order_item_id_from_alias($id);
+        if ($aliasOrderItemId > 0) {
+            $id = $aliasOrderItemId;
+            $check = db_query(
+                "SELECT oi.order_id, o.customer_id
+                 FROM order_items oi
+                 JOIN orders o ON oi.order_id = o.order_id
+                 WHERE oi.order_item_id = ?",
+                'i',
+                [$id]
+            );
+            if (!$is_staff) {
+                if (empty($check) || $check[0]['customer_id'] != $user_id) {
+                    http_response_code(403);
+                    die('Unauthorized access to this order item.');
+                }
+            }
+            $orderId = (int)($check[0]['order_id'] ?? 0);
+            $item = db_query(
+                "SELECT order_item_id, design_image, design_image_mime, design_image_name, design_file,
+                        reference_image_file, revision_design_name, revision_design_path
+                 FROM order_items
+                 WHERE order_item_id = ?",
+                'i',
+                [$id]
+            )[0] ?? null;
+        }
+        if (!$item && $is_staff && pf_serve_design_try_customization_by_id((int)($_GET['id'] ?? 0), $field)) {
+            exit;
+        }
+        if (!$item && $is_staff && pf_serve_design_try_job_order_by_id((int)($_GET['id'] ?? 0), $field)) {
+            exit;
+        }
+        if (!$item) {
+            pf_serve_design_emit_fallback('File not found', false);
+        }
     }
 
     if ($field === 'revision_design') {
