@@ -2730,7 +2730,7 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
     }
 
     if ($isCustom) {
-        $url = $base . '/staff/customizations_v2.php?order_id=' . $orderId;
+        $url = $base . '/staff/customizations.php?order_id=' . $orderId;
         // For custom orders, we often want to default to PENDING status if they haven't been reviewed
         if ($preferPendingStatus && $orderSource !== 'pos' && $orderSource !== 'walk-in') {
             $url .= '&status=PENDING';
