@@ -1843,11 +1843,7 @@ class CustomizationService
         
         if ($designMeta['exists']) {
             $hasDesign = true;
-            if (!empty($designMeta['is_image'])) {
-                $designUrl = $designMeta['direct_url'] ?? $designMeta['serve_url'] ?? $designMeta['url'];
-            } else {
-                $designUrl = $designMeta['serve_url'] ?? $designMeta['url'];
-            }
+            $designUrl = $designMeta['serve_url'] ?? $designMeta['url'] ?? $designMeta['direct_url'];
         }
         
         if (!$hasDesign && $candidateDesignUrl !== null && trim($candidateDesignUrl) !== '') {

@@ -152,7 +152,8 @@ function pf_serve_design_read_file(?string $storedPath): bool {
     if (function_exists('printflow_resolve_order_upload_disk_path')) {
         $resolved = printflow_resolve_order_upload_disk_path((string)$storedPath);
         if ($resolved !== null && is_file($resolved)) {
-            pf_serve_design_emit_file($resolved);
+            $filename = basename(str_replace('\\', '/', (string)$storedPath));
+            pf_serve_design_emit_file($resolved, '', $filename !== '' ? $filename : basename($resolved));
         }
     }
 

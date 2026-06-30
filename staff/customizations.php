@@ -1632,15 +1632,8 @@ if ($showLatestCustomizationOnly) {
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
                                                 <img :src="staffEffectiveDesignOpenUrl(item)" 
                                                      @click="previewFile = staffEffectiveDesignOpenUrl(item)"
-                                                     style="width:140px; height:auto; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);" 
+                                                     style="width:160px; max-height:160px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); background:#f8fafc;" 
                                                      onerror="this.style.display='none';">
-                                                <a :href="staffEffectiveDesignOpenUrl(item)"
-                                                   target="_blank"
-                                                   rel="noopener noreferrer"
-                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                    <span style="font-size:14px;">FILE</span>
-                                                    <span x-text="item.design_name || item.design_upload_name || item.design_image_name || 'Open uploaded design'"></span>
-                                                </a>
                                             </div>
                                         </div>
                                     </template>
@@ -3607,6 +3600,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Priority 2: Prefer the backend-resolved design endpoint for the exact order item.
                 const fromApi = (item.design_open_url || item.design_serve_url || '').trim();
                 if (fromApi) return this.staffResolveOrderUploadUrl(fromApi);
+
+                // Filename-only POS uploads need the server resolver; direct /uploads guesses can 404.
+                if (item.order_item_id && (
+                    this.staffFilenameLooksLikeImage(item.design_name)
+                    || this.staffFilenameLooksLikeImage(item.design_image_name)
+                    || this.staffFilenameLooksLikeImage(item.design_upload_name)
+                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_name || item.customization?.design_upload)
+                )) {
+                    return this.staffOrderItemDesignServeUrl(item);
+                }
 
                 // Priority 3: Direct stored design file path.
                 const designFile = (item.design_file || '').trim();

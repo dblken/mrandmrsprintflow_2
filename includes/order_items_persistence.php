@@ -144,6 +144,20 @@ if (!function_exists('printflow_resolve_order_upload_disk_path')) {
             }
         }
 
+        $basename = basename(str_replace('\\', '/', $webPath));
+        $uploadDir = printflow_order_uploads_dir();
+        if ($basename !== '' && is_dir($uploadDir)) {
+            $matches = glob($uploadDir . DIRECTORY_SEPARATOR . '*' . $basename);
+            if (is_array($matches) && $matches !== []) {
+                usort($matches, static fn($a, $b) => filemtime($b) <=> filemtime($a));
+                foreach ($matches as $match) {
+                    if (is_file($match)) {
+                        return $match;
+                    }
+                }
+            }
+        }
+
         return null;
     }
 }
