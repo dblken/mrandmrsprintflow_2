@@ -2434,7 +2434,7 @@ try {
 
             for (let i = 0; i < requirements.length; i++) {
                 const resolvedReq = typeof requirements[i] === 'function' ? requirements[i]() : requirements[i];
-                if (!$resolvedReq || resolvedReq.type !== 'file') {
+                if (!resolvedReq || resolvedReq.type !== 'file') {
                     continue;
                 }
                 const req = resolvedReq;
