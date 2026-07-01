@@ -1167,7 +1167,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 /* Best Selling Services: let chart fill the whole card height. */
 .pf-ch-products-card { display: flex; flex-direction: column; }
-.pf-ch-products-card .ana-bd { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 14px; }
+.pf-ch-products-card .ana-bd { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; gap:18px; padding-top:4px; }
 .pf-ch-products-card .ch-box { display:block; flex:0 0 auto; width:100%; height:240px; min-height:240px; }
 .pf-ch-products-card #ch-products { height:240px; min-height:240px; width:100%; }
 .pf-ch-products-card { overflow: visible !important; }
@@ -1181,12 +1181,13 @@ a.export-dd-link:hover { background: #f9fafb; }
     font-size: 11px !important;
     font-weight: 700 !important;
 }
-.pf-top-services-legend { list-style:none; margin:0; padding:12px 0 0; border-top:1px dashed #e5e7eb; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 26px; }
-.pf-top-services-legend li { display:grid; grid-template-columns:auto 1fr; column-gap:10px; align-items:start; padding:9px 0; border-bottom:1px solid #eef2f7; min-width:0; }
-.pf-top-services-swatch { width:12px; height:12px; border-radius:3px; margin-top:3px; box-shadow:0 0 0 1px rgba(15,23,42,.05); }
-.pf-top-services-name { color:#0f172a; font-size:13px; font-weight:700; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.pf-top-services-meta { color:#64748b; font-size:12px; font-weight:600; margin-top:3px; }
-@media (max-width: 640px) { .pf-top-services-legend { grid-template-columns:1fr; } }
+.pf-top-services-legend { list-style:none; margin:0; padding:0; border-top:1px dashed #e5e7eb; column-count:2; column-gap:24px; font-size:12px; }
+.pf-top-services-legend li { break-inside:avoid; display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid #f3f4f6; min-width:0; }
+.pf-top-services-legend li:last-child { border-bottom:none; }
+.pf-top-services-swatch { flex:0 0 10px; width:10px; height:10px; border-radius:3px; margin-top:3px; }
+.pf-top-services-name { color:#374151; font-size:12px; font-weight:600; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pf-top-services-meta { color:#6B7C85; font-size:11px; font-weight:500; margin-top:2px; }
+@media (max-width: 640px) { .pf-top-services-legend { column-count:1; } }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
 .rev-donut-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
