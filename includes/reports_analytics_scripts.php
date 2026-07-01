@@ -1633,14 +1633,37 @@ window.printflowInitReportsCharts = function () {
             });
             
             const barColors = ['#00232b', '#0F4C5C', '#3A86A8', '#2B6CB0', '#276749', '#2C5282', '#234E52', '#1A365D'];
-            const productSeriesData = displayQtys.map((qty, i) => ({ x: '', y: qty || 0, fillColor: barColors[i] || '#94a3b8' }));
-            
+            const productSeriesData = displayQtys.map((qty, i) => ({ x: String(i + 1), y: qty || 0, fillColor: barColors[i] || '#94a3b8' }));
+            const legendMount = document.getElementById('pf-top-services-legend');
+            if (legendMount) {
+                legendMount.innerHTML = '';
+                displayNames.forEach(function(name, i) {
+                    var q = Number(displayQtys[i] || 0);
+                    var pct = Number(percentages[i] || 0);
+                    var li = document.createElement('li');
+                    var swatch = document.createElement('span');
+                    swatch.className = 'pf-top-services-swatch';
+                    swatch.style.backgroundColor = barColors[i] || '#94a3b8';
+                    var body = document.createElement('div');
+                    var title = document.createElement('div');
+                    title.className = 'pf-top-services-name';
+                    title.textContent = name || 'Unnamed service';
+                    var meta = document.createElement('div');
+                    meta.className = 'pf-top-services-meta';
+                    meta.textContent = q.toLocaleString() + ' units - ' + pct + '%';
+                    body.appendChild(title);
+                    body.appendChild(meta);
+                    li.appendChild(swatch);
+                    li.appendChild(body);
+                    legendMount.appendChild(li);
+                });
+            }
             var productsWrap = productsMount.closest('.ch-box');
-            var productsWrapH = productsWrap ? Math.max(360, Math.round(productsWrap.getBoundingClientRect().height || productsWrap.clientHeight || 0)) : 420;
+            var productsWrapH = productsWrap ? Math.max(280, Math.round(productsWrap.getBoundingClientRect().height || productsWrap.clientHeight || 0)) : 340;
             
             pfPushApexChart(productsMount, {
                 chart:{ ...PF_OPT, id:'pf-ch-products-bar', redrawOnParentResize:true, type:'bar', height: productsWrapH },
-                plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'70%', distributed:true, dataLabels:{ position:'center' } } },
+                plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'66%', distributed:true, dataLabels:{ position:'top' } } },
                 series:[{name:'Units Sold', data:productSeriesData}],
                 xaxis:{
                     min: 0, max: xMax, tickAmount: 5,
@@ -1650,15 +1673,7 @@ window.printflowInitReportsCharts = function () {
                 },
                 yaxis:{ labels:{ show: false } },
                 colors: barColors, legend:{show:false},
-                dataLabels:{
-                    enabled:true, offsetX: 0, textAnchor: 'middle', distributed: false,
-                    style:{ fontSize:'12px', colors:['#ffffff'], fontWeight: 700 },
-                    dropShadow: { enabled: true, top: 1, left: 1, blur: 3, color: '#000', opacity: 0.45 },
-                    formatter:(v, opts) => {
-                        var i = opts.dataPointIndex, q = Number(v || 0), pct = percentages[i], name = shortNames[i] || '';
-                        return i < 3 ? (name + ' \u2022 ' + q.toLocaleString() + ' (' + pct + '%)') : (name + ' \u2022 ' + q.toLocaleString());
-                    }
-                },
+                dataLabels:{ enabled:false },
                 tooltip:{
                     theme:'dark', custom:function (ctx) {
                         var i = ctx.dataPointIndex; if (i < 0) return '';

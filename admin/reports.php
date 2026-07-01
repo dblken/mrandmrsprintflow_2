@@ -1167,8 +1167,8 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 /* Best Selling Services: let chart fill the whole card height. */
 .pf-ch-products-card { display: flex; flex-direction: column; }
-.pf-ch-products-card .ana-bd { display: flex; flex: 1 1 auto; min-height: 0; }
-.pf-ch-products-card .ch-box { display: flex; flex: 1 1 auto; min-height: 300px; }
+.pf-ch-products-card .ana-bd { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 14px; }
+.pf-ch-products-card .ch-box { display: flex; flex: 0 0 auto; min-height: 260px; }
 .pf-ch-products-card #ch-products { flex: 1 1 auto; min-height: 100%; width: 100%; }
 .pf-ch-products-card { overflow: visible !important; }
 .pf-ch-products-card.ana-card { overflow: visible !important; }
@@ -1181,6 +1181,12 @@ a.export-dd-link:hover { background: #f9fafb; }
     font-size: 11px !important;
     font-weight: 700 !important;
 }
+.pf-top-services-legend { list-style:none; margin:0; padding:12px 0 0; border-top:1px dashed #e5e7eb; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 26px; }
+.pf-top-services-legend li { display:grid; grid-template-columns:auto 1fr; column-gap:10px; align-items:start; padding:9px 0; border-bottom:1px solid #eef2f7; min-width:0; }
+.pf-top-services-swatch { width:12px; height:12px; border-radius:3px; margin-top:3px; box-shadow:0 0 0 1px rgba(15,23,42,.05); }
+.pf-top-services-name { color:#0f172a; font-size:13px; font-weight:700; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pf-top-services-meta { color:#64748b; font-size:12px; font-weight:600; margin-top:3px; }
+@media (max-width: 640px) { .pf-top-services-legend { grid-template-columns:1fr; } }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
 .rev-donut-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
@@ -2840,6 +2846,7 @@ $dashData = [
                     <div class="ana-bd">
                         <div class="ch-box" id="pf-ch-products-wrapper">
                             <div id="ch-products" style="width:100%;"></div>
+                            <ul class="pf-top-services-legend" id="pf-top-services-legend" aria-label="Best selling services list"></ul>
                         </div>
                     </div>
                 </div>
