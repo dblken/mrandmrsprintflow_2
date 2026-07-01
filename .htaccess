@@ -62,9 +62,9 @@ AddType text/css .css
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
 
-    # Redirect to public/index.php if accessing root
+    # Redirect to the welcome page if accessing root
     RewriteCond %{REQUEST_URI} ^/?$
-    RewriteRule ^(.*)$ public/index.php [L]
+    RewriteRule ^(.*)$ public/welcome.php [L]
 
     # If the request is for a real file or directory in the root, serve it
     RewriteCond %{REQUEST_FILENAME} -f [OR]
