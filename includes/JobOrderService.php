@@ -2210,26 +2210,17 @@ class JobOrderService {
         ];
         }
 
+        // OPTIMIZATION: Replace subqueries with LEFT JOIN for better performance
         $orderRows = db_query(
             "SELECT o.order_id, o.order_type, o.reference_id, o.total_amount, o.estimated_price,
                     b.branch_name,
-                    IFNULL((
-                        SELECT jo.job_title
-                        FROM job_orders jo
-                        WHERE jo.order_id = o.order_id
-                        ORDER BY jo.id ASC
-                        LIMIT 1
-                    ), '') AS first_job_title,
-                    IFNULL((
-                        SELECT jo.service_type
-                        FROM job_orders jo
-                        WHERE jo.order_id = o.order_id
-                        ORDER BY jo.id ASC
-                        LIMIT 1
-                    ), '') AS first_job_service_type
+                    COALESCE(jo_first.job_title, '') AS first_job_title,
+                    COALESCE(jo_first.service_type, '') AS first_job_service_type
              FROM orders o
              LEFT JOIN branches b ON b.id = o.branch_id
+             LEFT JOIN job_orders jo_first ON jo_first.order_id = o.order_id
              WHERE o.order_id = ?
+             ORDER BY jo_first.id ASC
              LIMIT 1",
             'i',
             [$storeOrderId]

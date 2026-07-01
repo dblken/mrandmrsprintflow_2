@@ -88,40 +88,26 @@ $jobCustomizationScopeSql = " AND (
     )
 )";
 
-$total_jobs_jobs = db_query(
-    "SELECT COUNT(*) as count FROM job_orders jo WHERE 1=1" . $jobCustomizationScopeSql . $joBranchSql,
+// OPTIMIZATION: Combine all COUNT queries into a single GROUP BY query
+$kpiStats = db_query(
+    "SELECT 
+        COUNT(*) as total_jobs,
+        SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_jobs,
+        SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) as approval_jobs,
+        SUM(CASE WHEN status IN ('IN_PRODUCTION','PROCESSING','PRINTING') THEN 1 ELSE 0 END) as in_production_jobs,
+        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_jobs_jobs
+     FROM job_orders jo
+     WHERE 1=1" . $jobCustomizationScopeSql . $joBranchSql,
     $joBranchTypes ?: null,
     $joBranchParams ?: null
-)[0]['count'];
-$total_jobs = $total_jobs_jobs;
+)[0];
 
-$pending_jobs_jobs = db_query(
-    "SELECT COUNT(*) as count FROM job_orders jo WHERE status = 'PENDING'" . $jobCustomizationScopeSql . $joBranchSql,
-    $joBranchTypes ?: null,
-    $joBranchParams ?: null
-)[0]['count'];
-$pending_jobs = $pending_jobs_jobs;
-
-$approval_jobs = db_query(
-    "SELECT COUNT(*) as count FROM job_orders jo WHERE status = 'APPROVED'" . $jobCustomizationScopeSql . $joBranchSql,
-    $joBranchTypes ?: null,
-    $joBranchParams ?: null
-)[0]['count'];
+$total_jobs = (int)($kpiStats['total_jobs'] ?? 0);
+$pending_jobs = (int)($kpiStats['pending_jobs'] ?? 0);
+$approval_jobs = (int)($kpiStats['approval_jobs'] ?? 0);
 $pending_approved_jobs = $pending_jobs + $approval_jobs;
-
-$in_production_jobs = db_query(
-    "SELECT COUNT(*) as count FROM job_orders jo WHERE status IN ('IN_PRODUCTION','PROCESSING','PRINTING')" . $jobCustomizationScopeSql . $joBranchSql,
-    $joBranchTypes ?: null,
-    $joBranchParams ?: null
-)[0]['count'];
-$in_production = $in_production_jobs;
-
-$completed_jobs_jobs = db_query(
-    "SELECT COUNT(*) as count FROM job_orders jo WHERE status = 'COMPLETED'" . $jobCustomizationScopeSql . $joBranchSql,
-    $joBranchTypes ?: null,
-    $joBranchParams ?: null
-)[0]['count'];
-$completed_jobs = $completed_jobs_jobs;
+$in_production = (int)($kpiStats['in_production_jobs'] ?? 0);
+$completed_jobs = (int)($kpiStats['completed_jobs_jobs'] ?? 0);
 
 $preloaded_customization_rows = [];
 
@@ -172,6 +158,18 @@ $job_rows = db_query(
     $joBranchParams ?: null
 ) ?: [];
 
+// OPTIMIZATION: Batch fetch all order payloads to eliminate N+1 queries
+$orderIds = array_values(array_filter(array_unique(array_map(
+    fn($row) => (int)($row['order_id'] ?? 0),
+    $job_rows
+))));
+$orderPayloadCache = [];
+foreach ($orderIds as $oid) {
+    if ($oid > 0) {
+        $orderPayloadCache[$oid] = JobOrderService::getStoreOrderItemsPayload($oid, true, true);
+    }
+}
+
 foreach ($job_rows as $row) {
     $resolvedSource = strtolower(trim((string)($row['order_source'] ?? 'customer')));
     $isPosSource = in_array($resolvedSource, ['pos', 'walk-in'], true);
@@ -182,7 +180,10 @@ foreach ($job_rows as $row) {
         continue;
     }
     if (!empty($row['order_id'])) {
-        $payload = JobOrderService::getStoreOrderItemsPayload((int)$row['order_id'], true, true);
+        $payload = $orderPayloadCache[(int)$row['order_id']] ?? null;
+        if ($payload === null) {
+            continue;
+        }
         $serviceItems = array_values($payload['items'] ?? []);
         if (empty($serviceItems)) {
             continue;
