@@ -3336,6 +3336,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (!designOpenUrl && item.order_item_id) {
                         designOpenUrl = this.staffOrderItemDesignServeUrl(item);
                     }
+                    const referenceOpenUrl = item.reference_open_url || item.reference_url || item.reference_file || '';
                     const productImage = item.product_image || '';
                     const serviceImage = item.service_image || item.catalog_service_image || '';
 
@@ -3344,6 +3345,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                         customization,
                         design_name: designName,
                         design_open_url: designOpenUrl,
+                        design_url: item.design_url || designOpenUrl,
+                        reference_open_url: referenceOpenUrl,
+                        reference_url: item.reference_url || referenceOpenUrl,
                         product_image: productImage,
                         service_image: serviceImage,
                         catalog_service_image: item.catalog_service_image || serviceImage
@@ -3557,11 +3561,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!item) return false;
                 if (item.design_is_image) return true;
                 if (!this.staffItemHasStoredDesign(item)) return false;
+                const mime = String(item.design_image_mime || item.customization?.design_upload_mime || '').toLowerCase();
+                if (mime.startsWith('image/')) return true;
                 return this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
                     || this.staffFilenameLooksLikeImage(item.design_file)
                     || this.staffFilenameLooksLikeImage(item.customization?.design_upload_name || item.customization?.design_upload)
                     || this.staffFilenameLooksLikeImage(item.customization?.design_upload_path)
+                    || this.staffFilenameLooksLikeImage(item.design_open_url)
+                    || this.staffFilenameLooksLikeImage(item.design_url)
                     || this.staffFilenameLooksLikeImage(item.artwork_path || this.currentJo?.artwork_path);
             },
             staffItemHasStoredDesign(item) {
