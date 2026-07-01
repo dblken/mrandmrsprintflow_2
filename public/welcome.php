@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/header.php';
 require_once __DIR__ . '/../includes/shop_config.php';
 
 $logo_src = !empty($shop_logo_url) ? $shop_logo_url . '?v=' . rawurlencode(printflow_logo_version()) : '';
+$home_url = rtrim($base_path, '/') . '/public/index.php';
 ?>
 <style>
     .splash-page {
@@ -144,29 +145,17 @@ $logo_src = !empty($shop_logo_url) ? $shop_logo_url . '?v=' . rawurlencode(print
         <h1 class="splash-title" id="splash-title">Mr. &amp; Mrs. Print</h1>
         <p class="splash-subtitle">Printing Management System</p>
         <div class="splash-loader" aria-hidden="true"><span></span></div>
-        <p class="splash-note">Loading secure access...</p>
+        <p class="splash-note">Loading home page...</p>
     </div>
 </section>
 
-<?php if (!$is_logged_in): ?>
-<?php
-require_once __DIR__ . '/../includes/google-oauth-config.php';
-$google_client_id = defined('GOOGLE_CLIENT_ID') && GOOGLE_CLIENT_ID !== '' ? GOOGLE_CLIENT_ID : null;
-require_once __DIR__ . '/../includes/auth-modals.php';
-?>
 <script>
     window.addEventListener('load', function () {
         window.setTimeout(function () {
-            if (typeof window.openModal === 'function') {
-                window.openModal('login');
-                return;
-            }
-            var trigger = document.querySelector('[data-auth-modal="login"], [data-auth-open="login"]');
-            if (trigger) trigger.click();
+            window.location.replace(<?php echo json_encode($home_url); ?>);
         }, 1600);
     });
 </script>
-<?php endif; ?>
 <?php require_once __DIR__ . '/../includes/success_modal.php'; ?>
 <script src="<?php echo htmlspecialchars($base_url); ?>/public/assets/js/pwa.js?v=<?php echo $ver; ?>"></script>
 </main>
