@@ -3,6 +3,8 @@
 **Date:** July 1, 2026  
 **Objective:** Optimize Customization page performance without changing functionality, business logic, UI, or database structure.
 
+**Status:** Code optimizations complete. Database indexes need to be applied.
+
 ---
 
 ## Performance Issues Identified
@@ -119,13 +121,32 @@
 
 ## Instructions to Apply Database Indexes
 
+**CRITICAL STEP:** The code optimizations are complete, but the database indexes must be applied for maximum performance improvement.
+
 Run the following SQL file on your database:
 
 ```bash
 mysql -u your_username -p your_database < database/add_customization_performance_indexes.sql
 ```
 
-Or execute the SQL commands manually in your database management tool.
+Or execute the SQL commands manually in your database management tool (phpMyAdmin, MySQL Workbench, etc.).
+
+### What the Indexes Do:
+- `orders.status` - Speeds up KPI COUNT queries and status filtering
+- `orders.order_date` - Speeds up list sorting by date
+- `orders.order_type` - Speeds up custom order filtering
+- `job_orders.order_id` - Speeds up joins between job_orders and orders (critical for modal)
+- `job_orders.status` - Speeds up KPI COUNT queries
+- `job_orders.created_at` - Speeds up list sorting by creation date
+- `customizations.order_id` - Speeds up customization lookups (critical for modal)
+- `order_items.order_id` - Speeds up order item fetching (critical for modal)
+
+### Modal Performance:
+The "Loading job details..." modal will be significantly faster after applying indexes because:
+1. Modal queries use `job_orders.order_id` joins - now indexed
+2. Modal queries filter by `orders.status` - now indexed
+3. Modal queries fetch `customizations.order_id` - now indexed
+4. Modal queries fetch `order_items.order_id` - now indexed
 
 ---
 
