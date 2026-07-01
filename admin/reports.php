@@ -225,14 +225,10 @@ if (!$gaBranchEmpty) {
                 if ($branchProductId <= 0) {
                     continue;
                 }
-                $branchProductRows = pf_reports_sales_by_official_product($from, $toEnd, $branchProductId);
-                if (empty($branchProductRows)) {
-                    continue;
-                }
                 $report_product_category_sales_by_branch[] = [
                     'branch_id' => $branchProductId,
                     'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchProductId)),
-                    'rows' => $branchProductRows,
+                    'rows' => pf_reports_sales_by_official_product($from, $toEnd, $branchProductId),
                 ];
             }
         }
@@ -2925,7 +2921,7 @@ $dashData = [
                         </h3>
                     </div>
                     <div class="ana-bd">
-                        <?php if (!empty($report_product_category_sales)): ?>
+                        <?php if (!empty($report_product_category_sales) || !empty($report_product_category_sales_by_branch) || !$gaBranchEmpty): ?>
                         <div id="reports-product-branch-charts" class="reports-product-branch-grid hidden" aria-label="Sales by product per branch"></div>
                         <div id="reports-product-single-chart" class="ch-box" style="min-height:260px;">
                             <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">

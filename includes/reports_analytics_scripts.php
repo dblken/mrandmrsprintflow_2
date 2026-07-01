@@ -1818,8 +1818,12 @@ window.printflowInitReportsCharts = function () {
                 var canvas = document.getElementById(canvasId);
                 if (!canvas || !rows || rows.length === 0) return;
                 var labels = rows.map(function (r) { return r.category || '\u2014'; });
-                var data = rows.map(function (r) { return Number(r.revenue) || 0; });
-                var colors = labels.map(function (_, i) { return catColors[i % catColors.length]; });
+                var rawData = rows.map(function (r) { return Number(r.revenue) || 0; });
+                var totalData = rawData.reduce(function (sum, value) { return sum + value; }, 0);
+                var isEmptyDonut = (rows.length === 1 && rows[0] && rows[0].empty) || totalData <= 0;
+                if (isEmptyDonut) labels = [(rows[0] && rows[0].empty && rows[0].category) ? rows[0].category : 'No sales'];
+                var data = isEmptyDonut ? [1] : rawData;
+                var colors = isEmptyDonut ? ['#E5E7EB'] : labels.map(function (_, i) { return catColors[i % catColors.length]; });
                 fillLegend(legendId, labels, colors);
 
                 window[chartRef] = new Chart(canvas.getContext('2d'), {
@@ -1844,6 +1848,7 @@ window.printflowInitReportsCharts = function () {
                                     label: function (ctx) {
                                         var v = Number(ctx.parsed) || 0;
                                         var row = rows[ctx.dataIndex] || {};
+                                        if (isEmptyDonut || row.empty) return ctx.label;
                                         var suffix = '';
                                         if (extraTooltip === 'items' && row.items != null) suffix = ' \u00b7 ' + row.items + ' items';
                                         if (extraTooltip === 'jobs' && row.jobs != null) suffix = ' \u00b7 ' + row.jobs + ' jobs';
@@ -1862,7 +1867,7 @@ window.printflowInitReportsCharts = function () {
                 });
             }
             var productBranchRows = Array.isArray(rData.productCategorySalesByBranch) ? rData.productCategorySalesByBranch.filter(function (branch) {
-                return branch && Array.isArray(branch.rows) && branch.rows.length > 0;
+                return branch && Number(branch.branch_id || 0) > 0;
             }) : [];
             var productBranchMount = document.getElementById('reports-product-branch-charts');
             var productSingleWrap = document.getElementById('reports-product-single-chart');
@@ -1899,7 +1904,9 @@ window.printflowInitReportsCharts = function () {
                     productBranchMount.appendChild(card);
                     pfReportsMountCategoryChartWhenVisible(chartWrap, function () {
                         var ref = '__pfReportsProductBranchChart' + index;
-                        buildDoughnut(canvasId, legendId, branch.rows || [], ref, 'items');
+                        var branchRows = Array.isArray(branch.rows) ? branch.rows : [];
+                        var chartRows = branchRows.length > 0 ? branchRows : [{ category: 'No product sales', revenue: 1, items: 0, empty: true }];
+                        buildDoughnut(canvasId, legendId, chartRows, ref, 'items');
                         if (window[ref]) window.__pfReportsProductBranchCharts.push(window[ref]);
                     });
                 });
@@ -1912,7 +1919,9 @@ window.printflowInitReportsCharts = function () {
                 if (productSingleLegend) productSingleLegend.classList.remove('hidden');
                 var pcCanvas = document.getElementById('reportsProductCategoryChart');
                 pfReportsMountCategoryChartWhenVisible(pcCanvas ? pcCanvas.parentElement : null, function () {
-                    buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
+                    var singleProductRows = Array.isArray(rData.productCategorySales) ? rData.productCategorySales : [];
+                    var singleProductChartRows = singleProductRows.length > 0 ? singleProductRows : [{ category: 'No product sales', revenue: 1, items: 0, empty: true }];
+                    buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', singleProductChartRows, '__pfReportsProductCategoryChart', 'items');
                 });
             }
 
