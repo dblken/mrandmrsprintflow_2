@@ -1168,8 +1168,8 @@ a.export-dd-link:hover { background: #f9fafb; }
 /* Best Selling Services: let chart fill the whole card height. */
 .pf-ch-products-card { display: flex; flex-direction: column; }
 .pf-ch-products-card .ana-bd { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 14px; }
-.pf-ch-products-card .ch-box { display: flex; flex: 0 0 auto; min-height: 260px; }
-.pf-ch-products-card #ch-products { flex: 1 1 auto; min-height: 100%; width: 100%; }
+.pf-ch-products-card .ch-box { display:block; flex:0 0 auto; width:100%; min-height:260px; }
+.pf-ch-products-card #ch-products { min-height:260px; width:100%; }
 .pf-ch-products-card { overflow: visible !important; }
 .pf-ch-products-card.ana-card { overflow: visible !important; }
 #ch-products .apexcharts-canvas,
@@ -2846,8 +2846,8 @@ $dashData = [
                     <div class="ana-bd">
                         <div class="ch-box" id="pf-ch-products-wrapper">
                             <div id="ch-products" style="width:100%;"></div>
-                            <ul class="pf-top-services-legend" id="pf-top-services-legend" aria-label="Best selling services list"></ul>
                         </div>
+                        <ul class="pf-top-services-legend" id="pf-top-services-legend" aria-label="Best selling services list"></ul>
                     </div>
                 </div>
 
