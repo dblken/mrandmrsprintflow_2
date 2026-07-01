@@ -1168,8 +1168,8 @@ a.export-dd-link:hover { background: #f9fafb; }
 /* Best Selling Services: let chart fill the whole card height. */
 .pf-ch-products-card { display: flex; flex-direction: column; }
 .pf-ch-products-card .ana-bd { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 14px; }
-.pf-ch-products-card .ch-box { display:block; flex:0 0 auto; width:100%; min-height:260px; }
-.pf-ch-products-card #ch-products { min-height:260px; width:100%; }
+.pf-ch-products-card .ch-box { display:block; flex:0 0 auto; width:100%; height:240px; min-height:240px; }
+.pf-ch-products-card #ch-products { height:240px; min-height:240px; width:100%; }
 .pf-ch-products-card { overflow: visible !important; }
 .pf-ch-products-card.ana-card { overflow: visible !important; }
 #ch-products .apexcharts-canvas,

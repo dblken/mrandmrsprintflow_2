@@ -1659,7 +1659,7 @@ window.printflowInitReportsCharts = function () {
                 });
             }
             var productsWrap = productsMount.closest('.ch-box');
-            var productsWrapH = productsWrap ? Math.max(280, Math.round(productsWrap.getBoundingClientRect().height || productsWrap.clientHeight || 0)) : 340;
+            var productsWrapH = 240;
             
             pfPushApexChart(productsMount, {
                 chart:{ ...PF_OPT, id:'pf-ch-products-bar', redrawOnParentResize:true, type:'bar', height: productsWrapH },
