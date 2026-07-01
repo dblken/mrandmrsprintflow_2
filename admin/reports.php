@@ -598,7 +598,7 @@ if ($dash_single_branch && (float)($dash_single_branch['revenue'] ?? 0) > 0) {
     $dash_single_svc_pct = round(((float)($dash_single_branch['revenue_jobs'] ?? 0) / (float)$dash_single_branch['revenue']) * 100, 1);
 }
 
-// ── 12b. Estimated Gross Profit Analytics (material-cost-based only) ─────────
+// ── 12b. Estimated Gross Profit Summary (material-cost-based only) ─────────
 $gross_profit_analytics = pf_reports_estimated_gross_profit_analytics($from, $toEnd, $globalAnalyticsBranchId);
 $gp_summary = $gross_profit_analytics['summary'] ?? [];
 $gp_branch_rows = $gross_profit_analytics['by_branch'] ?? [];
@@ -2402,7 +2402,7 @@ $dashData = [
                 <?php foreach ([
                     ['kpi-em',  'Total Orders',           '0',         'No transactions recorded'],
                     ['kpi-ind', 'Total Revenue',          '₱0',        'No completed transactions'],
-                    ['kpi-amb', 'Top Selling Service',    '—',         'No orders yet'],
+                    ['kpi-amb', 'Estimated Gross Profit', '&#8369;0',     'No cost-attributed sales'],
                     ['kpi-vio', 'Top Customer Location',  '—',         'No location data'],
                 ] as [$cls,$lbl,$val,$sub]): ?>
                 <div class="kpi-card <?php echo $cls; ?>">
@@ -2455,17 +2455,16 @@ $dashData = [
                         <?php echo $paid_orders; ?> completed transactions <?php echo ($from !== '' || $to !== '') ? 'in period' : 'total'; ?>
                     </div>
                 </div>
-                <!-- Top Product -->
-                <div class="kpi-card kpi-amb" title="Top selling service for the selected date range.">
+                <!-- Estimated Gross Profit -->
+                <div class="kpi-card kpi-amb" title="Estimated gross profit for the selected date range and branch context. Material-cost based only.">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <div class="kpi-lbl" style="margin-bottom:0;">Top Selling Service</div>
+                        <div class="kpi-lbl" style="margin-bottom:0;">Estimated Gross Profit</div>
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
                     </div>
-                    <div class="kpi-val" style="font-size:15px;margin-top:4px;line-height:1.3;">
-                        <?php echo $top_kpi_product ? htmlspecialchars(mb_substr($top_kpi_product['name'],0,22)) : '—'; ?>
-                    </div>
-                    <div class="kpi-sub"><?php echo $top_kpi_product ? number_format((int)$top_kpi_product['qty']).' units' : 'No data for period'; ?></div>
+                    <div class="kpi-val">&#8369;<?php echo number_format((float)($gp_summary['estimated_gross_profit'] ?? 0), 0); ?></div>
+                    <div class="kpi-sub">Material-cost-based estimate</div>
                 </div>
+
                 <!-- Top Location -->
                 <div class="kpi-card kpi-vio" title="Top customer location for the selected date range.">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2478,110 +2477,7 @@ $dashData = [
                     <div class="kpi-sub"><?php echo $top_kpi_location ? $top_kpi_location['cnt'].' transactions' : 'No location data for period'; ?></div>
                 </div>
             </div>
-
-            <!-- ══ ESTIMATED GROSS PROFIT ANALYTICS ═══════════════════════════ -->
-            <section class="ana-card" id="pf-gross-profit-section">
-                <div class="ana-hd" style="align-items:flex-start;">
-                    <div>
-                        <h3 class="chart-title-nowrap">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .672-3 1.5S10.343 11 12 11s3 .672 3 1.5S13.657 14 12 14m0-6V6m0 8v2m9-4a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            Estimated Gross Profit Analytics
-                        </h3>
-                        <div style="font-size:12px;color:#6b7280;margin-top:6px;max-width:960px;">
-                            Estimated Gross Profit is calculated using available inventory and material cost data. Labor costs, salaries, utilities, rent, overhead, equipment depreciation, and administrative expenses are not included. Values should be interpreted as material-cost-based profitability estimates.
-                        </div>
-                    </div>
-                    <?php if (!empty($gp_summary['coverage_warning'])): ?>
-                        <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:8px;font-size:11px;font-weight:700;">
-                            Profitability estimates may be incomplete due to missing material cost data.
-                        </span>
-                    <?php endif; ?>
-                </div>
-                <div class="ana-bd" style="gap:16px;">
-                    <div class="kpi-row">
-                        <div class="kpi-card kpi-em" title="Cost-attributed revenue minus attributed direct material cost">
-                            <div class="kpi-lbl">Estimated Gross Profit</div>
-                            <div class="kpi-val">₱<?php echo number_format((float)($gp_summary['estimated_gross_profit'] ?? 0), 0); ?></div>
-                            <div class="kpi-sub">Material-cost-based estimate</div>
-                        </div>
-                        <div class="kpi-card kpi-ind" title="Estimated gross profit / costed revenue">
-                            <div class="kpi-lbl">Estimated Gross Margin %</div>
-                            <div class="kpi-val"><?php echo number_format((float)($gp_summary['estimated_gross_margin_pct'] ?? 0), 1); ?>%</div>
-                            <div class="kpi-sub">Based on cost-attributed revenue only</div>
-                        </div>
-                        <div class="kpi-card kpi-amb" title="Share of supported paid/completed revenue with valid material-cost attribution">
-                            <div class="kpi-lbl">Coverage Percentage</div>
-                            <div class="kpi-val"><?php echo number_format((float)($gp_summary['coverage_pct'] ?? 0), 1); ?>%</div>
-                            <div class="kpi-sub">Coverage: <?php echo number_format((float)($gp_summary['coverage_pct'] ?? 0), 1); ?>% of Revenue</div>
-                        </div>
-                        <div class="kpi-card kpi-vio" title="Branch with highest estimated gross profit">
-                            <div class="kpi-lbl">Highest Gross Profit Branch</div>
-                            <div class="kpi-val" style="font-size:16px;line-height:1.25;">
-                                <?php echo htmlspecialchars((string)(($gp_highest_branch['branch_name'] ?? '—'))); ?>
-                            </div>
-                            <div class="kpi-sub">
-                                <?php if (!empty($gp_highest_branch)): ?>
-                                    ₱<?php echo number_format((float)($gp_highest_branch['estimated_gross_profit'] ?? 0), 0); ?>
-                                <?php else: ?>
-                                    No cost-attributed branch data
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="ana-grid" style="grid-template-columns:1.35fr 1fr;">
-                        <div class="ana-card" style="box-shadow:none;">
-                            <div class="ana-hd">
-                                <h3>Revenue vs Estimated Gross Profit by Branch</h3>
-                                <span style="font-size:11px;color:#6b7280;font-weight:700;">Ranked by gross profit</span>
-                            </div>
-                            <div class="ana-bd">
-                                <div class="ch-box" id="gp-branch-chart-wrap" style="height:420px;">
-                                    <div id="gp-branch-nodata" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#9ca3af;font-size:12px;font-weight:600;">
-                                        No cost-attributed branch data for this period
-                                    </div>
-                                    <div class="pf-wide-chart-canvas"><canvas id="gpBranchChart"></canvas></div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="ana-card" style="box-shadow:none;">
-                            <div class="ana-hd"><h3>Data Quality Indicators</h3></div>
-                            <div class="ana-bd" style="gap:10px;">
-                                <div class="pf-branch-stat-copy">
-                                    <div class="pf-branch-stat-label">Costed Revenue</div>
-                                    <div class="pf-branch-stat-value">₱<?php echo number_format((float)($gp_summary['costed_revenue'] ?? 0), 0); ?></div>
-                                </div>
-                                <div class="pf-branch-stat-copy">
-                                    <div class="pf-branch-stat-label">Uncosted Revenue</div>
-                                    <div class="pf-branch-stat-value">₱<?php echo number_format((float)($gp_summary['uncosted_revenue'] ?? 0), 0); ?></div>
-                                </div>
-                                <div class="pf-branch-stat-copy">
-                                    <div class="pf-branch-stat-label">Coverage %</div>
-                                    <div class="pf-branch-stat-value"><?php echo number_format((float)($gp_summary['coverage_pct'] ?? 0), 1); ?>%</div>
-                                </div>
-                                <div class="pf-branch-stat-copy">
-                                    <div class="pf-branch-stat-label">Transactions Missing Material Cost</div>
-                                    <div class="pf-branch-stat-value"><?php echo number_format((int)($gp_summary['missing_cost_transactions'] ?? 0)); ?></div>
-                                    <div class="pf-branch-stat-sub neu"><?php echo number_format((int)($gp_summary['costed_transactions'] ?? 0)); ?> costed of <?php echo number_format((int)($gp_summary['total_transactions'] ?? 0)); ?> total</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="ana-card" style="box-shadow:none;">
-                        <div class="ana-hd"><h3>Estimated Gross Profit Insights</h3></div>
-                        <div class="ana-bd" style="gap:8px;font-size:13px;color:#374151;">
-                            <div><strong>Highest Gross Profit Branch:</strong> <?php echo htmlspecialchars((string)($gp_highest_branch['branch_name'] ?? 'N/A')); ?></div>
-                            <div><strong>Highest Gross Margin Branch:</strong> <?php echo htmlspecialchars((string)($gp_highest_margin_branch['branch_name'] ?? 'N/A')); ?><?php if (!empty($gp_highest_margin_branch)): ?> (<?php echo number_format((float)$gp_highest_margin_branch['estimated_gross_margin_pct'], 1); ?>%)<?php endif; ?></div>
-                            <div><strong>Revenue Leader vs Profit Leader:</strong> <?php echo htmlspecialchars((string)($gp_revenue_leader['branch_name'] ?? 'N/A')); ?> vs <?php echo htmlspecialchars((string)($gp_profit_leader['branch_name'] ?? 'N/A')); ?></div>
-                            <div><strong>Highest Margin Service Category:</strong> <?php echo htmlspecialchars((string)(($gp_cat['highest_margin_service_category']['category'] ?? 'N/A'))); ?></div>
-                            <div><strong>Highest Margin Product Category:</strong> <?php echo htmlspecialchars((string)(($gp_cat['highest_margin_product_category']['category'] ?? 'N/A'))); ?></div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ══ SALES REVENUE (From Dashboard) ═════════════════════════════ -->
+<!-- ══ SALES REVENUE (From Dashboard) ═════════════════════════════ -->
             <div class="ana-card">
                 <div class="ana-hd">
                     <h3 class="chart-title-nowrap">
