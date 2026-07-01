@@ -3230,7 +3230,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 'Branch_ID', 'branch_id',
                 'service_type', 'service_id', 'product_id',
                 'source_page', 'source',
-                'notes', 'additional_notes', 'layout_file', 'reference_file',
+                'notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'layout_file', 'reference_file',
                 'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
                 'cart_key', '_cart_key', 'config_id', 'form_type'
             ],
@@ -3649,7 +3649,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const j = this.currentJo;
                 if (!j) return '';
                 
-                // Priority 1: Store order notes (Checkout notes)
+                // Priority 1: Customer-facing notes only.
                 let note = (j.store_order_notes || '').trim();
                 
                 // Priority 2: Item-specific customization notes
@@ -3668,15 +3668,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                             break; 
                         }
                     }
-                }
-                
-                // Priority 3: Production/Job notes (filter out Revision history)
-                if (!note && j.notes) {
-                    const lines = j.notes.split('\n')
-                        .filter(l => !l.includes('[REVISION REQUEST]'))
-                        .map(l => l.trim())
-                        .filter(l => l !== '');
-                    note = lines.join('\n');
                 }
 
                 return note || '';
