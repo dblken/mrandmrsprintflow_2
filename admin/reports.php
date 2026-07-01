@@ -210,6 +210,7 @@ $period_has_activity = ($total_orders > 0);
 // Paid filter matches KPI/report norms and tolerates casing; no order_type exclusions (they hid valid lines).
 // Service chart: service-category + row fallbacks.
 $report_product_category_sales = [];
+$report_product_category_sales_by_branch = [];
 $report_service_category_sales = [];
 if (!$gaBranchEmpty) {
     try {
@@ -218,8 +219,26 @@ if (!$gaBranchEmpty) {
             $toEnd,
             $globalAnalyticsBranchId
         );
+        if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
+            foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+                $branchProductId = (int)($branchRow['id'] ?? 0);
+                if ($branchProductId <= 0) {
+                    continue;
+                }
+                $branchProductRows = pf_reports_sales_by_official_product($from, $toEnd, $branchProductId);
+                if (empty($branchProductRows)) {
+                    continue;
+                }
+                $report_product_category_sales_by_branch[] = [
+                    'branch_id' => $branchProductId,
+                    'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchProductId)),
+                    'rows' => $branchProductRows,
+                ];
+            }
+        }
     } catch (Throwable $e) {
         $report_product_category_sales = [];
+        $report_product_category_sales_by_branch = [];
     }
     try {
         $report_service_category_sales = pf_reports_sales_by_service_category(
@@ -1190,6 +1209,11 @@ a.export-dd-link:hover { background: #f9fafb; }
 @media (max-width: 640px) { .pf-top-services-legend { column-count:1; } }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
+.reports-product-branch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; width:100%; }
+.reports-product-branch-card { min-width:0; }
+.reports-product-branch-title { text-align:center; color:#374151; font-size:12px; font-weight:700; margin:0 0 8px; }
+.reports-product-branch-chart { position:relative; height:220px; max-width:280px; margin:0 auto; }
+.reports-product-branch-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 12px; padding:8px 4px 0; }
 .rev-donut-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .rev-donut-growth { font-size:12px; font-weight:700; white-space:nowrap; padding:4px 10px; border-radius:8px; background:#E5EEF2; color:#0F4C5C; }
 .rev-donut-growth.up { background:#d1fae5; color:#047857; }
@@ -2276,6 +2300,19 @@ $dashData = [
             'items'    => (int)($r['items_sold'] ?? 0),
         ];
     }, $report_product_category_sales),
+    'productCategorySalesByBranch' => array_map(static function ($branch) {
+        return [
+            'branch_id' => (int)($branch['branch_id'] ?? 0),
+            'branch_name' => trim((string)($branch['branch_name'] ?? '')) !== '' ? trim((string)$branch['branch_name']) : 'Branch',
+            'rows' => array_map(static function ($r) {
+                return [
+                    'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Uncategorized product',
+                    'revenue'  => round((float)($r['total'] ?? 0), 2),
+                    'items'    => (int)($r['items_sold'] ?? 0),
+                ];
+            }, $branch['rows'] ?? []),
+        ];
+    }, $report_product_category_sales_by_branch),
     'serviceCategorySales' => array_map(static function ($r) {
         return [
             'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Customization',
@@ -2889,7 +2926,8 @@ $dashData = [
                     </div>
                     <div class="ana-bd">
                         <?php if (!empty($report_product_category_sales)): ?>
-                        <div class="ch-box" style="min-height:260px;">
+                        <div id="reports-product-branch-charts" class="reports-product-branch-grid hidden" aria-label="Sales by product per branch"></div>
+                        <div id="reports-product-single-chart" class="ch-box" style="min-height:260px;">
                             <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
                                 <canvas id="reportsProductCategoryChart" aria-label="Sales by official product"></canvas>
                             </div>

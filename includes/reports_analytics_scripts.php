@@ -101,6 +101,10 @@ window.printflowTeardownReportsCharts = function () {
         try { window.__pfReportsProductCategoryChart.destroy(); } catch (e) {}
         window.__pfReportsProductCategoryChart = null;
     }
+    (window.__pfReportsProductBranchCharts || []).forEach(function (ch) {
+        try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+    });
+    window.__pfReportsProductBranchCharts = [];
     if (window.__pfReportsServiceCategoryChart) {
         try { window.__pfReportsServiceCategoryChart.destroy(); } catch (e) {}
         window.__pfReportsServiceCategoryChart = null;
@@ -1857,11 +1861,60 @@ window.printflowInitReportsCharts = function () {
                     }
                 });
             }
-
-            var pcCanvas = document.getElementById('reportsProductCategoryChart');
-            pfReportsMountCategoryChartWhenVisible(pcCanvas ? pcCanvas.parentElement : null, function () {
-                buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
-            });
+            var productBranchRows = Array.isArray(rData.productCategorySalesByBranch) ? rData.productCategorySalesByBranch.filter(function (branch) {
+                return branch && Array.isArray(branch.rows) && branch.rows.length > 0;
+            }) : [];
+            var productBranchMount = document.getElementById('reports-product-branch-charts');
+            var productSingleWrap = document.getElementById('reports-product-single-chart');
+            var productSingleLegend = document.getElementById('reports-product-cat-legend');
+            if (productBranchMount && productBranchRows.length > 0) {
+                productBranchMount.classList.remove('hidden');
+                if (productSingleWrap) productSingleWrap.classList.add('hidden');
+                if (productSingleLegend) productSingleLegend.classList.add('hidden');
+                (window.__pfReportsProductBranchCharts || []).forEach(function (ch) {
+                    try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+                });
+                window.__pfReportsProductBranchCharts = [];
+                productBranchMount.innerHTML = '';
+                productBranchRows.forEach(function (branch, index) {
+                    var card = document.createElement('div');
+                    card.className = 'reports-product-branch-card';
+                    var title = document.createElement('div');
+                    title.className = 'reports-product-branch-title';
+                    title.textContent = branch.branch_name || ('Branch ' + (index + 1));
+                    var chartWrap = document.createElement('div');
+                    chartWrap.className = 'reports-product-branch-chart';
+                    var canvas = document.createElement('canvas');
+                    var canvasId = 'reportsProductCategoryBranchChart' + index;
+                    var legendId = 'reports-product-cat-branch-legend-' + index;
+                    canvas.id = canvasId;
+                    canvas.setAttribute('aria-label', 'Sales by product for ' + title.textContent);
+                    chartWrap.appendChild(canvas);
+                    var legend = document.createElement('div');
+                    legend.id = legendId;
+                    legend.className = 'reports-product-branch-legend';
+                    card.appendChild(title);
+                    card.appendChild(chartWrap);
+                    card.appendChild(legend);
+                    productBranchMount.appendChild(card);
+                    pfReportsMountCategoryChartWhenVisible(chartWrap, function () {
+                        var ref = '__pfReportsProductBranchChart' + index;
+                        buildDoughnut(canvasId, legendId, branch.rows || [], ref, 'items');
+                        if (window[ref]) window.__pfReportsProductBranchCharts.push(window[ref]);
+                    });
+                });
+            } else {
+                if (productBranchMount) {
+                    productBranchMount.classList.add('hidden');
+                    productBranchMount.innerHTML = '';
+                }
+                if (productSingleWrap) productSingleWrap.classList.remove('hidden');
+                if (productSingleLegend) productSingleLegend.classList.remove('hidden');
+                var pcCanvas = document.getElementById('reportsProductCategoryChart');
+                pfReportsMountCategoryChartWhenVisible(pcCanvas ? pcCanvas.parentElement : null, function () {
+                    buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
+                });
+            }
 
             var scCanvas = document.getElementById('reportsServiceCategoryChart');
             pfReportsMountCategoryChartWhenVisible(scCanvas ? scCanvas.parentElement : null, function () {
