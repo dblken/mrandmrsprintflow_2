@@ -3412,6 +3412,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     ? [
                         'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
                         'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file',
+                        'notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes',
                         // Internal / structural keys — never shown as customer specs
                         'source_page', 'source', 'branch_id', 'Branch_ID',
                         'product_id', 'product_type',
