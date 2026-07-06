@@ -1919,7 +1919,6 @@ window.printflowInitReportsCharts = function () {
                         dataLabels:{enabled:false}
                     });
                 });
-                renderTopServicesAggregateLegend(branchBarColors);
                 return;
             }
             if (branchMount) {
@@ -2251,7 +2250,6 @@ window.printflowInitReportsCharts = function () {
                     }
                     pfPushApexChart(chartMount, statusOptions(rows, 205));
                 });
-                renderTopServicesAggregateLegend(branchBarColors);
                 return;
             }
             if (branchMount) {

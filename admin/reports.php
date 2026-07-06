@@ -1304,9 +1304,13 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
 .reports-product-branch-grid,
-.reports-branch-chart-grid { display:flex; flex-wrap:wrap; gap:14px; width:100%; align-items:stretch; }
+.reports-branch-chart-grid { display:flex; flex-wrap:wrap; gap:14px; width:100%; align-items:flex-start; }
 .reports-product-branch-card,
-.reports-branch-chart-card { flex:1 1 340px; min-width:0; }
+.reports-branch-chart-card { flex:1 1 calc(50% - 7px); max-width:calc(50% - 7px); min-width:0; }
+@media (max-width: 900px) {
+    .reports-product-branch-card,
+    .reports-branch-chart-card { flex-basis:100%; max-width:100%; }
+}
 .reports-product-branch-title,
 .reports-branch-chart-title { text-align:left; color:#374151; font-size:12px; font-weight:700; margin:0 0 6px; }
 .reports-product-branch-chart,
