@@ -1630,38 +1630,10 @@ window.printflowInitReportsCharts = function () {
             const branchMount = document.getElementById('pf-top-services-branch-charts');
             const productsSingleWrap = document.getElementById('pf-ch-products-wrapper');
             const aggregateLegend = document.getElementById('pf-top-services-legend');
-            function renderTopServicesAggregateLegend(colors) {
-                if (!aggregateLegend) return;
-                aggregateLegend.classList.remove('hidden');
-                aggregateLegend.innerHTML = '';
-                const displayCount = Math.min(8, top_products.length);
-                const displayRows = top_products.slice(0, displayCount);
-                const topQty = displayRows.length ? (Number(displayRows[0].qty || 0) || 1) : 1;
-                displayRows.forEach(function (row, i) {
-                    var q = Number(row.qty || 0);
-                    var pct = Math.round((q / topQty) * 100);
-                    var li = document.createElement('li');
-                    var swatch = document.createElement('span');
-                    swatch.className = 'pf-top-services-swatch';
-                    swatch.style.backgroundColor = colors[i % colors.length] || '#94a3b8';
-                    var body = document.createElement('div');
-                    var title = document.createElement('div');
-                    title.className = 'pf-top-services-name';
-                    title.textContent = row.name || 'Unnamed service';
-                    var meta = document.createElement('div');
-                    meta.className = 'pf-top-services-meta';
-                    meta.textContent = q.toLocaleString() + ' units - ' + pct + '%';
-                    body.appendChild(title);
-                    body.appendChild(meta);
-                    li.appendChild(swatch);
-                    li.appendChild(body);
-                    aggregateLegend.appendChild(li);
-                });
-            }
             if (branchMount && branchTopServices.length > 0) {
                 branchMount.classList.remove('hidden');
                 if (productsSingleWrap) productsSingleWrap.classList.add('hidden');
-                if (aggregateLegend) aggregateLegend.classList.remove('hidden');
+                if (aggregateLegend) aggregateLegend.classList.add('hidden');
                 branchMount.innerHTML = '';
                 (window.__pfReportsTopServiceBranchCharts || []).forEach(function (ch) {
                     try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
@@ -1733,7 +1705,6 @@ window.printflowInitReportsCharts = function () {
                     });
 
                 });
-                renderTopServicesAggregateLegend(branchBarColors);
                 return;
             }
             if (branchMount) {

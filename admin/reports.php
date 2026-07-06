@@ -985,7 +985,7 @@ function reportsPrintInPlace(url) {
 <style>
 /* ── Layout ─────────────────────────── */
 .ana-wrap { display:flex; flex-direction:column; gap:24px; }
-.ana-grid  { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:stretch; }
+.ana-grid  { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
 .ana-grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
 @media(max-width:960px){ .ana-grid,.ana-grid3{ grid-template-columns:1fr; } }
 
@@ -1296,7 +1296,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-top-services-swatch { flex:0 0 10px; width:10px; height:10px; border-radius:3px; margin-top:3px; }
 .pf-top-services-name { color:#374151; font-size:12px; font-weight:600; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pf-top-services-meta { color:#6B7C85; font-size:11px; font-weight:500; margin-top:2px; }
-.reports-branch-service-list { column-count:1; margin-top:6px; }
+.reports-branch-service-list { column-count:1; margin-top:6px; max-height:236px; overflow-y:auto; padding-right:4px; }
 .reports-branch-service-list li { align-items:center; gap:8px; padding:5px 0; }
 .reports-branch-service-list li > div { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:8px; width:100%; min-width:0; }
 .reports-branch-service-list .pf-top-services-meta { margin-top:0; white-space:nowrap; }
@@ -1317,8 +1317,24 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-branch-chart-mount { position:relative; height:170px; max-width:230px; margin:0 auto; }
 .reports-branch-chart-mount--bar { height:150px; max-width:100%; }
 .reports-product-branch-legend,
-.reports-branch-chart-legend { font-size:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); justify-content:stretch; text-align:left; gap:8px 12px; padding:6px 4px 0; }
+.reports-branch-chart-legend { font-size:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); justify-content:stretch; text-align:left; gap:8px 12px; padding:6px 4px 0; max-height:220px; overflow-y:auto; align-content:start; }
 .reports-product-branch-legend > div, .reports-branch-chart-legend > div { justify-content:flex-start; }
+#reports-product-cat-legend,
+#reports-service-cat-legend {
+    max-height:220px;
+    overflow-y:auto;
+    align-content:flex-start;
+}
+.reports-product-branch-legend::-webkit-scrollbar,
+.reports-branch-chart-legend::-webkit-scrollbar,
+.reports-branch-service-list::-webkit-scrollbar,
+#reports-product-cat-legend::-webkit-scrollbar,
+#reports-service-cat-legend::-webkit-scrollbar { width:6px; }
+.reports-product-branch-legend::-webkit-scrollbar-thumb,
+.reports-branch-chart-legend::-webkit-scrollbar-thumb,
+.reports-branch-service-list::-webkit-scrollbar-thumb,
+#reports-product-cat-legend::-webkit-scrollbar-thumb,
+#reports-service-cat-legend::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
 #reports-status-branch-charts { align-items:start; }
 #reports-status-branch-charts .reports-branch-chart-card { min-height:0; }
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
