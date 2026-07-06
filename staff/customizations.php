@@ -3461,7 +3461,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
                 
                 // Remove all note-related fields before processing - they're shown in the yellow Order Notes box
-                const noteFields = ['notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'job_notes', 'Job_Notes', 'JobNotes', 'Customer_Notes', 'CustomerNotes'];
+                const noteFields = ['notes', 'Notes', 'NOTES', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'job_notes', 'Job_Notes', 'JobNotes', 'Customer_Notes', 'CustomerNotes'];
                 for (const noteField of noteFields) {
                     delete sourceCustom[noteField];
                 }
@@ -3473,9 +3473,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 
                 // Remove design type/template fields to avoid redundancy
-                const designFields = ['design_type', 'template', 'design'];
+                const designFields = ['design_type', 'template', 'design', 'Design', 'DESIGN'];
                 for (const designField of designFields) {
                     delete sourceCustom[designField];
+                }
+                
+                // Remove branch fields - no longer shown in specifications
+                const branchFields = ['branch', 'Branch', 'BRANCH', 'branch_name', 'Branch_Name', 'BranchName'];
+                for (const branchField of branchFields) {
+                    delete sourceCustom[branchField];
                 }
                 
                 // Remove design upload fields - only show as Uploaded Design
