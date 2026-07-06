@@ -212,6 +212,7 @@ $period_has_activity = ($total_orders > 0);
 $report_product_category_sales = [];
 $report_product_category_sales_by_branch = [];
 $report_service_category_sales = [];
+$report_service_category_sales_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
         $report_product_category_sales = pf_reports_sales_by_official_product(
@@ -246,8 +247,31 @@ if (!$gaBranchEmpty) {
             $report_service_category_sales,
             ['Eunsoyaaaaa', 'Ink']
         );
+        if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
+            foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+                $branchServiceId = (int)($branchRow['id'] ?? 0);
+                if ($branchServiceId <= 0) {
+                    continue;
+                }
+                $branchServiceRows = pf_reports_sales_by_service_category(
+                    $globalAnalyticsFrom,
+                    $globalAnalyticsTo,
+                    $branchServiceId
+                );
+                $branchServiceRows = pf_reports_fold_demo_service_categories(
+                    $branchServiceRows,
+                    ['Eunsoyaaaaa', 'Ink']
+                );
+                $report_service_category_sales_by_branch[] = [
+                    'branch_id' => $branchServiceId,
+                    'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchServiceId)),
+                    'rows' => $branchServiceRows,
+                ];
+            }
+        }
     } catch (Throwable $e) {
         $report_service_category_sales = [];
+        $report_service_category_sales_by_branch = [];
     }
 }
 
@@ -472,6 +496,7 @@ $can_forecast = $fc_total_history >= 20;
 
 // ── 6. Best selling services (products + customization jobs) ────────────────
 $top_products = [];
+$top_products_by_branch = [];
 $top_products_prev = [];
 if (!$gaBranchEmpty) {
     $top_products = array_map(static function ($row) {
@@ -486,10 +511,37 @@ if (!$gaBranchEmpty) {
     if ($chart_sort === 'value_asc') {
         $top_products = array_reverse($top_products);
     }
+    if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
+        foreach ($report_service_category_sales_by_branch as $branchService) {
+            $branchRows = array_map(static function ($row) {
+                return [
+                    'product_id' => null,
+                    'product_name' => (string)($row['category'] ?? 'Customization'),
+                    'qty_sold' => (int)($row['qty_sold'] ?? 0),
+                    'revenue' => (float)($row['total'] ?? 0),
+                ];
+            }, $branchService['rows'] ?? []);
+            if ($chart_sort === 'value_asc') {
+                $branchRows = array_reverse($branchRows);
+            }
+            $top_products_by_branch[] = [
+                'branch_id' => (int)($branchService['branch_id'] ?? 0),
+                'branch_name' => (string)($branchService['branch_name'] ?? 'Branch'),
+                'rows' => $branchRows,
+            ];
+        }
+    }
 }
 
 // ── 7. Revenue distribution (donut) ──────────────────────────────────────────
 $rev_donut = array_slice($top_products, 0, 7);
+$rev_donut_by_branch = array_map(static function ($branch) {
+    return [
+        'branch_id' => (int)($branch['branch_id'] ?? 0),
+        'branch_name' => (string)($branch['branch_name'] ?? 'Branch'),
+        'rows' => array_slice($branch['rows'] ?? [], 0, 7),
+    ];
+}, $top_products_by_branch);
 $donut_palette = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#8ED6E6', '#6B7C85', '#F39C12', '#2ECC71'];
 $rev_donut_total = 0.0;
 foreach ($rev_donut as $rd) {
@@ -1205,11 +1257,17 @@ a.export-dd-link:hover { background: #f9fafb; }
 @media (max-width: 640px) { .pf-top-services-legend { column-count:1; } }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
-.reports-product-branch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; width:100%; }
-.reports-product-branch-card { min-width:0; }
-.reports-product-branch-title { text-align:center; color:#374151; font-size:12px; font-weight:700; margin:0 0 8px; }
-.reports-product-branch-chart { position:relative; height:220px; max-width:280px; margin:0 auto; }
-.reports-product-branch-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 12px; padding:8px 4px 0; }
+.reports-product-branch-grid,
+.reports-branch-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; width:100%; }
+.reports-product-branch-card,
+.reports-branch-chart-card { min-width:0; }
+.reports-product-branch-title,
+.reports-branch-chart-title { text-align:center; color:#374151; font-size:12px; font-weight:700; margin:0 0 8px; }
+.reports-product-branch-chart,
+.reports-branch-chart-mount { position:relative; height:220px; max-width:280px; margin:0 auto; }
+.reports-branch-chart-mount--bar { height:210px; max-width:100%; }
+.reports-product-branch-legend,
+.reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 12px; padding:8px 4px 0; }
 .rev-donut-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .rev-donut-growth { font-size:12px; font-weight:700; white-space:nowrap; padding:4px 10px; border-radius:8px; background:#E5EEF2; color:#0F4C5C; }
 .rev-donut-growth.up { background:#d1fae5; color:#047857; }
@@ -2283,12 +2341,38 @@ $dashData = [
             'prev_qty' => $top_products_prev[$k] ?? null
         ];
     }, $top_products),
+    'topServicesByBranch' => array_map(static function ($branch) {
+        return [
+            'branch_id' => (int)($branch['branch_id'] ?? 0),
+            'branch_name' => trim((string)($branch['branch_name'] ?? '')) !== '' ? trim((string)$branch['branch_name']) : 'Branch',
+            'rows' => array_map(static function ($p) {
+                return [
+                    'name' => (string)($p['product_name'] ?? 'Customization'),
+                    'qty' => (int)($p['qty_sold'] ?? 0),
+                    'revenue' => round((float)($p['revenue'] ?? 0), 2),
+                    'prev_qty' => null,
+                ];
+            }, $branch['rows'] ?? []),
+        ];
+    }, $top_products_by_branch),
     'revenueDonut' => array_map(function($p) {
         return [
             'name'    => $p['product_name'],
             'revenue' => round((float)$p['revenue'], 2)
         ];
     }, $rev_donut),
+    'revenueDonutByBranch' => array_map(static function ($branch) {
+        return [
+            'branch_id' => (int)($branch['branch_id'] ?? 0),
+            'branch_name' => trim((string)($branch['branch_name'] ?? '')) !== '' ? trim((string)$branch['branch_name']) : 'Branch',
+            'rows' => array_map(static function ($p) {
+                return [
+                    'name' => (string)($p['product_name'] ?? 'Customization'),
+                    'revenue' => round((float)($p['revenue'] ?? 0), 2),
+                ];
+            }, $branch['rows'] ?? []),
+        ];
+    }, $rev_donut_by_branch),
     'productCategorySales' => array_map(static function ($r) {
         return [
             'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Uncategorized product',
@@ -2878,6 +2962,7 @@ $dashData = [
                     </div>
                     </div>
                     <div class="ana-bd">
+                        <div id="pf-top-services-branch-charts" class="reports-branch-chart-grid hidden" aria-label="Best selling services per branch"></div>
                         <div class="ch-box" id="pf-ch-products-wrapper">
                             <div id="ch-products" style="width:100%;"></div>
                         </div>
@@ -2898,6 +2983,7 @@ $dashData = [
                         </div>
                     </div>
                     <div class="ana-bd rev-donut-body">
+                        <div id="pf-rev-donut-branch-charts" class="reports-branch-chart-grid hidden" aria-label="Revenue distribution per branch"></div>
                         <div class="rev-donut-row" id="pf-rev-donut-wrapper">
                             <div class="rev-donut-chart-wrap ch-box"><div id="ch-donut"></div></div>
                             <div class="rev-donut-legend-wrap">
