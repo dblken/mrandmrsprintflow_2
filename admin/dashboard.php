@@ -268,13 +268,11 @@ if ($branchId === 'all') {
                 'value' => round((float)($row['total'] ?? 0), 2),
             ];
         }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-        if ($productPayloadRows !== []) {
-            $dashboard_branch_chart_payload['products'][] = [
-                'branch_id' => $chartBranchId,
-                'branch_name' => $chartBranchName,
-                'rows' => $productPayloadRows,
-            ];
-        }
+        $dashboard_branch_chart_payload['products'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $productPayloadRows,
+        ];
 
         try {
             $serviceRows = pf_reports_sales_by_service_category($dashFromDate, $dashToEnd, $chartBranchId);
@@ -289,13 +287,11 @@ if ($branchId === 'all') {
                 'value' => round((float)($row['total'] ?? 0), 2),
             ];
         }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
-        if ($servicePayloadRows !== []) {
-            $dashboard_branch_chart_payload['services'][] = [
-                'branch_id' => $chartBranchId,
-                'branch_name' => $chartBranchName,
-                'rows' => $servicePayloadRows,
-            ];
-        }
+        $dashboard_branch_chart_payload['services'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $servicePayloadRows,
+        ];
 
         try {
             [$statusBranchSql, $statusBranchTypes, $statusBranchParams] = branch_where_parts('o', $chartBranchId);
@@ -318,13 +314,11 @@ if ($branchId === 'all') {
                 'value' => (int)($row['cnt'] ?? 0),
             ];
         }, $statusRows), static fn($row) => (int)($row['value'] ?? 0) > 0));
-        if ($statusPayloadRows !== []) {
-            $dashboard_branch_chart_payload['statuses'][] = [
-                'branch_id' => $chartBranchId,
-                'branch_name' => $chartBranchName,
-                'rows' => $statusPayloadRows,
-            ];
-        }
+        $dashboard_branch_chart_payload['statuses'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $statusPayloadRows,
+        ];
 
         try {
             $locationRows = pf_reports_customer_locations_merged($dashFromDate, $dashToEnd, $chartBranchId, 5, false);
@@ -338,13 +332,11 @@ if ($branchId === 'all') {
                 'value' => (int)($row['orders'] ?? 0),
             ];
         }, $locationRows), static fn($row) => (int)($row['value'] ?? 0) > 0));
-        if ($locationPayloadRows !== []) {
-            $dashboard_branch_chart_payload['locations'][] = [
-                'branch_id' => $chartBranchId,
-                'branch_name' => $chartBranchName,
-                'rows' => $locationPayloadRows,
-            ];
-        }
+        $dashboard_branch_chart_payload['locations'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $locationPayloadRows,
+        ];
     }
 }
 
@@ -441,13 +433,11 @@ try {
                 return ($a['ratio'] ?? 0) <=> ($b['ratio'] ?? 0);
             });
             $stockBranchRows = array_slice($stockBranchRows, 0, 5);
-            if ($stockBranchRows !== []) {
                 $low_stock_by_branch[] = [
                     'branch_id' => $stockBranchId,
                     'branch_name' => trim((string)($branchRow['branch_name'] ?? 'Branch ' . $stockBranchId)),
                     'rows' => $stockBranchRows,
                 ];
-            }
         }
     }
 } catch (Exception $e) { $low_stock = []; $low_stock_by_branch = []; }
@@ -798,14 +788,14 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .stock-bar-fill.danger { background:#ef4444; }
         .stock-bar-fill.warning { background:#f59e0b; }
         .stock-bar-fill.good { background:#10b981; }
-        .inventory-alert-row { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(120px,0.45fr); align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid #f3f4f6; }
+        .inventory-alert-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:6px 12px; padding:11px 0; border-bottom:1px solid #f3f4f6; }
         .inventory-alert-row:last-child { border-bottom:none; }
         .inventory-alert-main { min-width:0; }
         .inventory-alert-name { font-size:12px; font-weight:700; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .inventory-alert-sub { font-size:10px; color:#9ca3af; font-weight:700; text-transform:uppercase; margin-top:2px; }
         .inventory-alert-stock { font-size:12px; font-weight:800; white-space:nowrap; }
-        .inventory-alert-status { display:flex; align-items:center; gap:8px; min-width:0; }
-        .inventory-alert-status .stock-bar { width:54px; flex:0 0 54px; }
+        .inventory-alert-status { grid-column:1 / -1; display:flex; align-items:center; gap:8px; min-width:0; justify-content:flex-start; }
+        .inventory-alert-status .stock-bar { width:min(100%, 110px); flex:0 1 110px; }
         .inventory-alert-status span { font-size:10px; font-weight:800; white-space:nowrap; }
         .rev-donut-row { display:flex; flex-direction:column; gap:16px; }
         .rev-donut-chart { height:200px; margin-bottom:12px; }
@@ -818,6 +808,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .loc-list { display:flex; flex-direction:column; gap:12px; }
         .loc-list--branch { gap:10px; }
         .dash-location-branch-card, .dash-inventory-branch-card { padding-bottom:4px; }
+        .dash-branch-title-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 8px; }
+        .dash-branch-title-row .dash-branch-chart-title { margin:0; }
+        .dash-branch-see-all { font-size:11px; font-weight:700; color:#0d9488; text-decoration:none; white-space:nowrap; }
+        .dash-branch-see-all:hover { text-decoration:underline; }
         .loc-row { display:flex; flex-direction:column; gap:6px; cursor:pointer; transition:all 0.2s; }
         .loc-row:hover { transform:translateY(-2px); }
         .loc-header { display:flex; justify-content:space-between; align-items:center; }
@@ -1310,6 +1304,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             ?>
                             <div class="dash-branch-chart-card dash-location-branch-card">
                                 <div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($locBranch['branch_name'] ?? 'Branch')); ?></div>
+                                <?php if (empty($locRows)): ?>
+                                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this branch.</div>
+                                <?php endif; ?>
                                 <div class="loc-list loc-list--branch">
                                     <?php foreach ($locRows as $index => $loc): ?>
                                         <?php $pct = $locMax > 0 ? (((int)($loc['value'] ?? 0) / $locMax) * 100) : 0; ?>
@@ -1380,7 +1377,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
                             Inventory Alerts
                         </span>
-                        <?php if (!empty($low_stock) || !empty($low_stock_by_branch)):
+                        <?php if ($branchId !== 'all' && (!empty($low_stock) || !empty($low_stock_by_branch))):
                             $has_critical = false;
                             $has_out_of_stock = false;
                             $alertRowsForLink = ($branchId === 'all' && !empty($low_stock_by_branch)) ? array_merge(...array_map(static fn($b) => $b['rows'] ?? [], $low_stock_by_branch)) : $low_stock;
@@ -1397,9 +1394,21 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     <?php if ($branchId === 'all' && !empty($low_stock_by_branch)): ?>
                     <div class="dash-branch-chart-grid dash-inventory-branch-grid">
                         <?php foreach ($low_stock_by_branch as $stockBranch): ?>
+                            <?php
+                                $stockBranchRows = $stockBranch['rows'] ?? [];
+                                $stockBranchFilter = 'low';
+                                foreach ($stockBranchRows as $lsLink) {
+                                    $sk = $lsLink['stock_status']['key'] ?? '';
+                                    if ($sk === 'out') { $stockBranchFilter = 'out'; break; }
+                                    if ($sk === 'critical') { $stockBranchFilter = 'critical'; }
+                                }
+                            ?>
                             <div class="dash-branch-chart-card dash-inventory-branch-card">
-                                <div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($stockBranch['branch_name'] ?? 'Branch')); ?></div>
-                                <?php foreach (($stockBranch['rows'] ?? []) as $ls): ?>
+                                <div class="dash-branch-title-row"><div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($stockBranch['branch_name'] ?? 'Branch')); ?></div><a class="dash-branch-see-all" href="<?php echo pf_admin_url('inv_items_management.php', ['branch_id' => (int)($stockBranch['branch_id'] ?? 0), 'stock_status' => $stockBranchFilter]); ?>">See all &rarr;</a></div>
+                                <?php if (empty($stockBranchRows)): ?>
+                                    <div class="dash-empty-state dash-empty-state--compact">No inventory alerts for this branch.</div>
+                                <?php endif; ?>
+                                <?php foreach ($stockBranchRows as $ls): ?>
                                     <?php
                                         $stock = (float)$ls['current_stock'];
                                         $limit = (float)$ls['low_limit'];
@@ -1735,6 +1744,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             }).join('');
         }
 
+        function dashNoDataLabel(kind) {
+            if (kind === 'products') return 'No product sales';
+            if (kind === 'services') return 'No service sales';
+            if (kind === 'statuses') return 'No orders';
+            return 'No data';
+        }
         function dashSetBranchChartMode(gridId, singleWrapId, singleLegendId, enabled) {
             var grid = document.getElementById(gridId);
             var singleWrap = document.getElementById(singleWrapId);
@@ -1755,13 +1770,15 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             window[storeKey] = [];
             branches.forEach(function (branch, branchIndex) {
                 var rows = (branch.rows || []).filter(function (row) { return Number(row.value || 0) > 0; });
-                if (!rows.length) return;
+                var hasData = rows.length > 0;
+                if (!hasData) rows = [{ label: dashNoDataLabel(kind), value: 1 }];
+                var chartColors = hasData ? colors : ['#e5e7eb'];
                 var card = document.createElement('div');
                 card.className = 'dash-branch-chart-card';
                 var canvasId = gridId + '-canvas-' + branchIndex;
                 card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div>' +
                     '<div class="dash-branch-chart-mount" style="height:' + (mountHeight || 150) + 'px;"><canvas id="' + canvasId + '"></canvas></div>' +
-                    '<div class="dash-branch-chart-legend">' + dashLegendHtml(rows, colors) + '</div>';
+                    '<div class="dash-branch-chart-legend">' + dashLegendHtml(rows, chartColors) + '</div>';
                 grid.appendChild(card);
                 var cv = document.getElementById(canvasId);
                 if (!cv) return;
@@ -1771,7 +1788,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         labels: rows.map(function (row) { return row.label; }),
                         datasets: [{
                             data: rows.map(function (row) { return Number(row.value) || 0; }),
-                            backgroundColor: rows.map(function (_, i) { return colors[i % colors.length]; }),
+                            backgroundColor: rows.map(function (_, i) { return chartColors[i % chartColors.length]; }),
                             borderWidth: 0
                         }]
                     },
@@ -1780,14 +1797,13 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         maintainAspectRatio: false,
                         cutout: '70%',
                         animation: doughnutAnim,
-                        plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } }
+                        plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8, enabled: hasData } }
                     }
                 });
                 window[storeKey].push(chart);
             });
             return true;
         }
-
         function dashRenderBranchServiceBars() {
             var branches = (DASH_BRANCH_CHARTS && DASH_BRANCH_CHARTS.services) || [];
             if (DASH_BRANCH_ID !== null || !branches.length || typeof ApexCharts === 'undefined') return false;
@@ -1797,16 +1813,20 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             window.__pfDashBranchServiceCharts = [];
             branches.forEach(function (branch, branchIndex) {
                 var rows = (branch.rows || []).filter(function (row) { return Number(row.value || 0) > 0; }).slice(0, 8);
-                if (!rows.length) return;
                 var card = document.createElement('div');
                 card.className = 'dash-branch-chart-card';
                 var mountId = 'dash-service-branch-chart-' + branchIndex;
+                if (!rows.length) {
+                    card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div><div class="dash-empty-state dash-empty-state--compact">No service sales for this branch.</div>';
+                    grid.appendChild(card);
+                    return;
+                }
                 card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div>' +
                     '<div class="dash-branch-chart-mount" style="height:190px; max-width:100%;"><div id="' + mountId + '"></div></div>';
                 grid.appendChild(card);
                 var chart = new ApexCharts(document.getElementById(mountId), {
                     chart: { type: 'bar', height: 190, toolbar: { show: false } },
-                    series: [{ name: 'Sales (₱)', data: rows.map(function (row) { return Number(row.value) || 0; }) }],
+                    series: [{ name: 'Sales (PHP)', data: rows.map(function (row) { return Number(row.value) || 0; }) }],
                     xaxis: { categories: rows.map(function (row) { return String(row.label || '').slice(0, 20); }), labels: { style: { fontSize: '10px' } } },
                     yaxis: { labels: { maxWidth: 118, style: { fontSize: '10px' } } },
                     colors: ['#00232b'],
@@ -1820,6 +1840,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             });
             return true;
         }
+
         function bindWhenVisible(target, onFirst) {
             if (!target || typeof onFirst !== 'function') return;
             var fired = false;
