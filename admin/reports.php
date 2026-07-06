@@ -1338,8 +1338,8 @@ a.export-dd-link:hover { background: #f9fafb; }
 #reports-status-branch-charts { align-items:start; }
 #reports-status-branch-charts .reports-branch-chart-card { min-height:0; }
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
-#reports-status-branch-charts .reports-branch-chart-mount { height:190px; max-width:100%; }
-#reports-status-single-chart { min-height:230px !important; }
+#reports-status-branch-charts .reports-branch-chart-mount { height:205px; max-width:100%; }
+#reports-status-single-chart { min-height:255px !important; }
 #ch-status .apexcharts-legend,
 #reports-status-branch-charts .apexcharts-legend {
     justify-content:flex-start !important;
@@ -1382,7 +1382,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 .heatmap-header-tools { display:flex; align-items:center; gap:10px; flex-shrink:0; margin-left:auto; }
 .heatmap-year-chip { display:inline-block; margin-left:6px; padding:2px 10px; border-radius:8px; background:#E5EEF2; color:#0F4C5C; font-size:13px; font-weight:800; vertical-align:middle; }
 .heatmap-year-label { font-size:12px; font-weight:600; color:#6b7280; white-space:nowrap; }
-.heatmap-year-select { min-width:5.5rem; }
+.heatmap-year-select { min-width:7rem; width:7rem; padding-right:34px; text-align:left; }
 .pf-heatmap-legend { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:14px 20px; margin:0 0 14px; padding:0; font-size:11px; font-weight:600; color:#475569; }
 .pf-heatmap-legend .pf-hm-legend-item { display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; transition:all 0.2s ease; padding:4px 8px; border-radius:6px; }
 .pf-heatmap-legend .pf-hm-legend-item:hover { background:#f1f5f9; transform:translateY(-1px); }

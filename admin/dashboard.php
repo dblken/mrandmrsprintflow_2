@@ -238,6 +238,99 @@ try {
     );
 } catch (Exception $e) { $service_category_sales = []; }
 
+$dashboard_branch_chart_payload = [
+    'products' => [],
+    'services' => [],
+    'statuses' => [],
+];
+
+if ($branchId === 'all') {
+    foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+        $chartBranchId = (int)($branchRow['id'] ?? 0);
+        if ($chartBranchId <= 0) {
+            continue;
+        }
+        $chartBranchName = trim((string)($branchRow['branch_name'] ?? ''));
+        if ($chartBranchName === '') {
+            $chartBranchName = 'Branch ' . $chartBranchId;
+        }
+
+        try {
+            $productRows = pf_reports_sales_by_official_product($dashFromDate, $dashToEnd, $chartBranchId);
+        } catch (Exception $e) {
+            $productRows = [];
+        }
+        $productPayloadRows = array_values(array_filter(array_map(static function ($row) {
+            $category = trim((string)($row['category'] ?? ''));
+            return [
+                'label' => $category !== '' ? $category : 'Uncategorized product',
+                'value' => round((float)($row['total'] ?? 0), 2),
+            ];
+        }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+        if ($productPayloadRows !== []) {
+            $dashboard_branch_chart_payload['products'][] = [
+                'branch_id' => $chartBranchId,
+                'branch_name' => $chartBranchName,
+                'rows' => $productPayloadRows,
+            ];
+        }
+
+        try {
+            $serviceRows = pf_reports_sales_by_service_category($dashFromDate, $dashToEnd, $chartBranchId);
+            $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
+        } catch (Exception $e) {
+            $serviceRows = [];
+        }
+        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) {
+            $category = trim((string)($row['category'] ?? ''));
+            return [
+                'label' => $category !== '' ? $category : 'Customization',
+                'value' => round((float)($row['total'] ?? 0), 2),
+            ];
+        }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+        if ($servicePayloadRows !== []) {
+            $dashboard_branch_chart_payload['services'][] = [
+                'branch_id' => $chartBranchId,
+                'branch_name' => $chartBranchName,
+                'rows' => $servicePayloadRows,
+            ];
+        }
+
+        try {
+            [$statusBranchSql, $statusBranchTypes, $statusBranchParams] = branch_where_parts('o', $chartBranchId);
+            $statusRows = db_query(
+                "SELECT o.status, COUNT(*) AS cnt
+                 FROM orders o
+                 WHERE o.order_date BETWEEN ? AND ? {$statusBranchSql}
+                 GROUP BY o.status
+                 ORDER BY cnt DESC",
+                'ss' . ($statusBranchTypes ?: ''),
+                array_merge([$dashFromStart, $dashToEnd], $statusBranchParams ?: [])
+            ) ?: [];
+        } catch (Exception $e) {
+            $statusRows = [];
+        }
+        $statusPayloadRows = array_values(array_filter(array_map(static function ($row) {
+            $status = trim((string)($row['status'] ?? ''));
+            return [
+                'label' => $status !== '' ? $status : 'Unknown',
+                'value' => (int)($row['cnt'] ?? 0),
+            ];
+        }, $statusRows), static fn($row) => (int)($row['value'] ?? 0) > 0));
+        if ($statusPayloadRows !== []) {
+            $dashboard_branch_chart_payload['statuses'][] = [
+                'branch_id' => $chartBranchId,
+                'branch_name' => $chartBranchName,
+                'rows' => $statusPayloadRows,
+            ];
+        }
+    }
+}
+
+$dashboard_branch_chart_json = json_encode($dashboard_branch_chart_payload, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+if ($dashboard_branch_chart_json === false) {
+    $dashboard_branch_chart_json = '{"products":[],"services":[],"statuses":[]}';
+}
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
@@ -574,12 +667,27 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         @keyframes chart-spin { to { transform:rotate(360deg); } }
         .chart-nodata { position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:8px; color:#9ca3af; font-size:13px; z-index:1; }
         .chart-nodata.visible { display:flex; }
+        .dash-branch-chart-grid { display:flex; flex-wrap:wrap; gap:14px; width:100%; align-items:flex-start; }
+        .dash-branch-chart-card { flex:1 1 calc(50% - 7px); max-width:calc(50% - 7px); min-width:0; }
+        .dash-branch-chart-title { text-align:left; color:#374151; font-size:12px; font-weight:700; margin:0 0 8px; }
+        .dash-branch-chart-mount { position:relative; height:150px; max-width:220px; margin:0 auto; }
+        .dash-branch-chart-legend { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px 12px; align-content:start; max-height:150px; overflow-y:auto; padding:8px 4px 0; font-size:12px; text-align:left; }
+        .dash-branch-chart-legend > div { justify-content:flex-start; }
+        .dash-branch-chart-legend::-webkit-scrollbar { width:6px; }
+        .dash-branch-chart-legend::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
+        .dash-branch-chart-grid.is-status .dash-branch-chart-mount { height:135px; max-width:190px; }
+        .dash-single-chart-wrap.is-hidden,
+        .dash-single-chart-legend.is-hidden,
+        .dash-branch-chart-grid.is-hidden { display:none !important; }
+        @media (max-width:900px) {
+            .dash-branch-chart-card { flex-basis:100%; max-width:100%; }
+        }
 
         /* Period dropdown (legacy tab class removed) */
         .chart-select { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; font-weight:600; background:#fff; color:#374151; width:auto; min-width:4em; max-width:100%; }
         .chart-select-period { min-width:160px; }
         .chart-select-month { min-width:92px; }
-        .chart-select-year { min-width:88px; }
+        .chart-select-year { min-width:104px; width:104px; padding-right:32px; }
         .chart-header-row { justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:12px; margin-bottom:14px; }
         .chart-title-nowrap { white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:8px; }
         .chart-filters { display:flex; flex-wrap:nowrap; align-items:center; gap:10px; flex-shrink:0; }
@@ -876,8 +984,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 max-width:96px;
             }
             .chart-select-year {
-                min-width:84px;
-                max-width:92px;
+                min-width:104px;
+                width:104px;
+                max-width:112px;
+                padding-right:32px;
             }
             .chart-wrap {
                 height:330px !important;
@@ -1182,10 +1292,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         Order Status Breakdown
                     </div>
-                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
+                    <div id="dash-status-single-chart" class="dash-single-chart-wrap" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="statusChart"></canvas>
                     </div>
-                    <div id="status-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
+                    <div id="status-legend" class="dash-single-chart-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-status-branch-charts" class="dash-branch-chart-grid is-status is-hidden"></div>
                 </div>
 
                 <!-- Top Customer Locations -->
@@ -1228,8 +1339,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
                         Best Selling Services
                     </div>
-                    <?php if (!empty($dashboard_sales_bar)): ?>
-                    <div class="products-chart"><div id="productsChart"></div></div>
+                    <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
+                    <div id="dash-service-single-chart" class="products-chart"><div id="productsChart"></div></div>
+                    <div id="dash-service-branch-charts" class="dash-branch-chart-grid is-hidden"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
                     <?php endif; ?>
@@ -1307,9 +1419,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
                         Sales by Product
                     </div>
-                    <?php if (!empty($category_sales)): ?>
-                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
-                    <div id="category-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
+                    <?php if (!empty($category_sales) || !empty($dashboard_branch_chart_payload['products'])): ?>
+                    <div id="dash-product-single-chart" class="dash-single-chart-wrap" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
+                    <div id="category-legend" class="dash-single-chart-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-product-branch-charts" class="dash-branch-chart-grid is-hidden"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No official product sales data yet</div>
                     <?php endif; ?>
@@ -1562,6 +1675,13 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             try { window.__pfDashTrendChart.destroy(); } catch (e) {}
             window.__pfDashTrendChart = null;
         }
+        ['__pfDashBranchProductCharts', '__pfDashBranchStatusCharts', '__pfDashBranchServiceCharts'].forEach(function (key) {
+            if (!window[key] || !window[key].length) return;
+            window[key].forEach(function (chart) {
+                try { chart.destroy(); } catch (e) {}
+            });
+            window[key] = [];
+        });
 
     };
     window.printflowInitDashboardCharts = function () {
@@ -1576,6 +1696,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         dashCtrl = new AbortController();
         var sig = { signal: dashCtrl.signal };
         var DASH_BRANCH_ID = <?php echo $branchId !== 'all' ? (int)$branchId : 'null'; ?>;
+        var DASH_BRANCH_CHARTS = <?php echo $dashboard_branch_chart_json; ?>;
 
         var dashAnimLong = 1750;
         var dashAnimShort = 680;
@@ -1593,6 +1714,107 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             return peso + v.toLocaleString();
         }
 
+        function dashEscapeHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>'"]/g, function (ch) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[ch];
+            });
+        }
+
+        function dashLegendHtml(rows, colors) {
+            return rows.map(function (row, index) {
+                var color = colors[index % colors.length];
+                return '<div style="display:flex; align-items:center; gap:6px; min-width:0;">' +
+                    '<span style="width:10px; height:10px; border-radius:50%; background:' + color + '; flex:0 0 10px;"></span>' +
+                    '<span style="font-weight:600; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + dashEscapeHtml(row.label) + '">' + dashEscapeHtml(row.label) + '</span>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function dashSetBranchChartMode(gridId, singleWrapId, singleLegendId, enabled) {
+            var grid = document.getElementById(gridId);
+            var singleWrap = document.getElementById(singleWrapId);
+            var singleLegend = singleLegendId ? document.getElementById(singleLegendId) : null;
+            if (grid) grid.classList.toggle('is-hidden', !enabled);
+            if (singleWrap) singleWrap.classList.toggle('is-hidden', enabled);
+            if (singleLegend) singleLegend.classList.toggle('is-hidden', enabled);
+            return grid;
+        }
+
+        function dashRenderBranchDoughnuts(kind, gridId, singleWrapId, singleLegendId, storeKey, mountHeight) {
+            var branches = (DASH_BRANCH_CHARTS && DASH_BRANCH_CHARTS[kind]) || [];
+            if (DASH_BRANCH_ID !== null || !branches.length) return false;
+            var grid = dashSetBranchChartMode(gridId, singleWrapId, singleLegendId, true);
+            if (!grid) return false;
+            var colors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
+            grid.innerHTML = '';
+            window[storeKey] = [];
+            branches.forEach(function (branch, branchIndex) {
+                var rows = (branch.rows || []).filter(function (row) { return Number(row.value || 0) > 0; });
+                if (!rows.length) return;
+                var card = document.createElement('div');
+                card.className = 'dash-branch-chart-card';
+                var canvasId = gridId + '-canvas-' + branchIndex;
+                card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div>' +
+                    '<div class="dash-branch-chart-mount" style="height:' + (mountHeight || 150) + 'px;"><canvas id="' + canvasId + '"></canvas></div>' +
+                    '<div class="dash-branch-chart-legend">' + dashLegendHtml(rows, colors) + '</div>';
+                grid.appendChild(card);
+                var cv = document.getElementById(canvasId);
+                if (!cv) return;
+                var chart = new Chart(cv.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: rows.map(function (row) { return row.label; }),
+                        datasets: [{
+                            data: rows.map(function (row) { return Number(row.value) || 0; }),
+                            backgroundColor: rows.map(function (_, i) { return colors[i % colors.length]; }),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        animation: doughnutAnim,
+                        plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } }
+                    }
+                });
+                window[storeKey].push(chart);
+            });
+            return true;
+        }
+
+        function dashRenderBranchServiceBars() {
+            var branches = (DASH_BRANCH_CHARTS && DASH_BRANCH_CHARTS.services) || [];
+            if (DASH_BRANCH_ID !== null || !branches.length || typeof ApexCharts === 'undefined') return false;
+            var grid = dashSetBranchChartMode('dash-service-branch-charts', 'dash-service-single-chart', null, true);
+            if (!grid) return false;
+            grid.innerHTML = '';
+            window.__pfDashBranchServiceCharts = [];
+            branches.forEach(function (branch, branchIndex) {
+                var rows = (branch.rows || []).filter(function (row) { return Number(row.value || 0) > 0; }).slice(0, 8);
+                if (!rows.length) return;
+                var card = document.createElement('div');
+                card.className = 'dash-branch-chart-card';
+                var mountId = 'dash-service-branch-chart-' + branchIndex;
+                card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div>' +
+                    '<div class="dash-branch-chart-mount" style="height:190px; max-width:100%;"><div id="' + mountId + '"></div></div>';
+                grid.appendChild(card);
+                var chart = new ApexCharts(document.getElementById(mountId), {
+                    chart: { type: 'bar', height: 190, toolbar: { show: false } },
+                    series: [{ name: 'Sales (₱)', data: rows.map(function (row) { return Number(row.value) || 0; }) }],
+                    xaxis: { categories: rows.map(function (row) { return String(row.label || '').slice(0, 20); }), labels: { style: { fontSize: '10px' } } },
+                    yaxis: { labels: { maxWidth: 118, style: { fontSize: '10px' } } },
+                    colors: ['#00232b'],
+                    plotOptions: { bar: { horizontal: true, borderRadius: 5, barHeight: '58%' } },
+                    dataLabels: { enabled: false },
+                    grid: { borderColor: '#f3f4f6', padding: { left: 0, right: 4 } },
+                    tooltip: { theme: 'dark' }
+                });
+                chart.render();
+                window.__pfDashBranchServiceCharts.push(chart);
+            });
+            return true;
+        }
         function bindWhenVisible(target, onFirst) {
             if (!target || typeof onFirst !== 'function') return;
             var fired = false;
@@ -1819,6 +2041,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         // Order Status Chart - Dynamic (reloads with branch changes)
         (function () {
+            if (dashRenderBranchDoughnuts('statuses', 'dash-status-branch-charts', 'dash-status-single-chart', 'status-legend', '__pfDashBranchStatusCharts', 135)) return;
             var statusChartCanvas = document.getElementById('statusChart');
             var w = statusChartCanvas ? statusChartCanvas.parentElement : null;
             bindWhenVisible(w, function () {
@@ -1897,6 +2120,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         }
 
         (function () {
+            if (dashRenderBranchDoughnuts('products', 'dash-product-branch-charts', 'dash-product-single-chart', 'category-legend', '__pfDashBranchProductCharts', 150)) return;
             var cv = document.getElementById('categoryChart');
             var w = cv ? cv.parentElement : null;
             if (!cv || !w) return;
@@ -1948,6 +2172,13 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                     if (c && typeof c.resize === 'function') {
                         try { c.resize(); } catch (e) {}
                     }
+                });
+                ['__pfDashBranchProductCharts', '__pfDashBranchStatusCharts'].forEach(function (k) {
+                    (window[k] || []).forEach(function (c) {
+                        if (c && typeof c.resize === 'function') {
+                            try { c.resize(); } catch (e) {}
+                        }
+                    });
                 });
             }
             function debouncedDashResize() {
@@ -2054,8 +2285,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         <?php endif; ?>
 
         // Best Selling Services (ApexCharts) — matches split category totals when available (same as donut)
-        <?php if (!empty($dashboard_sales_bar)): ?>
+        <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
         (function () {
+            if (dashRenderBranchServiceBars()) return;
             var el = document.getElementById('productsChart');
             if (!el || typeof ApexCharts === 'undefined') return;
             bindWhenVisible(el.parentElement, function () {
