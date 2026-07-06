@@ -985,12 +985,12 @@ function reportsPrintInPlace(url) {
 <style>
 /* ── Layout ─────────────────────────── */
 .ana-wrap { display:flex; flex-direction:column; gap:24px; }
-.ana-grid  { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+.ana-grid  { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:stretch; }
 .ana-grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
 @media(max-width:960px){ .ana-grid,.ana-grid3{ grid-template-columns:1fr; } }
 
 /* ── Card (SaaS-style) ───────────────── */
-.ana-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); transition:box-shadow .2s; display:flex; flex-direction:column; }
+.ana-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.05); transition:box-shadow .2s; display:flex; flex-direction:column; height:100%; }
 .ana-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.08); }
 .ana-hd   { display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:1px solid #f3f4f6; gap:10px; flex-wrap:wrap; flex-shrink:0; }
 .ana-hd h3{ margin:0; font-size:14px; font-weight:700; color:#1f2937; display:flex; align-items:center; gap:8px; white-space:nowrap; }
