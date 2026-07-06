@@ -36,7 +36,7 @@ $branchName = $branchCtx['branch_name'];
 [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
 
 $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
-$serviceCompletedSql = pf_reports_service_order_completed_expr('so');
+$jobCompletedSql = pf_reports_job_order_paid_completed_expr('jo');
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -67,7 +67,7 @@ if ($report === 'orders') {
 } elseif ($report === 'daily_sales') {
     $day = date('Y-m-d', strtotime($_GET['date'] ?? $to));
     $sheet->setTitle('Daily Sales');
-    buildDailySalesReport($sheet, $day, $branchName, $branchId, $serviceCompletedSql);
+    buildDailySalesReport($sheet, $day, $branchName, $branchId, $jobCompletedSql);
     $filename = 'PrintFlow_Daily_Sales_' . $day . '.xlsx';
     $excelColCount = 6;
 } elseif ($report === 'shop_inventory') {
@@ -528,7 +528,7 @@ function buildCustomersReport($sheet, $from, $to, $branchName, $branchId) {
     $sheet->getStyle('A' . $headerRow . ':H' . $lastRow)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
 }
 
-function buildDailySalesReport($sheet, string $day, string $branchName, $branchId, string $serviceCompletedSql): void {
+function buildDailySalesReport($sheet, string $day, string $branchName, $branchId, string $jobCompletedSql): void {
     $dayLabel = date('F j, Y', strtotime($day));
     $row = pf_excel_write_report_meta($sheet, 'Daily Sales Report', $branchName, $dayLabel, 'F');
     $row++;
@@ -599,27 +599,33 @@ function buildDailySalesReport($sheet, string $day, string $branchName, $branchI
 
     if ($branchId !== 'all') {
         $sOrders = db_query(
-            "SELECT so.id, so.service_name,
-                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
-                    so.created_at, so.total_price, so.status
-             FROM service_orders so LEFT JOIN customers c ON so.customer_id = c.customer_id
-             WHERE DATE(so.created_at) = ? AND so.branch_id = ? AND {$serviceCompletedSql}
-             ORDER BY so.created_at ASC",
+            "SELECT jo.id,
+                    COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS service_name,
+                    COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name,
+                    COALESCE(jo.payment_verified_at, jo.created_at) AS created_at,
+                    COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS total_price,
+                    jo.status
+             FROM job_orders jo LEFT JOIN customers c ON jo.customer_id = c.customer_id
+             WHERE DATE(COALESCE(jo.payment_verified_at, jo.created_at)) = ? AND jo.branch_id = ? AND {$jobCompletedSql}
+             ORDER BY COALESCE(jo.payment_verified_at, jo.created_at) ASC",
             'si', [$day, $branchId]
         ) ?: [];
     } else {
         $sOrders = db_query(
-            "SELECT so.id, so.service_name,
-                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
-                    so.created_at, so.total_price, so.status
-             FROM service_orders so LEFT JOIN customers c ON so.customer_id = c.customer_id
-             WHERE DATE(so.created_at) = ? AND {$serviceCompletedSql}
-             ORDER BY so.created_at ASC",
+            "SELECT jo.id,
+                    COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS service_name,
+                    COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name,
+                    COALESCE(jo.payment_verified_at, jo.created_at) AS created_at,
+                    COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS total_price,
+                    jo.status
+             FROM job_orders jo LEFT JOIN customers c ON jo.customer_id = c.customer_id
+             WHERE DATE(COALESCE(jo.payment_verified_at, jo.created_at)) = ? AND {$jobCompletedSql}
+             ORDER BY COALESCE(jo.payment_verified_at, jo.created_at) ASC",
             's', [$day]
         ) ?: [];
     }
 
-    $sheet->setCellValue('A' . $row, 'SERVICE ORDERS (completed)');
+    $sheet->setCellValue('A' . $row, 'SERVICE JOBS (paid/completed)');
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $row += 2;
     $svcHeader = $row;

@@ -217,7 +217,7 @@ $statusColors = [
 // ── Sales by Product (official product list) ──────────
 try {
     $category_sales = pf_reports_sales_by_official_product(
-        $dashFromDate,
+        $dashFromStart,
         $dashToEnd,
         $branchId
     );
@@ -225,10 +225,18 @@ try {
 
 $cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
 
+$dashboard_chart_value = static function (array $row): float {
+    $total = (float)($row['total'] ?? 0);
+    if ($total > 0) {
+        return round($total, 2);
+    }
+    return (float)(($row['items_sold'] ?? null) ?? ($row['qty_sold'] ?? 0));
+};
+
 // ── Sales by Service Category (customization / job orders) ──
 try {
     $service_category_sales = pf_reports_sales_by_service_category(
-        $dashFromDate,
+        $dashFromStart,
         $dashToEnd,
         $branchId
     );
@@ -238,6 +246,112 @@ try {
     );
 } catch (Exception $e) { $service_category_sales = []; }
 
+$dashboard_branch_chart_payload = [
+    'products' => [],
+    'services' => [],
+    'statuses' => [],
+    'locations' => [],
+];
+
+if ($branchId === 'all') {
+    foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+        $chartBranchId = (int)($branchRow['id'] ?? 0);
+        if ($chartBranchId <= 0) {
+            continue;
+        }
+        $chartBranchName = trim((string)($branchRow['branch_name'] ?? ''));
+        if ($chartBranchName === '') {
+            $chartBranchName = 'Branch ' . $chartBranchId;
+        }
+
+        try {
+            $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
+        } catch (Exception $e) {
+            $productRows = [];
+        }
+        $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
+            $category = trim((string)($row['category'] ?? ''));
+            return [
+                'label' => $category !== '' ? $category : 'Uncategorized product',
+                'value' => $dashboard_chart_value($row),
+            ];
+        }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+        $dashboard_branch_chart_payload['products'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $productPayloadRows,
+        ];
+
+        try {
+            $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
+            $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
+        } catch (Exception $e) {
+            $serviceRows = [];
+        }
+        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
+            $category = trim((string)($row['category'] ?? ''));
+            return [
+                'label' => $category !== '' ? $category : 'Customization',
+                'value' => $dashboard_chart_value($row),
+            ];
+        }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
+        $dashboard_branch_chart_payload['services'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $servicePayloadRows,
+        ];
+
+        try {
+            [$statusBranchSql, $statusBranchTypes, $statusBranchParams] = branch_where_parts('o', $chartBranchId);
+            $statusRows = db_query(
+                "SELECT o.status, COUNT(*) AS cnt
+                 FROM orders o
+                 WHERE o.order_date BETWEEN ? AND ? {$statusBranchSql}
+                 GROUP BY o.status
+                 ORDER BY cnt DESC",
+                'ss' . ($statusBranchTypes ?: ''),
+                array_merge([$dashFromStart, $dashToEnd], $statusBranchParams ?: [])
+            ) ?: [];
+        } catch (Exception $e) {
+            $statusRows = [];
+        }
+        $statusPayloadRows = array_values(array_filter(array_map(static function ($row) {
+            $status = trim((string)($row['status'] ?? ''));
+            return [
+                'label' => $status !== '' ? $status : 'Unknown',
+                'value' => (int)($row['cnt'] ?? 0),
+            ];
+        }, $statusRows), static fn($row) => (int)($row['value'] ?? 0) > 0));
+        $dashboard_branch_chart_payload['statuses'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $statusPayloadRows,
+        ];
+
+        try {
+            $locationRows = pf_reports_customer_locations_merged($dashFromDate, $dashToEnd, $chartBranchId, 5, false);
+        } catch (Exception $e) {
+            $locationRows = [];
+        }
+        $locationPayloadRows = array_values(array_filter(array_map(static function ($row) {
+            $city = trim((string)($row['city'] ?? ''));
+            return [
+                'label' => $city !== '' ? $city : 'Unknown',
+                'value' => (int)($row['orders'] ?? 0),
+            ];
+        }, $locationRows), static fn($row) => (int)($row['value'] ?? 0) > 0));
+        $dashboard_branch_chart_payload['locations'][] = [
+            'branch_id' => $chartBranchId,
+            'branch_name' => $chartBranchName,
+            'rows' => $locationPayloadRows,
+        ];
+    }
+}
+
+$dashboard_branch_chart_json = json_encode($dashboard_branch_chart_payload, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+if ($dashboard_branch_chart_json === false) {
+    $dashboard_branch_chart_json = '{"products":[],"services":[],"statuses":[],"locations":[]}';
+}
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
     [$bSqlFrag3, $bT3, $bP3] = branch_where_parts('o', $branchId);
@@ -254,6 +368,7 @@ try {
 } catch (Exception $e) { $recent_orders = []; }
 
 // ── Low Stock Alerts ──────────────────────────────────
+$low_stock_by_branch = [];
 try {
     require_once __DIR__ . '/../includes/InventoryManager.php';
     require_once __DIR__ . '/../includes/inventory_stock_status.php';
@@ -293,7 +408,47 @@ try {
         return ($a['ratio'] ?? 0) <=> ($b['ratio'] ?? 0);
     });
     $low_stock = array_slice($low_stock, 0, 5);
-} catch (Exception $e) { $low_stock = []; }
+
+    if ($branchId === 'all') {
+        foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+            $stockBranchId = (int)($branchRow['id'] ?? 0);
+            if ($stockBranchId <= 0) {
+                continue;
+            }
+            $stockBranchRows = [];
+            foreach ($all_items as $item) {
+                $soh = InventoryManager::getStockOnHand($item['id'], $stockBranchId);
+                $reorderLevel = max(1, (float)($item['reorder_level'] ?? 0));
+                $criticalLevel = max(1, (float)($item['critical_level'] ?? 0));
+                $stockStatus = printflow_resolve_stock_status($soh, $reorderLevel, $criticalLevel);
+                $needsAlert = $soh <= 0 || in_array($stockStatus['key'], ['low', 'critical', 'out'], true);
+                if (!$needsAlert) {
+                    continue;
+                }
+                $branchItem = $item;
+                $branchItem['current_stock'] = $soh;
+                $branchItem['low_limit'] = $reorderLevel;
+                $branchItem['stock_status'] = $stockStatus;
+                $branchItem['ratio'] = $reorderLevel > 0 ? ($soh / $reorderLevel) : 0;
+                $stockBranchRows[] = $branchItem;
+            }
+            usort($stockBranchRows, static function ($a, $b) {
+                $aOut = ((float)($a['current_stock'] ?? 0)) <= 0;
+                $bOut = ((float)($b['current_stock'] ?? 0)) <= 0;
+                if ($aOut !== $bOut) {
+                    return $aOut ? -1 : 1;
+                }
+                return ($a['ratio'] ?? 0) <=> ($b['ratio'] ?? 0);
+            });
+            $stockBranchRows = array_slice($stockBranchRows, 0, 5);
+                $low_stock_by_branch[] = [
+                    'branch_id' => $stockBranchId,
+                    'branch_name' => trim((string)($branchRow['branch_name'] ?? 'Branch ' . $stockBranchId)),
+                    'rows' => $stockBranchRows,
+                ];
+        }
+    }
+} catch (Exception $e) { $low_stock = []; $low_stock_by_branch = []; }
 
 // ── Top Customers (by spending) ───────────────────────
 try {
@@ -317,75 +472,6 @@ try {
     ) ?: [];
 } catch (Exception $e) { $top_customers = []; }
 
-// ── Top Selling Products (by store revenue / sales) ───
-try {
-    [$bSqlFrag_tp, $bT_tp, $bP_tp] = branch_where_parts('o', $branchId);
-    $top_products = db_query(
-        "SELECT p.name as product_name, p.sku,
-                SUM(oi.quantity) as qty_sold,
-                SUM(oi.quantity * oi.unit_price) as revenue
-         FROM order_items oi
-         JOIN products p ON oi.product_id = p.product_id
-         JOIN orders o ON oi.order_id = o.order_id
-         WHERE o.payment_status = 'Paid' AND o.order_date BETWEEN ? AND ? {$bSqlFrag_tp}
-         GROUP BY p.product_id, p.name, p.sku
-         ORDER BY revenue DESC, qty_sold DESC LIMIT 5",
-        'ss' . ($bT_tp ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP_tp ?: [])
-    ) ?: [];
-} catch (Exception $e) { $top_products = []; }
-
-// ── Sales Trend (filtered period, branch revenue = store + customization) ──────
-$trend12_labels = $trend12_revenues_store = $trend12_revenues_custom = $trend12_revenues_branch = [];
-try {
-    [$bo,$bto,$bpo] = branch_where_parts('o', $branchId);
-    [$bj,$btj,$bpj] = branch_where_parts('jo', $branchId);
-    $raw_store = db_query(
-        "SELECT DATE_FORMAT(o.order_date,'%Y-%m') AS mon,
-                COUNT(*) AS orders_store,
-                SUM(CASE WHEN (o.payment_status='Paid' OR o.status='Completed') THEN o.total_amount ELSE 0 END) AS revenue_store
-         FROM orders o
-         WHERE o.order_date BETWEEN ? AND ? {$bo}
-         GROUP BY DATE_FORMAT(o.order_date,'%Y-%m')
-         ORDER BY mon",
-        'ss' . ($bto ?: ''), array_merge([$dashFromStart, $dashToEnd], $bpo ?: [])
-    ) ?: [];
-    $raw_job = db_query(
-        "SELECT DATE_FORMAT(COALESCE(jo.payment_verified_at, jo.created_at),'%Y-%m') AS mon,
-                COUNT(*) AS orders_custom,
-                SUM(CASE WHEN (jo.payment_status='PAID' OR jo.status='COMPLETED')
-                         THEN COALESCE(NULLIF(jo.amount_paid,0), jo.estimated_total, 0)
-                         ELSE 0 END) AS revenue_custom
-         FROM job_orders jo
-         WHERE COALESCE(jo.payment_verified_at, jo.created_at) BETWEEN ? AND ? {$bj}
-         GROUP BY DATE_FORMAT(COALESCE(jo.payment_verified_at, jo.created_at),'%Y-%m')
-         ORDER BY mon",
-        'ss' . ($btj ?: ''), array_merge([$dashFromStart, $dashToEnd], $bpj ?: [])
-    ) ?: [];
-    $mapS = [];
-    foreach ($raw_store as $r) $mapS[$r['mon']] = $r;
-    $mapJ = [];
-    foreach ($raw_job as $r) $mapJ[$r['mon']] = $r;
-    $periodStart = new DateTime($dashFromDate . ' 00:00:00');
-    $periodStart->modify('first day of this month');
-    $periodEnd = new DateTime($dashToDate . ' 00:00:00');
-    $periodEnd->modify('first day of next month');
-    while ($periodStart < $periodEnd) {
-        $key = $periodStart->format('Y-m');
-        $trend12_labels[] = date('M Y', strtotime($key . '-01'));
-        $s = $mapS[$key] ?? [];
-        $j = $mapJ[$key] ?? [];
-        $rs = (float)($s['revenue_store'] ?? 0);
-        $rc = (float)($j['revenue_custom'] ?? 0);
-        $trend12_revenues_store[] = $rs;
-        $trend12_revenues_custom[] = $rc;
-        $trend12_revenues_branch[] = $rs + $rc;
-        $periodStart->modify('+1 month');
-    }
-} catch (Exception $e) {}
-
-// ── Revenue Distribution (Top 7 products) ─────────────
-$forecast_revenue = !empty($trend12_revenues_branch) ? pf_linreg($trend12_revenues_branch) : 0;
-$next_month_label = date('M Y', strtotime('+1 month'));
 
 $branchRevenueFrom = $dashFromDate;
 $branchRevenueTo = $dashToDate;
@@ -437,15 +523,6 @@ $dashboard_branch_revenue_json = json_encode($dashboard_branch_revenue_js, JSON_
 if ($dashboard_branch_revenue_json === false) {
     $dashboard_branch_revenue_json = '[]';
 }
-
-$top_products_full = [];
-try {
-    $top_products_full = pf_reports_top_products_merged($dashFromDate, $dashToEnd, $branchId, 10);
-} catch (Exception $e) {}
-$rev_donut = array_slice($top_products_full, 0, 7);
-$donut_palette = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12'];
-$rev_donut_total = 0.0;
-foreach ($rev_donut as $rd) $rev_donut_total += (float)($rd['revenue'] ?? 0);
 
 // Best Selling Services bar chart — customization / job-order revenue by service category.
 $dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
@@ -574,12 +651,30 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         @keyframes chart-spin { to { transform:rotate(360deg); } }
         .chart-nodata { position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:8px; color:#9ca3af; font-size:13px; z-index:1; }
         .chart-nodata.visible { display:flex; }
+        .dash-empty-state { min-height:180px; display:flex; align-items:center; justify-content:center; text-align:center; color:#9ca3af; font-size:13px; font-weight:600; padding:28px 12px; }
+        .dash-empty-state--compact { min-height:110px; }
+        .dash-branch-chart-grid { display:flex; flex-wrap:wrap; gap:14px; width:100%; align-items:flex-start; }
+        .dash-branch-chart-card { flex:1 1 calc(50% - 7px); max-width:calc(50% - 7px); min-width:0; }
+        .dash-branch-chart-title { text-align:left; color:#374151; font-size:12px; font-weight:700; margin:0 0 8px; }
+        .dash-branch-chart-mount { position:relative; height:150px; max-width:220px; margin:0 auto; }
+        .dash-branch-chart-legend { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px 12px; align-content:start; max-height:150px; overflow-y:auto; padding:8px 4px 0; font-size:12px; text-align:left; }
+        .dash-branch-chart-legend > div { justify-content:flex-start; }
+        .dash-branch-chart-legend::-webkit-scrollbar { width:6px; }
+        .dash-branch-chart-legend::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
+        .dash-branch-chart-grid.is-status .dash-branch-chart-mount { height:135px; max-width:190px; }
+        .dash-single-chart-wrap.is-hidden,
+        .products-chart.is-hidden,
+        .dash-single-chart-legend.is-hidden,
+        .dash-branch-chart-grid.is-hidden { display:none !important; }
+        @media (max-width:900px) {
+            .dash-branch-chart-card { flex-basis:100%; max-width:100%; }
+        }
 
         /* Period dropdown (legacy tab class removed) */
         .chart-select { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; font-weight:600; background:#fff; color:#374151; width:auto; min-width:4em; max-width:100%; }
         .chart-select-period { min-width:160px; }
         .chart-select-month { min-width:92px; }
-        .chart-select-year { min-width:88px; }
+        .chart-select-year { min-width:104px; width:104px; padding-right:32px; }
         .chart-header-row { justify-content:space-between; align-items:center; flex-wrap:nowrap; gap:12px; margin-bottom:14px; }
         .chart-title-nowrap { white-space:nowrap; flex-shrink:0; display:flex; align-items:center; gap:8px; }
         .chart-filters { display:flex; flex-wrap:nowrap; align-items:center; gap:10px; flex-shrink:0; }
@@ -701,8 +796,15 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .stock-bar-fill.danger { background:#ef4444; }
         .stock-bar-fill.warning { background:#f59e0b; }
         .stock-bar-fill.good { background:#10b981; }
-
-        /* Revenue Donut */
+        .inventory-alert-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:6px 12px; padding:11px 0; border-bottom:1px solid #f3f4f6; }
+        .inventory-alert-row:last-child { border-bottom:none; }
+        .inventory-alert-main { min-width:0; }
+        .inventory-alert-name { font-size:12px; font-weight:700; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .inventory-alert-sub { font-size:10px; color:#9ca3af; font-weight:700; text-transform:uppercase; margin-top:2px; }
+        .inventory-alert-stock { font-size:12px; font-weight:800; white-space:nowrap; }
+        .inventory-alert-status { grid-column:1 / -1; display:flex; align-items:center; gap:8px; min-width:0; justify-content:flex-start; }
+        .inventory-alert-status .stock-bar { width:min(100%, 110px); flex:0 1 110px; }
+        .inventory-alert-status span { font-size:10px; font-weight:800; white-space:nowrap; }
         .rev-donut-row { display:flex; flex-direction:column; gap:16px; }
         .rev-donut-chart { height:200px; margin-bottom:12px; }
         .rev-legend { font-size:12px; }
@@ -712,6 +814,12 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         /* Customer Locations */
         .loc-list { display:flex; flex-direction:column; gap:12px; }
+        .loc-list--branch { gap:10px; }
+        .dash-location-branch-card, .dash-inventory-branch-card { padding-bottom:4px; }
+        .dash-branch-title-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 8px; }
+        .dash-branch-title-row .dash-branch-chart-title { margin:0; }
+        .dash-branch-see-all { font-size:11px; font-weight:700; color:#0d9488; text-decoration:none; white-space:nowrap; }
+        .dash-branch-see-all:hover { text-decoration:underline; }
         .loc-row { display:flex; flex-direction:column; gap:6px; cursor:pointer; transition:all 0.2s; }
         .loc-row:hover { transform:translateY(-2px); }
         .loc-header { display:flex; justify-content:space-between; align-items:center; }
@@ -732,8 +840,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .performer-btn.is-active { background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.05); color:#00232b; border-color:#e5e7eb; }
         .performer-btn:focus-visible { outline:2px solid #53C5E0; outline-offset:2px; }
 
-        /* 12-Month Trend */
-        .trend12-chart { height:280px; }
 
         @media (max-width:768px) {
             header {
@@ -876,8 +982,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 max-width:96px;
             }
             .chart-select-year {
-                min-width:84px;
-                max-width:92px;
+                min-width:104px;
+                width:104px;
+                max-width:112px;
+                padding-right:32px;
             }
             .chart-wrap {
                 height:330px !important;
@@ -888,8 +996,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 width:100% !important;
                 max-width:100% !important;
             }
-            #dash-sales-chart-wrap,
-            .trend12-chart {
+            #dash-sales-chart-wrap {
                 overflow-x:auto !important;
                 overflow-y:hidden !important;
                 -webkit-overflow-scrolling:touch;
@@ -901,8 +1008,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 height:100% !important;
             }
             .pf-wide-chart-canvas canvas,
-            #dash-sales-chart-wrap canvas,
-            .trend12-chart canvas {
+            #dash-sales-chart-wrap canvas {
                 min-width:820px !important;
                 width:820px !important;
                 max-width:none !important;
@@ -911,8 +1017,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                 height:280px !important;
             }
             .rev-donut-chart,
-            .products-chart,
-            .trend12-chart {
+            .products-chart {
                 height:320px !important;
                 max-width:100%;
                 overflow:visible;
@@ -957,7 +1062,6 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             .chart-wrap {
                 height:340px !important;
             }
-            .trend12-chart,
             .products-chart {
                 height:340px !important;
             }
@@ -1024,6 +1128,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             </div>
 
             <div id="pf-dashboard-content">
+            <script type="application/json" id="pf-dashboard-branch-chart-data"><?php echo htmlspecialchars($dashboard_branch_chart_json, ENT_NOQUOTES, 'UTF-8'); ?></script>
             <!-- KPI Summary Row (entire card is a link; keyboard + screen-reader friendly) -->
             <div class="kpi-row">
                 <a class="kpi-card indigo kpi-card--link"
@@ -1182,19 +1287,56 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         Order Status Breakdown
                     </div>
-                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
+                    <div id="dash-status-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="statusChart"></canvas>
                     </div>
-                    <div id="status-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
+                    <div id="status-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-status-branch-charts" class="dash-branch-chart-grid is-status <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? '' : 'is-hidden'; ?>"></div>
                 </div>
 
                 <!-- Top Customer Locations -->
-                <?php if (!empty($customer_locations)): ?>
+                <?php if (!empty($customer_locations) || !empty($dashboard_branch_chart_payload['locations'])): ?>
                 <div class="dash-card">
                     <div class="dash-card-title">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                         Top Customer Locations
                     </div>
+                    <?php if ($branchId === 'all' && !empty($dashboard_branch_chart_payload['locations'])): ?>
+                    <div class="dash-branch-chart-grid dash-location-branch-grid">
+                        <?php foreach ($dashboard_branch_chart_payload['locations'] as $locBranch): ?>
+                            <?php
+                                $locRows = array_slice($locBranch['rows'] ?? [], 0, 5);
+                                $locMax = 0;
+                                foreach ($locRows as $locRow) {
+                                    $locMax = max($locMax, (int)($locRow['value'] ?? 0));
+                                }
+                            ?>
+                            <div class="dash-branch-chart-card dash-location-branch-card">
+                                <div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($locBranch['branch_name'] ?? 'Branch')); ?></div>
+                                <?php if (empty($locRows)): ?>
+                                    <div class="dash-empty-state dash-empty-state--compact">No customer location data for this branch.</div>
+                                <?php endif; ?>
+                                <div class="loc-list loc-list--branch">
+                                    <?php foreach ($locRows as $index => $loc): ?>
+                                        <?php $pct = $locMax > 0 ? (((int)($loc['value'] ?? 0) / $locMax) * 100) : 0; ?>
+                                        <div class="loc-row">
+                                            <div class="loc-header">
+                                                <div class="loc-name">
+                                                    <span class="loc-rank">#<?php echo $index + 1; ?></span>
+                                                    <span class="loc-city"><?php echo htmlspecialchars((string)($loc['label'] ?? 'Unknown')); ?></span>
+                                                </div>
+                                                <div class="loc-value"><?php echo (int)($loc['value'] ?? 0); ?></div>
+                                            </div>
+                                            <div class="loc-bar-wrap">
+                                                <div class="loc-bar" style="width:<?php echo max(3, min(100, $pct)); ?>%;"></div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php else: ?>
                     <?php $max_orders = max(array_column($customer_locations, 'orders')); ?>
                     <div class="loc-list">
                         <?php foreach (array_slice($customer_locations, 0, 5) as $index => $loc):
@@ -1214,6 +1356,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         </div>
                         <?php endforeach; ?>
                     </div>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1228,8 +1371,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
                         Best Selling Services
                     </div>
-                    <?php if (!empty($dashboard_sales_bar)): ?>
-                    <div class="products-chart"><div id="productsChart"></div></div>
+                    <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
+                    <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" data-service-bar-labels="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-bar-values="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_values, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div id="productsChart"></div></div>
+                    <div id="dash-service-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
                     <?php endif; ?>
@@ -1242,11 +1386,11 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
                             Inventory Alerts
                         </span>
-                        <?php if (!empty($low_stock)):
-                            // Check if any item is out of stock (0)
+                        <?php if ($branchId !== 'all' && (!empty($low_stock) || !empty($low_stock_by_branch))):
                             $has_critical = false;
                             $has_out_of_stock = false;
-                            foreach ($low_stock as $ls) {
+                            $alertRowsForLink = ($branchId === 'all' && !empty($low_stock_by_branch)) ? array_merge(...array_map(static fn($b) => $b['rows'] ?? [], $low_stock_by_branch)) : $low_stock;
+                            foreach ($alertRowsForLink as $ls) {
                                 $sk = $ls['stock_status']['key'] ?? '';
                                 if ($sk === 'critical') $has_critical = true;
                                 if ($sk === 'out') $has_out_of_stock = true;
@@ -1256,7 +1400,50 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <a href="<?php echo pf_admin_url('inv_items_management.php', ['stock_status' => $stock_filter]); ?>" style="font-size:13px; font-weight:600; color:#0d9488; text-decoration:none;">See all &rarr;</a>
                         <?php endif; ?>
                     </div>
-                    <?php if (!empty($low_stock)): ?>
+                    <?php if ($branchId === 'all' && !empty($low_stock_by_branch)): ?>
+                    <div class="dash-branch-chart-grid dash-inventory-branch-grid">
+                        <?php foreach ($low_stock_by_branch as $stockBranch): ?>
+                            <?php
+                                $stockBranchRows = $stockBranch['rows'] ?? [];
+                                $stockBranchFilter = 'low';
+                                foreach ($stockBranchRows as $lsLink) {
+                                    $sk = $lsLink['stock_status']['key'] ?? '';
+                                    if ($sk === 'out') { $stockBranchFilter = 'out'; break; }
+                                    if ($sk === 'critical') { $stockBranchFilter = 'critical'; }
+                                }
+                            ?>
+                            <div class="dash-branch-chart-card dash-inventory-branch-card">
+                                <div class="dash-branch-title-row"><div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($stockBranch['branch_name'] ?? 'Branch')); ?></div><a class="dash-branch-see-all" href="<?php echo pf_admin_url('inv_items_management.php', ['branch_id' => (int)($stockBranch['branch_id'] ?? 0), 'stock_status' => $stockBranchFilter]); ?>">See all &rarr;</a></div>
+                                <?php if (empty($stockBranchRows)): ?>
+                                    <div class="dash-empty-state dash-empty-state--compact">No inventory alerts for this branch.</div>
+                                <?php endif; ?>
+                                <?php foreach ($stockBranchRows as $ls): ?>
+                                    <?php
+                                        $stock = (float)$ls['current_stock'];
+                                        $limit = (float)$ls['low_limit'];
+                                        $pct = $limit > 0 ? ($stock / $limit) * 100 : 0;
+                                        $st = $ls['stock_status'] ?? printflow_resolve_stock_status($stock, $limit, printflow_item_critical_level($ls));
+                                        $barClass = $st['key'] === 'out' ? 'danger' : ($st['key'] === 'critical' ? 'warning' : ($st['key'] === 'low' ? 'warning' : 'good'));
+                                        $statusText = strtoupper($st['label']);
+                                        $statusColor = $st['text_color'];
+                                        $stockColor = $st['text_color'];
+                                    ?>
+                                    <div class="inventory-alert-row">
+                                        <div class="inventory-alert-main">
+                                            <div class="inventory-alert-name" title="<?php echo htmlspecialchars($ls['material_name']); ?>"><?php echo htmlspecialchars($ls['material_name']); ?></div>
+                                            <div class="inventory-alert-sub"><?php echo htmlspecialchars($ls['category_name'] ?: 'General'); ?></div>
+                                        </div>
+                                        <div class="inventory-alert-stock" style="color:<?php echo $stockColor; ?>;"><?php echo number_format($stock, 1); ?> <small><?php echo htmlspecialchars($ls['unit']); ?></small></div>
+                                        <div class="inventory-alert-status">
+                                            <div class="stock-bar"><div class="stock-bar-fill <?php echo $barClass; ?>" style="width:<?php echo min(100, max($pct, 10)); ?>%;"></div></div>
+                                            <span style="color:<?php echo $statusColor; ?>;"><?php echo $statusText; ?></span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php elseif (!empty($low_stock)): ?>
                     <table class="mini-table">
                         <thead><tr><th>Material</th><th>Stock</th><th>Status</th></tr></thead>
                         <tbody>
@@ -1291,14 +1478,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         </tbody>
                     </table>
                     <?php else: ?>
-                    <div style="text-align:center; color:#059669; padding:40px 0; font-size:13px;">
-                        <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin:0 auto 6px; display:block;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        All stock levels are healthy!
-                    </div>
+                    <div class="dash-empty-state dash-empty-state--compact">No inventory alerts for this filter.</div>
                     <?php endif; ?>
                 </div>
             </div>
-
             <!-- Category Sales + Top Performers -->
             <div class="dash-grid">
                 <!-- Sales by Product -->
@@ -1307,76 +1490,29 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
                         Sales by Product
                     </div>
-                    <?php if (!empty($category_sales)): ?>
-                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
-                    <div id="category-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
+                    <?php if (!empty($category_sales) || !empty($dashboard_branch_chart_payload['products'])): ?>
+                    <div id="dash-product-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map($dashboard_chart_value, $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
+                    <div id="category-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-product-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No official product sales data yet</div>
                     <?php endif; ?>
                 </div>
 
-                <!-- Top Products -->
+                <!-- Sales by Service Category -->
                 <div class="dash-card">
                     <div class="dash-card-title">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-                        Top Products
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4-4 4 4 4-8 4 8"/></svg>
+                        Sales by Service Category
                     </div>
-
-                    <div>
-                        <?php if (!empty($top_products)): ?>
-                        <table class="mini-table">
-                            <thead><tr><th>#</th><th>Product</th><th>Qty Sold</th><th style="text-align:right;">Revenue</th></tr></thead>
-                            <tbody>
-                                <?php foreach ($top_products as $i => $tp): ?>
-                                <tr>
-                                    <td style="font-weight:700; color:#9ca3af;"><?php echo $i + 1; ?></td>
-                                    <td style="font-weight:600;" title="<?php echo htmlspecialchars($tp['product_name']); ?>">
-                                        <?php echo mb_strlen($tp['product_name']) > 25 ? htmlspecialchars(mb_substr($tp['product_name'], 0, 25)) . '...' : htmlspecialchars($tp['product_name']); ?>
-                                        <div style="font-size:10px; color:#9ca3af;"><?php echo htmlspecialchars($tp['sku'] ?? ''); ?></div>
-                                    </td>
-                                    <td><?php echo (int)$tp['qty_sold']; ?></td>
-                                    <td style="text-align:right; font-weight:700; color:#059669;">₱<?php echo number_format((float)$tp['revenue'], 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                        <?php else: ?>
-                        <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product sales data yet</div>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- Customers Tab -->
-                    <?php if (false): ?>
-                    <div x-show="tab === 'customers'" style="display: none;">
-                        <?php if (!empty($top_customers)): ?>
-                        <table class="mini-table">
-                            <thead><tr><th>#</th><th>Customer</th><th>Orders</th><th style="text-align:right;">Spent</th></tr></thead>
-                            <tbody>
-                                <?php foreach ($top_customers as $i => $tc): ?>
-                                <tr>
-                                    <td style="font-weight:700; color:#9ca3af;"><?php echo $i + 1; ?></td>
-                                    <td style="font-weight:600;"><?php echo htmlspecialchars($tc['name']); ?></td>
-                                    <td><?php echo $tc['orders']; ?></td>
-                                    <td style="text-align:right; font-weight:700; color:#059669;">₱<?php echo number_format((float)$tc['spent'], 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                        <?php else: ?>
-                        <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No customer data yet</div>
-                        <?php endif; ?>
-                    </div>
+                    <?php if (!empty($service_category_sales) || !empty($dashboard_branch_chart_payload['services'])): ?>
+                    <div id="dash-service-category-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-service-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Customization', $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-category-totals="<?php echo htmlspecialchars(json_encode(array_map($dashboard_chart_value, $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="serviceCategoryChart"></canvas></div>
+                    <div id="service-category-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-service-category-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
+                    <?php else: ?>
+                    <div class="dash-empty-state">No service category data for this filter.</div>
                     <?php endif; ?>
                 </div>
-            </div>
-
-            <!-- Sales Trend (Full Width) -->
-            <div class="dash-card dash-full" style="margin-bottom:28px;">
-                <div class="dash-card-title">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
-                    Sales Trend
-                </div>
-                <div class="trend12-chart" data-trend-labels="<?php echo htmlspecialchars(json_encode($trend12_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-trend-revenues="<?php echo htmlspecialchars(json_encode($trend12_revenues_branch, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div class="pf-wide-chart-canvas"><canvas id="trend12Chart"></canvas></div></div>
             </div>
 
             <!-- Recent Orders (Full Width) -->
@@ -1558,10 +1694,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             try { window.__pfDashCategoryChart.destroy(); } catch (e) {}
             window.__pfDashCategoryChart = null;
         }
-        if (window.__pfDashTrendChart) {
-            try { window.__pfDashTrendChart.destroy(); } catch (e) {}
-            window.__pfDashTrendChart = null;
+        if (window.__pfDashServiceCategoryChart) {
+            try { window.__pfDashServiceCategoryChart.destroy(); } catch (e) {}
+            window.__pfDashServiceCategoryChart = null;
         }
+        ['__pfDashBranchProductCharts', '__pfDashBranchStatusCharts', '__pfDashBranchServiceCharts', '__pfDashBranchServiceCategoryCharts'].forEach(function (key) {
+            if (!window[key] || !window[key].length) return;
+            window[key].forEach(function (chart) {
+                try { chart.destroy(); } catch (e) {}
+            });
+            window[key] = [];
+        });
 
     };
     window.printflowInitDashboardCharts = function () {
@@ -1576,6 +1719,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         dashCtrl = new AbortController();
         var sig = { signal: dashCtrl.signal };
         var DASH_BRANCH_ID = <?php echo $branchId !== 'all' ? (int)$branchId : 'null'; ?>;
+        function pfDashReadBranchCharts() {
+            var dataEl = document.getElementById('pf-dashboard-branch-chart-data');
+            if (!dataEl) return { products: [], services: [], statuses: [], locations: [] };
+            try {
+                var parsed = JSON.parse(dataEl.textContent || '{}');
+                return parsed && typeof parsed === 'object' ? parsed : { products: [], services: [], statuses: [], locations: [] };
+            } catch (e) {
+                return { products: [], services: [], statuses: [], locations: [] };
+            }
+        }
+        var DASH_BRANCH_CHARTS = pfDashReadBranchCharts();
 
         var dashAnimLong = 1750;
         var dashAnimShort = 680;
@@ -1591,6 +1745,119 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             if (v >= 1000000) return peso + (v / 1000000).toFixed(v >= 10000000 ? 0 : 1) + 'M';
             if (v >= 1000) return peso + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'K';
             return peso + v.toLocaleString();
+        }
+
+        function dashEscapeHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>'"]/g, function (ch) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[ch];
+            });
+        }
+
+        function dashLegendHtml(rows, colors) {
+            return rows.map(function (row, index) {
+                var color = colors[index % colors.length];
+                return '<div style="display:flex; align-items:center; gap:6px; min-width:0;">' +
+                    '<span style="width:10px; height:10px; border-radius:50%; background:' + color + '; flex:0 0 10px;"></span>' +
+                    '<span style="font-weight:600; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + dashEscapeHtml(row.label) + '">' + dashEscapeHtml(row.label) + '</span>' +
+                    '</div>';
+            }).join('');
+        }
+
+        function dashNoDataLabel(kind) {
+            if (kind === 'products') return 'No product sales';
+            if (kind === 'services') return 'No service sales';
+            if (kind === 'statuses') return 'No orders';
+            return 'No data';
+        }
+        function dashSetBranchChartMode(gridId, singleWrapId, singleLegendId, enabled) {
+            var grid = document.getElementById(gridId);
+            var singleWrap = document.getElementById(singleWrapId);
+            var singleLegend = singleLegendId ? document.getElementById(singleLegendId) : null;
+            if (grid) grid.classList.toggle('is-hidden', !enabled);
+            if (singleWrap) singleWrap.classList.toggle('is-hidden', enabled);
+            if (singleLegend) singleLegend.classList.toggle('is-hidden', enabled);
+            return grid;
+        }
+
+        function dashRenderBranchDoughnuts(kind, gridId, singleWrapId, singleLegendId, storeKey, mountHeight) {
+            var branches = (DASH_BRANCH_CHARTS && DASH_BRANCH_CHARTS[kind]) || [];
+            if (DASH_BRANCH_ID !== null || !branches.length) return false;
+            var grid = dashSetBranchChartMode(gridId, singleWrapId, singleLegendId, true);
+            if (!grid) return false;
+            var colors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
+            grid.innerHTML = '';
+            window[storeKey] = [];
+            branches.forEach(function (branch, branchIndex) {
+                var rows = (branch.rows || []).filter(function (row) { return Number(row.value || 0) > 0; });
+                var hasData = rows.length > 0;
+                if (!hasData) rows = [{ label: dashNoDataLabel(kind), value: 1 }];
+                var chartColors = hasData ? colors : ['#e5e7eb'];
+                var card = document.createElement('div');
+                card.className = 'dash-branch-chart-card';
+                var canvasId = gridId + '-canvas-' + branchIndex;
+                card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div>' +
+                    '<div class="dash-branch-chart-mount" style="height:' + (mountHeight || 150) + 'px;"><canvas id="' + canvasId + '"></canvas></div>' +
+                    '<div class="dash-branch-chart-legend">' + dashLegendHtml(rows, chartColors) + '</div>';
+                grid.appendChild(card);
+                var cv = document.getElementById(canvasId);
+                if (!cv) return;
+                var chart = new Chart(cv.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: rows.map(function (row) { return row.label; }),
+                        datasets: [{
+                            data: rows.map(function (row) { return Number(row.value) || 0; }),
+                            backgroundColor: rows.map(function (_, i) { return chartColors[i % chartColors.length]; }),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        animation: doughnutAnim,
+                        plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8, enabled: hasData } }
+                    }
+                });
+                window[storeKey].push(chart);
+            });
+            return true;
+        }
+        function dashRenderBranchServiceBars() {
+            var branches = (DASH_BRANCH_CHARTS && DASH_BRANCH_CHARTS.services) || [];
+            if (DASH_BRANCH_ID !== null || !branches.length || typeof ApexCharts === 'undefined') return false;
+            var grid = dashSetBranchChartMode('dash-service-branch-charts', 'dash-service-single-chart', null, true);
+            if (!grid) return false;
+            grid.innerHTML = '';
+            window.__pfDashBranchServiceCharts = [];
+            branches.forEach(function (branch, branchIndex) {
+                var rows = (branch.rows || []).filter(function (row) { return Number(row.value || 0) > 0; }).slice(0, 8);
+                var card = document.createElement('div');
+                card.className = 'dash-branch-chart-card';
+                var mountId = 'dash-service-branch-chart-' + branchIndex;
+                if (!rows.length) {
+                    card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div><div class="dash-empty-state dash-empty-state--compact">No service sales for this branch.</div>';
+                    grid.appendChild(card);
+                    return;
+                }
+                card.innerHTML = '<div class="dash-branch-chart-title">' + dashEscapeHtml(branch.branch_name || 'Branch') + '</div>' +
+                    '<div class="dash-branch-chart-mount" style="height:190px; max-width:100%;"><div id="' + mountId + '"></div></div>';
+                grid.appendChild(card);
+                var chart = new ApexCharts(document.getElementById(mountId), {
+                    chart: { type: 'bar', height: 190, toolbar: { show: false } },
+                    series: [{ name: 'Sales (PHP)', data: rows.map(function (row) { return Number(row.value) || 0; }) }],
+                    xaxis: { categories: rows.map(function (row) { return String(row.label || '').slice(0, 20); }), labels: { style: { fontSize: '10px' } } },
+                    yaxis: { labels: { maxWidth: 118, style: { fontSize: '10px' } } },
+                    colors: ['#00232b'],
+                    plotOptions: { bar: { horizontal: true, borderRadius: 5, barHeight: '58%' } },
+                    dataLabels: { enabled: false },
+                    grid: { borderColor: '#f3f4f6', padding: { left: 0, right: 4 } },
+                    tooltip: { theme: 'dark' }
+                });
+                chart.render();
+                window.__pfDashBranchServiceCharts.push(chart);
+            });
+            return true;
         }
 
         function bindWhenVisible(target, onFirst) {
@@ -1819,6 +2086,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
 
         // Order Status Chart - Dynamic (reloads with branch changes)
         (function () {
+            if (dashRenderBranchDoughnuts('statuses', 'dash-status-branch-charts', 'dash-status-single-chart', 'status-legend', '__pfDashBranchStatusCharts', 135)) return;
             var statusChartCanvas = document.getElementById('statusChart');
             var w = statusChartCanvas ? statusChartCanvas.parentElement : null;
             bindWhenVisible(w, function () {
@@ -1897,6 +2165,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         }
 
         (function () {
+            if (dashRenderBranchDoughnuts('products', 'dash-product-branch-charts', 'dash-product-single-chart', 'category-legend', '__pfDashBranchProductCharts', 150)) return;
             var cv = document.getElementById('categoryChart');
             var w = cv ? cv.parentElement : null;
             if (!cv || !w) return;
@@ -1940,14 +2209,58 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             });
         })();
 
+        (function () {
+            if (dashRenderBranchDoughnuts('services', 'dash-service-category-branch-charts', 'dash-service-category-single-chart', 'service-category-legend', '__pfDashBranchServiceCategoryCharts', 150)) return;
+            var cv = document.getElementById('serviceCategoryChart');
+            var w = cv ? cv.parentElement : null;
+            if (!cv || !w) return;
+            var svcColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
+            var svcLabels = pfDashParseJsonAttr(w, 'data-service-category-labels', []);
+            var svcTotals = pfDashParseJsonAttr(w, 'data-service-category-totals', []);
+            svcLabels = svcLabels.filter(function (_, i) { return Number(svcTotals[i] || 0) > 0; });
+            svcTotals = svcTotals.filter(function (value) { return Number(value || 0) > 0; });
+            if (!svcLabels.length || !svcTotals.length) return;
+            bindWhenVisible(w, function () {
+                window.__pfDashServiceCategoryChart = new Chart(cv.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: svcLabels,
+                        datasets: [{
+                            data: svcTotals,
+                            backgroundColor: svcColors.slice(0, svcLabels.length),
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '70%',
+                        animation: doughnutAnim,
+                        plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } }
+                    }
+                });
+                var legendContainer = document.getElementById('service-category-legend');
+                if (legendContainer) {
+                    var rows = svcLabels.map(function (label, i) { return { label: label, value: svcTotals[i] }; });
+                    legendContainer.innerHTML = dashLegendHtml(rows, svcColors);
+                }
+            });
+        })();
         (function attachDashboardChartLayout() {
             var mainEl = document.querySelector('.main-content');
             function runDashResize() {
-                ['__pfDashSalesChart', '__pfDashStatusChart', '__pfDashCategoryChart', '__pfDashTrendChart'].forEach(function (k) {
+                ['__pfDashSalesChart', '__pfDashStatusChart', '__pfDashCategoryChart', '__pfDashServiceCategoryChart'].forEach(function (k) {
                     var c = window[k];
                     if (c && typeof c.resize === 'function') {
                         try { c.resize(); } catch (e) {}
                     }
+                });
+                ['__pfDashBranchProductCharts', '__pfDashBranchStatusCharts', '__pfDashBranchServiceCategoryCharts'].forEach(function (k) {
+                    (window[k] || []).forEach(function (c) {
+                        if (c && typeof c.resize === 'function') {
+                            try { c.resize(); } catch (e) {}
+                        }
+                    });
                 });
             }
             function debouncedDashResize() {
@@ -1967,95 +2280,10 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             }
         })();
 
-        // Sales trend chart (reads labels/revenue from DOM so AJAX filter refresh stays in sync)
-        (function () {
-            var cv = document.getElementById('trend12Chart');
-            var trendWrap = cv ? cv.closest('.trend12-chart') : null;
-            if (!cv || !trendWrap) return;
-            var trendLabels = pfDashParseJsonAttr(trendWrap, 'data-trend-labels', []);
-            var trendRevenues = pfDashParseJsonAttr(trendWrap, 'data-trend-revenues', []);
-            if (!trendLabels.length || !trendRevenues.length) return;
-            bindWhenVisible(trendWrap, function () {
-                if (window.__pfDashTrendChart) {
-                    try { window.__pfDashTrendChart.destroy(); } catch (e) {}
-                }
-                window.__pfDashTrendChart = new Chart(cv.getContext('2d'), {
-                    type: 'line',
-                    data: {
-                        labels: trendLabels,
-                        datasets: [{
-                            label: 'Branch revenue (₱)',
-                            data: trendRevenues,
-                            borderColor: '#00232b',
-                            backgroundColor: 'rgba(0,35,43,.08)',
-                            borderWidth: 2.5,
-                            fill: true,
-                            tension: 0.35,
-                            yAxisID: 'y'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        layout: { padding: isDashMobile() ? { top: 8, right: 4, bottom: 0, left: 0 } : { top: 6, right: 8, bottom: 0, left: 4 } },
-                        animation: { duration: 1500 },
-                        plugins: {
-                            legend: {
-                                display: true,
-                                position: isDashMobile() ? 'bottom' : 'top',
-                                labels: {
-                                    boxWidth: isDashMobile() ? 8 : 12,
-                                    usePointStyle: true,
-                                    padding: isDashMobile() ? 12 : 16,
-                                    font: { size: isDashMobile() ? 10 : 11, weight: 600 }
-                                }
-                            },
-                            tooltip: { animation: { duration: 180 }, padding: 10, cornerRadius: 8 }
-                        },
-                        scales: {
-                            y: { beginAtZero: true, ticks: { font: { size: isDashMobile() ? 10 : 11 }, maxTicksLimit: isDashMobile() ? 5 : 7, callback: dashMoneyTick }, grid: { color: '#f3f4f6' } },
-                            x: { ticks: { font: { size: isDashMobile() ? 9 : 10 }, maxRotation: isDashMobile() ? 0 : 45, autoSkip: true, maxTicksLimit: isDashMobile() ? 5 : 10 }, grid: { display: false } }
-                        }
-                    }
-                });
-            });
-        })();
-
-        // Revenue Donut Chart
-        <?php if (!empty($rev_donut)): ?>
-        (function () {
-            var cv = document.getElementById('revenueDonutChart');
-            if (!cv) return;
-            var colors = <?php echo json_encode($donut_palette); ?>;
-            bindWhenVisible(cv.parentElement, function () {
-                new Chart(cv.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: <?php echo json_encode(array_map(fn($r) => $r['product_name'], $rev_donut)); ?>,
-                        datasets: [{
-                            data: <?php echo json_encode(array_map(fn($r) => (float)$r['revenue'], $rev_donut)); ?>,
-                            backgroundColor: colors,
-                            borderWidth: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '70%',
-                        animation: { animateRotate: true, animateScale: true, duration: 1500 },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: { animation: { duration: 160 }, cornerRadius: 8 }
-                        }
-                    }
-                });
-            });
-        })();
-        <?php endif; ?>
-
         // Best Selling Services (ApexCharts) — matches split category totals when available (same as donut)
-        <?php if (!empty($dashboard_sales_bar)): ?>
+        <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
         (function () {
+            if (dashRenderBranchServiceBars()) return;
             var el = document.getElementById('productsChart');
             if (!el || typeof ApexCharts === 'undefined') return;
             bindWhenVisible(el.parentElement, function () {

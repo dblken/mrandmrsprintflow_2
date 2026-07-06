@@ -101,10 +101,25 @@ window.printflowTeardownReportsCharts = function () {
         try { window.__pfReportsProductCategoryChart.destroy(); } catch (e) {}
         window.__pfReportsProductCategoryChart = null;
     }
+    (window.__pfReportsProductBranchCharts || []).forEach(function (ch) {
+        try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+    });
+    window.__pfReportsProductBranchCharts = [];    (window.__pfReportsServiceBranchCharts || []).forEach(function (ch) {
+        try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+    });
+    window.__pfReportsServiceBranchCharts = [];
     if (window.__pfReportsServiceCategoryChart) {
         try { window.__pfReportsServiceCategoryChart.destroy(); } catch (e) {}
         window.__pfReportsServiceCategoryChart = null;
     }
+    (window.__pfReportsTopServiceBranchCharts || []).forEach(function (ch) {
+        try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+    });
+    window.__pfReportsTopServiceBranchCharts = [];
+    (window.__pfReportsRevenueBranchCharts || []).forEach(function (ch) {
+        try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+    });
+    window.__pfReportsRevenueBranchCharts = [];
     window.__pfReportsChartQueue = [];
     document.querySelectorAll('.ch-box[data-pf-chart-revealed]').forEach(function (b) {
         b.removeAttribute('data-pf-chart-revealed');
@@ -1609,6 +1624,96 @@ window.printflowInitReportsCharts = function () {
             const productsMount = document.getElementById('ch-products');
             if (!productsMount) return;
 
+            const branchTopServices = Array.isArray(rData.topServicesByBranch) ? rData.topServicesByBranch.filter(function (branch) {
+                return branch && Number(branch.branch_id || 0) > 0;
+            }) : [];
+            const branchMount = document.getElementById('pf-top-services-branch-charts');
+            const productsSingleWrap = document.getElementById('pf-ch-products-wrapper');
+            const aggregateLegend = document.getElementById('pf-top-services-legend');
+            if (branchMount && branchTopServices.length > 0) {
+                branchMount.classList.remove('hidden');
+                if (productsSingleWrap) productsSingleWrap.classList.add('hidden');
+                if (aggregateLegend) aggregateLegend.classList.add('hidden');
+                branchMount.innerHTML = '';
+                (window.__pfReportsTopServiceBranchCharts || []).forEach(function (ch) {
+                    try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+                });
+                window.__pfReportsTopServiceBranchCharts = [];
+                const branchBarColors = ['#00232b', '#0F4C5C', '#3A86A8', '#2B6CB0', '#276749', '#2C5282', '#234E52', '#1A365D'];
+                branchTopServices.forEach(function (branch, branchIndex) {
+                    var chartId = 'pf-top-services-branch-chart-' + branchIndex;
+                    var chartMount = pfReportsCreateBranchChartCard(
+                        branchMount,
+                        branch.branch_name || ('Branch ' + (branchIndex + 1)),
+                        chartId,
+                        'reports-branch-chart-mount reports-branch-chart-mount--bar',
+                        null
+                    );
+                    var rows = Array.isArray(branch.rows) ? branch.rows.slice(0, 8) : [];
+                    if (rows.length === 0) {
+                        pfReportsRenderBranchEmpty(chartMount, 'No service sales');
+                        return;
+                    }
+                    var qtys = rows.map(function (p) { return Number(p.qty || 0); });
+                    var revenues = rows.map(function (p) { return Number(p.revenue || 0); });
+                    var names = rows.map(function (p) { return String(p.name || 'Unnamed service'); });
+                    var maxQty = Math.max.apply(Math, qtys.concat([1]));
+                    var xMax = Math.ceil(maxQty * 1.05);
+                    var branchTopQty = qtys[0] || 1;
+                    var branchPercents = qtys.map(function (qty) { return Math.round(((qty || 0) / branchTopQty) * 100); });
+                    var branchList = document.createElement('ul');
+                    branchList.className = 'pf-top-services-legend reports-branch-service-list';
+                    branchList.setAttribute('aria-label', 'Best selling services list for ' + (branch.branch_name || ('Branch ' + (branchIndex + 1))));
+                    names.forEach(function (name, i) {
+                        var li = document.createElement('li');
+                        var swatch = document.createElement('span');
+                        swatch.className = 'pf-top-services-swatch';
+                        swatch.style.backgroundColor = branchBarColors[i % branchBarColors.length] || '#94a3b8';
+                        var body = document.createElement('div');
+                        var title = document.createElement('div');
+                        title.className = 'pf-top-services-name';
+                        title.textContent = name || 'Unnamed service';
+                        var meta = document.createElement('div');
+                        meta.className = 'pf-top-services-meta';
+                        meta.textContent = (qtys[i] || 0).toLocaleString() + ' units - ' + (branchPercents[i] || 0) + '%';
+                        body.appendChild(title);
+                        body.appendChild(meta);
+                        li.appendChild(swatch);
+                        li.appendChild(body);
+                        branchList.appendChild(li);
+                    });
+                    if (chartMount.parentElement) {
+                        chartMount.parentElement.appendChild(branchList);
+                    }
+                    var seriesData = qtys.map(function (qty, i) {
+                        return { x: String(i + 1), y: qty || 0, fillColor: branchBarColors[i % branchBarColors.length] };
+                    });
+                    pfPushApexChart(chartMount, {
+                        chart:{ ...PF_OPT, id:'pf-top-services-branch-bar-' + branchIndex, redrawOnParentResize:true, type:'bar', height:150 },
+                        plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'62%', distributed:true } },
+                        series:[{name:'Units Sold', data:seriesData}],
+                        xaxis:{ min:0, max:xMax, tickAmount:4, labels:{ style:{fontSize:'10px', fontWeight:600, colors:'#64748b'}, formatter:v => Number(v || 0).toLocaleString() } },
+                        yaxis:{ labels:{ show:false } },
+                        colors:branchBarColors,
+                        legend:{show:false},
+                        dataLabels:{enabled:false},
+                        tooltip:{ theme:'dark', custom:function (ctx) {
+                            var i = ctx.dataPointIndex; if (i < 0) return '';
+                            return '<div style="padding:10px;min-width:190px;"><div style="font-weight:700;color:#f1f5f9;margin-bottom:6px;">' + pfEscHtml(names[i]) + '</div><div style="font-size:12px;color:#cbd5e1;">' + (qtys[i] || 0).toLocaleString() + ' units</div><div style="font-size:12px;color:#86efac;">\u20b1' + Math.round(revenues[i] || 0).toLocaleString() + '</div></div>';
+                        }},
+                        grid:{ borderColor:'#f1f5f9', strokeDashArray:3, xaxis:{lines:{show:true}}, yaxis:{lines:{show:false}} }
+                    });
+
+                });
+                return;
+            }
+            if (branchMount) {
+                branchMount.classList.add('hidden');
+                branchMount.innerHTML = '';
+            }
+            if (productsSingleWrap) productsSingleWrap.classList.remove('hidden');
+            if (aggregateLegend) aggregateLegend.classList.remove('hidden');
+
             if (top_products.length === 0) {
                 const card = productsMount.closest('.ana-card');
                 if (card) card.classList.add('hidden');
@@ -1633,14 +1738,37 @@ window.printflowInitReportsCharts = function () {
             });
             
             const barColors = ['#00232b', '#0F4C5C', '#3A86A8', '#2B6CB0', '#276749', '#2C5282', '#234E52', '#1A365D'];
-            const productSeriesData = displayQtys.map((qty, i) => ({ x: '', y: qty || 0, fillColor: barColors[i] || '#94a3b8' }));
-            
+            const productSeriesData = displayQtys.map((qty, i) => ({ x: String(i + 1), y: qty || 0, fillColor: barColors[i] || '#94a3b8' }));
+            const legendMount = document.getElementById('pf-top-services-legend');
+            if (legendMount) {
+                legendMount.innerHTML = '';
+                displayNames.forEach(function(name, i) {
+                    var q = Number(displayQtys[i] || 0);
+                    var pct = Number(percentages[i] || 0);
+                    var li = document.createElement('li');
+                    var swatch = document.createElement('span');
+                    swatch.className = 'pf-top-services-swatch';
+                    swatch.style.backgroundColor = barColors[i] || '#94a3b8';
+                    var body = document.createElement('div');
+                    var title = document.createElement('div');
+                    title.className = 'pf-top-services-name';
+                    title.textContent = name || 'Unnamed service';
+                    var meta = document.createElement('div');
+                    meta.className = 'pf-top-services-meta';
+                    meta.textContent = q.toLocaleString() + ' units - ' + pct + '%';
+                    body.appendChild(title);
+                    body.appendChild(meta);
+                    li.appendChild(swatch);
+                    li.appendChild(body);
+                    legendMount.appendChild(li);
+                });
+            }
             var productsWrap = productsMount.closest('.ch-box');
-            var productsWrapH = productsWrap ? Math.max(360, Math.round(productsWrap.getBoundingClientRect().height || productsWrap.clientHeight || 0)) : 420;
+            var productsWrapH = 240;
             
             pfPushApexChart(productsMount, {
                 chart:{ ...PF_OPT, id:'pf-ch-products-bar', redrawOnParentResize:true, type:'bar', height: productsWrapH },
-                plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'70%', distributed:true, dataLabels:{ position:'center' } } },
+                plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'66%', distributed:true, dataLabels:{ position:'top' } } },
                 series:[{name:'Units Sold', data:productSeriesData}],
                 xaxis:{
                     min: 0, max: xMax, tickAmount: 5,
@@ -1650,15 +1778,7 @@ window.printflowInitReportsCharts = function () {
                 },
                 yaxis:{ labels:{ show: false } },
                 colors: barColors, legend:{show:false},
-                dataLabels:{
-                    enabled:true, offsetX: 0, textAnchor: 'middle', distributed: false,
-                    style:{ fontSize:'12px', colors:['#ffffff'], fontWeight: 700 },
-                    dropShadow: { enabled: true, top: 1, left: 1, blur: 3, color: '#000', opacity: 0.45 },
-                    formatter:(v, opts) => {
-                        var i = opts.dataPointIndex, q = Number(v || 0), pct = percentages[i], name = shortNames[i] || '';
-                        return i < 3 ? (name + ' \u2022 ' + q.toLocaleString() + ' (' + pct + '%)') : (name + ' \u2022 ' + q.toLocaleString());
-                    }
-                },
+                dataLabels:{ enabled:false },
                 tooltip:{
                     theme:'dark', custom:function (ctx) {
                         var i = ctx.dataPointIndex; if (i < 0) return '';
@@ -1685,6 +1805,30 @@ window.printflowInitReportsCharts = function () {
         } catch(e) { console.error('TopServices error:', e); }
     })();
 
+    function pfReportsCreateBranchChartCard(mount, titleText, mountId, mountClass, legendId) {
+        var card = document.createElement('div');
+        card.className = 'reports-branch-chart-card';
+        var title = document.createElement('div');
+        title.className = 'reports-branch-chart-title';
+        title.textContent = titleText;
+        var chartMount = document.createElement('div');
+        chartMount.id = mountId;
+        chartMount.className = mountClass || 'reports-branch-chart-mount';
+        card.appendChild(title);
+        card.appendChild(chartMount);
+        if (legendId) {
+            var legend = document.createElement('div');
+            legend.id = legendId;
+            legend.className = 'reports-branch-chart-legend';
+            card.appendChild(legend);
+        }
+        mount.appendChild(card);
+        return chartMount;
+    }
+
+    function pfReportsRenderBranchEmpty(mount, text) {
+        mount.innerHTML = '<div class="ch-empty" style="min-height:180px;font-size:12px;">' + pfEscHtml(text || 'No data') + '</div>';
+    }
     // ── REVENUE DISTRIBUTION DONUT (Independent - All-Time) ──
     (function initRevenueDonutChart(){
         try {
@@ -1692,6 +1836,67 @@ window.printflowInitReportsCharts = function () {
             const revData = rData.revenueDonut || [];
             const mount = document.getElementById('ch-donut');
             if (!mount) return;
+
+            const branchRevData = Array.isArray(rData.revenueDonutByBranch) ? rData.revenueDonutByBranch.filter(function (branch) {
+                return branch && Number(branch.branch_id || 0) > 0;
+            }) : [];
+            const branchMount = document.getElementById('pf-rev-donut-branch-charts');
+            const aggregateWrap = document.getElementById('pf-rev-donut-wrapper');
+            if (branchMount && branchRevData.length > 0) {
+                branchMount.classList.remove('hidden');
+                if (aggregateWrap) aggregateWrap.classList.add('hidden');
+                branchMount.innerHTML = '';
+                branchRevData.forEach(function (branch, branchIndex) {
+                    var chartId = 'pf-rev-donut-branch-chart-' + branchIndex;
+                    var legendId = 'pf-rev-donut-branch-legend-' + branchIndex;
+                    var chartMount = pfReportsCreateBranchChartCard(
+                        branchMount,
+                        branch.branch_name || ('Branch ' + (branchIndex + 1)),
+                        chartId,
+                        'reports-branch-chart-mount',
+                        legendId
+                    );
+                    var rows = Array.isArray(branch.rows) ? branch.rows.filter(function (r) { return Number(r.revenue || 0) > 0; }) : [];
+                    if (rows.length === 0) {
+                        pfReportsRenderBranchEmpty(chartMount, 'No revenue');
+                        var emptyLegend = document.getElementById(legendId);
+                        if (emptyLegend) emptyLegend.innerHTML = '';
+                        return;
+                    }
+                    var vals = rows.map(function (p) { return Number(p.revenue || 0); });
+                    var labels = rows.map(function (p) { return String(p.name || 'Service'); });
+                    var total = vals.reduce(function (a, b) { return a + b; }, 0);
+                    var legend = document.getElementById(legendId);
+                    if (legend) {
+                        legend.innerHTML = '';
+                        rows.forEach(function (rd, i) {
+                            var col = PF_PAL[i % PF_PAL.length];
+                            var amt = Number(rd.revenue || 0);
+                            var pct = total > 0 ? ((amt / total) * 100).toFixed(1) : '0';
+                            var item = document.createElement('div');
+                            item.style.cssText = 'display:inline-flex;align-items:flex-start;gap:6px;';
+                            item.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:' + col + ';"></span><span style="font-weight:600;color:#374151;">' + pfEscHtml(rd.name || 'Service') + ' - ' + pct + '%</span>';
+                            legend.appendChild(item);
+                        });
+                    }
+                    pfPushApexChart(chartMount, {
+                        chart:{...PF_OPT, type:'donut', height:190},
+                        series:vals,
+                        labels:labels,
+                        colors:PF_PAL,
+                        plotOptions:{ pie:{ donut:{ size:'66%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Revenue', color:'#6B7C85', fontSize:'11px', fontWeight:600, formatter:function () { return '\u20b1' + Math.round(total).toLocaleString(); } } } } } },
+                        tooltip:{ theme:'dark', y:{ formatter:function (v) { var pct = total > 0 ? ((Number(v) / total) * 100).toFixed(1) : '0'; return '\u20b1' + Number(v).toLocaleString() + ' (' + pct + '%)'; } } },
+                        legend:{show:false},
+                        dataLabels:{enabled:false}
+                    });
+                });
+                return;
+            }
+            if (branchMount) {
+                branchMount.classList.add('hidden');
+                branchMount.innerHTML = '';
+            }
+            if (aggregateWrap) aggregateWrap.classList.remove('hidden');
 
             if (revData.length === 0) {
                 const card = mount.closest('.ana-card');
@@ -1794,13 +1999,64 @@ window.printflowInitReportsCharts = function () {
                 el.innerHTML = html;
             }
 
+            function renderBranchCategoryDonuts(config) {
+                var mount = document.getElementById(config.mountId);
+                var branchRows = Array.isArray(config.branches) ? config.branches.filter(function (branch) {
+                    return branch && Number(branch.branch_id || 0) > 0;
+                }) : [];
+                var singleWrap = document.getElementById(config.singleWrapId);
+                var singleLegend = document.getElementById(config.singleLegendId);
+                if (!mount || branchRows.length === 0) return false;
+                mount.classList.remove('hidden');
+                if (singleWrap) singleWrap.classList.add('hidden');
+                if (singleLegend) singleLegend.classList.add('hidden');
+                (window[config.collectionRef] || []).forEach(function (ch) {
+                    try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+                });
+                window[config.collectionRef] = [];
+                mount.innerHTML = '';
+                branchRows.forEach(function (branch, index) {
+                    var card = document.createElement('div');
+                    card.className = 'reports-product-branch-card';
+                    var title = document.createElement('div');
+                    title.className = 'reports-product-branch-title';
+                    title.textContent = branch.branch_name || ('Branch ' + (index + 1));
+                    var chartWrap = document.createElement('div');
+                    chartWrap.className = 'reports-product-branch-chart';
+                    var canvas = document.createElement('canvas');
+                    var canvasId = config.canvasPrefix + index;
+                    var legendId = config.legendPrefix + index;
+                    canvas.id = canvasId;
+                    canvas.setAttribute('aria-label', config.ariaPrefix + ' for ' + title.textContent);
+                    chartWrap.appendChild(canvas);
+                    var legend = document.createElement('div');
+                    legend.id = legendId;
+                    legend.className = 'reports-product-branch-legend';
+                    card.appendChild(title);
+                    card.appendChild(chartWrap);
+                    card.appendChild(legend);
+                    mount.appendChild(card);
+                    pfReportsMountCategoryChartWhenVisible(chartWrap, function () {
+                        var ref = config.chartRefPrefix + index;
+                        var rows = Array.isArray(branch.rows) ? branch.rows : [];
+                        var chartRows = rows.length > 0 ? rows : [{ category: config.emptyLabel, revenue: 1, items: 0, jobs: 0, empty: true }];
+                        buildDoughnut(canvasId, legendId, chartRows, ref, config.tooltipKind);
+                        if (window[ref]) window[config.collectionRef].push(window[ref]);
+                    });
+                });
+                return true;
+            }
             function buildDoughnut(canvasId, legendId, rows, chartRef, extraTooltip) {
                 destroyChart(chartRef);
                 var canvas = document.getElementById(canvasId);
                 if (!canvas || !rows || rows.length === 0) return;
                 var labels = rows.map(function (r) { return r.category || '\u2014'; });
-                var data = rows.map(function (r) { return Number(r.revenue) || 0; });
-                var colors = labels.map(function (_, i) { return catColors[i % catColors.length]; });
+                var rawData = rows.map(function (r) { return Number(r.revenue) || 0; });
+                var totalData = rawData.reduce(function (sum, value) { return sum + value; }, 0);
+                var isEmptyDonut = (rows.length === 1 && rows[0] && rows[0].empty) || totalData <= 0;
+                if (isEmptyDonut) labels = [(rows[0] && rows[0].empty && rows[0].category) ? rows[0].category : 'No sales'];
+                var data = isEmptyDonut ? [1] : rawData;
+                var colors = isEmptyDonut ? ['#E5E7EB'] : labels.map(function (_, i) { return catColors[i % catColors.length]; });
                 fillLegend(legendId, labels, colors);
 
                 window[chartRef] = new Chart(canvas.getContext('2d'), {
@@ -1825,6 +2081,7 @@ window.printflowInitReportsCharts = function () {
                                     label: function (ctx) {
                                         var v = Number(ctx.parsed) || 0;
                                         var row = rows[ctx.dataIndex] || {};
+                                        if (isEmptyDonut || row.empty) return ctx.label;
                                         var suffix = '';
                                         if (extraTooltip === 'items' && row.items != null) suffix = ' \u00b7 ' + row.items + ' items';
                                         if (extraTooltip === 'jobs' && row.jobs != null) suffix = ' \u00b7 ' + row.jobs + ' jobs';
@@ -1842,16 +2099,67 @@ window.printflowInitReportsCharts = function () {
                     }
                 });
             }
-
-            var pcCanvas = document.getElementById('reportsProductCategoryChart');
-            pfReportsMountCategoryChartWhenVisible(pcCanvas ? pcCanvas.parentElement : null, function () {
-                buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', rData.productCategorySales || [], '__pfReportsProductCategoryChart', 'items');
+            var productSingleWrap = document.getElementById('reports-product-single-chart');
+            var productSingleLegend = document.getElementById('reports-product-cat-legend');
+            var hasProductBranches = renderBranchCategoryDonuts({
+                mountId: 'reports-product-branch-charts',
+                branches: rData.productCategorySalesByBranch,
+                singleWrapId: 'reports-product-single-chart',
+                singleLegendId: 'reports-product-cat-legend',
+                collectionRef: '__pfReportsProductBranchCharts',
+                canvasPrefix: 'reportsProductCategoryBranchChart',
+                legendPrefix: 'reports-product-cat-branch-legend-',
+                chartRefPrefix: '__pfReportsProductBranchChart',
+                ariaPrefix: 'Sales by product',
+                emptyLabel: 'No product sales',
+                tooltipKind: 'items'
             });
+            if (!hasProductBranches) {
+                var productBranchMount = document.getElementById('reports-product-branch-charts');
+                if (productBranchMount) {
+                    productBranchMount.classList.add('hidden');
+                    productBranchMount.innerHTML = '';
+                }
+                if (productSingleWrap) productSingleWrap.classList.remove('hidden');
+                if (productSingleLegend) productSingleLegend.classList.remove('hidden');
+                var pcCanvas = document.getElementById('reportsProductCategoryChart');
+                pfReportsMountCategoryChartWhenVisible(pcCanvas ? pcCanvas.parentElement : null, function () {
+                    var singleProductRows = Array.isArray(rData.productCategorySales) ? rData.productCategorySales : [];
+                    var singleProductChartRows = singleProductRows.length > 0 ? singleProductRows : [{ category: 'No product sales', revenue: 1, items: 0, empty: true }];
+                    buildDoughnut('reportsProductCategoryChart', 'reports-product-cat-legend', singleProductChartRows, '__pfReportsProductCategoryChart', 'items');
+                });
+            }
 
-            var scCanvas = document.getElementById('reportsServiceCategoryChart');
-            pfReportsMountCategoryChartWhenVisible(scCanvas ? scCanvas.parentElement : null, function () {
-                buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', rData.serviceCategorySales || [], '__pfReportsServiceCategoryChart', 'jobs');
+            var serviceSingleWrap = document.getElementById('reports-service-single-chart');
+            var serviceSingleLegend = document.getElementById('reports-service-cat-legend');
+            var hasServiceBranches = renderBranchCategoryDonuts({
+                mountId: 'reports-service-branch-charts',
+                branches: rData.serviceCategorySalesByBranch,
+                singleWrapId: 'reports-service-single-chart',
+                singleLegendId: 'reports-service-cat-legend',
+                collectionRef: '__pfReportsServiceBranchCharts',
+                canvasPrefix: 'reportsServiceCategoryBranchChart',
+                legendPrefix: 'reports-service-cat-branch-legend-',
+                chartRefPrefix: '__pfReportsServiceBranchChart',
+                ariaPrefix: 'Sales by service category',
+                emptyLabel: 'No service category sales',
+                tooltipKind: 'jobs'
             });
+            if (!hasServiceBranches) {
+                var serviceBranchMount = document.getElementById('reports-service-branch-charts');
+                if (serviceBranchMount) {
+                    serviceBranchMount.classList.add('hidden');
+                    serviceBranchMount.innerHTML = '';
+                }
+                if (serviceSingleWrap) serviceSingleWrap.classList.remove('hidden');
+                if (serviceSingleLegend) serviceSingleLegend.classList.remove('hidden');
+                var scCanvas = document.getElementById('reportsServiceCategoryChart');
+                pfReportsMountCategoryChartWhenVisible(scCanvas ? scCanvas.parentElement : null, function () {
+                    var singleServiceRows = Array.isArray(rData.serviceCategorySales) ? rData.serviceCategorySales : [];
+                    var singleServiceChartRows = singleServiceRows.length > 0 ? singleServiceRows : [{ category: 'No service category sales', revenue: 1, jobs: 0, empty: true }];
+                    buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', singleServiceChartRows, '__pfReportsServiceCategoryChart', 'jobs');
+                });
+            }
         } catch (e) { console.error('ReportsCategoryDonuts error:', e); }
     })();
 
@@ -1871,19 +2179,56 @@ window.printflowInitReportsCharts = function () {
 
             // Use the same color palette as dashboard
             const statusColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
-            const labels = statusData.map(d => d.status);
-            const vals = statusData.map(d => parseInt(d.cnt) || 0);
-            const total = vals.reduce((a, b) => a + b, 0);
-            const colors = labels.map((_, i) => statusColors[i % statusColors.length]);
+            function statusOptions(rows, chartHeight) {
+                const labels = rows.map(d => d.status || 'Unknown');
+                const vals = rows.map(d => parseInt(d.cnt) || 0);
+                const total = vals.reduce((a, b) => a + b, 0);
+                const colors = labels.map((_, i) => statusColors[i % statusColors.length]);
+                return {
+                    chart:{...PF_OPT, type:'donut', height:chartHeight, animations:{enabled:true, easing:'easeinout', speed:600}},
+                    series:vals,
+                    labels:labels,
+                    colors:colors,
+                    plotOptions:{ pie:{ donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
+                    legend:{position:'bottom', horizontalAlign:'left', fontSize:'11px', fontWeight:600, itemMargin:{vertical:3, horizontal:8}},
+                    dataLabels:{enabled:false},
+                    tooltip:{ theme:'dark', fillSeriesColor:false, style:{fontSize:'12px'}, y:{ formatter:v => v + ' orders' } }
+                };
+            }
 
-            pfPushApexChart(mount, {
-                chart:{...PF_OPT, type:'donut', height:300, animations:{enabled:true, easing:'easeinout', speed:600}},
-                series:vals, labels:labels, colors:colors,
-                plotOptions:{ pie:{ donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
-                legend:{position:'bottom', fontSize:'11px', fontWeight:600, itemMargin:{vertical:4}},
-                dataLabels:{enabled:false},
-                tooltip:{ theme:'dark', fillSeriesColor:false, style:{fontSize:'12px'}, y:{ formatter:v => v + ' orders' } }
-            });
+            const branchStatusRows = Array.isArray(rData.orderStatusByBranch) ? rData.orderStatusByBranch.filter(function (branch) {
+                return branch && Number(branch.branch_id || 0) > 0;
+            }) : [];
+            const branchMount = document.getElementById('reports-status-branch-charts');
+            const singleWrap = document.getElementById('reports-status-single-chart');
+            if (branchMount && branchStatusRows.length > 0) {
+                branchMount.classList.remove('hidden');
+                if (singleWrap) singleWrap.classList.add('hidden');
+                branchMount.innerHTML = '';
+                branchStatusRows.forEach(function (branch, index) {
+                    var chartId = 'reports-status-branch-chart-' + index;
+                    var chartMount = pfReportsCreateBranchChartCard(
+                        branchMount,
+                        branch.branch_name || ('Branch ' + (index + 1)),
+                        chartId,
+                        'reports-branch-chart-mount',
+                        null
+                    );
+                    var rows = Array.isArray(branch.rows) ? branch.rows : [];
+                    if (rows.length === 0) {
+                        pfReportsRenderBranchEmpty(chartMount, 'No order status data');
+                        return;
+                    }
+                    pfPushApexChart(chartMount, statusOptions(rows, 205));
+                });
+                return;
+            }
+            if (branchMount) {
+                branchMount.classList.add('hidden');
+                branchMount.innerHTML = '';
+            }
+            if (singleWrap) singleWrap.classList.remove('hidden');
+            pfPushApexChart(mount, statusOptions(statusData, 230));
         } catch(e) { console.error('OrderStatus error:', e); }
     })();
 
