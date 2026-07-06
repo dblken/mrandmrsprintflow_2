@@ -242,6 +242,7 @@ $dashboard_branch_chart_payload = [
     'products' => [],
     'services' => [],
     'statuses' => [],
+    'locations' => [],
 ];
 
 if ($branchId === 'all') {
@@ -324,12 +325,32 @@ if ($branchId === 'all') {
                 'rows' => $statusPayloadRows,
             ];
         }
+
+        try {
+            $locationRows = pf_reports_customer_locations_merged($dashFromDate, $dashToEnd, $chartBranchId, 5, false);
+        } catch (Exception $e) {
+            $locationRows = [];
+        }
+        $locationPayloadRows = array_values(array_filter(array_map(static function ($row) {
+            $city = trim((string)($row['city'] ?? ''));
+            return [
+                'label' => $city !== '' ? $city : 'Unknown',
+                'value' => (int)($row['orders'] ?? 0),
+            ];
+        }, $locationRows), static fn($row) => (int)($row['value'] ?? 0) > 0));
+        if ($locationPayloadRows !== []) {
+            $dashboard_branch_chart_payload['locations'][] = [
+                'branch_id' => $chartBranchId,
+                'branch_name' => $chartBranchName,
+                'rows' => $locationPayloadRows,
+            ];
+        }
     }
 }
 
 $dashboard_branch_chart_json = json_encode($dashboard_branch_chart_payload, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 if ($dashboard_branch_chart_json === false) {
-    $dashboard_branch_chart_json = '{"products":[],"services":[],"statuses":[]}';
+    $dashboard_branch_chart_json = '{"products":[],"services":[],"statuses":[],"locations":[]}';
 }
 // ── Recent Orders (last 5, branch-filtered) ──────────
 try {
@@ -677,6 +698,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         .dash-branch-chart-legend::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:999px; }
         .dash-branch-chart-grid.is-status .dash-branch-chart-mount { height:135px; max-width:190px; }
         .dash-single-chart-wrap.is-hidden,
+        .products-chart.is-hidden,
         .dash-single-chart-legend.is-hidden,
         .dash-branch-chart-grid.is-hidden { display:none !important; }
         @media (max-width:900px) {
@@ -1292,20 +1314,53 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         Order Status Breakdown
                     </div>
-                    <div id="dash-status-single-chart" class="dash-single-chart-wrap" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
+                    <div id="dash-status-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;">
                         <canvas id="statusChart"></canvas>
                     </div>
-                    <div id="status-legend" class="dash-single-chart-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
-                    <div id="dash-status-branch-charts" class="dash-branch-chart-grid is-status is-hidden"></div>
+                    <div id="status-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-status-branch-charts" class="dash-branch-chart-grid is-status <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['statuses'])) ? '' : 'is-hidden'; ?>"></div>
                 </div>
 
                 <!-- Top Customer Locations -->
-                <?php if (!empty($customer_locations)): ?>
+                <?php if (!empty($customer_locations) || !empty($dashboard_branch_chart_payload['locations'])): ?>
                 <div class="dash-card">
                     <div class="dash-card-title">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                         Top Customer Locations
                     </div>
+                    <?php if ($branchId === 'all' && !empty($dashboard_branch_chart_payload['locations'])): ?>
+                    <div class="dash-branch-chart-grid dash-location-branch-grid">
+                        <?php foreach ($dashboard_branch_chart_payload['locations'] as $locBranch): ?>
+                            <?php
+                                $locRows = array_slice($locBranch['rows'] ?? [], 0, 5);
+                                $locMax = 0;
+                                foreach ($locRows as $locRow) {
+                                    $locMax = max($locMax, (int)($locRow['value'] ?? 0));
+                                }
+                            ?>
+                            <div class="dash-branch-chart-card dash-location-branch-card">
+                                <div class="dash-branch-chart-title"><?php echo htmlspecialchars((string)($locBranch['branch_name'] ?? 'Branch')); ?></div>
+                                <div class="loc-list loc-list--branch">
+                                    <?php foreach ($locRows as $index => $loc): ?>
+                                        <?php $pct = $locMax > 0 ? (((int)($loc['value'] ?? 0) / $locMax) * 100) : 0; ?>
+                                        <div class="loc-row">
+                                            <div class="loc-header">
+                                                <div class="loc-name">
+                                                    <span class="loc-rank">#<?php echo $index + 1; ?></span>
+                                                    <span class="loc-city"><?php echo htmlspecialchars((string)($loc['label'] ?? 'Unknown')); ?></span>
+                                                </div>
+                                                <div class="loc-value"><?php echo (int)($loc['value'] ?? 0); ?></div>
+                                            </div>
+                                            <div class="loc-bar-wrap">
+                                                <div class="loc-bar" style="width:<?php echo max(3, min(100, $pct)); ?>%;"></div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php else: ?>
                     <?php $max_orders = max(array_column($customer_locations, 'orders')); ?>
                     <div class="loc-list">
                         <?php foreach (array_slice($customer_locations, 0, 5) as $index => $loc):
@@ -1325,6 +1380,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         </div>
                         <?php endforeach; ?>
                     </div>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1340,8 +1396,8 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         Best Selling Services
                     </div>
                     <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
-                    <div id="dash-service-single-chart" class="products-chart"><div id="productsChart"></div></div>
-                    <div id="dash-service-branch-charts" class="dash-branch-chart-grid is-hidden"></div>
+                    <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>"><div id="productsChart"></div></div>
+                    <div id="dash-service-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
                     <?php endif; ?>
@@ -1420,9 +1476,9 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         Sales by Product
                     </div>
                     <?php if (!empty($category_sales) || !empty($dashboard_branch_chart_payload['products'])): ?>
-                    <div id="dash-product-single-chart" class="dash-single-chart-wrap" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
-                    <div id="category-legend" class="dash-single-chart-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
-                    <div id="dash-product-branch-charts" class="dash-branch-chart-grid is-hidden"></div>
+                    <div id="dash-product-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
+                    <div id="category-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-product-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No official product sales data yet</div>
                     <?php endif; ?>
