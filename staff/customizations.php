@@ -3271,7 +3271,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 'source_page', 'source',
                 'notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'layout_file', 'reference_file',
                 'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
-                'cart_key', '_cart_key', 'config_id', 'form_type'
+                'cart_key', '_cart_key', 'config_id', 'form_type',
+                // Size/Dimension fields - removed to avoid redundancy
+                'width', 'height', 'width_ft', 'height_ft', 'size', 'sizes', 'sizeft', 'sizesft',
+                'dimensions', 'dimensionsft', 'dimension', 'size_ft',
+                // Design type/template fields - removed to avoid redundancy
+                'design_type', 'template', 'design',
+                // Design upload fields - only show as Uploaded Design
+                'design_upload', 'design_upload_path', 'design_file',
+                'reference_upload', 'reference_upload_path', 'reference_file',
             ],
             parseSpecsObject(raw) {
                 if (!raw) return {};
@@ -3301,7 +3309,6 @@ window.pfCustomizationPreloadedOrders = (() => {
             /**
              * Collapse aliased customization keys into a single canonical display key.
              * - needed_date / Needed_Date / due_date  → "Needed Date"
-             * - Sizes / Size (Ft) / Dimensions / Dimensions (ft) / dimension → "Size"
              * - branch_name / pickup_branch            → "Branch"
              * The first non-empty value encountered for each alias group wins.
              */
@@ -3312,9 +3319,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const alias = (k) => {
                     const kl = k.toLowerCase().replace(/[\s_()\-]+/g, '');
                     if (kl === 'neededdate' || kl === 'duedate' || kl === 'needed_date') return 'Needed Date';
-                    if (kl === 'sizes' || kl === 'sizeft' || kl === 'sizesft' ||
-                        kl === 'dimensions' || kl === 'dimensionsft' || kl === 'dimension')
-                        return 'Size';
                     if (kl === 'branchname' || kl === 'pickupbranch') return 'Branch';
                     return null;
                 };
@@ -3329,6 +3333,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                     'design_upload', 'design_upload_path', 'design_file', 'design_tmp_path',
                     'reference_upload', 'reference_upload_path', 'reference_file', 'reference_tmp_path',
                     'design_mime', 'reference_mime',
+                    // Size/Dimension fields - removed to avoid redundancy
+                    'width', 'height', 'width_ft', 'height_ft', 'size', 'sizes', 'sizeft', 'sizesft',
+                    'dimensions', 'dimensionsft', 'dimension', 'size_ft',
+                    // Design type/template fields - removed to avoid redundancy
+                    'design_type', 'template', 'design',
                 ]);
 
                 const out = {};
@@ -3455,6 +3464,24 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const noteFields = ['notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'job_notes', 'Job_Notes', 'JobNotes', 'Customer_Notes', 'CustomerNotes'];
                 for (const noteField of noteFields) {
                     delete sourceCustom[noteField];
+                }
+                
+                // Remove size/dimension fields to avoid redundancy
+                const sizeFields = ['width', 'height', 'width_ft', 'height_ft', 'size', 'sizes', 'sizeft', 'sizesft', 'dimensions', 'dimensionsft', 'dimension', 'size_ft'];
+                for (const sizeField of sizeFields) {
+                    delete sourceCustom[sizeField];
+                }
+                
+                // Remove design type/template fields to avoid redundancy
+                const designFields = ['design_type', 'template', 'design'];
+                for (const designField of designFields) {
+                    delete sourceCustom[designField];
+                }
+                
+                // Remove design upload fields - only show as Uploaded Design
+                const uploadFields = ['design_upload', 'design_upload_path', 'design_file', 'reference_upload', 'reference_upload_path', 'reference_file'];
+                for (const uploadField of uploadFields) {
+                    delete sourceCustom[uploadField];
                 }
                 
                 const isDetail = !!this.showDetailsModal;
