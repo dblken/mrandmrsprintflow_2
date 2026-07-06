@@ -1271,7 +1271,8 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-branch-chart-mount { position:relative; height:190px; max-width:250px; margin:0 auto; }
 .reports-branch-chart-mount--bar { height:170px; max-width:100%; }
 .reports-product-branch-legend,
-.reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px 12px; padding:6px 4px 0; }
+.reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; text-align:left; gap:8px 12px; padding:6px 4px 0; }
+.reports-product-branch-legend > div, .reports-branch-chart-legend > div { justify-content:flex-start; }
 #pf-rev-donut-branch-charts .reports-branch-chart-legend {
     justify-content:flex-start;
     text-align:left;
@@ -2412,6 +2413,19 @@ $dashData = [
             'jobs'     => (int)($r['qty_sold'] ?? 0),
         ];
     }, $report_service_category_sales),
+    'serviceCategorySalesByBranch' => array_map(static function ($branch) {
+        return [
+            'branch_id' => (int)($branch['branch_id'] ?? 0),
+            'branch_name' => trim((string)($branch['branch_name'] ?? '')) !== '' ? trim((string)$branch['branch_name']) : 'Branch',
+            'rows' => array_map(static function ($r) {
+                return [
+                    'category' => trim((string)($r['category'] ?? '')) !== '' ? trim((string)$r['category']) : 'Customization',
+                    'revenue'  => round((float)($r['total'] ?? 0), 2),
+                    'jobs'     => (int)($r['qty_sold'] ?? 0),
+                ];
+            }, $branch['rows'] ?? []),
+        ];
+    }, $report_service_category_sales_by_branch),
     'orderStatus' => array_map(function($s) {
         return [
             'status' => $s['status'],
@@ -3026,7 +3040,7 @@ $dashData = [
                                 <canvas id="reportsProductCategoryChart" aria-label="Sales by official product"></canvas>
                             </div>
                         </div>
-                        <div id="reports-product-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;padding:8px 10px 4px;"></div>
+                        <div id="reports-product-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:flex-start;gap:12px;padding:8px 10px 4px;"></div>
                         <?php else: ?>
                         <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>No official product sales for this period</div>
                         <?php endif; ?>
@@ -3041,13 +3055,14 @@ $dashData = [
                         </h3>
                     </div>
                     <div class="ana-bd">
-                        <?php if (!empty($report_service_category_sales)): ?>
-                        <div class="ch-box" style="min-height:260px;">
+                        <?php if (!empty($report_service_category_sales) || !empty($report_service_category_sales_by_branch)): ?>
+                        <div id="reports-service-branch-charts" class="reports-product-branch-grid hidden" aria-label="Sales by service category per branch"></div>
+                        <div id="reports-service-single-chart" class="ch-box" style="min-height:260px;">
                             <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
                                 <canvas id="reportsServiceCategoryChart" aria-label="Sales by service category"></canvas>
                             </div>
                         </div>
-                        <div id="reports-service-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;padding:8px 10px 4px;"></div>
+                        <div id="reports-service-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:flex-start;gap:12px;padding:8px 10px 4px;"></div>
                         <?php else: ?>
                         <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>No customization revenue by category for this period</div>
                         <?php endif; ?>

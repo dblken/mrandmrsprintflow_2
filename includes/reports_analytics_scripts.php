@@ -104,7 +104,10 @@ window.printflowTeardownReportsCharts = function () {
     (window.__pfReportsProductBranchCharts || []).forEach(function (ch) {
         try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
     });
-    window.__pfReportsProductBranchCharts = [];
+    window.__pfReportsProductBranchCharts = [];    (window.__pfReportsServiceBranchCharts || []).forEach(function (ch) {
+        try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+    });
+    window.__pfReportsServiceBranchCharts = [];
     if (window.__pfReportsServiceCategoryChart) {
         try { window.__pfReportsServiceCategoryChart.destroy(); } catch (e) {}
         window.__pfReportsServiceCategoryChart = null;
@@ -1996,6 +1999,53 @@ window.printflowInitReportsCharts = function () {
                 el.innerHTML = html;
             }
 
+            function renderBranchCategoryDonuts(config) {
+                var mount = document.getElementById(config.mountId);
+                var branchRows = Array.isArray(config.branches) ? config.branches.filter(function (branch) {
+                    return branch && Number(branch.branch_id || 0) > 0;
+                }) : [];
+                var singleWrap = document.getElementById(config.singleWrapId);
+                var singleLegend = document.getElementById(config.singleLegendId);
+                if (!mount || branchRows.length === 0) return false;
+                mount.classList.remove('hidden');
+                if (singleWrap) singleWrap.classList.add('hidden');
+                if (singleLegend) singleLegend.classList.add('hidden');
+                (window[config.collectionRef] || []).forEach(function (ch) {
+                    try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
+                });
+                window[config.collectionRef] = [];
+                mount.innerHTML = '';
+                branchRows.forEach(function (branch, index) {
+                    var card = document.createElement('div');
+                    card.className = 'reports-product-branch-card';
+                    var title = document.createElement('div');
+                    title.className = 'reports-product-branch-title';
+                    title.textContent = branch.branch_name || ('Branch ' + (index + 1));
+                    var chartWrap = document.createElement('div');
+                    chartWrap.className = 'reports-product-branch-chart';
+                    var canvas = document.createElement('canvas');
+                    var canvasId = config.canvasPrefix + index;
+                    var legendId = config.legendPrefix + index;
+                    canvas.id = canvasId;
+                    canvas.setAttribute('aria-label', config.ariaPrefix + ' for ' + title.textContent);
+                    chartWrap.appendChild(canvas);
+                    var legend = document.createElement('div');
+                    legend.id = legendId;
+                    legend.className = 'reports-product-branch-legend';
+                    card.appendChild(title);
+                    card.appendChild(chartWrap);
+                    card.appendChild(legend);
+                    mount.appendChild(card);
+                    pfReportsMountCategoryChartWhenVisible(chartWrap, function () {
+                        var ref = config.chartRefPrefix + index;
+                        var rows = Array.isArray(branch.rows) ? branch.rows : [];
+                        var chartRows = rows.length > 0 ? rows : [{ category: config.emptyLabel, revenue: 1, items: 0, jobs: 0, empty: true }];
+                        buildDoughnut(canvasId, legendId, chartRows, ref, config.tooltipKind);
+                        if (window[ref]) window[config.collectionRef].push(window[ref]);
+                    });
+                });
+                return true;
+            }
             function buildDoughnut(canvasId, legendId, rows, chartRef, extraTooltip) {
                 destroyChart(chartRef);
                 var canvas = document.getElementById(canvasId);
@@ -2049,51 +2099,23 @@ window.printflowInitReportsCharts = function () {
                     }
                 });
             }
-            var productBranchRows = Array.isArray(rData.productCategorySalesByBranch) ? rData.productCategorySalesByBranch.filter(function (branch) {
-                return branch && Number(branch.branch_id || 0) > 0;
-            }) : [];
-            var productBranchMount = document.getElementById('reports-product-branch-charts');
             var productSingleWrap = document.getElementById('reports-product-single-chart');
             var productSingleLegend = document.getElementById('reports-product-cat-legend');
-            if (productBranchMount && productBranchRows.length > 0) {
-                productBranchMount.classList.remove('hidden');
-                if (productSingleWrap) productSingleWrap.classList.add('hidden');
-                if (productSingleLegend) productSingleLegend.classList.add('hidden');
-                (window.__pfReportsProductBranchCharts || []).forEach(function (ch) {
-                    try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
-                });
-                window.__pfReportsProductBranchCharts = [];
-                productBranchMount.innerHTML = '';
-                productBranchRows.forEach(function (branch, index) {
-                    var card = document.createElement('div');
-                    card.className = 'reports-product-branch-card';
-                    var title = document.createElement('div');
-                    title.className = 'reports-product-branch-title';
-                    title.textContent = branch.branch_name || ('Branch ' + (index + 1));
-                    var chartWrap = document.createElement('div');
-                    chartWrap.className = 'reports-product-branch-chart';
-                    var canvas = document.createElement('canvas');
-                    var canvasId = 'reportsProductCategoryBranchChart' + index;
-                    var legendId = 'reports-product-cat-branch-legend-' + index;
-                    canvas.id = canvasId;
-                    canvas.setAttribute('aria-label', 'Sales by product for ' + title.textContent);
-                    chartWrap.appendChild(canvas);
-                    var legend = document.createElement('div');
-                    legend.id = legendId;
-                    legend.className = 'reports-product-branch-legend';
-                    card.appendChild(title);
-                    card.appendChild(chartWrap);
-                    card.appendChild(legend);
-                    productBranchMount.appendChild(card);
-                    pfReportsMountCategoryChartWhenVisible(chartWrap, function () {
-                        var ref = '__pfReportsProductBranchChart' + index;
-                        var branchRows = Array.isArray(branch.rows) ? branch.rows : [];
-                        var chartRows = branchRows.length > 0 ? branchRows : [{ category: 'No product sales', revenue: 1, items: 0, empty: true }];
-                        buildDoughnut(canvasId, legendId, chartRows, ref, 'items');
-                        if (window[ref]) window.__pfReportsProductBranchCharts.push(window[ref]);
-                    });
-                });
-            } else {
+            var hasProductBranches = renderBranchCategoryDonuts({
+                mountId: 'reports-product-branch-charts',
+                branches: rData.productCategorySalesByBranch,
+                singleWrapId: 'reports-product-single-chart',
+                singleLegendId: 'reports-product-cat-legend',
+                collectionRef: '__pfReportsProductBranchCharts',
+                canvasPrefix: 'reportsProductCategoryBranchChart',
+                legendPrefix: 'reports-product-cat-branch-legend-',
+                chartRefPrefix: '__pfReportsProductBranchChart',
+                ariaPrefix: 'Sales by product',
+                emptyLabel: 'No product sales',
+                tooltipKind: 'items'
+            });
+            if (!hasProductBranches) {
+                var productBranchMount = document.getElementById('reports-product-branch-charts');
                 if (productBranchMount) {
                     productBranchMount.classList.add('hidden');
                     productBranchMount.innerHTML = '';
@@ -2108,10 +2130,36 @@ window.printflowInitReportsCharts = function () {
                 });
             }
 
-            var scCanvas = document.getElementById('reportsServiceCategoryChart');
-            pfReportsMountCategoryChartWhenVisible(scCanvas ? scCanvas.parentElement : null, function () {
-                buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', rData.serviceCategorySales || [], '__pfReportsServiceCategoryChart', 'jobs');
+            var serviceSingleWrap = document.getElementById('reports-service-single-chart');
+            var serviceSingleLegend = document.getElementById('reports-service-cat-legend');
+            var hasServiceBranches = renderBranchCategoryDonuts({
+                mountId: 'reports-service-branch-charts',
+                branches: rData.serviceCategorySalesByBranch,
+                singleWrapId: 'reports-service-single-chart',
+                singleLegendId: 'reports-service-cat-legend',
+                collectionRef: '__pfReportsServiceBranchCharts',
+                canvasPrefix: 'reportsServiceCategoryBranchChart',
+                legendPrefix: 'reports-service-cat-branch-legend-',
+                chartRefPrefix: '__pfReportsServiceBranchChart',
+                ariaPrefix: 'Sales by service category',
+                emptyLabel: 'No service category sales',
+                tooltipKind: 'jobs'
             });
+            if (!hasServiceBranches) {
+                var serviceBranchMount = document.getElementById('reports-service-branch-charts');
+                if (serviceBranchMount) {
+                    serviceBranchMount.classList.add('hidden');
+                    serviceBranchMount.innerHTML = '';
+                }
+                if (serviceSingleWrap) serviceSingleWrap.classList.remove('hidden');
+                if (serviceSingleLegend) serviceSingleLegend.classList.remove('hidden');
+                var scCanvas = document.getElementById('reportsServiceCategoryChart');
+                pfReportsMountCategoryChartWhenVisible(scCanvas ? scCanvas.parentElement : null, function () {
+                    var singleServiceRows = Array.isArray(rData.serviceCategorySales) ? rData.serviceCategorySales : [];
+                    var singleServiceChartRows = singleServiceRows.length > 0 ? singleServiceRows : [{ category: 'No service category sales', revenue: 1, jobs: 0, empty: true }];
+                    buildDoughnut('reportsServiceCategoryChart', 'reports-service-cat-legend', singleServiceChartRows, '__pfReportsServiceCategoryChart', 'jobs');
+                });
+            }
         } catch (e) { console.error('ReportsCategoryDonuts error:', e); }
     })();
 
