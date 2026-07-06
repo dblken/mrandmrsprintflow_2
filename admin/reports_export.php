@@ -36,7 +36,7 @@ $branchName = $branchCtx['branch_name'];
 
 $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
 $storePaidOnlySql = pf_reports_store_order_paid_expr('o');
-$serviceCompletedSql = pf_reports_service_order_completed_expr('so');
+$jobCompletedSql = pf_reports_job_order_paid_completed_expr('jo');
 
 // UTF-8 BOM for Excel compatibility
 header('Content-Type: text/csv; charset=utf-8');
@@ -336,23 +336,31 @@ switch ($report) {
 
         if ($branchId !== 'all') {
             $s_orders = db_query(
-                "SELECT so.id, so.service_name, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name,
-                        so.created_at, so.total_price, so.status
-                 FROM service_orders so
-                 LEFT JOIN customers c ON so.customer_id = c.customer_id
-                 WHERE DATE(so.created_at) = ? AND so.branch_id = ? AND {$serviceCompletedSql}
-                 ORDER BY so.created_at ASC",
+                "SELECT jo.id,
+                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS service_name,
+                        COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name,
+                        COALESCE(jo.payment_verified_at, jo.created_at) AS created_at,
+                        COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS total_price,
+                        jo.status
+                 FROM job_orders jo
+                 LEFT JOIN customers c ON jo.customer_id = c.customer_id
+                 WHERE DATE(COALESCE(jo.payment_verified_at, jo.created_at)) = ? AND jo.branch_id = ? AND {$jobCompletedSql}
+                 ORDER BY COALESCE(jo.payment_verified_at, jo.created_at) ASC",
                 'si',
                 [$day, $branchId]
             );
         } else {
             $s_orders = db_query(
-                "SELECT so.id, so.service_name, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name,
-                        so.created_at, so.total_price, so.status
-                 FROM service_orders so
-                 LEFT JOIN customers c ON so.customer_id = c.customer_id
-                 WHERE DATE(so.created_at) = ? AND {$serviceCompletedSql}
-                 ORDER BY so.created_at ASC",
+                "SELECT jo.id,
+                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS service_name,
+                        COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name,
+                        COALESCE(jo.payment_verified_at, jo.created_at) AS created_at,
+                        COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS total_price,
+                        jo.status
+                 FROM job_orders jo
+                 LEFT JOIN customers c ON jo.customer_id = c.customer_id
+                 WHERE DATE(COALESCE(jo.payment_verified_at, jo.created_at)) = ? AND {$jobCompletedSql}
+                 ORDER BY COALESCE(jo.payment_verified_at, jo.created_at) ASC",
                 's',
                 [$day]
             );
@@ -374,7 +382,7 @@ switch ($report) {
             fputcsv($output, ['No service orders for this date.']);
         }
         fputcsv($output, []);
-        fputcsv($output, ['', '', 'TOTAL (paid standard + completed service):', number_format($total_sales, 2, '.', '')]);
+        fputcsv($output, ['', '', 'TOTAL (paid standard + paid/completed job):', number_format($total_sales, 2, '.', '')]);
         break;
     }
 

@@ -102,14 +102,14 @@ $salesTrendBranchId = $branchId;
  * Uses the selected branch from the report filter. When Admin selects "All",
  * branch_where_parts() includes every non-archived branch (archived branches are excluded).
  */
-$globalAnalyticsFrom     = '';
-$globalAnalyticsTo       = '';
-$globalAnalyticsToEnd    = '';
+$globalAnalyticsFrom     = $from;
+$globalAnalyticsTo       = $to;
+$globalAnalyticsToEnd    = $toEnd;
 $globalAnalyticsBranchId = $branchId;
 
 // Helpers for the decoupled context
 [$gaBSql, $gaBTypes, $gaBParams] = branch_where_parts('o', $globalAnalyticsBranchId);
-[$gaDW, $gaDT, $gaDP] = ["", "", []]; // Always All-Time for global context
+[$gaDW, $gaDT, $gaDP] = $getDateWhere('o', 'order_date');
 
 // ── Chart sort (value_desc|value_asc|month_asc|month_desc) ────────────────────
 $chart_sort = $_GET['chart_sort'] ?? 'value_desc';
@@ -337,7 +337,7 @@ if (!$gaBranchEmpty && $total_orders > 0) {
     } catch(Exception $e){}
 }
 
-// ── 4. Overall sales trend (Store vs Customization vs Total Orders - All-Time) ──
+// ── 4. Overall sales trend (Store vs Customization vs Total Orders) ──
 $trend12_labels = $trend12_revenue_store = $trend12_revenue_custom = $trend12_revenues = $trend12_orders = [];
 if (!$gaBranchEmpty) {
     try {
@@ -1304,21 +1304,21 @@ a.export-dd-link:hover { background: #f9fafb; }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
 .reports-product-branch-grid,
-.reports-branch-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; width:100%; }
+.reports-branch-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; width:100%; align-items:start; }
 .reports-product-branch-card,
 .reports-branch-chart-card { min-width:0; }
 .reports-product-branch-title,
-.reports-branch-chart-title { text-align:center; color:#374151; font-size:12px; font-weight:700; margin:0 0 6px; }
+.reports-branch-chart-title { text-align:left; color:#374151; font-size:12px; font-weight:700; margin:0 0 6px; }
 .reports-product-branch-chart,
-.reports-branch-chart-mount { position:relative; height:190px; max-width:250px; margin:0 auto; }
-.reports-branch-chart-mount--bar { height:170px; max-width:100%; }
+.reports-branch-chart-mount { position:relative; height:170px; max-width:230px; margin:0 auto; }
+.reports-branch-chart-mount--bar { height:150px; max-width:100%; }
 .reports-product-branch-legend,
-.reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; text-align:left; gap:8px 12px; padding:6px 4px 0; }
+.reports-branch-chart-legend { font-size:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); justify-content:stretch; text-align:left; gap:8px 12px; padding:6px 4px 0; }
 .reports-product-branch-legend > div, .reports-branch-chart-legend > div { justify-content:flex-start; }
 #reports-status-branch-charts { align-items:start; }
 #reports-status-branch-charts .reports-branch-chart-card { min-height:0; }
 #reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
-#reports-status-branch-charts .reports-branch-chart-mount { height:205px; max-width:100%; }
+#reports-status-branch-charts .reports-branch-chart-mount { height:190px; max-width:100%; }
 #reports-status-single-chart { min-height:230px !important; }
 #ch-status .apexcharts-legend,
 #reports-status-branch-charts .apexcharts-legend {

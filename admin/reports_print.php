@@ -6,7 +6,7 @@
 
 // Production Error Handling
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 
 set_time_limit(120);
 ini_set('memory_limit', '512M');
@@ -15,22 +15,24 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/reports_date_range.php';
 
 require_role(['Admin', 'Manager']);
 
 // ── INPUTS ────────────────────────────────────────────────────────────────────
 $report    = $_GET['report'] ?? 'orders';
-$from      = $_GET['from'] ?? date('Y-m-01');
-$to        = $_GET['to'] ?? date('Y-m-d');
+$dateRange = pf_reports_export_date_range();
+$from      = $dateRange['from'];
+$to        = $dateRange['to'];
+$fromStart = $dateRange['fromStart'];
+$toEnd     = $dateRange['toEnd'];
 $autoprint = (bool)($_GET['autoprint'] ?? 0);
 
 $branchCtx  = init_branch_context(false);
 $branchId   = $branchCtx['selected_branch_id'];
 $branchName = $branchCtx['branch_name'];
 
-$from = date('Y-m-d', strtotime($from));
-$to   = date('Y-m-d', strtotime($to));
-$toEnd = $to . ' 23:59:59';
+
 
 // REQ: Update Report Title
 $reportTitles = [
@@ -85,7 +87,7 @@ $show_top_customers = $show_all || ($report === 'top_customers');
 $show_insights      = $show_all || ($report === 'insights');
 
 // Debug info (only show in development)
-if (isset($_GET['debug'])) {
+if (false && isset($_GET['debug'])) {
     echo "<pre>Debug Info:\n";
     echo "Report: $report\n";
     echo "From: $from\n";
@@ -155,7 +157,7 @@ try {
             ) ?: [];
             
             // Debug logging if requested
-            if (isset($_GET['debug'])) {
+            if (false && isset($_GET['debug'])) {
                 echo "<pre>Daily Sales Query Debug:\n";
                 echo "Query returned: " . count($daily_sales) . " rows\n";
                 echo "Sample data: " . print_r(array_slice($daily_sales, 0, 3), true) . "\n";
@@ -173,7 +175,7 @@ try {
             ) ?: [];
             $paidOrders = (int)($paidOrdersResult[0]['paid_count'] ?? 0);
         } catch (Exception $e) {
-            if (isset($_GET['debug'])) {
+            if (false && isset($_GET['debug'])) {
                 echo "<pre>Daily Sales Query Error: " . htmlspecialchars($e->getMessage()) . "</pre>";
             }
             $daily_sales = [];
@@ -370,7 +372,10 @@ try {
         }
     }
 } catch (Throwable $e) {
-    echo "<h1>Report Error</h1><pre>".htmlspecialchars($e->getMessage())."</pre>"; die();
+    error_log('[PrintFlow] Reports print failed: ' . $e->getMessage());
+    http_response_code(500);
+    echo '<h1>Report Error</h1><p>Unable to generate this report right now.</p>';
+    die();
 }
 
 $month_now = (int)date('n');
@@ -454,7 +459,7 @@ foreach ($seasonal_events as $ev) {
         <button class="no-print" onclick="window.print()" style="padding:10px 20px; background:#0d9488; color:#fff; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Print Document</button>
     </div>
 
-    <?php if (isset($_GET['debug'])): ?>
+    <?php if (false && isset($_GET['debug'])): ?>
     <div class="no-print" style="background:#fef3c7;padding:20px;margin-bottom:20px;border:2px solid #f59e0b;border-radius:8px;">
         <h3 style="margin:0 0 10px;color:#92400e;">Debug Information</h3>
         <table style="font-size:11px;border:none;">
@@ -504,7 +509,7 @@ foreach ($seasonal_events as $ev) {
             <h2 class="section-title">Daily Sales Performance</h2>
             <?php 
             // Debug: Show query parameters
-            if (isset($_GET['debug'])) {
+            if (false && isset($_GET['debug'])) {
                 echo "<div style='background:#fef3c7;padding:10px;margin-bottom:10px;border:1px solid #f59e0b;border-radius:4px;'><strong>Debug Info:</strong><br>";
                 echo "From: $from<br>To: $to<br>Branch ID: $branchId<br>";
                 echo "Daily sales count: " . count($daily_sales) . "<br>";
@@ -517,7 +522,7 @@ foreach ($seasonal_events as $ev) {
                     <p><strong>No transactions recorded for this period.</strong></p>
                     <p style="font-size: 12px; margin: 8px 0 0;">Period: <?php echo date('M j, Y', strtotime($from)).' – '.date('M j, Y', strtotime($to)); ?></p>
                     <p style="font-size: 12px; margin: 4px 0 0;">Branch: <?php echo htmlspecialchars($branchName); ?></p>
-                    <?php if (isset($_GET['debug'])): ?>
+                    <?php if (false && isset($_GET['debug'])): ?>
                     <p style="font-size: 11px; margin: 8px 0 0; color: #dc2626;">Debug mode: Check if orders exist in database for this date range and branch.</p>
                     <?php endif; ?>
                 </div>

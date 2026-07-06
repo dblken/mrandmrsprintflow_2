@@ -1630,10 +1630,38 @@ window.printflowInitReportsCharts = function () {
             const branchMount = document.getElementById('pf-top-services-branch-charts');
             const productsSingleWrap = document.getElementById('pf-ch-products-wrapper');
             const aggregateLegend = document.getElementById('pf-top-services-legend');
+            function renderTopServicesAggregateLegend(colors) {
+                if (!aggregateLegend) return;
+                aggregateLegend.classList.remove('hidden');
+                aggregateLegend.innerHTML = '';
+                const displayCount = Math.min(8, top_products.length);
+                const displayRows = top_products.slice(0, displayCount);
+                const topQty = displayRows.length ? (Number(displayRows[0].qty || 0) || 1) : 1;
+                displayRows.forEach(function (row, i) {
+                    var q = Number(row.qty || 0);
+                    var pct = Math.round((q / topQty) * 100);
+                    var li = document.createElement('li');
+                    var swatch = document.createElement('span');
+                    swatch.className = 'pf-top-services-swatch';
+                    swatch.style.backgroundColor = colors[i % colors.length] || '#94a3b8';
+                    var body = document.createElement('div');
+                    var title = document.createElement('div');
+                    title.className = 'pf-top-services-name';
+                    title.textContent = row.name || 'Unnamed service';
+                    var meta = document.createElement('div');
+                    meta.className = 'pf-top-services-meta';
+                    meta.textContent = q.toLocaleString() + ' units - ' + pct + '%';
+                    body.appendChild(title);
+                    body.appendChild(meta);
+                    li.appendChild(swatch);
+                    li.appendChild(body);
+                    aggregateLegend.appendChild(li);
+                });
+            }
             if (branchMount && branchTopServices.length > 0) {
                 branchMount.classList.remove('hidden');
                 if (productsSingleWrap) productsSingleWrap.classList.add('hidden');
-                if (aggregateLegend) aggregateLegend.classList.add('hidden');
+                if (aggregateLegend) aggregateLegend.classList.remove('hidden');
                 branchMount.innerHTML = '';
                 (window.__pfReportsTopServiceBranchCharts || []).forEach(function (ch) {
                     try { if (ch && typeof ch.destroy === 'function') ch.destroy(); } catch (e) {}
@@ -1689,7 +1717,7 @@ window.printflowInitReportsCharts = function () {
                         return { x: String(i + 1), y: qty || 0, fillColor: branchBarColors[i % branchBarColors.length] };
                     });
                     pfPushApexChart(chartMount, {
-                        chart:{ ...PF_OPT, id:'pf-top-services-branch-bar-' + branchIndex, redrawOnParentResize:true, type:'bar', height:170 },
+                        chart:{ ...PF_OPT, id:'pf-top-services-branch-bar-' + branchIndex, redrawOnParentResize:true, type:'bar', height:150 },
                         plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'62%', distributed:true } },
                         series:[{name:'Units Sold', data:seriesData}],
                         xaxis:{ min:0, max:xMax, tickAmount:4, labels:{ style:{fontSize:'10px', fontWeight:600, colors:'#64748b'}, formatter:v => Number(v || 0).toLocaleString() } },
@@ -1705,6 +1733,7 @@ window.printflowInitReportsCharts = function () {
                     });
 
                 });
+                renderTopServicesAggregateLegend(branchBarColors);
                 return;
             }
             if (branchMount) {
@@ -1890,6 +1919,7 @@ window.printflowInitReportsCharts = function () {
                         dataLabels:{enabled:false}
                     });
                 });
+                renderTopServicesAggregateLegend(branchBarColors);
                 return;
             }
             if (branchMount) {
@@ -2221,6 +2251,7 @@ window.printflowInitReportsCharts = function () {
                     }
                     pfPushApexChart(chartMount, statusOptions(rows, 205));
                 });
+                renderTopServicesAggregateLegend(branchBarColors);
                 return;
             }
             if (branchMount) {
