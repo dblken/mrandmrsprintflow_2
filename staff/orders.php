@@ -2373,7 +2373,7 @@ $page_title = 'Orders - Staff';
                                 <th class="pl-6 pr-4 py-4 w-[16%] border-b border-gray-100">Order Code</th>
                                 <th class="px-4 py-4 w-[16%] border-b border-gray-100">Product Name</th>
                                 <th class="px-4 py-4 w-[14%] border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 w-[9%] border-b border-gray-100 text-center">Source</th>
+                                <?php if (!$is_pos_staff): ?><th class="px-4 py-4 w-[9%] border-b border-gray-100 text-center">Source</th><?php endif; ?>
                                 <th class="px-4 py-4 w-[11%] border-b border-gray-100">Date</th>
                                 <th class="px-4 py-4 w-[10%] border-b border-gray-100">Total</th>
                                 <?php if (!$is_pos_staff): ?><th class="px-4 py-4 w-[14%] border-b border-gray-100 text-center">Status</th><?php endif; ?>
@@ -2410,6 +2410,7 @@ $page_title = 'Orders - Staff';
                                             <?php echo htmlspecialchars($order['customer_name']); ?>
                                         </div>
                                     </td>
+                                    <?php if (!$is_pos_staff): ?>
                                     <td class="px-4 py-4 status-col-cell">
                                         <?php if (($order['order_source'] ?? '') === 'pos'): ?>
                                             <span class="pf-pill source-badge-pill pos">Pos</span>
@@ -2417,6 +2418,7 @@ $page_title = 'Orders - Staff';
                                             <span class="pf-pill source-badge-pill online">Online</span>
                                         <?php endif; ?>
                                     </td>
+                                    <?php endif; ?>
                                     <td class="px-4 py-4">
                                         <div class="table-text-sub truncate-ellipsis" title="<?php echo htmlspecialchars(format_date($order['order_date'])); ?>">
                                             <?php echo format_date($order['order_date']); ?>
