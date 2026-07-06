@@ -1128,6 +1128,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
             </div>
 
             <div id="pf-dashboard-content">
+            <script type="application/json" id="pf-dashboard-branch-chart-data"><?php echo htmlspecialchars($dashboard_branch_chart_json, ENT_NOQUOTES, 'UTF-8'); ?></script>
             <!-- KPI Summary Row (entire card is a link; keyboard + screen-reader friendly) -->
             <div class="kpi-row">
                 <a class="kpi-card indigo kpi-card--link"
@@ -1371,7 +1372,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         Best Selling Services
                     </div>
                     <?php if (!empty($dashboard_sales_bar) || !empty($dashboard_branch_chart_payload['services'])): ?>
-                    <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>"><div id="productsChart"></div></div>
+                    <div id="dash-service-single-chart" class="products-chart <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" data-service-bar-labels="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_labels, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-bar-values="<?php echo htmlspecialchars(json_encode($dashboard_sales_bar_values, JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><div id="productsChart"></div></div>
                     <div id="dash-service-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
                     <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data yet</div>
@@ -1718,7 +1719,17 @@ $page_title = 'Dashboard - Admin | PrintFlow';
         dashCtrl = new AbortController();
         var sig = { signal: dashCtrl.signal };
         var DASH_BRANCH_ID = <?php echo $branchId !== 'all' ? (int)$branchId : 'null'; ?>;
-        var DASH_BRANCH_CHARTS = <?php echo $dashboard_branch_chart_json; ?>;
+        function pfDashReadBranchCharts() {
+            var dataEl = document.getElementById('pf-dashboard-branch-chart-data');
+            if (!dataEl) return { products: [], services: [], statuses: [], locations: [] };
+            try {
+                var parsed = JSON.parse(dataEl.textContent || '{}');
+                return parsed && typeof parsed === 'object' ? parsed : { products: [], services: [], statuses: [], locations: [] };
+            } catch (e) {
+                return { products: [], services: [], statuses: [], locations: [] };
+            }
+        }
+        var DASH_BRANCH_CHARTS = pfDashReadBranchCharts();
 
         var dashAnimLong = 1750;
         var dashAnimShort = 680;
