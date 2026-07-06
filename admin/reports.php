@@ -1269,6 +1269,14 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-branch-chart-mount--bar { height:210px; max-width:100%; }
 .reports-product-branch-legend,
 .reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 12px; padding:8px 4px 0; }
+#pf-rev-donut-branch-charts .reports-branch-chart-legend {
+    justify-content:flex-start;
+    text-align:left;
+    align-items:flex-start;
+    max-width:300px;
+    margin:0 auto;
+}
+#pf-rev-donut-branch-charts .reports-branch-chart-legend > div { justify-content:flex-start; }
 .rev-donut-card-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .rev-donut-growth { font-size:12px; font-weight:700; white-space:nowrap; padding:4px 10px; border-radius:8px; background:#E5EEF2; color:#0F4C5C; }
 .rev-donut-growth.up { background:#d1fae5; color:#047857; }

@@ -1872,7 +1872,7 @@ window.printflowInitReportsCharts = function () {
                             var pct = total > 0 ? ((amt / total) * 100).toFixed(1) : '0';
                             var item = document.createElement('div');
                             item.style.cssText = 'display:inline-flex;align-items:center;gap:6px;white-space:nowrap;';
-                            item.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:' + col + ';"></span><span style="font-weight:600;color:#374151;">' + pfEscHtml(rd.name || 'Service') + ' · ' + pct + '%</span>';
+                            item.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:' + col + ';"></span><span style="font-weight:600;color:#374151;">' + pfEscHtml(rd.name || 'Service') + ' - ' + pct + '%</span>';
                             legend.appendChild(item);
                         });
                     }
