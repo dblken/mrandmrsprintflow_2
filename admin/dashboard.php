@@ -217,7 +217,7 @@ $statusColors = [
 // ── Sales by Product (official product list) ──────────
 try {
     $category_sales = pf_reports_sales_by_official_product(
-        $dashFromDate,
+        $dashFromStart,
         $dashToEnd,
         $branchId
     );
@@ -225,10 +225,18 @@ try {
 
 $cat_total_sum = array_sum(array_map(fn($c) => (float)$c['total'], $category_sales));
 
+$dashboard_chart_value = static function (array $row): float {
+    $total = (float)($row['total'] ?? 0);
+    if ($total > 0) {
+        return round($total, 2);
+    }
+    return (float)(($row['items_sold'] ?? null) ?? ($row['qty_sold'] ?? 0));
+};
+
 // ── Sales by Service Category (customization / job orders) ──
 try {
     $service_category_sales = pf_reports_sales_by_service_category(
-        $dashFromDate,
+        $dashFromStart,
         $dashToEnd,
         $branchId
     );
@@ -257,15 +265,15 @@ if ($branchId === 'all') {
         }
 
         try {
-            $productRows = pf_reports_sales_by_official_product($dashFromDate, $dashToEnd, $chartBranchId);
+            $productRows = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $chartBranchId);
         } catch (Exception $e) {
             $productRows = [];
         }
-        $productPayloadRows = array_values(array_filter(array_map(static function ($row) {
+        $productPayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
             $category = trim((string)($row['category'] ?? ''));
             return [
                 'label' => $category !== '' ? $category : 'Uncategorized product',
-                'value' => round((float)($row['total'] ?? 0), 2),
+                'value' => $dashboard_chart_value($row),
             ];
         }, $productRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
         $dashboard_branch_chart_payload['products'][] = [
@@ -275,16 +283,16 @@ if ($branchId === 'all') {
         ];
 
         try {
-            $serviceRows = pf_reports_sales_by_service_category($dashFromDate, $dashToEnd, $chartBranchId);
+            $serviceRows = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $chartBranchId);
             $serviceRows = pf_reports_fold_demo_service_categories($serviceRows, ['Eunsoyaaaaa', 'Ink']);
         } catch (Exception $e) {
             $serviceRows = [];
         }
-        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) {
+        $servicePayloadRows = array_values(array_filter(array_map(static function ($row) use ($dashboard_chart_value) {
             $category = trim((string)($row['category'] ?? ''));
             return [
                 'label' => $category !== '' ? $category : 'Customization',
-                'value' => round((float)($row['total'] ?? 0), 2),
+                'value' => $dashboard_chart_value($row),
             ];
         }, $serviceRows), static fn($row) => (float)($row['value'] ?? 0) > 0));
         $dashboard_branch_chart_payload['services'][] = [
@@ -1482,7 +1490,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         Sales by Product
                     </div>
                     <?php if (!empty($category_sales) || !empty($dashboard_branch_chart_payload['products'])): ?>
-                    <div id="dash-product-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)$c['total'], $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
+                    <div id="dash-product-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map($dashboard_chart_value, $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
                     <div id="category-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
                     <div id="dash-product-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['products'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
@@ -1497,7 +1505,7 @@ $page_title = 'Dashboard - Admin | PrintFlow';
                         Sales by Service Category
                     </div>
                     <?php if (!empty($service_category_sales) || !empty($dashboard_branch_chart_payload['services'])): ?>
-                    <div id="dash-service-category-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-service-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Customization', $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-category-totals="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => (float)($c['total'] ?? 0), $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="serviceCategoryChart"></canvas></div>
+                    <div id="dash-service-category-single-chart" class="dash-single-chart-wrap <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-service-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Customization', $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-category-totals="<?php echo htmlspecialchars(json_encode(array_map($dashboard_chart_value, $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="serviceCategoryChart"></canvas></div>
                     <div id="service-category-legend" class="dash-single-chart-legend <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? 'is-hidden' : ''; ?>" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
                     <div id="dash-service-category-branch-charts" class="dash-branch-chart-grid <?php echo ($branchId === 'all' && !empty($dashboard_branch_chart_payload['services'])) ? '' : 'is-hidden'; ?>"></div>
                     <?php else: ?>
