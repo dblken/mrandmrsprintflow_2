@@ -1686,7 +1686,7 @@ window.printflowInitReportsCharts = function () {
                         return { x: String(i + 1), y: qty || 0, fillColor: branchBarColors[i % branchBarColors.length] };
                     });
                     pfPushApexChart(chartMount, {
-                        chart:{ ...PF_OPT, id:'pf-top-services-branch-bar-' + branchIndex, redrawOnParentResize:true, type:'bar', height:210 },
+                        chart:{ ...PF_OPT, id:'pf-top-services-branch-bar-' + branchIndex, redrawOnParentResize:true, type:'bar', height:170 },
                         plotOptions:{ bar:{ horizontal:true, borderRadius:6, barHeight:'62%', distributed:true } },
                         series:[{name:'Units Sold', data:seriesData}],
                         xaxis:{ min:0, max:xMax, tickAmount:4, labels:{ style:{fontSize:'10px', fontWeight:600, colors:'#64748b'}, formatter:v => Number(v || 0).toLocaleString() } },
@@ -1871,13 +1871,13 @@ window.printflowInitReportsCharts = function () {
                             var amt = Number(rd.revenue || 0);
                             var pct = total > 0 ? ((amt / total) * 100).toFixed(1) : '0';
                             var item = document.createElement('div');
-                            item.style.cssText = 'display:inline-flex;align-items:center;gap:6px;white-space:nowrap;';
+                            item.style.cssText = 'display:inline-flex;align-items:flex-start;gap:6px;';
                             item.innerHTML = '<span style="width:10px;height:10px;border-radius:50%;background:' + col + ';"></span><span style="font-weight:600;color:#374151;">' + pfEscHtml(rd.name || 'Service') + ' - ' + pct + '%</span>';
                             legend.appendChild(item);
                         });
                     }
                     pfPushApexChart(chartMount, {
-                        chart:{...PF_OPT, type:'donut', height:220},
+                        chart:{...PF_OPT, type:'donut', height:190},
                         series:vals,
                         labels:labels,
                         colors:PF_PAL,

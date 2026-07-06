@@ -239,8 +239,8 @@ if (!$gaBranchEmpty) {
     }
     try {
         $report_service_category_sales = pf_reports_sales_by_service_category(
-            $globalAnalyticsFrom,
-            $globalAnalyticsTo,
+            $from,
+            $toEnd,
             $globalAnalyticsBranchId
         );
         $report_service_category_sales = pf_reports_fold_demo_service_categories(
@@ -254,8 +254,8 @@ if (!$gaBranchEmpty) {
                     continue;
                 }
                 $branchServiceRows = pf_reports_sales_by_service_category(
-                    $globalAnalyticsFrom,
-                    $globalAnalyticsTo,
+                    $from,
+                    $toEnd,
                     $branchServiceId
                 );
                 $branchServiceRows = pf_reports_fold_demo_service_categories(
@@ -1254,26 +1254,29 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-top-services-swatch { flex:0 0 10px; width:10px; height:10px; border-radius:3px; margin-top:3px; }
 .pf-top-services-name { color:#374151; font-size:12px; font-weight:600; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pf-top-services-meta { color:#6B7C85; font-size:11px; font-weight:500; margin-top:2px; }
-.reports-branch-service-list { column-count:1; margin-top:10px; }
+.reports-branch-service-list { column-count:1; margin-top:6px; }
+.reports-branch-service-list li { align-items:center; gap:8px; padding:5px 0; }
+.reports-branch-service-list li > div { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:8px; width:100%; min-width:0; }
+.reports-branch-service-list .pf-top-services-meta { margin-top:0; white-space:nowrap; }
 @media (max-width: 640px) { .pf-top-services-legend { column-count:1; } }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */
 .reports-product-branch-grid,
-.reports-branch-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; width:100%; }
+.reports-branch-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; width:100%; }
 .reports-product-branch-card,
 .reports-branch-chart-card { min-width:0; }
 .reports-product-branch-title,
-.reports-branch-chart-title { text-align:center; color:#374151; font-size:12px; font-weight:700; margin:0 0 8px; }
+.reports-branch-chart-title { text-align:center; color:#374151; font-size:12px; font-weight:700; margin:0 0 6px; }
 .reports-product-branch-chart,
-.reports-branch-chart-mount { position:relative; height:220px; max-width:280px; margin:0 auto; }
-.reports-branch-chart-mount--bar { height:210px; max-width:100%; }
+.reports-branch-chart-mount { position:relative; height:190px; max-width:250px; margin:0 auto; }
+.reports-branch-chart-mount--bar { height:170px; max-width:100%; }
 .reports-product-branch-legend,
-.reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:10px 12px; padding:8px 4px 0; }
+.reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:8px 12px; padding:6px 4px 0; }
 #pf-rev-donut-branch-charts .reports-branch-chart-legend {
     justify-content:flex-start;
     text-align:left;
     align-items:flex-start;
-    max-width:300px;
+    max-width:280px;
     margin:0 auto;
 }
 #pf-rev-donut-branch-charts .reports-branch-chart-legend > div { justify-content:flex-start; }
@@ -2960,11 +2963,11 @@ $dashData = [
                         <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>
                             <span>Best Selling Services</span>
-                            <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                            <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
                         </h3>
                     <div style="display:flex;align-items:center;gap:12px;" class="no-print">
                         <span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap;">
-                            <?php echo "All-Time Cumulative"; ?>
+                            <?php echo htmlspecialchars($dash_period_label); ?>
                         </span>
                         <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"best_selling"]), $je); ?>)' title="Print Best Selling Services Report">
                             <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
@@ -3151,7 +3154,7 @@ $dashData = [
                 <div class="ana-card">
                     <div class="ana-hd">
                         <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Order Status Breakdown
-                            <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                            <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
                         </h3>
                         <div class="no-print">
                             <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"order_status"]), $je); ?>)' title="Print Order Status Breakdown Report">
@@ -3168,7 +3171,7 @@ $dashData = [
             <div class="ana-card print-hide" style="display:none;">
                 <div class="ana-hd">
                     <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Top Customers
-                        <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
                     </h3>
                     <div class="no-print">
                         <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"top_customers"]), $je); ?>)' title="Print Top Customers Report">
