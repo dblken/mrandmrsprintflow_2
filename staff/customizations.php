@@ -1611,12 +1611,22 @@ if ($showLatestCustomizationOnly) {
                                                                  onerror="this.style.display='none'">
                                                         </template>
                                                         <template x-if="!staffFieldUploadIsImage(k, v)">
-                                                            <a :href="staffFieldUploadUrl(v)"
-                                                               target="_blank"
-                                                               rel="noopener noreferrer"
-                                                               style="font-size:12px;font-weight:500;color:#1f2937;word-break:break-word;overflow-wrap:break-word;text-decoration:none;">
-                                                                <span x-text="staffFieldUploadName(v) || formatCustomValuePlain(v)"></span>
-                                                            </a>
+                                                            <div style="display:flex; align-items:center; gap:8px;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                                    <polyline points="10 9 9 9 8 9"></polyline>
+                                                                </svg>
+                                                                <a :href="staffFieldUploadUrl(v)"
+                                                                   target="_blank"
+                                                                   rel="noopener noreferrer"
+                                                                   style="font-size:12px;font-weight:500;color:#dc2626;word-break:break-word;overflow-wrap:break-word;text-decoration:none;display:flex;align-items:center;gap:4px;">
+                                                                    <span x-text="staffFieldUploadName(v) || formatCustomValuePlain(v)"></span>
+                                                                    <span style="font-size:10px;color:#6b7280;">(PDF)</span>
+                                                                </a>
+                                                            </div>
                                                         </template>
                                                     </div>
                                                 </template>
@@ -1672,8 +1682,22 @@ if ($showLatestCustomizationOnly) {
                                         <div style="margin-top:12px;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
                                             <div style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere;">
-                                                <span style="font-size:14px;">FILE</span>
+                                                <template x-if="staffFilenameLooksLikePdf(item.design_name)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                        <polyline points="10 9 9 9 8 9"></polyline>
+                                                    </svg>
+                                                </template>
+                                                <template x-if="!staffFilenameLooksLikePdf(item.design_name)">
+                                                    <span style="font-size:14px;">FILE</span>
+                                                </template>
                                                 <span x-text="item.design_name"></span>
+                                                <template x-if="staffFilenameLooksLikePdf(item.design_name)">
+                                                    <span style="font-size:10px;color:#6b7280;">(PDF)</span>
+                                                </template>
                                             </div>
                                         </div>
                                     </template>
@@ -1695,8 +1719,22 @@ if ($showLatestCustomizationOnly) {
                                                target="_blank"
                                                rel="noopener noreferrer"
                                                style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                <span style="font-size:14px;">FILE</span>
+                                                <template x-if="staffFilenameLooksLikePdf(item.reference_name)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                        <polyline points="10 9 9 9 8 9"></polyline>
+                                                    </svg>
+                                                </template>
+                                                <template x-if="!staffFilenameLooksLikePdf(item.reference_name)">
+                                                    <span style="font-size:14px;">FILE</span>
+                                                </template>
                                                 <span x-text="item.reference_name || 'Open reference file'"></span>
+                                                <template x-if="staffFilenameLooksLikePdf(item.reference_name)">
+                                                    <span style="font-size:10px;color:#6b7280;">(PDF)</span>
+                                                </template>
                                             </a>
                                         </div>
                                     </template>
@@ -3263,7 +3301,6 @@ window.pfCustomizationPreloadedOrders = (() => {
             /**
              * Collapse aliased customization keys into a single canonical display key.
              * - needed_date / Needed_Date / due_date  → "Needed Date"
-             * - notes / additional_notes / job_notes  → "Notes"
              * - Sizes / Size (Ft) / Dimensions / Dimensions (ft) / dimension → "Size"
              * - branch_name / pickup_branch            → "Branch"
              * The first non-empty value encountered for each alias group wins.
@@ -3275,7 +3312,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const alias = (k) => {
                     const kl = k.toLowerCase().replace(/[\s_()\-]+/g, '');
                     if (kl === 'neededdate' || kl === 'duedate' || kl === 'needed_date') return 'Needed Date';
-                    if (kl === 'notes' || kl === 'additionalnotes' || kl === 'jobnotes' || kl === 'customernotes') return 'Notes';
                     if (kl === 'sizes' || kl === 'sizeft' || kl === 'sizesft' ||
                         kl === 'dimensions' || kl === 'dimensionsft' || kl === 'dimension')
                         return 'Size';
@@ -3287,6 +3323,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const INTERNAL = new Set([
                     'branch_id', 'Branch_ID', 'source_page', 'source',
                     'product_id', 'product_type',
+                    // Note fields - handled separately in yellow Order Notes box
+                    'notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes',
+                    // Design fields - only show as Uploaded Design, not as specs
+                    'design_upload', 'design_upload_path', 'design_file', 'design_tmp_path',
+                    'reference_upload', 'reference_upload_path', 'reference_file', 'reference_tmp_path',
+                    'design_mime', 'reference_mime',
                 ]);
 
                 const out = {};
@@ -3489,6 +3531,10 @@ window.pfCustomizationPreloadedOrders = (() => {
             staffFilenameLooksLikeImage(name) {
                 if (!name) return false;
                 return /\.(jpe?g|png|gif|webp|bmp|svg|avif)$/i.test(String(name));
+            },
+            staffFilenameLooksLikePdf(name) {
+                if (!name) return false;
+                return /\.pdf$/i.test(String(name));
             },
             staffIsGenericServicePlaceholder(url) {
                 const text = String(url || '').trim();
