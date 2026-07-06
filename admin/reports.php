@@ -1254,6 +1254,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 .pf-top-services-swatch { flex:0 0 10px; width:10px; height:10px; border-radius:3px; margin-top:3px; }
 .pf-top-services-name { color:#374151; font-size:12px; font-weight:600; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pf-top-services-meta { color:#6B7C85; font-size:11px; font-weight:500; margin-top:2px; }
+.reports-branch-service-list { column-count:1; margin-top:10px; }
 @media (max-width: 640px) { .pf-top-services-legend { column-count:1; } }
 
 /* ── Revenue donut (layout + custom legend) ───────────────────────── */

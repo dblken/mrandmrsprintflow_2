@@ -1656,6 +1656,32 @@ window.printflowInitReportsCharts = function () {
                     var names = rows.map(function (p) { return String(p.name || 'Unnamed service'); });
                     var maxQty = Math.max.apply(Math, qtys.concat([1]));
                     var xMax = Math.ceil(maxQty * 1.05);
+                    var branchTopQty = qtys[0] || 1;
+                    var branchPercents = qtys.map(function (qty) { return Math.round(((qty || 0) / branchTopQty) * 100); });
+                    var branchList = document.createElement('ul');
+                    branchList.className = 'pf-top-services-legend reports-branch-service-list';
+                    branchList.setAttribute('aria-label', 'Best selling services list for ' + (branch.branch_name || ('Branch ' + (branchIndex + 1))));
+                    names.forEach(function (name, i) {
+                        var li = document.createElement('li');
+                        var swatch = document.createElement('span');
+                        swatch.className = 'pf-top-services-swatch';
+                        swatch.style.backgroundColor = branchBarColors[i % branchBarColors.length] || '#94a3b8';
+                        var body = document.createElement('div');
+                        var title = document.createElement('div');
+                        title.className = 'pf-top-services-name';
+                        title.textContent = name || 'Unnamed service';
+                        var meta = document.createElement('div');
+                        meta.className = 'pf-top-services-meta';
+                        meta.textContent = (qtys[i] || 0).toLocaleString() + ' units - ' + (branchPercents[i] || 0) + '%';
+                        body.appendChild(title);
+                        body.appendChild(meta);
+                        li.appendChild(swatch);
+                        li.appendChild(body);
+                        branchList.appendChild(li);
+                    });
+                    if (chartMount.parentElement) {
+                        chartMount.parentElement.appendChild(branchList);
+                    }
                     var seriesData = qtys.map(function (qty, i) {
                         return { x: String(i + 1), y: qty || 0, fillColor: branchBarColors[i % branchBarColors.length] };
                     });
