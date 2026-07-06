@@ -2179,19 +2179,56 @@ window.printflowInitReportsCharts = function () {
 
             // Use the same color palette as dashboard
             const statusColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
-            const labels = statusData.map(d => d.status);
-            const vals = statusData.map(d => parseInt(d.cnt) || 0);
-            const total = vals.reduce((a, b) => a + b, 0);
-            const colors = labels.map((_, i) => statusColors[i % statusColors.length]);
+            function statusOptions(rows, chartHeight) {
+                const labels = rows.map(d => d.status || 'Unknown');
+                const vals = rows.map(d => parseInt(d.cnt) || 0);
+                const total = vals.reduce((a, b) => a + b, 0);
+                const colors = labels.map((_, i) => statusColors[i % statusColors.length]);
+                return {
+                    chart:{...PF_OPT, type:'donut', height:chartHeight, animations:{enabled:true, easing:'easeinout', speed:600}},
+                    series:vals,
+                    labels:labels,
+                    colors:colors,
+                    plotOptions:{ pie:{ donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
+                    legend:{position:'bottom', horizontalAlign:'left', fontSize:'11px', fontWeight:600, itemMargin:{vertical:3, horizontal:8}},
+                    dataLabels:{enabled:false},
+                    tooltip:{ theme:'dark', fillSeriesColor:false, style:{fontSize:'12px'}, y:{ formatter:v => v + ' orders' } }
+                };
+            }
 
-            pfPushApexChart(mount, {
-                chart:{...PF_OPT, type:'donut', height:300, animations:{enabled:true, easing:'easeinout', speed:600}},
-                series:vals, labels:labels, colors:colors,
-                plotOptions:{ pie:{ donut:{ size:'62%', labels:{ show:true, name:{show:false}, value:{show:false}, total:{ show:true, showAlways:true, label:'Total orders', color:'#64748b', fontSize:'12px', fontWeight:600, formatter:() => total.toLocaleString() } } } } },
-                legend:{position:'bottom', fontSize:'11px', fontWeight:600, itemMargin:{vertical:4}},
-                dataLabels:{enabled:false},
-                tooltip:{ theme:'dark', fillSeriesColor:false, style:{fontSize:'12px'}, y:{ formatter:v => v + ' orders' } }
-            });
+            const branchStatusRows = Array.isArray(rData.orderStatusByBranch) ? rData.orderStatusByBranch.filter(function (branch) {
+                return branch && Number(branch.branch_id || 0) > 0;
+            }) : [];
+            const branchMount = document.getElementById('reports-status-branch-charts');
+            const singleWrap = document.getElementById('reports-status-single-chart');
+            if (branchMount && branchStatusRows.length > 0) {
+                branchMount.classList.remove('hidden');
+                if (singleWrap) singleWrap.classList.add('hidden');
+                branchMount.innerHTML = '';
+                branchStatusRows.forEach(function (branch, index) {
+                    var chartId = 'reports-status-branch-chart-' + index;
+                    var chartMount = pfReportsCreateBranchChartCard(
+                        branchMount,
+                        branch.branch_name || ('Branch ' + (index + 1)),
+                        chartId,
+                        'reports-branch-chart-mount',
+                        null
+                    );
+                    var rows = Array.isArray(branch.rows) ? branch.rows : [];
+                    if (rows.length === 0) {
+                        pfReportsRenderBranchEmpty(chartMount, 'No order status data');
+                        return;
+                    }
+                    pfPushApexChart(chartMount, statusOptions(rows, 205));
+                });
+                return;
+            }
+            if (branchMount) {
+                branchMount.classList.add('hidden');
+                branchMount.innerHTML = '';
+            }
+            if (singleWrap) singleWrap.classList.remove('hidden');
+            pfPushApexChart(mount, statusOptions(statusData, 230));
         } catch(e) { console.error('OrderStatus error:', e); }
     })();
 

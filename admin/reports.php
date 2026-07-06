@@ -550,10 +550,11 @@ foreach ($rev_donut as $rd) {
 
 // ── 8. Order status ───────────────────────────────────────────────────────────
 $status_data = [];
+$status_data_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
         [$b,$bt,$bp] = branch_where_parts('o', $globalAnalyticsBranchId);
-        [$dw,$dt,$dp] = ["", "", []]; // Status All Time
+        [$dw,$dt,$dp] = $getDateWhere('o', 'order_date');
         $status_data = db_query(
             "SELECT o.status, COUNT(*) as cnt FROM orders o
              WHERE 1=1 {$dw} {$b}
@@ -561,6 +562,29 @@ if (!$gaBranchEmpty) {
             $dt . $bt, array_merge($dp, $bp)
         ) ?: [];
         if ($chart_sort === 'value_asc') $status_data = array_reverse($status_data);
+        if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
+            foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+                $branchStatusId = (int)($branchRow['id'] ?? 0);
+                if ($branchStatusId <= 0) {
+                    continue;
+                }
+                [$bb,$bbt,$bbp] = branch_where_parts('o', $branchStatusId);
+                [$bdw,$bdt,$bdp] = $getDateWhere('o', 'order_date');
+                $branchStatusRows = db_query(
+                    "SELECT o.status, COUNT(*) as cnt FROM orders o
+                     WHERE 1=1 {$bdw} {$bb}
+                     GROUP BY o.status ORDER BY cnt DESC",
+                    $bdt . $bbt,
+                    array_merge($bdp, $bbp)
+                ) ?: [];
+                if ($chart_sort === 'value_asc') $branchStatusRows = array_reverse($branchStatusRows);
+                $status_data_by_branch[] = [
+                    'branch_id' => $branchStatusId,
+                    'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchStatusId)),
+                    'rows' => $branchStatusRows,
+                ];
+            }
+        }
     } catch(Exception $e){}
 }
 
@@ -576,11 +600,29 @@ if (!$gaBranchEmpty) {
 
 // ── 10. Customer locations (store + job transactions; customer address linked per transaction) ──
 $customer_locations = [];
+$customer_locations_by_branch = [];
 if (!$gaBranchEmpty) {
     try {
-        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 12, false);
+        $customer_locations = pf_reports_customer_locations_merged($from, $toEnd, $globalAnalyticsBranchId, 5, false);
         if ($chart_sort === 'value_asc') {
             $customer_locations = array_reverse($customer_locations);
+        }
+        if (printflow_branch_value_is_all($globalAnalyticsBranchId)) {
+            foreach (($branchCtx['branches_list'] ?? []) as $branchRow) {
+                $branchLocationId = (int)($branchRow['id'] ?? 0);
+                if ($branchLocationId <= 0) {
+                    continue;
+                }
+                $branchLocationRows = pf_reports_customer_locations_merged($from, $toEnd, $branchLocationId, 5, false);
+                if ($chart_sort === 'value_asc') {
+                    $branchLocationRows = array_reverse($branchLocationRows);
+                }
+                $customer_locations_by_branch[] = [
+                    'branch_id' => $branchLocationId,
+                    'branch_name' => (string)($branchRow['branch_name'] ?? ('Branch #' . $branchLocationId)),
+                    'rows' => $branchLocationRows,
+                ];
+            }
         }
     } catch (Exception $e) {
     }
@@ -1273,6 +1315,20 @@ a.export-dd-link:hover { background: #f9fafb; }
 .reports-product-branch-legend,
 .reports-branch-chart-legend { font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; text-align:left; gap:8px 12px; padding:6px 4px 0; }
 .reports-product-branch-legend > div, .reports-branch-chart-legend > div { justify-content:flex-start; }
+#reports-status-branch-charts { align-items:start; }
+#reports-status-branch-charts .reports-branch-chart-card { min-height:0; }
+#reports-status-branch-charts .reports-branch-chart-title { text-align:left; }
+#reports-status-branch-charts .reports-branch-chart-mount { height:205px; max-width:100%; }
+#reports-status-single-chart { min-height:230px !important; }
+#ch-status .apexcharts-legend,
+#reports-status-branch-charts .apexcharts-legend {
+    justify-content:flex-start !important;
+    text-align:left !important;
+}
+#ch-status .apexcharts-legend-series,
+#reports-status-branch-charts .apexcharts-legend-series {
+    text-align:left !important;
+}
 #pf-rev-donut-branch-charts .reports-branch-chart-legend {
     justify-content:flex-start;
     text-align:left;
@@ -1575,12 +1631,18 @@ a.export-dd-link:hover { background: #f9fafb; }
 .sk-danger   { background:#ef4444; }
 
 /* ── Customer Locations (Progress Bar Style - Match Customization Usage) ── */
+.pf-loc-card-body { padding:16px 18px; }
+.pf-loc-branch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+.pf-loc-branch-card { min-width:0; }
+.pf-loc-branch-title { color:#111827; font-size:12px; font-weight:800; text-align:left; margin:0 0 10px; }
+.pf-loc-empty { min-height:120px; padding:20px 12px; }
 .pf-loc-list {
     display: flex;
     flex-direction: column;
     gap: 14px;
     padding: 20px;
 }
+.pf-loc-list--compact { gap:10px; padding:0; }
 .pf-loc-row {
     display: flex;
     flex-direction: column;
@@ -1631,7 +1693,7 @@ a.export-dd-link:hover { background: #f9fafb; }
 }
 .pf-loc-bar-wrap {
     width: 100%;
-    height: 28px;
+    height: 20px;
     background: #f1f5f9;
     border-radius: 6px;
     overflow: visible;
@@ -2432,6 +2494,18 @@ $dashData = [
             'cnt' => (int)$s['cnt']
         ];
     }, $status_data),
+    'orderStatusByBranch' => array_map(static function ($branch) {
+        return [
+            'branch_id' => (int)($branch['branch_id'] ?? 0),
+            'branch_name' => trim((string)($branch['branch_name'] ?? '')) !== '' ? trim((string)$branch['branch_name']) : 'Branch',
+            'rows' => array_map(static function ($s) {
+                return [
+                    'status' => (string)($s['status'] ?? 'Unknown'),
+                    'cnt' => (int)($s['cnt'] ?? 0),
+                ];
+            }, $branch['rows'] ?? []),
+        ];
+    }, $status_data_by_branch),
     'customUsage' => array_map(function($cu) {
         return [
             'product' => $cu['product'],
@@ -2445,6 +2519,18 @@ $dashData = [
             'orders' => (int)$l['orders']
         ];
     }, $customer_locations),
+    'customerLocationsByBranch' => array_map(static function ($branch) {
+        return [
+            'branch_id' => (int)($branch['branch_id'] ?? 0),
+            'branch_name' => trim((string)($branch['branch_name'] ?? '')) !== '' ? trim((string)$branch['branch_name']) : 'Branch',
+            'rows' => array_map(static function ($l) {
+                return [
+                    'city' => (string)($l['city'] ?? 'Unknown'),
+                    'orders' => (int)($l['orders'] ?? 0),
+                ];
+            }, $branch['rows'] ?? []),
+        ];
+    }, $customer_locations_by_branch),
     'salesByBranch' => array_map(function($b) {
             return [
                 'branch_name' => $b['branch_name'],
@@ -2969,9 +3055,8 @@ $dashData = [
             </div>
             <?php endif; ?>
 
-            <!-- ══ BEST SELLING SERVICES & REVENUE DONUT ═════════════════════ -->
+            <!-- Best Selling Services & Revenue Distribution -->
             <div class="ana-grid print-hide">
-                <!-- Best Selling Services -->
                 <div class="ana-card pf-ch-products-card">
                     <div class="ana-hd">
                         <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
@@ -2979,24 +3064,19 @@ $dashData = [
                             <span>Best Selling Services</span>
                             <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
                         </h3>
-                    <div style="display:flex;align-items:center;gap:12px;" class="no-print">
-                        <span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap;">
-                            <?php echo htmlspecialchars($dash_period_label); ?>
-                        </span>
-                        <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"best_selling"]), $je); ?>)' title="Print Best Selling Services Report">
-                            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
-                    </div>
+                        <div style="display:flex;align-items:center;gap:12px;" class="no-print">
+                            <span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap;"><?php echo htmlspecialchars($dash_period_label); ?></span>
+                            <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"best_selling"]), $je); ?>)' title="Print Best Selling Services Report">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
+                        </div>
                     </div>
                     <div class="ana-bd">
                         <div id="pf-top-services-branch-charts" class="reports-branch-chart-grid hidden" aria-label="Best selling services per branch"></div>
-                        <div class="ch-box" id="pf-ch-products-wrapper">
-                            <div id="ch-products" style="width:100%;"></div>
-                        </div>
+                        <div class="ch-box" id="pf-ch-products-wrapper"><div id="ch-products" style="width:100%;"></div></div>
                         <ul class="pf-top-services-legend" id="pf-top-services-legend" aria-label="Best selling services list"></ul>
                     </div>
                 </div>
 
-                <!-- Revenue Donut -->
                 <div class="ana-card">
                     <div class="ana-hd rev-donut-card-hd">
                         <h3 style="margin:0;"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/></svg>Revenue Distribution</h3>
@@ -3012,17 +3092,13 @@ $dashData = [
                         <div id="pf-rev-donut-branch-charts" class="reports-branch-chart-grid hidden" aria-label="Revenue distribution per branch"></div>
                         <div class="rev-donut-row" id="pf-rev-donut-wrapper">
                             <div class="rev-donut-chart-wrap ch-box"><div id="ch-donut"></div></div>
-                            <div class="rev-donut-legend-wrap">
-                                <ul class="rev-donut-legend" id="pf-rev-donut-legend" aria-label="Revenue by service">
-                                    <!-- Populated by JS -->
-                                </ul>
-                            </div>
+                            <div class="rev-donut-legend-wrap"><ul class="rev-donut-legend" id="pf-rev-donut-legend" aria-label="Revenue by service"></ul></div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ══ SALES BY PRODUCT CATEGORY | SALES BY SERVICE CATEGORY ═══ -->
+            <!-- Sales by Product | Sales by Service Category -->
             <div class="ana-grid print-hide">
                 <div class="ana-card">
                     <div class="ana-hd">
@@ -3035,14 +3111,10 @@ $dashData = [
                     <div class="ana-bd">
                         <?php if (!empty($report_product_category_sales) || !empty($report_product_category_sales_by_branch) || !$gaBranchEmpty): ?>
                         <div id="reports-product-branch-charts" class="reports-product-branch-grid hidden" aria-label="Sales by product per branch"></div>
-                        <div id="reports-product-single-chart" class="ch-box" style="min-height:260px;">
-                            <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
-                                <canvas id="reportsProductCategoryChart" aria-label="Sales by official product"></canvas>
-                            </div>
-                        </div>
+                        <div id="reports-product-single-chart" class="ch-box" style="min-height:260px;"><div style="position:relative;height:240px;max-width:300px;margin:0 auto;"><canvas id="reportsProductCategoryChart" aria-label="Sales by official product"></canvas></div></div>
                         <div id="reports-product-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:flex-start;gap:12px;padding:8px 10px 4px;"></div>
                         <?php else: ?>
-                        <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>No official product sales for this period</div>
+                        <div class="ch-empty" style="min-height:200px;">No official product sales for this period</div>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -3057,131 +3129,59 @@ $dashData = [
                     <div class="ana-bd">
                         <?php if (!empty($report_service_category_sales) || !empty($report_service_category_sales_by_branch)): ?>
                         <div id="reports-service-branch-charts" class="reports-product-branch-grid hidden" aria-label="Sales by service category per branch"></div>
-                        <div id="reports-service-single-chart" class="ch-box" style="min-height:260px;">
-                            <div style="position:relative;height:240px;max-width:300px;margin:0 auto;">
-                                <canvas id="reportsServiceCategoryChart" aria-label="Sales by service category"></canvas>
-                            </div>
-                        </div>
+                        <div id="reports-service-single-chart" class="ch-box" style="min-height:260px;"><div style="position:relative;height:240px;max-width:300px;margin:0 auto;"><canvas id="reportsServiceCategoryChart" aria-label="Sales by service category"></canvas></div></div>
                         <div id="reports-service-cat-legend" style="font-size:12px;display:flex;flex-wrap:wrap;justify-content:flex-start;gap:12px;padding:8px 10px 4px;"></div>
                         <?php else: ?>
-                        <div class="ch-empty" style="min-height:200px;"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/></svg>No customization revenue by category for this period</div>
+                        <div class="ch-empty" style="min-height:200px;">No customization revenue by category for this period</div>
                         <?php endif; ?>
                     </div>
                 </div>
             </div>
 
-            <!-- ══ SEASONAL HEATMAP ══════════════════════════════════════════ -->
+            <!-- Seasonal Demand Heatmap -->
             <?php $hm_box_h = !empty($heatmap_products) ? max(200, count($heatmap_products) * 44 + 56) : 200; ?>
             <div class="ana-card print-hide">
                 <div class="ana-hd heatmap-card-hd">
-                    <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Seasonal Demand Heatmap <span class="heatmap-year-chip" id="pf-heatmap-year-display"><?php echo (int)$heatmap_year; ?></span>
-                        <span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Full Year</span>
-                    </h3>
-                    <div class="heatmap-header-tools">
-                        <div style="display:flex;align-items:center;gap:12px;" class="no-print">
-                            <label class="heatmap-year-label" for="pf-heatmap-year">Year</label>
-                            <select id="pf-heatmap-year" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap year" <?php echo empty($heatmap_available_years) ? 'disabled' : ''; ?>>
-                                <?php if (empty($heatmap_available_years)): ?>
-                                <option value=""><?php echo (int) $y_cal; ?></option>
-                                <?php else: ?>
-                                <?php foreach ($heatmap_available_years as $yy): ?>
-                                <option value="<?php echo (int) $yy; ?>" <?php echo (int) $yy === (int) $heatmap_year ? 'selected' : ''; ?>><?php echo (int) $yy; ?></option>
-                                <?php endforeach; ?>
-                                <?php endif; ?>
-                            </select>
-                            <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"heatmap"]), $je); ?>)' title="Print Seasonal Demand Heatmap Report">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
-                        </div>
-                    </div>
+                    <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Seasonal Demand Heatmap <span class="heatmap-year-chip" id="pf-heatmap-year-display"><?php echo (int)$heatmap_year; ?></span><span style="margin-left:8px;padding:3px 8px;background:#F7FAFC;color:#4A5568;border:1px solid #E2E8F0;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;">Full Year</span></h3>
+                    <div class="heatmap-header-tools"><div style="display:flex;align-items:center;gap:12px;" class="no-print"><label class="heatmap-year-label" for="pf-heatmap-year">Year</label><select id="pf-heatmap-year" class="chart-select heatmap-year-select" style="height:32px;font-size:12px;" aria-label="Heatmap year" <?php echo empty($heatmap_available_years) ? 'disabled' : ''; ?>><?php if (empty($heatmap_available_years)): ?><option value=""><?php echo (int) $y_cal; ?></option><?php else: ?><?php foreach ($heatmap_available_years as $yy): ?><option value="<?php echo (int) $yy; ?>" <?php echo (int) $yy === (int) $heatmap_year ? 'selected' : ''; ?>><?php echo (int) $yy; ?></option><?php endforeach; ?><?php endif; ?></select><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"heatmap"]), $je); ?>)' title="Print Seasonal Demand Heatmap Report">Print</button></div></div>
                 </div>
                 <div class="ana-bd">
-                    <div class="pf-heatmap-legend" aria-label="Heatmap legend" id="pf-heatmap-legend">
-                        <span class="pf-hm-legend-item" data-kind="future" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:repeating-linear-gradient(-45deg,#f8fafc,#f8fafc 3px,#e2e8f0 3px,#e2e8f0 6px);border:1px dashed #cbd5e1;"></i> Not yet</span>
-                        <span class="pf-hm-legend-item" data-kind="nodata" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#f8fafc;border:1px dashed #94a3b8;"></i> No transactions</span>
-                        <span class="pf-hm-legend-item" data-kind="low" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#a5e3f2;"></i> Low</span>
-                        <span class="pf-hm-legend-item" data-kind="med" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#53C5E0;"></i> Medium</span>
-                        <span class="pf-hm-legend-item" data-kind="high" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#00232b;"></i> High</span>
-                    </div>
-                    <div class="ch-box pf-heatmap-chbox" id="pf-heatmap-chbox" style="min-height:<?php echo (int)$hm_box_h; ?>px;">
-                        <div id="pf-heatmap-ajax-loading" class="chart-loading hidden" aria-hidden="true">
-                            <div class="chart-loading-spinner" role="status" aria-label="Loading heatmap"></div>
-                        </div>
-                        <div id="ch-heatmap-mount">
-                            <?php if (!empty($heatmap_products)): ?>
-                            <div class="pf-hm-outer"><?php echo pf_reports_render_heatmap_html($heatmap_products, (int) $heatmap_year); ?></div>
-                            <?php else: ?>
-                            <div class="ch-empty pf-heatmap-empty"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><?php echo empty($heatmap_available_years) ? 'No historical transaction years for this branch.' : 'No data available for the selected year.'; ?></div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
+                    <div class="pf-heatmap-legend" aria-label="Heatmap legend" id="pf-heatmap-legend"><span class="pf-hm-legend-item" data-kind="future" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:repeating-linear-gradient(-45deg,#f8fafc,#f8fafc 3px,#e2e8f0 3px,#e2e8f0 6px);border:1px dashed #cbd5e1;"></i> Not yet</span><span class="pf-hm-legend-item" data-kind="nodata" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#f8fafc;border:1px dashed #94a3b8;"></i> No transactions</span><span class="pf-hm-legend-item" data-kind="low" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#a5e3f2;"></i> Low</span><span class="pf-hm-legend-item" data-kind="med" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#53C5E0;"></i> Medium</span><span class="pf-hm-legend-item" data-kind="high" role="button" tabindex="0" title="Click to toggle visibility"><i style="background:#00232b;"></i> High</span></div>
+                    <div class="ch-box pf-heatmap-chbox" id="pf-heatmap-chbox" style="min-height:<?php echo (int)$hm_box_h; ?>px;"><div id="pf-heatmap-ajax-loading" class="chart-loading hidden" aria-hidden="true"><div class="chart-loading-spinner" role="status" aria-label="Loading heatmap"></div></div><div id="ch-heatmap-mount"><?php if (!empty($heatmap_products)): ?><div class="pf-hm-outer"><?php echo pf_reports_render_heatmap_html($heatmap_products, (int) $heatmap_year); ?></div><?php else: ?><div class="ch-empty pf-heatmap-empty"><?php echo empty($heatmap_available_years) ? 'No historical transaction years for this branch.' : 'No data available for the selected year.'; ?></div><?php endif; ?></div></div>
                 </div>
             </div>
 
-
-
-
-
-            <!-- ══ CUSTOMER LOCATIONS | ORDER STATUS BREAKDOWN ════════════════ -->
+            <!-- Customer Locations | Order Status Breakdown -->
             <div class="ana-grid print-hide">
                 <div class="ana-card">
                     <div class="ana-hd">
-                        <h3><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Locations
-                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
-                    </h3>
-                        <div style="display:flex;align-items:center;gap:12px;" class="no-print">
-                            <?php if (!empty($customer_locations)): ?>
-                            <span class="top-location-pill">Top Location: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span>
-                            <?php endif; ?>
-                            <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Locations Report">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
-                        </div>
+                        <h3><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg> Customer Locations<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span></h3>
+                        <div style="display:flex;align-items:center;gap:12px;" class="no-print"><?php if (!empty($customer_locations)): ?><span class="top-location-pill">Top Location: <?php echo htmlspecialchars(trim($customer_locations[0]['city'])); ?></span><?php endif; ?><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"locations"]), $je); ?>)' title="Print Customer Locations Report">Print</button></div>
                     </div>
-                    <div class="ana-bd">
-                        <?php if (!empty($customer_locations)): ?>
-                            <?php 
-                                $max_orders = max(array_column($customer_locations, 'orders'));
-                            ?>
-                            <div class="pf-loc-list">
-                                <?php foreach ($customer_locations as $index => $loc): 
-                                    $pct = $max_orders > 0 ? ($loc['orders'] / $max_orders) * 100 : 0;
-                                    $rank = $index + 1;
-                                ?>
-                                <div class="pf-loc-row">
-                                    <div class="pf-loc-header">
-                                        <div class="pf-loc-name">
-                                            <span class="pf-loc-rank">#<?php echo $rank; ?></span>
-                                            <span class="pf-loc-city"><?php echo htmlspecialchars(trim($loc['city'])); ?></span>
-                                        </div>
-                                        <div class="pf-loc-value"><?php echo $loc['orders']; ?></div>
+                    <div class="ana-bd pf-loc-card-body">
+                        <?php if (!empty($customer_locations_by_branch)): ?>
+                            <div class="pf-loc-branch-grid">
+                                <?php foreach ($customer_locations_by_branch as $branchLoc): ?>
+                                    <?php $branchRows = array_slice($branchLoc['rows'] ?? [], 0, 5); $branchMax = !empty($branchRows) ? max(array_column($branchRows, 'orders')) : 0; ?>
+                                    <div class="pf-loc-branch-card"><div class="pf-loc-branch-title"><?php echo htmlspecialchars((string)($branchLoc['branch_name'] ?? 'Branch')); ?></div>
+                                        <?php if (!empty($branchRows)): ?><div class="pf-loc-list pf-loc-list--compact"><?php foreach ($branchRows as $index => $loc): $pct = $branchMax > 0 ? ($loc['orders'] / $branchMax) * 100 : 0; $rank = $index + 1; ?><div class="pf-loc-row"><div class="pf-loc-header"><div class="pf-loc-name"><span class="pf-loc-rank">#<?php echo $rank; ?></span><span class="pf-loc-city"><?php echo htmlspecialchars(trim((string)$loc['city'])); ?></span></div><div class="pf-loc-value"><?php echo (int)$loc['orders']; ?></div></div><div class="pf-loc-bar-wrap"><div class="pf-loc-bar" style="width: <?php echo $pct . '%'; ?>;"></div></div></div><?php endforeach; ?></div><?php else: ?><div class="ch-empty pf-loc-empty">No location data</div><?php endif; ?>
                                     </div>
-                                    <div class="pf-loc-bar-wrap">
-                                         <div class="pf-loc-bar" style="width: <?php echo $pct . '%'; ?>;"></div>
-                                    </div>
-                                </div>
                                 <?php endforeach; ?>
                             </div>
+                        <?php elseif (!empty($customer_locations)): ?>
+                            <?php $customer_locations = array_slice($customer_locations, 0, 5); $max_orders = max(array_column($customer_locations, 'orders')); ?>
+                            <div class="pf-loc-list pf-loc-list--compact"><?php foreach ($customer_locations as $index => $loc): $pct = $max_orders > 0 ? ($loc['orders'] / $max_orders) * 100 : 0; $rank = $index + 1; ?><div class="pf-loc-row"><div class="pf-loc-header"><div class="pf-loc-name"><span class="pf-loc-rank">#<?php echo $rank; ?></span><span class="pf-loc-city"><?php echo htmlspecialchars(trim($loc['city'])); ?></span></div><div class="pf-loc-value"><?php echo $loc['orders']; ?></div></div><div class="pf-loc-bar-wrap"><div class="pf-loc-bar" style="width: <?php echo $pct . '%'; ?>;"></div></div></div><?php endforeach; ?></div>
                         <?php else: ?>
-                            <div class="ch-empty"><svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/></svg>No location data available</div>
+                            <div class="ch-empty">No location data available</div>
                         <?php endif; ?>
                     </div>
                 </div>
-                
+
                 <div class="ana-card">
-                    <div class="ana-hd">
-                        <h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Order Status Breakdown
-                            <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span>
-                        </h3>
-                        <div class="no-print">
-                            <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"order_status"]), $je); ?>)' title="Print Order Status Breakdown Report">
-                                <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>Print</button>
-                        </div>
-                    </div>
-                    <div class="ana-bd">
-                        <div class="ch-box" style="min-height:300px;"><div id="ch-status"></div></div>
-                    </div>
+                    <div class="ana-hd"><h3><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>Order Status Breakdown<span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border:1px solid #BEE3F8;border-radius:6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All time'; ?></span></h3><div class="no-print"><button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"order_status"]), $je); ?>)' title="Print Order Status Breakdown Report">Print</button></div></div>
+                    <div class="ana-bd"><div id="reports-status-branch-charts" class="reports-branch-chart-grid hidden" aria-label="Order status per branch"></div><div id="reports-status-single-chart" class="ch-box" style="min-height:260px;"><div id="ch-status"></div></div></div>
                 </div>
             </div>
-
             <!-- ══ TOP CUSTOMERS ══════════════════════════════════════════ -->
             <div class="ana-card print-hide" style="display:none;">
                 <div class="ana-hd">
