@@ -471,6 +471,18 @@ try {
 
                 // 4. Enrich orders using the pre-fetched data
                 $visibleOrders = [];
+                // Gather all unique order IDs
+                $jobOrderIds = [];
+                foreach ($orders as $jo) {
+                    $oid = (int)($jo['order_id'] ?? 0);
+                    if ($oid > 0) {
+                        $jobOrderIds[] = $oid;
+                    }
+                }
+                
+                $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($jobOrderIds, $serviceOnly);
+
+                $visibleOrders = [];
                 foreach ($orders as $jo) {
                     $jo['order_type'] = 'JOB';
                     $jo['order_source'] = jo_api_resolve_order_source(
@@ -478,11 +490,13 @@ try {
                         $jo['order_source'] ?? null
                     );
                     if (!empty($jo['order_id'])) {
-                        $payload = JobOrderService::getStoreOrderItemsPayload((int)$jo['order_id'], $serviceOnly, $serviceOnly);
-                        if ($serviceOnly && empty($payload['items'])) {
+                        $payload = $payloads[(int)$jo['order_id']] ?? null;
+                        if ($serviceOnly && (empty($payload) || empty($payload['items']))) {
                             continue;
                         }
-                        JobOrderService::enrichStaffJobRowFromStorePayload($jo, $payload);
+                        if ($payload !== null) {
+                            JobOrderService::enrichStaffJobRowFromStorePayload($jo, $payload);
+                        }
                         $jo['order_code'] = printflow_get_order_inventory_reference((int)$jo['order_id'])['code'] ?? '';
                     } else {
                         $jo['order_code'] = printflow_get_job_inventory_reference((int)($jo['id'] ?? 0))['code'] ?? '';
@@ -626,33 +640,44 @@ try {
                     ORDER BY o.order_date DESC
                     LIMIT " . (int)$dashboardListLimit;
 
-            $pending_orders = $joStaffBranch !== null
-                ? (db_query($sql, 'i', [$joStaffBranch]) ?: [])
-                : (db_query($sql) ?: []);
-            
-            $visiblePendingOrders = [];
-            foreach ($pending_orders as $order) {
-                $order['readiness'] = 'READY';
-                $order['estimated_cost'] = 0;
-                $order['order_code'] = printflow_get_order_inventory_reference((int)($order['order_id'] ?? 0))['code'] ?? '';
-                $order['order_source'] = jo_api_resolve_order_source(
-                    (int)($order['order_id'] ?? 0),
-                    $order['order_source'] ?? null
-                );
-                
-                // Fetch dynamic correct names based on ordered items customizations
-                $payload = JobOrderService::getStoreOrderItemsPayload($order['order_id'], $serviceOnly, $serviceOnly);
-                if ($serviceOnly && empty($payload['items'])) {
-                    continue;
-                }
-                JobOrderService::enrichStaffJobRowFromStorePayload($order, $payload);
-                $order['order_source'] = jo_api_resolve_order_source(
-                    (int)($order['order_id'] ?? 0),
-                    $order['order_source'] ?? null
-                );
-                $visiblePendingOrders[] = $order;
-            }
-            $pending_orders = $visiblePendingOrders;
+             $pending_orders = $joStaffBranch !== null
+                 ? (db_query($sql, 'i', [$joStaffBranch]) ?: [])
+                 : (db_query($sql) ?: []);
+             
+             $pendingOrderIds = [];
+             foreach ($pending_orders as $order) {
+                 $oid = (int)($order['order_id'] ?? 0);
+                 if ($oid > 0) {
+                     $pendingOrderIds[] = $oid;
+                 }
+             }
+
+             $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
+
+             $visiblePendingOrders = [];
+             foreach ($pending_orders as $order) {
+                 $order['readiness'] = 'READY';
+                 $order['estimated_cost'] = 0;
+                 $order['order_code'] = printflow_get_order_inventory_reference((int)($order['order_id'] ?? 0))['code'] ?? '';
+                 $order['order_source'] = jo_api_resolve_order_source(
+                     (int)($order['order_id'] ?? 0),
+                     $order['order_source'] ?? null
+                 );
+                 
+                 $payload = $payloads[(int)($order['order_id'] ?? 0)] ?? null;
+                 if ($serviceOnly && (empty($payload) || empty($payload['items']))) {
+                     continue;
+                 }
+                 if ($payload !== null) {
+                     JobOrderService::enrichStaffJobRowFromStorePayload($order, $payload);
+                 }
+                 $order['order_source'] = jo_api_resolve_order_source(
+                     (int)($order['order_id'] ?? 0),
+                     $order['order_source'] ?? null
+                 );
+                 $visiblePendingOrders[] = $order;
+             }
+             $pending_orders = $visiblePendingOrders;
 
             // Customizations from POS (customizations table).
             // Online service orders also create rows in customizations, but the complete

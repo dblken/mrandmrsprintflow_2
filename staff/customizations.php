@@ -77,161 +77,15 @@ if ($branchFilter !== null) {
     $ordBranchParams = [$b];
 }
 
-// Get statistics for KPIs from job/customization work only.
-$jobCustomizationScopeSql = " AND (
-    jo.order_id IS NULL
-    OR EXISTS (
-        SELECT 1
-        FROM orders o_scope
-        WHERE o_scope.order_id = jo.order_id
-          AND o_scope.order_type = 'custom'
-    )
-)";
-
-// OPTIMIZATION: Combine all COUNT queries into a single GROUP BY query
-$kpiStats = db_query(
-    "SELECT 
-        COUNT(*) as total_jobs,
-        SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_jobs,
-        SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) as approval_jobs,
-        SUM(CASE WHEN status IN ('IN_PRODUCTION','PROCESSING','PRINTING') THEN 1 ELSE 0 END) as in_production_jobs,
-        SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_jobs_jobs
-     FROM job_orders jo
-     WHERE 1=1" . $jobCustomizationScopeSql . $joBranchSql,
-    $joBranchTypes ?: null,
-    $joBranchParams ?: null
-)[0];
-
-$total_jobs = (int)($kpiStats['total_jobs'] ?? 0);
-$pending_jobs = (int)($kpiStats['pending_jobs'] ?? 0);
-$approval_jobs = (int)($kpiStats['approval_jobs'] ?? 0);
-$pending_approved_jobs = $pending_jobs + $approval_jobs;
-$in_production = (int)($kpiStats['in_production_jobs'] ?? 0);
-$completed_jobs = (int)($kpiStats['completed_jobs_jobs'] ?? 0);
+// Get statistics for KPIs from job/customization work only (disabled on page load, handled in frontend and API).
+$total_jobs = 0;
+$pending_jobs = 0;
+$approval_jobs = 0;
+$pending_approved_jobs = 0;
+$in_production = 0;
+$completed_jobs = 0;
 
 $preloaded_customization_rows = [];
-
-$job_rows = db_query(
-    "SELECT jo.id,
-            jo.order_id,
-            jo.job_title,
-            jo.service_type,
-            jo.width_ft,
-            jo.height_ft,
-            jo.quantity,
-            jo.status,
-            jo.created_at,
-            jo.updated_at,
-            jo.due_date,
-            c.first_name,
-            c.last_name,
-            c.customer_type,
-            c.transaction_count,
-            c.profile_picture AS customer_profile_picture,
-            COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
-            CASE
-                WHEN LOWER(TRIM(COALESCE(ord.order_source, ''))) IN ('pos', 'walk-in') THEN LOWER(TRIM(ord.order_source))
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM customizations cpos
-                    WHERE cpos.order_id = jo.order_id
-                      AND cpos.customization_details LIKE '%\"source\":\"POS\"%'
-                    LIMIT 1
-                ) THEN 'pos'
-                ELSE COALESCE(ord.order_source, 'customer')
-            END AS order_source
-     FROM job_orders jo
-     LEFT JOIN customers c ON jo.customer_id = c.customer_id
-     LEFT JOIN orders ord ON ord.order_id = jo.order_id
-     WHERE (
-        jo.order_id IS NULL
-        OR EXISTS (
-            SELECT 1
-            FROM orders o_scope
-            WHERE o_scope.order_id = jo.order_id
-              AND o_scope.order_type = 'custom'
-        )
-     )" . $joBranchSql . "
-     ORDER BY jo.created_at DESC
-     LIMIT 200",
-    $joBranchTypes ?: null,
-    $joBranchParams ?: null
-) ?: [];
-
-// OPTIMIZATION: Batch fetch all order payloads to eliminate N+1 queries
-$orderIds = array_values(array_filter(array_unique(array_map(
-    fn($row) => (int)($row['order_id'] ?? 0),
-    $job_rows
-))));
-$orderPayloadCache = [];
-foreach ($orderIds as $oid) {
-    if ($oid > 0) {
-        $orderPayloadCache[$oid] = JobOrderService::getStoreOrderItemsPayload($oid, true, true);
-    }
-}
-
-foreach ($job_rows as $row) {
-    $resolvedSource = strtolower(trim((string)($row['order_source'] ?? 'customer')));
-    $isPosSource = in_array($resolvedSource, ['pos', 'walk-in'], true);
-    if ($staffCustomizationRole === 'pos' && !$isPosSource) {
-        continue;
-    }
-    if ($staffCustomizationRole === 'online' && $isPosSource) {
-        continue;
-    }
-    if (!empty($row['order_id'])) {
-        $payload = $orderPayloadCache[(int)$row['order_id']] ?? null;
-        if ($payload === null) {
-            continue;
-        }
-        $serviceItems = array_values($payload['items'] ?? []);
-        if (empty($serviceItems)) {
-            continue;
-        }
-        $payload['items'] = $serviceItems;
-        JobOrderService::enrichStaffJobRowFromStorePayload($row, $payload);
-        $row['order_code'] = printflow_get_order_inventory_reference((int)$row['order_id'])['code'] ?? '';
-    } else {
-        $row['order_code'] = printflow_get_job_inventory_reference((int)($row['id'] ?? 0))['code'] ?? '';
-    }
-    $row['order_type'] = 'JOB';
-    $preloaded_customization_rows[] = $row;
-}
-
-if (!function_exists('printflow_pos_customization_status_bucket')) {
-    function printflow_pos_customization_status_bucket(string $status): string {
-        $normalized = strtoupper(trim($status));
-        if (in_array($normalized, ['COMPLETED'], true)) {
-            return 'COMPLETED';
-        }
-        if (in_array($normalized, ['CANCELLED', 'REJECTED'], true)) {
-            return 'CANCELLED';
-        }
-        return 'PENDING';
-    }
-}
-
-if (!function_exists('printflow_online_customization_stage_bucket')) {
-    function printflow_online_customization_stage_bucket(string $status): string {
-        $normalized = strtoupper(trim($status));
-        if (in_array($normalized, ['REJECTED', 'CANCELLED'], true)) {
-            return 'CLOSED';
-        }
-        if (in_array($normalized, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
-            return 'PRODUCTION';
-        }
-        if (in_array($normalized, ['TO_RECEIVE', 'READY_TO_COLLECT'], true)) {
-            return 'TO_RECEIVE';
-        }
-        if (in_array($normalized, ['COMPLETED'], true)) {
-            return 'COMPLETED';
-        }
-        if (in_array($normalized, ['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)) {
-            return 'PAYMENT';
-        }
-        return 'INQUIRY';
-    }
-}
 
 $pos_pending_count = 0;
 $pos_completed_count = 0;
@@ -240,48 +94,7 @@ $online_inquiry_count = 0;
 $online_payment_count = 0;
 $online_production_count = 0;
 $online_closed_count = 0;
-if ($isPosCustomizationView) {
-    foreach ($preloaded_customization_rows as $row) {
-        $bucket = printflow_pos_customization_status_bucket((string)($row['status'] ?? 'PENDING'));
-        if ($bucket === 'COMPLETED') {
-            $pos_completed_count++;
-        } elseif ($bucket === 'CANCELLED') {
-            $pos_cancelled_count++;
-        } else {
-            $pos_pending_count++;
-        }
-    }
-} else {
-    foreach ($preloaded_customization_rows as $row) {
-        $bucket = printflow_online_customization_stage_bucket((string)($row['status'] ?? 'PENDING'));
-        if ($bucket === 'PAYMENT') {
-            $online_payment_count++;
-        } elseif ($bucket === 'PRODUCTION') {
-            $online_production_count++;
-        } elseif ($bucket === 'CLOSED') {
-            $online_closed_count++;
-        } else {
-            $online_inquiry_count++;
-        }
-    }
-}
-
-if ($showLatestCustomizationOnly) {
-    usort($preloaded_customization_rows, static function (array $a, array $b): int {
-        $ta = strtotime((string)($a['updated_at'] ?? $a['created_at'] ?? '')) ?: 0;
-        $tb = strtotime((string)($b['updated_at'] ?? $b['created_at'] ?? '')) ?: 0;
-        return $tb <=> $ta;
-    });
-    $preloaded_customization_rows = array_slice($preloaded_customization_rows, 0, 1);
-
-    $latestRow = $preloaded_customization_rows[0] ?? null;
-    $latestStatus = strtoupper(str_replace(' ', '_', (string)($latestRow['status'] ?? '')));
-    $total_jobs = $latestRow ? 1 : 0;
-    $pending_jobs = ($latestStatus === 'PENDING') ? 1 : 0;
-    $approval_jobs = ($latestStatus === 'APPROVED') ? 1 : 0;
-    $in_production = in_array($latestStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true) ? 1 : 0;
-    $completed_jobs = ($latestStatus === 'COMPLETED') ? 1 : 0;
-}
+?>
 
 
 ?>
@@ -295,6 +108,10 @@ if ($showLatestCustomizationOnly) {
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
 
 
 
@@ -1208,65 +1025,65 @@ if ($showLatestCustomizationOnly) {
 
         <main>
                 <div class="kpi-row">
-                <?php if ($isPosCustomizationView): ?>
-                <div class="kpi-card indigo">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Total Customizations</span>
-                        <span class="kpi-value"><?php echo number_format($total_jobs); ?></span>
-                        <span class="kpi-sub"><?php echo number_format($completed_jobs); ?> items finished</span>
-                    </span>
-                </div>
-                <div class="kpi-card amber">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Pending</span>
-                        <span class="kpi-value"><?php echo number_format($pos_pending_count); ?></span>
-                        <span class="kpi-sub">Active walk-in jobs</span>
-                    </span>
-                </div>
-                <div class="kpi-card blue">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Completed</span>
-                        <span class="kpi-value"><?php echo number_format($pos_completed_count); ?></span>
-                        <span class="kpi-sub">Finished walk-in orders</span>
-                    </span>
-                </div>
-                <div class="kpi-card emerald">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Cancelled</span>
-                        <span class="kpi-value"><?php echo number_format($pos_cancelled_count); ?></span>
-                        <span class="kpi-sub">Stopped transactions</span>
-                    </span>
-                </div>
-                <?php else: ?>
-                <div class="kpi-card amber">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Inquiry &amp; Design</span>
-                        <span class="kpi-value"><?php echo number_format($online_inquiry_count); ?></span>
-                        <span class="kpi-sub">Review, revisions, materials, pricing</span>
-                    </span>
-                </div>
-                <div class="kpi-card blue">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Payment</span>
-                        <span class="kpi-value"><?php echo number_format($online_payment_count); ?></span>
-                        <span class="kpi-sub">To pay and for verification</span>
-                    </span>
-                </div>
-                <div class="kpi-card emerald">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Production</span>
-                        <span class="kpi-value"><?php echo number_format($online_production_count); ?></span>
-                        <span class="kpi-sub">Printing, pickup, completed</span>
-                    </span>
-                </div>
-                <div class="kpi-card rose">
-                    <span class="kpi-card-inner">
-                        <span class="kpi-label">Cancelled</span>
-                        <span class="kpi-value"><?php echo number_format($online_closed_count); ?></span>
-                        <span class="kpi-sub">Rejected or cancelled</span>
-                    </span>
-                </div>
-                <?php endif; ?>
+                 <?php if ($isPosCustomizationView): ?>
+                 <div class="kpi-card indigo">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Total Customizations</span>
+                         <span class="kpi-value" x-text="getStatusCount('ALL')"><?php echo number_format($total_jobs); ?></span>
+                         <span class="kpi-sub" x-text="getStatusCount('COMPLETED') + ' items finished'"><?php echo number_format($completed_jobs); ?> items finished</span>
+                     </span>
+                 </div>
+                 <div class="kpi-card amber">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Pending</span>
+                         <span class="kpi-value" x-text="getStatusCount('PENDING')"><?php echo number_format($pos_pending_count); ?></span>
+                         <span class="kpi-sub">Active walk-in jobs</span>
+                     </span>
+                 </div>
+                 <div class="kpi-card blue">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Completed</span>
+                         <span class="kpi-value" x-text="getStatusCount('COMPLETED')"><?php echo number_format($pos_completed_count); ?></span>
+                         <span class="kpi-sub">Finished walk-in orders</span>
+                     </span>
+                 </div>
+                 <div class="kpi-card emerald">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Cancelled</span>
+                         <span class="kpi-value" x-text="getStatusCount('CANCELLED')"><?php echo number_format($pos_cancelled_count); ?></span>
+                         <span class="kpi-sub">Stopped transactions</span>
+                     </span>
+                 </div>
+                 <?php else: ?>
+                 <div class="kpi-card amber">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Inquiry &amp; Design</span>
+                         <span class="kpi-value" x-text="getStatusCount('INQUIRY')"><?php echo number_format($online_inquiry_count); ?></span>
+                         <span class="kpi-sub">Review, revisions, materials, pricing</span>
+                     </span>
+                 </div>
+                 <div class="kpi-card blue">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Payment</span>
+                         <span class="kpi-value" x-text="getStatusCount('PAYMENT')"><?php echo number_format($online_payment_count); ?></span>
+                         <span class="kpi-sub">To pay and for verification</span>
+                     </span>
+                 </div>
+                 <div class="kpi-card emerald">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Production</span>
+                         <span class="kpi-value" x-text="getStatusCount('PRODUCTION')"><?php echo number_format($online_production_count); ?></span>
+                         <span class="kpi-sub">Printing, pickup, completed</span>
+                     </span>
+                 </div>
+                 <div class="kpi-card rose">
+                     <span class="kpi-card-inner">
+                         <span class="kpi-label">Cancelled</span>
+                         <span class="kpi-value" x-text="getStatusCount('CLOSED')"><?php echo number_format($online_closed_count); ?></span>
+                         <span class="kpi-sub">Rejected or cancelled</span>
+                     </span>
+                 </div>
+                 <?php endif; ?>
             </div>
 
             <!-- Jobs List & Filters (matching Enterprise reference) -->
@@ -1472,7 +1289,18 @@ if ($showLatestCustomizationOnly) {
                                     </td>
                                 </tr>
                             </template>
-                            <tr x-show="filteredOrders.length === 0">
+                            <tr x-show="loadingOrders">
+                                <td colspan="6" class="px-6 py-24 text-center">
+                                    <div style="display:inline-flex; align-items:center; gap:8px; color:#0d9488; font-weight:600; font-size:14px; text-transform:uppercase; letter-spacing:0.05em;">
+                                        <svg class="animate-spin" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="animation: spin 1s linear infinite;">
+                                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" fill="none"/>
+                                            <path d="M12 2C6.477 2 2 6.477 2 12" stroke="currentColor" fill="none"/>
+                                        </svg>
+                                        <span>Loading customizations...</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr x-show="!loadingOrders && filteredOrders.length === 0">
                                 <td colspan="6" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
@@ -2405,6 +2233,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             }),
             statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
+            loadingOrders: true,
+            modalCache: {},
             currentPage: 1,
             itemsPerPage: 15,
             orders: [],
@@ -3974,6 +3804,7 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             async loadOrders(options = {}) {
                 const silent = !!options.silent;
+                this.modalCache = {};
                 try {
                     // Drop stale optimistic overrides before applying freshly fetched rows.
                     const now = Date.now();
@@ -4004,6 +3835,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
                         this.bumpOrdersVersion();
                     }
+                    this.loadingOrders = false;
                 } catch(err) {
                     if (!silent) {
                         console.error('Error loading orders:', err);
@@ -4012,6 +3844,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         ? <?php echo $showLatestCustomizationOnly ? 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders).slice(0, 1)' : 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders)'; ?>
                         : [];
                     this.bumpOrdersVersion();
+                    this.loadingOrders = false;
                 }
             },
 
@@ -4346,6 +4179,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                     return;
                 }
 
+                const cacheKey = orderType + '-' + id;
+                if (this.modalCache && this.modalCache[cacheKey]) {
+                    this.currentJo = this.modalCache[cacheKey];
+                    this.jobPriceInput = this.currentJo.final_price || 0;
+                    this.showDetailsModal = true;
+                    this.loadingDetails = false;
+                    return;
+                }
+
                 this.showDetailsModal = true;
                 this.loadingDetails = true;
                 this.footerActionError = '';
@@ -4370,6 +4212,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             if (!isPreApprovalPosCustomization && (!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
                                 await this.refreshMaterials();
                             }
+                            this.modalCache[cacheKey] = this.currentJo;
                         } else {
                             const fallbackOrderId = order?.order_id ?? id;
                             const fallbackRes = await this.parseJsonResponse(
@@ -4388,6 +4231,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 if ((!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
                                     await this.refreshMaterials();
                                 }
+                                this.modalCache[cacheKey] = this.currentJo;
                             } else {
                                 this.showStaffAlert('Error', detailRes.error || 'Customization details could not be loaded.');
                                 this.showDetailsModal = false;
@@ -4413,6 +4257,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 if ((!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
                                     await this.refreshMaterials();
                                 }
+                                this.modalCache[cacheKey] = this.currentJo;
                             } else {
                                 this.showDetailsModal = false;
                             }
@@ -4490,6 +4335,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if ((!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
                         await this.refreshMaterials();
                     }
+                    this.modalCache[cacheKey] = this.currentJo;
                     this.loadingDetails = false;
                 } else {
                     // JOB ORDER
@@ -4514,6 +4360,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             for (const m of this.currentJo.materials || []) {
                                 if (m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
                             }
+                            this.modalCache[cacheKey] = this.currentJo;
                         } else {
                             // Fallback: It might be a regular order ID passed with job_type=JOB
                             const fallbackRes = await this.parseJsonResponse(
@@ -4527,6 +4374,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 if (!this.currentJo.job_order_id) {
                                     await this.resolveEffectiveJobId();
                                 }
+                                this.modalCache[cacheKey] = this.currentJo;
                             } else {
                                 this.showStaffAlert('Error', 'Order details could not be loaded.');
                                 this.showDetailsModal = false;

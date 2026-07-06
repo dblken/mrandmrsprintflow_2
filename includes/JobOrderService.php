@@ -2693,6 +2693,140 @@ class JobOrderService {
     }
 
     /**
+     * Batch-load lightweight item payloads for a list of order IDs in ONE query.
+     * Used by list_orders / list_pending_orders to replace the N+1 loop.
+     *
+     * @param  int[]  $orderIds
+     * @param  bool   $serviceOnly
+     * @return array<int, array{items:array,width_ft:string,height_ft:string,service_type:string,line_qty:int}>
+     */
+    public static function getStoreOrderItemsPayloadsBatch(array $orderIds, bool $serviceOnly = false): array {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if (empty($orderIds)) {
+            return [];
+        }
+
+        if (function_exists('printflow_ensure_order_items_specifications_column')) {
+            printflow_ensure_order_items_specifications_column();
+        }
+
+        $productImageSelect = "'' AS product_image";
+        $hasProductImage = self::tableHasColumn('products', 'product_image');
+        $hasPhotoPath    = self::tableHasColumn('products', 'photo_path');
+        if ($hasProductImage && $hasPhotoPath) {
+            $productImageSelect = "COALESCE(NULLIF(p.photo_path,''),NULLIF(p.product_image,'')) AS product_image";
+        } elseif ($hasProductImage) {
+            $productImageSelect = "p.product_image AS product_image";
+        } elseif ($hasPhotoPath) {
+            $productImageSelect = "p.photo_path AS product_image";
+        }
+
+        $idsStr = implode(',', $orderIds);
+        $items = db_query(
+            "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
+                    oi.customization_data, oi.specifications,
+                    oi.design_image, oi.design_file, oi.reference_image_file,
+                    IFNULL(LENGTH(oi.design_image),0) AS pf_design_image_bytes,
+                    p.name AS product_name, p.category, p.product_type,
+                    {$productImageSelect}
+             FROM order_items oi
+             LEFT JOIN products p ON oi.product_id = p.product_id
+             WHERE oi.order_id IN ({$idsStr})
+             ORDER BY oi.order_item_id ASC"
+        ) ?: [];
+
+        require_once __DIR__ . '/order_ui_helper.php';
+
+        // Group by order_id
+        $itemsByOrder = [];
+        foreach ($items as $item) {
+            $itemsByOrder[(int)$item['order_id']][] = $item;
+        }
+
+        $payloads = [];
+        foreach ($orderIds as $orderId) {
+            $orderItems  = $itemsByOrder[$orderId] ?? [];
+            $items_out   = [];
+            $first_custom = [];
+            $total_qty   = 0;
+            $width_ft    = '1';
+            $height_ft   = '1';
+
+            foreach ($orderItems as $item) {
+                $custom    = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+                $savedSpecs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+                if ($savedSpecs !== []) {
+                    $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+                }
+                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                    continue;
+                }
+                if (empty($first_custom)) {
+                    $first_custom = $custom;
+                }
+                $total_qty += (int)($item['quantity'] ?? 0);
+
+                if (!empty($custom['width']) && !empty($custom['height'])) {
+                    $width_ft  = (string)$custom['width'];
+                    $height_ft = (string)$custom['height'];
+                } elseif (!empty($custom['dimensions'])) {
+                    $d = $custom['dimensions'];
+                    if (is_string($d) && preg_match('/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/iu', $d, $m)) {
+                        $width_ft  = $m[1];
+                        $height_ft = $m[2];
+                    } else {
+                        $width_ft  = is_string($d) ? (string)$d : '';
+                        $height_ft = '';
+                    }
+                }
+
+                $name = (string)($item['product_name'] ?? 'Custom Order');
+                if ($name === '') {
+                    $name = get_service_name_from_customization($custom, 'Custom Order');
+                }
+
+                $serviceIdForImage = (int)($custom['service_id'] ?? 0);
+                if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
+                    $serviceIdForImage = printflow_resolve_active_service_catalog_id($name);
+                }
+
+                $items_out[] = [
+                    'order_item_id'      => (int)($item['order_item_id'] ?? 0),
+                    'product_name'       => $name,
+                    'product_type'       => $item['product_type'] ?? 'custom',
+                    'product_image'      => (string)($item['product_image'] ?? ''),
+                    'service_id'         => $serviceIdForImage,
+                    'service_image'      => function_exists('get_service_image_url') ? get_service_image_url($name, $serviceIdForImage) : '',
+                    'quantity'           => (int)($item['quantity'] ?? 0),
+                    'customization'      => $custom,
+                    'specifications'     => $custom,
+                    'specifications_raw' => (string)($item['specifications'] ?? ''),
+                    'design_url'         => ((int)($item['pf_design_image_bytes'] ?? 0) > 0
+                        || !empty($item['design_image'])
+                        || !empty($item['design_file']))
+                        ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] : null,
+                    'reference_url'      => !empty($item['reference_image_file'])
+                        ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference' : null,
+                ];
+            }
+
+            $service_name = !empty($items_out)
+                ? get_service_name_from_customization($first_custom, $items_out[0]['product_name'] ?? 'Custom Order')
+                : '';
+
+            $payloads[$orderId] = [
+                'items'        => $items_out,
+                'width_ft'     => $width_ft,
+                'height_ft'    => $height_ft,
+                'service_type' => $service_name,
+                'line_qty'     => $total_qty,
+            ];
+        }
+
+        return $payloads;
+    }
+
+    /**
      * Prefer store-checkout dimensions and line quantity over job_orders placeholders (often 1×1).
      *
      * @param array<string,mixed> $targetRow
