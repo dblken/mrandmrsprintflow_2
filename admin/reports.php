@@ -2317,7 +2317,6 @@ a.export-dd-link:hover { background: #f9fafb; }
                             <button type="button" class="sort-option" data-pf-export-file="reports_print.php" data-pf-export-report="customers" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick="window.printflowReportsExportPrint(this); exportOpen = false">Print – Customers Table</button>
                             
                             <hr class="export-dd-hr">
-                            <button type="button" class="sort-option" data-pf-export-file="reports_print.php" data-pf-export-report="customers" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick="window.printflowReportsExportPrint(this); exportOpen = false">Print – Customers Table</button>
                             <?php if (($current_user['role'] ?? '') === 'Admin'): ?>
                             <button type="button" class="sort-option" data-pf-export-file="activity_logs.php" data-pf-export-kind="activity_logs" style="width:100%;border:none;background:none;cursor:pointer;font-size:13px;font-family:inherit;font-weight:inherit;text-align:left;padding:9px 16px;color:#374151;" onclick="window.printflowReportsExportPrint(this); exportOpen = false" title="Uses report date range">Print – Activity logs</button>
                             <?php endif; ?>
