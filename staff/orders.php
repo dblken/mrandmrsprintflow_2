@@ -1554,9 +1554,7 @@ $page_title = 'Orders - Staff';
             activeTab: '<?php echo $status_filter; ?>',
             tabCounts: <?php echo json_encode($all_counts); ?>,
             statusTabs: {
-                <?php if ($is_pos_staff): ?>
-                'COMPLETED': 'COMPLETED'
-                <?php else: ?>
+                <?php if (!$is_pos_staff): ?>
                 'ALL': 'ALL',
                 'TO_VERIFY': 'TO VERIFY',
                 'TO_PICK_UP': 'TO PICK UP',
@@ -2378,7 +2376,7 @@ $page_title = 'Orders - Staff';
                                 <th class="px-4 py-4 w-[9%] border-b border-gray-100 text-center">Source</th>
                                 <th class="px-4 py-4 w-[11%] border-b border-gray-100">Date</th>
                                 <th class="px-4 py-4 w-[10%] border-b border-gray-100">Total</th>
-                                <th class="px-4 py-4 w-[14%] border-b border-gray-100 text-center">Status</th>
+                                <?php if (!$is_pos_staff): ?><th class="px-4 py-4 w-[14%] border-b border-gray-100 text-center">Status</th><?php endif; ?>
                                 <th class="px-4 py-4 w-[10%] border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
@@ -2429,6 +2427,7 @@ $page_title = 'Orders - Staff';
                                             <?php echo format_currency($order['total_amount']); ?>
                                         </div>
                                     </td>
+                                    <?php if (!$is_pos_staff): ?>
                                     <td class="px-4 py-4 status-col-cell">
                                         <?php $display_order_status2 = staff_orders_display_status((string)$order['status']); ?>
                                         <div class="status-col-inner">
@@ -2440,6 +2439,7 @@ $page_title = 'Orders - Staff';
                                             <?php endif; ?>
                                         </div>
                                     </td>
+                                    <?php endif; ?>
                                     <td class="px-4 py-4 action-col-cell">
                                         <div class="action-cell">
                                             <button onclick="event.stopPropagation(); openOrderModal(<?php echo $order['order_id']; ?>)" 
