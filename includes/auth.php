@@ -624,19 +624,30 @@ function printflow_get_branch_access_issue(string $role, $branchId): ?array {
 
     $branch = $rows[0] ?? null;
     $status = trim((string)($branch['status'] ?? ''));
-    if (strcasecmp($status, 'Active') === 0) {
+    
+    // Check if branch is active - accept any case variation of 'Active'
+    // Also treat empty/NULL status as active (default behavior)
+    if ($status === '' || $status === 'Active' || $status === 'ACTIVE' || $status === 'active' || 
+        strcasecmp($status, 'Active') === 0) {
         return null;
     }
 
-    $branchName = trim((string)($branch['branch_name'] ?? ''));
-    $message = $branchName !== ''
-        ? ('Your assigned branch (' . $branchName . ') is inactive. Please contact an administrator.')
-        : 'Your assigned branch is inactive. Please contact an administrator.';
+    // Only treat as inactive if explicitly set to 'Inactive' or 'Archived'
+    if ($status === 'Inactive' || $status === 'INACTIVE' || $status === 'inactive' ||
+        strcasecmp($status, 'Inactive') === 0 || strcasecmp($status, 'Archived') === 0) {
+        $branchName = trim((string)($branch['branch_name'] ?? ''));
+        $message = $branchName !== ''
+            ? ('Your assigned branch (' . $branchName . ') is inactive. Please contact an administrator.')
+            : 'Your assigned branch is inactive. Please contact an administrator.';
 
-    return [
-        'reason' => 'branch_inactive',
-        'message' => $message
-    ];
+        return [
+            'reason' => 'branch_inactive',
+            'message' => $message
+        ];
+    }
+
+    // For any other status value, treat as active to avoid false positives
+    return null;
 }
 
 function printflow_enforce_restricted_branch_session(): void {
