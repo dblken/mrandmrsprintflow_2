@@ -1667,7 +1667,7 @@ $online_closed_count = 0;
                         <div style="font-size:13px;color:#6b7280;background:#fffbeb;border:1px solid #fef3c7;padding:10px 14px;border-radius:8px;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;" x-text="combinedCustomerNotes()"></div>
                     </div>
 
-                    <template x-if="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING' && !isPosPricingReturnFlow(currentJo)">
+                    <template x-if="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING' && !isPosPricingReturnFlow(currentJo) && !isPosPricingMode()">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #d1fae5; background:#f0fdf4;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
                                 <div style="min-width:0; flex:1;">
@@ -2339,6 +2339,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             rejectPaymentModalError: '',
             previewFile: null,
             currentJo: {},
+            detailContextMode: 'production_view',
             deepLinkExpectedStatus: '',
             deepLinkSourceOrderId: '',
             availableRolls: {},
@@ -2665,11 +2666,14 @@ window.pfCustomizationPreloadedOrders = (() => {
             clearDeepLinkParams() {
                 try {
                     const url = new URL(window.location.href);
-                    ['order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos'].forEach(key => url.searchParams.delete(key));
+                    ['order_id', 'status', 'job_type', 'source_order_id', 'return_to_pos', 'mode'].forEach(key => url.searchParams.delete(key));
                     window.history.replaceState({}, document.title, url.toString());
                 } catch (e) {
                     console.warn('Unable to clear customization deep-link params', e);
                 }
+            },
+            isPosPricingMode() {
+                return this.detailContextMode === 'pos_pricing';
             },
             detailKeyFor(id, orderType = 'JOB') {
                 return `${String(orderType || 'JOB').toUpperCase()}-${id}`;
@@ -3895,6 +3899,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const sourceOrderId = params.get('source_order_id');
                 const initialStatus = params.get('status');
                 const returnToPOS = params.get('return_to_pos') === '1';
+                const mode = (params.get('mode') || '').trim().toLowerCase();
+                this.detailContextMode = mode === 'pos_pricing' ? 'pos_pricing' : 'production_view';
                 this.deepLinkExpectedStatus = initialStatus ? initialStatus.toUpperCase().replace(/\s+/g, '_') : '';
                 this.deepLinkSourceOrderId = sourceOrderId || '';
 
@@ -3950,7 +3956,21 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'INQUIRY';
                 }
 
-                if (orderId) {
+                if (this.isPosPricingMode() && sourceOrderId) {
+                    const parsedSourceOrderId = parseInt(sourceOrderId, 10);
+                    if (!Number.isNaN(parsedSourceOrderId) && parsedSourceOrderId > 0) {
+                        const resolved = await this.parseJsonResponse(
+                            await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${encodeURIComponent(parsedSourceOrderId)}`))
+                        );
+
+                        if (resolved.success && resolved.job_id) {
+                            await this.viewDetails(parseInt(resolved.job_id, 10), 'JOB');
+                        } else {
+                            await this.viewDetails(parsedSourceOrderId, 'ORDER');
+                        }
+                        this.clearDeepLinkParams();
+                    }
+                } else if (orderId) {
                     const jobType = params.get('job_type') || 'JOB';
                     await this.viewDetails(parseInt(orderId, 10), jobType);
                     this.clearDeepLinkParams();
