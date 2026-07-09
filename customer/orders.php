@@ -2021,6 +2021,9 @@ function openItemsModal(orderId, event) {
             throw new Error('Invalid order details response');
         }
         if (!r.ok) {
+            if (data) {
+                console.error('Order details request failed', data);
+            }
             throw new Error(
                 (data && (data.message || data.error))
                     ? (data.message || data.error)
@@ -2028,6 +2031,7 @@ function openItemsModal(orderId, event) {
             );
         }
         if (data && data.success === false) {
+            console.error('Order details payload reported failure', data);
             throw new Error(data.message || data.error || 'Unable to load order details.');
         }
         return data;
@@ -2037,6 +2041,7 @@ function openItemsModal(orderId, event) {
             return;
         }
         if (data.error || data.success === false) {
+            console.error('Order details modal response error', data);
             renderItemsModalErrorState(data.message || data.error || 'Unable to load order details.');
             return;
         }

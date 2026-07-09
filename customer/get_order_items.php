@@ -16,8 +16,16 @@ ob_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
+function customer_order_items_json_flags(): int {
+    $flags = JSON_UNESCAPED_SLASHES;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    return $flags;
+}
+
 function customer_order_items_log_error(string $message, array $context = []): void {
-    $suffix = $context !== [] ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) : '';
+    $suffix = $context !== [] ? ' | ' . json_encode($context, customer_order_items_json_flags()) : '';
     error_log('[customer/get_order_items] ' . $message . $suffix);
 }
 
@@ -36,14 +44,14 @@ function customer_order_items_json($payload, $status = 200) {
             $payload['message'] = $payload['error'];
         }
     }
-    $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    $json = json_encode($payload, customer_order_items_json_flags());
     if ($json === false) {
         http_response_code(500);
         $json = json_encode([
             'success' => false,
             'error' => 'Server error while encoding order details.',
             'message' => 'Server error while encoding order details.'
-        ]);
+        ], customer_order_items_json_flags());
     }
 
     echo $json;
@@ -66,7 +74,7 @@ register_shutdown_function(function() {
             'success' => false,
             'error' => 'Server error while loading order details.',
             'message' => 'Server error while loading order details.'
-        ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        ], customer_order_items_json_flags());
     }
 });
 
@@ -75,6 +83,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
+require_once __DIR__ . '/../includes/runtime_config.php';
 
 require_role('Customer');
 
@@ -1096,6 +1105,7 @@ $receipt_payload = $receipt_available
 
 customer_order_items_json([
     'success'          => true,
+    'message'          => 'Order details loaded.',
     'order_id'         => $order['order_id'],
     'order_code'       => printflow_format_order_code($order['order_id'], $order['order_sku'] ?? ''),
     'order_date'       => format_datetime($order['order_date']),
@@ -1128,6 +1138,31 @@ customer_order_items_json([
     'rating_data'      => $rating_data,
     'receipt_available' => $receipt_available,
     'receipt'          => $receipt_payload,
+    'order'            => [
+        'id' => (int)$order['order_id'],
+        'code' => printflow_format_order_code($order['order_id'], $order['order_sku'] ?? ''),
+        'date' => format_datetime($order['order_date']),
+        'status' => (string)$order['status'],
+        'display_status' => (string)$display_status,
+        'branch_name' => (string)($order['branch_name'] ?? 'Not Specified'),
+        'estimated_completion' => ($order['estimated_completion'] ?? null)
+            ? format_date($order['estimated_completion'])
+            : 'Waiting for confirmation from the shop',
+        'notes' => (string)($order['notes'] ?? ''),
+        'total_amount' => ($is_service_order && ($service_final_price_locked || $order_total_amount <= 0))
+            ? 'To Be Discussed'
+            : format_currency($order['total_amount']),
+        'estimated_price' => $is_service_order
+            ? ($estimated_order_amount > 0 ? format_currency($estimated_order_amount) : 'Pending')
+            : null,
+        'is_service_order' => $is_service_order,
+    ],
+    'payment'          => [
+        'status' => $payment_status,
+        'method' => $order['payment_method'] ?? 'Not Specified',
+        'proof_status' => $latest_payment_proof_status,
+        'rejection_reason' => $order['payment_rejection_reason'] ?? '',
+    ],
     'csrf_token'       => generate_csrf_token()
 ]);
 } catch (Throwable $e) {
@@ -1135,6 +1170,7 @@ customer_order_items_json([
         'message' => $e->getMessage(),
         'file' => $e->getFile(),
         'line' => $e->getLine(),
+        'trace' => $e->getTraceAsString(),
         'order_id' => (int)($_GET['id'] ?? 0),
         'customer_id' => function_exists('get_user_id') ? (int)get_user_id() : 0,
     ]);
