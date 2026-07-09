@@ -269,8 +269,8 @@ $page_title = 'My Profile - Staff';
 :root {
     --pf-bg: #f8fafc;
     --pf-card: #ffffff;
-    --pf-accent: #06A1A1;
-    --pf-accent-hover: #058f8f;
+    --pf-accent: var(--staff-primary, #06A1A1);
+    --pf-accent-hover: var(--staff-primary-strong, #058f8f);
     --pf-text-main: #1e293b;
     --pf-text-muted: #64748b;
     --pf-border: #e2e8f0;
@@ -333,7 +333,7 @@ $page_title = 'My Profile - Staff';
     overflow: hidden;
     background: #f1f5f9;
     border: 3px solid var(--pf-accent);
-    box-shadow: 0 8px 15px rgba(6, 161, 161, 0.1);
+    box-shadow: 0 8px 15px rgba(var(--staff-accent-rgb, 6, 161, 161), 0.14);
     margin: 0 auto;
     transition: all 0.3s ease;
 }
@@ -348,7 +348,7 @@ $page_title = 'My Profile - Staff';
     color: #fff;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    box-shadow: 0 4px 10px rgba(6, 161, 161, 0.3);
+    box-shadow: 0 4px 10px rgba(var(--staff-accent-rgb, 6, 161, 161), 0.28);
     border: 3px solid #fff;
     transition: 0.2s;
 }
@@ -380,6 +380,13 @@ $page_title = 'My Profile - Staff';
     cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
 }
 .btn-teal-save:hover { background: var(--pf-accent-hover); transform: none; box-shadow: none; }
+
+html.printflow-staff.printflow-staff-pos .section-title,
+html.printflow-staff.printflow-staff-pos .info-pill span[style*="var(--pf-accent)"],
+html.printflow-staff.printflow-staff-pos .avatar-ring svg {
+    color: var(--staff-primary) !important;
+    stroke: var(--staff-primary) !important;
+}
 
 .alert-item { padding: 1rem 1.25rem; border-radius: 0; margin-bottom: 2rem; display: flex; align-items: center; gap: 12px; font-size: 0.9rem; font-weight: 600; }
 .alert-item.error { background: #fef2f2; color: #991b1b; border: 1px solid #fee2e2; }
