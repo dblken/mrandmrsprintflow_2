@@ -1705,7 +1705,7 @@ $online_closed_count = 0;
                     </template>
 
                     <!-- 2. APPROVED (Set Price & Materials) -->
-                    <template x-if="currentJo.status === 'APPROVED'">
+                    <template x-if="modalWorkflowStatus(currentJo) === 'APPROVED'">
                         <div style="margin-bottom:20px; display:flex; flex-direction:column; gap:20px;">
                             
                             <!-- Production Details Section -->
@@ -1900,7 +1900,7 @@ $online_closed_count = 0;
                     </template>
 
                     <!-- 3. TO_PAY (Waiting for Payment) -->
-                    <template x-if="currentJo.status === 'TO_PAY'">
+                    <template x-if="modalWorkflowStatus(currentJo) === 'TO_PAY'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #dbeafe; background:#f0f9ff;">
                             <label style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;display:block;margin-bottom:12px;">Step 3: Awaiting Payment</label>
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
@@ -1912,7 +1912,7 @@ $online_closed_count = 0;
                     </template>
 
                     <!-- 5. IN_PRODUCTION -->
-                    <template x-if="currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing'">
+                    <template x-if="modalWorkflowStatus(currentJo) === 'IN_PRODUCTION' || modalWorkflowStatus(currentJo) === 'PROCESSING'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #06A1A1; background:#f0fbfb;">
                             <label style="font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;display:block;margin-bottom:12px;">Step 5: Production In Progress</label>
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:16px;">
@@ -1922,7 +1922,7 @@ $online_closed_count = 0;
                     </template>
 
                     <!-- 6. TO_RECEIVE -->
-                    <template x-if="currentJo.status === 'TO_RECEIVE'">
+                    <template x-if="modalWorkflowStatus(currentJo) === 'TO_RECEIVE'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #06A1A1; background:#f0fbfb;">
                             <label style="font-size:11px;font-weight:700;color:#0f766e;text-transform:uppercase;display:block;margin-bottom:12px;">Step 6: Ready for Pickup</label>
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2068,10 +2068,10 @@ $online_closed_count = 0;
                                 <button type="button" @click="jobAction('APPROVED')" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Approve to Set Price</button>
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
-                            <div x-show="currentJo.status === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
+                            <div x-show="modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve & Send to Pay</button>
                             </div>
-                            <div x-show="isPosSimplifiedView && currentJo.status === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
+                            <div x-show="isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Back to POS for Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
@@ -2657,7 +2657,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const isMatchingOrder = sourceOrderId !== '' && rowOrderId !== '' && sourceOrderId === rowOrderId;
                 const isPendingLike = ['PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'FOR_REVISION'].includes(current);
 
-                if (expected === 'APPROVED' && isPos && isMatchingOrder && isPendingLike) {
+                if (expected === 'APPROVED' && ((isPos && isMatchingOrder) || (this.isPosPricingMode() && isMatchingOrder)) && isPendingLike) {
                     return { ...row, status: 'APPROVED' };
                 }
 
@@ -2674,6 +2674,16 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             isPosPricingMode() {
                 return this.detailContextMode === 'pos_pricing';
+            },
+            modalWorkflowStatus(jo) {
+                if (!jo) return '';
+                const raw = String(jo.status || '').toUpperCase();
+                if (this.isPosPricingMode()) {
+                    if (raw === 'PENDING' || raw === 'PENDING_REVIEW' || raw === 'PENDING_APPROVAL' || raw === 'FOR_REVISION') {
+                        return 'APPROVED';
+                    }
+                }
+                return raw;
             },
             detailKeyFor(id, orderType = 'JOB') {
                 return `${String(orderType || 'JOB').toUpperCase()}-${id}`;
