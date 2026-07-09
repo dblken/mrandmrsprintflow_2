@@ -284,7 +284,7 @@ $page_title = 'Visual Reports & Analytics';
         .btn-excel-split { transition: transform 0.2s; }
         .btn-excel-split:hover { transform: translateY(-1px); }
         .btn-excel-split:hover span:first-child { background: #1f2937 !important; }
-        .btn-excel-split:hover span:last-child { background: #058f8f !important; }
+        .btn-excel-split:hover span:last-child { background: var(--staff-primary-strong) !important; }
         
         .chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02); }
         .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
@@ -301,7 +301,7 @@ $page_title = 'Visual Reports & Analytics';
         .top-product-row:last-child { border-bottom: none; }
         .tp-name { font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 10px; }
         .tp-rank { width: 24px; height: 24px; background: #f1f5f9; color: #475569; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; }
-        .tp-sold { font-size: 14px; font-weight: 800; color: #059669; }
+        .tp-sold { font-size: 14px; font-weight: 800; color: var(--staff-primary); }
         .top-list-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #94a3b8; font-size: 14px; }
         .top-list-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #94a3b8; font-size: 14px; }
     </style>
@@ -564,9 +564,14 @@ function renderReportsCharts() {
             revenueChartInstance.destroy();
         }
 
+        const rootStyle = getComputedStyle(document.documentElement);
+        const chartLine = rootStyle.getPropertyValue('--staff-chart-line').trim() || '#06A1A1';
+        const chartFillStart = rootStyle.getPropertyValue('--staff-chart-fill-start').trim() || 'rgba(6, 161, 161, 0.4)';
+        const chartFillEnd = rootStyle.getPropertyValue('--staff-chart-fill-end').trim() || 'rgba(6, 161, 161, 0.0)';
+        const chartTooltipBg = rootStyle.getPropertyValue('--staff-chart-tooltip-bg').trim() || '#0f172a';
         const gradient = revCtx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, 'rgba(6, 161, 161, 0.4)');
-        gradient.addColorStop(1, 'rgba(6, 161, 161, 0.0)');
+        gradient.addColorStop(0, chartFillStart);
+        gradient.addColorStop(1, chartFillEnd);
 
         revenueChartInstance = new Chart(revCtx, {
             type: 'line',
@@ -575,11 +580,11 @@ function renderReportsCharts() {
                 datasets: [{
                     label: 'Total Revenue (₱)',
                     data: <?php echo json_encode($trend_totals); ?>,
-                    borderColor: '#06A1A1',
+                    borderColor: chartLine,
                     backgroundColor: gradient,
                     borderWidth: 3,
                     pointBackgroundColor: '#ffffff',
-                    pointBorderColor: '#06A1A1',
+                    pointBorderColor: chartLine,
                     pointBorderWidth: 2,
                     pointRadius: 4,
                     pointHoverRadius: 6,
@@ -593,7 +598,7 @@ function renderReportsCharts() {
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        backgroundColor: '#0f172a',
+                        backgroundColor: chartTooltipBg,
                         padding: 12,
                         titleFont: { size: 13 },
                         bodyFont: { size: 14, weight: 'bold' },
@@ -679,7 +684,7 @@ function renderReportsCharts() {
                         }
                     },
                     tooltip: {
-                        backgroundColor: '#0f172a',
+                        backgroundColor: chartTooltipBg,
                         padding: 12,
                         callbacks: {
                             label: function(context) {

@@ -195,7 +195,7 @@ $page_title = 'Notifications - Staff';
             height: 38px;
         }
         .toolbar-btn:hover { border-color: #9ca3af; background: #f9fafb; }
-        .toolbar-btn.active { border-color: #047676; color: #047676; background: #e6f7f5; }
+        .toolbar-btn.active { border-color: var(--staff-primary); color: var(--staff-primary); background: var(--staff-toolbar-active-bg); }
         .filter-panel {
             position: absolute;
             top: calc(100% + 6px);
@@ -226,7 +226,7 @@ $page_title = 'Notifications - Staff';
         .filter-reset-link {
             font-size: 12px;
             font-weight: 600;
-            color: #06A1A1;
+            color: var(--staff-primary);
             cursor: pointer;
             background: none;
             border: none;
@@ -245,7 +245,7 @@ $page_title = 'Notifications - Staff';
             box-sizing: border-box;
             cursor: pointer;
         }
-        .filter-select:focus { outline: none; border-color: #06A1A1; }
+        .filter-select:focus { outline: none; border-color: var(--staff-primary); box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.1); }
         .filter-search-input {
             width: 100%;
             height: 34px;
@@ -256,7 +256,7 @@ $page_title = 'Notifications - Staff';
             color: #1f2937;
             box-sizing: border-box;
         }
-        .filter-search-input:focus { outline: none; border-color: #06A1A1; }
+        .filter-search-input:focus { outline: none; border-color: var(--staff-primary); box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.1); }
         .filter-actions { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid #f3f4f6; }
         .filter-btn-reset {
             flex: 1;
@@ -276,7 +276,7 @@ $page_title = 'Notifications - Staff';
             justify-content: center;
             width: 18px;
             height: 18px;
-            background: #06A1A1;
+            background: var(--staff-filter-badge-bg);
             color: #fff;
             border-radius: 50%;
             font-size: 10px;
@@ -290,13 +290,13 @@ $page_title = 'Notifications - Staff';
             align-items: center;
             gap: 6px;
             text-decoration: none;
-            background: #06A1A1;
+            background: var(--staff-primary);
             color: #fff !important;
             border: none;
             border-radius: 8px;
             font-weight: 600;
         }
-        .notif-header-primary:hover { background: #058f8f; color: #fff !important; }
+        .notif-header-primary:hover { background: var(--staff-primary-strong); color: #fff !important; }
         .notif-item-kind-pill {
             display: inline-flex;
             align-items: center;
@@ -332,7 +332,7 @@ $page_title = 'Notifications - Staff';
         .notif-item:hover { background: #fafafa; margin: 0 -20px; padding: 16px 20px; border-radius: 8px; }
         .notif-dot {
             width: 8px; height: 8px; border-radius: 50%;
-            background: #06A1A1; flex-shrink: 0; margin-top: 6px;
+            background: var(--staff-primary); flex-shrink: 0; margin-top: 6px;
         }
         .notif-dot.read { background: transparent; border: 2px solid #e5e7eb; }
         .notif-icon-wrap {
@@ -655,7 +655,7 @@ $page_title = 'Notifications - Staff';
                                     </div>
                                 </div>
                                 <div class="notif-actions-wrap">
-                                    <button type="button" onclick='handleNotifClick(event, <?php echo (int)$notif['notification_id']; ?>, <?php echo htmlspecialchars(json_encode($target_url), ENT_QUOTES); ?>, <?php echo !(int)$notif['is_read'] ? "true" : "false"; ?>)' class="notif-action-btn" style="background:#06A1A1; color:#fff; border:none; padding:6px 12px; border-radius: 6px; cursor: pointer;">
+                                    <button type="button" onclick='handleNotifClick(event, <?php echo (int)$notif['notification_id']; ?>, <?php echo htmlspecialchars(json_encode($target_url), ENT_QUOTES); ?>, <?php echo !(int)$notif['is_read'] ? "true" : "false"; ?>)' class="notif-action-btn" style="background:var(--staff-primary); color:#fff; border:none; padding:6px 12px; border-radius: 6px; cursor: pointer;">
                                         <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                         View
                                     </button>

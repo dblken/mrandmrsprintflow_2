@@ -296,10 +296,10 @@ $page_title = 'Products & Inventory - Staff';
             justify-content: center;
             min-width: 72px;
             padding: 5px 12px;
-            border: 1px solid #06A1A1;
+            border: 1px solid var(--staff-primary);
             border-radius: 6px;
             background: transparent;
-            color: #06A1A1;
+            color: var(--staff-primary);
             font-size: 12px;
             font-weight: 500;
             line-height: 1.2;
@@ -308,16 +308,16 @@ $page_title = 'Products & Inventory - Staff';
             transition: all 0.15s ease;
         }
         .table-action-btn:hover {
-            background: #06A1A1;
+            background: var(--staff-primary);
             color: #fff;
-            border-color: #06A1A1;
+            border-color: var(--staff-primary);
         }
         #productsTableBody tr {
             cursor: pointer;
             transition: background-color 0.18s ease;
         }
         #productsTableBody tr:hover {
-            background: linear-gradient(90deg, rgba(6, 161, 161, 0.05) 0%, rgba(158, 215, 196, 0.10) 100%);
+            background: linear-gradient(90deg, rgba(var(--staff-accent-rgb), 0.06) 0%, rgba(var(--staff-accent-rgb), 0.14) 100%);
         }
         #view-product-modal-overlay {
             position: fixed;

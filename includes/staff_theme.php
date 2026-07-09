@@ -565,6 +565,178 @@
         margin-left: 4px;
     }
 
+    /* Counter staff: force content chrome to follow the blue POS theme even on pages
+       that still carry legacy teal page-local styles. */
+    html.printflow-staff.printflow-staff-pos .toolbar-btn:hover,
+    html.printflow-staff.printflow-staff-pos .toolbar-btn.active,
+    html.printflow-staff.printflow-staff-pos .sort-option.active,
+    html.printflow-staff.printflow-staff-pos .filter-reset-link,
+    html.printflow-staff.printflow-staff-pos .filter-badge,
+    html.printflow-staff.printflow-staff-pos .notif-dot,
+    html.printflow-staff.printflow-staff-pos .notif-header-primary,
+    html.printflow-staff.printflow-staff-pos .kpi-card-cta,
+    html.printflow-staff.printflow-staff-pos .btn-staff-action-blue,
+    html.printflow-staff.printflow-staff-pos .btn-action-primary,
+    html.printflow-staff.printflow-staff-pos .service-count,
+    html.printflow-staff.printflow-staff-pos .tp-sold,
+    html.printflow-staff.printflow-staff-pos .om-value,
+    html.printflow-staff.printflow-staff-pos .filter-select:focus,
+    html.printflow-staff.printflow-staff-pos .filter-input:focus,
+    html.printflow-staff.printflow-staff-pos .filter-search-input:focus,
+    html.printflow-staff.printflow-staff-pos .input-field:focus,
+    html.printflow-staff.printflow-staff-pos select:focus,
+    html.printflow-staff.printflow-staff-pos input:focus {
+        border-color: var(--staff-primary) !important;
+        color: var(--staff-primary) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .toolbar-btn:hover,
+    html.printflow-staff.printflow-staff-pos .toolbar-btn.active {
+        background: var(--staff-toolbar-active-bg) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .sort-option.active {
+        background: var(--staff-sort-active-bg) !important;
+        color: var(--staff-sort-active-text) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .filter-badge,
+    html.printflow-staff.printflow-staff-pos .notif-dot,
+    html.printflow-staff.printflow-staff-pos .notif-header-primary {
+        background: var(--staff-primary) !important;
+        color: #fff !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .notif-header-primary:hover,
+    html.printflow-staff.printflow-staff-pos .btn-action-primary:hover,
+    html.printflow-staff.printflow-staff-pos .btn-staff-action-blue:hover {
+        background: var(--staff-primary-strong) !important;
+        color: #fff !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .btn-staff-action-blue,
+    html.printflow-staff.printflow-staff-pos .btn-action-primary,
+    html.printflow-staff.printflow-staff-pos .table-action-btn,
+    html.printflow-staff.printflow-staff-pos .btn-action.blue {
+        border-color: var(--staff-primary) !important;
+        color: var(--staff-primary) !important;
+        background: rgba(var(--staff-accent-rgb), 0.08) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .btn-action.blue:hover,
+    html.printflow-staff.printflow-staff-pos .table-action-btn:hover {
+        background: var(--staff-primary) !important;
+        border-color: var(--staff-primary) !important;
+        color: #fff !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .service-count,
+    html.printflow-staff.printflow-staff-pos .notif-item:hover,
+    html.printflow-staff.printflow-staff-pos .pill-tab.active,
+    html.printflow-staff.printflow-staff-pos .pill-tab.active .tab-count,
+    html.printflow-staff.printflow-staff-pos .notif-action-btn,
+    html.printflow-staff.printflow-staff-pos .btn-primary,
+    html.printflow-staff.printflow-staff-pos .filter-select:focus,
+    html.printflow-staff.printflow-staff-pos .filter-input:focus,
+    html.printflow-staff.printflow-staff-pos .filter-search-input:focus {
+        box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .service-count {
+        background: var(--staff-service-count-bg) !important;
+        color: var(--staff-primary) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .pill-tab.active {
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 48%, #bfdbfe 100%) !important;
+        border-color: var(--staff-primary) !important;
+        color: var(--staff-primary-deep) !important;
+        box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.16) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .pill-tab.active .tab-count,
+    html.printflow-staff.printflow-staff-pos .btn-primary,
+    html.printflow-staff.printflow-staff-pos .notif-action-btn {
+        background: var(--staff-primary) !important;
+        border-color: var(--staff-primary) !important;
+        color: #fff !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .btn-primary:hover,
+    html.printflow-staff.printflow-staff-pos .notif-action-btn:hover {
+        background: var(--staff-primary-strong) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .loading-progress,
+    html.printflow-staff.printflow-staff-pos .pf-fg-spinner,
+    html.printflow-staff.printflow-staff-pos [style*="border-top-color:#06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="border-top-color: #06A1A1"] {
+        border-top-color: var(--staff-primary) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .chart-title,
+    html.printflow-staff.printflow-staff-pos .page-title,
+    html.printflow-staff.printflow-staff-pos .notif-card-head h3,
+    html.printflow-staff.printflow-staff-pos .tp-name,
+    html.printflow-staff.printflow-staff-pos .notif-msg,
+    html.printflow-staff.printflow-staff-pos .om-value,
+    html.printflow-staff.printflow-staff-pos [style*="color:#013a3a"],
+    html.printflow-staff.printflow-staff-pos [style*="color: #013a3a"] {
+        color: var(--staff-primary-deep) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos [style*="background:#06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#0d9488"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #0d9488"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#058f8f"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #058f8f"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#047676"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #047676"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#035f5f"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #035f5f"],
+    html.printflow-staff.printflow-staff-pos [style*="background:linear-gradient(135deg,#06A1A1,#047676)"],
+    html.printflow-staff.printflow-staff-pos [style*="background: linear-gradient(135deg,#06A1A1,#047676)"],
+    html.printflow-staff.printflow-staff-pos [style*="background:linear-gradient(135deg, #06A1A1 0%, #048888 100%)"],
+    html.printflow-staff.printflow-staff-pos [style*="background: linear-gradient(135deg, #06A1A1 0%, #048888 100%)"] {
+        background: var(--staff-primary) !important;
+        border-color: var(--staff-primary) !important;
+        color: #fff !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos [style*="background:#f0fdfa"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #f0fdfa"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#e6f7f5"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #e6f7f5"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#f0fbfb"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #f0fbfb"],
+    html.printflow-staff.printflow-staff-pos [style*="background:#ecfeff"],
+    html.printflow-staff.printflow-staff-pos [style*="background: #ecfeff"] {
+        background: var(--staff-toolbar-active-bg) !important;
+        border-color: rgba(var(--staff-accent-rgb), 0.22) !important;
+        color: var(--staff-primary-deep) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos [style*="color:#06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="color: #06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="color:#0d9488"],
+    html.printflow-staff.printflow-staff-pos [style*="color: #0d9488"],
+    html.printflow-staff.printflow-staff-pos [style*="color:#0f766e"],
+    html.printflow-staff.printflow-staff-pos [style*="color: #0f766e"] {
+        color: var(--staff-primary) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos [style*="border-color:#06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color: #06A1A1"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color:#0d9488"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color: #0d9488"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color:#99f6e4"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color: #99f6e4"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color:#5eead4"],
+    html.printflow-staff.printflow-staff-pos [style*="border-color: #5eead4"] {
+        border-color: var(--staff-primary) !important;
+    }
+
     /* Staff-wide mobile hardening (parallel to admin shell behavior). */
     html.printflow-staff .truncate-ellipsis {
         white-space: nowrap;

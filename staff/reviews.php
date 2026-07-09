@@ -353,8 +353,8 @@ $page_title = 'Review Management - Staff';
 
         .filter-search-input:focus {
             outline: none;
-            border-color: #0d9488;
-            box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+            border-color: var(--staff-primary);
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
         }
 
         .filter-actions {
@@ -766,7 +766,7 @@ $page_title = 'Review Management - Staff';
         }
 
         .pf-reviews-table-card tbody tr:hover {
-            background: linear-gradient(90deg, rgba(6, 161, 161, 0.05) 0%, rgba(158, 215, 196, 0.10) 100%);
+            background: linear-gradient(90deg, rgba(var(--staff-accent-rgb), 0.05) 0%, rgba(var(--staff-accent-rgb), 0.12) 100%);
         }
 
         .pf-reviews-table-card tbody td {

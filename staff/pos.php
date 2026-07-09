@@ -126,13 +126,13 @@ try {
         }
 
         .shopee-opt-btn:hover {
-            border-color: #0d9488;
-            background: #f0fdfa;
+            border-color: var(--staff-primary);
+            background: var(--staff-toolbar-hover-bg);
         }
 
         .shopee-opt-btn.active {
-            border-color: #0d9488;
-            background: #0d9488;
+            border-color: var(--staff-primary);
+            background: var(--staff-primary);
             color: #fff;
         }
 
@@ -159,21 +159,22 @@ try {
         }
 
         .input-field:focus {
-            border-color: #0d9488;
+            border-color: var(--staff-primary);
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
         }
 
         .input-field.input-field-locked,
         .shopee-opt-btn select.input-field-locked {
-            background: #0d9488 !important;
+            background: var(--staff-primary) !important;
             color: #ffffff !important;
-            border: 1px solid #0d9488 !important;
+            border: 1px solid var(--staff-primary) !important;
             cursor: not-allowed !important;
             opacity: 1 !important;
         }
 
         .shopee-opt-btn:has(select.input-field-locked) {
-            background: #0d9488 !important;
-            border-color: #0d9488 !important;
+            background: var(--staff-primary) !important;
+            border-color: var(--staff-primary) !important;
             color: #ffffff !important;
         }
 
@@ -487,7 +488,7 @@ try {
         .pos-btn-link {
             background: none;
             border: none;
-            color: #06A1A1;
+            color: var(--staff-primary);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;

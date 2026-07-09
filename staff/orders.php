@@ -629,8 +629,8 @@ $page_title = 'Orders - Staff';
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .pill-tab:hover { background: #eef8f6; color: #023d3d; border-color: rgba(6, 161, 161, 0.22); }
-        .pill-tab.active { background: linear-gradient(135deg, #f7fefb 0%, #e5f9f2 42%, #d4f0e6 100%); color: #023d3d; border-color: #06A1A1; box-shadow: 0 6px 18px rgba(6,161,161,0.12); }
+        .pill-tab:hover { background: rgba(var(--staff-accent-rgb), 0.08); color: var(--staff-primary-deep); border-color: rgba(var(--staff-accent-rgb), 0.22); }
+        .pill-tab.active { background: var(--staff-content-label-grad); color: var(--staff-primary-deep); border-color: var(--staff-primary); box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.16); }
         .tab-count { 
             background: #e7f3f0; 
             color: #035f5f; 
@@ -639,7 +639,7 @@ $page_title = 'Orders - Staff';
             border-radius: 9999px; 
             font-weight: 700;
         }
-        .pill-tab.active .tab-count { background: #06A1A1; color: white; }
+        .pill-tab.active .tab-count { background: var(--staff-primary); color: white; }
 
         @media (max-width: 768px) {
             .toolbar-group--tabs {
@@ -667,7 +667,7 @@ $page_title = 'Orders - Staff';
             white-space: nowrap;
         }
         .toolbar-btn:hover { border-color: #9ca3af; background: #f9fafb; }
-        .toolbar-btn.active { border-color: #0d9488; color: #0d9488; background: #f0fdfa; }
+        .toolbar-btn.active { border-color: var(--staff-primary); color: var(--staff-primary); background: var(--staff-toolbar-active-bg); }
         .toolbar-btn svg { flex-shrink: 0; }
         .toolbar-container {
             display: flex;
@@ -732,7 +732,7 @@ $page_title = 'Orders - Staff';
         .filter-reset-link {
             font-size: 12px;
             font-weight: 600;
-            color: #0d9488;
+            color: var(--staff-primary);
             cursor: pointer;
             background: none;
             border: none;
@@ -749,7 +749,7 @@ $page_title = 'Orders - Staff';
             color: #1f2937;
             box-sizing: border-box;
         }
-        .filter-input:focus { outline: none; border-color: #0d9488; }
+        .filter-input:focus { outline: none; border-color: var(--staff-primary); box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12); }
 
         .filter-date-row {
             display: grid;
@@ -769,7 +769,7 @@ $page_title = 'Orders - Staff';
             box-sizing: border-box;
             cursor: pointer;
         }
-        .filter-select:focus { outline: none; border-color: #0d9488; }
+        .filter-select:focus { outline: none; border-color: var(--staff-primary); box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12); }
 
         .filter-search-wrap { position: relative; }
         .filter-search-wrap svg {
@@ -791,7 +791,7 @@ $page_title = 'Orders - Staff';
             box-sizing: border-box;
             transition: all 0.2s;
         }
-        .filter-search-input:focus { outline: none; border-color: #0d9488; box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1); }
+        .filter-search-input:focus { outline: none; border-color: var(--staff-primary); box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12); }
         .filter-actions {
             display: flex;
             gap: 8px;
@@ -867,8 +867,8 @@ $page_title = 'Orders - Staff';
         }
         .sort-option:hover { background: #f9fafb; }
         .sort-option.selected,
-        .sort-option.active { color: #0d9488; font-weight: 600; background: #f0fdfa; }
-        .sort-option .check { margin-left: auto; color: #0d9488; }
+        .sort-option.active { color: var(--staff-primary); font-weight: 600; background: var(--staff-sort-active-bg); }
+        .sort-option .check { margin-left: auto; color: var(--staff-primary); }
 
         /* ── Active filter badge ─── */
         .filter-badge {
@@ -877,7 +877,7 @@ $page_title = 'Orders - Staff';
             justify-content: center;
             width: 18px;
             height: 18px;
-            background: #0d9488;
+            background: var(--staff-primary);
             color: #fff;
             border-radius: 50%;
             font-size: 10px;
@@ -925,7 +925,7 @@ $page_title = 'Orders - Staff';
             white-space: nowrap;
         }
         .orders-table tbody tr { cursor: pointer; transition: background-color 0.18s ease, box-shadow 0.18s ease; }
-        .orders-table tbody tr:hover { background: linear-gradient(90deg, rgba(6, 161, 161, 0.06) 0%, rgba(158, 215, 196, 0.12) 100%); }
+        .orders-table tbody tr:hover { background: linear-gradient(90deg, rgba(var(--staff-accent-rgb), 0.06) 0%, rgba(var(--staff-accent-rgb), 0.14) 100%); }
         .orders-table tbody tr:last-child td { border-bottom: none; }
 
         .table-text-main { font-size: 13px; color: #111827; font-weight: 500; }
@@ -956,7 +956,7 @@ $page_title = 'Orders - Staff';
             top: 2px;
             bottom: 2px;
             width: 3px;
-            background: linear-gradient(180deg, #035f5f 0%, #06A1A1 55%, #9ED7C4 100%);
+            background: var(--staff-content-accent-grad);
             border-radius: 0 4px 4px 0;
             opacity: 0;
             transition: opacity 0.2s;
@@ -970,10 +970,10 @@ $page_title = 'Orders - Staff';
             justify-content: center;
             min-width: 72px;
             padding: 5px 12px;
-            border: 1px solid #06A1A1;
+            border: 1px solid var(--staff-primary);
             border-radius: 6px;
             background: transparent;
-            color: #06A1A1;
+            color: var(--staff-primary);
             font-size: 12px;
             font-weight: 500;
             line-height: 1.2;
