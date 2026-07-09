@@ -2021,7 +2021,14 @@ function openItemsModal(orderId, event) {
             throw new Error('Invalid order details response');
         }
         if (!r.ok) {
-            throw new Error(data && data.error ? data.error : `Request failed with status ${r.status}`);
+            throw new Error(
+                (data && (data.message || data.error))
+                    ? (data.message || data.error)
+                    : `Request failed with status ${r.status}`
+            );
+        }
+        if (data && data.success === false) {
+            throw new Error(data.message || data.error || 'Unable to load order details.');
         }
         return data;
     })
@@ -2029,8 +2036,8 @@ function openItemsModal(orderId, event) {
         if (requestToken !== currentOrderItemsRequestToken) {
             return;
         }
-        if (data.error) {
-            renderItemsModalErrorState(data.error);
+        if (data.error || data.success === false) {
+            renderItemsModalErrorState(data.message || data.error || 'Unable to load order details.');
             return;
         }
 

@@ -28,10 +28,22 @@ function customer_order_items_json($payload, $status = 200) {
 
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
+    if (is_array($payload)) {
+        if (!array_key_exists('success', $payload)) {
+            $payload['success'] = $status < 400;
+        }
+        if (!array_key_exists('message', $payload) && isset($payload['error']) && is_string($payload['error'])) {
+            $payload['message'] = $payload['error'];
+        }
+    }
     $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     if ($json === false) {
         http_response_code(500);
-        $json = json_encode(['error' => 'Server error while encoding order details.']);
+        $json = json_encode([
+            'success' => false,
+            'error' => 'Server error while encoding order details.',
+            'message' => 'Server error while encoding order details.'
+        ]);
     }
 
     echo $json;
@@ -51,7 +63,9 @@ register_shutdown_function(function() {
         http_response_code(500);
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
-            'error' => 'Server error while loading order details.'
+            'success' => false,
+            'error' => 'Server error while loading order details.',
+            'message' => 'Server error while loading order details.'
         ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 });
@@ -292,8 +306,20 @@ function customer_receipt_build_material_summary(int $orderId): array {
         return [];
     }
 
+    $materialHasUom = db_table_has_column('job_order_materials', 'uom');
+    $materialHasNotes = db_table_has_column('job_order_materials', 'notes');
+    $inventoryNameColumn = db_table_has_column('inv_items', 'name')
+        ? 'name'
+        : (db_table_has_column('inv_items', 'item_name') ? 'item_name' : '');
+    if ($inventoryNameColumn === '') {
+        return [];
+    }
+
     $materials = db_query(
-        "SELECT m.quantity, m.uom, m.notes, i.name AS item_name
+        "SELECT m.quantity,
+                " . ($materialHasUom ? "m.uom" : "'' AS uom") . ",
+                " . ($materialHasNotes ? "m.notes" : "'' AS notes") . ",
+                i.{$inventoryNameColumn} AS item_name
          FROM job_order_materials m
          INNER JOIN inv_items i ON i.id = m.item_id
          WHERE m.std_order_id = ?
@@ -421,29 +447,45 @@ $orderHasPaymentReference = function_exists('db_table_has_column') && db_table_h
 $paymentReferenceSelect = $orderHasPaymentReference
     ? "o.payment_reference,"
     : "'' AS payment_reference,";
+$jobOrdersHasPaymentProofStatus = function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_proof_status');
+$jobOrdersHasPaymentStatus = function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_status');
+$jobOrdersHasPaymentRejectionReason = function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_rejection_reason');
+$jobOrdersHasPaymentVerifiedAt = function_exists('db_table_has_column') && db_table_has_column('job_orders', 'payment_verified_at');
+$jobOrdersPaymentOrderBy = $jobOrdersHasPaymentVerifiedAt
+    ? 'jo.payment_verified_at DESC, jo.id DESC'
+    : 'jo.id DESC';
+$latestPaymentProofStatusSelect = $jobOrdersHasPaymentProofStatus
+    ? "(SELECT jo.payment_proof_status
+        FROM job_orders jo
+        WHERE jo.order_id = o.order_id
+        ORDER BY {$jobOrdersPaymentOrderBy}
+        LIMIT 1) as latest_payment_proof_status,"
+    : "'' as latest_payment_proof_status,";
+$latestJobPaymentStatusSelect = $jobOrdersHasPaymentStatus
+    ? "(SELECT jo.payment_status
+        FROM job_orders jo
+        WHERE jo.order_id = o.order_id
+        ORDER BY {$jobOrdersPaymentOrderBy}
+        LIMIT 1) as latest_job_payment_status,"
+    : "'' as latest_job_payment_status,";
+$paymentRejectionReasonSelect = $jobOrdersHasPaymentRejectionReason
+    ? "(SELECT jo.payment_rejection_reason
+        FROM job_orders jo
+        WHERE jo.order_id = o.order_id
+          AND jo.payment_rejection_reason IS NOT NULL
+          AND jo.payment_rejection_reason != ''
+        ORDER BY {$jobOrdersPaymentOrderBy}
+        LIMIT 1) as payment_rejection_reason,"
+    : "'' as payment_rejection_reason,";
 
 // Verify order belongs to this customer
 $order_result = db_query("
     SELECT o.*, b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
            c.first_name, c.last_name, c.email, c.contact_number AS customer_contact_number,
            {$paymentReferenceSelect}
-           (SELECT jo.payment_proof_status
-            FROM job_orders jo
-            WHERE jo.order_id = o.order_id
-            ORDER BY jo.payment_verified_at DESC, jo.id DESC
-            LIMIT 1) as latest_payment_proof_status,
-           (SELECT jo.payment_status
-            FROM job_orders jo
-            WHERE jo.order_id = o.order_id
-            ORDER BY jo.payment_verified_at DESC, jo.id DESC
-            LIMIT 1) as latest_job_payment_status,
-           (SELECT jo.payment_rejection_reason
-            FROM job_orders jo
-            WHERE jo.order_id = o.order_id
-              AND jo.payment_rejection_reason IS NOT NULL
-              AND jo.payment_rejection_reason != ''
-            ORDER BY jo.payment_verified_at DESC, jo.id DESC
-            LIMIT 1) as payment_rejection_reason,
+           {$latestPaymentProofStatusSelect}
+           {$latestJobPaymentStatusSelect}
+           {$paymentRejectionReasonSelect}
            (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
            IFNULL((
                 SELECT jo.job_title FROM job_orders jo
@@ -1053,6 +1095,7 @@ $receipt_payload = $receipt_available
     : null;
 
 customer_order_items_json([
+    'success'          => true,
     'order_id'         => $order['order_id'],
     'order_code'       => printflow_format_order_code($order['order_id'], $order['order_sku'] ?? ''),
     'order_date'       => format_datetime($order['order_date']),
@@ -1096,6 +1139,8 @@ customer_order_items_json([
         'customer_id' => function_exists('get_user_id') ? (int)get_user_id() : 0,
     ]);
     customer_order_items_json([
-        'error' => 'Server error while loading order details.'
+        'success' => false,
+        'error' => 'Server error while loading order details.',
+        'message' => 'Server error while loading order details.'
     ], 500);
 }
