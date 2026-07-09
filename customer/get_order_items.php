@@ -444,6 +444,111 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
     ];
 }
 
+function customer_order_items_first_nonempty_datetime(array $values): string {
+    foreach ($values as $value) {
+        $text = trim((string)$value);
+        if ($text !== '' && $text !== '0000-00-00 00:00:00' && $text !== '0000-00-00') {
+            return $text;
+        }
+    }
+
+    return '';
+}
+
+function customer_order_items_friendly_payment_method(?string $paymentMethod, string $paymentStatus): string {
+    $method = trim((string)$paymentMethod);
+    if ($method !== '') {
+        return $method;
+    }
+
+    return strcasecmp($paymentStatus, 'Paid') === 0
+        ? 'Payment method not recorded'
+        : 'Payment not submitted yet';
+}
+
+function customer_order_items_status_meta(array $order, string $paymentStatus): array {
+    $status = trim((string)($order['status'] ?? ''));
+    $estimatedCompletionRaw = trim((string)($order['estimated_completion'] ?? ''));
+    $updatedAtRaw = customer_order_items_first_nonempty_datetime([
+        $order['completed_at'] ?? '',
+        $order['updated_at'] ?? '',
+        $order['order_date'] ?? '',
+    ]);
+    $cancelledAtRaw = customer_order_items_first_nonempty_datetime([
+        $order['cancelled_at'] ?? '',
+        $order['updated_at'] ?? '',
+    ]);
+
+    if (in_array($status, ['Pending', 'Pending Approval', 'Pending Review', 'Inquiry'], true)) {
+        return [
+            'label' => 'Estimated completion',
+            'value' => 'Waiting for confirmation from the shop',
+        ];
+    }
+
+    if (in_array($status, ['Approved', 'In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process'], true)) {
+        return [
+            'label' => 'Estimated completion',
+            'value' => $estimatedCompletionRaw !== ''
+                ? format_date($estimatedCompletionRaw)
+                : 'Waiting for estimated completion date',
+        ];
+    }
+
+    if (in_array($status, ['Ready for Pickup', 'To Receive'], true)) {
+        return [
+            'label' => 'Pickup status',
+            'value' => $estimatedCompletionRaw !== ''
+                ? 'Ready for pickup on ' . format_date($estimatedCompletionRaw)
+                : 'Ready for pickup',
+        ];
+    }
+
+    if (in_array($status, ['Completed', 'To Rate', 'Rated'], true)) {
+        return [
+            'label' => 'Order completed',
+            'value' => $updatedAtRaw !== ''
+                ? 'Completed on ' . format_datetime($updatedAtRaw)
+                : 'Order completed successfully',
+        ];
+    }
+
+    if ($status === 'Cancelled') {
+        $value = $cancelledAtRaw !== ''
+            ? 'Cancelled on ' . format_datetime($cancelledAtRaw)
+            : 'Order cancelled';
+        $reason = trim((string)($order['cancel_reason'] ?? ''));
+        if ($reason !== '') {
+            $value .= ' - ' . $reason;
+        }
+        return [
+            'label' => 'Order cancelled',
+            'value' => $value,
+        ];
+    }
+
+    if ($status === 'Rejected') {
+        $value = $cancelledAtRaw !== ''
+            ? 'Rejected on ' . format_datetime($cancelledAtRaw)
+            : 'Order rejected';
+        $reason = trim((string)($order['payment_rejection_reason'] ?? $order['cancel_reason'] ?? ''));
+        if ($reason !== '') {
+            $value .= ' - ' . $reason;
+        }
+        return [
+            'label' => 'Order rejected',
+            'value' => $value,
+        ];
+    }
+
+    return [
+        'label' => 'Estimated completion',
+        'value' => $estimatedCompletionRaw !== ''
+            ? format_date($estimatedCompletionRaw)
+            : 'Waiting for estimated completion date',
+    ];
+}
+
 try {
 $order_id = (int)($_GET['id'] ?? 0);
 $customer_id = get_user_id();
@@ -530,6 +635,9 @@ if ($is_rejected_payment) {
 } elseif ($latest_job_payment_status === 'PARTIAL') {
     $payment_status = 'Partial';
 }
+
+$payment_method_display = customer_order_items_friendly_payment_method($order['payment_method'] ?? null, $payment_status);
+$status_meta = customer_order_items_status_meta($order, $payment_status);
 
 $service_final_price_pending_statuses = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
 $service_final_price_locked = in_array((string)($order['status'] ?? ''), $service_final_price_pending_statuses, true);
@@ -1121,10 +1229,11 @@ customer_order_items_json([
     'status'           => $order['status'],
     'display_status'   => $display_status,
     'payment_status'   => $payment_status,
-    'payment_method'   => $order['payment_method'] ?? 'Not Specified',
+    'payment_method'   => $payment_method_display,
     'payment_proof_status' => $latest_payment_proof_status,
     'branch_name'      => $order['branch_name'] ?? 'Not Specified',
-    'estimated_comp'   => ($order['estimated_completion'] ?? null) ? format_date($order['estimated_completion']) : 'Waiting for confirmation from the shop',
+    'estimated_comp'   => $status_meta['value'],
+    'estimated_comp_label' => $status_meta['label'],
     'notes'            => $order['notes'] ?? '',
     'cancelled_by'     => $order['cancelled_by'] ?? '',
     'cancel_reason'    => $order['cancel_reason'] ?? '',
@@ -1145,9 +1254,8 @@ customer_order_items_json([
         'status' => (string)$order['status'],
         'display_status' => (string)$display_status,
         'branch_name' => (string)($order['branch_name'] ?? 'Not Specified'),
-        'estimated_completion' => ($order['estimated_completion'] ?? null)
-            ? format_date($order['estimated_completion'])
-            : 'Waiting for confirmation from the shop',
+        'estimated_completion' => $status_meta['value'],
+        'estimated_completion_label' => $status_meta['label'],
         'notes' => (string)($order['notes'] ?? ''),
         'total_amount' => ($is_service_order && ($service_final_price_locked || $order_total_amount <= 0))
             ? 'To Be Discussed'
@@ -1159,7 +1267,7 @@ customer_order_items_json([
     ],
     'payment'          => [
         'status' => $payment_status,
-        'method' => $order['payment_method'] ?? 'Not Specified',
+        'method' => $payment_method_display,
         'proof_status' => $latest_payment_proof_status,
         'rejection_reason' => $order['payment_rejection_reason'] ?? '',
     ],

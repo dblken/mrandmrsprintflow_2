@@ -2058,7 +2058,18 @@ function openItemsModal(orderId, event) {
                     if (v === null || v === undefined || v === '') return false;
                     const nk = String(k).toLowerCase().replace(/\s+/g, '_');
                     if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
-                    if (['design_upload', 'design_upload_name', 'design_upload_data', 'upload_design_data', 'design_data', 'design_upload_path', 'job_notes', 'reference_upload'].includes(k) || String(k).startsWith('_')) return false;
+                    if ([
+                        'design_upload',
+                        'design_upload_name',
+                        'design_upload_data',
+                        'upload_design_data',
+                        'design_data',
+                        'design_upload_path',
+                        'design_upload_mime',
+                        'design_file',
+                        'job_notes',
+                        'reference_upload'
+                    ].includes(nk) || String(k).startsWith('_')) return false;
                     return true;
                 });
                 const specParts = [];
@@ -2128,6 +2139,8 @@ function openItemsModal(orderId, event) {
             </tr>`;
         }).join('');
 
+        const estimatedCompLabel = data.estimated_comp_label || 'Estimated completion';
+
         document.getElementById('imBody').innerHTML = `
             <div class="im-dashboard">
                 <div class="im-main">
@@ -2192,7 +2205,7 @@ function openItemsModal(orderId, event) {
                     </div>
 
                     <div class="im-sec-card accent">
-                        <div class="im-label">Estimated completion</div>
+                        <div class="im-label">${escIM(estimatedCompLabel)}</div>
                         <div class="im-val">${escIM(data.estimated_comp || 'Gathering timeframe...')}</div>
                     </div>
 
@@ -2238,6 +2251,14 @@ function openItemsModal(orderId, event) {
                 </div>
             </div>
         `;
+
+        const reviewAction = document.querySelector('#imBody a[href*="rate_order.php"], #imBody a[href*="reviews.php?order_id="]');
+        if (reviewAction) {
+            reviewAction.className = 'w-full py-3.5 bg-[rgba(250,204,21,0.15)] text-[#b45309] text-[11px] font-black border border-[rgba(234,179,8,0.5)] hover:bg-[#eab308] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl';
+            reviewAction.textContent = reviewAction.href.includes('reviews.php?order_id=')
+                ? '★ VIEW YOUR REVIEW'
+                : '★ RATE THIS ORDER';
+        }
     })
     .catch((error) => {
         if (requestToken !== currentOrderItemsRequestToken) {
