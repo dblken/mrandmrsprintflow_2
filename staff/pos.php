@@ -3340,13 +3340,13 @@ try {
                             'warning'
                         );
                     }
-                    // Redirect to the legacy Customizations page to set price, then return to POS
+                    // Deep-link directly into the existing Approved pricing/material flow.
                     const redirectUrl = new URL(<?php echo json_encode(BASE_PATH . '/staff/customizations.php'); ?>, window.location.origin);
-                    redirectUrl.searchParams.set('order_id', data.order_id);
+                    redirectUrl.searchParams.set('order_id', data.customization_id || data.order_id);
+                    redirectUrl.searchParams.set('job_type', 'CUSTOMIZATION');
+                    redirectUrl.searchParams.set('status', 'APPROVED');
+                    redirectUrl.searchParams.set('source_order_id', data.order_id);
                     redirectUrl.searchParams.set('return_to_pos', '1');
-                    if (data.customization_id) {
-                        redirectUrl.searchParams.set('customization_id', data.customization_id);
-                    }
                     window.location.href = redirectUrl.toString();
                 } else {
                     await showPOSAlert('Error', 'Failed to create customization: ' + (data.message || 'Unknown error'), 'error');

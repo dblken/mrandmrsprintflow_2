@@ -4791,8 +4791,52 @@ window.pfCustomizationPreloadedOrders = (() => {
                         }
                     }
                     await this.refreshMaterials();
+                    const details = this.currentJo.customization_details || {};
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const returnToPOS = urlParams.get('return_to_pos') === '1';
+                    const isPosReturnFlow = details.source === 'POS' || returnToPOS;
                     if (!this.beginModalAction()) return;
                     try {
+                        if (isPosReturnFlow) {
+                            const priceUpdated = await this.updatePrice();
+                            if (!priceUpdated) {
+                                this.showStaffAlert('Error', 'Failed to update price. Please try again.');
+                                return;
+                            }
+
+                            const savedState = sessionStorage.getItem('pos_cart_state');
+                            if (savedState) {
+                                try {
+                                    const state = JSON.parse(savedState);
+                                    await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({
+                                            action: 'update_price',
+                                            index: state.item_index,
+                                            price: priceValue
+                                        })
+                                    });
+                                    await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({
+                                            action: 'update_service_link',
+                                            index: state.item_index,
+                                            pending_order_id: parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0,
+                                            customization_id: parseInt(this.currentJo.id || 0, 10) || 0
+                                        })
+                                    });
+                                } catch (e) {
+                                    console.error('Error updating cart price:', e);
+                                }
+                                sessionStorage.removeItem('pos_cart_state');
+                            }
+
+                            window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
+                            return;
+                        }
+
                         const fd = new FormData();
                         fd.append('action', 'update_customization');
                         fd.append('id', this.currentJo.id);
@@ -4806,41 +4850,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                             const successMessage = targetTab === 'TO_VERIFY'
                                 ? 'Price set! Payment proof detected and order moved to verification.'
                                 : 'Price set and order moved to payment stage.';
-                            const details = this.currentJo.customization_details || {};
-                            const urlParams = new URLSearchParams(window.location.search);
-                            const returnToPOS = urlParams.get('return_to_pos') === '1';
-                            if (details.source === 'POS' || returnToPOS) {
-                                const savedState = sessionStorage.getItem('pos_cart_state');
-                                if (savedState) {
-                                    try {
-                                        const state = JSON.parse(savedState);
-                                        await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
-                                            method: 'POST',
-                                            headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify({
-                                                action: 'update_price',
-                                                index: state.item_index,
-                                                price: priceValue
-                                            })
-                                        });
-                                        await fetch(this.staffApiUrl('api/pos_cart_handler.php'), {
-                                            method: 'POST',
-                                            headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify({
-                                                action: 'update_service_link',
-                                                index: state.item_index,
-                                                pending_order_id: parseInt(this.currentJo.order_id || this.deepLinkSourceOrderId || 0, 10) || 0,
-                                                customization_id: parseInt(this.currentJo.id || 0, 10) || 0
-                                            })
-                                        });
-                                    } catch (e) {
-                                        console.error('Error updating cart price:', e);
-                                    }
-                                    sessionStorage.removeItem('pos_cart_state');
-                                }
-                                window.location.href = this.staffApiUrl('pos.php?from_customizations=1');
-                                return;
-                            }
                             this.activeStatus = this.isPosSimplifiedView ? targetTab : 'PAYMENT';
                             await this.loadOrders();
                             this.showStaffAlert('Success', successMessage);
@@ -4918,10 +4927,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.showStaffAlert('Error', 'Failed to update price. Please try again.');
                         return;
                     }
-                    const statusUpdated = await this.updateStatus(jid, 'TO_PAY');
-                    if (!statusUpdated) {
-                        return;
-                    }
                     if (fromPOS) {
                         const savedState = sessionStorage.getItem('pos_cart_state');
                         if (savedState) {
@@ -4956,6 +4961,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                             }
                         }
                         window.location.href = this.staffApiUrl('pos.php');
+                        return;
+                    }
+                    const statusUpdated = await this.updateStatus(jid, 'TO_PAY');
+                    if (!statusUpdated) {
                         return;
                     }
                     this.showStaffAlert('Success', 'Order approved and moved to payment stage!');
