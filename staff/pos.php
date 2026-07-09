@@ -992,77 +992,179 @@ try {
         .receipt-modal-body {
             padding: 28px;
             overflow: auto;
-            background: #f8fafc;
+            background: linear-gradient(180deg, #f4f8f7 0%, #eef4f3 100%);
         }
 
         .receipt-sheet {
             width: 100%;
-            max-width: 760px;
+            max-width: 720px;
             margin: 0 auto;
             background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 24px;
-            padding: 28px;
-            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+            border: 1px solid #d8e2df;
+            border-radius: 20px;
+            padding: 24px 24px 22px;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+            font-family: "Courier New", "Liberation Mono", monospace;
+            color: #0f172a;
         }
 
-        .receipt-topbar, .receipt-meta, .receipt-totals-row, .receipt-payment-grid {
-            display: grid;
-            gap: 16px;
-        }
-
-        .receipt-topbar {
-            grid-template-columns: 1.3fr 1fr;
-            align-items: start;
-            margin-bottom: 24px;
-        }
-
-        .receipt-brand {
-            display: flex;
-            gap: 14px;
-            align-items: flex-start;
+        .receipt-header {
+            text-align: center;
+            padding-bottom: 16px;
+            border-bottom: 1px dashed #cbd5d1;
         }
 
         .receipt-logo {
-            width: 58px;
-            height: 58px;
+            width: 62px;
+            height: 62px;
             border-radius: 16px;
             object-fit: cover;
             border: 1px solid #dbe4f0;
             background: #ffffff;
+            margin: 0 auto 10px;
         }
 
-        .receipt-meta {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            margin-bottom: 22px;
+        .receipt-brand-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #00232b;
         }
 
-        .receipt-card {
-            background: #f8fafc;
+        .receipt-branch {
+            margin-top: 3px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f766e;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .receipt-company-meta {
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.55;
+            color: #475569;
+        }
+
+        .receipt-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px 12px;
+            border-radius: 999px;
+            border: 1px solid #cde8e2;
+            background: #f0fdfa;
+            color: #0f766e;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            margin-top: 12px;
+        }
+
+        .receipt-section {
+            padding-top: 14px;
+            margin-top: 14px;
+            border-top: 1px dashed #d6e0dd;
+        }
+
+        .receipt-section-title {
+            font-size: 11px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .receipt-info-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .receipt-info-card {
             border: 1px solid #e2e8f0;
-            border-radius: 18px;
-            padding: 16px;
+            border-radius: 14px;
+            padding: 10px 12px;
+            background: #fbfdfd;
+            min-width: 0;
+        }
+
+        .receipt-label {
+            font-size: 10px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+
+        .receipt-value {
+            color: #0f172a;
+            font-size: 13px;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .receipt-value--strong {
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .receipt-customer {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+        }
+
+        .receipt-customer-name {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0f172a;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .receipt-payment-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 12px;
+            border-radius: 999px;
+            background: #00232b;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
         }
 
         .receipt-items {
             width: 100%;
             border-collapse: collapse;
-            margin: 16px 0 24px;
+            margin-top: 6px;
         }
 
         .receipt-items th,
         .receipt-items td {
-            padding: 12px 8px;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 14px;
+            padding: 10px 8px;
+            border-bottom: 1px dashed #d8e2df;
+            font-size: 13px;
+            vertical-align: top;
         }
 
         .receipt-items th {
             text-align: left;
             color: #64748b;
-            font-size: 12px;
+            font-size: 10px;
             text-transform: uppercase;
-            letter-spacing: 0.06em;
+            letter-spacing: 0.12em;
+            font-weight: 800;
+            padding-top: 0;
         }
 
         .receipt-items td:last-child,
@@ -1074,55 +1176,81 @@ try {
             text-align: right;
         }
 
-        .receipt-totals-row {
-            grid-template-columns: 1.1fr 0.9fr;
-            align-items: start;
+        .receipt-item-name {
+            font-weight: 800;
+            color: #0f172a;
         }
 
-        .receipt-totals {
+        .receipt-item-meta {
+            margin-top: 4px;
+            font-size: 11px;
+            line-height: 1.45;
+            color: #64748b;
+            white-space: pre-wrap;
+        }
+
+        .receipt-summary {
+            margin-top: 16px;
             margin-left: auto;
-            width: 100%;
-            max-width: 320px;
+            width: min(100%, 320px);
         }
 
         .receipt-total-line {
             display: flex;
             justify-content: space-between;
             gap: 16px;
-            padding: 10px 0;
+            padding: 8px 0;
             border-bottom: 1px dashed #dbe4f0;
-            font-size: 14px;
+            font-size: 13px;
         }
 
         .receipt-total-line--grand {
-            border-bottom: none;
-            font-size: 20px;
+            margin-top: 8px;
+            padding: 12px 14px;
+            border: 1px solid #bfe3da;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%);
+            font-size: 22px;
             font-weight: 800;
-            color: #0f172a;
-            padding-top: 16px;
+            color: #00232b;
         }
 
-        .receipt-payment-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+        .receipt-payment-breakdown {
+            margin-top: 16px;
+            padding: 14px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            background: #fbfdfd;
+        }
+
+        .receipt-footer {
             margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px dashed #d6e0dd;
+            text-align: center;
         }
 
-        .receipt-label {
-            font-size: 11px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 700;
-            margin-bottom: 6px;
-        }
-
-        .receipt-value {
-            color: #0f172a;
+        .receipt-footer strong {
+            display: block;
+            font-family: 'Outfit', sans-serif;
             font-size: 14px;
+            color: #00232b;
+            margin-bottom: 4px;
+        }
+
+        .receipt-footer p {
+            margin: 0;
+            font-size: 11px;
             line-height: 1.5;
+            color: #64748b;
         }
 
         @media print {
+            @page {
+                size: A4;
+                margin: 12mm;
+            }
+
             body * {
                 visibility: hidden;
             }
@@ -1137,6 +1265,40 @@ try {
                 left: 0;
                 top: 0;
                 width: 100%;
+                padding: 0;
+            }
+
+            .receipt-sheet {
+                max-width: none;
+                border: none;
+                border-radius: 0;
+                box-shadow: none;
+                padding: 0;
+            }
+
+            .receipt-modal-body {
+                background: #ffffff;
+                padding: 0;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .receipt-modal-header,
+            .receipt-modal-body {
+                padding: 18px;
+            }
+
+            .receipt-sheet {
+                padding: 18px 16px;
+                border-radius: 16px;
+            }
+
+            .receipt-info-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .receipt-customer {
+                flex-direction: column;
             }
         }
 
@@ -1714,18 +1876,86 @@ try {
             });
         }
 
+        function cleanReceiptContact(customer = {}) {
+            const phone = String(customer.phone || '').trim();
+            if (phone) return phone;
+            const email = String(customer.email || '').trim();
+            if (!email || email.toLowerCase() === 'walkin@pos.local') return '';
+            return email;
+        }
+
+        function compactReceiptSpecLabel(key) {
+            const map = {
+                material: 'Material',
+                material_type: 'Material',
+                temp_plate_material: 'Material',
+                dimensions: 'Size',
+                size: 'Size',
+                layout: 'Layout',
+                finish: 'Finish',
+                lamination: 'Lamination',
+                laminate_option: 'Lamination',
+                needed_date: 'Needed',
+                quantity: 'Qty'
+            };
+            return map[key] || '';
+        }
+
+        function buildReceiptItemDetails(item) {
+            const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+            const details = [];
+            const pushDetail = (label, value) => {
+                const text = String(value || '').trim();
+                if (!text) return;
+                details.push(`${label}: ${text}`);
+            };
+
+            pushDetail('Material', custom.material || custom.material_type || custom.temp_plate_material || custom['Material Selection'] || custom['Material Brand']);
+
+            ['dimensions', 'size', 'layout', 'finish', 'lamination', 'laminate_option', 'needed_date'].forEach((key) => {
+                const label = compactReceiptSpecLabel(key);
+                if (!label) return;
+                pushDetail(label, custom[key]);
+            });
+
+            if (details.length === 0) {
+                Object.entries(custom).forEach(([key, value]) => {
+                    if (details.length >= 3) return;
+                    if (value == null || value === '' || typeof value === 'object') return;
+                    const normalizedKey = String(key).toLowerCase();
+                    if ([
+                        'service_type', 'source', 'branch_id', 'quantity', 'notes', 'additional_notes',
+                        'design_upload', 'design_upload_path', 'reference_upload', 'reference_upload_path'
+                    ].includes(normalizedKey)) {
+                        return;
+                    }
+                    const cleanValue = String(value).trim();
+                    if (!cleanValue) return;
+                    const label = String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    details.push(`${label}: ${cleanValue}`);
+                });
+            }
+
+            return details.slice(0, 3);
+        }
+
         function buildReceiptHtml(receipt) {
             const company = receipt?.company || {};
             const customer = receipt?.customer || {};
             const discount = receipt?.discount || {};
             const payment = receipt?.payment || {};
             const items = Array.isArray(receipt?.items) ? receipt.items : [];
+            const receiptContact = cleanReceiptContact(customer);
+            const cashierName = <?php echo json_encode($user_name ?? ''); ?>;
             const itemRows = items.map(item => `
                 <tr>
-                    <td style="font-weight:700;color:#0f172a;">${escapeHtml(item.name || 'Item')}</td>
+                    <td>
+                        <div class="receipt-item-name">${escapeHtml(item.name || 'Item')}</div>
+                        ${buildReceiptItemDetails(item).length ? `<div class="receipt-item-meta">${escapeHtml(buildReceiptItemDetails(item).join(' • '))}</div>` : ''}
+                    </td>
                     <td>${escapeHtml(item.quantity || 0)}</td>
                     <td>${formatMoney(item.unit_price || 0)}</td>
-                    <td style="font-weight:700;color:#0f172a;">${formatMoney(item.line_total || 0)}</td>
+                    <td style="font-weight:800;color:#0f172a;">${formatMoney(item.line_total || 0)}</td>
                 </tr>
             `).join('');
             const discountLabel = discount.code
@@ -1733,63 +1963,79 @@ try {
                 : 'No discount';
 
             return `
-                <div class="receipt-topbar">
-                    <div class="receipt-brand">
-                        ${company.logo_url ? `<img src="${escapeHtml(company.logo_url)}" alt="${escapeHtml(company.name || 'Company')}" class="receipt-logo">` : ''}
-                        <div>
-                            <div style="font-size:24px;font-weight:800;color:#0f172a;line-height:1.1;">${escapeHtml(company.name || 'PrintFlow')}</div>
-                            <div style="font-size:14px;color:#0f766e;font-weight:700;margin-top:6px;">${escapeHtml(company.branch_name || 'Main Branch')}</div>
-                            ${company.address ? `<div class="receipt-value">${escapeHtml(company.address)}</div>` : ''}
-                            ${company.contact ? `<div class="receipt-value">${escapeHtml(company.contact)}</div>` : ''}
+                <div class="receipt-header">
+                    ${company.logo_url ? `<img src="${escapeHtml(company.logo_url)}" alt="${escapeHtml(company.name || 'Company')}" class="receipt-logo">` : ''}
+                    <div class="receipt-brand-name">${escapeHtml(company.name || 'PrintFlow')}</div>
+                    <div class="receipt-branch">${escapeHtml(company.branch_name || 'Main Branch')}</div>
+                    <div class="receipt-company-meta">
+                        ${company.address ? `<div>${escapeHtml(company.address)}</div>` : ''}
+                        ${company.contact ? `<div>${escapeHtml(company.contact)}</div>` : ''}
+                    </div>
+                    <div class="receipt-pill">Official POS Receipt</div>
+                </div>
+
+                <div class="receipt-section">
+                    <div class="receipt-section-title">Receipt Info</div>
+                    <div class="receipt-info-grid">
+                        <div class="receipt-info-card">
+                            <div class="receipt-label">Receipt No.</div>
+                            <div class="receipt-value receipt-value--strong">${escapeHtml(receipt.receipt_number || '')}</div>
+                        </div>
+                        <div class="receipt-info-card">
+                            <div class="receipt-label">Date & Time</div>
+                            <div class="receipt-value">${escapeHtml(formatReceiptDateTime(receipt.date_time))}</div>
+                        </div>
+                        <div class="receipt-info-card">
+                            <div class="receipt-label">Cashier</div>
+                            <div class="receipt-value">${escapeHtml(cashierName || 'Staff')}</div>
                         </div>
                     </div>
-                    <div class="receipt-card">
-                        <div class="receipt-label">Receipt Number</div>
-                        <div class="receipt-value" style="font-size:18px;font-weight:800;">${escapeHtml(receipt.receipt_number || '')}</div>
-                        <div class="receipt-label" style="margin-top:14px;">Date and Time</div>
-                        <div class="receipt-value">${escapeHtml(formatReceiptDateTime(receipt.date_time))}</div>
+                </div>
+
+                <div class="receipt-section">
+                    <div class="receipt-section-title">Customer</div>
+                    <div class="receipt-customer">
+                        <div>
+                            <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Customer')}</div>
+                            ${receiptContact ? `<div class="receipt-value" style="margin-top:4px;">${escapeHtml(receiptContact)}</div>` : ''}
+                        </div>
+                        <div class="receipt-payment-chip">${escapeHtml(payment.method || 'Cash')}</div>
                     </div>
                 </div>
-                <div class="receipt-meta">
-                    <div class="receipt-card">
-                        <div class="receipt-label">Customer</div>
-                        <div class="receipt-value" style="font-weight:700;">${escapeHtml(customer.name || 'Walk-in Customer')}</div>
-                        ${customer.email ? `<div class="receipt-value">${escapeHtml(customer.email)}</div>` : ''}
-                        ${customer.phone ? `<div class="receipt-value">${escapeHtml(customer.phone)}</div>` : ''}
-                    </div>
-                    <div class="receipt-card">
-                        <div class="receipt-label">Payment Details</div>
-                        <div class="receipt-value">${escapeHtml(payment.method || 'Cash')}</div>
-                        ${payment.reference ? `<div class="receipt-value">Ref: ${escapeHtml(payment.reference)}</div>` : ''}
-                        ${payment.status ? `<div class="receipt-value">Status: ${escapeHtml(payment.status)}</div>` : ''}
-                    </div>
+
+                <div class="receipt-section">
+                    <div class="receipt-section-title">Items</div>
+                    <table class="receipt-items">
+                        <thead>
+                            <tr>
+                                <th>Item / Service</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>${itemRows}</tbody>
+                    </table>
                 </div>
-                <table class="receipt-items">
-                    <thead>
-                        <tr>
-                            <th>Services / Products</th>
-                            <th>Qty</th>
-                            <th>Unit Price</th>
-                            <th>Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>${itemRows}</tbody>
-                </table>
-                <div class="receipt-totals-row">
-                    <div class="receipt-card">
-                        <div class="receipt-label">Discount</div>
-                        <div class="receipt-value">${discountLabel}</div>
-                        ${discount.description ? `<div class="receipt-value" style="margin-top:6px;color:#64748b;">${escapeHtml(discount.description)}</div>` : ''}
-                    </div>
-                    <div class="receipt-totals">
+
+                <div class="receipt-section">
+                    <div class="receipt-section-title">Payment Summary</div>
+                    <div class="receipt-summary">
                         <div class="receipt-total-line"><span>Subtotal</span><strong>${formatMoney(receipt.subtotal || 0)}</strong></div>
                         <div class="receipt-total-line"><span>Discount</span><strong>${formatMoney(discount.amount || 0)}</strong></div>
+                        ${discount.code || discount.description ? `<div class="receipt-total-line" style="font-size:11px;color:#64748b;"><span>Discount Details</span><span>${discountLabel}</span></div>` : ''}
                         <div class="receipt-total-line receipt-total-line--grand"><span>Total</span><span>${formatMoney(receipt.total || 0)}</span></div>
                     </div>
+                    <div class="receipt-payment-breakdown">
+                        <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || 0)}</strong></div>
+                        <div class="receipt-total-line"><span>Change</span><strong style="color:#0f766e;">${formatMoney(payment.change || 0)}</strong></div>
+                        ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${escapeHtml(payment.reference)}</span></div>` : ''}
+                    </div>
                 </div>
-                <div class="receipt-payment-grid">
-                    <div class="receipt-card"><div class="receipt-label">Amount Paid</div><div class="receipt-value" style="font-weight:700;">${formatMoney(payment.amount_paid || 0)}</div></div>
-                    <div class="receipt-card"><div class="receipt-label">Change</div><div class="receipt-value" style="font-weight:700;color:#0d9488;">${formatMoney(payment.change || 0)}</div></div>
+
+                <div class="receipt-footer">
+                    <strong>Thank you for choosing Printflow!</strong>
+                    <p>Please keep this receipt for your records.</p>
                 </div>
             `;
         }

@@ -3568,6 +3568,26 @@ window.pfCustomizationPreloadedOrders = (() => {
             combinedCustomerNotes() {
                 const j = this.currentJo;
                 if (!j) return '';
+
+                const extractNote = (source) => {
+                    if (!source || typeof source !== 'object' || Array.isArray(source)) return '';
+                    const candidates = [
+                        'notes', 'Notes', 'NOTES',
+                        'additional_notes', 'Additional Notes', 'Additional_Notes',
+                        'job_notes', 'Job Notes', 'jobnotes', 'JobNotes',
+                        'customer_notes', 'Customer Notes', 'customernotes', 'CustomerNotes',
+                        'other_instructions', 'Other Instructions',
+                        'special_instructions', 'Special Instructions',
+                        'design_notes', 'Design Notes'
+                    ];
+                    for (const key of candidates) {
+                        const value = source[key];
+                        if (typeof value === 'string' && value.trim()) {
+                            return value.trim();
+                        }
+                    }
+                    return '';
+                };
                 
                 // Priority 1: Customer-facing notes only.
                 let note = (j.store_order_notes || '').trim();
@@ -3582,12 +3602,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                             ? j.customization_details
                             : {};
                         const c = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
-                        const n = (c.notes || c.additional_notes || '').trim();
+                        const n = extractNote(c);
                         if (n) { 
                             note = n; 
                             break; 
                         }
                     }
+                }
+
+                if (!note) {
+                    note = extractNote(j.customization_details);
                 }
 
                 return note || '';
