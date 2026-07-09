@@ -309,11 +309,8 @@ $limit = 15;
 $offset = ($page - 1) * $limit;
 $search_filter = trim((string)($_GET['search'] ?? ''));
 $timeframe = strtolower(trim((string)($_GET['timeframe'] ?? 'today')));
-if (!in_array($timeframe, ['today', 'week', 'month', 'year'], true)) {
+if (!in_array($timeframe, ['today', 'week', 'month'], true)) {
     $timeframe = 'today';
-}
-if ($staffRole !== 'pos' && $timeframe === 'year') {
-    $timeframe = 'month';
 }
 $status_filter = pf_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''));
 

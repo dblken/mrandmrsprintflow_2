@@ -32,7 +32,7 @@ $offset = ($page - 1) * $limit;
 $status_filter = $_GET['status'] ?? '';
 $search_filter = $_GET['search'] ?? '';
 $timeframe = $_GET['timeframe'] ?? 'today';
-if (!$is_pos_staff && $timeframe === 'year') {
+if ($timeframe === 'year') {
     $timeframe = 'month';
 }
 
@@ -65,12 +65,6 @@ switch ($timeframe) {
         $range_end = date('Y-m-t');
         $timeframe_label = "This Month (" . date('F Y') . ")"; 
         $short_label = "This Month";
-        break;
-    case 'year':
-        $range_start = date('Y-01-01');
-        $range_end = date('Y-12-31');
-        $timeframe_label = "This Year (" . date('Y') . ")";
-        $short_label = "This Year";
         break;
     case 'all':
         $range_start = null;
@@ -395,9 +389,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
             if (type === 'today') return 'Today';
             if (type === 'week') return 'This Week';
             if (type === 'month') return 'This Month';
-            <?php if ($is_pos_staff): ?>
-            if (type === 'year') return 'This Year';
-            <?php endif; ?>
             return type.charAt(0).toUpperCase() + type.slice(1);
         },
         getStatusLabel(status) {
@@ -428,9 +419,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'today' }" @click.prevent="activeTimeframe = 'today'; sortOpen = false; refreshDashboard(1, activeStatus, 'today')">Today</a>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'week' }" @click.prevent="activeTimeframe = 'week'; sortOpen = false; refreshDashboard(1, activeStatus, 'week')">This Week</a>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'month' }" @click.prevent="activeTimeframe = 'month'; sortOpen = false; refreshDashboard(1, activeStatus, 'month')">This Month</a>
-                        <?php if ($is_pos_staff): ?>
-                        <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'year' }" @click.prevent="activeTimeframe = 'year'; sortOpen = false; refreshDashboard(1, activeStatus, 'year')">This Year</a>
-                        <?php endif; ?>
                     </div>
                 </div>
 
