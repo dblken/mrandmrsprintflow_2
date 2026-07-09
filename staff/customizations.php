@@ -1600,7 +1600,7 @@ $online_closed_count = 0;
                         <div style="font-size:13px;color:#6b7280;background:#fffbeb;border:1px solid #fef3c7;padding:10px 14px;border-radius:8px;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;" x-text="combinedCustomerNotes()"></div>
                     </div>
 
-                    <template x-if="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING'">
+                    <template x-if="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING' && !isPosPricingReturnFlow(currentJo)">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #d1fae5; background:#f0fdf4;">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
                                 <div style="min-width:0; flex:1;">
@@ -1997,8 +1997,11 @@ $online_closed_count = 0;
                                 <button type="button" @click="jobAction('APPROVED')" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Approve to Set Price</button>
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
-                            <div x-show="!isPosSimplifiedView && currentJo.status === 'APPROVED'" style="display:flex; gap:8px;">
+                            <div x-show="currentJo.status === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve & Send to Pay</button>
+                            </div>
+                            <div x-show="isPosSimplifiedView && currentJo.status === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Back to POS for Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
@@ -3987,6 +3990,15 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             isPosWalkInSource(jo) {
                 return ['pos', 'walk-in'].includes(String(jo?.order_source || '').toLowerCase());
+            },
+            isPosPricingReturnFlow(jo) {
+                if (!jo || !this.isPosWalkInSource(jo)) return false;
+                const status = String(jo.status || '').toUpperCase();
+                if (status !== 'APPROVED') return false;
+                const details = jo.customization_details && typeof jo.customization_details === 'object'
+                    ? jo.customization_details
+                    : {};
+                return details.source === 'POS' || this.deepLinkSourceOrderId === String(jo.order_id || '');
             },
             getPosWalkInBucket(jo) {
                 const status = String(jo?.status || '').toUpperCase();
