@@ -267,6 +267,138 @@ function customer_order_items_sort_customization_by_service_config(array $custom
     return $ordered;
 }
 
+function customer_receipt_extract_display_contact(array $customer): string {
+    $phone = trim((string)($customer['phone'] ?? ''));
+    if ($phone !== '') {
+        return $phone;
+    }
+
+    $email = trim((string)($customer['email'] ?? ''));
+    if ($email === '' || strtolower($email) === 'walkin@pos.local') {
+        return '';
+    }
+
+    return $email;
+}
+
+function customer_receipt_build_material_summary(int $orderId): array {
+    $materials = db_query(
+        "SELECT m.quantity, m.uom, m.notes, i.name AS item_name
+         FROM job_order_materials m
+         INNER JOIN inv_items i ON i.id = m.item_id
+         WHERE m.std_order_id = ?
+         ORDER BY m.id ASC",
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    $summary = [];
+    foreach ($materials as $row) {
+        $name = trim((string)($row['item_name'] ?? ''));
+        if ($name === '') {
+            continue;
+        }
+
+        $quantity = (float)($row['quantity'] ?? 0);
+        $uom = trim((string)($row['uom'] ?? ''));
+        $notes = trim((string)($row['notes'] ?? ''));
+
+        $label = $name;
+        if ($quantity > 0) {
+            $cleanQty = floor($quantity) == $quantity
+                ? (string)(int)$quantity
+                : rtrim(rtrim(number_format($quantity, 2, '.', ''), '0'), '.');
+            $label .= ' x ' . $cleanQty . ($uom !== '' ? ' ' . $uom : '');
+        }
+        if ($notes !== '') {
+            $label .= ' (' . $notes . ')';
+        }
+
+        $summary[] = $label;
+    }
+
+    return array_values(array_unique($summary));
+}
+
+function customer_receipt_build_payload(array $order, array $items, string $paymentStatus): array {
+    $orderId = (int)($order['order_id'] ?? 0);
+    if ($orderId <= 0) {
+        return [];
+    }
+
+    $subtotal = 0.0;
+    $receiptItems = [];
+    foreach ($items as $item) {
+        $quantity = max(1, (int)($item['quantity'] ?? 0));
+        $unitPriceRaw = (float)($item['_unit_price_raw'] ?? 0);
+        $lineTotalRaw = (float)($item['_line_total_raw'] ?? ($quantity * $unitPriceRaw));
+        if ($unitPriceRaw <= 0 && $quantity > 0 && $lineTotalRaw > 0) {
+            $unitPriceRaw = $lineTotalRaw / $quantity;
+        }
+
+        $subtotal += $lineTotalRaw;
+        $receiptItems[] = [
+            'name' => (string)($item['product_name'] ?? 'Item'),
+            'quantity' => $quantity,
+            'unit_price' => round($unitPriceRaw, 2),
+            'line_total' => round($lineTotalRaw, 2),
+            'customization' => is_array($item['customization'] ?? null) ? $item['customization'] : [],
+        ];
+    }
+
+    $storedTotal = (float)($order['total_amount'] ?? 0);
+    $totalPaid = $storedTotal > 0 ? $storedTotal : $subtotal;
+    $discountAmount = max(0, round($subtotal - $totalPaid, 2));
+
+    $shopCfg = printflow_load_runtime_config('shop', dirname(__DIR__) . '/public/assets/uploads/shop_config.json');
+    $shopName = trim((string)($shopCfg['name'] ?? 'Mr. and Mrs. Print'));
+    $shopLogo = trim((string)($shopCfg['logo'] ?? ''));
+    $logoUrl = $shopLogo !== ''
+        ? rtrim((string)(defined('BASE_PATH') ? BASE_PATH : '/printflow'), '/') . '/public/assets/uploads/' . rawurlencode(basename($shopLogo))
+        : '';
+
+    $customerName = trim(((string)($order['first_name'] ?? '')) . ' ' . ((string)($order['last_name'] ?? '')));
+    if ($customerName === '') {
+        $customerName = 'Customer';
+    }
+
+    return [
+        'receipt_number' => 'WEB-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
+        'order_number' => printflow_format_order_code($orderId, $order['order_sku'] ?? ''),
+        'date_time' => (string)($order['updated_at'] ?? $order['order_date'] ?? date('Y-m-d H:i:s')),
+        'company' => [
+            'name' => $shopName,
+            'logo_url' => $logoUrl,
+            'branch_name' => (string)($order['branch_name'] ?? 'Main Branch'),
+            'address' => (string)($order['branch_address'] ?? ''),
+            'contact' => (string)($order['branch_contact'] ?? ''),
+        ],
+        'customer' => [
+            'name' => $customerName,
+            'email' => (string)($order['email'] ?? ''),
+            'phone' => (string)($order['customer_contact_number'] ?? ''),
+        ],
+        'items' => $receiptItems,
+        'materials' => customer_receipt_build_material_summary($orderId),
+        'subtotal' => round($subtotal, 2),
+        'discount' => [
+            'amount' => $discountAmount,
+        ],
+        'total' => round($totalPaid, 2),
+        'payment' => [
+            'method' => (string)($order['payment_method'] ?? 'Not Specified'),
+            'status' => $paymentStatus,
+            'amount_paid' => round($totalPaid, 2),
+            'change' => 0,
+            'reference' => (string)($order['payment_reference'] ?? ''),
+        ],
+        'customer_contact' => customer_receipt_extract_display_contact([
+            'phone' => (string)($order['customer_contact_number'] ?? ''),
+            'email' => (string)($order['email'] ?? ''),
+        ]),
+    ];
+}
+
 $order_id = (int)($_GET['id'] ?? 0);
 $customer_id = get_user_id();
 
@@ -276,7 +408,8 @@ if (!$order_id) {
 
 // Verify order belongs to this customer
 $order_result = db_query("
-    SELECT o.*, b.branch_name,
+    SELECT o.*, b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
+           c.first_name, c.last_name, c.email, c.contact_number AS customer_contact_number,
            (SELECT jo.payment_proof_status
             FROM job_orders jo
             WHERE jo.order_id = o.order_id
@@ -303,8 +436,9 @@ $order_result = db_query("
                 SELECT jo.service_type FROM job_orders jo
                 WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1
             ), '') as first_job_service_type
-    FROM orders o 
+    FROM orders o
     LEFT JOIN branches b ON o.branch_id = b.id 
+    LEFT JOIN customers c ON c.customer_id = o.customer_id
     WHERE o.order_id = ? AND o.customer_id = ?
 ", 'ii', [$order_id, $customer_id]);
 
@@ -845,6 +979,8 @@ foreach ($service_items_raw as $index => $entry) {
     $payload['final_price'] = ($final_item_amount !== null && $final_item_amount > 0)
         ? format_currency($final_item_amount)
         : 'To Be Discussed';
+    $payload['_unit_price_raw'] = round($raw_unit_price, 2);
+    $payload['_line_total_raw'] = round(($final_item_amount !== null && $final_item_amount > 0) ? $final_item_amount : $raw_subtotal, 2);
     $items_out[] = $payload;
 }
 
@@ -892,6 +1028,12 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
     }
 }
 
+$receipt_available = in_array((string)($order['status'] ?? ''), ['Completed', 'To Rate', 'Rated'], true)
+    && strcasecmp($payment_status, 'Paid') === 0;
+$receipt_payload = $receipt_available
+    ? customer_receipt_build_payload($order, $items_out, $payment_status)
+    : null;
+
 customer_order_items_json([
     'order_id'         => $order['order_id'],
     'order_code'       => printflow_format_order_code($order['order_id'], $order['order_sku'] ?? ''),
@@ -923,5 +1065,7 @@ customer_order_items_json([
     'can_cancel'       => $can_cancel,
     'cancel_restriction_msg' => $restriction_msg,
     'rating_data'      => $rating_data,
+    'receipt_available' => $receipt_available,
+    'receipt'          => $receipt_payload,
     'csrf_token'       => generate_csrf_token()
 ]);

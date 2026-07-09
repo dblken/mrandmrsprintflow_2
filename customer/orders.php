@@ -1039,6 +1039,396 @@ require_once __DIR__ . '/../includes/header.php';
 
 .capitalize-first { display: inline-block; }
 .capitalize-first::first-letter { text-transform: uppercase; }
+
+#receiptModal {
+    position: fixed;
+    inset: 0;
+    z-index: 100100;
+    background: rgba(2, 12, 18, 0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+#receiptModal.open {
+    display: flex;
+}
+
+.receipt-modal-shell {
+    width: min(920px, 100%);
+    max-height: calc(100vh - 40px);
+    background: #ffffff;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 30px 90px rgba(2, 12, 18, 0.35);
+    display: flex;
+    flex-direction: column;
+}
+
+.receipt-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.receipt-modal-title {
+    color: #0f172a;
+    font-size: 1.2rem;
+    font-weight: 800;
+}
+
+.receipt-modal-subtitle {
+    color: #64748b;
+    font-size: 0.85rem;
+    margin-top: 4px;
+}
+
+.receipt-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.receipt-action-btn {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.receipt-action-btn--primary {
+    background: #0d9488;
+    border-color: #0d9488;
+    color: #ffffff;
+}
+
+.receipt-modal-body {
+    padding: 24px;
+    overflow: auto;
+    background: linear-gradient(180deg, #f4f8f7 0%, #eef4f3 100%);
+}
+
+.receipt-sheet {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    background: #ffffff;
+    border: 1px solid #d8e2df;
+    border-radius: 20px;
+    padding: 24px 24px 22px;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    font-family: "Courier New", "Liberation Mono", monospace;
+    color: #0f172a;
+}
+
+.receipt-header {
+    text-align: center;
+    padding-bottom: 16px;
+    border-bottom: 1px dashed #cbd5d1;
+}
+
+.receipt-logo {
+    width: 62px;
+    height: 62px;
+    border-radius: 16px;
+    object-fit: cover;
+    border: 1px solid #dbe4f0;
+    background: #ffffff;
+    margin: 0 auto 10px;
+}
+
+.receipt-brand-name {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #00232b;
+}
+
+.receipt-branch {
+    margin-top: 3px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f766e;
+}
+
+.receipt-company-meta {
+    margin-top: 8px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #475569;
+}
+
+.receipt-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid #cde8e2;
+    background: #f0fdfa;
+    color: #0f766e;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-top: 12px;
+}
+
+.receipt-section {
+    padding-top: 14px;
+    margin-top: 14px;
+    border-top: 1px dashed #d6e0dd;
+}
+
+.receipt-section-title {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 800;
+    margin-bottom: 10px;
+}
+
+.receipt-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.receipt-info-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: #fbfdfd;
+    min-width: 0;
+}
+
+.receipt-label {
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 800;
+    margin-bottom: 5px;
+}
+
+.receipt-value {
+    color: #0f172a;
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.receipt-value--strong {
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.receipt-customer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.receipt-customer-name {
+    font-size: 18px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.receipt-payment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: #00232b;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.receipt-items {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+}
+
+.receipt-items th,
+.receipt-items td {
+    padding: 10px 8px;
+    border-bottom: 1px dashed #d8e2df;
+    font-size: 13px;
+    vertical-align: top;
+}
+
+.receipt-items th {
+    text-align: left;
+    color: #64748b;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 800;
+    padding-top: 0;
+}
+
+.receipt-items td:last-child,
+.receipt-items th:last-child,
+.receipt-items td:nth-last-child(2),
+.receipt-items th:nth-last-child(2),
+.receipt-items td:nth-last-child(3),
+.receipt-items th:nth-last-child(3) {
+    text-align: right;
+}
+
+.receipt-item-name {
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.receipt-item-meta {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #64748b;
+    white-space: pre-wrap;
+}
+
+.receipt-summary {
+    margin-top: 16px;
+    margin-left: auto;
+    width: min(100%, 320px);
+}
+
+.receipt-total-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 0;
+    border-bottom: 1px dashed #dbe4f0;
+    font-size: 13px;
+}
+
+.receipt-total-line--grand {
+    margin-top: 8px;
+    padding: 12px 14px;
+    border: 1px solid #bfe3da;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%);
+    font-size: 22px;
+    font-weight: 800;
+    color: #00232b;
+}
+
+.receipt-payment-breakdown {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #fbfdfd;
+}
+
+.receipt-footer {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px dashed #d6e0dd;
+    text-align: center;
+}
+
+.receipt-footer strong {
+    display: block;
+    font-size: 14px;
+    color: #00232b;
+    margin-bottom: 4px;
+}
+
+.receipt-footer p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #64748b;
+}
+
+@media print {
+    @page {
+        size: A4;
+        margin: 12mm;
+    }
+
+    body * {
+        visibility: hidden;
+    }
+
+    #receipt-print-area,
+    #receipt-print-area * {
+        visibility: visible;
+    }
+
+    #receipt-print-area {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        padding: 0;
+    }
+
+    .receipt-sheet {
+        max-width: none;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 0;
+    }
+
+    .receipt-modal-body {
+        background: #ffffff;
+        padding: 0;
+    }
+}
+
+@media (max-width: 720px) {
+    .receipt-modal-header,
+    .receipt-modal-body {
+        padding: 18px;
+    }
+
+    .receipt-modal-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .receipt-modal-actions {
+        width: 100%;
+    }
+
+    .receipt-sheet {
+        padding: 18px 16px;
+        border-radius: 16px;
+    }
+
+    .receipt-info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .receipt-customer {
+        flex-direction: column;
+    }
+}
 </style>
 
 
@@ -1192,6 +1582,8 @@ function get_preview_image_for_order_ui($order, $display_name) {
 }
 ?>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
 <script>
 document.body.classList.add('orders-page');
 const CUSTOMER_BASE_URL = <?php echo json_encode(BASE_URL); ?>;
@@ -1271,6 +1663,25 @@ window.addEventListener('DOMContentLoaded', () => {
     </div>
 </div>
 
+<div id="receiptModal" onclick="if(event.target === this) closeReceiptModal()">
+    <div class="receipt-modal-shell">
+        <div class="receipt-modal-header">
+            <div>
+                <div class="receipt-modal-title">Order Receipt</div>
+                <div class="receipt-modal-subtitle">View, print, or download your completed order receipt.</div>
+            </div>
+            <div class="receipt-modal-actions">
+                <button type="button" class="receipt-action-btn" onclick="printReceipt()">Print Receipt</button>
+                <button type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="downloadReceiptPdf()">Download Receipt</button>
+                <button type="button" class="receipt-action-btn" onclick="closeReceiptModal()">Close</button>
+            </div>
+        </div>
+        <div class="receipt-modal-body">
+            <div class="receipt-sheet" id="receipt-print-area"></div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal: Cancellation -->
 <div id="cancelModal" onclick="if(event.target === this) closeCancelModal()">
     <div class="cm-box">
@@ -1339,6 +1750,218 @@ function imBadge(val) {
     else if (s.includes('completed') || s.includes('rated') || s.includes('paid')) cls = 'st-completed';
     else if (s.includes('rejected') || s.includes('cancelled')) cls = 'st-cancelled';
     return `<span class="status-pill ${cls}">${escIM(raw)}</span>`;
+}
+
+function receiptEscape(value) {
+    return escIM(value == null ? '' : value);
+}
+
+function formatReceiptDateTime(value) {
+    if (!value) {
+        return '';
+    }
+    const date = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+    return date.toLocaleString('en-PH', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+    });
+}
+
+function formatMoney(amount) {
+    const value = Number(amount || 0);
+    return new Intl.NumberFormat('en-PH', {
+        style: 'currency',
+        currency: 'PHP',
+        minimumFractionDigits: 2
+    }).format(Number.isFinite(value) ? value : 0);
+}
+
+function receiptDetailLines(item) {
+    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+    const details = [];
+    const pushLine = (label, value) => {
+        const text = String(value || '').trim();
+        if (!text) return;
+        details.push(`${label}: ${text}`);
+    };
+
+    pushLine('Material', custom.material || custom.material_type || custom.temp_plate_material || custom['Material Selection']);
+
+    Object.entries(custom).forEach(([key, value]) => {
+        if (details.length >= 4) {
+            return;
+        }
+        if (value == null || value === '' || typeof value === 'object') {
+            return;
+        }
+        const normalizedKey = String(key).toLowerCase();
+        if ([
+            'service_type', 'source', 'source_page', 'branch_id', 'quantity', 'design_upload', 'design_upload_name',
+            'design_upload_data', 'upload_design_data', 'design_data', 'design_upload_path', 'reference_upload',
+            'reference_upload_path'
+        ].includes(normalizedKey)) {
+            return;
+        }
+        if (normalizedKey === 'material' || normalizedKey === 'material_type' || normalizedKey === 'temp_plate_material') {
+            return;
+        }
+        const label = String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        pushLine(label, value);
+    });
+
+    return details;
+}
+
+let activeReceiptData = null;
+
+function buildReceiptHtml(receipt) {
+    const company = receipt?.company || {};
+    const customer = receipt?.customer || {};
+    const payment = receipt?.payment || {};
+    const discount = receipt?.discount || {};
+    const items = Array.isArray(receipt?.items) ? receipt.items : [];
+    const materials = Array.isArray(receipt?.materials) ? receipt.materials : [];
+    const contact = String(receipt?.customer_contact || customer.phone || '').trim();
+    const itemRows = items.map(item => `
+        <tr>
+            <td>
+                <div class="receipt-item-name">${receiptEscape(item.name || 'Item')}</div>
+                ${receiptDetailLines(item).length ? `<div class="receipt-item-meta">${receiptEscape(receiptDetailLines(item).join(' • '))}</div>` : ''}
+            </td>
+            <td>${receiptEscape(item.quantity || 0)}</td>
+            <td>${formatMoney(item.unit_price || 0)}</td>
+            <td style="font-weight:800;color:#0f172a;">${formatMoney(item.line_total || 0)}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <div class="receipt-header">
+            ${company.logo_url ? `<img src="${receiptEscape(company.logo_url)}" alt="${receiptEscape(company.name || 'PrintFlow')}" class="receipt-logo">` : ''}
+            <div class="receipt-brand-name">${receiptEscape(company.name || 'PrintFlow')}</div>
+            <div class="receipt-branch">${receiptEscape(company.branch_name || 'Main Branch')}</div>
+            <div class="receipt-company-meta">
+                ${company.address ? `<div>${receiptEscape(company.address)}</div>` : ''}
+                ${company.contact ? `<div>${receiptEscape(company.contact)}</div>` : ''}
+            </div>
+            <div class="receipt-pill">Official Online Receipt</div>
+        </div>
+
+        <div class="receipt-section">
+            <div class="receipt-section-title">Receipt Info</div>
+            <div class="receipt-info-grid">
+                <div class="receipt-info-card">
+                    <div class="receipt-label">Receipt No.</div>
+                    <div class="receipt-value receipt-value--strong">${receiptEscape(receipt.receipt_number || '')}</div>
+                </div>
+                <div class="receipt-info-card">
+                    <div class="receipt-label">Order Number</div>
+                    <div class="receipt-value">${receiptEscape(receipt.order_number || '')}</div>
+                </div>
+                <div class="receipt-info-card">
+                    <div class="receipt-label">Date Completed</div>
+                    <div class="receipt-value">${receiptEscape(formatReceiptDateTime(receipt.date_time))}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="receipt-section">
+            <div class="receipt-section-title">Customer</div>
+            <div class="receipt-customer">
+                <div>
+                    <div class="receipt-customer-name">${receiptEscape(customer.name || 'Customer')}</div>
+                    ${contact ? `<div class="receipt-value" style="margin-top:4px;">${receiptEscape(contact)}</div>` : ''}
+                </div>
+                <div class="receipt-payment-chip">${receiptEscape(payment.method || 'Paid')}</div>
+            </div>
+        </div>
+
+        <div class="receipt-section">
+            <div class="receipt-section-title">Items</div>
+            <table class="receipt-items">
+                <thead>
+                    <tr>
+                        <th>Item / Service</th>
+                        <th>Qty</th>
+                        <th>Price</th>
+                        <th>Amount</th>
+                    </tr>
+                </thead>
+                <tbody>${itemRows}</tbody>
+            </table>
+            ${materials.length ? `<div class="receipt-item-meta" style="margin-top:12px;"><strong>Materials used:</strong> ${receiptEscape(materials.join(', '))}</div>` : ''}
+        </div>
+
+        <div class="receipt-section">
+            <div class="receipt-section-title">Payment Summary</div>
+            <div class="receipt-summary">
+                <div class="receipt-total-line"><span>Subtotal</span><strong>${formatMoney(receipt.subtotal || 0)}</strong></div>
+                <div class="receipt-total-line"><span>Discount</span><strong>${formatMoney(discount.amount || 0)}</strong></div>
+                <div class="receipt-total-line receipt-total-line--grand"><span>Total Paid</span><span>${formatMoney(receipt.total || 0)}</span></div>
+            </div>
+            <div class="receipt-payment-breakdown">
+                <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
+                <div class="receipt-total-line"><span>Payment Status</span><strong style="color:#0f766e;">${receiptEscape(payment.status || 'Paid')}</strong></div>
+                ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${receiptEscape(payment.reference)}</span></div>` : ''}
+            </div>
+        </div>
+
+        <div class="receipt-footer">
+            <strong>Thank you for choosing Printflow!</strong>
+            <p>Please keep this receipt for your records.</p>
+        </div>
+    `;
+}
+
+function openReceiptModal(receipt) {
+    const modal = document.getElementById('receiptModal');
+    const printArea = document.getElementById('receipt-print-area');
+    if (!modal || !printArea || !receipt) {
+        return;
+    }
+    activeReceiptData = receipt;
+    printArea.innerHTML = buildReceiptHtml(receipt);
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeReceiptModal() {
+    const modal = document.getElementById('receiptModal');
+    if (!modal) {
+        return;
+    }
+    modal.classList.remove('open');
+    const itemsModal = document.getElementById('itemsModal');
+    document.body.style.overflow = itemsModal && itemsModal.classList.contains('open') ? 'hidden' : '';
+}
+
+function printReceipt() {
+    if (!activeReceiptData) {
+        return;
+    }
+    window.print();
+}
+
+async function downloadReceiptPdf() {
+    if (!activeReceiptData || typeof html2pdf === 'undefined') {
+        return;
+    }
+    const printArea = document.getElementById('receipt-print-area');
+    if (!printArea) {
+        return;
+    }
+    await html2pdf().set({
+        margin: [10, 10, 10, 10],
+        filename: `${activeReceiptData.receipt_number || 'receipt'}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }).from(printArea).save();
 }
 
 let currentOrderItemsRequest = null;
@@ -1586,6 +2209,10 @@ function openItemsModal(orderId, event) {
                             </div>
                         ` : ''}
 
+                        ${data.receipt_available && data.receipt ? `
+                            <button type="button" onclick='openReceiptModal(${JSON.stringify('__RECEIPT__')})' class="im-primary-action" data-receipt-button="1">View Receipt</button>
+                        `.replace(JSON.stringify('__RECEIPT__'), JSON.stringify(data.receipt).replace(/</g, '\\u003c')) : ''}
+
                         ${['Completed', 'To Rate', 'Rated'].includes(data.status) ? (
                             data.rating_data
                                 ? `<a href="${data.rating_data.view_url}" class="w-full py-3.5 bg-[rgba(249,115,22,0.1)] text-[#f97316] text-[11px] font-black border border-[rgba(249,115,22,0.4)] hover:bg-[#f97316] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl">★ VIEW YOUR REVIEW</a>`
@@ -1621,6 +2248,7 @@ function closeItemsModal() {
         currentOrderItemsRequest.abort();
         currentOrderItemsRequest = null;
     }
+    closeReceiptModal();
     document.getElementById('itemsModal').classList.remove('open');
     document.body.style.overflow = '';
 }
