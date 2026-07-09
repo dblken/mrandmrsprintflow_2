@@ -295,8 +295,8 @@ try {
         }
 
         .pos-search-input:focus {
-            border-color: #06A1A1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+            border-color: var(--staff-primary);
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
         }
 
         .pos-category-select {
@@ -341,7 +341,7 @@ try {
         .pos-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            border-color: #06A1A1;
+            border-color: var(--staff-primary);
         }
 
         .pos-card.no-stock {
@@ -359,7 +359,7 @@ try {
             width: 100%;
             min-height: 110px;
             position: relative;
-            background: linear-gradient(135deg, #06A1A1 0%, #048888 100%);
+            background: var(--staff-pos-button-bg);
             flex: 1;
             display: flex;
             flex-direction: column;
@@ -534,7 +534,7 @@ try {
         }
 
         .pos-cart-item:hover {
-            border-color: #06A1A1;
+            border-color: var(--staff-primary);
             background: #f8fafc;
         }
 
@@ -771,16 +771,16 @@ try {
 
         .service-btn:hover {
             transform: translateY(-4px) scale(1.02);
-            border-color: #06A1A1;
-            box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.15), 0 10px 10px -5px rgba(99, 102, 241, 0.1);
+            border-color: var(--staff-primary);
+            box-shadow: 0 20px 25px -5px rgba(var(--staff-accent-rgb), 0.18), 0 10px 10px -5px rgba(var(--staff-accent-rgb), 0.12);
         }
 
         .service-btn.active,
         .service-btn:active {
-            border-color: #4f46e5;
-            background: #eef2ff;
-            color: #4f46e5;
-            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.3);
+            border-color: var(--staff-primary);
+            background: var(--staff-toolbar-active-bg);
+            color: var(--staff-primary);
+            box-shadow: 0 0 0 2px rgba(var(--staff-accent-rgb), 0.24);
         }
 
         .service-btn.btn-other {
@@ -792,7 +792,7 @@ try {
         .service-btn.btn-other:hover,
         .service-btn.btn-other.active {
             border-style: solid;
-            border-color: #06A1A1;
+            border-color: var(--staff-primary);
         }
 
         .pos-services-grid {
@@ -859,7 +859,7 @@ try {
         }
 
         .select2-container--default.select2-container--focus .select2-selection--single {
-            border-color: #06A1A1;
+            border-color: var(--staff-primary);
         }
 
         .select2-dropdown {
@@ -868,7 +868,7 @@ try {
         }
 
         .select2-container--default .select2-results__option--highlighted[aria-selected] {
-            background-color: #06A1A1;
+            background-color: var(--staff-primary);
         }
 
         /* Custom Alert/Confirm Modal */
@@ -1407,10 +1407,10 @@ try {
                                     <!-- Products Button -->
                                     <button onclick="showPOSMode('products')"
                                         style="background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 48px 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 16px;"
-                                        onmouseover="this.style.borderColor='#06A1A1'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)';"
+                                        onmouseover="this.style.borderColor='var(--staff-primary)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)';"
                                         onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='translateY(0)'; this.style.boxShadow='none';">
                                         <div
-                                            style="width: 64px; height: 64px; background: linear-gradient(135deg, #06A1A1 0%, #048888 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                            style="width: 64px; height: 64px; background: var(--staff-pos-button-bg); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"
                                                 viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"
                                                 stroke-linecap="round" stroke-linejoin="round">
@@ -1433,10 +1433,10 @@ try {
                                     <!-- Services Button -->
                                     <button onclick="showPOSMode('services')"
                                         style="background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 48px 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 16px;"
-                                        onmouseover="this.style.borderColor='#06A1A1'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)';"
+                                        onmouseover="this.style.borderColor='var(--staff-primary)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)';"
                                         onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='translateY(0)'; this.style.boxShadow='none';">
                                         <div
-                                            style="width: 64px; height: 64px; background: linear-gradient(135deg, #06A1A1 0%, #048888 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                                            style="width: 64px; height: 64px; background: var(--staff-pos-button-bg); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"
                                                 viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"
                                                 stroke-linecap="round" stroke-linejoin="round">
@@ -1587,7 +1587,7 @@ try {
                                 style="margin-bottom: 20px; align-items: center;">
                                 <span style="font-weight: 600; color: #475569;">Change</span>
                                 <span id="pos-change"
-                                    style="font-size: 20px; font-weight: 800; color: #06A1A1;">₱0.00</span>
+                                    style="font-size: 20px; font-weight: 800; color: var(--staff-primary);">₱0.00</span>
                             </div>
 
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
@@ -2664,7 +2664,7 @@ try {
             <div class="pos-card-body">
                 <div class="pos-card-title">${p.category || 'Product'}</div>
                 <div class="pos-card-stock">
-                    <i class="fas ${outOfStock ? 'fa-times-circle' : 'fa-check-circle'}" style="color:${outOfStock ? '#ef4444' : '#06A1A1'}; font-size:8px;"></i>
+                    <i class="fas ${outOfStock ? 'fa-times-circle' : 'fa-check-circle'}" style="color:${outOfStock ? '#ef4444' : 'var(--staff-primary)'}; font-size:8px;"></i>
                     <span>${outOfStock ? 'Out' : stockQty + ' left'}</span>
                 </div>
             </div>
@@ -3275,7 +3275,7 @@ try {
 
             const changeEl = document.getElementById('pos-change');
             changeEl.textContent = formatMoney(change);
-            changeEl.style.color = (tendered < currentTotal && tendered > 0) ? '#ef4444' : '#06A1A1';
+            changeEl.style.color = (tendered < currentTotal && tendered > 0) ? '#ef4444' : 'var(--staff-primary)';
 
             updateCheckoutState();
         }
