@@ -4927,7 +4927,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     const details = this.currentJo.customization_details || {};
                     const urlParams = new URLSearchParams(window.location.search);
                     const returnToPOS = urlParams.get('return_to_pos') === '1';
-                    const isPosReturnFlow = details.source === 'POS' || returnToPOS;
+                    const isPosReturnFlow = this.isPosPricingMode() || details.source === 'POS' || returnToPOS;
                     if (!this.beginModalAction()) return;
                     try {
                         if (isPosReturnFlow) {
@@ -5004,7 +5004,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 console.log('User entered price (captured early):', userEnteredPrice);
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
-                const fromPOS = returnToPOS || (this.currentJo.order_type === 'ORDER' && this.currentJo.order_source === 'pos') || (this.currentJo.order_type === 'CUSTOMIZATION' && this.currentJo.order_source === 'pos');
+                const fromPOS = this.isPosPricingMode()
+                    || returnToPOS
+                    || (this.currentJo.order_type === 'ORDER' && this.currentJo.order_source === 'pos')
+                    || (this.currentJo.order_type === 'CUSTOMIZATION' && this.currentJo.order_source === 'pos');
                 const materialsToSave = [...this.pendingMaterials];
                 const currentMaterial = this.buildCurrentMaterialPayload();
                 if (currentMaterial) {
