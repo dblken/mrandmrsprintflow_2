@@ -18,6 +18,8 @@ if (!is_logged_in() || !in_array(get_user_type(), ['Staff', 'Admin', 'Manager'],
 }
 
 $order_id = (int)($_GET['id'] ?? 0);
+$includeAssignments = !empty($_GET['include_assignments']) && $_GET['include_assignments'] !== '0';
+$ensureJob = !empty($_GET['ensure_job']) && $_GET['ensure_job'] !== '0';
 if ($order_id <= 0) {
     echo json_encode(['success' => false, 'error' => 'Order ID required']);
     exit;
@@ -92,13 +94,19 @@ if ($service_name === '') {
     $service_name = printflow_resolve_order_item_name($items_out[0]['product_name'] ?? 'Standard Order', $first_custom, 'Standard Order');
 }
 
-$linked_job_id = null;
-if (strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
-    $linked_job_id = JobOrderService::ensureJobsForStoreOrder($order_id);
+$linked_job_id = 0;
+$linkedJobRows = db_query(
+    "SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
+    'i',
+    [$order_id]
+) ?: [];
+$linked_job_id = (int)($linkedJobRows[0]['id'] ?? 0);
+if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
+    $linked_job_id = (int)(JobOrderService::ensureJobsForStoreOrder($order_id) ?? 0);
 }
 
 $materials = [];
-if ($linked_job_id) {
+if ($includeAssignments && $linked_job_id) {
     $material_sql = "
         SELECT m.*, i.name AS item_name, i.track_by_roll, i.category_id, r.roll_code
         FROM job_order_materials m
@@ -122,7 +130,7 @@ foreach ($materials as &$m) {
 unset($m);
 
 $ink_usage = [];
-if ($linked_job_id) {
+if ($includeAssignments && $linked_job_id) {
     $ink_sql = "
         SELECT u.*, i.name AS item_name
         FROM job_order_ink_usage u

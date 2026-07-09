@@ -629,6 +629,16 @@ $online_closed_count = 0;
         .modal-wrap-text { max-width:100%; white-space:normal; word-break:break-word; overflow-wrap:anywhere; }
         .modal-header-copy { min-width:0; flex:1 1 auto; padding-right:12px; }
         .modal-item-title { line-height:1.35; }
+        .modal-skeleton { animation: pfModalPulse 1.2s ease-in-out infinite; background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 37%, #eef2f7 63%); background-size: 400% 100%; }
+        .modal-skeleton-line { border-radius: 999px; height: 12px; }
+        .modal-skeleton-card { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 16px; }
+        .modal-inline-note { font-size: 12px; color: #6b7280; margin-top: 10px; }
+        .modal-error-box { margin: 24px; padding: 18px; border: 1px solid #fecaca; background: #fff7f7; border-radius: 12px; }
+        .modal-error-actions { display: flex; gap: 10px; margin-top: 14px; }
+        @keyframes pfModalPulse {
+            0% { background-position: 100% 50%; }
+            100% { background-position: 0 50%; }
+        }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes pf-tab-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
         [x-cloak] { display: none !important; }
@@ -1179,7 +1189,7 @@ $online_closed_count = 0;
                                         <span class="filter-label" style="margin:0;">Keyword search</span>
                                         <button @click="search = ''" class="filter-reset-link">Reset</button>
                                     </div>
-                                    <input type="text" x-model="search" class="filter-input" placeholder="Search...">
+                                    <input type="text" x-model.debounce.250ms="search" class="filter-input" placeholder="Search...">
                                 </div>
 
                                 <div class="filter-footer">
@@ -1284,7 +1294,12 @@ $online_closed_count = 0;
                                     </td>
                                     <td class="px-4 py-4 action-col-cell">
                                         <div class="action-btn-group">
-                                            <button @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')" class="table-action-btn">View</button>
+                                            <button
+                                                @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')"
+                                                class="table-action-btn"
+                                                :disabled="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB')"
+                                                :style="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                                x-text="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'Loading...' : 'View'"></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -1374,13 +1389,49 @@ $online_closed_count = 0;
         <div class="modal-panel" @click.stop>
 
             <!-- Loading State -->
-            <div x-show="loadingDetails" style="padding:48px;text-align:center;">
-                <div style="width:40px;height:40px;border:3px solid #e5e7eb;border-top-color:#06A1A1;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
-                <p style="color:#6b7280;font-size:14px;">Loading job details...</p>
+            <div x-show="loadingDetails" style="padding:24px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;">
+                    <div style="flex:1;min-width:0;">
+                        <div class="modal-skeleton modal-skeleton-line" style="width:160px;height:18px;margin-bottom:8px;"></div>
+                        <div class="modal-skeleton modal-skeleton-line" style="width:220px;"></div>
+                    </div>
+                    <div style="width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#06A1A1;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0;"></div>
+                </div>
+                <div class="modal-skeleton-card" style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+                    <div class="modal-skeleton" style="width:56px;height:56px;border-radius:999px;flex-shrink:0;"></div>
+                    <div style="flex:1;min-width:0;">
+                        <div class="modal-skeleton modal-skeleton-line" style="width:180px;margin-bottom:8px;"></div>
+                        <div class="modal-skeleton modal-skeleton-line" style="width:130px;"></div>
+                    </div>
+                </div>
+                <div class="modal-skeleton-card" style="margin-bottom:16px;">
+                    <div class="modal-skeleton modal-skeleton-line" style="width:180px;height:14px;margin-bottom:14px;"></div>
+                    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+                        <div class="modal-skeleton" style="height:74px;border-radius:10px;"></div>
+                        <div class="modal-skeleton" style="height:74px;border-radius:10px;"></div>
+                        <div class="modal-skeleton" style="height:74px;border-radius:10px;"></div>
+                        <div class="modal-skeleton" style="height:74px;border-radius:10px;"></div>
+                    </div>
+                </div>
+                <div class="modal-skeleton-card">
+                    <div class="modal-skeleton modal-skeleton-line" style="width:140px;height:14px;margin-bottom:14px;"></div>
+                    <div class="modal-skeleton" style="height:96px;border-radius:10px;"></div>
+                </div>
+                <p style="color:#6b7280;font-size:14px;margin-top:18px;">Loading job details...</p>
+                <p class="modal-inline-note">Still loading details? Large files and production assignments are loaded after the modal opens.</p>
+            </div>
+
+            <div x-show="!loadingDetails && detailError" class="modal-error-box">
+                <div style="font-size:15px;font-weight:700;color:#991b1b;">Unable to load job details</div>
+                <p style="font-size:13px;color:#7f1d1d;margin-top:8px;" x-text="detailError"></p>
+                <div class="modal-error-actions">
+                    <button @click="retryLastDetailRequest()" class="table-action-btn" style="background:#06A1A1;color:#fff;border-color:#06A1A1;">Retry</button>
+                    <button @click="closeDetailsModal()" class="table-action-btn">Close</button>
+                </div>
             </div>
 
             <!-- Content -->
-            <div x-show="!loadingDetails && currentJo.id">
+            <div x-show="!loadingDetails && !detailError && currentJo.id">
 
                 <!-- Modal Header -->
                 <div style="padding:20px 24px;border-bottom:1px solid #f3f4f6;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
@@ -1422,6 +1473,10 @@ $online_closed_count = 0;
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Product/Service Image</div>
                                             <img :src="staffProductServiceImageUrl(item)"
                                                  @click="previewFile = staffProductServiceImageUrl(item)"
+                                                 loading="lazy"
+                                                 decoding="async"
+                                                 width="120"
+                                                 height="120"
                                                  style="width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; background:#f8fafc;"
                                                  onerror="this.style.display='none'">
                                         </div>
@@ -1435,6 +1490,10 @@ $online_closed_count = 0;
                                                         <template x-if="staffFieldUploadIsImage(k, v)">
                                                             <img :src="staffFieldUploadUrl(v)"
                                                                  @click="previewFile = staffFieldUploadUrl(v)"
+                                                                 loading="lazy"
+                                                                 decoding="async"
+                                                                 width="120"
+                                                                 height="120"
                                                                  style="width:100%; max-width:120px; height:auto; border-radius:8px; border:1px solid #e2e8f0; cursor:zoom-in; background:#f8fafc;"
                                                                  onerror="this.style.display='none'">
                                                         </template>
@@ -1471,6 +1530,10 @@ $online_closed_count = 0;
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
                                                 <img :src="staffEffectiveDesignOpenUrl(item)" 
                                                      @click="previewFile = staffEffectiveDesignOpenUrl(item)"
+                                                     loading="lazy"
+                                                     decoding="async"
+                                                     width="160"
+                                                     height="160"
                                                      style="width:160px; max-height:160px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); background:#f8fafc;" 
                                                      onerror="this.style.display='none';">
                                             </div>
@@ -1535,6 +1598,10 @@ $online_closed_count = 0;
                                             <div style="display:flex; align-items:flex-end; gap:12px;">
                                                 <img :src="item.reference_url || item.reference_open_url"
                                                      @click="previewFile = item.reference_url || item.reference_open_url"
+                                                     loading="lazy"
+                                                     decoding="async"
+                                                     width="140"
+                                                     height="140"
                                                      style="width:140px; height:auto; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);"
                                                      onerror="this.style.display='none'">
                                             </div>
@@ -1897,6 +1964,10 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
+                    <div x-show="loadingModalAssignments" style="margin-top:20px; padding:14px 16px; border:1px solid #dbeafe; background:#f8fbff; border-radius:12px; color:#1d4ed8; font-size:12px; font-weight:600;">
+                        Loading material assignments and production details...
+                    </div>
+
                     <div x-show="currentJo.materials && currentJo.materials.length > 0" style="margin-top:20px;">
                         <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:8px;">Assigned Production Materials</label>
                         <template x-for="m in groupedMaterials" :key="m.item_id">
@@ -2238,6 +2309,10 @@ window.pfCustomizationPreloadedOrders = (() => {
             activeStatus: defaultStatus || 'ALL',
             loadingOrders: true,
             modalCache: {},
+            loadingDetailKey: '',
+            detailError: '',
+            detailRetryPayload: null,
+            detailRequestToken: 0,
             currentPage: 1,
             itemsPerPage: 15,
             orders: [],
@@ -2284,6 +2359,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             impactPreview: null,
             search: '',
             jobPriceInput: 0,
+            loadingModalAssignments: false,
             
             // ── Profile Image Fallback ───────────────────────────────────
             getProfileImage(image) {
@@ -2595,10 +2671,76 @@ window.pfCustomizationPreloadedOrders = (() => {
                     console.warn('Unable to clear customization deep-link params', e);
                 }
             },
+            detailKeyFor(id, orderType = 'JOB') {
+                return `${String(orderType || 'JOB').toUpperCase()}-${id}`;
+            },
+            primeDetailsShell(order, orderType, id) {
+                const shell = order ? this.normalizeStaffOrderDetail({ ...order, order_type: orderType }) : {};
+                this.currentJo = {
+                    ...shell,
+                    id: shell.id || id,
+                    order_type: orderType,
+                    items: Array.isArray(shell.items) ? shell.items : [],
+                    materials: Array.isArray(shell.materials) ? shell.materials : [],
+                    ink_usage: Array.isArray(shell.ink_usage) ? shell.ink_usage : []
+                };
+                this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
+                this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
+            },
+            finishDetailLoadWith(data, orderType, cacheKey) {
+                this.currentJo = this.normalizeStaffOrderDetail({ ...data, order_type: orderType });
+                this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
+                this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
+                this.jobPriceInput = this.currentJo.final_price || 0;
+                this.modalCache[cacheKey] = this.currentJo;
+            },
+            async fetchOrderModalSummary(orderId, options = {}) {
+                const params = new URLSearchParams({ id: String(orderId) });
+                if (options.includeAssignments) params.set('include_assignments', '1');
+                if (options.ensureJob) params.set('ensure_job', '1');
+                const res = await fetch(`${this.staffApiUrl('get_order_for_modal.php')}?${params.toString()}`);
+                return this.parseJsonResponse(res);
+            },
+            async loadModalAssignments(orderId, cacheKey, requestToken) {
+                if (!orderId) return;
+                this.loadingModalAssignments = true;
+                try {
+                    const res = await this.fetchOrderModalSummary(orderId, { includeAssignments: true, ensureJob: true });
+                    if (!res.success || !res.data || requestToken !== this.detailRequestToken) {
+                        return;
+                    }
+                    const previousJo = this.currentJo || {};
+                    const merged = this.normalizeStaffOrderDetail({
+                        ...previousJo,
+                        ...res.data,
+                        order_type: previousJo.order_type || 'ORDER',
+                        id: previousJo.id || res.data.id || orderId,
+                        order_id: previousJo.order_id || res.data.order_id || orderId
+                    });
+                    merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
+                    merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
+                    this.currentJo = merged;
+                    this.modalCache[cacheKey] = merged;
+                } catch (e) {
+                    console.warn('Deferred modal assignments load failed:', e);
+                } finally {
+                    if (requestToken === this.detailRequestToken) {
+                        this.loadingModalAssignments = false;
+                    }
+                }
+            },
             closeDetailsModal() {
                 this.showDetailsModal = false;
                 this.footerActionError = '';
+                this.detailError = '';
+                this.loadingDetailKey = '';
+                this.loadingModalAssignments = false;
                 this.clearDeepLinkParams();
+            },
+            async retryLastDetailRequest() {
+                if (!this.detailRetryPayload) return;
+                const retry = this.detailRetryPayload;
+                await this.viewDetails(retry.id, retry.orderType);
             },
             setFooterActionError(message) {
                 this.footerActionError = message || '';
@@ -4216,169 +4358,102 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
 
                 const cacheKey = orderType + '-' + id;
+                const detailKey = this.detailKeyFor(id, orderType);
                 if (this.modalCache && this.modalCache[cacheKey]) {
                     this.currentJo = this.modalCache[cacheKey];
                     this.jobPriceInput = this.currentJo.final_price || 0;
                     this.showDetailsModal = true;
                     this.loadingDetails = false;
+                    this.detailError = '';
                     return;
                 }
 
+                if (this.loadingDetailKey === detailKey) {
+                    return;
+                }
+
+                const requestToken = ++this.detailRequestToken;
                 this.showDetailsModal = true;
                 this.loadingDetails = true;
+                this.loadingDetailKey = detailKey;
+                this.detailError = '';
+                this.detailRetryPayload = { id, orderType };
+                this.loadingModalAssignments = false;
                 this.footerActionError = '';
-                this.currentJo = {};
+                this.primeDetailsShell(order, orderType, id);
                 
                 if (orderType === 'CUSTOMIZATION') {
-                    // Fetch customization entry details
                     try {
-                        const detailRes = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=get_customization&id=${id}`))
-                        );
-                        if (detailRes.success) {
-                            this.currentJo = this.normalizeStaffOrderDetail(
-                                this.applyPosSetPriceDeepLinkOverride({ ...detailRes.data, order_type: 'CUSTOMIZATION' })
+                        const fallbackOrderId = order?.order_id ?? id;
+                        let detailRes = null;
+
+                        if (fallbackOrderId) {
+                            detailRes = await this.fetchOrderModalSummary(fallbackOrderId);
+                        }
+
+                        if ((!detailRes || !detailRes.success || !detailRes.data) && requestToken === this.detailRequestToken) {
+                            detailRes = await this.parseJsonResponse(
+                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_customization&id=${id}`))
                             );
-                            this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
-                            this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                            this.jobPriceInput = this.currentJo.final_price || 0;
-                            const isPreApprovalPosCustomization =
-                                (String(this.currentJo.order_source || '').toLowerCase() === 'pos' || String(this.currentJo.order_source || '').toLowerCase() === 'walk-in') &&
-                                String(this.currentJo.status || '').toUpperCase() === 'APPROVED';
-                            if (!isPreApprovalPosCustomization && (!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
-                                await this.refreshMaterials();
+                        }
+
+                        if (detailRes?.success && detailRes.data && requestToken === this.detailRequestToken) {
+                            const normalized = this.applyPosSetPriceDeepLinkOverride({
+                                ...detailRes.data,
+                                order_type: detailRes.data.order_type || (fallbackOrderId ? 'ORDER' : 'CUSTOMIZATION'),
+                                status: order?.status || detailRes.data.status
+                            });
+                            this.finishDetailLoadWith(normalized, normalized.order_type || 'ORDER', cacheKey);
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
+                            if (this.currentJo.order_id) {
+                                this.loadModalAssignments(this.currentJo.order_id, cacheKey, requestToken);
                             }
-                            this.modalCache[cacheKey] = this.currentJo;
                         } else {
-                            const fallbackOrderId = order?.order_id ?? id;
-                            const fallbackRes = await this.parseJsonResponse(
-                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`))
-                            );
-                            if (fallbackRes.success && fallbackRes.data) {
-                                this.currentJo = this.normalizeStaffOrderDetail(
-                                    this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' })
-                                );
-                                this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
-                                this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                                this.jobPriceInput = this.currentJo.final_price || 0;
-                                if (!this.currentJo.job_order_id) {
-                                    await this.resolveEffectiveJobId();
-                                }
-                                if ((!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
-                                    await this.refreshMaterials();
-                                }
-                                this.modalCache[cacheKey] = this.currentJo;
-                            } else {
-                                this.showStaffAlert('Error', detailRes.error || 'Customization details could not be loaded.');
-                                this.showDetailsModal = false;
-                            }
+                            this.detailError = detailRes?.error || 'Customization details could not be loaded.';
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
                         }
                     } catch (e) {
                         console.error('Error fetching customization detail:', e);
-                        try {
-                            const fallbackOrderId = order?.order_id ?? id;
-                            const fallbackRes = await this.parseJsonResponse(
-                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${fallbackOrderId}`))
-                            );
-                            if (fallbackRes.success && fallbackRes.data) {
-                                this.currentJo = this.normalizeStaffOrderDetail(
-                                    this.applyPosSetPriceDeepLinkOverride({ ...fallbackRes.data, order_type: 'ORDER' })
-                                );
-                                this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
-                                this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                                this.jobPriceInput = this.currentJo.final_price || 0;
-                                if (!this.currentJo.job_order_id) {
-                                    await this.resolveEffectiveJobId();
-                                }
-                                if ((!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
-                                    await this.refreshMaterials();
-                                }
-                                this.modalCache[cacheKey] = this.currentJo;
-                            } else {
-                                this.showDetailsModal = false;
-                            }
-                        } catch (_fallbackError) {
-                            this.showDetailsModal = false;
+                        if (requestToken === this.detailRequestToken) {
+                            this.detailError = e?.message || 'Customization details could not be loaded.';
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
                         }
                     }
-                    this.loadingDetails = false;
                     return;
                 }
                 
                 if (orderType === 'ORDER') {
-                    // Always fetch full order details to get `items` array and dynamic fields
                     const regularOrderId = order?.order_id ?? order?.id ?? id;
-                    let detailErrorMessage = '';
                     try {
-                        const detailRes = await this.parseJsonResponse(
-                            await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${regularOrderId}`))
-                        );
-                        if (detailRes.success) {
-                            order = detailRes.data;
-                        } else {
-                            detailErrorMessage = detailRes.error || detailErrorMessage;
-                            let resolvedJobId = order?.job_order_id || null;
-                            if (!resolvedJobId) {
-                                const resolveRes = await this.parseJsonResponse(
-                                    await fetch(this.adminApiUrl(`job_orders_api.php?action=resolve_job_for_order&order_id=${regularOrderId}`))
-                                );
-                                if (resolveRes.success && resolveRes.job_id) {
-                                    resolvedJobId = resolveRes.job_id;
-                                } else if (resolveRes.error) {
-                                    detailErrorMessage = resolveRes.error || detailErrorMessage;
-                                    console.warn('resolve_job_for_order failed:', resolveRes.error);
-                                }
-                            }
-
-                            if (resolvedJobId) {
-                                const jobFallbackRes = await this.parseJsonResponse(
-                                    await fetch(this.adminApiUrl(`job_orders_api.php?action=get_order&id=${resolvedJobId}`))
-                                );
-                                if (jobFallbackRes.success && jobFallbackRes.data) {
-                                    order = {
-                                        ...jobFallbackRes.data,
-                                        order_type: 'ORDER',
-                                        id: regularOrderId,
-                                        order_id: jobFallbackRes.data.order_id || regularOrderId,
-                                        job_order_id: jobFallbackRes.data.id || resolvedJobId
-                                    };
-                                } else if (jobFallbackRes.error) {
-                                    detailErrorMessage = jobFallbackRes.error || detailErrorMessage;
-                                    console.warn('get_order fallback failed:', jobFallbackRes.error);
-                                }
-                            } else if (detailRes.error) {
-                                console.warn('get_regular_order failed:', detailRes.error);
-                            }
+                        const detailRes = await this.fetchOrderModalSummary(regularOrderId);
+                        if (detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
+                            this.finishDetailLoadWith(detailRes.data, 'ORDER', cacheKey);
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
+                            this.loadModalAssignments(regularOrderId, cacheKey, requestToken);
+                        } else if (requestToken === this.detailRequestToken) {
+                            this.detailError = detailRes.error || 'Order details could not be loaded for this entry.';
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
                         }
                     } catch (e) {
-                        detailErrorMessage = e?.message || detailErrorMessage;
                         console.error('Error fetching order detail:', e);
+                        if (requestToken === this.detailRequestToken) {
+                            this.detailError = e?.message || 'Order details could not be loaded for this entry.';
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
+                        }
                     }
-                    
-                    if (!order || !order.items) {
-                        this.loadingDetails = false;
-                        this.showDetailsModal = false;
-                        this.showStaffAlert('Not Found', detailErrorMessage || 'Order details could not be loaded for this pending entry.');
-                        return;
-                    }
-                    this.currentJo = this.normalizeStaffOrderDetail({ ...order, order_type: 'ORDER' });
-                    this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
-                    this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                    this.jobPriceInput = this.currentJo.final_price || 0;
-                    if (!this.currentJo.job_order_id) {
-                        await this.resolveEffectiveJobId();
-                    }
-                    if ((!Array.isArray(this.currentJo.materials) || this.currentJo.materials.length === 0) && this.currentJo.job_order_id) {
-                        await this.refreshMaterials();
-                    }
-                    this.modalCache[cacheKey] = this.currentJo;
-                    this.loadingDetails = false;
+                    return;
                 } else {
-                    // JOB ORDER
                     const jid = id || (order ? order.id : null);
                     if (!jid) {
                         this.loadingDetails = false;
-                        this.showDetailsModal = false;
+                        this.loadingDetailKey = '';
+                        this.detailError = 'No production job was found for this entry.';
                         return;
                     }
 
@@ -4386,41 +4461,28 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const res = await this.parseJsonResponse(
                             await fetch(this.adminApiUrl(`job_orders_api.php?action=get_order&id=${jid}`))
                         );
-                        if (res.success) {
-                            this.currentJo = this.normalizeStaffOrderDetail({ ...res.data, order_type: 'JOB' });
-                            this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
-                            this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                            this.jobPriceInput = this.currentJo.final_price || 0;
+                        if (res.success && res.data && requestToken === this.detailRequestToken) {
+                            this.finishDetailLoadWith(res.data, 'JOB', cacheKey);
                             this.resetMaterialForm();
                             this.resetInkForm();
                             for (const m of this.currentJo.materials || []) {
                                 if (m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
                             }
-                            this.modalCache[cacheKey] = this.currentJo;
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
                         } else {
-                            // Fallback: It might be a regular order ID passed with job_type=JOB
-                            const fallbackRes = await this.parseJsonResponse(
-                                await fetch(this.adminApiUrl(`job_orders_api.php?action=get_regular_order&service_only=1&id=${jid}`))
-                            );
-                            if (fallbackRes.success) {
-                                this.currentJo = this.normalizeStaffOrderDetail({ ...fallbackRes.data, order_type: 'ORDER' });
-                                this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
-                                this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                                this.jobPriceInput = this.currentJo.final_price || 0;
-                                if (!this.currentJo.job_order_id) {
-                                    await this.resolveEffectiveJobId();
-                                }
-                                this.modalCache[cacheKey] = this.currentJo;
-                            } else {
-                                this.showStaffAlert('Error', 'Order details could not be loaded.');
-                                this.showDetailsModal = false;
-                            }
+                            this.detailError = res.error || 'Order details could not be loaded.';
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
                         }
                     } catch (e) {
                         console.error('Error loading job details', e);
-                        this.showDetailsModal = false;
+                        if (requestToken === this.detailRequestToken) {
+                            this.detailError = e?.message || 'Order details could not be loaded.';
+                            this.loadingDetails = false;
+                            this.loadingDetailKey = '';
+                        }
                     }
-                    this.loadingDetails = false;
                 }
             },
 
@@ -5263,7 +5325,10 @@ window.pfCustomizationPreloadedOrders = (() => {
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
                 if (!jid) return;
-                const res = await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
+                const isStoreOrderDetail = ['ORDER', 'CUSTOMIZATION'].includes(String(this.currentJo?.order_type || '').toUpperCase()) && this.currentJo?.order_id;
+                const res = isStoreOrderDetail
+                    ? await this.fetchOrderModalSummary(this.currentJo.order_id, { includeAssignments: true, ensureJob: true })
+                    : await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
                 if(res.success) {
                     const previousJo = this.currentJo || {};
                     const merged = {

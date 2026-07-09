@@ -16,6 +16,11 @@ ob_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
+function customer_order_items_log_error(string $message, array $context = []): void {
+    $suffix = $context !== [] ? ' | ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) : '';
+    error_log('[customer/get_order_items] ' . $message . $suffix);
+}
+
 function customer_order_items_json($payload, $status = 200) {
     while (ob_get_level()) {
         ob_end_clean();
@@ -38,6 +43,7 @@ register_shutdown_function(function() {
     $fatal_types = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
 
     if ($error && in_array($error['type'], $fatal_types, true)) {
+        customer_order_items_log_error('Fatal shutdown error', $error);
         while (ob_get_level()) {
             ob_end_clean();
         }
@@ -282,6 +288,10 @@ function customer_receipt_extract_display_contact(array $customer): string {
 }
 
 function customer_receipt_build_material_summary(int $orderId): array {
+    if ($orderId <= 0 || !function_exists('db_table_has_column') || !db_table_has_column('job_order_materials', 'std_order_id')) {
+        return [];
+    }
+
     $materials = db_query(
         "SELECT m.quantity, m.uom, m.notes, i.name AS item_name
          FROM job_order_materials m
@@ -390,7 +400,7 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
             'status' => $paymentStatus,
             'amount_paid' => round($totalPaid, 2),
             'change' => 0,
-            'reference' => (string)($order['payment_reference'] ?? ''),
+            'reference' => (string)($order['_safe_payment_reference'] ?? ''),
         ],
         'customer_contact' => customer_receipt_extract_display_contact([
             'phone' => (string)($order['customer_contact_number'] ?? ''),
@@ -399,6 +409,7 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
     ];
 }
 
+try {
 $order_id = (int)($_GET['id'] ?? 0);
 $customer_id = get_user_id();
 
@@ -406,10 +417,16 @@ if (!$order_id) {
     customer_order_items_json(['error' => 'Invalid order ID'], 400);
 }
 
+$orderHasPaymentReference = function_exists('db_table_has_column') && db_table_has_column('orders', 'payment_reference');
+$paymentReferenceSelect = $orderHasPaymentReference
+    ? "o.payment_reference,"
+    : "'' AS payment_reference,";
+
 // Verify order belongs to this customer
 $order_result = db_query("
     SELECT o.*, b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
            c.first_name, c.last_name, c.email, c.contact_number AS customer_contact_number,
+           {$paymentReferenceSelect}
            (SELECT jo.payment_proof_status
             FROM job_orders jo
             WHERE jo.order_id = o.order_id
@@ -446,6 +463,7 @@ if (empty($order_result)) {
     customer_order_items_json(['error' => 'Order not found'], 404);
 }
 $order = $order_result[0];
+$order['_safe_payment_reference'] = (string)($order['payment_reference'] ?? '');
 $latest_payment_proof_status = strtoupper((string)($order['latest_payment_proof_status'] ?? ''));
 $latest_job_payment_status = strtoupper((string)($order['latest_job_payment_status'] ?? ''));
 $is_rejected_payment = (strcasecmp((string)($order['status'] ?? ''), 'Rejected') === 0)
@@ -1069,3 +1087,15 @@ customer_order_items_json([
     'receipt'          => $receipt_payload,
     'csrf_token'       => generate_csrf_token()
 ]);
+} catch (Throwable $e) {
+    customer_order_items_log_error('Unhandled exception', [
+        'message' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+        'order_id' => (int)($_GET['id'] ?? 0),
+        'customer_id' => function_exists('get_user_id') ? (int)get_user_id() : 0,
+    ]);
+    customer_order_items_json([
+        'error' => 'Server error while loading order details.'
+    ], 500);
+}
