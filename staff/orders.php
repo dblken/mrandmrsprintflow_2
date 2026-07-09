@@ -528,12 +528,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                         >
                             View
                         </button>
-                        <a href="<?php echo BASE_PATH; ?>/staff/chats.php?order_id=<?php echo $order['order_id']; ?>"
-                            onclick="event.stopPropagation();"
-                            class="table-action-btn"
-                        >
-                            Message
-                        </a>
+                        <?php if (!$is_pos_staff): ?>
+                            <a href="<?php echo BASE_PATH; ?>/staff/chats.php?order_id=<?php echo $order['order_id']; ?>"
+                                onclick="event.stopPropagation();"
+                                class="table-action-btn"
+                            >
+                                Message
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </td>
             </tr>
@@ -2456,11 +2458,13 @@ $page_title = 'Orders - Staff';
                                                     class="table-action-btn alt">
                                                 View
                                             </button>
-                                            <a href="<?php echo BASE_PATH; ?>/staff/chats.php?order_id=<?php echo $order['order_id']; ?>"
-                                               onclick="event.stopPropagation();"
-                                               class="table-action-btn">
-                                                Message
-                                            </a>
+                                            <?php if (!$is_pos_staff): ?>
+                                                <a href="<?php echo BASE_PATH; ?>/staff/chats.php?order_id=<?php echo $order['order_id']; ?>"
+                                                   onclick="event.stopPropagation();"
+                                                   class="table-action-btn">
+                                                    Message
+                                                </a>
+                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
