@@ -2061,7 +2061,7 @@ $online_closed_count = 0;
                     <!-- Left: Status actions -->
                     <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;flex:1;">
                         <div style="display:flex;gap:8px; flex-wrap:wrap; align-items:center;">
-                            <div x-show="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING'" style="display:flex; gap:8px;">
+                            <div x-show="isPosSimplifiedView && getPosWalkInBucket(currentJo) === 'PENDING' && !isPosPricingMode()" style="display:flex; gap:8px;">
                                 <button type="button" @click="cancelPosWalkInOrder()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Cancel Order</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isPendingReviewStatus(currentJo) && !isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
@@ -2679,7 +2679,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return `${String(orderType || 'JOB').toUpperCase()}-${id}`;
             },
             primeDetailsShell(order, orderType, id) {
-                const shell = order ? this.normalizeStaffOrderDetail({ ...order, order_type: orderType }) : {};
+                const shell = order ? this.applyPosSetPriceDeepLinkOverride(this.normalizeStaffOrderDetail({ ...order, order_type: orderType })) : {};
                 this.currentJo = {
                     ...shell,
                     id: shell.id || id,
@@ -2692,7 +2692,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
             },
             finishDetailLoadWith(data, orderType, cacheKey) {
-                this.currentJo = this.normalizeStaffOrderDetail({ ...data, order_type: orderType });
+                this.currentJo = this.applyPosSetPriceDeepLinkOverride(
+                    this.normalizeStaffOrderDetail({ ...data, order_type: orderType })
+                );
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.jobPriceInput = this.currentJo.final_price || 0;
@@ -4448,7 +4450,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (orderType === 'ORDER') {
                     const regularOrderId = order?.order_id ?? order?.id ?? id;
                     try {
-                        const detailRes = await this.fetchOrderModalSummary(regularOrderId);
+                        const detailRes = await this.fetchOrderModalSummary(regularOrderId, {
+                            includeAssignments: true,
+                            ensureJob: this.isPosPricingMode()
+                        });
                         if (detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(detailRes.data, 'ORDER', cacheKey);
                             this.loadingDetails = false;

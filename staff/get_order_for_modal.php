@@ -150,6 +150,7 @@ if ($includeAssignments && $linked_job_id) {
 $data = [
     'id' => $o['order_id'],
     'order_id' => $o['order_id'],
+    'job_order_id' => $linked_job_id ?: null,
     'order_type' => 'ORDER',
     'customer_full_name' => $o['customer_full_name'] ?? trim(($o['first_name'] ?? '') . ' ' . ($o['last_name'] ?? '')),
     'customer_contact' => $o['customer_contact'] ?? '',
