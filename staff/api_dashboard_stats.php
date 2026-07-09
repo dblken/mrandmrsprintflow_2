@@ -312,6 +312,9 @@ $timeframe = strtolower(trim((string)($_GET['timeframe'] ?? 'today')));
 if (!in_array($timeframe, ['today', 'week', 'month', 'year'], true)) {
     $timeframe = 'today';
 }
+if ($staffRole !== 'pos' && $timeframe === 'year') {
+    $timeframe = 'month';
+}
 $status_filter = pf_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''));
 
 $timeMeta = pf_dashboard_timeframe_meta($timeframe);

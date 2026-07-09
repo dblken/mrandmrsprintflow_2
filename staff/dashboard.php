@@ -19,6 +19,7 @@ $branch_name = $staffCtx['branch_name'];
 $staffAccessMeta = printflow_get_staff_access_meta();
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffAccessMeta['key'] ?? null);
 $staffOrderScopeSqlNoAlias = printflow_staff_order_source_sql('orders', $staffAccessMeta['key'] ?? null);
+$is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
 // Some production databases may not have `orders.order_type` (older schema).
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
@@ -31,6 +32,9 @@ $offset = ($page - 1) * $limit;
 $status_filter = $_GET['status'] ?? '';
 $search_filter = $_GET['search'] ?? '';
 $timeframe = $_GET['timeframe'] ?? 'today';
+if (!$is_pos_staff && $timeframe === 'year') {
+    $timeframe = 'month';
+}
 
 $today = date('Y-m-d');
 $range_start = $today;
@@ -312,7 +316,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
         .service-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f5f9; gap: 12px; }
         .service-item:last-child { border-bottom: none; }
         .service-info { font-size: 13px; font-weight: 700; color: #1e293b; flex: 1; min-width: 0; }
-        .service-count { font-size: 12px; font-weight: 800; color: var(--staff-primary); background: #e6f6f6; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+        .service-count { font-size: 12px; font-weight: 800; color: var(--staff-primary); background: var(--staff-service-count-bg); padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
 
         .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .filter-bar .input-field, .filter-bar select { width: auto; min-width: 140px; height: 34px !important; font-size: 12px; }
@@ -327,7 +331,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
             position: absolute;
             top: 0; left: 0; right: 0;
             height: 3px;
-            background: linear-gradient(to right, transparent, #06A1A1, transparent);
+            background: var(--staff-loading-bar);
             background-size: 200% 100%;
             animation: loadingMove 1.5s linear infinite;
             opacity: 0;
@@ -391,7 +395,9 @@ $page_title = 'Staff Dashboard - PrintFlow';
             if (type === 'today') return 'Today';
             if (type === 'week') return 'This Week';
             if (type === 'month') return 'This Month';
+            <?php if ($is_pos_staff): ?>
             if (type === 'year') return 'This Year';
+            <?php endif; ?>
             return type.charAt(0).toUpperCase() + type.slice(1);
         },
         getStatusLabel(status) {
@@ -422,7 +428,9 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'today' }" @click.prevent="activeTimeframe = 'today'; sortOpen = false; refreshDashboard(1, activeStatus, 'today')">Today</a>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'week' }" @click.prevent="activeTimeframe = 'week'; sortOpen = false; refreshDashboard(1, activeStatus, 'week')">This Week</a>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'month' }" @click.prevent="activeTimeframe = 'month'; sortOpen = false; refreshDashboard(1, activeStatus, 'month')">This Month</a>
+                        <?php if ($is_pos_staff): ?>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'year' }" @click.prevent="activeTimeframe = 'year'; sortOpen = false; refreshDashboard(1, activeStatus, 'year')">This Year</a>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -448,7 +456,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <input type="hidden" id="filter-timeframe" :value="activeTimeframe">
 
                 <?php if (($staffAccessMeta['key'] ?? '') === 'pos'): ?>
-                <a href="pos.php" class="toolbar-btn" style="background: linear-gradient(135deg, #0d9488 0%, #065f46 100%); border: none; color:#fff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2); font-weight: 700; height: 38px;">
+                <a href="pos.php" class="toolbar-btn" style="background: var(--staff-pos-button-bg); border: none; color:#fff; box-shadow: 0 4px 12px var(--staff-pos-button-shadow); font-weight: 700; height: 38px;">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                     POS
                 </a>
@@ -705,7 +713,7 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
         if (pagWrapper && data.pagination.total_pages > 1) {
             let pagHtml = '<div style="display:flex; justify-content:center; gap:4px; margin-top:20px;">';
             for (let i = 1; i <= data.pagination.total_pages; i++) {
-                const active = i === data.pagination.current_page ? 'background:#06A1A1; color:#fff; border-color:#06A1A1;' : 'background:#fff; color:#64748b; border-color:#e2e8f0;';
+                const active = i === data.pagination.current_page ? 'background:var(--staff-pagination-active-bg); color:#fff; border-color:var(--staff-pagination-active-border);' : 'background:#fff; color:#64748b; border-color:#e2e8f0;';
                 pagHtml += `<button onclick="refreshDashboard(${i}, null, null)" style="width:32px; height:32px; border:1px solid; border-radius:8px; cursor:pointer; font-weight:700; font-size:12px; transition:all 0.2s; ${active}">${i}</button>`;
             }
             pagHtml += '</div>';
@@ -748,8 +756,8 @@ function updateSalesChart(labels, values) {
 
     const ctx = canvas.getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-    gradient.addColorStop(0, 'rgba(6, 161, 161, 0.2)');
-    gradient.addColorStop(1, 'rgba(6, 161, 161, 0.05)');
+    gradient.addColorStop(0, getComputedStyle(document.documentElement).getPropertyValue('--staff-chart-fill-start').trim() || 'rgba(6, 161, 161, 0.2)');
+    gradient.addColorStop(1, getComputedStyle(document.documentElement).getPropertyValue('--staff-chart-fill-end').trim() || 'rgba(6, 161, 161, 0.05)');
 
     salesChartInstance = new Chart(ctx, {
         type: 'line',
@@ -758,13 +766,13 @@ function updateSalesChart(labels, values) {
             datasets: [{
                 label: 'Gross Revenue',
                 data: values,
-                borderColor: '#06A1A1',
+                borderColor: getComputedStyle(document.documentElement).getPropertyValue('--staff-chart-line').trim() || '#06A1A1',
                 borderWidth: 3,
                 backgroundColor: gradient,
                 fill: true,
                 tension: 0.4,
                 pointBackgroundColor: '#fff',
-                pointBorderColor: '#06A1A1',
+                pointBorderColor: getComputedStyle(document.documentElement).getPropertyValue('--staff-chart-line').trim() || '#06A1A1',
                 pointBorderWidth: 2,
                 pointRadius: 4,
                 pointHoverRadius: 6
@@ -779,7 +787,7 @@ function updateSalesChart(labels, values) {
                 tooltip: {
                     mode: 'index',
                     intersect: false,
-                    backgroundColor: '#013a3a',
+                    backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--staff-chart-tooltip-bg').trim() || '#013a3a',
                     callbacks: { label: (ctx) => ` ₱${ctx.parsed.y.toLocaleString()}` }
                 }
             },

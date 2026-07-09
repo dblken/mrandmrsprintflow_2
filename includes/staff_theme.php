@@ -9,6 +9,30 @@
         --accent-color: #06A1A1;
         --staff-primary: #06A1A1;
         --staff-soft: #9ED7C4;
+        --staff-accent-rgb: 6, 161, 161;
+        --staff-primary-strong: #058f8f;
+        --staff-primary-deep: #023d3d;
+        --staff-content-accent-grad: linear-gradient(90deg, #035f5f, #06A1A1, #9ED7C4);
+        --staff-content-label-grad: linear-gradient(90deg, #023d3d, #06A1A1);
+        --staff-toolbar-hover-bg: #f0fdfa;
+        --staff-toolbar-active-bg: #f0fdfa;
+        --staff-sort-active-bg: rgba(6, 161, 161, 0.08);
+        --staff-sort-active-text: #058f8f;
+        --staff-service-count-bg: #e6f6f6;
+        --staff-loading-bar: linear-gradient(to right, transparent, #06A1A1, transparent);
+        --staff-action-pill-bg: rgba(6, 161, 161, 0.12);
+        --staff-action-pill-text: #058f8f;
+        --staff-action-secondary-bg: rgba(124, 58, 237, 0.1);
+        --staff-action-secondary-text: #7c3aed;
+        --staff-filter-badge-bg: #06A1A1;
+        --staff-pos-button-bg: linear-gradient(135deg, #0d9488 0%, #065f46 100%);
+        --staff-pos-button-shadow: rgba(13, 148, 136, 0.2);
+        --staff-chart-line: #06A1A1;
+        --staff-chart-fill-start: rgba(6, 161, 161, 0.2);
+        --staff-chart-fill-end: rgba(6, 161, 161, 0.05);
+        --staff-chart-tooltip-bg: #013a3a;
+        --staff-pagination-active-bg: #06A1A1;
+        --staff-pagination-active-border: #06A1A1;
         --staff-sidebar-bg: linear-gradient(180deg, #011818 0%, #022a2a 24%, #033838 55%, #044040 100%);
         --staff-sidebar-border: rgba(6, 161, 161, 0.22);
         --staff-sidebar-shadow: rgba(0, 48, 48, 0.14);
@@ -38,6 +62,30 @@
         --accent-color: #2563eb;
         --staff-primary: #2563eb;
         --staff-soft: #bfdbfe;
+        --staff-accent-rgb: 37, 99, 235;
+        --staff-primary-strong: #1d4ed8;
+        --staff-primary-deep: #1e3a8a;
+        --staff-content-accent-grad: linear-gradient(90deg, #1e40af, #2563eb, #93c5fd);
+        --staff-content-label-grad: linear-gradient(90deg, #1e3a8a, #2563eb);
+        --staff-toolbar-hover-bg: #eff6ff;
+        --staff-toolbar-active-bg: #dbeafe;
+        --staff-sort-active-bg: rgba(37, 99, 235, 0.12);
+        --staff-sort-active-text: #1d4ed8;
+        --staff-service-count-bg: #dbeafe;
+        --staff-loading-bar: linear-gradient(to right, transparent, #2563eb, transparent);
+        --staff-action-pill-bg: rgba(37, 99, 235, 0.12);
+        --staff-action-pill-text: #1d4ed8;
+        --staff-action-secondary-bg: rgba(59, 130, 246, 0.12);
+        --staff-action-secondary-text: #2563eb;
+        --staff-filter-badge-bg: #2563eb;
+        --staff-pos-button-bg: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+        --staff-pos-button-shadow: rgba(37, 99, 235, 0.28);
+        --staff-chart-line: #2563eb;
+        --staff-chart-fill-start: rgba(37, 99, 235, 0.22);
+        --staff-chart-fill-end: rgba(37, 99, 235, 0.05);
+        --staff-chart-tooltip-bg: #1e3a8a;
+        --staff-pagination-active-bg: #2563eb;
+        --staff-pagination-active-border: #2563eb;
         --staff-sidebar-bg: linear-gradient(180deg, #172554 0%, #1e3a8a 26%, #1d4ed8 65%, #2563eb 100%);
         --staff-sidebar-border: rgba(147, 197, 253, 0.28);
         --staff-sidebar-shadow: rgba(30, 64, 175, 0.22);
@@ -74,17 +122,17 @@
     html.printflow-staff select:focus,
     html.printflow-staff input:focus {
         border-color: var(--staff-primary);
-        box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.18);
+        box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.18);
     }
 
     html.printflow-staff .btn-primary {
-        background: #06A1A1;
+        background: var(--staff-primary);
         color: #fff;
     }
 
     html.printflow-staff .btn-primary:hover {
-        background: #058f8f;
-        box-shadow: 0 4px 14px rgba(6, 161, 161, 0.35);
+        background: var(--staff-primary-strong);
+        box-shadow: 0 4px 14px rgba(var(--staff-accent-rgb), 0.35);
     }
 
     /* Sidebar shell */
@@ -196,12 +244,12 @@
     html.printflow-staff .kpi-em::before,
     html.printflow-staff .kpi-amb::before,
     html.printflow-staff .kpi-vio::before {
-        background: linear-gradient(90deg, #035f5f, #06A1A1, #9ED7C4) !important;
+        background: var(--staff-content-accent-grad) !important;
     }
 
     html.printflow-staff .kpi-label,
     html.printflow-staff .kpi-lbl {
-        background: linear-gradient(90deg, #023d3d, #06A1A1) !important;
+        background: var(--staff-content-label-grad) !important;
         -webkit-background-clip: text !important;
         background-clip: text !important;
         color: transparent !important;
@@ -210,52 +258,52 @@
 
     html.printflow-staff .stats-grid .stat-card::before,
     html.printflow-staff .stat-card:not(.no-stat-accent)::before {
-        background: linear-gradient(90deg, #035f5f, #06A1A1, #9ED7C4);
+        background: var(--staff-content-accent-grad);
     }
 
     html.printflow-staff .stat-label {
-        color: #047676;
+        color: var(--staff-primary-strong);
     }
 
     /* Form guard (sidebar portal) */
     html.printflow-staff .pf-fg-spinner {
-        border-color: rgba(6, 161, 161, 0.3);
-        border-top-color: #06A1A1;
+        border-color: rgba(var(--staff-accent-rgb), 0.3);
+        border-top-color: var(--staff-primary);
     }
 
     html.printflow-staff .pf-fg-save-highlight {
-        box-shadow: 0 0 0 2px rgba(6, 161, 161, 0.85) !important;
+        box-shadow: 0 0 0 2px rgba(var(--staff-accent-rgb), 0.85) !important;
     }
 
     html.printflow-staff .pf-fg-btn--accent {
-        background: #06A1A1;
+        background: var(--staff-primary);
         color: #fff;
-        border-color: #023d3d;
-        box-shadow: 0 2px 10px rgba(6, 161, 161, 0.35);
+        border-color: var(--staff-primary-deep);
+        box-shadow: 0 2px 10px rgba(var(--staff-accent-rgb), 0.35);
     }
 
     html.printflow-staff .pf-fg-btn--accent:hover:not(:disabled) {
-        background: #058f8f;
+        background: var(--staff-primary-strong);
     }
 
     html.printflow-staff .pf-fg-btn--discard {
-        background: #023d3d;
-        color: #9ED7C4;
-        border-color: #023d3d;
+        background: var(--staff-primary-deep);
+        color: var(--staff-soft);
+        border-color: var(--staff-primary-deep);
     }
 
     html.printflow-staff .pf-fg-btn--discard:hover:not(:disabled) {
-        background: #035050;
-        color: #c8efe0;
+        background: var(--staff-primary-strong);
+        color: #ffffff;
     }
 
     html.printflow-staff .pf-fg-btn--neutral {
-        border-color: #06A1A1;
-        color: #023d3d;
+        border-color: var(--staff-primary);
+        color: var(--staff-primary-deep);
     }
 
     html.printflow-staff .pf-fg-btn--neutral:hover:not(:disabled) {
-        background: rgba(158, 215, 196, 0.25);
+        background: rgba(var(--staff-accent-rgb), 0.12);
     }
 
     html.printflow-staff .pf-fg-nav-modal__title,
@@ -264,13 +312,13 @@
     }
 
     html.printflow-staff .pf-fg-nav-modal__list {
-        background: linear-gradient(135deg, rgba(158, 215, 196, 0.2), rgba(6, 161, 161, 0.08));
-        border-color: rgba(6, 161, 161, 0.35);
-        border-left-color: #06A1A1;
+        background: linear-gradient(135deg, rgba(var(--staff-accent-rgb), 0.16), rgba(var(--staff-accent-rgb), 0.08));
+        border-color: rgba(var(--staff-accent-rgb), 0.35);
+        border-left-color: var(--staff-primary);
     }
 
     html.printflow-staff .pf-fg-nav-modal__list li::before {
-        background: #06A1A1;
+        background: var(--staff-primary);
     }
 
     /* Unified Table Action Buttons */
@@ -290,25 +338,39 @@
     }
 
     html.printflow-staff .btn-action-primary {
-        background: rgba(6, 161, 161, 0.12);
-        color: #058f8f;
+        background: var(--staff-action-pill-bg);
+        color: var(--staff-action-pill-text);
     }
 
     html.printflow-staff .btn-action-primary:hover {
-        background: #06A1A1;
+        background: var(--staff-primary);
         color: #ffffff;
         transform: translateY(-1px);
     }
 
     html.printflow-staff .btn-action-secondary {
-        background: rgba(124, 58, 237, 0.1);
-        color: #7c3aed;
+        background: var(--staff-action-secondary-bg);
+        color: var(--staff-action-secondary-text);
     }
 
     html.printflow-staff .btn-action-secondary:hover {
         background: #7c3aed;
         color: #ffffff;
         transform: translateY(-1px);
+    }
+
+    html.printflow-staff .btn-staff-action-blue {
+        border-color: var(--staff-primary);
+        color: var(--staff-primary) !important;
+    }
+
+    html.printflow-staff .btn-staff-action-blue:hover {
+        background: var(--staff-primary);
+        color: #ffffff !important;
+    }
+
+    html.printflow-staff .kpi-card-cta {
+        color: var(--staff-primary) !important;
     }
 
     html.printflow-staff .btn-action-danger {
@@ -340,14 +402,14 @@
         white-space: nowrap;
     }
     html.printflow-staff .toolbar-btn:hover {
-        border-color: #06A1A1;
-        color: #06A1A1;
-        background: #f0fdfa;
+        border-color: var(--staff-primary);
+        color: var(--staff-primary);
+        background: var(--staff-toolbar-hover-bg);
     }
     html.printflow-staff .toolbar-btn.active {
-        border-color: #06A1A1;
-        background: #f0fdfa;
-        color: #06A1A1;
+        border-color: var(--staff-primary);
+        background: var(--staff-toolbar-active-bg);
+        color: var(--staff-primary);
     }
 
     html.printflow-staff .dropdown-panel {
@@ -388,8 +450,8 @@
         color: #1e293b;
     }
     html.printflow-staff .sort-option.active {
-        background: rgba(6, 161, 161, 0.08);
-        color: #058f8f;
+        background: var(--staff-sort-active-bg);
+        color: var(--staff-sort-active-text);
         font-weight: 700;
     }
 
@@ -439,7 +501,7 @@
     html.printflow-staff .filter-reset-link {
         font-size: 12px;
         font-weight: 600;
-        color: #06A1A1;
+        color: var(--staff-primary);
         background: none;
         border: none;
         padding: 0;
@@ -459,10 +521,10 @@
     }
     html.printflow-staff .filter-select:focus,
     html.printflow-staff .filter-input:focus {
-        border-color: #06A1A1;
+        border-color: var(--staff-primary);
         background: #fff;
         outline: none;
-        box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.1);
+        box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.1);
     }
     html.printflow-staff .filter-footer {
         padding: 14px 18px;
@@ -495,7 +557,7 @@
         justify-content: center;
         width: 18px;
         height: 18px;
-        background: #06A1A1;
+        background: var(--staff-filter-badge-bg);
         color: #fff;
         font-size: 10px;
         font-weight: 700;
