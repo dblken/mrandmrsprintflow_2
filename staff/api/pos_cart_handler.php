@@ -201,6 +201,35 @@ try {
             break;
     }
 
+    // Auto-remove any cart items whose linked customization has been completed.
+    // This handles the case where staff marks a job Completed from the Customizations
+    // page directly (without using the POS set-price flow), so stale items are cleaned up.
+    $completedCustomizationIds = [];
+    foreach ($_SESSION['pos_cart'] as $cartItem) {
+        $custId = (int)($cartItem['pending_customization_id'] ?? 0);
+        if ($custId > 0) {
+            $completedCustomizationIds[] = $custId;
+        }
+    }
+    if (!empty($completedCustomizationIds)) {
+        $inStr = implode(',', $completedCustomizationIds);
+        $doneRows = db_query(
+            "SELECT id FROM job_orders
+             WHERE id IN ({$inStr})
+               AND status IN ('COMPLETED','CLOSED','Completed','Closed','CANCELLED','Cancelled')"
+        ) ?: [];
+        if (!empty($doneRows)) {
+            $doneIds = array_flip(array_column($doneRows, 'id'));
+            $_SESSION['pos_cart'] = array_values(array_filter(
+                $_SESSION['pos_cart'],
+                function ($item) use ($doneIds) {
+                    $cid = (int)($item['pending_customization_id'] ?? 0);
+                    return $cid <= 0 || !isset($doneIds[$cid]);
+                }
+            ));
+        }
+    }
+
     // Normalize legacy cart rows so service items never hit product stock checks.
     $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
     foreach ($_SESSION['pos_cart'] as &$cartItem) {

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/order_items_persistence.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
+require_once __DIR__ . '/../../includes/runtime_config.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -618,6 +619,125 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
     }
 }
 
+function pos_extract_order_item_display_name(array $item): string {
+    $fallback = trim((string)($item['product_name'] ?? 'Item'));
+    $customization = [];
+
+    if (!empty($item['customization_data'])) {
+        $decoded = json_decode((string)$item['customization_data'], true);
+        if (is_array($decoded)) {
+            $customization = $decoded;
+        }
+    }
+
+    $serviceType = trim((string)($customization['service_type'] ?? ''));
+    $productType = trim((string)($customization['product_type'] ?? ''));
+    $size = trim((string)($customization['size'] ?? $customization['dimensions'] ?? ''));
+    $baseName = $serviceType !== '' ? $serviceType : ($productType !== '' ? $productType : $fallback);
+
+    return $size !== '' ? ($baseName . ' (' . $size . ')') : ($baseName !== '' ? $baseName : 'Item');
+}
+
+function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): array {
+    $orderRows = db_query(
+        "SELECT o.*, c.first_name, c.last_name, c.email, c.contact_number,
+                b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
+                d.code AS discount_code, d.description AS discount_description, d.discount_percent
+         FROM orders o
+         LEFT JOIN customers c ON c.customer_id = o.customer_id
+         LEFT JOIN branches b ON b.id = o.branch_id
+         LEFT JOIN discounts d ON d.discount_id = o.discount_id
+         WHERE o.order_id = ?
+         LIMIT 1",
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    if (empty($orderRows)) {
+        return [];
+    }
+
+    $order = $orderRows[0];
+    $itemRows = db_query(
+        "SELECT oi.quantity, oi.unit_price, oi.customization_data, p.name AS product_name
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = ?
+         ORDER BY oi.order_item_id ASC",
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    $receiptItems = [];
+    $subtotal = 0.0;
+    foreach ($itemRows as $itemRow) {
+        $quantity = (int)($itemRow['quantity'] ?? 0);
+        $unitPrice = (float)($itemRow['unit_price'] ?? 0);
+        $lineTotal = $quantity * $unitPrice;
+        $subtotal += $lineTotal;
+        $receiptItems[] = [
+            'name' => pos_extract_order_item_display_name($itemRow),
+            'quantity' => $quantity,
+            'unit_price' => $unitPrice,
+            'line_total' => $lineTotal,
+        ];
+    }
+
+    $storedTotal = (float)($order['total_amount'] ?? 0);
+    $discountPercent = (float)($order['discount_percent'] ?? 0);
+    $discountAmount = max(0, $subtotal - $storedTotal);
+    if ($discountAmount <= 0 && $discountPercent > 0 && $subtotal > 0) {
+        $discountAmount = round($subtotal * ($discountPercent / 100), 2);
+    }
+    $total = $storedTotal > 0 ? $storedTotal : max(0, $subtotal - $discountAmount);
+    $changeAmount = max(0, $amountTendered - $total);
+
+    $shopCfg = printflow_load_runtime_config('shop', dirname(__DIR__, 2) . '/public/assets/uploads/shop_config.json');
+    $shopName = trim((string)($shopCfg['name'] ?? 'Mr. and Mrs. Print'));
+    $shopLogo = trim((string)($shopCfg['logo'] ?? ''));
+    $logoUrl = $shopLogo !== ''
+        ? rtrim((string)(defined('BASE_PATH') ? BASE_PATH : '/printflow'), '/') . '/public/assets/uploads/' . rawurlencode(basename($shopLogo))
+        : '';
+
+    $customerName = trim(((string)($order['first_name'] ?? '')) . ' ' . ((string)($order['last_name'] ?? '')));
+    if ($customerName === '') {
+        $customerName = 'Walk-in Customer';
+    }
+
+    return [
+        'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
+        'order_id' => $orderId,
+        'date_time' => (string)($order['order_date'] ?? date('Y-m-d H:i:s')),
+        'company' => [
+            'name' => $shopName,
+            'logo_url' => $logoUrl,
+            'branch_name' => (string)($order['branch_name'] ?? 'Main Branch'),
+            'address' => (string)($order['branch_address'] ?? ''),
+            'contact' => (string)($order['branch_contact'] ?? ''),
+        ],
+        'customer' => [
+            'name' => $customerName,
+            'email' => (string)($order['email'] ?? ''),
+            'phone' => (string)($order['contact_number'] ?? ''),
+        ],
+        'items' => $receiptItems,
+        'subtotal' => round($subtotal, 2),
+        'discount' => [
+            'code' => (string)($order['discount_code'] ?? ''),
+            'description' => (string)($order['discount_description'] ?? ''),
+            'percent' => $discountPercent,
+            'amount' => round($discountAmount, 2),
+        ],
+        'total' => round($total, 2),
+        'payment' => [
+            'method' => (string)($order['payment_method'] ?? ''),
+            'reference' => (string)($order['payment_reference'] ?? ''),
+            'amount_paid' => round($amountTendered > 0 ? $amountTendered : $total, 2),
+            'change' => round($changeAmount, 2),
+            'status' => (string)($order['payment_status'] ?? ''),
+        ],
+    ];
+}
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
     header('Content-Type: application/json');
@@ -1176,7 +1296,8 @@ try {
         'order_id' => $order_id,
         'customization_id' => $last_customization_id ?? null,
         'message' => 'Sale completed successfully.',
-        'warning' => $sync_warning
+        'warning' => $sync_warning,
+        'receipt' => pos_build_receipt_payload((int)$order_id, (float)$amount_tendered)
     ]);
 
 } catch (Exception $e) {
@@ -1190,9 +1311,14 @@ try {
             'order_id' => (int)$order_id,
             'customization_id' => $last_customization_id ?? null,
             'message' => 'Sale completed successfully.',
-            'warning' => 'Production sync needs follow-up.'
+            'warning' => 'Production sync needs follow-up.',
+            'receipt' => pos_build_receipt_payload((int)$order_id, (float)$amount_tendered)
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
     }
 }
+
+
+
+
