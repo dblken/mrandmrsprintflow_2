@@ -2242,20 +2242,22 @@ try {
                 if (data.staff_branch_id) {
                     const branchSel = body.querySelector('select[name="branch_id"]');
                     if (branchSel) {
-                        branchSel.value = data.staff_branch_id;
-                        branchSel.disabled = true;
-                        branchSel.classList.add('input-field-locked');
-                        branchSel.style.background = '#0d9488';
-                        branchSel.style.color = '#ffffff';
-                        branchSel.style.borderColor = '#0d9488';
-                        branchSel.style.opacity = '1';
-                        branchSel.style.cursor = 'not-allowed';
-                        // Add hidden input so disabled value is still submitted
+                        const branchField = branchSel.closest('.shopee-form-field');
+                        const branchName = data.staff_branch_name || branchSel.options[branchSel.selectedIndex]?.text || 'Assigned Branch';
+                        if (branchField) {
+                            branchField.innerHTML = `
+                                <div class="input-field-locked" style="width:175px; max-width:175px; display:inline-flex; align-items:center; justify-content:space-between; gap:10px; padding:.6rem .85rem; border-radius:.5rem; background:var(--staff-primary); color:#ffffff; border:1px solid var(--staff-primary); font-size:.95rem; font-weight:700; box-shadow:0 8px 18px rgba(var(--staff-accent-rgb), 0.22);">
+                                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${branchName}</span>
+                                    <i class="fas fa-building" style="font-size:.85rem; opacity:.9;"></i>
+                                </div>
+                            `;
+                        }
+
                         const hidden = document.createElement('input');
                         hidden.type = 'hidden';
                         hidden.name = 'branch_id';
                         hidden.value = data.staff_branch_id;
-                        branchSel.parentNode.appendChild(hidden);
+                        (branchField || branchSel.parentNode).appendChild(hidden);
                     }
                 }
 

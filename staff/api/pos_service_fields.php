@@ -28,6 +28,13 @@ $branches = db_query("SELECT id, branch_name FROM branches WHERE status = 'Activ
 
 require_once __DIR__ . '/../../includes/branch_context.php';
 $staff_branch_id = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 0);
+$staff_branch_name = '';
+foreach ($branches as $branchRow) {
+    if ((int)($branchRow['id'] ?? 0) === (int)$staff_branch_id) {
+        $staff_branch_name = (string)($branchRow['branch_name'] ?? '');
+        break;
+    }
+}
 
 ob_start();
 if (service_has_field_config($service_id)) {
@@ -81,4 +88,5 @@ echo json_encode([
     'fields_html'   => $fields_html,
     'csrf_token'    => generate_csrf_token(),
     'staff_branch_id' => $staff_branch_id,
+    'staff_branch_name' => $staff_branch_name,
 ]);
