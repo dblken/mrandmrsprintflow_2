@@ -9,12 +9,58 @@
         --accent-color: #06A1A1;
         --staff-primary: #06A1A1;
         --staff-soft: #9ED7C4;
+        --staff-sidebar-bg: linear-gradient(180deg, #011818 0%, #022a2a 24%, #033838 55%, #044040 100%);
+        --staff-sidebar-border: rgba(6, 161, 161, 0.22);
+        --staff-sidebar-shadow: rgba(0, 48, 48, 0.14);
+        --staff-sidebar-header-border: rgba(158, 215, 196, 0.18);
+        --staff-sidebar-logo-bg: linear-gradient(135deg, #035050, #06A1A1);
+        --staff-sidebar-logo-border: rgba(158, 215, 196, 0.35);
+        --staff-sidebar-button-border: rgba(6, 161, 161, 0.28);
+        --staff-sidebar-button-text: #9ED7C4;
+        --staff-sidebar-button-hover-border: rgba(158, 215, 196, 0.45);
+        --staff-sidebar-mobile-bg: linear-gradient(135deg, #022e2e, #06A1A1);
+        --staff-sidebar-mobile-hover-bg: linear-gradient(135deg, #035f5f, #09b5b5);
+        --staff-sidebar-section-title: rgba(158, 215, 196, 0.55);
+        --staff-sidebar-nav-text: rgba(220, 245, 238, 0.9);
+        --staff-sidebar-nav-hover-text: #f6fffc;
+        --staff-sidebar-active-bg: linear-gradient(135deg, #f7fefb 0%, #e5f9f2 42%, #d4f0e6 100%);
+        --staff-sidebar-active-text: #023d3d;
+        --staff-sidebar-active-hover-bg: linear-gradient(135deg, #ffffff 0%, #eefaf5 50%, #dff5ec 100%);
+        --staff-sidebar-footer-border: rgba(6, 161, 161, 0.2);
+        --staff-sidebar-avatar-bg: linear-gradient(135deg, #047676 0%, #06A1A1 55%, #9ED7C4 100%);
+        --staff-sidebar-avatar-border: rgba(158, 215, 196, 0.45);
+        --staff-sidebar-scrollbar: rgba(6, 161, 161, 0.35);
+        --staff-sidebar-scrollbar-thumb: rgba(6, 161, 161, 0.28);
+        --staff-sidebar-scrollbar-thumb-hover: rgba(6, 161, 161, 0.45);
     }
 
     html.printflow-staff.printflow-staff-pos {
         --accent-color: #2563eb;
         --staff-primary: #2563eb;
         --staff-soft: #bfdbfe;
+        --staff-sidebar-bg: linear-gradient(180deg, #172554 0%, #1e3a8a 26%, #1d4ed8 65%, #2563eb 100%);
+        --staff-sidebar-border: rgba(147, 197, 253, 0.28);
+        --staff-sidebar-shadow: rgba(30, 64, 175, 0.22);
+        --staff-sidebar-header-border: rgba(191, 219, 254, 0.24);
+        --staff-sidebar-logo-bg: linear-gradient(135deg, #1d4ed8, #60a5fa);
+        --staff-sidebar-logo-border: rgba(191, 219, 254, 0.42);
+        --staff-sidebar-button-border: rgba(147, 197, 253, 0.34);
+        --staff-sidebar-button-text: #dbeafe;
+        --staff-sidebar-button-hover-border: rgba(219, 234, 254, 0.58);
+        --staff-sidebar-mobile-bg: linear-gradient(135deg, #1e3a8a, #3b82f6);
+        --staff-sidebar-mobile-hover-bg: linear-gradient(135deg, #2563eb, #60a5fa);
+        --staff-sidebar-section-title: rgba(219, 234, 254, 0.72);
+        --staff-sidebar-nav-text: rgba(239, 246, 255, 0.94);
+        --staff-sidebar-nav-hover-text: #ffffff;
+        --staff-sidebar-active-bg: linear-gradient(135deg, #fff7ed 0%, #ffedd5 48%, #fed7aa 100%);
+        --staff-sidebar-active-text: #9a3412;
+        --staff-sidebar-active-hover-bg: linear-gradient(135deg, #fffaf3 0%, #ffefdc 50%, #fdba74 100%);
+        --staff-sidebar-footer-border: rgba(191, 219, 254, 0.24);
+        --staff-sidebar-avatar-bg: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 55%, #93c5fd 100%);
+        --staff-sidebar-avatar-border: rgba(219, 234, 254, 0.52);
+        --staff-sidebar-scrollbar: rgba(191, 219, 254, 0.38);
+        --staff-sidebar-scrollbar-thumb: rgba(191, 219, 254, 0.3);
+        --staff-sidebar-scrollbar-thumb-hover: rgba(219, 234, 254, 0.48);
     }
 
     html.printflow-staff.printflow-staff-online {
@@ -43,100 +89,100 @@
 
     /* Sidebar shell */
     html.printflow-staff .sidebar {
-        background: linear-gradient(180deg, #011818 0%, #022a2a 24%, #033838 55%, #044040 100%);
-        border-right: 1px solid rgba(6, 161, 161, 0.22);
-        box-shadow: 4px 0 24px rgba(0, 48, 48, 0.14);
+        background: var(--staff-sidebar-bg);
+        border-right: 1px solid var(--staff-sidebar-border);
+        box-shadow: 4px 0 24px var(--staff-sidebar-shadow);
     }
 
     html.printflow-staff .sidebar-header {
-        border-bottom: 1px solid rgba(158, 215, 196, 0.18);
+        border-bottom: 1px solid var(--staff-sidebar-header-border);
     }
 
     html.printflow-staff .sidebar-header .logo img {
-        border-color: rgba(158, 215, 196, 0.4) !important;
+        border-color: var(--staff-sidebar-logo-border) !important;
     }
 
     html.printflow-staff .logo-icon {
-        background: linear-gradient(135deg, #035050, #06A1A1);
-        border-color: rgba(158, 215, 196, 0.35);
+        background: var(--staff-sidebar-logo-bg);
+        border-color: var(--staff-sidebar-logo-border);
     }
 
     html.printflow-staff .sidebar-collapse-btn {
-        border-color: rgba(6, 161, 161, 0.28);
-        color: #9ED7C4;
+        border-color: var(--staff-sidebar-button-border);
+        color: var(--staff-sidebar-button-text);
     }
 
     html.printflow-staff .sidebar-collapse-btn:hover {
-        border-color: rgba(158, 215, 196, 0.45);
+        border-color: var(--staff-sidebar-button-hover-border);
         color: #fff;
     }
 
     html.printflow-staff #mobileBurger {
-        background: linear-gradient(135deg, #022e2e, #06A1A1);
-        border-color: rgba(158, 215, 196, 0.35);
+        background: var(--staff-sidebar-mobile-bg);
+        border-color: var(--staff-sidebar-logo-border);
     }
 
     html.printflow-staff #mobileBurger:hover {
-        background: linear-gradient(135deg, #035f5f, #09b5b5);
-        border-color: rgba(158, 215, 196, 0.5);
+        background: var(--staff-sidebar-mobile-hover-bg);
+        border-color: var(--staff-sidebar-button-hover-border);
     }
 
     html.printflow-staff .nav-section-title {
-        color: rgba(158, 215, 196, 0.55);
+        color: var(--staff-sidebar-section-title);
     }
 
     html.printflow-staff .nav-item {
-        color: rgba(220, 245, 238, 0.9);
+        color: var(--staff-sidebar-nav-text);
     }
 
     html.printflow-staff .nav-item:hover {
-        color: #f6fffc;
+        color: var(--staff-sidebar-nav-hover-text);
     }
 
     html.printflow-staff .nav-item.active {
-        background: linear-gradient(135deg, #f7fefb 0%, #e5f9f2 42%, #d4f0e6 100%);
-        color: #023d3d;
+        background: var(--staff-sidebar-active-bg);
+        color: var(--staff-sidebar-active-text);
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
     }
 
     html.printflow-staff .nav-item.active .nav-icon {
-        color: #023d3d;
-        stroke: #023d3d;
+        color: var(--staff-sidebar-active-text);
+        stroke: var(--staff-sidebar-active-text);
     }
 
     html.printflow-staff .nav-item.active:hover {
-        background: linear-gradient(135deg, #ffffff 0%, #eefaf5 50%, #dff5ec 100%);
-        color: #012828;
+        background: var(--staff-sidebar-active-hover-bg);
+        color: var(--staff-sidebar-active-text);
     }
 
     html.printflow-staff .sidebar-footer {
-        border-top: 1px solid rgba(6, 161, 161, 0.2);
+        border-top: 1px solid var(--staff-sidebar-footer-border);
     }
 
     html.printflow-staff .user-avatar {
-        background: linear-gradient(135deg, #047676 0%, #06A1A1 55%, #9ED7C4 100%);
-        border-color: rgba(158, 215, 196, 0.45);
+        background: var(--staff-sidebar-avatar-bg);
+        border-color: var(--staff-sidebar-avatar-border);
     }
 
     html.printflow-staff .sidebar.collapsed .nav-item.active .nav-icon {
-        color: #023d3d;
-        stroke: #023d3d;
+        color: var(--staff-sidebar-active-text);
+        stroke: var(--staff-sidebar-active-text);
     }
 
     html.printflow-staff .sidebar.collapsed .nav-section-title::after {
-        color: rgba(158, 215, 196, 0.5);
+        color: var(--staff-sidebar-section-title);
     }
 
     html.printflow-staff .sidebar-nav {
-        scrollbar-color: rgba(6, 161, 161, 0.35) transparent;
+        scrollbar-color: var(--staff-sidebar-scrollbar) transparent;
     }
 
     html.printflow-staff .sidebar-nav::-webkit-scrollbar-thumb {
-        background: rgba(6, 161, 161, 0.28);
+        background: var(--staff-sidebar-scrollbar-thumb);
     }
 
     html.printflow-staff .sidebar-nav:hover::-webkit-scrollbar-thumb {
-        background: rgba(6, 161, 161, 0.45);
+        background: var(--staff-sidebar-scrollbar-thumb-hover);
     }
 
     /* KPI / stat accents */

@@ -388,6 +388,7 @@ $total_revenue = db_query(
     $kpi_types ?: null,
     $kpi_params ?: null
 )[0]['total'] ?? 0;
+$average_sale_value = $completed_count > 0 ? ((float)$total_revenue / (float)$completed_count) : 0;
 
 function staff_orders_display_status(string $status): string {
     $status = trim($status);
@@ -2238,6 +2239,13 @@ $page_title = 'Orders - Staff';
                             <span class="kpi-label">Total Revenue</span>
                             <span class="kpi-value"><?php echo format_currency((float)$total_revenue); ?></span>
                             <span class="kpi-sub">Completed walk-in sales</span>
+                        </span>
+                    </div>
+                    <div class="kpi-card amber">
+                        <span class="kpi-card-inner">
+                            <span class="kpi-label">Average Sale Value</span>
+                            <span class="kpi-value"><?php echo format_currency((float)$average_sale_value); ?></span>
+                            <span class="kpi-sub">Per completed walk-in sale</span>
                         </span>
                     </div>
                 <?php else: ?>
