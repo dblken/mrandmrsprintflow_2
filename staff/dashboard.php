@@ -62,12 +62,30 @@ switch ($timeframe) {
         $timeframe_label = "This Month (" . date('F Y') . ")"; 
         $short_label = "This Month";
         break;
+    case 'year':
+        $range_start = date('Y-01-01');
+        $range_end = date('Y-12-31');
+        $timeframe_label = "This Year (" . date('Y') . ")";
+        $short_label = "This Year";
+        break;
     case 'all':
         $range_start = null;
         $range_end = null;
         $timeframe_label = 'All Time';
         $short_label = 'All Time';
         break;
+}
+
+if (!function_exists('staff_dashboard_chart_title')) {
+    function staff_dashboard_chart_title(string $timeframe): string {
+        return match ($timeframe) {
+            'today' => 'Sales Trend (Today)',
+            'week' => 'Sales Trend (7 Days)',
+            'month' => 'Sales Trend (This Month)',
+            'year' => 'Sales Trend (This Year)',
+            default => 'Sales Trend',
+        };
+    }
 }
 
 $has_timeframe_range = ($range_start !== null && $range_end !== null);
@@ -373,7 +391,18 @@ $page_title = 'Staff Dashboard - PrintFlow';
             if (type === 'today') return 'Today';
             if (type === 'week') return 'This Week';
             if (type === 'month') return 'This Month';
+            if (type === 'year') return 'This Year';
             return type.charAt(0).toUpperCase() + type.slice(1);
+        },
+        getStatusLabel(status) {
+            if (!status) return 'All';
+            if (status === 'PENDING') return 'Pending';
+            if (status === 'APPROVED') return 'Approved';
+            if (status === 'TO_PAY') return 'To Pay';
+            if (status === 'READY') return 'Ready';
+            if (status === 'COMPLETED') return 'Completed';
+            if (status === 'CANCELLED') return 'Cancelled / Rejected';
+            return status;
         }
     }">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
@@ -393,6 +422,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'today' }" @click.prevent="activeTimeframe = 'today'; sortOpen = false; refreshDashboard(1, activeStatus, 'today')">Today</a>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'week' }" @click.prevent="activeTimeframe = 'week'; sortOpen = false; refreshDashboard(1, activeStatus, 'week')">This Week</a>
                         <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'month' }" @click.prevent="activeTimeframe = 'month'; sortOpen = false; refreshDashboard(1, activeStatus, 'month')">This Month</a>
+                        <a href="#" class="sort-option" :class="{ active: activeTimeframe === 'year' }" @click.prevent="activeTimeframe = 'year'; sortOpen = false; refreshDashboard(1, activeStatus, 'year')">This Year</a>
                     </div>
                 </div>
 
@@ -400,14 +430,16 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <div style="position:relative;">
                     <button class="toolbar-btn" :class="{ active: filterOpen || activeStatus }" @click="filterOpen = !filterOpen; sortOpen = false" style="background: #fff; border: 1px solid #e2e8f0; color: #475569; font-weight: 600; height: 38px;">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                        Status: <span x-text="activeStatus ? activeStatus : 'All'"></span>
+                        Status: <span x-text="getStatusLabel(activeStatus)"></span>
                     </button>
                     <div class="dropdown-panel sort-dropdown" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" style="right: 0; left: auto;">
                         <a href="#" class="sort-option" :class="{ active: !activeStatus }" @click.prevent="activeStatus = ''; filterOpen = false; refreshDashboard(1, '', activeTimeframe)">All Statuses</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'Pending' }" @click.prevent="activeStatus = 'Pending'; filterOpen = false; refreshDashboard(1, 'Pending', activeTimeframe)">To Verify</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'Ready for Pickup' }" @click.prevent="activeStatus = 'Ready for Pickup'; filterOpen = false; refreshDashboard(1, 'Ready for Pickup', activeTimeframe)">To Pick Up</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'Completed' }" @click.prevent="activeStatus = 'Completed'; filterOpen = false; refreshDashboard(1, 'Completed', activeTimeframe)">Completed</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'Cancelled' }" @click.prevent="activeStatus = 'Cancelled'; filterOpen = false; refreshDashboard(1, 'Cancelled', activeTimeframe)">Cancelled</a>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'PENDING' }" @click.prevent="activeStatus = 'PENDING'; filterOpen = false; refreshDashboard(1, 'PENDING', activeTimeframe)">Pending</a>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'APPROVED' }" @click.prevent="activeStatus = 'APPROVED'; filterOpen = false; refreshDashboard(1, 'APPROVED', activeTimeframe)">Approved</a>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'TO_PAY' }" @click.prevent="activeStatus = 'TO_PAY'; filterOpen = false; refreshDashboard(1, 'TO_PAY', activeTimeframe)">To Pay</a>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'READY' }" @click.prevent="activeStatus = 'READY'; filterOpen = false; refreshDashboard(1, 'READY', activeTimeframe)">Ready</a>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'COMPLETED' }" @click.prevent="activeStatus = 'COMPLETED'; filterOpen = false; refreshDashboard(1, 'COMPLETED', activeTimeframe)">Completed</a>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'CANCELLED' }" @click.prevent="activeStatus = 'CANCELLED'; filterOpen = false; refreshDashboard(1, 'CANCELLED', activeTimeframe)">Cancelled / Rejected</a>
                     </div>
                 </div>
 
@@ -434,7 +466,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                     <!-- 1. Completed Product Orders -->
                     <a href="orders.php?type=products&status=COMPLETED" class="kpi-card indigo kpi-card--link" title="View product orders">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Completed Product Orders</span>
+                            <span class="kpi-label" id="stat-products-label">Completed Product Orders</span>
                             <span class="kpi-value" id="stat-completed-products"><?php echo number_format($completed_products_count); ?></span>
                             <span class="kpi-sub">Fixed products</span>
                             <span class="kpi-card-cta">View details →</span>
@@ -444,7 +476,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                     <!-- 2. Completed Customized Orders -->
                     <a href="customizations.php" class="kpi-card emerald kpi-card--link" title="View customized orders">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Completed Customized Orders</span>
+                            <span class="kpi-label" id="stat-custom-label">Completed Customized Orders</span>
                             <span class="kpi-value" id="stat-completed-custom"><?php echo number_format($completed_custom_count); ?></span>
                             <span class="kpi-sub">Customizable services</span>
                             <span class="kpi-card-cta">View details →</span>
@@ -454,7 +486,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                     <!-- 3. Reviews -->
                     <a href="reviews.php" class="kpi-card amber kpi-card--link" title="View reviews">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Reviews</span>
+                            <span class="kpi-label" id="stat-reviews-label">Reviews</span>
                             <span class="kpi-value" id="stat-pending"><?php echo number_format($pending_reviews_count); ?></span>
                             <span class="kpi-sub">Service feedback</span>
                             <span class="kpi-card-cta">Action Needed →</span>
@@ -478,7 +510,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <div class="card">
                     <div class="loading-progress"></div>
                     <div class="content-transition">
-                        <div id="chart-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Sales Trend (7 Days)</div>
+                        <div id="chart-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;"><?php echo htmlspecialchars(staff_dashboard_chart_title($timeframe)); ?></div>
                         <div class="chart-wrap" id="chart-pulse-wrap">
                             <canvas id="salesChart"></canvas>
                         </div>
@@ -584,7 +616,7 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
     main.classList.add('is-loading');
     
     try {
-        const response = await fetch(`api_dashboard_stats.php?page=${page}&status=${encodeURIComponent(status)}&timeframe=${encodeURIComponent(timeframe)}&_=${Date.now()}`, {
+        const response = await fetch(`<?php echo BASE_PATH; ?>/staff/api_dashboard_stats.php?page=${page}&status=${encodeURIComponent(status)}&timeframe=${encodeURIComponent(timeframe)}&_=${Date.now()}`, {
             signal: dashAbortController.signal,
             cache: 'no-store'
         });
@@ -595,9 +627,25 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
 
         // 3. Update DOM with micro-animations
         updateMetric('stat-revenue', data.stats.formatted_revenue || '₱0.00');
-        updateMetric('stat-completed-products', data.stats.completed_products);
-        updateMetric('stat-completed-custom', data.stats.completed_custom);
+        updateMetric('stat-completed-products', data.stats.product_orders);
+        updateMetric('stat-completed-custom', data.stats.custom_orders);
+        updateMetric('stat-pending', data.stats.reviews);
         
+        const productsLabelEl = document.getElementById('stat-products-label');
+        if (productsLabelEl && data.stats.product_label) {
+            productsLabelEl.textContent = data.stats.product_label;
+        }
+
+        const customLabelEl = document.getElementById('stat-custom-label');
+        if (customLabelEl && data.stats.custom_label) {
+            customLabelEl.textContent = data.stats.custom_label;
+        }
+
+        const reviewsLabelEl = document.getElementById('stat-reviews-label');
+        if (reviewsLabelEl && data.stats.review_label) {
+            reviewsLabelEl.textContent = data.stats.review_label;
+        }
+
         const subtitleEl = document.getElementById('kpi-subtitle');
         if (subtitleEl) subtitleEl.textContent = `Metrics for ${data.timeframe_label} at <?php echo addslashes($branch_name); ?>`;
 
@@ -751,7 +799,7 @@ function updateSalesChart(labels, values) {
 }
 
 function initDashboardInteractions() {
-    updateSalesChart(<?php echo json_encode($trend_labels); ?>, <?php echo json_encode($trend_values); ?>);
+    refreshDashboard(1);
     
     const sEl = document.getElementById('filter-status');
     const tEl = document.getElementById('filter-timeframe');
