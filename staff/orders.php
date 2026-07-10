@@ -611,14 +611,14 @@ $page_title = 'Orders - Staff';
             font-family: inherit;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: #2563eb; 
+            color: var(--staff-primary); 
             border-radius: 9999px; 
             transition: all 0.2s; 
             display: inline-flex; 
             align-items: center; 
             gap: 8px;
             background: #ffffff;
-            border: 1px solid rgba(37, 99, 235, 0.32);
+            border: 1px solid rgba(var(--staff-accent-rgb), 0.32);
             cursor: pointer;
             white-space: nowrap;
             flex-shrink: 0;
@@ -631,17 +631,17 @@ $page_title = 'Orders - Staff';
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .pill-tab:hover { background: rgba(37, 99, 235, 0.06); color: #1d4ed8; border-color: rgba(37, 99, 235, 0.48); }
-        .pill-tab.active { background: #ffffff; color: #1d4ed8; border-color: #2563eb; box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12); }
+        .pill-tab:hover { background: rgba(var(--staff-accent-rgb), 0.06); color: var(--staff-primary-deep); border-color: rgba(var(--staff-accent-rgb), 0.48); }
+        .pill-tab.active { background: #ffffff; color: var(--staff-primary-deep); border-color: var(--staff-primary); box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.12); }
         .tab-count { 
-            background: rgba(37, 99, 235, 0.12); 
-            color: #1d4ed8; 
+            background: rgba(var(--staff-accent-rgb), 0.12); 
+            color: var(--staff-primary-deep); 
             font-size: 10px; 
             padding: 2px 7px; 
             border-radius: 9999px; 
             font-weight: 700;
         }
-        .pill-tab.active .tab-count { background: #2563eb; color: white; }
+        .pill-tab.active .tab-count { background: var(--staff-primary); color: white; }
 
         @media (max-width: 768px) {
             .toolbar-group--tabs {

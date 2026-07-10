@@ -433,14 +433,14 @@ $online_closed_count = 0;
             font-family: inherit;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: #3f5f5f; 
+            color: var(--staff-primary); 
             border-radius: 9999px; 
             transition: all 0.2s; 
             display: inline-flex; 
             align-items: center; 
             gap: 6px;
             background: #ffffff;
-            border: 1px solid transparent;
+            border: 1px solid rgba(var(--staff-accent-rgb), 0.32);
             cursor: pointer;
             white-space: nowrap;
             flex-shrink: 0;
@@ -452,17 +452,17 @@ $online_closed_count = 0;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .pill-tab:hover { background: rgba(var(--staff-accent-rgb), 0.08); color: var(--staff-primary-deep); border-color: rgba(var(--staff-accent-rgb), 0.22); }
-        .pill-tab.active { background: var(--staff-content-label-grad); color: var(--staff-primary-deep); border: 1px solid var(--staff-primary); box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.16); }
+        .pill-tab:hover { background: rgba(var(--staff-accent-rgb), 0.06); color: var(--staff-primary-deep); border-color: rgba(var(--staff-accent-rgb), 0.48); }
+        .pill-tab.active { background: #ffffff; color: var(--staff-primary-deep); border: 1px solid var(--staff-primary); box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.12); }
         .tab-count { 
-            background: var(--staff-primary); 
-            color: white; 
+            background: rgba(var(--staff-accent-rgb), 0.12); 
+            color: var(--staff-primary-deep); 
             font-size: 10px; 
             padding: 1px 6px; 
             border-radius: 9999px; 
             font-weight: 600;
         }
-        .pill-tab:not(.active) .tab-count { background: rgba(var(--staff-accent-rgb), 0.12); color: var(--staff-primary-deep); }
+        .pill-tab.active .tab-count { background: var(--staff-primary); color: white; }
 
         .pf-custom-tabs.pos-tabs {
             width: 100%;
