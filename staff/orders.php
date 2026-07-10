@@ -631,17 +631,27 @@ $page_title = 'Orders - Staff';
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+        .pill-tab,
+        .pill-tab span {
+            color: var(--staff-primary) !important;
+        }
         .pill-tab:hover { background: rgba(var(--staff-accent-rgb), 0.06); color: var(--staff-primary-deep); border-color: rgba(var(--staff-accent-rgb), 0.48); }
+        .pill-tab:hover,
+        .pill-tab:hover span,
+        .pill-tab.active,
+        .pill-tab.active span {
+            color: var(--staff-primary-deep) !important;
+        }
         .pill-tab.active { background: #ffffff; color: var(--staff-primary-deep); border-color: var(--staff-primary); box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.12); }
         .tab-count { 
             background: rgba(var(--staff-accent-rgb), 0.12); 
-            color: var(--staff-primary-deep); 
+            color: var(--staff-primary-deep) !important; 
             font-size: 10px; 
             padding: 2px 7px; 
             border-radius: 9999px; 
             font-weight: 700;
         }
-        .pill-tab.active .tab-count { background: var(--staff-primary); color: white; }
+        .pill-tab.active .tab-count { background: var(--staff-primary); color: white !important; }
 
         @media (max-width: 768px) {
             .toolbar-group--tabs {
