@@ -606,19 +606,19 @@ $page_title = 'Orders - Staff';
         .pill-tab { 
             position: relative;
             padding: 8px 16px; 
-            font-weight: 500; 
+            font-weight: 600; 
             font-size: 11px; 
             font-family: inherit;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: #3f5f5f; 
+            color: #2563eb; 
             border-radius: 9999px; 
             transition: all 0.2s; 
             display: inline-flex; 
             align-items: center; 
             gap: 8px;
             background: #ffffff;
-            border: 1px solid transparent;
+            border: 1px solid rgba(37, 99, 235, 0.32);
             cursor: pointer;
             white-space: nowrap;
             flex-shrink: 0;
@@ -631,17 +631,17 @@ $page_title = 'Orders - Staff';
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .pill-tab:hover { background: rgba(var(--staff-accent-rgb), 0.08); color: var(--staff-primary-deep); border-color: rgba(var(--staff-accent-rgb), 0.22); }
-        .pill-tab.active { background: var(--staff-content-label-grad); color: var(--staff-primary-deep); border-color: var(--staff-primary); box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.16); }
+        .pill-tab:hover { background: rgba(37, 99, 235, 0.06); color: #1d4ed8; border-color: rgba(37, 99, 235, 0.48); }
+        .pill-tab.active { background: #ffffff; color: #1d4ed8; border-color: #2563eb; box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12); }
         .tab-count { 
-            background: #e7f3f0; 
-            color: #035f5f; 
+            background: rgba(37, 99, 235, 0.12); 
+            color: #1d4ed8; 
             font-size: 10px; 
             padding: 2px 7px; 
             border-radius: 9999px; 
             font-weight: 700;
         }
-        .pill-tab.active .tab-count { background: var(--staff-primary); color: white; }
+        .pill-tab.active .tab-count { background: #2563eb; color: white; }
 
         @media (max-width: 768px) {
             .toolbar-group--tabs {
