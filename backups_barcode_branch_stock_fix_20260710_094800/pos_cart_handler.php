@@ -9,7 +9,6 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
-require_once __DIR__ . '/../../includes/product_option_stock.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -58,20 +57,6 @@ function pos_cart_branch_id(): int
     }
     return $branchId;
 }
-function pos_cart_effective_product_stock(int $productId, int $branchId): int
-{
-    if ($productId <= 0) {
-        return 0;
-    }
-
-    $optionStock = $branchId > 0 ? printflow_product_option_stock_total($productId, $branchId) : null;
-    if ($optionStock !== null) {
-        return (int)($optionStock['total_stock'] ?? 0);
-    }
-
-    [$effectiveStock] = printflow_product_effective_stock($productId, $branchId);
-    return (int)$effectiveStock;
-}
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 if (!is_array($data)) {
@@ -113,7 +98,8 @@ try {
                 if (empty($product)) {
                     throw new Exception('Product not found.');
                 }
-                $stock = pos_cart_effective_product_stock($product_id, $pos_branch_id);
+                [$effectiveStock] = printflow_product_effective_stock($product_id, $pos_branch_id);
+                $stock = (int)$effectiveStock;
                 if ($stock <= 0) {
                     throw new Exception('Out of stock.');
                 }
@@ -178,7 +164,8 @@ try {
                 $item['is_service'] = $isServiceItem;
                 if (!$isServiceItem) {
                     $pos_branch_id = pos_cart_branch_id();
-                    $item['stock'] = pos_cart_effective_product_stock((int)$item['product_id'], $pos_branch_id);
+                    [$latestStock] = printflow_product_effective_stock((int)$item['product_id'], $pos_branch_id);
+                    $item['stock'] = (int)$latestStock;
                 } else {
                     $item['stock'] = null;
                 }
@@ -273,7 +260,8 @@ try {
             $cartItem['stock'] = null;
             continue;
         }
-        $cartItem['stock'] = pos_cart_effective_product_stock((int)($cartItem['product_id'] ?? 0), $pos_branch_id);
+        [$latestStock] = printflow_product_effective_stock((int)($cartItem['product_id'] ?? 0), $pos_branch_id);
+        $cartItem['stock'] = (int)$latestStock;
     }
     unset($cartItem);
 

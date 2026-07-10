@@ -7,7 +7,6 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
-require_once __DIR__ . '/../../includes/product_option_stock.php';
 
 if (!has_role(['Admin', 'Staff'])) {
     header('Content-Type: application/json');
@@ -97,17 +96,6 @@ try {
     }
 
     $product = $rows[0];
-    $optionStock = $staffBranch > 0 ? printflow_product_option_stock_total((int)$product['product_id'], $staffBranch) : null;
-    if ($optionStock !== null) {
-        $product['stock_quantity'] = (int)$optionStock['total_stock'];
-        $product['low_stock_level'] = (int)$optionStock['total_low_stock'];
-        $product['has_variant_stock'] = true;
-        $product['variant_stock_field_key'] = $optionStock['field_key'];
-        $product['variant_stock_field_label'] = $optionStock['field_label'];
-        $product['variant_stock_options'] = $optionStock['options'];
-    } else {
-        $product['has_variant_stock'] = false;
-    }
     $status = (string)($product['status'] ?? '');
     $category = (string)($product['category'] ?? '');
     $availability = 'available';
