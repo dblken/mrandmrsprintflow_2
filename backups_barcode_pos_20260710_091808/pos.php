@@ -275,33 +275,6 @@ try {
             max-width: 400px;
         }
 
-        .pos-barcode-scan {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            flex: 0 1 300px;
-            min-width: 240px;
-        }
-
-        .pos-barcode-scan label {
-            font-size: 12px;
-            font-weight: 700;
-            color: #475569;
-            line-height: 1;
-        }
-
-        .pos-barcode-box {
-            position: relative;
-        }
-
-        .pos-barcode-box i {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94a3b8;
-        }
-
         .pos-search-box i {
             position: absolute;
             left: 14px;
@@ -1360,8 +1333,7 @@ try {
                 padding: 16px !important;
                 gap: 12px !important;
             }
-            .pos-search-box,
-            .pos-barcode-scan {
+            .pos-search-box {
                 max-width: none !important;
                 width: 100%;
             }
@@ -1431,15 +1403,6 @@ try {
                                         order</p>
                                 </div>
 
-                                <div class="pos-barcode-scan" style="max-width:none;width:100%;margin:0 0 18px;">
-                                    <label for="pos-barcode-input-home">Scan Barcode or Enter SKU</label>
-                                    <div class="pos-barcode-box">
-                                        <i class="fas fa-barcode"></i>
-                                        <input type="text" id="pos-barcode-input-home" class="pos-search-input pos-barcode-entry"
-                                            placeholder="Scan or type product SKU, then press Enter" autocomplete="off" inputmode="text">
-                                    </div>
-                                </div>
-
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                                     <!-- Products Button -->
                                     <button onclick="showPOSMode('products')"
@@ -1496,18 +1459,10 @@ try {
                         <!-- Products View -->
                         <div id="products-view" style="display: none; height: 100%; flex-direction: column;">
                             <div class="pos-search-header">
-                                <div class="pos-barcode-scan">
-                                    <label for="pos-barcode-input">Scan Barcode or Enter SKU</label>
-                                    <div class="pos-barcode-box">
-                                        <i class="fas fa-barcode"></i>
-                                        <input type="text" id="pos-barcode-input" class="pos-search-input pos-barcode-entry"
-                                            placeholder="Scan or type product SKU, then press Enter" autocomplete="off" inputmode="text">
-                                    </div>
-                                </div>
                                 <div class="pos-search-box">
                                     <i class="fas fa-search"></i>
                                     <input type="text" id="pos-search" class="pos-search-input"
-                                        placeholder="Search products...">
+                                        placeholder="Search products or scan SKU...">
                                 </div>
                                 <select id="pos-category" class="pos-category-select">
                                     <option value="">All Categories</option>
@@ -1877,7 +1832,6 @@ try {
         let cart = [];
         let currentTotal = 0;
         let currentMode = null; // 'products' or 'services'
-        let barcodeScanBusy = false;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
@@ -2146,7 +2100,6 @@ try {
                 } else {
                     fetchProducts();
                 }
-                setTimeout(focusBarcodeInput, 40);
             } else if (mode === 'services') {
                 document.getElementById('products-view').style.display = 'none';
                 document.getElementById('services-view').style.display = 'flex';
@@ -2163,21 +2116,18 @@ try {
         document.addEventListener('DOMContentLoaded', async () => {
             fetchProducts();
             refreshCart(); // Initialize cart from session
-            const barcodeInputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
             const searchEl = document.getElementById('pos-search');
             const catEl = document.getElementById('pos-category');
-            barcodeInputs.forEach(function(barcodeEl) {
-                barcodeEl.addEventListener('keydown', function(e) {
+            if (searchEl) {
+                searchEl.addEventListener('input', renderProducts);
+                searchEl.addEventListener('keydown', function(e) {
                     if (e.key !== 'Enter') return;
+                    const code = searchEl.value.trim();
+                    if (!code) return;
                     e.preventDefault();
-                    handleBarcodeScan(barcodeEl.value, barcodeEl);
+                    handleBarcodeScan(code);
                 });
-                barcodeEl.addEventListener('paste', function() {
-                    setTimeout(function() { barcodeEl.select(); }, 0);
-                });
-            });
-            setTimeout(focusBarcodeInput, 80);
-            if (searchEl) searchEl.addEventListener('input', renderProducts);
+            }
             if (catEl) catEl.addEventListener('change', renderProducts);
 
             // Check if returning from customizations page with updated price
@@ -2734,65 +2684,48 @@ try {
             });
         }
 
-        function focusBarcodeInput(preferredInput = null) {
-            const inputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
-            const input = preferredInput || inputs.find(function(el) {
-                return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-            }) || inputs[0];
-            if (!input) return;
-            input.focus();
-            input.select();
-        }
-        async function handleBarcodeScan(code, sourceInput = null) {
-            const barcodeEl = sourceInput || document.getElementById('pos-barcode-input') || document.getElementById('pos-barcode-input-home');
+        async function handleBarcodeScan(code) {
+            const searchEl = document.getElementById('pos-search');
             const sku = String(code || '').trim();
-            if (!sku) {
-                focusBarcodeInput(barcodeEl);
-                return;
-            }
-            if (barcodeScanBusy) return;
-            barcodeScanBusy = true;
-            document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = true; });
-            try {
-                let product = products.find(p => String(p.sku || '').toLowerCase() === sku.toLowerCase()) || null;
-                if (!product) {
-                    try {
-                        const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
-                        const data = await res.json();
-                        if (!data.success) {
-                            await showPOSAlert('Scan Error', data.message || 'Could not scan barcode.', 'error');
-                            if (barcodeEl) barcodeEl.select();
-                            return;
-                        }
-                        product = data.product || null;
-                    } catch (e) {
-                        await showPOSAlert('Network Error', 'Network error while scanning barcode.', 'error');
-                        if (barcodeEl) barcodeEl.select();
+            if (!sku) return;
+            let product = products.find(p => String(p.sku || '').toLowerCase() === sku.toLowerCase()) || null;
+            if (!product) {
+                try {
+                    const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
+                    const data = await res.json();
+                    if (!data.success) {
+                        await showPOSAlert('Scan Error', data.message || 'Could not scan barcode.', 'error');
+                        if (searchEl) searchEl.focus();
                         return;
                     }
-                }
-                if (!product) {
-                    await showPOSAlert('Product Not Found', 'Product not found for this barcode/SKU.', 'warning');
-                    if (barcodeEl) barcodeEl.select();
+                    product = data.product || null;
+                } catch (e) {
+                    await showPOSAlert('Network Error', 'Network error while scanning barcode.', 'error');
+                    if (searchEl) searchEl.focus();
                     return;
                 }
-                if ((parseInt(product.stock_quantity, 10) || 0) <= 0) {
-                    await showPOSAlert('Out of Stock', product.product_name + ' is out of stock.', 'warning');
-                    if (barcodeEl) barcodeEl.select();
-                    return;
-                }
-                const result = await addToCart(product);
-                if (result && result.success && barcodeEl) {
-                    barcodeEl.value = '';
+            }
+            if (!product) {
+                await showPOSAlert('Product Not Found', 'No product matches SKU ' + sku + '.', 'warning');
+                if (searchEl) searchEl.focus();
+                return;
+            }
+            if ((parseInt(product.stock_quantity, 10) || 0) <= 0) {
+                await showPOSAlert('Out of Stock', product.product_name + ' is out of stock.', 'warning');
+                if (searchEl) {
+                    searchEl.value = '';
                     renderProducts();
+                    searchEl.focus();
                 }
-            } finally {
-                barcodeScanBusy = false;
-                document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = false; });
-                focusBarcodeInput(barcodeEl);
+                return;
+            }
+            await addToCart(product);
+            if (searchEl) {
+                searchEl.value = '';
+                renderProducts();
+                searchEl.focus();
             }
         }
-
         async function addToCart(p, overridePrice = null, overrideName = null) {
             const name = overrideName || p.product_name;
             const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
@@ -2802,7 +2735,7 @@ try {
                 return;
             }
 
-            return await syncedCartAction('add', {
+            await syncedCartAction('add', {
                 product_id: p.product_id,
                 name: name,
                 price: price,

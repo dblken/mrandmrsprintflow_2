@@ -49,30 +49,8 @@ try {
         $types .= 'i';
     }
 
-    $posCategories = [
-        'Tarpaulin',
-        'T-Shirt',
-        'Stickers',
-        'Glass/Wall',
-        'Transparent Stickers',
-        'Reflectorized',
-        'Sintraboard',
-        'Standees',
-        'Souvenirs',
-        'Apparel',
-        'Signage',
-        'Merchandise',
-        'Decals & Stickers',
-        'T-Shirt Printing',
-    ];
-
     $params[] = $sku;
     $types .= 's';
-    foreach ($posCategories as $category) {
-        $params[] = $category;
-        $types .= 's';
-    }
-    $categoryPlaceholders = implode(',', array_fill(0, count($posCategories), '?'));
 
     $rows = db_query(
         "
@@ -89,8 +67,7 @@ try {
         FROM products p
         {$join}
         WHERE p.status = 'Activated'
-          AND LOWER(p.sku) = LOWER(?)
-          AND p.category IN ({$categoryPlaceholders})
+          AND p.sku = ?
         LIMIT 1
         ",
         $types,
