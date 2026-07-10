@@ -1462,7 +1462,7 @@ try {
                                 <div class="pos-search-box">
                                     <i class="fas fa-search"></i>
                                     <input type="text" id="pos-search" class="pos-search-input"
-                                        placeholder="Search products...">
+                                        placeholder="Search products or scan SKU...">
                                 </div>
                                 <select id="pos-category" class="pos-category-select">
                                     <option value="">All Categories</option>
@@ -2118,7 +2118,16 @@ try {
             refreshCart(); // Initialize cart from session
             const searchEl = document.getElementById('pos-search');
             const catEl = document.getElementById('pos-category');
-            if (searchEl) searchEl.addEventListener('input', renderProducts);
+            if (searchEl) {
+                searchEl.addEventListener('input', renderProducts);
+                searchEl.addEventListener('keydown', function(e) {
+                    if (e.key !== 'Enter') return;
+                    const code = searchEl.value.trim();
+                    if (!code) return;
+                    e.preventDefault();
+                    handleBarcodeScan(code);
+                });
+            }
             if (catEl) catEl.addEventListener('change', renderProducts);
 
             // Check if returning from customizations page with updated price
@@ -2675,6 +2684,48 @@ try {
             });
         }
 
+        async function handleBarcodeScan(code) {
+            const searchEl = document.getElementById('pos-search');
+            const sku = String(code || '').trim();
+            if (!sku) return;
+            let product = products.find(p => String(p.sku || '').toLowerCase() === sku.toLowerCase()) || null;
+            if (!product) {
+                try {
+                    const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
+                    const data = await res.json();
+                    if (!data.success) {
+                        await showPOSAlert('Scan Error', data.message || 'Could not scan barcode.', 'error');
+                        if (searchEl) searchEl.focus();
+                        return;
+                    }
+                    product = data.product || null;
+                } catch (e) {
+                    await showPOSAlert('Network Error', 'Network error while scanning barcode.', 'error');
+                    if (searchEl) searchEl.focus();
+                    return;
+                }
+            }
+            if (!product) {
+                await showPOSAlert('Product Not Found', 'No product matches SKU ' + sku + '.', 'warning');
+                if (searchEl) searchEl.focus();
+                return;
+            }
+            if ((parseInt(product.stock_quantity, 10) || 0) <= 0) {
+                await showPOSAlert('Out of Stock', product.product_name + ' is out of stock.', 'warning');
+                if (searchEl) {
+                    searchEl.value = '';
+                    renderProducts();
+                    searchEl.focus();
+                }
+                return;
+            }
+            await addToCart(product);
+            if (searchEl) {
+                searchEl.value = '';
+                renderProducts();
+                searchEl.focus();
+            }
+        }
         async function addToCart(p, overridePrice = null, overrideName = null) {
             const name = overrideName || p.product_name;
             const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
