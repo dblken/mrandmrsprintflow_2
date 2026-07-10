@@ -68,6 +68,11 @@ try {
 
     $params[] = $sku;
     $types .= 's';
+    foreach ($posCategories as $category) {
+        $params[] = $category;
+        $types .= 's';
+    }
+    $categoryPlaceholders = implode(',', array_fill(0, count($posCategories), '?'));
 
     $rows = db_query(
         "
@@ -78,43 +83,30 @@ try {
             p.category,
             p.price,
             p.product_type,
-            p.status,
             ({$stockSel}) as stock_quantity,
             ({$lowSel}) as low_stock_level,
             p.product_image
         FROM products p
         {$join}
-        WHERE LOWER(p.sku) = LOWER(?)
+        WHERE p.status = 'Activated'
+          AND LOWER(p.sku) = LOWER(?)
+          AND p.category IN ({$categoryPlaceholders})
         LIMIT 1
         ",
         $types,
         $params
     );
+
     if (empty($rows)) {
         echo json_encode(['success' => true, 'product' => null]);
         exit;
     }
 
     $product = $rows[0];
-    $status = (string)($product['status'] ?? '');
-    $category = (string)($product['category'] ?? '');
-    $availability = 'available';
-    if (strcasecmp($status, 'Archived') === 0) {
-        $availability = 'archived';
-    } elseif (strcasecmp($status, 'Activated') !== 0) {
-        $availability = 'inactive';
-    } elseif (!in_array($category, $posCategories, true)) {
-        $availability = 'pos_unavailable';
-    }
-
     $product['stock_status'] = get_stock_status($product['stock_quantity'], $product['low_stock_level']);
     $product['quantity'] = (int)($product['stock_quantity'] ?? 0);
 
-    echo json_encode([
-        'success' => true,
-        'availability' => $availability,
-        'product' => $product,
-    ]);
+    echo json_encode(['success' => true, 'product' => $product]);
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
 }

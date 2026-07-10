@@ -959,44 +959,6 @@ try {
             transition: all 0.2s;
         }
 
-        #pos-scan-toast-container {
-            position: fixed;
-            top: 18px;
-            right: 18px;
-            z-index: 10050;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            pointer-events: none;
-            max-width: min(380px, calc(100vw - 32px));
-        }
-
-        .pos-scan-toast {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-left: 4px solid var(--staff-primary);
-            border-radius: 10px;
-            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
-            padding: 12px 14px;
-            display: flex;
-            gap: 10px;
-            align-items: flex-start;
-            transform: translateX(16px);
-            opacity: 0;
-            transition: opacity .18s ease, transform .18s ease;
-            pointer-events: auto;
-        }
-
-        .pos-scan-toast.show { opacity: 1; transform: translateX(0); }
-        .pos-scan-toast.warning { border-left-color: #f59e0b; }
-        .pos-scan-toast.error { border-left-color: #ef4444; }
-        .pos-scan-toast.success { border-left-color: #10b981; }
-        .pos-scan-toast-icon { width: 30px; height: 30px; border-radius: 999px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-        .pos-scan-toast.warning .pos-scan-toast-icon { background:#fef3c7; color:#f59e0b; }
-        .pos-scan-toast.error .pos-scan-toast-icon { background:#fee2e2; color:#ef4444; }
-        .pos-scan-toast.success .pos-scan-toast-icon { background:#dcfce7; color:#10b981; }
-        .pos-scan-toast-title { font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
-        .pos-scan-toast-message { font-size: 12px; color: #475569; line-height: 1.35; }
         /* Receipt Modal */
         #receipt-modal-overlay {
             display: none;
@@ -1773,9 +1735,6 @@ try {
             </div>
         </div>
     </div>
-    <div id="pos-scan-toast-container" aria-live="polite" aria-atomic="true"></div>
-
-
 
     <!-- Receipt Modal Overlay -->
     <div id="receipt-modal-overlay">
@@ -2249,7 +2208,7 @@ try {
             }
         });
 
-        async function syncedCartAction(action, payload = {}, options = {}) {
+        async function syncedCartAction(action, payload = {}) {
             console.log('syncedCartAction:', action, payload);
             try {
                 const response = await fetch(staffUrl('staff/api/pos_cart_handler.php'), {
@@ -2266,12 +2225,12 @@ try {
                     return { success: true };
                 } else {
                     console.error('syncedCartAction Error:', data.message);
-                    if (!options.silentErrors) await showPOSAlert('Error', data.message || 'Action failed', 'error');
+                    await showPOSAlert('Error', data.message || 'Action failed', 'error');
                     return { success: false, message: data.message };
                 }
             } catch (e) {
                 console.error('Cart Action Error:', e);
-                if (!options.silentErrors) await showPOSAlert('Network Error', 'Network error while updating cart.', 'error');
+                await showPOSAlert('Network Error', 'Network error while updating cart.', 'error');
                 return { success: false };
             }
         }
@@ -2784,119 +2743,57 @@ try {
             input.focus();
             input.select();
         }
-
-        function clearBarcodeInputs() {
-            document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.value = ''; });
-        }
-
-        function showPOSScanNotice(title, message, type = 'warning') {
-            const container = document.getElementById('pos-scan-toast-container');
-            if (!container) return;
-            const toast = document.createElement('div');
-            const icon = type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle');
-            toast.className = 'pos-scan-toast ' + type;
-            toast.innerHTML = '<div class="pos-scan-toast-icon"><i class="fas ' + icon + '"></i></div>'
-                + '<div><div class="pos-scan-toast-title"></div><div class="pos-scan-toast-message"></div></div>';
-            toast.querySelector('.pos-scan-toast-title').textContent = title;
-            toast.querySelector('.pos-scan-toast-message').innerHTML = String(message || '').replace(/\n/g, '<br>');
-            container.appendChild(toast);
-            requestAnimationFrame(function() { toast.classList.add('show'); });
-            setTimeout(function() {
-                toast.classList.remove('show');
-                setTimeout(function() { toast.remove(); }, 220);
-            }, type === 'success' ? 1800 : 3200);
-        }
-
-        function scannedCartQuantity(product) {
-            const productId = String(product && product.product_id != null ? product.product_id : '');
-            if (!productId) return 0;
-            return cart.reduce(function(total, item) {
-                if (String(item.product_id) !== productId || item.is_service) return total;
-                return total + (parseInt(item.qty, 10) || 0);
-            }, 0);
-        }
-
-        function finishBarcodeScan(input) {
-            clearBarcodeInputs();
-            focusBarcodeInput(input);
-        }
-
         async function handleBarcodeScan(code, sourceInput = null) {
             const barcodeEl = sourceInput || document.getElementById('pos-barcode-input') || document.getElementById('pos-barcode-input-home');
             const sku = String(code || '').trim();
             if (!sku) {
-                finishBarcodeScan(barcodeEl);
+                focusBarcodeInput(barcodeEl);
                 return;
             }
             if (barcodeScanBusy) return;
             barcodeScanBusy = true;
             document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = true; });
             try {
-                let product = null;
-                let availability = null;
-                try {
-                    const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
-                    const data = await res.json();
-                    if (!data.success) {
-                        showPOSScanNotice('Scan Error', data.message || 'Could not scan barcode.', 'error');
+                let product = products.find(p => String(p.sku || '').toLowerCase() === sku.toLowerCase()) || null;
+                if (!product) {
+                    try {
+                        const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
+                        const data = await res.json();
+                        if (!data.success) {
+                            await showPOSAlert('Scan Error', data.message || 'Could not scan barcode.', 'error');
+                            if (barcodeEl) barcodeEl.select();
+                            return;
+                        }
+                        product = data.product || null;
+                    } catch (e) {
+                        await showPOSAlert('Network Error', 'Network error while scanning barcode.', 'error');
+                        if (barcodeEl) barcodeEl.select();
                         return;
                     }
-                    product = data.product || null;
-                    availability = data.availability || (product ? 'available' : null);
-                    if (product && availability === 'available') {
-                        const existingIndex = products.findIndex(p => String(p.product_id) === String(product.product_id));
-                        if (existingIndex >= 0) products[existingIndex] = product;
-                        else products.push(product);
-                    }
-                } catch (e) {
-                    showPOSScanNotice('Network Error', 'Network error while scanning barcode.', 'error');
-                    return;
                 }
                 if (!product) {
-                    showPOSScanNotice('Product Not Found', 'No product matches the scanned barcode or SKU.', 'warning');
+                    await showPOSAlert('Product Not Found', 'Product not found for this barcode/SKU.', 'warning');
+                    if (barcodeEl) barcodeEl.select();
                     return;
                 }
-                if (availability === 'archived' || String(product.status || '').toLowerCase() === 'archived') {
-                    showPOSScanNotice('Product Unavailable', 'This product has been archived and cannot be sold.', 'warning');
+                if ((parseInt(product.stock_quantity, 10) || 0) <= 0) {
+                    await showPOSAlert('Out of Stock', product.product_name + ' is out of stock.', 'warning');
+                    if (barcodeEl) barcodeEl.select();
                     return;
                 }
-                if (availability === 'inactive' || String(product.status || '').toLowerCase() === 'deactivated') {
-                    showPOSScanNotice('Product Inactive', 'This product is currently inactive and cannot be sold.', 'warning');
-                    return;
-                }
-                if (availability === 'pos_unavailable') {
-                    showPOSScanNotice('Product Unavailable', 'This product is not available for POS sale.', 'warning');
-                    return;
-                }
-
-                const stock = parseInt(product.stock_quantity, 10) || 0;
-                if (stock <= 0) {
-                    showPOSScanNotice('Out of Stock', 'Product: ' + (product.product_name || 'Product') + '\nSKU: ' + (product.sku || sku) + '\nThis product is currently out of stock and cannot be added to the cart.', 'warning');
-                    return;
-                }
-                if (scannedCartQuantity(product) >= stock) {
-                    showPOSScanNotice('Insufficient Stock', 'Only ' + stock + ' item(s) are currently available.', 'warning');
-                    return;
-                }
-
-                const result = await addToCart(product, null, null, { silentErrors: true });
-                if (result && result.success) {
-                    showPOSScanNotice('Added to Cart', (product.product_name || 'Product') + ' was added to the cart.', 'success');
+                const result = await addToCart(product);
+                if (result && result.success && barcodeEl) {
+                    barcodeEl.value = '';
                     renderProducts();
-                } else if (result && result.message && result.message.toLowerCase().includes('stock')) {
-                    showPOSScanNotice('Insufficient Stock', 'Only ' + stock + ' item(s) are currently available.', 'warning');
-                } else if (result && result.message) {
-                    showPOSScanNotice('Scan Error', result.message, 'error');
-                } else if (result && result.success === false) {
-                    showPOSScanNotice('Scan Error', 'Could not add this product to the cart.', 'error');
                 }
             } finally {
                 barcodeScanBusy = false;
                 document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = false; });
-                finishBarcodeScan(barcodeEl);
+                focusBarcodeInput(barcodeEl);
             }
         }
-        async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
+
+        async function addToCart(p, overridePrice = null, overrideName = null) {
             const name = overrideName || p.product_name;
             const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
 
@@ -2911,7 +2808,7 @@ try {
                 price: price,
                 qty: 1,
                 is_service: false
-            }, options);
+            });
         }
 
         let pendingCustomProduct = null;
