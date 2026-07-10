@@ -2883,8 +2883,6 @@ try {
                 if (result && result.success) {
                     showPOSScanNotice('Added to Cart', (product.product_name || 'Product') + ' was added to the cart.', 'success');
                     renderProducts();
-                } else if (result && result.message && result.message.toLowerCase().includes('out of stock')) {
-                    showPOSScanNotice('Out of Stock', 'Product: ' + (product.product_name || 'Product') + '\nSKU: ' + (product.sku || sku) + '\nThis product is currently out of stock and cannot be added to the cart.', 'warning');
                 } else if (result && result.message && result.message.toLowerCase().includes('stock')) {
                     showPOSScanNotice('Insufficient Stock', 'Only ' + stock + ' item(s) are currently available.', 'warning');
                 } else if (result && result.message) {
