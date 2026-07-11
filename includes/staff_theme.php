@@ -59,56 +59,56 @@
     }
 
     html.printflow-staff.printflow-staff-pos {
-        --accent-color: #2563eb;
-        --staff-primary: #2563eb;
-        --staff-soft: #bfdbfe;
-        --staff-accent-rgb: 37, 99, 235;
-        --staff-primary-strong: #1d4ed8;
+        --accent-color: #3b82c4;
+        --staff-primary: #3b82c4;
+        --staff-soft: #d9e9fb;
+        --staff-accent-rgb: 59, 130, 196;
+        --staff-primary-strong: #2f6fae;
         --staff-primary-deep: #1e3a8a;
-        --staff-content-accent-grad: linear-gradient(90deg, #1e40af, #2563eb, #93c5fd);
-        --staff-content-label-grad: linear-gradient(90deg, #1e3a8a, #2563eb);
-        --staff-toolbar-hover-bg: #eff6ff;
-        --staff-toolbar-active-bg: #dbeafe;
-        --staff-sort-active-bg: rgba(37, 99, 235, 0.12);
-        --staff-sort-active-text: #1d4ed8;
-        --staff-service-count-bg: #dbeafe;
-        --staff-loading-bar: linear-gradient(to right, transparent, #2563eb, transparent);
-        --staff-action-pill-bg: rgba(37, 99, 235, 0.12);
-        --staff-action-pill-text: #1d4ed8;
-        --staff-action-secondary-bg: rgba(59, 130, 246, 0.12);
-        --staff-action-secondary-text: #2563eb;
-        --staff-filter-badge-bg: #2563eb;
-        --staff-pos-button-bg: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
-        --staff-pos-button-shadow: rgba(37, 99, 235, 0.28);
-        --staff-chart-line: #2563eb;
-        --staff-chart-fill-start: rgba(37, 99, 235, 0.22);
-        --staff-chart-fill-end: rgba(37, 99, 235, 0.05);
+        --staff-content-accent-grad: linear-gradient(90deg, #1e3a8a, #3b82c4, #c7dcf7);
+        --staff-content-label-grad: linear-gradient(90deg, #1e3a8a, #3b82c4);
+        --staff-toolbar-hover-bg: #f6f9fd;
+        --staff-toolbar-active-bg: #edf4fc;
+        --staff-sort-active-bg: rgba(59, 130, 196, 0.12);
+        --staff-sort-active-text: #2f6fae;
+        --staff-service-count-bg: #e8f1fb;
+        --staff-loading-bar: linear-gradient(to right, transparent, #3b82c4, transparent);
+        --staff-action-pill-bg: rgba(59, 130, 196, 0.12);
+        --staff-action-pill-text: #2f6fae;
+        --staff-action-secondary-bg: rgba(30, 58, 138, 0.1);
+        --staff-action-secondary-text: #1e3a8a;
+        --staff-filter-badge-bg: #3b82c4;
+        --staff-pos-button-bg: linear-gradient(135deg, #3b82c4 0%, #1e3a8a 100%);
+        --staff-pos-button-shadow: rgba(30, 58, 138, 0.18);
+        --staff-chart-line: #3b82c4;
+        --staff-chart-fill-start: rgba(59, 130, 196, 0.18);
+        --staff-chart-fill-end: rgba(59, 130, 196, 0.04);
         --staff-chart-tooltip-bg: #1e3a8a;
-        --staff-pagination-active-bg: #2563eb;
-        --staff-pagination-active-border: #2563eb;
-        --staff-sidebar-bg: linear-gradient(180deg, #172554 0%, #1e3a8a 26%, #1d4ed8 65%, #2563eb 100%);
-        --staff-sidebar-border: rgba(147, 197, 253, 0.28);
-        --staff-sidebar-shadow: rgba(30, 64, 175, 0.22);
-        --staff-sidebar-header-border: rgba(191, 219, 254, 0.24);
-        --staff-sidebar-logo-bg: linear-gradient(135deg, #1d4ed8, #60a5fa);
-        --staff-sidebar-logo-border: rgba(191, 219, 254, 0.42);
-        --staff-sidebar-button-border: rgba(147, 197, 253, 0.34);
+        --staff-pagination-active-bg: #3b82c4;
+        --staff-pagination-active-border: #3b82c4;
+        --staff-sidebar-bg: linear-gradient(180deg, #10264f 0%, #18376c 32%, #234d8b 72%, #2e5f9e 100%);
+        --staff-sidebar-border: rgba(191, 219, 254, 0.18);
+        --staff-sidebar-shadow: rgba(15, 23, 42, 0.18);
+        --staff-sidebar-header-border: rgba(191, 219, 254, 0.16);
+        --staff-sidebar-logo-bg: linear-gradient(135deg, #244a86, #4f86c6);
+        --staff-sidebar-logo-border: rgba(219, 234, 254, 0.3);
+        --staff-sidebar-button-border: rgba(191, 219, 254, 0.24);
         --staff-sidebar-button-text: #dbeafe;
-        --staff-sidebar-button-hover-border: rgba(219, 234, 254, 0.58);
-        --staff-sidebar-mobile-bg: linear-gradient(135deg, #1e3a8a, #3b82f6);
-        --staff-sidebar-mobile-hover-bg: linear-gradient(135deg, #2563eb, #60a5fa);
-        --staff-sidebar-section-title: rgba(219, 234, 254, 0.72);
-        --staff-sidebar-nav-text: rgba(239, 246, 255, 0.94);
+        --staff-sidebar-button-hover-border: rgba(219, 234, 254, 0.42);
+        --staff-sidebar-mobile-bg: linear-gradient(135deg, #18376c, #3b82c4);
+        --staff-sidebar-mobile-hover-bg: linear-gradient(135deg, #234d8b, #5b96cf);
+        --staff-sidebar-section-title: rgba(219, 234, 254, 0.64);
+        --staff-sidebar-nav-text: rgba(241, 245, 249, 0.9);
         --staff-sidebar-nav-hover-text: #ffffff;
-        --staff-sidebar-active-bg: linear-gradient(135deg, #fff7ed 0%, #ffedd5 48%, #fed7aa 100%);
-        --staff-sidebar-active-text: #9a3412;
-        --staff-sidebar-active-hover-bg: linear-gradient(135deg, #fffaf3 0%, #ffefdc 50%, #fdba74 100%);
-        --staff-sidebar-footer-border: rgba(191, 219, 254, 0.24);
-        --staff-sidebar-avatar-bg: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 55%, #93c5fd 100%);
-        --staff-sidebar-avatar-border: rgba(219, 234, 254, 0.52);
-        --staff-sidebar-scrollbar: rgba(191, 219, 254, 0.38);
-        --staff-sidebar-scrollbar-thumb: rgba(191, 219, 254, 0.3);
-        --staff-sidebar-scrollbar-thumb-hover: rgba(219, 234, 254, 0.48);
+        --staff-sidebar-active-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(233, 242, 253, 0.94) 52%, rgba(215, 228, 246, 0.96) 100%);
+        --staff-sidebar-active-text: #16325f;
+        --staff-sidebar-active-hover-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(240, 246, 255, 0.98) 55%, rgba(224, 235, 250, 1) 100%);
+        --staff-sidebar-footer-border: rgba(191, 219, 254, 0.18);
+        --staff-sidebar-avatar-bg: linear-gradient(135deg, #21447e 0%, #3b82c4 55%, #c7dcf7 100%);
+        --staff-sidebar-avatar-border: rgba(219, 234, 254, 0.42);
+        --staff-sidebar-scrollbar: rgba(219, 234, 254, 0.28);
+        --staff-sidebar-scrollbar-thumb: rgba(219, 234, 254, 0.24);
+        --staff-sidebar-scrollbar-thumb-hover: rgba(219, 234, 254, 0.4);
     }
 
     html.printflow-staff.printflow-staff-online {
@@ -190,7 +190,7 @@
     html.printflow-staff .nav-item.active {
         background: var(--staff-sidebar-active-bg);
         color: var(--staff-sidebar-active-text);
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.72);
     }
 
     html.printflow-staff .nav-item.active .nav-icon {
@@ -648,10 +648,10 @@
     }
 
     html.printflow-staff.printflow-staff-pos .pill-tab.active {
-        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 48%, #bfdbfe 100%) !important;
+        background: linear-gradient(135deg, #f8fbff 0%, #edf4fc 52%, #dbe9f8 100%) !important;
         border-color: var(--staff-primary) !important;
         color: var(--staff-primary-deep) !important;
-        box-shadow: 0 6px 18px rgba(var(--staff-accent-rgb), 0.16) !important;
+        box-shadow: 0 8px 18px rgba(var(--staff-accent-rgb), 0.12) !important;
     }
 
     html.printflow-staff.printflow-staff-pos .pill-tab.active .tab-count,
