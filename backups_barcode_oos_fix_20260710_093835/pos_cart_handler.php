@@ -7,9 +7,7 @@
 
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
-require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
-require_once __DIR__ . '/../../includes/product_option_stock.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -41,37 +39,6 @@ function pos_cart_item_is_service(array $item): bool
     return false;
 }
 
-function pos_cart_branch_id(): int
-{
-    $branchId = 0;
-    if (function_exists('printflow_branch_filter_for_user')) {
-        $branchId = (int)(printflow_branch_filter_for_user() ?? 0);
-    }
-    if ($branchId <= 0) {
-        $selectedBranch = $_SESSION['selected_branch_id'] ?? null;
-        if ($selectedBranch !== null && $selectedBranch !== 'all') {
-            $branchId = (int)$selectedBranch;
-        }
-    }
-    if ($branchId <= 0) {
-        $branchId = (int)($_SESSION['branch_id'] ?? 0);
-    }
-    return $branchId;
-}
-function pos_cart_effective_product_stock(int $productId, int $branchId): int
-{
-    if ($productId <= 0) {
-        return 0;
-    }
-
-    $optionStock = $branchId > 0 ? printflow_product_option_stock_total($productId, $branchId) : null;
-    if ($optionStock !== null) {
-        return (int)($optionStock['total_stock'] ?? 0);
-    }
-
-    [$effectiveStock] = printflow_product_effective_stock($productId, $branchId);
-    return (int)$effectiveStock;
-}
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 if (!is_array($data)) {
@@ -94,7 +61,7 @@ try {
             $customization = $data['customization'] ?? null;
             $custom_json = $customization ? json_encode($customization) : null;
             $is_service = !empty($data['is_service']);
-            $pos_branch_id = pos_cart_branch_id();
+            $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
 
             $product = db_query("SELECT name, price FROM products WHERE product_id = ?", 'i', [$product_id]);
 
@@ -113,10 +80,8 @@ try {
                 if (empty($product)) {
                     throw new Exception('Product not found.');
                 }
-                $stock = pos_cart_effective_product_stock($product_id, $pos_branch_id);
-                if ($stock <= 0) {
-                    throw new Exception('Out of stock.');
-                }
+                [$effectiveStock] = printflow_product_effective_stock($product_id, $pos_branch_id);
+                $stock = (int)$effectiveStock;
             }
 
             // Check if item already exists in cart (match product_id, price, and customization)
@@ -177,8 +142,9 @@ try {
                 $isServiceItem = pos_cart_item_is_service($item);
                 $item['is_service'] = $isServiceItem;
                 if (!$isServiceItem) {
-                    $pos_branch_id = pos_cart_branch_id();
-                    $item['stock'] = pos_cart_effective_product_stock((int)$item['product_id'], $pos_branch_id);
+                    $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+                    [$latestStock] = printflow_product_effective_stock((int)$item['product_id'], $pos_branch_id);
+                    $item['stock'] = (int)$latestStock;
                 } else {
                     $item['stock'] = null;
                 }
@@ -265,7 +231,7 @@ try {
     }
 
     // Normalize legacy cart rows so service items never hit product stock checks.
-    $pos_branch_id = pos_cart_branch_id();
+    $pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
     foreach ($_SESSION['pos_cart'] as &$cartItem) {
         $isServiceItem = pos_cart_item_is_service((array)$cartItem);
         $cartItem['is_service'] = $isServiceItem;
@@ -273,7 +239,8 @@ try {
             $cartItem['stock'] = null;
             continue;
         }
-        $cartItem['stock'] = pos_cart_effective_product_stock((int)($cartItem['product_id'] ?? 0), $pos_branch_id);
+        [$latestStock] = printflow_product_effective_stock((int)($cartItem['product_id'] ?? 0), $pos_branch_id);
+        $cartItem['stock'] = (int)$latestStock;
     }
     unset($cartItem);
 

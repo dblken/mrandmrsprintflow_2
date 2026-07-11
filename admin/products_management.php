@@ -2605,6 +2605,13 @@ if (isset($_GET['ajax'])) {
                         <input type="text" id="modal-sku" name="sku" placeholder="Auto-generated" readonly class="pf-field-auto" tabindex="-1" aria-readonly="true">
                     </div>
                 </div>
+                <div id="modal-barcode-preview-wrap" style="display:none;margin:-2px 0 18px;">
+                    <label class="view-label" style="margin-bottom:8px;">Barcode Preview</label>
+                    <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
+                        <img id="modal-barcode-preview-img" alt="SKU barcode preview" style="max-width:100%;height:72px;object-fit:contain;display:block;margin:0 auto 8px;">
+                        <div id="modal-barcode-preview-text" style="font-size:13px;font-weight:700;color:#111827;letter-spacing:0.04em;word-break:break-word;">-</div>
+                    </div>
+                </div>
 
                 <div class="form-row">
                     <div class="form-group" id="fg-category">
@@ -2765,6 +2772,13 @@ if (isset($_GET['ajax'])) {
                         <label class="view-label" id="view-product-variant-label">Stock by Variant</label>
                         <div id="view-product-variant-stock" class="view-value-box" style="min-height:80px; font-size:13px; line-height:1.5;"></div>
                     </div>
+                    <div id="view-product-barcode-wrap" style="display:none;">
+                        <label class="view-label">Barcode Preview</label>
+                        <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
+                            <img id="view-product-barcode-img" alt="Product SKU barcode" style="max-width:100%;height:72px;object-fit:contain;display:block;margin:0 auto 8px;">
+                            <div id="view-product-barcode-text" style="font-size:13px;font-weight:700;color:#111827;letter-spacing:0.04em;word-break:break-word;">-</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Right Side: Photo & Description -->
@@ -2786,6 +2800,8 @@ if (isset($_GET['ajax'])) {
             <div id="view-product-actions" style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:24px;display:none;gap:10px;flex-wrap:wrap;justify-content:center;">
                 <button type="button" id="view-product-receive-btn" onclick="openProductStockFromView('receive')" class="btn-action teal" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Receive IN</button>
                 <button type="button" id="view-product-issue-btn" onclick="openProductStockFromView('issue')" class="btn-action red" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Issue OUT</button>
+                <button type="button" id="view-product-print-barcode-btn" onclick="printProductBarcode()" class="btn-action blue" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Print Barcode</button>
+                <button type="button" id="view-product-download-barcode-btn" onclick="downloadProductBarcodePng()" class="btn-action gray" style="flex:1;min-width:160px;height:40px;font-size:14px;border-radius:10px;">Download Barcode (PNG)</button>
             </div>
             <div style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:16px;display:flex;justify-content:flex-end;">
                 <button type="button" onclick="closeViewModal()" class="btn-secondary">Close</button>
@@ -3283,6 +3299,99 @@ function pfVisibilityStatusStyle(st) {
     if (st === 'Archived') return 'background:#f3f4f6;color:#374151;';
     return 'background:#fef9c3;color:#854d0e;';
 }
+function pfProductBarcodeUrl(sku) {
+    return 'api_product_barcode.php?sku=' + encodeURIComponent(String(sku || '').trim());
+}
+
+function pfSetBarcodePreview(prefix, sku) {
+    sku = String(sku || '').trim();
+    var wrap = document.getElementById(prefix + '-barcode-preview-wrap') || document.getElementById(prefix + '-barcode-wrap');
+    var img = document.getElementById(prefix + '-barcode-preview-img') || document.getElementById(prefix + '-barcode-img');
+    var txt = document.getElementById(prefix + '-barcode-preview-text') || document.getElementById(prefix + '-barcode-text');
+    if (!wrap || !img || !txt) return;
+    if (!sku) {
+        wrap.style.display = 'none';
+        img.removeAttribute('src');
+        txt.textContent = '-';
+        return;
+    }
+    wrap.style.display = 'block';
+    img.src = pfProductBarcodeUrl(sku);
+    txt.textContent = sku;
+}
+
+function pfRefreshModalBarcodePreview() {
+    var skuEl = document.getElementById('modal-sku');
+    pfSetBarcodePreview('modal', skuEl ? skuEl.value : '');
+}
+
+function pfCurrentBarcodeProduct() {
+    return window._viewProductForStock || null;
+}
+
+function pfEscapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function(ch) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[ch];
+    });
+}
+
+function printProductBarcode() {
+    var product = pfCurrentBarcodeProduct();
+    if (!product || !product.sku) return;
+    var sku = String(product.sku).trim();
+    var name = String(product.name || 'Product').trim();
+    var w = window.open('', '_blank', 'width=420,height=520');
+    if (!w) return;
+    var imgUrl = pfProductBarcodeUrl(sku);
+    w.document.write('<!doctype html><html><head><title>Barcode - ' + pfEscapeHtml(sku) + '</title>'
+        + '<style>body{margin:0;background:#fff;font-family:Arial,sans-serif;color:#111827}.label{width:320px;margin:24px auto;padding:18px 16px;border:1px solid #e5e7eb;text-align:center}.name{font-size:14px;font-weight:700;margin:0 0 10px;line-height:1.25}.barcode{width:100%;height:86px;object-fit:contain;display:block;margin:0 auto 8px}.sku{font-size:15px;font-weight:800;letter-spacing:.06em}@media print{body{margin:0}.label{border:0;margin:0;width:300px;page-break-inside:avoid}}</style>'
+        + '</head><body><div class="label"><p class="name"></p><img class="barcode" alt="Barcode"><div class="sku"></div></div></body></html>');
+    w.document.close();
+    w.document.querySelector('.name').textContent = name;
+    w.document.querySelector('.sku').textContent = sku;
+    var img = w.document.querySelector('.barcode');
+    img.onload = function() { w.focus(); w.print(); };
+    img.src = imgUrl;
+}
+
+async function downloadProductBarcodePng() {
+    var product = pfCurrentBarcodeProduct();
+    if (!product || !product.sku) return;
+    var sku = String(product.sku).trim();
+    var res = await fetch(pfProductBarcodeUrl(sku), { credentials: 'same-origin' });
+    if (!res.ok) return;
+    var svg = await res.text();
+    var blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var img = new Image();
+    img.onload = function() {
+        var scale = 3;
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, img.naturalWidth) * scale;
+        canvas.height = (Math.max(1, img.naturalHeight) + 28) * scale;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, canvas.width, img.naturalHeight * scale);
+        ctx.fillStyle = '#111827';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold ' + (13 * scale) + 'px Arial, sans-serif';
+        ctx.fillText(sku, canvas.width / 2, (img.naturalHeight + 20) * scale);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(function(pngBlob) {
+            if (!pngBlob) return;
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(pngBlob);
+            a.download = 'barcode-' + sku.replace(/[^A-Za-z0-9_-]/g, '-') + '.png';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+        }, 'image/png');
+    };
+    img.src = url;
+}
 
 window.openProductModal = function openProductModal(mode, product) {
     if (window.PF_PRODUCTS_IS_MANAGER && mode === 'create') {
@@ -3302,6 +3411,7 @@ window.openProductModal = function openProductModal(mode, product) {
     var pti = document.getElementById('modal-photo');
     if (pti) pti.disabled = false;
     form.reset();
+    pfRefreshModalBarcodePreview();
     var catSelPfInit = document.getElementById('modal-category');
     if (catSelPfInit) catSelPfInit.querySelectorAll('option[data-pf-legacy-cat]').forEach(function(o) { o.remove(); });
     var title = document.getElementById('modal-title');
@@ -3344,6 +3454,7 @@ window.openProductModal = function openProductModal(mode, product) {
             if (nameEl) nameEl.value = product.name || '';
             var skuEl = document.getElementById('modal-sku');
             if (skuEl) skuEl.value = product.sku || '';
+            pfRefreshModalBarcodePreview();
             var catEl = document.getElementById('modal-category');
             if (catEl) {
                 catEl.querySelectorAll('option[data-pf-legacy-cat]').forEach(function(o) { o.remove(); });
@@ -3393,6 +3504,7 @@ window.openProductModal = function openProductModal(mode, product) {
         }
     } else {
         if (title) title.textContent = 'Add New Product';
+        pfRefreshModalBarcodePreview();
         if (modeInput) { modeInput.name = 'create_product'; modeInput.value = '1'; }
         if (submitBtn) {
             submitBtn.textContent = 'Create Product';
@@ -3565,6 +3677,7 @@ function openViewModal(product) {
     if (nameEl) nameEl.textContent = product.name || '—';
     var skuEl = document.getElementById('view-product-sku');
     if (skuEl) skuEl.textContent = product.sku || '—';
+    pfSetBarcodePreview('view-product', product.sku || '');
     var catEl = document.getElementById('view-product-category');
     if (catEl) catEl.textContent = product.category || '—';
     var priceEl = document.getElementById('view-product-price');
@@ -3784,13 +3897,16 @@ function printflowInitProductsPage() {
                 const data = await response.json();
                 if (data.success && data.sku) {
                     skuInput.value = data.sku;
+                    pfRefreshModalBarcodePreview();
                 } else {
                     // Fallback to prefix + 0001
-                    skuInput.value = prefix + '0001';
+                    skuInput.value = prefix + '-0001';
+                    pfRefreshModalBarcodePreview();
                 }
             } catch (err) {
                 console.error('Failed to generate SKU:', err);
-                skuInput.value = prefix + '0001';
+                skuInput.value = prefix + '-0001';
+                pfRefreshModalBarcodePreview();
             }
         });
     }

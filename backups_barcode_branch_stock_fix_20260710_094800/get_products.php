@@ -8,7 +8,6 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
-require_once __DIR__ . '/../../includes/product_option_stock.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -73,17 +72,6 @@ try {
     );
     $products = [];
     foreach ($rows ?: [] as $p) {
-        $optionStock = $staffBranch > 0 ? printflow_product_option_stock_total((int)$p['product_id'], $staffBranch) : null;
-        if ($optionStock !== null) {
-            $p['stock_quantity'] = (int)$optionStock['total_stock'];
-            $p['low_stock_level'] = (int)$optionStock['total_low_stock'];
-            $p['has_variant_stock'] = true;
-            $p['variant_stock_field_key'] = $optionStock['field_key'];
-            $p['variant_stock_field_label'] = $optionStock['field_label'];
-            $p['variant_stock_options'] = $optionStock['options'];
-        } else {
-            $p['has_variant_stock'] = false;
-        }
         $p['stock_status'] = get_stock_status($p['stock_quantity'], $p['low_stock_level']);
         $p['quantity'] = (int) ($p['stock_quantity'] ?? 0);
         $products[] = $p;

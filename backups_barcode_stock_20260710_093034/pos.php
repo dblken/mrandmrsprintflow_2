@@ -317,10 +317,8 @@ try {
             border-radius: 8px;
             font-size: 14px;
             outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+            transition: border-color 0.2s;
             height: 44px;
-            background: #ffffff;
-            color: #334155;
         }
 
         .pos-search-input:focus {
@@ -349,27 +347,27 @@ try {
             grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 12px;
             align-content: start;
-            background: #f8fafc;
+            background: #f1f5f9;
         }
 
         /* Product Card */
         .pos-card {
             background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
+            border: 1px solid rgba(226, 232, 240, 0.6);
+            border-radius: 10px;
             overflow: hidden;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
             height: auto;
             min-height: 160px;
         }
 
         .pos-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.1);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
             border-color: var(--staff-primary);
         }
 
@@ -483,20 +481,19 @@ try {
         }
 
         .pos-btn-clear {
-            background: #fff7f7;
-            color: #c2414d;
-            border: 1px solid #fecdd3;
+            background: #fee2e2;
+            color: #ef4444;
+            border: none;
             padding: 6px 12px;
-            border-radius: 10px;
+            border-radius: 6px;
             font-size: 12px;
-            font-weight: 700;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background 0.2s;
         }
 
         .pos-btn-clear:hover {
-            background: #ffe4e6;
-            border-color: #fda4af;
+            background: #fca5a5;
         }
 
         .pos-customer-section {
@@ -555,11 +552,11 @@ try {
             display: flex;
             align-items: center;
             padding: 10px 14px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #f1f5f9;
             border-radius: 10px;
             margin-bottom: 8px;
             background: #fff;
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
             transition: all 0.2s;
         }
 
@@ -733,8 +730,7 @@ try {
         }
 
         .pos-tender-input:focus {
-            border-color: var(--staff-primary);
-            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
+            border-color: #06A1A1;
         }
 
 
@@ -742,10 +738,10 @@ try {
         .pos-btn-checkout {
             width: 100%;
             padding: 16px;
-            background: var(--staff-pos-button-bg);
+            background: #4f46e5;
             color: white;
             border: none;
-            border-radius: 12px;
+            border-radius: 8px;
             font-size: 16px;
             font-weight: 700;
             display: flex;
@@ -753,14 +749,13 @@ try {
             align-items: center;
             gap: 8px;
             cursor: pointer;
-            transition: all 0.2s;
-            box-shadow: 0 12px 26px var(--staff-pos-button-shadow);
+            transition: background 0.2s;
         }
 
         .pos-btn-checkout:hover {
-            filter: brightness(0.98);
+            background: #4338ca;
             transform: translateY(-1px);
-            box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
 
         .pos-btn-checkout:disabled {
@@ -964,44 +959,6 @@ try {
             transition: all 0.2s;
         }
 
-        #pos-scan-toast-container {
-            position: fixed;
-            top: 18px;
-            right: 18px;
-            z-index: 10050;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            pointer-events: none;
-            max-width: min(380px, calc(100vw - 32px));
-        }
-
-        .pos-scan-toast {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-left: 4px solid var(--staff-primary);
-            border-radius: 10px;
-            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
-            padding: 12px 14px;
-            display: flex;
-            gap: 10px;
-            align-items: flex-start;
-            transform: translateX(16px);
-            opacity: 0;
-            transition: opacity .18s ease, transform .18s ease;
-            pointer-events: auto;
-        }
-
-        .pos-scan-toast.show { opacity: 1; transform: translateX(0); }
-        .pos-scan-toast.warning { border-left-color: #f59e0b; }
-        .pos-scan-toast.error { border-left-color: #ef4444; }
-        .pos-scan-toast.success { border-left-color: #10b981; }
-        .pos-scan-toast-icon { width: 30px; height: 30px; border-radius: 999px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-        .pos-scan-toast.warning .pos-scan-toast-icon { background:#fef3c7; color:#f59e0b; }
-        .pos-scan-toast.error .pos-scan-toast-icon { background:#fee2e2; color:#ef4444; }
-        .pos-scan-toast.success .pos-scan-toast-icon { background:#dcfce7; color:#10b981; }
-        .pos-scan-toast-title { font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 2px; }
-        .pos-scan-toast-message { font-size: 12px; color: #475569; line-height: 1.35; }
         /* Receipt Modal */
         #receipt-modal-overlay {
             display: none;
@@ -1055,8 +1012,8 @@ try {
         }
 
         .receipt-action-btn--primary {
-            background: var(--staff-pos-button-bg);
-            border-color: var(--staff-primary);
+            background: #0d9488;
+            border-color: #0d9488;
             color: #ffffff;
         }
 
@@ -1486,9 +1443,9 @@ try {
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                                     <!-- Products Button -->
                                     <button onclick="showPOSMode('products')"
-                                        style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 48px 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 12px 26px rgba(15,23,42,0.05);"
-                                        onmouseover="this.style.borderColor='var(--staff-primary)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 18px 34px rgba(15,23,42,0.10)';"
-                                        onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='translateY(0)'; this.style.boxShadow='0 12px 26px rgba(15,23,42,0.05)';">
+                                        style="background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 48px 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 16px;"
+                                        onmouseover="this.style.borderColor='var(--staff-primary)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)';"
+                                        onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='translateY(0)'; this.style.boxShadow='none';">
                                         <div
                                             style="width: 64px; height: 64px; background: var(--staff-pos-button-bg); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"
@@ -1562,7 +1519,7 @@ try {
                                 </select>
                                 <div style="flex: 1;"></div>
                                 <button onclick="backToSelection()" class="pos-category-select"
-                                    style="min-width: auto; padding: 12px 20px; background: #f8fafc; border-color: #e2e8f0; color:#475569; cursor: pointer; width: auto; display: flex; align-items: center; gap: 8px;"
+                                    style="min-width: auto; padding: 12px 20px; background: #f8fafc; border-color: #cbd5e1; cursor: pointer; width: auto; display: flex; align-items: center; gap: 8px;"
                                     title="Back to selection">
                                     <i class="fas fa-arrow-left"></i> <span>Back</span>
                                 </button>
@@ -1581,7 +1538,7 @@ try {
                                         service to the order.</p>
                                 </div>
                                 <button onclick="backToSelection()" class="pos-category-select"
-                                    style="min-width: auto; padding: 12px 16px; background: #f8fafc; border-color: #e2e8f0; color:#475569; cursor: pointer;"
+                                    style="min-width: auto; padding: 12px 16px; background: #f8fafc; border-color: #cbd5e1; cursor: pointer;"
                                     title="Back to selection">
                                     <i class="fas fa-arrow-left"></i> Back
                                 </button>
@@ -1751,9 +1708,9 @@ try {
                     onmouseover="this.style.background='#f1f5f9';this.style.color='#1e293b'"
                     onmouseout="this.style.background='#f8fafc';this.style.color='#64748b'">Cancel</button>
                 <button onclick="confirmCustomization()"
-                    style="padding:12px 28px; border:none; background:var(--staff-pos-button-bg); color:white; border-radius:12px; cursor:pointer; font-weight:700; font-size:14px; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
-                    onmouseover="this.style.transform='translateY(-1px)';this.style.filter='brightness(0.98)'"
-                    onmouseout="this.style.transform='translateY(0)';this.style.filter='none'">Add to
+                    style="padding:12px 28px; border:none; background:#4f46e5; color:white; border-radius:12px; cursor:pointer; font-weight:700; font-size:14px; box-shadow:0 10px 15px -3px rgba(79,70,229,0.3); transition:all 0.2s;"
+                    onmouseover="this.style.transform='translateY(-1px)';this.style.background='#4338ca'"
+                    onmouseout="this.style.transform='translateY(0)';this.style.background='#4f46e5'">Add to
                     Cart</button>
             </div>
         </div>
@@ -1772,15 +1729,12 @@ try {
                     style="display:none; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b;"
                     onmouseover="this.style.background='#f1f5f9'"
                     onmouseout="this.style.background='#f8fafc'">Cancel</button>
-                <button id="pos-alert-confirm" class="pos-alert-btn" style="background:var(--staff-pos-button-bg); color:white; box-shadow:0 10px 24px rgba(15,23,42,0.14);"
-                    onmouseover="this.style.filter='brightness(0.98)'"
-                    onmouseout="this.style.filter='none'">OK</button>
+                <button id="pos-alert-confirm" class="pos-alert-btn" style="background:#4f46e5; color:white;"
+                    onmouseover="this.style.background='#4338ca'"
+                    onmouseout="this.style.background='#4f46e5'">OK</button>
             </div>
         </div>
     </div>
-    <div id="pos-scan-toast-container" aria-live="polite" aria-atomic="true"></div>
-
-
 
     <!-- Receipt Modal Overlay -->
     <div id="receipt-modal-overlay">
@@ -1827,7 +1781,7 @@ try {
                     Name *</label>
                 <input type="text" id="nc-first" placeholder="Enter first name"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
+                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
             <div style="margin-bottom:16px;">
@@ -1836,7 +1790,7 @@ try {
                     Name *</label>
                 <input type="text" id="nc-last" placeholder="Enter last name"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
+                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
             <div style="margin-bottom:16px;">
@@ -1845,7 +1799,7 @@ try {
                     Address *</label>
                 <input type="email" id="nc-email" placeholder="customer@example.com"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
+                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
                 <small style="display:block; margin-top:4px; font-size:11px; color:#64748b;">A password setup link will
                     be sent to this email</small>
@@ -1856,12 +1810,12 @@ try {
                     Number (Optional)</label>
                 <input type="tel" id="nc-phone" placeholder="09XX XXX XXXX"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
+                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
             <button onclick="saveCustomer()" id="nc-save-btn"
-                style="width:100%; background:var(--staff-pos-button-bg); color:white; padding:14px; border:none; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
-                onmouseover="this.style.filter='brightness(0.98)'" onmouseout="this.style.filter='none'">Create
+                style="width:100%; background:#4f46e5; color:white; padding:14px; border:none; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 10px 15px -3px rgba(79,70,229,0.3); transition:all 0.2s;"
+                onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">Create
                 Customer & Send Email</button>
         </div>
     </div>
@@ -1898,9 +1852,9 @@ try {
                     onmouseover="this.style.background='#f1f5f9';this.style.color='#1e293b'"
                     onmouseout="this.style.background='#f8fafc';this.style.color='#64748b'">Cancel</button>
                 <button onclick="confirmPrice()"
-                    style="flex:1; padding:14px; border:none; border-radius:12px; background:var(--staff-pos-button-bg); color:white; font-weight:700; cursor:pointer; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
-                    onmouseover="this.style.filter='brightness(0.98)';this.style.transform='translateY(-1px)'"
-                    onmouseout="this.style.filter='none';this.style.transform='translateY(0)'">Add Item</button>
+                    style="flex:1; padding:14px; border:none; border-radius:12px; background:#4f46e5; color:white; font-weight:700; cursor:pointer; box-shadow:0 10px 15px -3px rgba(79,70,229,0.3); transition:all 0.2s;"
+                    onmouseover="this.style.background='#4338ca';this.style.transform='translateY(-1px)'"
+                    onmouseout="this.style.background='#4f46e5';this.style.transform='translateY(0)'">Add Item</button>
             </div>
         </div>
     </div>
@@ -2254,7 +2208,7 @@ try {
             }
         });
 
-        async function syncedCartAction(action, payload = {}, options = {}) {
+        async function syncedCartAction(action, payload = {}) {
             console.log('syncedCartAction:', action, payload);
             try {
                 const response = await fetch(staffUrl('staff/api/pos_cart_handler.php'), {
@@ -2271,12 +2225,12 @@ try {
                     return { success: true };
                 } else {
                     console.error('syncedCartAction Error:', data.message);
-                    if (!options.silentErrors) await showPOSAlert('Error', data.message || 'Action failed', 'error');
+                    await showPOSAlert('Error', data.message || 'Action failed', 'error');
                     return { success: false, message: data.message };
                 }
             } catch (e) {
                 console.error('Cart Action Error:', e);
-                if (!options.silentErrors) await showPOSAlert('Network Error', 'Network error while updating cart.', 'error');
+                await showPOSAlert('Network Error', 'Network error while updating cart.', 'error');
                 return { success: false };
             }
         }
@@ -2789,121 +2743,57 @@ try {
             input.focus();
             input.select();
         }
-
-        function clearBarcodeInputs() {
-            document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.value = ''; });
-        }
-
-        function showPOSScanNotice(title, message, type = 'warning') {
-            const container = document.getElementById('pos-scan-toast-container');
-            if (!container) return;
-            const toast = document.createElement('div');
-            const icon = type === 'success' ? 'fa-check-circle' : (type === 'error' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle');
-            toast.className = 'pos-scan-toast ' + type;
-            toast.innerHTML = '<div class="pos-scan-toast-icon"><i class="fas ' + icon + '"></i></div>'
-                + '<div><div class="pos-scan-toast-title"></div><div class="pos-scan-toast-message"></div></div>';
-            toast.querySelector('.pos-scan-toast-title').textContent = title;
-            toast.querySelector('.pos-scan-toast-message').innerHTML = String(message || '').replace(/\n/g, '<br>');
-            container.appendChild(toast);
-            requestAnimationFrame(function() { toast.classList.add('show'); });
-            setTimeout(function() {
-                toast.classList.remove('show');
-                setTimeout(function() { toast.remove(); }, 220);
-            }, type === 'success' ? 1800 : 3200);
-        }
-
-        function scannedCartQuantity(product) {
-            const productId = String(product && product.product_id != null ? product.product_id : '');
-            if (!productId) return 0;
-            return cart.reduce(function(total, item) {
-                if (String(item.product_id) !== productId || item.is_service) return total;
-                return total + (parseInt(item.qty, 10) || 0);
-            }, 0);
-        }
-
-        function finishBarcodeScan(input) {
-            clearBarcodeInputs();
-            focusBarcodeInput(input);
-        }
-
         async function handleBarcodeScan(code, sourceInput = null) {
             const barcodeEl = sourceInput || document.getElementById('pos-barcode-input') || document.getElementById('pos-barcode-input-home');
             const sku = String(code || '').trim();
             if (!sku) {
-                finishBarcodeScan(barcodeEl);
+                focusBarcodeInput(barcodeEl);
                 return;
             }
             if (barcodeScanBusy) return;
             barcodeScanBusy = true;
             document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = true; });
             try {
-                let product = null;
-                let availability = null;
-                try {
-                    const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
-                    const data = await res.json();
-                    if (!data.success) {
-                        showPOSScanNotice('Scan Error', data.message || 'Could not scan barcode.', 'error');
+                let product = products.find(p => String(p.sku || '').toLowerCase() === sku.toLowerCase()) || null;
+                if (!product) {
+                    try {
+                        const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
+                        const data = await res.json();
+                        if (!data.success) {
+                            await showPOSAlert('Scan Error', data.message || 'Could not scan barcode.', 'error');
+                            if (barcodeEl) barcodeEl.select();
+                            return;
+                        }
+                        product = data.product || null;
+                    } catch (e) {
+                        await showPOSAlert('Network Error', 'Network error while scanning barcode.', 'error');
+                        if (barcodeEl) barcodeEl.select();
                         return;
                     }
-                    product = data.product || null;
-                    availability = data.availability || (product ? 'available' : null);
-                    if (product && availability === 'available') {
-                        const existingIndex = products.findIndex(p => String(p.product_id) === String(product.product_id));
-                        if (existingIndex >= 0) products[existingIndex] = product;
-                        else products.push(product);
-                    }
-                } catch (e) {
-                    showPOSScanNotice('Network Error', 'Network error while scanning barcode.', 'error');
-                    return;
                 }
                 if (!product) {
-                    showPOSScanNotice('Product Not Found', 'No product matches the scanned barcode or SKU.', 'warning');
+                    await showPOSAlert('Product Not Found', 'Product not found for this barcode/SKU.', 'warning');
+                    if (barcodeEl) barcodeEl.select();
                     return;
                 }
-                if (availability === 'archived' || String(product.status || '').toLowerCase() === 'archived') {
-                    showPOSScanNotice('Product Unavailable', 'This product has been archived and cannot be sold.', 'warning');
+                if ((parseInt(product.stock_quantity, 10) || 0) <= 0) {
+                    await showPOSAlert('Out of Stock', product.product_name + ' is out of stock.', 'warning');
+                    if (barcodeEl) barcodeEl.select();
                     return;
                 }
-                if (availability === 'inactive' || String(product.status || '').toLowerCase() === 'deactivated') {
-                    showPOSScanNotice('Product Inactive', 'This product is currently inactive and cannot be sold.', 'warning');
-                    return;
-                }
-                if (availability === 'pos_unavailable') {
-                    showPOSScanNotice('Product Unavailable', 'This product is not available for POS sale.', 'warning');
-                    return;
-                }
-
-                const stock = parseInt(product.stock_quantity, 10) || 0;
-                if (stock <= 0) {
-                    showPOSScanNotice('Out of Stock', 'Product: ' + (product.product_name || 'Product') + '\nSKU: ' + (product.sku || sku) + '\nThis product is currently out of stock and cannot be added to the cart.', 'warning');
-                    return;
-                }
-                if (scannedCartQuantity(product) >= stock) {
-                    showPOSScanNotice('Insufficient Stock', 'Only ' + stock + ' item(s) are currently available.', 'warning');
-                    return;
-                }
-
-                const result = await addToCart(product, null, null, { silentErrors: true });
-                if (result && result.success) {
-                    showPOSScanNotice('Added to Cart', (product.product_name || 'Product') + ' was added to the cart.', 'success');
+                const result = await addToCart(product);
+                if (result && result.success && barcodeEl) {
+                    barcodeEl.value = '';
                     renderProducts();
-                } else if (result && result.message && result.message.toLowerCase().includes('out of stock')) {
-                    showPOSScanNotice('Out of Stock', 'Product: ' + (product.product_name || 'Product') + '\nSKU: ' + (product.sku || sku) + '\nThis product is currently out of stock and cannot be added to the cart.', 'warning');
-                } else if (result && result.message && result.message.toLowerCase().includes('stock')) {
-                    showPOSScanNotice('Insufficient Stock', 'Only ' + stock + ' item(s) are currently available.', 'warning');
-                } else if (result && result.message) {
-                    showPOSScanNotice('Scan Error', result.message, 'error');
-                } else if (result && result.success === false) {
-                    showPOSScanNotice('Scan Error', 'Could not add this product to the cart.', 'error');
                 }
             } finally {
                 barcodeScanBusy = false;
                 document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = false; });
-                finishBarcodeScan(barcodeEl);
+                focusBarcodeInput(barcodeEl);
             }
         }
-        async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
+
+        async function addToCart(p, overridePrice = null, overrideName = null) {
             const name = overrideName || p.product_name;
             const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
 
@@ -2918,7 +2808,7 @@ try {
                 price: price,
                 qty: 1,
                 is_service: false
-            }, options);
+            });
         }
 
         let pendingCustomProduct = null;
@@ -3429,7 +3319,7 @@ try {
                     }
 
                     const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
-                        ? `<button onclick="redirectToSetPrice(${index})" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;padding:2px 8px;background:#edf4fc;border:1px solid #bfdbfe;border-radius:999px;font-size:12px;font-weight:700;color:#2f6fae;text-decoration:none;cursor:pointer;border:none;" title="Click to set price in Customizations">
+                        ? `<button onclick="redirectToSetPrice(${index})" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;padding:2px 8px;background:#fef3c7;border:1px solid #f59e0b;border-radius:5px;font-size:12px;font-weight:700;color:#d97706;text-decoration:none;cursor:pointer;border:none;" title="Click to set price in Customizations">
                     <i class="fas fa-tag" style="font-size:10px;"></i> Set Price
                   </button>`
                         : `<div class="pos-item-price" style="margin-top:2px;">${formatMoney(item.price)}</div>`;
@@ -3851,15 +3741,15 @@ try {
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'none';
                 confirmBtn.textContent = 'OK';
-                confirmBtn.style.background = 'var(--staff-pos-button-bg)';
+                confirmBtn.style.background = '#4f46e5';
 
                 if (type === 'error') {
                     iconCont.style.background = '#fee2e2';
                     icon.style.color = '#ef4444';
                     icon.className = 'fas fa-exclamation-circle';
                 } else if (type === 'warning') {
-                    iconCont.style.background = '#edf4fc';
-                    icon.style.color = '#2f6fae';
+                    iconCont.style.background = '#fef3c7';
+                    icon.style.color = '#f59e0b';
                     icon.className = 'fas fa-exclamation-triangle';
                 } else if (type === 'success') {
                     iconCont.style.background = '#dcfce7';
@@ -3899,10 +3789,10 @@ try {
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'block';
                 confirmBtn.textContent = 'Confirm';
-                confirmBtn.style.background = 'var(--staff-pos-button-bg)';
+                confirmBtn.style.background = '#06A1A1';
 
                 iconCont.style.background = '#eef2ff';
-                icon.style.color = '#2f6fae';
+                icon.style.color = '#4f46e5';
                 icon.className = 'fas fa-question-circle';
 
                 overlay.style.display = 'flex';
