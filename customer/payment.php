@@ -99,6 +99,72 @@ function pf_payment_service_image_payload(int $service_id, int $order_id = 0): a
     ];
 }
 
+if (!function_exists('pf_payment_default_service_image_url')) {
+    function pf_payment_default_service_image_url(): string {
+        $base_path = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
+        return rtrim((string)$base_path, '/') . '/public/assets/images/services/default.png';
+    }
+}
+
+if (!function_exists('pf_payment_is_default_service_image')) {
+    function pf_payment_is_default_service_image(?string $url): bool {
+        $url = trim((string)$url);
+        if ($url === '') {
+            return true;
+        }
+        return strcasecmp($url, pf_payment_default_service_image_url()) === 0;
+    }
+}
+
+if (!function_exists('pf_payment_resolve_service_preview_image')) {
+    function pf_payment_resolve_service_preview_image(array $order, array $item, array $custom, int $resolvedServiceId = 0): string {
+        $default_img = pf_payment_default_service_image_url();
+
+        if ($resolvedServiceId > 0) {
+            $payload = pf_payment_service_image_payload($resolvedServiceId, (int)($order['order_id'] ?? 0));
+            $image = trim((string)($payload['image'] ?? ''));
+            if ($image !== '' && !pf_payment_is_default_service_image($image)) {
+                return $image;
+            }
+        }
+
+        $nameHints = array_values(array_unique(array_filter([
+            trim((string)($custom['service_type'] ?? '')),
+            trim((string)($item['product_name'] ?? '')),
+            trim((string)($order['first_job_title'] ?? '')),
+            trim((string)($order['first_job_service_type'] ?? '')),
+        ], static fn($value) => trim((string)$value) !== '')));
+
+        foreach ($nameHints as $hint) {
+            if (function_exists('printflow_notification_service_image_from_name')) {
+                $from_name = trim((string)printflow_notification_service_image_from_name((string)$hint));
+                if ($from_name !== '' && !pf_payment_is_default_service_image($from_name)) {
+                    return $from_name;
+                }
+            }
+
+            if (function_exists('get_service_image_url')) {
+                $fallback = trim((string)get_service_image_url((string)$hint));
+                if ($fallback !== '' && !pf_payment_is_default_service_image($fallback)) {
+                    return $fallback;
+                }
+            }
+        }
+
+        if (function_exists('printflow_order_list_thumbnail_url')) {
+            $order_like = $order;
+            $order_like['first_job_title'] = $order['first_job_title'] ?? '';
+            $order_like['first_job_service_type'] = $order['first_job_service_type'] ?? '';
+            $thumb = trim((string)printflow_order_list_thumbnail_url($order_like, (string)($item['product_name'] ?? '')));
+            if ($thumb !== '' && !pf_payment_is_default_service_image($thumb)) {
+                return $thumb;
+            }
+        }
+
+        return '';
+    }
+}
+
 if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
     function printflow_resolve_order_service_catalog_image_url(array $item, string $displayName = ''): string {
         foreach (['service_image', 'catalog_service_image'] as $field) {
@@ -220,12 +286,26 @@ if (!empty($order_result)) {
             if (!empty($serviceMedia['category'])) {
                 $item['category'] = $serviceMedia['category'];
             }
-            if (!empty($serviceMedia['image'])) {
-                $item['service_image'] = $serviceMedia['image'];
-                $item['catalog_service_image'] = $serviceMedia['image'];
+            $servicePreviewImage = trim((string)($serviceMedia['image'] ?? ''));
+            if ($servicePreviewImage === '' || pf_payment_is_default_service_image($servicePreviewImage)) {
+                $servicePreviewImage = pf_payment_resolve_service_preview_image($order, $item, $custom, $resolvedServiceId);
+            }
+            if ($servicePreviewImage !== '') {
+                $item['service_image'] = $servicePreviewImage;
+                $item['catalog_service_image'] = $servicePreviewImage;
             }
 
             // Service lines must not inherit a similarly-numbered product thumbnail.
+            $item['product_image'] = '';
+            $item['customization_data'] = printflow_encode_customization_payload($custom);
+        } elseif ($looksServiceLike) {
+            $item['type'] = 'Service';
+            $item['source_page'] = 'services';
+            $servicePreviewImage = pf_payment_resolve_service_preview_image($order, $item, $custom, 0);
+            if ($servicePreviewImage !== '') {
+                $item['service_image'] = $servicePreviewImage;
+                $item['catalog_service_image'] = $servicePreviewImage;
+            }
             $item['product_image'] = '';
             $item['customization_data'] = printflow_encode_customization_payload($custom);
         }
