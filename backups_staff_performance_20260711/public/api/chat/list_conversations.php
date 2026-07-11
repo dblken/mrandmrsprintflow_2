@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/branch_context.php';
+require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
 
 // Prevent accidental output from breaking JSON
 ob_start();
@@ -22,11 +23,6 @@ $user_id = get_user_id();
 $user_type = get_user_type();
 $q = trim($_GET['q'] ?? '');
 $show_archived = (int)($_GET['archived'] ?? 0);
-
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
-}
-require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
 
 try {
     $params = [];

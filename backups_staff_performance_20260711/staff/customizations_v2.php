@@ -37,13 +37,9 @@ $api_base   = BASE_URL . '/staff/api/customizations_v2.php';
 $branchFilter = function_exists('printflow_branch_filter_for_user')
     ? printflow_branch_filter_for_user()
     : null;
-$staffAccessRole = ($_SESSION['user_type'] ?? '') === 'Staff' && function_exists('printflow_get_staff_access_role')
-    ? printflow_get_staff_access_role()
-    : null;
-$sourceFilter = $staffAccessRole === 'pos' ? 'pos' : ($staffAccessRole === 'online' ? 'online' : null);
 
 $service = new CustomizationService();
-$rows = $service->listOrderSummaries($branchFilter, $sourceFilter, 400);
+$rows = $service->listOrderSummaries($branchFilter, null, 400);
 
 // ---- Aggregate counts for KPI cards & list tabs --------------------------
 $buckets = ['INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0, 'TO_PICKUP' => 0, 'COMPLETED' => 0, 'CANCELLED' => 0];

@@ -72,24 +72,6 @@ class CustomizationRepository
         $hasOrderType   = $this->hasColumn('orders', 'order_type');
         $hasEstimated   = $this->hasColumn('orders', 'estimated_price');
         $hasDesignStat  = $this->hasColumn('orders', 'design_status');
-        $hasReference   = $this->hasColumn('orders', 'reference_id');
-        $hasCustomizations = $this->hasTable('customizations');
-
-        $posConditions = [];
-        if ($hasOrderSource) {
-            $posConditions[] = "LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in', 'pos_merged', 'pos_draft')";
-        }
-        if ($hasCustomizations) {
-            $posConditions[] = "EXISTS (
-                SELECT 1 FROM customizations pos_cz
-                WHERE pos_cz.order_id = o.order_id
-                  AND (
-                      pos_cz.customization_details LIKE '%\"source\":\"POS\"%'
-                      OR pos_cz.customization_details LIKE '%\"source\": \"POS\"%'
-                  )
-            )";
-        }
-        $posExpression = $posConditions !== [] ? '(' . implode(' OR ', $posConditions) . ')' : '(1 = 0)';
 
         $select = [
             'o.order_id',
@@ -104,8 +86,6 @@ class CustomizationRepository
             ($hasOrderSource ? 'o.order_source' : "'customer' AS order_source"),
             ($hasEstimated ? 'o.estimated_price' : 'NULL AS estimated_price'),
             ($hasDesignStat ? 'o.design_status' : 'NULL AS design_status'),
-            ($hasReference ? 'o.reference_id' : 'NULL AS reference_id'),
-            'CASE WHEN ' . $posExpression . ' THEN 1 ELSE 0 END AS pf_is_pos',
             'c.first_name',
             'c.last_name',
             'c.customer_type',
@@ -141,7 +121,7 @@ class CustomizationRepository
         if ($this->hasColumn('order_items', 'customization_data')) {
             $customConditions[] = "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id AND TRIM(COALESCE(oi.customization_data, '')) NOT IN ('', '[]', '{}', 'null'))";
         }
-        if ($hasCustomizations) {
+        if ($this->hasTable('customizations')) {
             $customConditions[] = "EXISTS (SELECT 1 FROM customizations cz WHERE cz.order_id = o.order_id)";
         }
         if ($hasJobOrders) {
@@ -156,7 +136,7 @@ class CustomizationRepository
         // row OR a job_orders row (some legacy/online service flows persist
         // only the latter, with no order_items at all).
         $resolvable = ['EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.order_id)'];
-        if ($hasCustomizations) {
+        if ($this->hasTable('customizations')) {
             $resolvable[] = 'EXISTS (SELECT 1 FROM customizations cz WHERE cz.order_id = o.order_id)';
         }
         if ($hasJobOrders) {
@@ -169,11 +149,6 @@ class CustomizationRepository
             $types .= 'i';
             $params[] = $branchId;
         }
-        if ($sourceFilter === 'pos') {
-            $where[] = $posExpression;
-        } elseif ($sourceFilter === 'online') {
-            $where[] = 'NOT ' . $posExpression;
-        }
 
         $sql = 'SELECT ' . implode(', ', $select) . '
                 FROM orders o
@@ -184,6 +159,13 @@ class CustomizationRepository
                 LIMIT ' . max(1, $limit);
 
         $rows = db_query($sql, $types ?: '', $params ?: []) ?: [];
+
+        if ($sourceFilter !== null && $sourceFilter !== '' && $sourceFilter !== 'all') {
+            $rows = array_values(array_filter($rows, function (array $row) use ($sourceFilter) {
+                $isPos = $this->rowIsPos($row);
+                return $sourceFilter === 'pos' ? $isPos : !$isPos;
+            }));
+        }
 
         return $rows;
     }
@@ -265,36 +247,6 @@ class CustomizationRepository
             'i',
             [$orderId]
         ) ?: [];
-    }
-
-    /**
-     * Fetch list-view order items in one round trip.
-     *
-     * @param array<int,int> $orderIds
-     * @return array<int,array<int,array<string,mixed>>>
-     */
-    public function getOrderItemsForOrders(array $orderIds): array
-    {
-        $ids = array_values(array_unique(array_filter(
-            array_map('intval', $orderIds),
-            static fn(int $id): bool => $id > 0
-        )));
-        if ($ids === []) {
-            return [];
-        }
-
-        $rows = db_query(
-            'SELECT ' . $this->orderItemSelect() . '
-             FROM order_items oi
-             WHERE oi.order_id IN (' . implode(',', $ids) . ')
-             ORDER BY oi.order_id ASC, oi.order_item_id ASC'
-        ) ?: [];
-
-        $grouped = [];
-        foreach ($rows as $row) {
-            $grouped[(int)($row['order_id'] ?? 0)][] = $row;
-        }
-        return $grouped;
     }
 
     /**
@@ -484,9 +436,6 @@ class CustomizationRepository
      */
     public function rowIsPos(array $row): bool
     {
-        if (array_key_exists('pf_is_pos', $row)) {
-            return (bool)$row['pf_is_pos'];
-        }
         $source = strtolower(trim((string)($row['order_source'] ?? '')));
         if (in_array($source, ['pos', 'walk-in', 'pos_merged', 'pos_draft'], true)) {
             return true;

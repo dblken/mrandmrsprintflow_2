@@ -55,19 +55,6 @@ $service = new CustomizationService();
 $branchFilter = function_exists('printflow_branch_filter_for_user')
     ? printflow_branch_filter_for_user()
     : null;
-$staffSourceScope = null;
-if (($_SESSION['user_type'] ?? '') === 'Staff' && function_exists('printflow_get_staff_access_role')) {
-    $staffAccessRole = printflow_get_staff_access_role();
-    if ($staffAccessRole === 'pos' || $staffAccessRole === 'online') {
-        $staffSourceScope = $staffAccessRole;
-    }
-}
-
-if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
-    && session_status() === PHP_SESSION_ACTIVE
-) {
-    session_write_close();
-}
 
 if ($action === 'design') {
     $orderItemId = (int)($_GET['order_item_id'] ?? 0);
@@ -120,9 +107,6 @@ try {
             $source = strtolower(trim((string)($_GET['source'] ?? 'all')));
             if (!in_array($source, ['all', 'online', 'pos'], true)) {
                 $source = 'all';
-            }
-            if ($staffSourceScope !== null) {
-                $source = $staffSourceScope;
             }
             $sourceArg = $source === 'all' ? null : $source;
             $rows = $service->listOrderSummaries($branchFilter, $sourceArg, 250);

@@ -711,7 +711,6 @@ function initTopServicesLiveTable() {
     var refreshUrl = 'reports.php?ajax=top_services&range=<?php echo rawurlencode($range); ?>&status=<?php echo rawurlencode($status_filter); ?>';
 
     function refreshTopServices() {
-        if (document.visibilityState !== 'visible') return;
         mount.classList.add('top-service-refreshing');
         fetch(refreshUrl, {
             headers: {

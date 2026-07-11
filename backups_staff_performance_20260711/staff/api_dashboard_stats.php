@@ -302,10 +302,6 @@ $staffAccessMeta = printflow_get_staff_access_meta();
 $staffRole = (string)($staffAccessMeta['key'] ?? 'online');
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
 
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
-}
-
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
 
 $page = max(1, (int)($_GET['page'] ?? 1));

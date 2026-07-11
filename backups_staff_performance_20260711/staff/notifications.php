@@ -53,9 +53,6 @@ if (isset($_GET['action'])) {
     }
 
     if ($action === 'get_unread_count') {
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_write_close();
-        }
         $rows = db_query(
             "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
              FROM notifications
@@ -136,18 +133,12 @@ if ($page > $total_pages) {
 $offset = ($page - 1) * $per_page;
 $notifications = array_slice($filtered_notifications, $offset, $per_page);
 
-if ($filter === 'all' && $search === '') {
-    // The default page query already contains the complete staff notification set.
-    $all_staff_rows = $all_notifications;
-    $filtered_staff_rows = $filtered_notifications;
-} else {
-    $all_staff_rows = db_query(
-        "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, notification_id DESC",
-        'i',
-        [$staff_id]
-    ) ?: [];
-    $filtered_staff_rows = printflow_filter_notifications_for_user($all_staff_rows, 'Staff', is_int($staffBranchId) ? $staffBranchId : null);
-}
+$all_staff_rows = db_query(
+    "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, notification_id DESC",
+    'i',
+    [$staff_id]
+) ?: [];
+$filtered_staff_rows = printflow_filter_notifications_for_user($all_staff_rows, 'Staff', is_int($staffBranchId) ? $staffBranchId : null);
 $unread_count = 0;
 $latest_notification_id = 0;
 foreach ($filtered_staff_rows as $row) {
@@ -737,18 +728,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
 let autoRefreshInterval;
 function startAutoRefresh() {
-    stopAutoRefresh();
-    if (document.hidden) return;
     autoRefreshInterval = setInterval(checkForNewNotifications, 30000);
 }
 function stopAutoRefresh() {
-    if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
-        autoRefreshInterval = null;
-    }
+    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
 }
 function checkForNewNotifications() {
-    if (document.hidden) return;
     // Silently fetch unread count and refresh when a newer notification exists.
     fetch('?action=get_unread_count', { credentials: 'include' })
         .then(function(r) { return r.ok ? r.json() : null; })
@@ -896,10 +881,7 @@ startAutoRefresh();
 bindNotifRowNavigation();
 document.addEventListener('visibilitychange', function () {
     if (document.hidden) stopAutoRefresh();
-    else {
-        checkForNewNotifications();
-        startAutoRefresh();
-    }
+    else startAutoRefresh();
 });
 </script>
 

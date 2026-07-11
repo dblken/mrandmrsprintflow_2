@@ -172,30 +172,18 @@ class CustomizationService
         $orders = $this->repo->listOrders($branchId, $sourceFilter, $limit);
         $out = [];
 
-        $orderIds = array_values(array_filter(array_map(
-            static fn(array $order): int => (int)($order['order_id'] ?? 0),
-            $orders
-        )));
-        $itemsByOrder = $this->repo->getOrderItemsForOrders($orderIds);
-        $this->preloadStorePayloads($orderIds);
-
         foreach ($orders as $order) {
             $orderId = (int)($order['order_id'] ?? 0);
             if ($orderId <= 0) {
                 continue;
             }
 
-            $items = $itemsByOrder[$orderId] ?? [];
-            if (!$this->itemsHaveMeaningfulCustomization($items)) {
-                // Keep the existing fallback chain for sparse and legacy records.
-                $items = $this->resolveRawItems($orderId);
-            }
+            $items = $this->resolveRawItems($orderId);
             if (empty($items)) {
                 continue;
             }
 
             // Resolve a representative (first) item view for the card.
-            $order['pf_summary_row'] = true;
             $firstView = $this->buildItemView($items[0], $order);
             $itemCount = count($items);
 
@@ -236,38 +224,6 @@ class CustomizationService
         }
 
         return $out;
-    }
-
-    /** @param array<int,int> $orderIds */
-    private function preloadStorePayloads(array $orderIds): void
-    {
-        $missing = array_values(array_filter(array_unique(array_map('intval', $orderIds)), static function (int $orderId): bool {
-            return $orderId > 0 && !array_key_exists($orderId, self::$storePayloadCache);
-        }));
-        if ($missing === []) {
-            return;
-        }
-
-        if (!class_exists('JobOrderService')) {
-            $path = __DIR__ . '/JobOrderService.php';
-            if (is_file($path)) {
-                require_once $path;
-            }
-        }
-        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemsPayloadsBatch')) {
-            return;
-        }
-
-        try {
-            $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($missing, false);
-            foreach ($missing as $orderId) {
-                self::$storePayloadCache[$orderId] = is_array($payloads[$orderId] ?? null)
-                    ? $payloads[$orderId]
-                    : null;
-            }
-        } catch (\Throwable $e) {
-            error_log('CustomizationService::preloadStorePayloads failed: ' . $e->getMessage());
-        }
     }
 
     /**
@@ -645,7 +601,7 @@ class CustomizationService
     public function buildItemView(array $item, array $order): array
     {
         $orderId = (int)($order['order_id'] ?? $item['order_id'] ?? 0);
-        if ($orderId > 0 && empty($order['reference_id']) && empty($order['pf_summary_row'])) {
+        if ($orderId > 0 && empty($order['reference_id'])) {
             $fullOrder = $this->repo->getOrder($orderId);
             if ($fullOrder !== null) {
                 $order = array_merge($order, $fullOrder);

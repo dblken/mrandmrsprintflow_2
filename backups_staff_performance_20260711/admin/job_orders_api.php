@@ -6,8 +6,6 @@
 
 // Prevent any output before JSON
 ob_start();
-$joApiStartedAt = microtime(true);
-$joStaffBranch = null;
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -31,21 +29,6 @@ ob_start();
 header('Content-Type: application/json');
 
 function jo_api_json_response(array $payload, int $statusCode = 200): never {
-    global $joApiStartedAt, $joStaffBranch;
-
-    $durationMs = max(0, (microtime(true) - (float)$joApiStartedAt) * 1000);
-    header('Server-Timing: app;dur=' . number_format($durationMs, 1, '.', ''));
-    header('X-Content-Type-Options: nosniff');
-    if ($durationMs >= 2000) {
-        $action = preg_replace('/[^a-z0-9_\-]/i', '', (string)($_GET['action'] ?? $_POST['action'] ?? 'unknown'));
-        error_log(sprintf(
-            'Slow job_orders_api request action=%s duration_ms=%.1f branch=%s',
-            $action,
-            $durationMs,
-            $joStaffBranch === null ? 'all' : (string)$joStaffBranch
-        ));
-    }
-
     http_response_code($statusCode);
     $json = json_encode(
         $payload,
@@ -249,125 +232,6 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
 }
 
 /**
- * Resolve order sources for list rows in one query instead of one query per row.
- * The single-order helper remains available for detail and mutation actions.
- *
- * @param array<int,array<string,mixed>> $rows
- * @return array<int,string>
- */
-function jo_api_resolve_order_sources_batch(array $rows): array {
-    $sourceMap = [];
-    $orderIds = [];
-
-    foreach ($rows as $row) {
-        $orderId = (int)($row['order_id'] ?? 0);
-        if ($orderId <= 0) {
-            continue;
-        }
-        $orderIds[$orderId] = $orderId;
-        $current = strtolower(trim((string)($row['order_source'] ?? '')));
-        $sourceMap[$orderId] = $current !== '' ? $current : 'customer';
-    }
-
-    if ($orderIds === []) {
-        return $sourceMap;
-    }
-
-    $idList = implode(',', array_map('intval', array_values($orderIds)));
-    $resolvedRows = db_query(
-        "SELECT o.order_id,
-                LOWER(TRIM(COALESCE(o.order_source, ''))) AS db_order_source,
-                LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email,
-                EXISTS(
-                    SELECT 1 FROM customizations cust
-                    WHERE cust.order_id = o.order_id
-                      AND (
-                          cust.customization_details LIKE '%\"source\":\"POS\"%'
-                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
-                      )
-                ) AS has_pos_customization,
-                EXISTS(
-                    SELECT 1 FROM order_items oi
-                    WHERE oi.order_id = o.order_id
-                      AND (
-                          oi.customization_data LIKE '%\"source\":\"POS\"%'
-                          OR oi.customization_data LIKE '%\"source\": \"POS\"%'
-                      )
-                ) AS has_pos_order_item
-         FROM orders o
-         LEFT JOIN customers c ON c.customer_id = o.customer_id
-         WHERE o.order_id IN ({$idList})"
-    ) ?: [];
-
-    $posIdsToPersist = [];
-    foreach ($resolvedRows as $row) {
-        $orderId = (int)($row['order_id'] ?? 0);
-        $dbSource = strtolower(trim((string)($row['db_order_source'] ?? '')));
-        if (in_array($dbSource, ['pos', 'walk-in', 'pos_draft'], true)) {
-            $sourceMap[$orderId] = $dbSource;
-            continue;
-        }
-
-        $isWalkInGuest = strtolower(trim((string)($row['customer_email'] ?? ''))) === 'walkin@pos.local';
-        if ($isWalkInGuest || !empty($row['has_pos_customization']) || !empty($row['has_pos_order_item'])) {
-            $sourceMap[$orderId] = 'pos';
-            $posIdsToPersist[] = $orderId;
-        } else {
-            $sourceMap[$orderId] = $dbSource !== '' ? $dbSource : 'customer';
-        }
-    }
-
-    if ($posIdsToPersist !== []) {
-        $posIdList = implode(',', array_map('intval', array_unique($posIdsToPersist)));
-        db_execute(
-            "UPDATE orders
-             SET order_source = 'pos'
-             WHERE order_id IN ({$posIdList})
-               AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged')"
-        );
-    }
-
-    return $sourceMap;
-}
-
-function jo_api_source_matches(string $source, string $filter): bool {
-    if ($filter === 'all') {
-        return true;
-    }
-    $isPos = in_array(strtolower(trim($source)), ['pos', 'walk-in'], true);
-    return $filter === 'pos' ? $isPos : !$isPos;
-}
-
-/** @return array<int,string> */
-function jo_api_order_codes(array $orderIds): array {
-    $ids = array_values(array_unique(array_filter(array_map('intval', $orderIds), static fn(int $id): bool => $id > 0)));
-    if ($ids === []) {
-        return [];
-    }
-
-    $idList = implode(',', $ids);
-    $rows = db_query(
-        "SELECT o.order_id,
-                GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') AS order_sku
-         FROM orders o
-         LEFT JOIN order_items oi ON oi.order_id = o.order_id
-         LEFT JOIN products p ON p.product_id = oi.product_id
-         WHERE o.order_id IN ({$idList})
-         GROUP BY o.order_id"
-    ) ?: [];
-
-    $codes = [];
-    foreach ($rows as $row) {
-        $orderId = (int)($row['order_id'] ?? 0);
-        $codes[$orderId] = printflow_format_order_code($orderId, trim((string)($row['order_sku'] ?? '')));
-    }
-    foreach ($ids as $orderId) {
-        $codes[$orderId] ??= printflow_format_order_code($orderId, '');
-    }
-    return $codes;
-}
-
-/**
  * Hydrate staff order item responses with raw data directly from order_items.
  * Guarantees customization_data (verbatim DB JSON), a real product/service name,
  * and a working design_open_url, bypassing any processing-pipeline gaps.
@@ -486,24 +350,6 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $serviceOnly = in_array(strtolower((string)($_GET['service_only'] ?? $_POST['service_only'] ?? '')), ['1', 'true', 'yes'], true);
-$summaryOnly = in_array(strtolower((string)($_GET['summary_only'] ?? '')), ['1', 'true', 'yes'], true);
-$listSource = strtolower(trim((string)($_GET['source'] ?? 'all')));
-if (!in_array($listSource, ['all', 'online', 'pos'], true)) {
-    $listSource = 'all';
-}
-if (($_SESSION['user_type'] ?? '') === 'Staff' && function_exists('printflow_get_staff_access_role')) {
-    $staffAccessRole = printflow_get_staff_access_role();
-    if ($staffAccessRole === 'pos' || $staffAccessRole === 'online') {
-        $listSource = $staffAccessRole;
-    }
-}
-
-// Read-only requests do not need to hold PHP's session lock while running SQL.
-if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
-    && session_status() === PHP_SESSION_ACTIVE
-) {
-    session_write_close();
-}
 
 try {
     switch ($action) {
@@ -554,89 +400,72 @@ try {
                 : min(500, max(1, (int)($_GET['per_page'] ?? 250)));
             $offset = ($page - 1) * $per_page;
             
-            $includePagination = isset($_GET['customer_id'])
-                || in_array(strtolower((string)($_GET['include_pagination'] ?? '')), ['1', 'true', 'yes'], true);
-            $total_count = 0;
-            if ($includePagination) {
-                // The Customizations dashboard does not consume this count, so avoid
-                // an extra full COUNT there. Customer/history callers still receive it.
-                $count_sql = preg_replace(
-                    '/^SELECT\s+[\s\S]*?\sFROM\s+job_orders\s+jo\s+/i',
-                    'SELECT COUNT(*) as total FROM job_orders jo ',
-                    $sql,
-                    1
-                );
-                $total_count = db_query($count_sql, $types ?: null, $params ?: null)[0]['total'] ?? 0;
-            }
+            // Get total count (match main FROM job_orders only, not subqueries in SELECT)
+            $count_sql = preg_replace(
+                '/^SELECT\s+[\s\S]*?\sFROM\s+job_orders\s+jo\s+/i',
+                'SELECT COUNT(*) as total FROM job_orders jo ',
+                $sql,
+                1
+            );
+            $total_count = db_query($count_sql, $types ?: null, $params ?: null)[0]['total'] ?? 0;
             
             $sql .= " ORDER BY jo.priority = 'HIGH' DESC, jo.due_date ASC, jo.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $per_page; $params[] = $offset; $types .= 'ii';
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
-
-            $orderSourceMap = jo_api_resolve_order_sources_batch($orders);
-            if ($listSource !== 'all') {
-                $orders = array_values(array_filter(
-                    $orders,
-                    static function (array $row) use ($orderSourceMap, $listSource): bool {
-                        $orderId = (int)($row['order_id'] ?? 0);
-                        $source = $orderSourceMap[$orderId] ?? (string)($row['order_source'] ?? 'customer');
-                        return jo_api_source_matches($source, $listSource);
-                    }
-                ));
-            }
             
             if (!empty($orders)) {
                 $orderIds = array_column($orders, 'id');
                 $ids_str = implode(',', array_map('intval', $orderIds));
 
+                // 1. Batch Fetch ALL Materials for these jobs
+                $materials = db_query("SELECT m.*, i.track_by_roll FROM job_order_materials m JOIN inv_items i ON m.item_id = i.id WHERE m.job_order_id IN ($ids_str)") ?: [];
                 $materialsByJob = [];
-                $inksByJob = [];
-                $stockMap = [];
                 $item_ids_needed = [];
+                foreach ($materials as $m) {
+                    $materialsByJob[$m['job_order_id']][] = $m;
+                    $item_ids_needed[] = $m['item_id'];
+                    $meta = json_decode($m['metadata'] ?? '{}', true);
+                    if (!empty($meta['lamination_item_id'])) $item_ids_needed[] = $meta['lamination_item_id'];
+                }
 
-                if (!$summaryOnly) {
-                    // Inventory readiness is needed in details/actions, not in the list table.
-                    $materials = db_query("SELECT m.*, i.track_by_roll FROM job_order_materials m JOIN inv_items i ON m.item_id = i.id WHERE m.job_order_id IN ($ids_str)") ?: [];
-                    foreach ($materials as $m) {
-                        $materialsByJob[$m['job_order_id']][] = $m;
-                        $item_ids_needed[] = $m['item_id'];
-                        $meta = json_decode($m['metadata'] ?? '{}', true);
-                        if (!empty($meta['lamination_item_id'])) $item_ids_needed[] = $meta['lamination_item_id'];
+                // 2. Batch Fetch ALL Inks for these jobs
+                $inks = db_query("SELECT * FROM job_order_ink_usage WHERE job_order_id IN ($ids_str)") ?: [];
+                $inksByJob = [];
+                foreach ($inks as $ink) {
+                    $inksByJob[$ink['job_order_id']][] = $ink;
+                    $item_ids_needed[] = $ink['item_id'];
+                }
+
+                // 3. Batch Fetch SOH for all items needed
+                $stockMap = [];
+                if (!empty($item_ids_needed)) {
+                    $unique_items = array_unique($item_ids_needed);
+                    $items_str = implode(',', array_map('intval', $unique_items));
+                    $branchFilterSql = '';
+                    $branchFilterTypes = '';
+                    $branchFilterParams = [];
+                    if ($joStaffBranch !== null) {
+                        $branchFilterSql = " AND branch_id = ?";
+                        $branchFilterTypes = 'i';
+                        $branchFilterParams = [$joStaffBranch];
                     }
-
-                    $inks = db_query("SELECT * FROM job_order_ink_usage WHERE job_order_id IN ($ids_str)") ?: [];
-                    foreach ($inks as $ink) {
-                        $inksByJob[$ink['job_order_id']][] = $ink;
-                        $item_ids_needed[] = $ink['item_id'];
-                    }
-
-                    if (!empty($item_ids_needed)) {
-                        $unique_items = array_unique($item_ids_needed);
-                        $items_str = implode(',', array_map('intval', $unique_items));
-                        $branchFilterSql = '';
-                        $branchFilterTypes = '';
-                        $branchFilterParams = [];
-                        if ($joStaffBranch !== null) {
-                            $branchFilterSql = " AND branch_id = ?";
-                            $branchFilterTypes = 'i';
-                            $branchFilterParams = [$joStaffBranch];
-                        }
-
-                        $rollStocks = db_query(
-                            "SELECT item_id, SUM(remaining_length_ft) as soh FROM inv_rolls WHERE item_id IN ($items_str) AND status = 'OPEN'{$branchFilterSql} GROUP BY item_id",
-                            $branchFilterTypes ?: null,
-                            $branchFilterParams ?: null
-                        ) ?: [];
-                        foreach ($rollStocks as $rs) $stockMap[$rs['item_id']] = (float)$rs['soh'];
-
-                        $transStocks = db_query(
-                            "SELECT item_id, SUM(IF(direction='IN', quantity, -quantity)) as soh FROM inventory_transactions WHERE item_id IN ($items_str){$branchFilterSql} GROUP BY item_id",
-                            $branchFilterTypes ?: null,
-                            $branchFilterParams ?: null
-                        ) ?: [];
-                        foreach ($transStocks as $ts) {
-                            if (!isset($stockMap[$ts['item_id']])) $stockMap[$ts['item_id']] = (float)$ts['soh'];
-                        }
+                    
+                    // From rolls
+                    $rollStocks = db_query(
+                        "SELECT item_id, SUM(remaining_length_ft) as soh FROM inv_rolls WHERE item_id IN ($items_str) AND status = 'OPEN'{$branchFilterSql} GROUP BY item_id",
+                        $branchFilterTypes ?: null,
+                        $branchFilterParams ?: null
+                    ) ?: [];
+                    foreach ($rollStocks as $rs) $stockMap[$rs['item_id']] = (float)$rs['soh'];
+                    
+                    // From transactions (for non-roll items)
+                    $transStocks = db_query(
+                        "SELECT item_id, SUM(IF(direction='IN', quantity, -quantity)) as soh FROM inventory_transactions WHERE item_id IN ($items_str){$branchFilterSql} GROUP BY item_id",
+                        $branchFilterTypes ?: null,
+                        $branchFilterParams ?: null
+                    ) ?: [];
+                    foreach ($transStocks as $ts) {
+                        if (!isset($stockMap[$ts['item_id']])) $stockMap[$ts['item_id']] = (float)$ts['soh'];
                     }
                 }
 
@@ -652,22 +481,23 @@ try {
                 }
                 
                 $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($jobOrderIds, $serviceOnly);
-                $orderCodes = jo_api_order_codes($jobOrderIds);
 
                 $visibleOrders = [];
                 foreach ($orders as $jo) {
                     $jo['order_type'] = 'JOB';
-                    $joOrderId = (int)($jo['order_id'] ?? 0);
-                    $jo['order_source'] = $orderSourceMap[$joOrderId] ?? (string)($jo['order_source'] ?? 'customer');
+                    $jo['order_source'] = jo_api_resolve_order_source(
+                        (int)($jo['order_id'] ?? 0),
+                        $jo['order_source'] ?? null
+                    );
                     if (!empty($jo['order_id'])) {
-                        $payload = $payloads[$joOrderId] ?? null;
+                        $payload = $payloads[(int)$jo['order_id']] ?? null;
                         if ($serviceOnly && (empty($payload) || empty($payload['items']))) {
                             continue;
                         }
                         if ($payload !== null) {
                             JobOrderService::enrichStaffJobRowFromStorePayload($jo, $payload);
                         }
-                        $jo['order_code'] = $orderCodes[$joOrderId] ?? printflow_format_order_code($joOrderId, '');
+                        $jo['order_code'] = printflow_get_order_inventory_reference((int)$jo['order_id'])['code'] ?? '';
                     } else {
                         $jo['order_code'] = printflow_get_job_inventory_reference((int)($jo['id'] ?? 0))['code'] ?? '';
                     }
@@ -709,7 +539,7 @@ try {
             }
             
             $response = ['success' => true, 'data' => $orders];
-            if ($includePagination) {
+            if (isset($_GET['customer_id'])) {
                 $response['pagination'] = [
                     'current_page' => $page,
                     'total_pages' => max(1, ceil($total_count / $per_page)),
@@ -813,18 +643,6 @@ try {
              $pending_orders = $joStaffBranch !== null
                  ? (db_query($sql, 'i', [$joStaffBranch]) ?: [])
                  : (db_query($sql) ?: []);
-
-             $pendingSourceMap = jo_api_resolve_order_sources_batch($pending_orders);
-             if ($listSource !== 'all') {
-                 $pending_orders = array_values(array_filter(
-                     $pending_orders,
-                     static function (array $row) use ($pendingSourceMap, $listSource): bool {
-                         $orderId = (int)($row['order_id'] ?? 0);
-                         $source = $pendingSourceMap[$orderId] ?? (string)($row['order_source'] ?? 'customer');
-                         return jo_api_source_matches($source, $listSource);
-                     }
-                 ));
-             }
              
              $pendingOrderIds = [];
              foreach ($pending_orders as $order) {
@@ -835,23 +653,28 @@ try {
              }
 
              $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
-             $pendingOrderCodes = jo_api_order_codes($pendingOrderIds);
 
              $visiblePendingOrders = [];
              foreach ($pending_orders as $order) {
-                 $pendingOrderId = (int)($order['order_id'] ?? 0);
                  $order['readiness'] = 'READY';
                  $order['estimated_cost'] = 0;
-                 $order['order_code'] = $pendingOrderCodes[$pendingOrderId] ?? printflow_format_order_code($pendingOrderId, '');
-                 $order['order_source'] = $pendingSourceMap[$pendingOrderId] ?? (string)($order['order_source'] ?? 'customer');
+                 $order['order_code'] = printflow_get_order_inventory_reference((int)($order['order_id'] ?? 0))['code'] ?? '';
+                 $order['order_source'] = jo_api_resolve_order_source(
+                     (int)($order['order_id'] ?? 0),
+                     $order['order_source'] ?? null
+                 );
                  
-                 $payload = $payloads[$pendingOrderId] ?? null;
+                 $payload = $payloads[(int)($order['order_id'] ?? 0)] ?? null;
                  if ($serviceOnly && (empty($payload) || empty($payload['items']))) {
                      continue;
                  }
                  if ($payload !== null) {
                      JobOrderService::enrichStaffJobRowFromStorePayload($order, $payload);
                  }
+                 $order['order_source'] = jo_api_resolve_order_source(
+                     (int)($order['order_id'] ?? 0),
+                     $order['order_source'] ?? null
+                 );
                  $visiblePendingOrders[] = $order;
              }
              $pending_orders = $visiblePendingOrders;
@@ -916,13 +739,9 @@ try {
                 ORDER BY cust.created_at DESC
                 LIMIT " . (int)$dashboardListLimit;
 
-            $custom_orders = [];
-            if ($listSource !== 'online') {
-                $custom_orders = $joStaffBranch !== null
-                    ? (db_query($custom_sql, 'i', [$joStaffBranch]) ?: [])
-                    : (db_query($custom_sql) ?: []);
-            }
-            $customOrderCodes = jo_api_order_codes(array_column($custom_orders, 'order_id'));
+            $custom_orders = $joStaffBranch !== null
+                ? (db_query($custom_sql, 'i', [$joStaffBranch]) ?: [])
+                : (db_query($custom_sql) ?: []);
             foreach ($custom_orders as &$co) {
                 $summary = printflow_customization_summary($co['customization_details'] ?? [], $co['service_type'] ?? 'Custom Service');
                 $co['service_type'] = $summary['service_type'];
@@ -933,8 +752,7 @@ try {
                 $co['readiness'] = 'READY';
                 $co['estimated_cost'] = 0;
                 if (!empty($co['order_id'])) {
-                    $customOrderId = (int)$co['order_id'];
-                    $co['order_code'] = $customOrderCodes[$customOrderId] ?? printflow_format_order_code($customOrderId, '');
+                    $co['order_code'] = printflow_get_order_inventory_reference((int)$co['order_id'])['code'] ?? '';
                 } else {
                     $co['order_code'] = printflow_format_customization_code((int)($co['id'] ?? 0));
                 }
@@ -988,7 +806,7 @@ try {
                 ORDER BY so.created_at DESC
                 LIMIT " . (int)$dashboardListLimit;
 
-            $svc_orders = $listSource === 'pos' ? [] : (db_query($svc_sql) ?: []);
+            $svc_orders = db_query($svc_sql) ?: [];
             foreach ($svc_orders as &$so) {
                 $so['readiness'] = 'READY';
                 $so['estimated_cost'] = 0;

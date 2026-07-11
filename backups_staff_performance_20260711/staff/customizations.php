@@ -113,24 +113,6 @@ $online_closed_count = 0;
             to { transform: rotate(360deg); }
         }
 
-        @keyframes pfCustomizationSkeleton {
-            0% { background-position: 100% 0; }
-            100% { background-position: -100% 0; }
-        }
-        .pf-customization-skeleton {
-            display: block;
-            height: 13px;
-            border-radius: 999px;
-            background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%);
-            background-size: 200% 100%;
-            animation: pfCustomizationSkeleton 1.2s ease-in-out infinite;
-        }
-        .pf-customization-skeleton.short { width: 58%; }
-        .pf-customization-skeleton.medium { width: 78%; }
-        @media (prefers-reduced-motion: reduce) {
-            .pf-customization-skeleton { animation: none; }
-        }
-
 
 
         .toolbar-container {
@@ -1332,23 +1314,18 @@ $online_closed_count = 0;
                                     </td>
                                 </tr>
                             </template>
-                            <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
-                                <tr aria-hidden="true">
-                                    <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
-                                </tr>
-                            </template>
-                            <tr x-show="ordersError && orders.length === 0" x-cloak>
-                                <td colspan="6" class="px-6 py-20 text-center">
-                                    <div style="color:#475569;font-weight:700;font-size:14px;">Unable to load customizations. Please try again.</div>
-                                    <button type="button" @click="retryLoadOrders()" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
+                            <tr x-show="loadingOrders">
+                                <td colspan="6" class="px-6 py-24 text-center">
+                                    <div style="display:inline-flex; align-items:center; gap:8px; color:#0d9488; font-weight:600; font-size:14px; text-transform:uppercase; letter-spacing:0.05em;">
+                                        <svg class="animate-spin" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="animation: spin 1s linear infinite;">
+                                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" fill="none"/>
+                                            <path d="M12 2C6.477 2 2 6.477 2 12" stroke="currentColor" fill="none"/>
+                                        </svg>
+                                        <span>Loading customizations...</span>
+                                    </div>
                                 </td>
                             </tr>
-                            <tr x-show="!loadingOrders && !ordersError && filteredOrders.length === 0">
+                            <tr x-show="!loadingOrders && filteredOrders.length === 0">
                                 <td colspan="6" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
@@ -2334,7 +2311,6 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             Alpine.data('joManager', function (defaultStatus) {
             defaultStatus = defaultStatus || 'ALL';
-            let ordersAbortController = null;
             return {
             ...printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
@@ -2342,9 +2318,6 @@ window.pfCustomizationPreloadedOrders = (() => {
             statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             loadingOrders: true,
-            ordersError: '',
-            ordersLastLoadedAt: 0,
-            ordersMinRefreshMs: 8000,
             modalCache: {},
             loadingDetailKey: '',
             detailError: '',
@@ -2382,7 +2355,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             availableRolls: {},
             allInventoryItems: [],
             inventoryPollMs: 20000,
-            ordersPollMs: 30000,
+            ordersPollMs: 10000,
             newMaterialId: '',
             newMaterialQty: 1,
             materialQtyManuallyEdited: false,
@@ -3899,16 +3872,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (!isOpen) this.clearDeepLinkParams();
                 });
                 await this.loadOrders();
-                await Promise.allSettled([
-                    this.loadMachines(),
-                    this.loadAllInventoryItems()
-                ]);
+                await this.loadMachines();
+                await this.loadAllInventoryItems();
 
                 // Keep stock values in sync with admin-side ledger deductions.
                 // This page otherwise fetches `current_stock` only once on load and would show stale stock.
                 if (!window.pfStaffCustomizationsInventoryPollListenerAttached) {
                     window.pfStaffCustomizationsInventoryPollListenerAttached = true;
-                    document.addEventListener('turbo:before-cache', () => {
+                    document.addEventListener('turbo:before-cache', function () {
                         if (window.pfStaffCustomizationsInventoryPoll) {
                             clearInterval(window.pfStaffCustomizationsInventoryPoll);
                             window.pfStaffCustomizationsInventoryPoll = null;
@@ -3917,17 +3888,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                             clearInterval(window.pfStaffCustomizationsOrdersPoll);
                             window.pfStaffCustomizationsOrdersPoll = null;
                         }
-                        if (ordersAbortController) {
-                            ordersAbortController.abort();
-                            ordersAbortController = null;
-                        }
                     });
                 }
                 if (window.pfStaffCustomizationsInventoryPoll) {
                     clearInterval(window.pfStaffCustomizationsInventoryPoll);
                 }
                 window.pfStaffCustomizationsInventoryPoll = setInterval(() => {
-                    if (document.visibilityState !== 'visible') return;
                     this.loadAllInventoryItems().catch(() => {});
                 }, this.inventoryPollMs);
 
@@ -4049,20 +4015,6 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             async loadOrders(options = {}) {
                 const silent = !!options.silent;
-                const force = !!options.force;
-                const now = Date.now();
-                if (silent && document.visibilityState !== 'visible') return;
-                if (!force && silent && (now - this.ordersLastLoadedAt) < this.ordersMinRefreshMs) return;
-                if (ordersAbortController) {
-                    if (silent) return;
-                    ordersAbortController.abort();
-                }
-
-                const controller = new AbortController();
-                ordersAbortController = controller;
-                const timeoutId = window.setTimeout(() => controller.abort(), 15000);
-                if (!silent && this.orders.length === 0) this.loadingOrders = true;
-                this.ordersError = '';
                 this.modalCache = {};
                 try {
                     // Drop stale optimistic overrides before applying freshly fetched rows.
@@ -4074,22 +4026,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         }
                     });
                     const refreshToken = Date.now();
-                    const sourceFilter = <?php echo json_encode(
-                        $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
-                    ); ?>;
-                    const requestOptions = {
-                        cache: 'no-store',
-                        signal: controller.signal,
-                        headers: { 'Accept': 'application/json' }
-                    };
                     const [joRes, pendingRes] = await Promise.all([
-                        fetch(`../admin/job_orders_api.php?action=list_orders&service_only=1&summary_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=200&_=${refreshToken}`, requestOptions).then(r => this.parseJsonResponse(r)),
-                        fetch(`../admin/job_orders_api.php?action=list_pending_orders&service_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=250&_=${refreshToken}`, requestOptions).then(r => this.parseJsonResponse(r)),
+                        fetch(`../admin/job_orders_api.php?action=list_orders&service_only=1&per_page=200&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r)),
+                        fetch(`../admin/job_orders_api.php?action=list_pending_orders&service_only=1&per_page=250&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r)),
                     ]);
-
-                    if (!joRes.success && !pendingRes.success) {
-                        throw new Error('Customization list requests failed');
-                    }
 
                     const jobOrders = joRes.success ? joRes.data : [];
                     const pendingOrders = pendingRes.success ? pendingRes.data : [];
@@ -4100,36 +4040,23 @@ window.pfCustomizationPreloadedOrders = (() => {
                     const visibleRows = <?php echo $showLatestCustomizationOnly ? 'preparedRows.slice(0, 1)' : 'preparedRows'; ?>;
                     this.orders = visibleRows;
                     this.bumpOrdersVersion();
-                    this.ordersLastLoadedAt = Date.now();
 
                     if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                         const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
                         this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
                         this.bumpOrdersVersion();
                     }
+                    this.loadingOrders = false;
                 } catch(err) {
-                    if (err?.name === 'AbortError' && ordersAbortController !== controller) {
-                        return;
-                    }
-                    if (!silent || err?.name !== 'AbortError') {
+                    if (!silent) {
                         console.error('Error loading orders:', err);
                     }
-                    if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders)) {
-                        this.orders = <?php echo $showLatestCustomizationOnly ? 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders).slice(0, 1)' : 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders)'; ?>;
-                        this.bumpOrdersVersion();
-                    }
-                    this.ordersError = this.orders.length === 0 ? 'load_failed' : '';
-                } finally {
-                    window.clearTimeout(timeoutId);
-                    if (ordersAbortController === controller) {
-                        ordersAbortController = null;
-                        this.loadingOrders = false;
-                    }
+                    this.orders = Array.isArray(window.pfCustomizationPreloadedOrders)
+                        ? <?php echo $showLatestCustomizationOnly ? 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders).slice(0, 1)' : 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders)'; ?>
+                        : [];
+                    this.bumpOrdersVersion();
+                    this.loadingOrders = false;
                 }
-            },
-
-            retryLoadOrders() {
-                return this.loadOrders({ force: true });
             },
 
             async loadMachines() {

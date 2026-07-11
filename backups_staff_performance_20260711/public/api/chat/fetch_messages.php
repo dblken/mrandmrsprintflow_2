@@ -9,6 +9,7 @@ ini_set('display_errors', 0);
 try {
     require_once __DIR__ . '/../../../includes/auth.php';
     require_once __DIR__ . '/../../../includes/functions.php';
+    require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
 
     // Global Output Buffer to trap notices
     ob_start();
@@ -26,12 +27,6 @@ try {
     $is_active = isset($_GET['is_active']) && $_GET['is_active'] == 1; // Is the chat window currently open by the requester?
     $user_id = get_user_id();
     $user_type = get_user_type();
-
-    // Polling reads should not serialize the user's other PHP requests.
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
-    require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
 
     if (!$order_id) {
         ob_end_clean();

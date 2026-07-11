@@ -1960,9 +1960,7 @@ function openChat(id, name, meta, archived, avatar = '') {
 
     loadMsgs();
     clearInterval(pollId);
-    pollId = setInterval(() => {
-        if (document.visibilityState === 'visible') loadMsgs();
-    }, 2000);
+    pollId = setInterval(loadMsgs, 2000);
     loadConvs();
     showConversationThread();
 }
@@ -3887,15 +3885,7 @@ function initStaffChatPage() {
 
     initRecordingEvents();
     loadConvs();
-    listId = setInterval(() => {
-        if (document.visibilityState === 'visible') loadConvs();
-    }, 10000);
-
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible') return;
-        loadConvs();
-        if (activeId) loadMsgs();
-    });
+    listId = setInterval(loadConvs, 10000);
 
     let searchTimeout;
     const searchInput = document.getElementById('searchInput');
