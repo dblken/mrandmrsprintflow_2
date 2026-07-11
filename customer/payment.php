@@ -31,6 +31,100 @@ if (!$order_id) {
          </div>');
 }
 
+function pf_payment_service_image_payload(int $service_id, int $order_id = 0): array {
+    $service_id = (int)$service_id;
+    if ($service_id <= 0) {
+        return ['image' => '', 'name' => '', 'category' => ''];
+    }
+
+    $rows = db_query(
+        "SELECT service_id, name, category, display_image, hero_image, image_path, updated_at
+         FROM services
+         WHERE service_id = ?
+           AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived'
+         LIMIT 1",
+        'i',
+        [$service_id]
+    ) ?: [];
+
+    if (empty($rows)) {
+        error_log("payment service image: order_id={$order_id} item_type=service service_id={$service_id} selected_image= final_url= reason=service_not_found");
+        return ['image' => '', 'name' => '', 'category' => ''];
+    }
+
+    $service = $rows[0];
+    $base_path = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
+    $default_img = rtrim($base_path, '/') . '/public/assets/images/services/default.png';
+    $candidates = [];
+
+    foreach (explode(',', (string)($service['display_image'] ?? '')) as $image) {
+        $image = trim($image);
+        if ($image !== '') {
+            $candidates[] = $image;
+        }
+    }
+    foreach (['hero_image', 'image_path'] as $field) {
+        $image = trim((string)($service[$field] ?? ''));
+        if ($image !== '') {
+            $candidates[] = $image;
+        }
+    }
+
+    $selected = '';
+    $selected_raw = '';
+    foreach ($candidates as $candidate) {
+        if (function_exists('printflow_is_video_media_path') && printflow_is_video_media_path((string)$candidate)) {
+            continue;
+        }
+
+        $url = function_exists('pf_normalize_service_image_path')
+            ? pf_normalize_service_image_path((string)$candidate, $base_path, $default_img)
+            : (string)$candidate;
+
+        if ($url !== '' && (!function_exists('printflow_notification_local_media_exists') || printflow_notification_local_media_exists($url))) {
+            $selected = $url;
+            $selected_raw = (string)$candidate;
+            break;
+        }
+    }
+
+    error_log(
+        "payment service image: order_id={$order_id} item_type=service service_id={$service_id} selected_image={$selected_raw} final_url={$selected}"
+    );
+
+    return [
+        'image' => $selected,
+        'name' => (string)($service['name'] ?? ''),
+        'category' => (string)($service['category'] ?? ''),
+    ];
+}
+
+if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
+    function printflow_resolve_order_service_catalog_image_url(array $item, string $displayName = ''): string {
+        foreach (['service_image', 'catalog_service_image'] as $field) {
+            $url = trim((string)($item[$field] ?? ''));
+            if ($url !== '') {
+                return $url;
+            }
+        }
+
+        $service_id = (int)($item['service_id'] ?? 0);
+        if ($service_id <= 0) {
+            $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+            if (is_array($custom)) {
+                $service_id = (int)($custom['service_id'] ?? 0);
+            }
+        }
+
+        if ($service_id > 0) {
+            $payload = pf_payment_service_image_payload($service_id, (int)($item['order_id'] ?? 0));
+            return (string)($payload['image'] ?? '');
+        }
+
+        return '';
+    }
+}
+
 // 1. First check regular orders
 $order_result = db_query("
     SELECT * FROM orders 
@@ -77,33 +171,58 @@ if (!empty($order_result)) {
             $custom = [];
         }
 
+        $looksServiceLike = strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom'
+            || strtolower(trim((string)($custom['source_page'] ?? ''))) === 'services'
+            || strtolower(trim((string)($custom['source'] ?? ''))) === 'service'
+            || strtolower(trim((string)($item['type'] ?? ''))) === 'service'
+            || (int)($custom['service_id'] ?? 0) > 0
+            || trim((string)($custom['service_type'] ?? '')) !== '';
+
         $resolvedServiceId = function_exists('printflow_resolve_service_catalog_service_id_for_order_line')
             ? printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item)
             : 0;
+        if ($resolvedServiceId <= 0 && $looksServiceLike && (int)($item['product_id'] ?? 0) > 0) {
+            $candidate = (int)$item['product_id'];
+            $hit = db_query(
+                "SELECT service_id FROM services WHERE service_id = ? AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived' LIMIT 1",
+                'i',
+                [$candidate]
+            ) ?: [];
+            if (!empty($hit[0]['service_id'])) {
+                $resolvedServiceId = $candidate;
+            }
+        }
 
-        if ($resolvedServiceId > 0) {
+        if ($resolvedServiceId > 0 && $looksServiceLike) {
+            $serviceMedia = pf_payment_service_image_payload($resolvedServiceId, $order_id);
             $item['service_id'] = $resolvedServiceId;
+            $item['type'] = 'Service';
+            $item['source_page'] = 'services';
 
             if (empty($custom['service_id'])) {
                 $custom['service_id'] = $resolvedServiceId;
             }
+            if (empty($custom['source_page'])) {
+                $custom['source_page'] = 'services';
+            }
 
-            if (trim((string)($custom['service_type'] ?? '')) === '' && function_exists('customer_orders_resolve_service_name_by_id')) {
-                $resolvedServiceName = trim((string)customer_orders_resolve_service_name_by_id($resolvedServiceId));
+            if (trim((string)($custom['service_type'] ?? '')) === '') {
+                $resolvedServiceName = trim((string)($serviceMedia['name'] ?? ''));
+                if ($resolvedServiceName === '' && function_exists('customer_orders_resolve_service_name_by_id')) {
+                    $resolvedServiceName = trim((string)customer_orders_resolve_service_name_by_id($resolvedServiceId));
+                }
                 if ($resolvedServiceName !== '') {
                     $custom['service_type'] = $resolvedServiceName;
-                    if (trim((string)($item['product_name'] ?? '')) === '' || customer_orders_is_generic_item_name((string)($item['product_name'] ?? ''))) {
-                        $item['product_name'] = $resolvedServiceName;
-                    }
+                    $item['product_name'] = $resolvedServiceName;
                 }
             }
 
-            if (function_exists('printflow_service_catalog_image_from_id')) {
-                $serviceImage = trim((string)printflow_service_catalog_image_from_id($resolvedServiceId));
-                if ($serviceImage !== '') {
-                    $item['service_image'] = $serviceImage;
-                    $item['catalog_service_image'] = $serviceImage;
-                }
+            if (!empty($serviceMedia['category'])) {
+                $item['category'] = $serviceMedia['category'];
+            }
+            if (!empty($serviceMedia['image'])) {
+                $item['service_image'] = $serviceMedia['image'];
+                $item['catalog_service_image'] = $serviceMedia['image'];
             }
 
             // Service lines must not inherit a similarly-numbered product thumbnail.
