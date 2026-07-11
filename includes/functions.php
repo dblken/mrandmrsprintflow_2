@@ -1213,7 +1213,7 @@ function get_order_status_notification_payload($order_id, $status) {
         'Pending Approval' => "Your order has been received and is pending confirmation.",
         'For Revision' => "Your order needs revision. Please review the request details.",
         'Approved' => "Your order has been approved and will proceed to payment.",
-        'To Pay' => "Your order is now ready for payment.",
+        'To Pay' => "Your order is ready. Please proceed to payment of {amount}.",
         'To Verify' => "Your payment is currently being verified.",
         'Downpayment Submitted' => "Your payment is currently being verified.",
         'Pending Verification' => "Your payment is currently being verified.",
@@ -1228,6 +1228,10 @@ function get_order_status_notification_payload($order_id, $status) {
     ];
 
     $message = $map[$status] ?? "Your order #{$order_id} status has been updated to: {$status}";
+    if ($status === 'To Pay') {
+        $amount = format_currency(printflow_notification_latest_payable_amount($order_id));
+        $message = str_replace('{amount}', $amount, $message);
+    }
     // Removed auto-rate link for completed orders per user request.
 
     return ['type' => $type, 'message' => $message];
@@ -1259,6 +1263,77 @@ function add_order_system_message($order_id, $message) {
  */
 function format_currency($amount, $currency = '₱') {
     return $currency . ' ' . number_format($amount, 2);
+}
+
+function printflow_notification_latest_payable_amount(int $order_id, int $job_order_id = 0): float {
+    static $orderColumns = null;
+
+    $order_id = (int)$order_id;
+    $job_order_id = (int)$job_order_id;
+
+    if ($orderColumns === null) {
+        $orderColumns = array_flip(array_column(db_query("SHOW COLUMNS FROM orders") ?: [], 'Field'));
+    }
+
+    $selects = [];
+    foreach (['final_price', 'approved_price', 'order_total', 'total_amount'] as $column) {
+        if (isset($orderColumns[$column])) {
+            $selects[] = "o.`{$column}`";
+        }
+    }
+
+    if ($selects !== []) {
+        $rows = db_query(
+            'SELECT ' . implode(', ', $selects) . ' FROM orders o WHERE o.order_id = ? LIMIT 1',
+            'i',
+            [$order_id]
+        ) ?: [];
+        if (!empty($rows[0])) {
+            foreach (['final_price', 'approved_price', 'order_total', 'total_amount'] as $column) {
+                if (!isset($orderColumns[$column])) {
+                    continue;
+                }
+                $value = (float)($rows[0][$column] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+    }
+
+    if ($job_order_id > 0) {
+        $jobRows = db_query(
+            'SELECT required_payment, estimated_total FROM job_orders WHERE id = ? LIMIT 1',
+            'i',
+            [$job_order_id]
+        ) ?: [];
+        if (!empty($jobRows[0])) {
+            foreach (['required_payment', 'estimated_total'] as $column) {
+                $value = (float)($jobRows[0][$column] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+    }
+
+    if ($order_id > 0) {
+        $jobRows = db_query(
+            'SELECT required_payment, estimated_total FROM job_orders WHERE order_id = ? ORDER BY id DESC LIMIT 1',
+            'i',
+            [$order_id]
+        ) ?: [];
+        if (!empty($jobRows[0])) {
+            foreach (['required_payment', 'estimated_total'] as $column) {
+                $value = (float)($jobRows[0][$column] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+    }
+
+    return 0.0;
 }
 
 /**
