@@ -39,6 +39,7 @@ $order_result = db_query("
 
 if (!empty($order_result)) {
     $order = $order_result[0];
+    $items = [];
     $latest_payment_review = db_query("
         SELECT payment_status, payment_proof_status, payment_rejection_reason
         FROM job_orders
@@ -61,11 +62,56 @@ if (!empty($order_result)) {
     }
 
     $items = db_query("
-        SELECT oi.*, p.name as product_name, p.category, {$product_image_select}
+        SELECT oi.*,
+               p.name AS product_name,
+               p.category,
+               {$product_image_select}
         FROM order_items oi
         LEFT JOIN products p ON oi.product_id = p.product_id
         WHERE oi.order_id = ?
     ", 'i', [$order_id]);
+
+    foreach ($items as &$item) {
+        $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+
+        $resolvedServiceId = function_exists('printflow_resolve_service_catalog_service_id_for_order_line')
+            ? printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item)
+            : 0;
+
+        if ($resolvedServiceId > 0) {
+            $item['service_id'] = $resolvedServiceId;
+
+            if (empty($custom['service_id'])) {
+                $custom['service_id'] = $resolvedServiceId;
+            }
+
+            if (trim((string)($custom['service_type'] ?? '')) === '' && function_exists('customer_orders_resolve_service_name_by_id')) {
+                $resolvedServiceName = trim((string)customer_orders_resolve_service_name_by_id($resolvedServiceId));
+                if ($resolvedServiceName !== '') {
+                    $custom['service_type'] = $resolvedServiceName;
+                    if (trim((string)($item['product_name'] ?? '')) === '' || customer_orders_is_generic_item_name((string)($item['product_name'] ?? ''))) {
+                        $item['product_name'] = $resolvedServiceName;
+                    }
+                }
+            }
+
+            if (function_exists('printflow_service_catalog_image_from_id')) {
+                $serviceImage = trim((string)printflow_service_catalog_image_from_id($resolvedServiceId));
+                if ($serviceImage !== '') {
+                    $item['service_image'] = $serviceImage;
+                    $item['catalog_service_image'] = $serviceImage;
+                }
+            }
+
+            // Service lines must not inherit a similarly-numbered product thumbnail.
+            $item['product_image'] = '';
+            $item['customization_data'] = printflow_encode_customization_payload($custom);
+        }
+    }
+    unset($item);
     
     // Dynamically calculate total from items to ensure accuracy
     $calculated_total = 0;
@@ -135,6 +181,10 @@ if (!empty($order_result)) {
     $is_paid_ui = !$is_rejected_payment && $order['payment_status'] === 'PAID';
     $is_verifying_payment = !$is_rejected_payment && $order['payment_proof_status'] === 'SUBMITTED';
     $show_payment_form = !$is_paid_ui && !$is_verifying_payment && $order_status !== 'CANCELLED';
+}
+
+if (!isset($items) || !is_array($items)) {
+    $items = [];
 }
 
 $payment_rejection_reason = $payment_rejection_reason ?? '';

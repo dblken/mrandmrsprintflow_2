@@ -46,7 +46,20 @@ if (!function_exists('pf_order_ui_resolve_special_instructions_text')) {
      * that are excluded from the specification tiles (same idea as customer orders modal).
      */
     function pf_order_ui_resolve_special_instructions_text(array $custom, array $item = []): string {
-        $notes = $custom['notes'] ?? $custom['additional_notes'] ?? $custom['other_instructions'] ?? ($custom['design_description'] ?? ($custom['tshirt_design_description'] ?? ($custom['tarp_design_description'] ?? ($custom['design_notes'] ?? ($item['design_notes'] ?? null)))));
+        $notes = $custom['notes']
+            ?? $custom['order_notes']
+            ?? $custom['job_notes']
+            ?? $custom['special_instructions']
+            ?? $custom['additional_notes']
+            ?? $custom['other_instructions']
+            ?? ($item['notes'] ?? ($item['order_notes'] ?? ($item['job_notes'] ?? ($item['design_notes'] ?? null))));
+        if ($notes === null || $notes === '') {
+            $notes = $custom['design_description']
+                ?? $custom['tshirt_design_description']
+                ?? $custom['tarp_design_description']
+                ?? $custom['design_notes']
+                ?? null;
+        }
         $parts = [];
         if ($notes !== null && $notes !== '') {
             $t = trim(pf_order_ui_value_to_text($notes));
@@ -90,13 +103,15 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
         }
 
         static $skipExact = [
-            'design_upload', 'reference_upload', 'notes', 'additional_notes', 'other_instructions',
+            'design_upload', 'reference_upload', 'notes', 'order_notes', 'job_notes',
+            'special_instructions', 'additional_notes', 'other_instructions',
             'design_notes', 'Branch_ID', 'service_type', 'product_type', 'unit',
             'install_province', 'install_city', 'install_barangay', 'install_street',
             'source_page', 'source', 'service_id', 'quantity', 'Quantity', 'Notes', 'Note',
             'design_upload_data', 'upload_design_data', 'design_data',
             'reference_upload_data', 'upload_reference_data', 'reference_data',
             'design_upload_path', 'design_file', 'reference_file', 'layout_file',
+            'design_upload_name', 'design_upload_mime', 'reference_upload_name', 'reference_upload_mime',
         ];
         if (in_array($key, $skipExact, true)) {
             return true;
@@ -104,10 +119,11 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
 
         $normalized = strtolower(preg_replace('/[^a-z0-9]/', '', $key));
         if (in_array($normalized, [
-            'quantity', 'qty', 'notes', 'note', 'jobnotes', 'specialinstructions',
+            'quantity', 'qty', 'notes', 'note', 'ordernotes', 'jobnotes', 'specialinstructions',
             'otherinstructions', 'additionalnotes', 'designnotes', 'sourcepage', 'serviceid',
             'source', 'uploaddesign', 'designupload', 'designfile', 'designuploadpath',
-            'designuploaddata', 'uploaddesigndata', 'designdata',
+            'designuploaddata', 'uploaddesigndata', 'designdata', 'designuploadname',
+            'designuploadmime', 'referenceuploadname', 'referenceuploadmime',
             'referenceupload', 'referencefile', 'referenceuploaddata', 'uploadreferencedata',
             'referencedata',
         ], true)) {
@@ -120,7 +136,7 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
         if (preg_match('/reference\s*(attachment|image|upload)/iu', $key)) {
             return true;
         }
-        if (preg_match('/^(notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?|source\s*page|service\s*id)$/iu', $key)) {
+        if (preg_match('/^(notes?|order\s*notes?|job\s*notes?|special\s*instructions?|other\s*instructions?|additional\s*notes?|design\s*notes?|source\s*page|service\s*id)$/iu', $key)) {
             return true;
         }
 
@@ -287,16 +303,30 @@ if (!function_exists('pf_order_ui_resolve_customer_upload_url')) {
 if (!function_exists('pf_order_ui_resolve_catalog_image_url')) {
     function pf_order_ui_resolve_catalog_image_url(array $item, bool $is_cart_item, string $fallbackName = ''): ?string
     {
-        if (!empty($item['product_image'])) {
-            $url = pf_order_ui_asset_url($item['product_image']);
-            if ($url) {
-                return $url;
+        if (pf_order_ui_is_service_item($item, $is_cart_item)) {
+            foreach (['service_image', 'catalog_service_image'] as $serviceImageField) {
+                if (!empty($item[$serviceImageField])) {
+                    $url = pf_order_ui_asset_url($item[$serviceImageField]);
+                    if ($url) {
+                        return $url;
+                    }
+                }
             }
         }
 
         if (pf_order_ui_is_service_item($item, $is_cart_item)
             && function_exists('printflow_resolve_order_service_catalog_image_url')) {
-            return printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
+            $serviceUrl = printflow_resolve_order_service_catalog_image_url($item, $fallbackName);
+            if (!empty($serviceUrl)) {
+                return $serviceUrl;
+            }
+        }
+
+        if (!empty($item['product_image'])) {
+            $url = pf_order_ui_asset_url($item['product_image']);
+            if ($url) {
+                return $url;
+            }
         }
 
         return null;
