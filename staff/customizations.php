@@ -1902,18 +1902,27 @@ $online_closed_count = 0;
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
                                                placeholder="0.00"
-                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { $el.value = Number(jobPriceInput || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }); })"
+                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput ?? '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; if ($el.previousElementSibling) { $el.previousElementSibling.style.display = raw !== '' ? 'none' : ''; } }); })"
                                                x-on:input="
                                                    let val = $event.target.value.replace(/[^0-9.]/g, '');
                                                    let parts = val.split('.');
                                                    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
                                                    $event.target.value = parts.join('.');
                                                    jobPriceInput = $event.target.value.replace(/,/g, '');
+                                                   if ($event.target.previousElementSibling) {
+                                                       $event.target.previousElementSibling.style.display = jobPriceInput && String(jobPriceInput).trim() !== '' ? 'none' : '';
+                                                   }
                                                "
                                                x-on:blur="
-                                                   if (jobPriceInput) {
+                                                   if (jobPriceInput && String(jobPriceInput).trim() !== '') {
                                                        jobPriceInput = parseFloat(jobPriceInput).toFixed(2);
                                                        $event.target.value = Number(jobPriceInput).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                                                   } else {
+                                                       jobPriceInput = '';
+                                                       $event.target.value = '';
+                                                   }
+                                                   if ($event.target.previousElementSibling) {
+                                                       $event.target.previousElementSibling.style.display = jobPriceInput && String(jobPriceInput).trim() !== '' ? 'none' : '';
                                                    }
                                                "
                                                style="width:100%; height:42px; padding:0 12px 0 42px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#ffffff; transition:all 0.2s;"
@@ -2744,7 +2753,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 );
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                this.jobPriceInput = this.currentJo.final_price || 0;
+                this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
+                    ? this.currentJo.final_price
+                    : '';
                 this.modalCache[cacheKey] = this.currentJo;
             },
             async fetchOrderModalSummary(orderId, options = {}) {
@@ -4476,7 +4487,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const detailKey = this.detailKeyFor(id, orderType);
                 if (this.modalCache && this.modalCache[cacheKey]) {
                     this.currentJo = this.modalCache[cacheKey];
-                    this.jobPriceInput = this.currentJo.final_price || 0;
+                    this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
+                        ? this.currentJo.final_price
+                        : '';
                     this.showDetailsModal = true;
                     this.loadingDetails = false;
                     this.detailError = '';
