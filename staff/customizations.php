@@ -1902,16 +1902,13 @@ $online_closed_count = 0;
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
                                                placeholder="0.00"
-                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput ?? '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; if ($el.previousElementSibling) { $el.previousElementSibling.style.display = raw !== '' ? 'none' : ''; } }); })"
+                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput ?? '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; }); })"
                                                x-on:input="
                                                    let val = $event.target.value.replace(/[^0-9.]/g, '');
                                                    let parts = val.split('.');
                                                    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
                                                    $event.target.value = parts.join('.');
                                                    jobPriceInput = $event.target.value.replace(/,/g, '');
-                                                   if ($event.target.previousElementSibling) {
-                                                       $event.target.previousElementSibling.style.display = jobPriceInput && String(jobPriceInput).trim() !== '' ? 'none' : '';
-                                                   }
                                                "
                                                x-on:blur="
                                                    if (jobPriceInput && String(jobPriceInput).trim() !== '') {
@@ -1920,9 +1917,6 @@ $online_closed_count = 0;
                                                    } else {
                                                        jobPriceInput = '';
                                                        $event.target.value = '';
-                                                   }
-                                                   if ($event.target.previousElementSibling) {
-                                                       $event.target.previousElementSibling.style.display = jobPriceInput && String(jobPriceInput).trim() !== '' ? 'none' : '';
                                                    }
                                                "
                                                style="width:100%; height:42px; padding:0 12px 0 42px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#ffffff; transition:all 0.2s;"
