@@ -112,9 +112,14 @@
     }
 
     html.printflow-staff.printflow-staff-online {
-        --accent-color: #7c3aed;
-        --staff-primary: #7c3aed;
-        --staff-soft: #ddd6fe;
+        --accent-color: #06A1A1;
+        --staff-primary: #06A1A1;
+        --staff-soft: #9ED7C4;
+        --staff-accent-rgb: 6, 161, 161;
+        --staff-primary-strong: #058f8f;
+        --staff-primary-deep: #023d3d;
+        --staff-content-accent-grad: linear-gradient(90deg, #035f5f, #06A1A1, #9ED7C4);
+        --staff-content-label-grad: linear-gradient(90deg, #023d3d, #06A1A1);
     }
 
     /* Main area: focus rings & links */
