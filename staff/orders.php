@@ -1883,6 +1883,7 @@ $page_title = 'Orders - Staff';
         var fd = new FormData();
         fd.append('order_id', orderId);
         fd.append('action', 'Approve');
+        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
         
         fetch(staffUrl('staff/api_verify_payment.php'), {
             method: 'POST', body: fd,
@@ -1937,6 +1938,7 @@ $page_title = 'Orders - Staff';
         fd.append('order_id', orderId);
         fd.append('action', 'Reject');
         fd.append('reason', reason);
+        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
         fetch(staffUrl('staff/api_verify_payment.php'), {
             method: 'POST', body: fd,
@@ -2202,7 +2204,7 @@ $page_title = 'Orders - Staff';
     });
     </script>
 </head>
-<body>
+<body data-csrf="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
 
 <div class="dashboard-container">
     <!-- Sidebar -->

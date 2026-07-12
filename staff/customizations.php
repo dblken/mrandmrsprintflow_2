@@ -4721,6 +4721,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const fd = new FormData();
                         fd.append('order_id', oid);
                         fd.append('action', 'Approve');
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         const r = await fetch(this.staffApiUrl('api_verify_payment.php'), { method: 'POST', body: fd });
                         res = await this.parseJsonResponse(r);
                     } else {
@@ -4732,6 +4733,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const fd = new FormData();
                         fd.append('action', 'verify_payment');
                         fd.append('id', jid);
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         if (this.currentJo.order_id) {
                             fd.append('order_id', this.currentJo.order_id);
                         }
@@ -4804,6 +4806,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('order_id', oid);
                         fd.append('action', 'Reject');
                         fd.append('reason', reason);
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         const r = await fetch(this.staffApiUrl('api_verify_payment.php'), { method: 'POST', body: fd });
                         res = await this.parseJsonResponse(r);
                     } else {
@@ -4815,6 +4818,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const fd = new FormData();
                         fd.append('action', 'reject_payment');
                         fd.append('id', jid);
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         if (this.currentJo.order_id) {
                             fd.append('order_id', this.currentJo.order_id);
                         }

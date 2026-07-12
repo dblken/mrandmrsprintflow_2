@@ -1040,7 +1040,7 @@ if (!function_exists('payment_verification_save_corrections')) {
                 receiver_name = NULLIF(?, ''), receiver_account = NULLIF(?, ''),
                 staff_notes = NULLIF(?, ''), corrected_by = ?, corrected_at = NOW()
              WHERE id = ? AND verification_status NOT IN ('Approved', 'Rejected')",
-            'ssssssssiii',
+            'sssssssssii',
             [
                 $sender, $reference, $amount === null ? null : number_format($amount, 2, '.', ''),
                 $method, $date, $time, $receiver, $account, $notes, $staffId, $submissionId,
@@ -1156,3 +1156,185 @@ if (!function_exists('payment_verification_customer_summary')) {
     }
 }
 
+if (!function_exists('payment_verification_proof_url')) {
+    function payment_verification_proof_url(?string $path): string {
+        $path = trim((string)$path);
+        if ($path === '') return '';
+        $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+        return $base . '/api_view_proof.php?file=' . rawurlencode($path);
+    }
+}
+
+if (!function_exists('payment_verification_order_label')) {
+    function payment_verification_order_label(array $row): string {
+        $orderId = (int)($row['order_id'] ?? 0);
+        if ($orderId > 0 && function_exists('printflow_format_order_code')) {
+            return printflow_format_order_code($orderId, (string)($row['order_sku'] ?? ''));
+        }
+        $jobId = (int)($row['job_order_id'] ?? 0);
+        if ($jobId > 0 && function_exists('printflow_format_job_code')) {
+            return 'JO-' . printflow_format_job_code($jobId);
+        }
+        return $orderId > 0 ? 'ORD-' . $orderId : 'Payment #' . (int)($row['id'] ?? 0);
+    }
+}
+
+if (!function_exists('payment_verification_get_submission')) {
+    function payment_verification_get_submission(int $submissionId): ?array {
+        if ($submissionId <= 0 || !payment_verification_ensure_schema()) return null;
+        $rows = db_query(
+            "SELECT ps.*,
+                    o.order_sku, o.status AS order_status, o.payment_status AS order_payment_status,
+                    o.branch_id AS order_branch_id,
+                    jo.status AS job_status, jo.payment_status AS job_payment_status,
+                    jo.payment_proof_status AS job_proof_status, jo.branch_id AS job_branch_id,
+                    CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
+                    c.email AS customer_email,
+                    CONCAT_WS(' ', verifier.first_name, verifier.last_name) AS verifier_name,
+                    CONCAT_WS(' ', corrector.first_name, corrector.last_name) AS corrector_name
+             FROM payment_submissions ps
+             LEFT JOIN orders o ON o.order_id = ps.order_id
+             LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
+             LEFT JOIN customers c ON c.customer_id = ps.customer_id
+             LEFT JOIN users verifier ON verifier.user_id = ps.verified_by
+             LEFT JOIN users corrector ON corrector.user_id = ps.corrected_by
+             WHERE ps.id = ? LIMIT 1",
+            'i',
+            [$submissionId]
+        );
+        return $rows[0] ?? null;
+    }
+}
+
+if (!function_exists('payment_verification_can_access')) {
+    function payment_verification_can_access(array $submission, ?int $branchId = null): bool {
+        $userType = (string)($_SESSION['user_type'] ?? '');
+        if ($userType === 'Admin') return true;
+        if ($userType !== 'Staff') return false;
+        if (function_exists('printflow_get_staff_access_role') && printflow_get_staff_access_role() !== 'online') {
+            return false;
+        }
+        if ($branchId === null && function_exists('printflow_branch_filter_for_user')) {
+            $branchId = printflow_branch_filter_for_user();
+        }
+        if ($branchId === null || $branchId <= 0) {
+            $branchId = (int)($_SESSION['branch_id'] ?? 0);
+        }
+        if ($branchId <= 0) return false;
+        $submissionBranch = (int)($submission['order_branch_id'] ?? 0);
+        if ($submissionBranch <= 0) $submissionBranch = (int)($submission['job_branch_id'] ?? 0);
+        return $submissionBranch > 0 && $submissionBranch === $branchId;
+    }
+}
+
+if (!function_exists('payment_verification_import_legacy_submissions')) {
+    function payment_verification_import_legacy_submissions(int $limit = 100): int {
+        if (!payment_verification_ensure_schema()) return 0;
+        $limit = max(1, min(500, $limit));
+        $imported = 0;
+
+        $orders = db_query(
+            "SELECT o.order_id, o.customer_id, o.payment_proof, o.total_amount,
+                    o.payment_status, o.status, o.payment_submitted_at, pm.name AS payment_method_name
+             FROM orders o
+             LEFT JOIN payment_methods pm ON pm.payment_method_id = o.payment_method_id
+             WHERE NULLIF(TRIM(o.payment_proof), '') IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1 FROM payment_submissions ps
+                    WHERE ps.order_id = o.order_id AND ps.receipt_file = o.payment_proof
+               )
+             ORDER BY o.payment_submitted_at DESC, o.order_id DESC LIMIT ?",
+            'i',
+            [$limit]
+        ) ?: [];
+        foreach ($orders as $order) {
+            $local = payment_verification_local_file((string)$order['payment_proof']);
+            $paymentStatus = strtolower(trim((string)($order['payment_status'] ?? '')));
+            $orderStatus = strtolower(trim((string)($order['status'] ?? '')));
+            $verificationStatus = $paymentStatus === 'paid'
+                ? 'Approved'
+                : ($orderStatus === 'rejected' ? 'Rejected' : 'Pending Review');
+            $ocrStatus = in_array($verificationStatus, ['Approved', 'Rejected'], true) ? 'Skipped' : 'Pending';
+            $id = payment_verification_create_submission([
+                'order_id' => (int)$order['order_id'],
+                'customer_id' => (int)$order['customer_id'],
+                'receipt_file' => (string)$order['payment_proof'],
+                'receipt_mime' => $local ? (string)(@mime_content_type($local) ?: '') : '',
+                'receipt_size' => $local ? (int)@filesize($local) : 0,
+                'receipt_sha256' => $local ? (string)(@hash_file('sha256', $local) ?: '') : '',
+                'selected_payment_method' => (string)($order['payment_method_name'] ?: 'GCash'),
+                'submitted_amount' => (float)($order['total_amount'] ?? 0),
+                'verification_status' => $verificationStatus,
+                'ocr_status' => $ocrStatus,
+            ]);
+            if ($id > 0) $imported++;
+        }
+
+        $remaining = max(1, $limit - $imported);
+        $jobs = db_query(
+            "SELECT jo.id, jo.order_id, jo.customer_id, jo.payment_proof_path,
+                    jo.payment_method, jo.payment_submitted_amount,
+                    jo.payment_proof_status, jo.payment_status
+             FROM job_orders jo
+             WHERE NULLIF(TRIM(jo.payment_proof_path), '') IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1 FROM payment_submissions ps
+                    WHERE (ps.job_order_id = jo.id OR (jo.order_id IS NOT NULL AND ps.order_id = jo.order_id))
+                      AND ps.receipt_file = jo.payment_proof_path
+               )
+             ORDER BY jo.payment_proof_uploaded_at DESC, jo.id DESC LIMIT ?",
+            'i',
+            [$remaining]
+        ) ?: [];
+        foreach ($jobs as $job) {
+            $local = payment_verification_local_file((string)$job['payment_proof_path']);
+            $proofStatus = strtoupper(trim((string)($job['payment_proof_status'] ?? '')));
+            $verificationStatus = $proofStatus === 'VERIFIED'
+                ? 'Approved'
+                : ($proofStatus === 'REJECTED' ? 'Rejected' : 'Pending Review');
+            $ocrStatus = in_array($verificationStatus, ['Approved', 'Rejected'], true) ? 'Skipped' : 'Pending';
+            $id = payment_verification_create_submission([
+                'order_id' => (int)($job['order_id'] ?? 0),
+                'job_order_id' => (int)$job['id'],
+                'customer_id' => (int)$job['customer_id'],
+                'receipt_file' => (string)$job['payment_proof_path'],
+                'receipt_mime' => $local ? (string)(@mime_content_type($local) ?: '') : '',
+                'receipt_size' => $local ? (int)@filesize($local) : 0,
+                'receipt_sha256' => $local ? (string)(@hash_file('sha256', $local) ?: '') : '',
+                'selected_payment_method' => (string)($job['payment_method'] ?: 'GCash'),
+                'submitted_amount' => (float)($job['payment_submitted_amount'] ?? 0),
+                'verification_status' => $verificationStatus,
+                'ocr_status' => $ocrStatus,
+            ]);
+            if ($id > 0) $imported++;
+        }
+        return $imported;
+    }
+}
+
+if (!function_exists('payment_verification_notify_reviewers')) {
+    function payment_verification_notify_reviewers(int $orderId = 0, int $jobOrderId = 0): void {
+        $labelRow = ['order_id' => $orderId, 'job_order_id' => $jobOrderId];
+        $label = payment_verification_order_label($labelRow);
+        $message = 'New payment proof submitted for Order #' . $label . '.';
+        $users = db_query(
+            "SELECT user_id, user_type, position FROM users
+             WHERE user_type IN ('Staff', 'Admin') AND COALESCE(status, 'Activated') <> 'Archived'"
+        ) ?: [];
+        foreach ($users as $user) {
+            $role = (string)($user['user_type'] ?? 'Staff');
+            if ($role === 'Staff' && function_exists('printflow_detect_staff_access_role')) {
+                if (printflow_detect_staff_access_role((string)($user['position'] ?? '')) !== 'online') continue;
+            }
+            create_notification(
+                (int)$user['user_id'],
+                $role,
+                $message,
+                'Order',
+                false,
+                false,
+                $orderId > 0 ? $orderId : $jobOrderId
+            );
+        }
+    }
+}

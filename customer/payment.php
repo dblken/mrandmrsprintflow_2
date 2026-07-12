@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -391,6 +392,11 @@ $payment_proof_status = $payment_proof_status ?? '';
 $is_rejected_payment = $is_rejected_payment ?? false;
 $is_paid_ui = $is_paid_ui ?? false;
 $is_verifying_payment = $is_verifying_payment ?? false;
+$payment_verification_summary = payment_verification_customer_summary(
+    $customer_id,
+    $is_job_order ? (int)($order['order_id'] ?? 0) : $order_id,
+    $is_job_order ? $order_id : 0
+);
 
 if ($restore_cart_requested) {
     $restore_entry = $_SESSION['pending_payment_cart_restore'][(string)$order_id] ?? null;
@@ -822,8 +828,8 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
                         </div>
-                        <h3 style="font-weight: 800; color: #eaf6fb; margin-bottom: 0.5rem;">Payment Verifying</h3>
-                        <p style="color: #9fc4d4; font-size: 0.875rem;">Your payment proof is currently under review by our staff.</p>
+                        <h3 style="font-weight: 800; color: #eaf6fb; margin-bottom: 0.5rem;"><?php echo htmlspecialchars((string)($payment_verification_summary['customer_label'] ?? 'Under Review')); ?></h3>
+                        <p style="color: #9fc4d4; font-size: 0.875rem;"><?php echo htmlspecialchars((string)($payment_verification_summary['customer_message'] ?? 'Payment proof submitted. Your payment is pending staff verification.')); ?></p>
                         <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="btn-primary w-full mt-6 text-center block" style="text-decoration: none;">Track Order Status</a>
                     </div>
                 <?php else: ?>
@@ -898,7 +904,7 @@ if (!function_exists('pf_payment_qr_url')) {
                         <?php else: ?>
                             <div style="display: flex; gap: 8px; margin-bottom: 1.5rem;">
                                 <?php $first = true; foreach ($enabled_methods as $index => $pm): ?>
-                                    <button type="button" onclick="selectPM(<?php echo $index; ?>)" id="btn-pm-<?php echo $index; ?>" class="pm-tab-btn <?php echo $first ? 'active' : ''; ?>">
+                                    <button type="button" onclick="selectPM(<?php echo $index; ?>)" id="btn-pm-<?php echo $index; ?>" data-provider="<?php echo htmlspecialchars((string)$pm['provider'], ENT_QUOTES, 'UTF-8'); ?>" class="pm-tab-btn <?php echo $first ? 'active' : ''; ?>">
                                         <?php echo htmlspecialchars($pm['provider']); ?>
                                     </button>
                                 <?php $first = false; endforeach; ?>
@@ -919,18 +925,19 @@ if (!function_exists('pf_payment_qr_url')) {
                         <?php endif; ?>
 
                         <!-- Simplified Flow: Always Full Payment -->
-                        <input type="hidden" name="amount" value="<?php echo number_format($order['total_amount'], 2, '.', ''); ?>">
+                        <input type="hidden" name="amount" value="<?php echo number_format($total_amount, 2, '.', ''); ?>">
                         <input type="hidden" name="payment_choice" value="full">
+                        <input type="hidden" name="selected_payment_method" id="selectedPaymentMethod" value="<?php echo htmlspecialchars((string)($enabled_methods[0]['provider'] ?? 'GCash'), ENT_QUOTES, 'UTF-8'); ?>">
 
                         <h2 class="payment-section-title" style="margin-bottom: 1rem; font-size: 1rem; color: #eaf6fb;">2. Upload Reference Receipt</h2>
                         
                         <div class="input-group">
-                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/*,application/pdf" required>
+                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/jpeg,image/png,application/pdf" required>
                             <div id="dropzone" class="dropzone" onclick="document.getElementById('proofInput').click()">
                                 <div id="placeholder" style="display: block;">
                                     <div style="font-size: 2rem; margin-bottom: 0.5rem;">📸</div>
                                     <div class="dz-title">Click to upload receipt</div>
-                                    <div class="dz-sub">JPG, PNG or PDF</div>
+                                    <div class="dz-sub">JPG, PNG or PDF, up to 10 MB</div>
                                 </div>
                                 <div id="preview" style="display: none; align-items: center; justify-content: center; flex-direction: column; width: 100%; overflow: hidden;">
                                     <img id="previewImg" src="" style="max-height: 120px; border-radius: 8px; margin-bottom: 10px; max-width: 100%; object-fit: contain;">
@@ -979,6 +986,9 @@ if (!function_exists('pf_payment_qr_url')) {
         
         document.querySelectorAll('[id^="pm-info-"]').forEach(i => i.style.display = 'none');
         document.getElementById('pm-info-' + idx).style.display = 'block';
+        const methodInput = document.getElementById('selectedPaymentMethod');
+        const methodButton = document.getElementById('btn-pm-' + idx);
+        if (methodInput && methodButton) methodInput.value = methodButton.dataset.provider || 'GCash';
     }
 
     const proofInput = document.getElementById('proofInput');
@@ -1007,15 +1017,28 @@ if (!function_exists('pf_payment_qr_url')) {
         proofInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
+                const validTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+                if (!validTypes.includes(file.type) || file.size > 10 * 1024 * 1024) {
+                    e.target.value = '';
+                    showToast('Please choose a JPG, PNG, or PDF receipt up to 10 MB.');
+                    updateSubmitState();
+                    return;
+                }
                 fileName.textContent = file.name;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    previewImg.src = e.target.result;
-                    previewImg.style.borderRadius = '0';
-                    placeholder.style.display = 'none';
-                    preview.style.display = 'flex';
-                };
-                reader.readAsDataURL(file);
+                placeholder.style.display = 'none';
+                preview.style.display = 'flex';
+                if (file.type === 'application/pdf') {
+                    previewImg.removeAttribute('src');
+                    previewImg.style.display = 'none';
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        previewImg.src = event.target.result;
+                        previewImg.style.display = 'block';
+                        previewImg.style.borderRadius = '0';
+                    };
+                    reader.readAsDataURL(file);
+                }
             }
             updateSubmitState();
         });
@@ -1061,9 +1084,20 @@ if (!function_exists('pf_payment_qr_url')) {
                 }
 
                 if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+                    if (data.submission_id) {
+                        const ocrData = new FormData();
+                        ocrData.append('submission_id', data.submission_id);
+                        ocrData.append('csrf_token', formData.get('csrf_token') || '');
+                        fetch('api_process_payment_ocr.php', {
+                            method: 'POST',
+                            body: ocrData,
+                            credentials: 'same-origin',
+                            keepalive: true
+                        }).catch(function() {});
+                    }
                     showSuccessModal(
-                        'Payment Success',
-                        'Your payment proof has been submitted and is now under review. We\'ll notify you once verified!',
+                        'Receipt Submitted',
+                        'Payment proof submitted. Your payment is pending staff verification.',
                         'orders.php?highlight=<?php echo $order_id; ?>',
                         'services.php',
                         'View Order',

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 // Staff, Manager, Admin (same as customizations page)
 if (!in_array($_SESSION['user_type'] ?? '', ['Admin', 'Staff', 'Manager'], true)) {
@@ -16,9 +17,21 @@ if (!in_array($_SESSION['user_type'] ?? '', ['Admin', 'Staff', 'Manager'], true)
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    http_response_code(419);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Your session expired. Please refresh and try again.',
+        'csrf_token' => generate_csrf_token(),
+    ]);
+    exit;
+}
+
 $action = $_POST['action'] ?? '';
 $job_id = (int)($_POST['id'] ?? 0);
 $request_order_id = (int)($_POST['order_id'] ?? 0);
+$submission_id = (int)($_POST['submission_id'] ?? 0);
+$submission_notes = mb_substr(trim((string)($_POST['staff_notes'] ?? '')), 0, 5000);
 
 if (!$action || !$job_id) {
     echo json_encode(['success' => false, 'error' => 'Invalid request parameters.']);
@@ -33,6 +46,10 @@ if (empty($job)) {
 }
 
 $job = $job[0];
+$submission_id = $submission_id > 0
+    ? $submission_id
+    : payment_verification_latest_submission_id((int)($job['order_id'] ?? 0), $job_id);
+$submission = $submission_id > 0 ? payment_verification_get_submission($submission_id) : null;
 $resolvedBranchId = (int)($job['branch_id'] ?? 0);
 $linkedOrderId = (int)($job['order_id'] ?? 0);
 if ($linkedOrderId <= 0 && $request_order_id > 0) {
@@ -43,7 +60,12 @@ if ($resolvedBranchId <= 0 && $linkedOrderId > 0) {
     $resolvedBranchId = (int)($branchRow[0]['branch_id'] ?? 0);
 }
 $viewerBranch = printflow_branch_filter_for_user();
-if (get_user_type() !== 'Admin' && $viewerBranch) {
+if (get_user_type() !== 'Admin') {
+    if (!$viewerBranch) $viewerBranch = (int)($_SESSION['branch_id'] ?? 0);
+    if (!$viewerBranch) {
+        echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+        exit;
+    }
     $jobBranchRow = db_query(
         "SELECT COALESCE(jo.branch_id, o.branch_id) AS branch_id
          FROM job_orders jo
@@ -63,6 +85,26 @@ if (get_user_type() !== 'Admin' && $viewerBranch) {
     }
     if ($jobBranchId <= 0 && $resolvedBranchId > 0) {
         db_execute("UPDATE job_orders SET branch_id = ? WHERE id = ? AND (branch_id IS NULL OR branch_id = 0)", 'ii', [$resolvedBranchId, $job_id]);
+    }
+}
+if ($submission) {
+    $submissionJobId = (int)($submission['job_order_id'] ?? 0);
+    $submissionOrderId = (int)($submission['order_id'] ?? 0);
+    $jobOrderId = (int)($job['order_id'] ?? 0);
+    if (($submissionJobId > 0 && $submissionJobId !== $job_id)
+        || ($submissionJobId <= 0 && $submissionOrderId > 0 && $jobOrderId > 0 && $submissionOrderId !== $jobOrderId)
+    ) {
+        echo json_encode(['success' => false, 'error' => 'Payment submission does not belong to this job order.']);
+        exit;
+    }
+    if (in_array((string)$submission['verification_status'], ['Approved', 'Rejected'], true)) {
+        $expectedDecision = $action === 'verify_payment' ? 'Approved' : 'Rejected';
+        if ((string)$submission['verification_status'] === $expectedDecision) {
+            echo json_encode(['success' => true, 'already_processed' => true]);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'This payment submission has already been finalized.']);
+        }
+        exit;
     }
 }
 
@@ -268,6 +310,17 @@ if ($action === 'verify_payment') {
             $amt_f = format_currency($submitted_amount);
             log_activity($user_id, 'Job payment verified', "Job #{$job_id}: verified {$amt_f} ({$user_name})");
         }
+        if (!payment_verification_mark_order_decision(
+            $submission_id,
+            (int)($job['order_id'] ?? 0),
+            $job_id,
+            'Approved',
+            $user_id,
+            '',
+            $submission_notes
+        )) {
+            throw new Exception('Payment submission was already finalized.');
+        }
         // The payment status update and JobOrderService::updateStatus already handle customer notifications.
 
 
@@ -279,6 +332,19 @@ if ($action === 'verify_payment') {
 
 
         $conn->commit();
+
+        if (!empty($job['customer_id'])) {
+            $approvedAmount = payment_verification_expected_amount((int)($job['order_id'] ?? 0), $job_id);
+            create_notification(
+                (int)$job['customer_id'],
+                'Customer',
+                'Your payment of ' . format_currency($approvedAmount) . ' has been verified and approved.',
+                'Order',
+                false,
+                false,
+                (int)($job['order_id'] ?: $job_id)
+            );
+        }
 
         $warningMessage = '';
         if (!empty($syncWarnings)) {
@@ -322,6 +388,16 @@ elseif ($action === 'reject_payment') {
                     payment_verified_by = ?
                     WHERE id = ?", 
         'sii', [$reason, $user_id, $job_id]);
+
+        payment_verification_mark_order_decision(
+            $submission_id,
+            (int)($job['order_id'] ?? 0),
+            $job_id,
+            'Rejected',
+            $user_id,
+            $reason,
+            $submission_notes
+        );
 
         // If linked to a store order, revert to 'To Pay' so they can submit again
         if ($job['order_id']) {

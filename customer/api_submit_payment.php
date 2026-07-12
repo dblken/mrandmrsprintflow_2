@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 require_role('Customer');
 
@@ -28,6 +29,10 @@ $order_id = (int)($_POST['order_id'] ?? 0);
 $is_job = (bool)($_POST['is_job'] ?? false);
 $customer_id = get_user_id();
 $payment_choice = $_POST['payment_choice'] ?? 'full';
+$selected_payment_method = payment_verification_normalize_method((string)($_POST['selected_payment_method'] ?? 'GCash'));
+if ($selected_payment_method === '') {
+    $selected_payment_method = 'GCash';
+}
 if (!in_array($payment_choice, ['full', 'half'], true)) {
     $payment_choice = 'full';
 }
@@ -65,8 +70,8 @@ if (!isset($_FILES['payment_proof']) || $_FILES['payment_proof']['error'] !== UP
     exit;
 }
 
-// Accept common mobile formats (including HEIC/HEIF) and PDFs; allow up to 25MB uploads
-$upload = upload_file($_FILES['payment_proof'], ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'heic', 'heif'], 'payments', null, 25 * 1024 * 1024);
+// Store receipts in the protected payment directory after server-side MIME validation.
+$upload = payment_verification_store_receipt($_FILES['payment_proof']);
 if (!$upload['success']) {
     echo json_encode(['success' => false, 'message' => 'Upload failed: ' . $upload['error']]);
     exit;
@@ -106,10 +111,11 @@ if (!$is_job) {
             status = 'VERIFY_PAY',
             payment_proof_status = 'SUBMITTED', 
             payment_proof_path = ?, 
+            payment_method = ?,
             payment_submitted_amount = ?, 
             payment_proof_uploaded_at = NOW() 
             WHERE id = ?";
-    $update_success = db_execute($sql, 'sdi', [$file_path, $amount, $order_id]);
+    $update_success = db_execute($sql, 'ssdi', [$file_path, $selected_payment_method, $amount, $order_id]);
     $type_label = "Job Order";
 }
 
@@ -141,47 +147,37 @@ if ($update_success) {
                 payment_proof_status = 'SUBMITTED',
                 payment_submitted_amount = ?,
                 payment_proof_path = ?,
+                payment_method = ?,
                 payment_proof_uploaded_at = NOW()
              WHERE order_id = ?
                AND status NOT IN ('COMPLETED','CANCELLED')",
-            'dsi',
-            [$amount, $file_path, $order_id]
+            'dssi',
+            [$amount, $file_path, $selected_payment_method, $order_id]
         );
     }
 
-    // Notify staff
-    $customer_name_row = db_query("SELECT first_name, last_name FROM customers WHERE customer_id = ?", 'i', [$customer_id]);
-    $customer_display_name = !empty($customer_name_row) ? trim($customer_name_row[0]['first_name'] . ' ' . $customer_name_row[0]['last_name']) : "Customer";
-    
-    // Determine Service Name
-    $service_name = "Order";
-    if (!$is_job) {
-        $first_item = db_query("SELECT customization_data FROM order_items WHERE order_id = ? LIMIT 1", 'i', [$order_id]);
-        $custom_data = !empty($first_item[0]['customization_data']) ? json_decode($first_item[0]['customization_data'], true) : [];
-        $service_name = get_service_name_from_customization($custom_data, 'Product Order');
-    } else {
-        $service_name = normalize_service_name($order['service_type'] ?? 'Custom Job');
+    // OCR is advisory and stored separately so existing payment/order fields remain untouched.
+    $submission_id = payment_verification_create_submission([
+        'order_id' => $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
+        'job_order_id' => $is_job ? $order_id : 0,
+        'customer_id' => $customer_id,
+        'receipt_file' => $file_path,
+        'receipt_thumbnail' => (string)($upload['thumbnail_path'] ?? ''),
+        'receipt_original_name' => (string)($upload['original_name'] ?? ''),
+        'receipt_mime' => (string)($upload['mime'] ?? ''),
+        'receipt_size' => (int)($upload['size'] ?? 0),
+        'receipt_sha256' => (string)($upload['sha256'] ?? ''),
+        'selected_payment_method' => $selected_payment_method,
+        'submitted_amount' => $amount,
+    ]);
+    if ($submission_id <= 0) {
+        error_log("Payment submission audit row could not be created for order #{$order_id}.");
     }
 
-    // Determine if it was a resubmission
-    $is_resubmission = false;
-    if (!$is_job) {
-        // If regular order status implies we backtracked from a previous verification
-        if (in_array($order['status'], ['To Pay', 'For Revision']) && !empty($order['payment_submitted_at'])) {
-            $is_resubmission = true;
-        }
-    } else {
-        // For job orders, we explicitly track REJECTED status
-        if (($order['payment_proof_status'] ?? '') === 'REJECTED') {
-            $is_resubmission = true;
-        }
-    }
-
-    $action_verb = $is_resubmission ? "resubmitted" : "submitted";
-    $staff_msg = "{$customer_display_name} {$action_verb} payment for {$service_name}";
-    
-    // Notify shop users using each user's actual role so push subscriptions match.
-    notify_shop_users($staff_msg, 'Order', false, false, $order_id, ['Staff', 'Admin', 'Manager']);
+    payment_verification_notify_reviewers(
+        $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
+        $is_job ? $order_id : 0
+    );
     
     // Log activity (if staff logged in, otherwise skip)
     log_activity($customer_id, 'Payment Submitted', "Submitted proof for {$type_label} #{$order_id}");
@@ -201,13 +197,34 @@ if ($update_success) {
 
     echo json_encode([
         'success' => true, 
-        'message' => 'Payment submitted successfully. Waiting for staff verification.',
-        'file_path' => $file_path
+        'message' => 'Payment proof submitted. Your payment is pending staff verification.',
+        'file_path' => $file_path,
+        'submission_id' => $submission_id ?? 0,
+        'ocr_status' => ($submission_id ?? 0) > 0 ? 'Pending' : 'Unavailable'
     ]);
 } else {
+    if (empty($update_success)) {
+        if (!empty($upload['local_path']) && is_file($upload['local_path'])) {
+            @unlink($upload['local_path']);
+        }
+        if (!empty($upload['thumbnail_path'])) {
+            $thumbnailLocal = payment_verification_local_file((string)$upload['thumbnail_path']);
+            if ($thumbnailLocal) @unlink($thumbnailLocal);
+        }
+    }
     echo json_encode(['success' => false, 'message' => 'Database update failed. Please try again.']);
 }
 
 } catch (Throwable $e) {
-    echo json_encode(['success' => false, 'message' => 'Server error: ' . $e->getMessage()]);
+    if (empty($update_success)) {
+        if (!empty($upload['local_path']) && is_file($upload['local_path'])) {
+            @unlink($upload['local_path']);
+        }
+        if (!empty($upload['thumbnail_path'])) {
+            $thumbnailLocal = payment_verification_local_file((string)$upload['thumbnail_path']);
+            if ($thumbnailLocal) @unlink($thumbnailLocal);
+        }
+    }
+    error_log('Payment proof submission failed: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'message' => 'The payment proof could not be submitted. Please try again.']);
 }

@@ -1305,11 +1305,7 @@ try {
                 $raw_path = $cust['payment_proof_path'];
                 if (!preg_match('#^https?://#i', $raw_path)) {
                     $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                    if (strpos($raw_path, 'uploads/') !== false) {
-                        $payment_proof_url = $bp . '/' . substr($raw_path, strpos($raw_path, 'uploads/'));
-                    } else {
-                        $payment_proof_url = $bp . '/public/serve_design.php?type=order_payment&id=' . (int)$cust['order_id'];
-                    }
+                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_path);
                 } else {
                     $payment_proof_url = $raw_path;
                 }
@@ -1779,11 +1775,7 @@ try {
 
                 if (!preg_match('#^https?://#i', $raw_pp)) {
                     $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                    if (strpos($raw_pp, 'uploads/') !== false) {
-                        $payment_proof_url = $bp . '/' . substr($raw_pp, strpos($raw_pp, 'uploads/'));
-                    } else {
-                        $payment_proof_url = $bp . '/public/serve_design.php?type=order_payment&id=' . (int)$o['order_id'];
-                    }
+                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_pp);
                 } else {
                     $payment_proof_url = $raw_pp;
                 }

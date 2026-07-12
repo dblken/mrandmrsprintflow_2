@@ -1,0 +1,75 @@
+<?php
+
+require_once __DIR__ . '/../includes/payment_verification.php';
+
+$failures = [];
+
+function payment_ocr_test_assert($condition, string $message): void {
+    global $failures;
+    if (!$condition) $failures[] = $message;
+}
+
+$gcash = <<<'TEXT'
+GCash
+Express Send
+Sent by: JUAN DELA CRUZ
+Sent to: KENTLLOYD VILLANUEVA
+GCash Number: 09171234567
+Amount Sent PHP 100.00
+Reference No. 1234 5678 9012
+July 11, 2026 11:30 AM
+TEXT;
+
+$parsed = payment_ocr_parse_receipt_text($gcash, [], 88.0);
+payment_ocr_test_assert($parsed['detected_payment_method'] === 'GCash', 'GCash should be detected.');
+payment_ocr_test_assert(abs((float)$parsed['amount_sent'] - 100.00) < 0.001, 'GCash amount should be 100.00.');
+payment_ocr_test_assert($parsed['sender_name'] === 'JUAN DELA CRUZ', 'Sender name should be extracted.');
+payment_ocr_test_assert(payment_verification_normalize_reference($parsed['reference_number']) === '123456789012', 'Reference formatting should normalize.');
+payment_ocr_test_assert($parsed['transaction_date'] === '2026-07-11', 'Transaction date should normalize.');
+payment_ocr_test_assert($parsed['transaction_time'] === '11:30:00', 'Transaction time should normalize.');
+
+$maya = <<<'TEXT'
+Maya
+Payment Successful
+From: MARIA SANTOS
+Recipient: Printflow Shop
+Amount Paid P 1,000.00
+Transaction ID: MAYA-ABC-998877
+2026-07-12 08:15 PM
+TEXT;
+$parsedMaya = payment_ocr_parse_receipt_text($maya, [], 90.0);
+payment_ocr_test_assert($parsedMaya['detected_payment_method'] === 'Maya', 'Maya should be detected.');
+payment_ocr_test_assert(abs((float)$parsedMaya['amount_sent'] - 1000.00) < 0.001, 'Maya amount should be 1000.00.');
+payment_ocr_test_assert(payment_verification_normalize_reference($parsedMaya['reference_number']) === 'MAYAABC998877', 'Alphanumeric Maya reference should normalize.');
+
+$instapay = "InstaPay Transfer\nAmount PHP 80.00\nTrace No: 0000-1111-2222\n";
+$parsedInstaPay = payment_ocr_parse_receipt_text($instapay, [], 92.0);
+$mismatch = payment_verification_review_state(
+    (float)$parsedInstaPay['amount_sent'],
+    100.00,
+    payment_verification_methods_match('GCash', $parsedInstaPay['detected_payment_method']),
+    92.0,
+    payment_verification_normalize_reference($parsedInstaPay['reference_number']),
+    0
+);
+payment_ocr_test_assert($parsedInstaPay['detected_payment_method'] === 'Bank Transfer / InstaPay', 'InstaPay should map to bank transfer.');
+payment_ocr_test_assert($mismatch['amount_match_status'] === 'Mismatch', '80.00 must mismatch a 100.00 order.');
+payment_ocr_test_assert($mismatch['method_match_status'] === 'Mismatch', 'GCash and InstaPay must mismatch.');
+payment_ocr_test_assert($mismatch['verification_status'] === 'Needs Review', 'A mismatch must require review.');
+
+$matched = payment_verification_review_state(210.00, 210.00, true, 91.0, 'ABC123456', 0);
+payment_ocr_test_assert($matched['verification_status'] === 'Matched', 'High-confidence matching details should be marked Matched, not Approved.');
+$low = payment_verification_review_state(50.00, 50.00, true, 58.0, 'ABC123456', 0);
+payment_ocr_test_assert($low['verification_status'] === 'Needs Review', 'Low-confidence OCR must require review.');
+$duplicate = payment_verification_review_state(50.00, 50.00, true, 95.0, 'ABC123456', 42);
+payment_ocr_test_assert($duplicate['verification_status'] === 'Duplicate Suspected', 'Duplicate references must be flagged without automatic rejection.');
+
+payment_ocr_test_assert(payment_verification_methods_match('Bank Transfer', 'Bank Transfer / PESONet') === true, 'Generic bank transfer should match PESONet.');
+payment_ocr_test_assert(payment_verification_mask_account('09171234567') === '*******4567', 'Receiver account should be masked.');
+
+if ($failures) {
+    foreach ($failures as $failure) fwrite(STDERR, "FAIL: {$failure}\n");
+    exit(1);
+}
+
+echo "Payment OCR parser tests passed.\n";
