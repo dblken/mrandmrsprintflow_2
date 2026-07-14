@@ -348,6 +348,7 @@ $csrfToken = generate_csrf_token();
         @media(max-width: 1150px) { .pv-kpi-row { grid-template-columns: repeat(2, 1fr) } }
         @media(max-width: 820px) { .pv-main { padding: 16px 12px } .pv-header { align-items: flex-start; flex-direction: column } .pv-kpi-row { grid-template-columns: 1fr 1fr } .pv-detail-grid { grid-template-columns: 1fr } .pv-edit-grid, .pv-info-grid { grid-template-columns: 1fr } .pv-drawer { width: 95vw; max-height: 95vh } .pv-compare { grid-template-columns: 1fr } .pv-proof-large, .pv-proof-pdf { max-height: 50vh; height: 50vh } }
         @media(max-width: 520px) { .pv-kpi-row { grid-template-columns: 1fr } .pv-title { font-size: 20px } }
+    </style>
 </head>
 <body data-csrf="<?php echo pv_h($csrfToken); ?>" data-base-path="<?php echo pv_h($basePath); ?>">
 <div class="dashboard-container">
