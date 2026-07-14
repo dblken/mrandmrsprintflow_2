@@ -369,7 +369,7 @@ $filterState = [
                 if (this.searchFilter) params.set('search', this.searchFilter);
                 window.location.href = '<?php echo pv_h($basePath); ?>/staff/payment_verification.php?' + params.toString();
             }
-        }" @watch="statusFilter;methodFilter;amountMatchFilter;dateFromFilter;dateToFilter;searchFilter" @watch.debounce="500" x-effect="applyFilters()">
+        }">
             <div class="toolbar-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
                 <div class="toolbar-group toolbar-group--title">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;white-space:nowrap;">Payment Submissions</h3>
@@ -450,7 +450,7 @@ $filterState = [
                             </div>
                             <div class="filter-footer">
                                 <button @click="statusFilter = ''; methodFilter = ''; amountMatchFilter = ''; dateFromFilter = ''; dateToFilter = ''; searchFilter = ''; filterOpen = false" class="filter-clear-btn">Clear All</button>
-                                <button @click="filterOpen = false" class="filter-apply-btn">Apply Filters</button>
+                                <button @click="applyFilters(); filterOpen = false" class="filter-apply-btn">Apply Filters</button>
                             </div>
                         </div>
                     </div>
