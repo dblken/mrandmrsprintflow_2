@@ -271,20 +271,20 @@ $filterState = [
         .pv-page { min-width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #d1d5db; border-radius: 8px; color: #374151; background: #fff; text-decoration: none; font-weight: 600; font-size: 14px; transition: all 0.2s; }
         .pv-page:hover { border-color: #06A1A1; color: #06A1A1; }
         .pv-page.active { background: #06A1A1; color: #fff; border-color: #06A1A1; }
-        .pv-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); display: flex; justify-content: flex-end; }
-        .pv-drawer { width: min(1000px, 96vw); height: 100%; background: #f9fafb; overflow: auto; box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15); }
-        .pv-drawer-head { position: sticky; top: 0; z-index: 10; padding: 20px 24px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-        .pv-detail-grid { display: grid; grid-template-columns: minmax(320px, 0.8fr) minmax(400px, 1.2fr); gap: 20px; padding: 24px; }
-        .pv-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+        .pv-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; }
+        .pv-drawer { width: min(1200px, 95vw); max-height: 90vh; background: #fff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); overflow: hidden; display: flex; flex-direction: column; }
+        .pv-drawer-head { padding: 20px 24px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+        .pv-detail-grid { display: grid; grid-template-columns: minmax(350px, 0.9fr) minmax(450px, 1.1fr); gap: 24px; padding: 24px; overflow-y: auto; flex: 1; }
+        .pv-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
         .pv-card-title { margin: 0 0 16px; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #374151; }
-        .pv-proof-large { width: 100%; max-height: 65vh; object-fit: contain; background: #f3f4f6; border-radius: 8px; border: 1px solid #e5e7eb; }
-        .pv-proof-pdf { width: 100%; height: 65vh; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+        .pv-proof-large { width: 100%; max-height: 60vh; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid #e5e7eb; }
+        .pv-proof-pdf { width: 100%; height: 60vh; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
         .pv-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-        .pv-info { padding: 12px; border-radius: 8px; background: #f9fafb; border: 1px solid #e5e7eb; }
+        .pv-info { padding: 12px; border-radius: 8px; background: #fff; border: 1px solid #e5e7eb; }
         .pv-info-label { display: block; color: #6b7280; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
         .pv-info-value { font-size: 14px; font-weight: 600; color: #1f2937; overflow-wrap: anywhere; }
         .pv-compare { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
-        .pv-compare-box { padding: 16px; border-radius: 10px; background: #f9fafb; text-align: center; }
+        .pv-compare-box { padding: 16px; border-radius: 10px; background: #fff; border: 1px solid #e5e7eb; text-align: center; }
         .pv-compare-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; color: #1f2937; }
         .pv-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
         .pv-edit-field label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
@@ -294,10 +294,9 @@ $filterState = [
         .pv-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
         .pv-raw { white-space: pre-wrap; max-height: 250px; overflow: auto; background: #1f2937; color: #e5e7eb; border-radius: 8px; padding: 16px; font: 12px/1.6 ui-monospace, Consolas, monospace; }
         .pv-toast { position: fixed; right: 24px; bottom: 24px; z-index: 5000; max-width: 400px; padding: 16px 20px; border-radius: 10px; color: #fff; background: #1f2937; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); font-size: 14px; font-weight: 600; display: none; }
-        @media(max-width: 1150px) { .pv-filters { grid-template-columns: repeat(3, 1fr) } .pv-kpi-row { grid-template-columns: repeat(2, 1fr) } }
-        @media(max-width: 820px) { .pv-main { padding: 16px 12px } .pv-header { align-items: flex-start; flex-direction: column } .pv-kpi-row { grid-template-columns: 1fr 1fr } .pv-filters { grid-template-columns: 1fr 1fr } .pv-detail-grid { grid-template-columns: 1fr } .pv-edit-grid, .pv-info-grid { grid-template-columns: 1fr } .pv-drawer { width: 100vw } .pv-compare { grid-template-columns: 1fr } .pv-proof-large, .pv-proof-pdf { max-height: 50vh; height: 50vh } }
-        @media(max-width: 520px) { .pv-kpi-row, .pv-filters { grid-template-columns: 1fr } .pv-title { font-size: 20px } }
-    </style>
+        @media(max-width: 1150px) { .pv-kpi-row { grid-template-columns: repeat(2, 1fr) } }
+        @media(max-width: 820px) { .pv-main { padding: 16px 12px } .pv-header { align-items: flex-start; flex-direction: column } .pv-kpi-row { grid-template-columns: 1fr 1fr } .pv-detail-grid { grid-template-columns: 1fr } .pv-edit-grid, .pv-info-grid { grid-template-columns: 1fr } .pv-drawer { width: 95vw; max-height: 95vh } .pv-compare { grid-template-columns: 1fr } .pv-proof-large, .pv-proof-pdf { max-height: 50vh; height: 50vh } }
+        @media(max-width: 520px) { .pv-kpi-row { grid-template-columns: 1fr } .pv-title { font-size: 20px } }
 </head>
 <body data-csrf="<?php echo pv_h($csrfToken); ?>" data-base-path="<?php echo pv_h($basePath); ?>">
 <div class="dashboard-container">
