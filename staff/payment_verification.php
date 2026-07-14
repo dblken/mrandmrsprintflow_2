@@ -240,29 +240,6 @@ $filterState = [
         .pv-title { margin: 0; font-size: 24px; font-weight: 700; color: #1f2937; line-height: 1.2; }
         .pv-subtitle { margin: 4px 0 0; color: #6b7280; font-size: 14px; }
         .pv-kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
-        .pv-kpi-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); position: relative; overflow: hidden; cursor: pointer; transition: all 0.2s; }
-        .pv-kpi-card:hover { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transform: translateY(-1px); }
-        .pv-kpi-card.active { border-color: #06A1A1; box-shadow: 0 0 0 2px rgba(6, 161, 161, 0.2); }
-        .pv-kpi-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--accent, #06A1A1); }
-        .pv-kpi-card-inner { display: flex; flex-direction: column; }
-        .pv-kpi-label { font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-        .pv-kpi-value { font-size: 28px; font-weight: 700; color: #1f2937; line-height: 1; }
-        .pv-kpi-sub { font-size: 12px; color: #9ca3af; margin-top: 4px; }
-        .pv-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
-        .pv-filters { padding: 16px; display: grid; grid-template-columns: 2fr repeat(5, minmax(140px, 1fr)) auto auto; gap: 12px; margin-bottom: 24px; align-items: end; }
-        .pv-field, .pv-select { width: 100%; height: 40px; border: 1px solid #d1d5db; border-radius: 8px; padding: 0 12px; background: #fff; color: #374151; font-size: 14px; transition: border-color 0.2s, box-shadow 0.2s; }
-        .pv-field:focus, .pv-select:focus { outline: none; border-color: #06A1A1; box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.1); }
-        .pv-field::placeholder { color: #9ca3af; }
-        .pv-button { border: 0; border-radius: 8px; min-height: 40px; padding: 0 16px; font-weight: 600; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; transition: all 0.2s; }
-        .pv-button.primary { background: #06A1A1; color: #fff; }
-        .pv-button.primary:hover { background: #058a8a; }
-        .pv-button.light { background: #f9fafb; color: #374151; border: 1px solid #d1d5db; }
-        .pv-button.light:hover { background: #f3f4f6; border-color: #9ca3af; }
-        .pv-button.danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-        .pv-button.danger:hover { background: #fee2e2; border-color: #fca5a5; }
-        .pv-button.warning { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-        .pv-button.warning:hover { background: #fef3c7; border-color: #fcd34d; }
-        .pv-button:disabled { opacity: 0.5; cursor: not-allowed; }
         .pv-table-wrap { overflow-x: auto; }
         .pv-table { width: 100%; border-collapse: collapse; min-width: 1100px; }
         .pv-table th { padding: 12px 16px; text-align: left; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
@@ -342,48 +319,144 @@ $filterState = [
             <div class="pv-panel pv-empty">Payment verification storage could not be initialized. Apply <strong>database/payment_verification_ocr_20260711.sql</strong> and refresh this page.</div>
         <?php else: ?>
         <section class="pv-kpi-row" aria-label="Payment verification totals">
-            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Pending Review'])); ?>'" style="--accent:#4aaed0">
-                <span class="pv-kpi-card-inner">
-                    <span class="pv-kpi-label">Pending OCR Review</span>
-                    <strong class="pv-kpi-value"><?php echo number_format($kpis['pending']); ?></strong>
-                    <span class="pv-kpi-sub">Awaiting processing</span>
+            <div class="kpi-card blue" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Pending Review'])); ?>'" style="cursor:pointer;">
+                <span class="kpi-card-inner">
+                    <span class="kpi-label">Pending OCR Review</span>
+                    <span class="kpi-value"><?php echo number_format($kpis['pending']); ?></span>
+                    <span class="kpi-sub">Awaiting processing</span>
                 </span>
             </div>
-            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['amount_match' => 'exact_match'])); ?>'" style="--accent:#0c9b88">
-                <span class="pv-kpi-card-inner">
-                    <span class="pv-kpi-label">Amount Matched</span>
-                    <strong class="pv-kpi-value"><?php echo number_format($kpis['matched']); ?></strong>
-                    <span class="pv-kpi-sub">Exact amount detected</span>
+            <div class="kpi-card emerald" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['amount_match' => 'exact_match'])); ?>'" style="cursor:pointer;">
+                <span class="kpi-card-inner">
+                    <span class="kpi-label">Amount Matched</span>
+                    <span class="kpi-value"><?php echo number_format($kpis['matched']); ?></span>
+                    <span class="kpi-sub">Exact amount detected</span>
                 </span>
             </div>
-            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Needs Review'])); ?>'" style="--accent:#e29b31">
-                <span class="pv-kpi-card-inner">
-                    <span class="pv-kpi-label">Needs Attention</span>
-                    <strong class="pv-kpi-value"><?php echo number_format($kpis['review']); ?></strong>
-                    <span class="pv-kpi-sub">Requires staff review</span>
+            <div class="kpi-card amber" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Needs Review'])); ?>'" style="cursor:pointer;">
+                <span class="kpi-card-inner">
+                    <span class="kpi-label">Needs Attention</span>
+                    <span class="kpi-value"><?php echo number_format($kpis['review']); ?></span>
+                    <span class="kpi-sub">Requires staff review</span>
                 </span>
             </div>
-            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Approved'])); ?>'" style="--accent:#25a76f">
-                <span class="pv-kpi-card-inner">
-                    <span class="pv-kpi-label">Approved</span>
-                    <strong class="pv-kpi-value"><?php echo number_format($kpis['approved']); ?></strong>
-                    <span class="pv-kpi-sub">Verified payments</span>
+            <div class="kpi-card indigo" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Approved'])); ?>'" style="cursor:pointer;">
+                <span class="kpi-card-inner">
+                    <span class="kpi-label">Approved</span>
+                    <span class="kpi-value"><?php echo number_format($kpis['approved']); ?></span>
+                    <span class="kpi-sub">Verified payments</span>
                 </span>
             </div>
         </section>
 
-        <form class="pv-card pv-filters" method="get">
-            <input class="pv-field" type="search" name="search" value="<?php echo pv_h($search); ?>" placeholder="Customer, order, sender, or reference">
-            <select class="pv-select" name="status"><option value="">All statuses</option><?php foreach ($allowedStatuses as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $status === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select>
-            <select class="pv-select" name="method"><option value="">All methods</option><?php foreach (['GCash','Maya','Bank Transfer','Bank Transfer / InstaPay','Bank Transfer / PESONet'] as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $method === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select>
-            <select class="pv-select" name="amount_match"><option value="">Any amount result</option><?php foreach ($allowedAmountFilters as $option): $label = ucwords(str_replace('_', ' ', $option)); ?><option value="<?php echo pv_h($option); ?>" <?php echo $amountFilter === $option ? 'selected' : ''; ?>><?php echo pv_h($label); ?></option><?php endforeach; ?></select>
-            <input class="pv-field" type="date" name="date_from" value="<?php echo pv_h($dateFrom); ?>" title="Submitted from">
-            <input class="pv-field" type="date" name="date_to" value="<?php echo pv_h($dateTo); ?>" title="Submitted through">
-            <button class="pv-button primary" type="submit">Apply Filters</button>
-            <a class="pv-button light" href="<?php echo pv_h($basePath); ?>/staff/payment_verification.php">Clear</a>
-        </form>
+        <section class="card overflow-visible" x-data="{
+            sortOpen: false,
+            filterOpen: false,
+            sortOrder: 'newest',
+            statusFilter: '<?php echo pv_h($status); ?>',
+            methodFilter: '<?php echo pv_h($method); ?>',
+            amountMatchFilter: '<?php echo pv_h($amountFilter); ?>',
+            dateFromFilter: '<?php echo pv_h($dateFrom); ?>',
+            dateToFilter: '<?php echo pv_h($dateTo); ?>',
+            searchFilter: '<?php echo pv_h($search); ?>',
+            applyFilters() {
+                const params = new URLSearchParams();
+                if (this.statusFilter) params.set('status', this.statusFilter);
+                if (this.methodFilter) params.set('method', this.methodFilter);
+                if (this.amountMatchFilter) params.set('amount_match', this.amountMatchFilter);
+                if (this.dateFromFilter) params.set('date_from', this.dateFromFilter);
+                if (this.dateToFilter) params.set('date_to', this.dateToFilter);
+                if (this.searchFilter) params.set('search', this.searchFilter);
+                window.location.href = '<?php echo pv_h($basePath); ?>/staff/payment_verification.php?' + params.toString();
+            }
+        }" @watch="statusFilter;methodFilter;amountMatchFilter;dateFromFilter;dateToFilter;searchFilter" @watch.debounce="500" x-effect="applyFilters()">
+            <div class="toolbar-container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                <div class="toolbar-group toolbar-group--title">
+                    <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;white-space:nowrap;">Payment Submissions</h3>
+                </div>
+                <div class="toolbar-group toolbar-group--actions" style="margin-left: auto; display: flex; gap: 8px;">
+                    <div style="position: relative;">
+                        <button @click="sortOpen = !sortOpen" class="toolbar-btn" :class="sortOrder !== 'newest' ? 'active' : ''">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/></svg>
+                            <span class="toolbar-btn-label">Sort by</span>
+                        </button>
+                        <div x-show="sortOpen" @click.away="sortOpen = false" x-cloak class="dropdown-panel sort-dropdown" style="right: 0;">
+                            <div class="sort-option" :class="sortOrder === 'newest' ? 'active' : ''" @click="sortOrder = 'newest'; sortOpen = false">
+                                <span>Newest to Oldest</span>
+                                <svg x-show="sortOrder === 'newest'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" style="margin-left: auto; color: #0d9488;"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                            <div class="sort-option" :class="sortOrder === 'oldest' ? 'active' : ''" @click="sortOrder = 'oldest'; sortOpen = false">
+                                <span>Oldest to Newest</span>
+                                <svg x-show="sortOrder === 'oldest'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24" style="margin-left: auto; color: #0d9488;"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="position: relative;">
+                        <button @click="filterOpen = !filterOpen; sortOpen = false" class="toolbar-btn" :class="(statusFilter !== '' || methodFilter !== '' || amountMatchFilter !== '' || dateFromFilter !== '' || dateToFilter !== '') ? 'active' : ''">
+                            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                            <span class="toolbar-btn-label-light">Filter</span>
+                            <template x-if="statusFilter !== '' || methodFilter !== '' || amountMatchFilter !== '' || dateFromFilter !== '' || dateToFilter !== ''">
+                                <span class="filter-badge" x-text="(statusFilter !== '' ? 1 : 0) + (methodFilter !== '' ? 1 : 0) + (amountMatchFilter !== '' ? 1 : 0) + (dateFromFilter !== '' ? 1 : 0) + (dateToFilter !== '' ? 1 : 0)"></span>
+                            </template>
+                        </button>
+                        <div x-show="filterOpen" @click.away="filterOpen = false" x-cloak class="dropdown-panel filter-panel" style="right: 0; width: 320px;">
+                            <div class="filter-header">Filter</div>
+                            <div class="filter-section">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span class="filter-label" style="margin:0;">Status</span>
+                                    <button @click="statusFilter = ''" class="filter-reset-link">Reset</button>
+                                </div>
+                                <select x-model="statusFilter" class="filter-select">
+                                    <option value="">All statuses</option>
+                                    <?php foreach ($allowedStatuses as $option): ?><option value="<?php echo pv_h($option); ?>"><?php echo pv_h($option); ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="filter-section">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span class="filter-label" style="margin:0;">Payment Method</span>
+                                    <button @click="methodFilter = ''" class="filter-reset-link">Reset</button>
+                                </div>
+                                <select x-model="methodFilter" class="filter-select">
+                                    <option value="">All methods</option>
+                                    <?php foreach (['GCash','Maya','Bank Transfer','Bank Transfer / InstaPay','Bank Transfer / PESONet'] as $option): ?><option value="<?php echo pv_h($option); ?>"><?php echo pv_h($option); ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="filter-section">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span class="filter-label" style="margin:0;">Amount Result</span>
+                                    <button @click="amountMatchFilter = ''" class="filter-reset-link">Reset</button>
+                                </div>
+                                <select x-model="amountMatchFilter" class="filter-select">
+                                    <option value="">Any result</option>
+                                    <?php foreach ($allowedAmountFilters as $option): $label = ucwords(str_replace('_', ' ', $option)); ?><option value="<?php echo pv_h($option); ?>"><?php echo pv_h($label); ?></option><?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="filter-section">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span class="filter-label" style="margin:0;">Date Range</span>
+                                    <button @click="dateFromFilter = ''; dateToFilter = ''" class="filter-reset-link">Reset</button>
+                                </div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <input type="date" x-model="dateFromFilter" class="filter-input" placeholder="From">
+                                    <input type="date" x-model="dateToFilter" class="filter-input" placeholder="To">
+                                </div>
+                            </div>
+                            <div class="filter-section">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                    <span class="filter-label" style="margin:0;">Search</span>
+                                    <button @click="searchFilter = ''" class="filter-reset-link">Reset</button>
+                                </div>
+                                <input type="text" x-model="searchFilter" class="filter-input" placeholder="Customer, order, sender, or reference">
+                            </div>
+                            <div class="filter-footer">
+                                <button @click="statusFilter = ''; methodFilter = ''; amountMatchFilter = ''; dateFromFilter = ''; dateToFilter = ''; searchFilter = ''; filterOpen = false" class="filter-clear-btn">Clear All</button>
+                                <button @click="filterOpen = false" class="filter-apply-btn">Apply Filters</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-        <section class="pv-card">
             <?php if ($queueError !== ''): ?>
                 <div class="pv-empty" role="alert"><strong>Payment queue unavailable.</strong><div class="pv-muted"><?php echo pv_h($queueError); ?></div></div>
             <?php elseif (empty($submissions)): ?>
