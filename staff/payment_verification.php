@@ -587,6 +587,31 @@ $csrfToken = generate_csrf_token();
                 <form class="pv-card" id="pvCorrectionForm" onsubmit="return false;">
                     <input type="hidden" name="submission_id" value="<?php echo (int)$detail['id']; ?>">
                     <h2 class="pv-card-title">OCR Extracted Details</h2>
+                    <?php if (($detail['ocr_status'] ?? 'Completed') !== 'Completed'): ?>
+                        <?php 
+                            $ocrStatus = (string)($detail['ocr_status'] ?? 'Pending');
+                            $ocrError = (string)($detail['ocr_error'] ?? '');
+                            $ocrAttempts = (int)($detail['ocr_attempts'] ?? 0);
+                            
+                            $humanError = match(true) {
+                                str_contains($ocrError, 'API key') || str_contains($ocrError, 'api key') || str_contains($ocrError, 'configured') => 'OCR API key is not configured on the server. Please check environment variables.',
+                                str_contains($ocrError, 'unavailable') => 'OCR service is currently unavailable.',
+                                str_contains($ocrError, 'cURL') => 'Connection to OCR service failed. Network error.',
+                                str_contains($ocrError, 'file') || str_contains($ocrError, 'File') => 'Receipt image file could not be read.',
+                                $ocrError !== '' => 'OCR processing failed: ' . pv_h($ocrError),
+                                default => 'Receipt has not been scanned or processed yet.',
+                            };
+                        ?>
+                        <div style="margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: space-between; <?php echo $ocrStatus === 'Processing' ? 'background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a;' : ($ocrStatus === 'Unavailable' ? 'background:#fffbeb; border:1px solid #fde68a; color:#78350f;' : 'background:#fef2f2; border:1px solid #fca5a5; color:#7f1d1d;'); ?>">
+                            <div>
+                                <strong>OCR Status: <?php echo pv_h($ocrStatus); ?></strong>
+                                <div style="margin-top: 2px; font-size: 12px; opacity: 0.9;"><?php echo $humanError; ?></div>
+                            </div>
+                            <?php if ($ocrAttempts > 0): ?>
+                                <span style="font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">Attempts: <?php echo $ocrAttempts; ?></span>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
                     <div class="pv-edit-grid">
                         <?php $senderConfidence = (float)($detail['sender_confidence'] ?? 0); ?>
                         <div class="pv-edit-field"><label>Sender Name <span class="pv-confidence <?php echo pv_confidence_class($senderConfidence); ?>"><?php echo number_format($senderConfidence, 0); ?>%</span></label><input name="sender_name" value="<?php echo pv_h(pv_effective($detail, 'sender_name', 'ocr_sender_name')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original">OCR original: <?php echo pv_h($detail['ocr_sender_name'] ?: 'Not detected'); ?></div></div>

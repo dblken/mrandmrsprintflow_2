@@ -1243,7 +1243,7 @@ if (!function_exists('payment_ocr_process_submission')) {
 
         $rows = db_query('SELECT * FROM payment_submissions WHERE id = ? LIMIT 1', 'i', [$submissionId]);
         $submission = $rows[0] ?? null;
-        if (!$submission) return ['success' => false, 'status' => 'Failed'];
+        if (!$submission) return ['success' => false, 'status' => 'Failed', 'error' => 'Payment submission record not found.'];
         $filePath = payment_verification_local_file((string)$submission['receipt_file']);
         if ($filePath === null) {
             $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
@@ -1253,7 +1253,7 @@ if (!function_exists('payment_ocr_process_submission')) {
                 ['Receipt file is unavailable for OCR.', $durationMs, $submissionId]
             );
             payment_verification_log('ocr_failed', ['submission_id' => $submissionId, 'reason' => 'file_unavailable', 'duration_ms' => $durationMs]);
-            return ['success' => false, 'status' => 'Failed'];
+            return ['success' => false, 'status' => 'Failed', 'error' => 'Receipt file is unavailable for OCR.'];
         }
         $mime = trim((string)($submission['receipt_mime'] ?? ''));
         if ($mime === '') $mime = (string)(@mime_content_type($filePath) ?: 'application/octet-stream');
@@ -1270,7 +1270,7 @@ if (!function_exists('payment_ocr_process_submission')) {
                 [$status, $safeError, $durationMs, $submissionId]
             );
             payment_verification_log('ocr_failed', ['submission_id' => $submissionId, 'status' => $status, 'reason' => $safeError, 'duration_ms' => $durationMs]);
-            return ['success' => false, 'status' => $status, 'verification_status' => 'Needs Review'];
+            return ['success' => false, 'status' => $status, 'verification_status' => 'Needs Review', 'error' => $safeError];
         }
 
         $rawText = payment_verification_sanitize_ocr_text((string)$ocr['text']);
@@ -1774,3 +1774,126 @@ if (!function_exists('payment_verification_notify_reviewers')) {
         }
     }
 }
+
+if (!function_exists('payment_verification_resolve_proof')) {
+    function payment_verification_resolve_proof(int $orderId, int $jobOrderId = 0): ?array {
+        if (!payment_verification_ensure_schema()) return null;
+
+        // 1. Try to find the latest payment submission record
+        $submission = null;
+        if ($jobOrderId > 0) {
+            $rows = db_query(
+                "SELECT * FROM payment_submissions
+                 WHERE (job_order_id = ? OR (order_id IS NOT NULL AND order_id = ?))
+                   AND verification_status <> 'Rejected'
+                 ORDER BY id DESC LIMIT 1",
+                'ii',
+                [$jobOrderId, $orderId]
+            );
+            if (!empty($rows)) {
+                $submission = $rows[0];
+            }
+        }
+        
+        if (!$submission && $orderId > 0) {
+            $rows = db_query(
+                "SELECT * FROM payment_submissions
+                 WHERE order_id = ? AND verification_status <> 'Rejected'
+                 ORDER BY id DESC LIMIT 1",
+                'i',
+                [$orderId]
+            );
+            if (!empty($rows)) {
+                $submission = $rows[0];
+            }
+        }
+
+        if ($submission) {
+            $proofPath = (string)$submission['receipt_file'];
+            $submittedAmount = $submission['amount_sent'] !== null 
+                ? (float)$submission['amount_sent'] 
+                : ($submission['ocr_amount_sent'] !== null ? (float)$submission['ocr_amount_sent'] : null);
+            
+            // If the amount is still null, default to the submitted amount or expected amount if it is matched,
+            // but we must check if ocr_status is completed.
+            if ($submittedAmount === null && ($submission['ocr_status'] === 'Completed' || $submission['ocr_status'] === 'Failed' || $submission['ocr_status'] === 'Unavailable')) {
+                // If OCR ran but couldn't detect amount, return null (which translates to 'Not detected' in UI)
+                // but if they entered a manual correction or we have submitted_amount, return that.
+                if ((float)$submission['submitted_amount'] > 0) {
+                    $submittedAmount = (float)$submission['submitted_amount'];
+                }
+            } elseif ($submittedAmount === null) {
+                // OCR still pending/processing
+                $submittedAmount = null;
+            }
+
+            return [
+                'payment_proof_path'        => $proofPath,
+                'payment_submitted_amount'  => $submittedAmount,
+                'payment_proof_uploaded_at' => $submission['created_at'],
+                'submission_id'             => (int)$submission['id'],
+                'ocr_status'                => $submission['ocr_status'],
+                'ocr_error'                 => $submission['ocr_error'],
+                'verification_status'       => $submission['verification_status'],
+                'source'                    => 'payment_submissions',
+            ];
+        }
+
+        // 2. Fall back to legacy fields in orders table
+        if ($orderId > 0) {
+            $rows = db_query(
+                "SELECT payment_proof_path, payment_submitted_amount, payment_proof_uploaded_at, total_amount, downpayment_amount
+                 FROM orders WHERE order_id = ? LIMIT 1",
+                'i',
+                [$orderId]
+            );
+            if (!empty($rows) && trim((string)($rows[0]['payment_proof_path'] ?? '')) !== '') {
+                $row = $rows[0];
+                $amt = $row['payment_submitted_amount'] !== null ? (float)$row['payment_submitted_amount'] : null;
+                if ($amt === null || $amt <= 0) {
+                    $amt = (float)($row['downpayment_amount'] ?? $row['total_amount'] ?? 0);
+                }
+                return [
+                    'payment_proof_path'        => (string)$row['payment_proof_path'],
+                    'payment_submitted_amount'  => $amt > 0 ? $amt : null,
+                    'payment_proof_uploaded_at' => $row['payment_proof_uploaded_at'],
+                    'submission_id'             => null,
+                    'ocr_status'                => 'Completed',
+                    'ocr_error'                 => null,
+                    'verification_status'       => 'Pending Review',
+                    'source'                    => 'orders',
+                ];
+            }
+        }
+
+        // 3. Fall back to legacy fields in job_orders table
+        if ($jobOrderId > 0) {
+            $rows = db_query(
+                "SELECT payment_proof_path, payment_submitted_amount, payment_proof_uploaded_at, estimated_total
+                 FROM job_orders WHERE id = ? LIMIT 1",
+                'i',
+                [$jobOrderId]
+            );
+            if (!empty($rows) && trim((string)($rows[0]['payment_proof_path'] ?? '')) !== '') {
+                $row = $rows[0];
+                $amt = $row['payment_submitted_amount'] !== null ? (float)$row['payment_submitted_amount'] : null;
+                if ($amt === null || $amt <= 0) {
+                    $amt = (float)($row['estimated_total'] ?? 0);
+                }
+                return [
+                    'payment_proof_path'        => (string)$row['payment_proof_path'],
+                    'payment_submitted_amount'  => $amt > 0 ? $amt : null,
+                    'payment_proof_uploaded_at' => $row['payment_proof_uploaded_at'],
+                    'submission_id'             => null,
+                    'ocr_status'                => 'Completed',
+                    'ocr_error'                 => null,
+                    'verification_status'       => 'Pending Review',
+                    'source'                    => 'job_orders',
+                ];
+            }
+        }
+
+        return null;
+    }
+}
+

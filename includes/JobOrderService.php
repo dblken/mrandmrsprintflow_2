@@ -2964,12 +2964,6 @@ class JobOrderService {
             $st = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$storeOid]);
             if (!empty($st)) {
                 $row = $st[0];
-                $proof = $row['payment_proof_path'] ?? $row['payment_proof'] ?? '';
-                if ($proof !== '' && $proof !== null) {
-                    $order['payment_proof_path'] = $proof;
-                }
-                $order['payment_submitted_amount'] = (float)($row['downpayment_amount'] ?? 0);
-                $order['payment_proof_uploaded_at'] = $row['payment_submitted_at'] ?? null;
                 $order['store_order_notes'] = (string)($row['notes'] ?? '');
                 $order['revision_reason'] = (string)($row['revision_reason'] ?? '');
                 $order['design_status'] = (string)($row['design_status'] ?? '');
@@ -2979,6 +2973,26 @@ class JobOrderService {
                 $order['amount_paid'] = (float)($row['amount_paid'] ?? 0);
                 if (strtoupper((string)($row['payment_status'] ?? '')) === 'PAID') {
                     $order['amount_paid'] = (float)($row['total_amount'] ?? $order['amount_paid']);
+                }
+
+                // Unified payment verification resolver
+                require_once __DIR__ . '/payment_verification.php';
+                $proof = payment_verification_resolve_proof($storeOid, (int)$id);
+                if ($proof) {
+                    $order['payment_proof_path'] = $proof['payment_proof_path'];
+                    $order['payment_submitted_amount'] = $proof['payment_submitted_amount'];
+                    $order['payment_proof_uploaded_at'] = $proof['payment_proof_uploaded_at'];
+                    $order['payment_submission_id'] = $proof['submission_id'];
+                    $order['ocr_status'] = $proof['ocr_status'];
+                    $order['ocr_error'] = $proof['ocr_error'];
+                    $order['verification_status'] = $proof['verification_status'];
+                } else {
+                    $proofRaw = $row['payment_proof_path'] ?? $row['payment_proof'] ?? '';
+                    if ($proofRaw !== '' && $proofRaw !== null) {
+                        $order['payment_proof_path'] = $proofRaw;
+                    }
+                    $order['payment_submitted_amount'] = (float)($row['downpayment_amount'] ?? 0);
+                    $order['payment_proof_uploaded_at'] = $row['payment_submitted_at'] ?? null;
                 }
             }
         } else {
