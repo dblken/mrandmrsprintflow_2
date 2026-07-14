@@ -17,6 +17,18 @@ if (!function_exists('payment_verification_env')) {
     }
 }
 
+if (!function_exists('payment_verification_log')) {
+    function payment_verification_log(string $event, array $context = []): void {
+        $safe = [];
+        foreach ($context as $key => $value) {
+            if (is_scalar($value) || $value === null) {
+                $safe[(string)$key] = $value;
+            }
+        }
+        error_log('[payment_verification] ' . $event . ' ' . json_encode($safe, JSON_UNESCAPED_SLASHES));
+    }
+}
+
 if (!function_exists('payment_verification_ensure_schema')) {
     function payment_verification_ensure_schema(): bool {
         static $ready = null;
@@ -29,13 +41,17 @@ if (!function_exists('payment_verification_ensure_schema')) {
             order_id INT DEFAULT NULL,
             job_order_id BIGINT DEFAULT NULL,
             customer_id INT NOT NULL,
+            branch_id INT DEFAULT NULL,
             receipt_file VARCHAR(500) NOT NULL,
+            receipt_storage_path VARCHAR(500) DEFAULT NULL,
+            receipt_url VARCHAR(700) DEFAULT NULL,
             receipt_thumbnail VARCHAR(500) DEFAULT NULL,
             receipt_original_name VARCHAR(255) DEFAULT NULL,
             receipt_mime VARCHAR(100) DEFAULT NULL,
             receipt_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
             receipt_sha256 CHAR(64) DEFAULT NULL,
             selected_payment_method VARCHAR(80) DEFAULT NULL,
+            submission_token CHAR(64) DEFAULT NULL,
             expected_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
             submitted_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
             ocr_sender_name VARCHAR(190) DEFAULT NULL,
@@ -67,6 +83,7 @@ if (!function_exists('payment_verification_ensure_schema')) {
             ocr_provider VARCHAR(50) DEFAULT NULL,
             ocr_error VARCHAR(500) DEFAULT NULL,
             ocr_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+            ocr_duration_ms INT UNSIGNED DEFAULT NULL,
             ocr_processed_at DATETIME DEFAULT NULL,
             amount_match_status VARCHAR(20) NOT NULL DEFAULT 'Unknown',
             method_match_status VARCHAR(20) NOT NULL DEFAULT 'Unknown',
@@ -84,15 +101,59 @@ if (!function_exists('payment_verification_ensure_schema')) {
             KEY idx_payment_submissions_order (order_id, created_at),
             KEY idx_payment_submissions_job (job_order_id, created_at),
             KEY idx_payment_submissions_customer (customer_id, created_at),
+            KEY idx_payment_submissions_branch (branch_id, created_at),
             KEY idx_payment_submissions_queue (ocr_status, created_at),
             KEY idx_payment_submissions_review (verification_status, created_at),
             KEY idx_payment_submissions_reference (reference_normalized),
-            KEY idx_payment_submissions_hash (receipt_sha256)
+            KEY idx_payment_submissions_hash (receipt_sha256),
+            UNIQUE KEY uq_payment_submissions_token (customer_id, submission_token)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
 
         $ready = (bool)db_execute($sql);
         if ($ready) {
             $ready = !empty(db_query("SHOW TABLES LIKE 'payment_submissions'"));
+        }
+        if (!$ready) {
+            return false;
+        }
+
+        // CREATE TABLE IF NOT EXISTS does not upgrade an existing installation.
+        // Keep this additive and idempotent so deployments cannot lose old decisions.
+        $columns = [
+            'branch_id' => 'INT DEFAULT NULL AFTER customer_id',
+            'receipt_storage_path' => 'VARCHAR(500) DEFAULT NULL AFTER receipt_file',
+            'receipt_url' => 'VARCHAR(700) DEFAULT NULL AFTER receipt_storage_path',
+            'submission_token' => 'CHAR(64) DEFAULT NULL AFTER selected_payment_method',
+            'ocr_duration_ms' => 'INT UNSIGNED DEFAULT NULL AFTER ocr_attempts',
+        ];
+        foreach ($columns as $column => $definition) {
+            if (!db_table_has_column('payment_submissions', $column)) {
+                $altered = db_execute("ALTER TABLE payment_submissions ADD COLUMN `{$column}` {$definition}");
+                db_table_has_column('payment_submissions', $column, true);
+                if (!$altered || !db_table_has_column('payment_submissions', $column)) {
+                    payment_verification_log('schema_upgrade_failed', ['column' => $column]);
+                    $ready = false;
+                    return false;
+                }
+            }
+        }
+
+        $indexes = db_query("SHOW INDEX FROM payment_submissions") ?: [];
+        $indexNames = array_map(static fn(array $row): string => (string)($row['Key_name'] ?? ''), $indexes);
+        if (!in_array('idx_payment_submissions_branch', $indexNames, true)) {
+            if (!db_execute('ALTER TABLE payment_submissions ADD KEY idx_payment_submissions_branch (branch_id, created_at)')) {
+                payment_verification_log('schema_upgrade_failed', ['index' => 'idx_payment_submissions_branch']);
+                $ready = false;
+                return false;
+            }
+        }
+        if (!in_array('uq_payment_submissions_token', $indexNames, true)) {
+            // NULL tokens remain allowed for all legacy rows.
+            if (!db_execute('ALTER TABLE payment_submissions ADD UNIQUE KEY uq_payment_submissions_token (customer_id, submission_token)')) {
+                payment_verification_log('schema_upgrade_failed', ['index' => 'uq_payment_submissions_token']);
+                $ready = false;
+                return false;
+            }
         }
         return $ready;
     }
@@ -222,11 +283,17 @@ if (!function_exists('payment_verification_local_file')) {
 
 if (!function_exists('payment_verification_make_thumbnail')) {
     function payment_verification_make_thumbnail(string $source, string $mime, string $stem): ?string {
-        if (!in_array($mime, ['image/jpeg', 'image/png'], true) || !function_exists('imagecreatetruecolor')) {
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true) || !function_exists('imagecreatetruecolor')) {
             return null;
         }
 
-        $image = $mime === 'image/png' ? @imagecreatefrompng($source) : @imagecreatefromjpeg($source);
+        if ($mime === 'image/png') {
+            $image = @imagecreatefrompng($source);
+        } elseif ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) {
+            $image = @imagecreatefromwebp($source);
+        } else {
+            $image = @imagecreatefromjpeg($source);
+        }
         if (!$image) return null;
         $width = imagesx($image);
         $height = imagesy($image);
@@ -261,10 +328,19 @@ if (!function_exists('payment_verification_make_thumbnail')) {
 if (!function_exists('payment_verification_store_receipt')) {
     function payment_verification_store_receipt(array $file, int $maxBytes = 10485760): array {
         if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return ['success' => false, 'error' => 'Please select a receipt image or PDF.'];
+            $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+            $message = match ($uploadError) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'The receipt exceeds the server upload limit.',
+                UPLOAD_ERR_PARTIAL => 'The receipt upload was interrupted. Please try again.',
+                UPLOAD_ERR_NO_FILE => 'Please select a receipt image or PDF.',
+                default => 'The receipt upload could not be completed.',
+            };
+            payment_verification_log('upload_failed', ['upload_error' => $uploadError]);
+            return ['success' => false, 'error' => $message];
         }
         $size = (int)($file['size'] ?? 0);
         if ($size <= 0 || $size > $maxBytes) {
+            payment_verification_log('upload_failed', ['reason' => 'invalid_size', 'size' => $size]);
             return ['success' => false, 'error' => 'Receipt must be 10 MB or smaller.'];
         }
         $tmp = (string)($file['tmp_name'] ?? '');
@@ -277,10 +353,12 @@ if (!function_exists('payment_verification_store_receipt')) {
         $extensions = [
             'image/jpeg' => 'jpg',
             'image/png' => 'png',
+            'image/webp' => 'webp',
             'application/pdf' => 'pdf',
         ];
         if (!isset($extensions[$mime])) {
-            return ['success' => false, 'error' => 'Only JPG, JPEG, PNG, and PDF receipts are accepted.'];
+            payment_verification_log('upload_failed', ['reason' => 'invalid_mime', 'mime' => $mime]);
+            return ['success' => false, 'error' => 'Only JPG, JPEG, PNG, WEBP, and PDF receipts are accepted.'];
         }
 
         if ($mime === 'application/pdf') {
@@ -304,6 +382,7 @@ if (!function_exists('payment_verification_store_receipt')) {
         $filename = $stem . '.' . $extensions[$mime];
         $target = $directory . '/' . $filename;
         if (!move_uploaded_file($tmp, $target)) {
+            payment_verification_log('upload_failed', ['reason' => 'move_failed']);
             return ['success' => false, 'error' => 'The receipt could not be saved.'];
         }
         @chmod($target, 0640);
@@ -311,9 +390,13 @@ if (!function_exists('payment_verification_store_receipt')) {
         $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
         $stored = $base . '/uploads/secure_payments/' . $filename;
         $thumbnail = payment_verification_make_thumbnail($target, $mime, $stem);
+        $receiptUrl = $base . '/api_view_proof.php?file=' . rawurlencode($stored);
+        payment_verification_log('upload_succeeded', ['mime' => $mime, 'size' => $size, 'filename' => $filename]);
         return [
             'success' => true,
             'file_path' => $stored,
+            'storage_path' => 'secure_payments/' . $filename,
+            'receipt_url' => $receiptUrl,
             'thumbnail_path' => $thumbnail,
             'local_path' => $target,
             'mime' => $mime,
@@ -334,32 +417,52 @@ if (!function_exists('payment_verification_create_submission')) {
         if ($customerId <= 0 || $receipt === '') return 0;
 
         $expected = payment_verification_expected_amount($orderId, $jobOrderId);
-        $sql = "INSERT INTO payment_submissions
-            (order_id, job_order_id, customer_id, receipt_file, receipt_thumbnail,
-             receipt_original_name, receipt_mime, receipt_size, receipt_sha256,
-             selected_payment_method, expected_amount, submitted_amount,
-             verification_status, ocr_status)
-            VALUES (NULLIF(?, 0), NULLIF(?, 0), ?, ?, NULLIF(?, ''), NULLIF(?, ''),
-                    NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?)";
-        $ok = db_execute($sql, 'iiissssissddss', [
-            $orderId,
-            $jobOrderId,
+        $branchId = max(0, (int)($data['branch_id'] ?? 0));
+        if ($branchId <= 0 && $jobOrderId > 0) {
+            $branch = db_query('SELECT branch_id FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobOrderId]);
+            $branchId = max(0, (int)($branch[0]['branch_id'] ?? 0));
+        }
+        if ($branchId <= 0 && $orderId > 0) {
+            $branch = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
+            $branchId = max(0, (int)($branch[0]['branch_id'] ?? 0));
+        }
+
+        $submissionToken = strtolower(trim((string)($data['submission_token'] ?? '')));
+        if (!preg_match('/^[a-f0-9]{32,64}$/', $submissionToken)) $submissionToken = null;
+        $values = [
+            $orderId > 0 ? $orderId : null,
+            $jobOrderId > 0 ? $jobOrderId : null,
             $customerId,
+            $branchId > 0 ? $branchId : null,
             $receipt,
-            trim((string)($data['receipt_thumbnail'] ?? '')),
-            trim((string)($data['receipt_original_name'] ?? '')),
-            trim((string)($data['receipt_mime'] ?? '')),
+            trim((string)($data['receipt_storage_path'] ?? '')) ?: null,
+            trim((string)($data['receipt_url'] ?? '')) ?: null,
+            trim((string)($data['receipt_thumbnail'] ?? '')) ?: null,
+            trim((string)($data['receipt_original_name'] ?? '')) ?: null,
+            trim((string)($data['receipt_mime'] ?? '')) ?: null,
             max(0, (int)($data['receipt_size'] ?? 0)),
-            trim((string)($data['receipt_sha256'] ?? '')),
-            payment_verification_normalize_method((string)($data['selected_payment_method'] ?? '')),
+            trim((string)($data['receipt_sha256'] ?? '')) ?: null,
+            payment_verification_normalize_method((string)($data['selected_payment_method'] ?? '')) ?: null,
             $expected,
             max(0, (float)($data['submitted_amount'] ?? 0)),
+            $submissionToken,
             (string)($data['verification_status'] ?? 'Pending Review'),
             (string)($data['ocr_status'] ?? 'Pending'),
-        ]);
-        if (!$ok) return 0;
-        global $conn;
-        return (int)($conn->insert_id ?? 0);
+        ];
+        $ok = db_execute(
+            "INSERT INTO payment_submissions
+             (order_id, job_order_id, customer_id, branch_id, receipt_file,
+              receipt_storage_path, receipt_url, receipt_thumbnail, receipt_original_name,
+              receipt_mime, receipt_size, receipt_sha256, selected_payment_method,
+              expected_amount, submitted_amount, submission_token, verification_status, ocr_status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            'iiiissssssissddsss',
+            $values
+        );
+        $id = is_int($ok) ? $ok : 0;
+        if ($id > 0) payment_verification_log('submission_created', ['submission_id' => $id, 'order_id' => $orderId, 'job_order_id' => $jobOrderId, 'branch_id' => $branchId]);
+        else payment_verification_log('submission_insert_failed', ['order_id' => $orderId, 'job_order_id' => $jobOrderId]);
+        return $id;
     }
 }
 
@@ -795,9 +898,12 @@ if (!function_exists('payment_verification_review_state')) {
         string $reference,
         int $duplicateId
     ): array {
-        $amountMatch = ($amount === null || $expected <= 0)
+        // Compare integer cent values; binary floating-point string comparisons are unsafe for money.
+        $amountCents = $amount === null ? null : (int)round($amount * 100, 0, PHP_ROUND_HALF_UP);
+        $expectedCents = (int)round($expected * 100, 0, PHP_ROUND_HALF_UP);
+        $amountMatch = ($amountCents === null || $expectedCents <= 0)
             ? 'Unknown'
-            : (abs($amount - $expected) <= 0.01 ? 'Matched' : 'Mismatch');
+            : ($amountCents === $expectedCents ? 'Matched' : 'Mismatch');
         $methodMatch = $methodMatches === null ? 'Unknown' : ($methodMatches ? 'Matched' : 'Mismatch');
         if ($duplicateId > 0) {
             $status = 'Duplicate Suspected';
@@ -814,11 +920,21 @@ if (!function_exists('payment_verification_review_state')) {
     }
 }
 
+if (!function_exists('payment_verification_sanitize_ocr_text')) {
+    function payment_verification_sanitize_ocr_text(?string $text): string {
+        $text = str_replace(["\r\n", "\r"], "\n", trim((string)$text));
+        $text = (string)preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $text);
+        return mb_substr($text, 0, 200000);
+    }
+}
+
 if (!function_exists('payment_ocr_process_submission')) {
     function payment_ocr_process_submission(int $submissionId, bool $force = false): array {
+        $startedAt = microtime(true);
         if ($submissionId <= 0 || !payment_verification_ensure_schema()) {
             return ['success' => false, 'status' => 'Failed'];
         }
+        payment_verification_log('ocr_started', ['submission_id' => $submissionId, 'force' => $force]);
         if ($force) {
             db_execute(
                 "UPDATE payment_submissions SET ocr_status = 'Pending', ocr_error = NULL
@@ -849,11 +965,13 @@ if (!function_exists('payment_ocr_process_submission')) {
         if (!$submission) return ['success' => false, 'status' => 'Failed'];
         $filePath = payment_verification_local_file((string)$submission['receipt_file']);
         if ($filePath === null) {
+            $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
             db_execute(
-                "UPDATE payment_submissions SET ocr_status = 'Failed', ocr_error = ?, verification_status = 'Needs Review', ocr_processed_at = NOW() WHERE id = ?",
-                'si',
-                ['Receipt file is unavailable for OCR.', $submissionId]
+                "UPDATE payment_submissions SET ocr_status = 'Failed', ocr_error = ?, verification_status = 'Needs Review', ocr_duration_ms = ?, ocr_processed_at = NOW() WHERE id = ?",
+                'sii',
+                ['Receipt file is unavailable for OCR.', $durationMs, $submissionId]
             );
+            payment_verification_log('ocr_failed', ['submission_id' => $submissionId, 'reason' => 'file_unavailable', 'duration_ms' => $durationMs]);
             return ['success' => false, 'status' => 'Failed'];
         }
         $mime = trim((string)($submission['receipt_mime'] ?? ''));
@@ -862,18 +980,19 @@ if (!function_exists('payment_ocr_process_submission')) {
         if (empty($ocr['success'])) {
             $status = !empty($ocr['unavailable']) ? 'Unavailable' : 'Failed';
             $safeError = mb_substr(trim((string)($ocr['error'] ?? 'OCR could not process this receipt.')), 0, 500);
+            $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
             db_execute(
                 "UPDATE payment_submissions
-                 SET ocr_status = ?, ocr_error = ?, verification_status = 'Needs Review', ocr_processed_at = NOW()
+                 SET ocr_status = ?, ocr_error = ?, verification_status = 'Needs Review', ocr_duration_ms = ?, ocr_processed_at = NOW()
                  WHERE id = ?",
-                'ssi',
-                [$status, $safeError, $submissionId]
+                'ssii',
+                [$status, $safeError, $durationMs, $submissionId]
             );
-            error_log("Payment OCR {$status} for submission #{$submissionId}: {$safeError}");
+            payment_verification_log('ocr_failed', ['submission_id' => $submissionId, 'status' => $status, 'reason' => $safeError, 'duration_ms' => $durationMs]);
             return ['success' => false, 'status' => $status, 'verification_status' => 'Needs Review'];
         }
 
-        $rawText = trim((string)$ocr['text']);
+        $rawText = payment_verification_sanitize_ocr_text((string)$ocr['text']);
         $parsed = payment_ocr_parse_receipt_text(
             $rawText,
             is_array($ocr['tokens'] ?? null) ? $ocr['tokens'] : [],
@@ -898,6 +1017,7 @@ if (!function_exists('payment_ocr_process_submission')) {
             $duplicateId
         );
 
+        $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
         $params = [
             $parsed['sender_name'], $parsed['reference_number'], $normalizedReference,
             $parsed['amount_sent'] === null ? null : number_format((float)$parsed['amount_sent'], 2, '.', ''),
@@ -905,7 +1025,7 @@ if (!function_exists('payment_ocr_process_submission')) {
             $parsed['receiver_name'], $parsed['receiver_account'], $rawText,
             $parsed['overall_confidence'], $parsed['sender_confidence'], $parsed['reference_confidence'],
             $parsed['amount_confidence'], $parsed['method_confidence'], $parsed['date_confidence'],
-            $parsed['receiver_confidence'], (string)$ocr['provider'], $expected,
+            $parsed['receiver_confidence'], (string)$ocr['provider'], $durationMs, $expected,
             $state['amount_match_status'], $state['method_match_status'], $duplicateId > 0 ? $duplicateId : null,
             $state['verification_status'], $submissionId,
         ];
@@ -917,13 +1037,19 @@ if (!function_exists('payment_ocr_process_submission')) {
                 ocr_receiver_name = NULLIF(?, ''), ocr_receiver_account = NULLIF(?, ''), raw_ocr_text = ?,
                 overall_confidence = ?, sender_confidence = ?, reference_confidence = ?, amount_confidence = ?,
                 method_confidence = ?, date_confidence = ?, receiver_confidence = ?,
-                ocr_status = 'Completed', ocr_provider = ?, ocr_error = NULL, ocr_processed_at = NOW(),
+                ocr_status = 'Completed', ocr_provider = ?, ocr_error = NULL, ocr_duration_ms = ?, ocr_processed_at = NOW(),
                 expected_amount = ?, amount_match_status = ?, method_match_status = ?,
                 duplicate_submission_id = ?, verification_status = ?
              WHERE id = ?",
-            str_repeat('s', 23) . 'i',
+            str_repeat('s', 24) . 'i',
             $params
         );
+        payment_verification_log($ok ? 'ocr_succeeded' : 'ocr_save_failed', [
+            'submission_id' => $submissionId,
+            'provider' => (string)($ocr['provider'] ?? ''),
+            'duration_ms' => $durationMs,
+            'verification_status' => $state['verification_status'],
+        ]);
         return [
             'success' => (bool)$ok,
             'status' => $ok ? 'Completed' : 'Failed',
@@ -959,6 +1085,23 @@ if (!function_exists('payment_verification_effective_value')) {
     function payment_verification_effective_value(array $row, string $correctedColumn, string $ocrColumn) {
         $corrected = $row[$correctedColumn] ?? null;
         return ($corrected !== null && trim((string)$corrected) !== '') ? $corrected : ($row[$ocrColumn] ?? null);
+    }
+}
+
+if (!function_exists('payment_verification_amount_result')) {
+    function payment_verification_amount_result(array $row): string {
+        $ocrStatus = strtolower(trim((string)($row['ocr_status'] ?? '')));
+        if (in_array($ocrStatus, ['pending', 'processing'], true)) return 'pending_ocr';
+
+        $amountRaw = payment_verification_effective_value($row, 'amount_sent', 'ocr_amount_sent');
+        $expectedRaw = $row['expected_amount'] ?? null;
+        if ($amountRaw === null || $amountRaw === '' || $expectedRaw === null || $expectedRaw === '') return 'unreadable';
+
+        $amountCents = (int)round((float)$amountRaw * 100, 0, PHP_ROUND_HALF_UP);
+        $expectedCents = (int)round((float)$expectedRaw * 100, 0, PHP_ROUND_HALF_UP);
+        if ($expectedCents <= 0) return 'unreadable';
+        if ($amountCents === $expectedCents) return 'exact_match';
+        return $amountCents < $expectedCents ? 'underpaid' : 'overpaid';
     }
 }
 
@@ -1184,10 +1327,14 @@ if (!function_exists('payment_verification_get_submission')) {
         if ($submissionId <= 0 || !payment_verification_ensure_schema()) return null;
         $rows = db_query(
             "SELECT ps.*,
-                    o.order_sku, o.status AS order_status, o.payment_status AS order_payment_status,
+                    (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                     FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id
+                     WHERE oi.order_id = ps.order_id) AS order_sku,
+                    o.status AS order_status, o.payment_status AS order_payment_status,
                     o.branch_id AS order_branch_id,
                     jo.status AS job_status, jo.payment_status AS job_payment_status,
                     jo.payment_proof_status AS job_proof_status, jo.branch_id AS job_branch_id,
+                    jo.job_title, jo.service_type, jo.estimated_total, jo.required_payment,
                     CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
                     c.email AS customer_email,
                     CONCAT_WS(' ', verifier.first_name, verifier.last_name) AS verifier_name,
@@ -1221,7 +1368,8 @@ if (!function_exists('payment_verification_can_access')) {
             $branchId = (int)($_SESSION['branch_id'] ?? 0);
         }
         if ($branchId <= 0) return false;
-        $submissionBranch = (int)($submission['order_branch_id'] ?? 0);
+        $submissionBranch = (int)($submission['branch_id'] ?? 0);
+        if ($submissionBranch <= 0) $submissionBranch = (int)($submission['order_branch_id'] ?? 0);
         if ($submissionBranch <= 0) $submissionBranch = (int)($submission['job_branch_id'] ?? 0);
         return $submissionBranch > 0 && $submissionBranch === $branchId;
     }
@@ -1234,7 +1382,7 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
         $imported = 0;
 
         $orders = db_query(
-            "SELECT o.order_id, o.customer_id, o.payment_proof, o.total_amount,
+            "SELECT o.order_id, o.customer_id, o.branch_id, o.payment_proof, o.total_amount,
                     o.payment_status, o.status, o.payment_submitted_at, pm.name AS payment_method_name
              FROM orders o
              LEFT JOIN payment_methods pm ON pm.payment_method_id = o.payment_method_id
@@ -1258,7 +1406,10 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
             $id = payment_verification_create_submission([
                 'order_id' => (int)$order['order_id'],
                 'customer_id' => (int)$order['customer_id'],
+                'branch_id' => (int)($order['branch_id'] ?? 0),
                 'receipt_file' => (string)$order['payment_proof'],
+                'receipt_storage_path' => ltrim((string)$order['payment_proof'], '/'),
+                'receipt_url' => payment_verification_proof_url((string)$order['payment_proof']),
                 'receipt_mime' => $local ? (string)(@mime_content_type($local) ?: '') : '',
                 'receipt_size' => $local ? (int)@filesize($local) : 0,
                 'receipt_sha256' => $local ? (string)(@hash_file('sha256', $local) ?: '') : '',
@@ -1272,7 +1423,7 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
 
         $remaining = max(1, $limit - $imported);
         $jobs = db_query(
-            "SELECT jo.id, jo.order_id, jo.customer_id, jo.payment_proof_path,
+            "SELECT jo.id, jo.order_id, jo.customer_id, jo.branch_id, jo.payment_proof_path,
                     jo.payment_method, jo.payment_submitted_amount,
                     jo.payment_proof_status, jo.payment_status
              FROM job_orders jo
@@ -1297,7 +1448,10 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
                 'order_id' => (int)($job['order_id'] ?? 0),
                 'job_order_id' => (int)$job['id'],
                 'customer_id' => (int)$job['customer_id'],
+                'branch_id' => (int)($job['branch_id'] ?? 0),
                 'receipt_file' => (string)$job['payment_proof_path'],
+                'receipt_storage_path' => ltrim((string)$job['payment_proof_path'], '/'),
+                'receipt_url' => payment_verification_proof_url((string)$job['payment_proof_path']),
                 'receipt_mime' => $local ? (string)(@mime_content_type($local) ?: '') : '',
                 'receipt_size' => $local ? (int)@filesize($local) : 0,
                 'receipt_sha256' => $local ? (string)(@hash_file('sha256', $local) ?: '') : '',

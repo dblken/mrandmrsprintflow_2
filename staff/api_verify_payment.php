@@ -370,7 +370,13 @@ try {
     }
 } catch (Exception $e) {
     $success = false;
-    $error_message = 'Database error: ' . $e->getMessage();
+    payment_verification_log('store_payment_review_failed', [
+        'order_id' => $order_id,
+        'staff_id' => $staff_id,
+        'action' => $action,
+        'reason' => $e->getMessage(),
+    ]);
+    $error_message = 'The payment review could not be saved. Please try again.';
 }
 
 if ($success) {

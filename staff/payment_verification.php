@@ -34,9 +34,16 @@ $offset = ($page - 1) * $perPage;
 
 $allowedStatuses = ['Pending Review', 'Matched', 'Needs Review', 'Approved', 'Rejected', 'Duplicate Suspected'];
 if (!in_array($status, $allowedStatuses, true)) $status = '';
-$allowedAmountFilters = ['Matched', 'Mismatch', 'Unknown'];
+$legacyAmountFilters = ['Matched' => 'exact_match', 'Unknown' => 'unreadable'];
+if (isset($legacyAmountFilters[$amountFilter])) $amountFilter = $legacyAmountFilters[$amountFilter];
+$allowedAmountFilters = ['exact_match', 'underpaid', 'overpaid', 'unreadable', 'pending_ocr'];
 if (!in_array($amountFilter, $allowedAmountFilters, true)) $amountFilter = '';
 
+$branchExpression = "COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0)";
+$orderSkuExpression = "(SELECT GROUP_CONCAT(DISTINCT sku_product.sku ORDER BY sku_product.sku SEPARATOR '-')
+                        FROM order_items sku_item
+                        LEFT JOIN products sku_product ON sku_product.product_id = sku_item.product_id
+                        WHERE sku_item.order_id = ps.order_id)";
 $from = " FROM payment_submissions ps
           LEFT JOIN orders o ON o.order_id = ps.order_id
           LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
@@ -45,7 +52,7 @@ $from = " FROM payment_submissions ps
 $types = '';
 $params = [];
 if ($branchFilter !== null) {
-    $from .= ' AND COALESCE(o.branch_id, jo.branch_id, 0) = ?';
+    $from .= " AND {$branchExpression} = ?";
     $types .= 'i';
     $params[] = (int)$branchFilter;
 }
@@ -54,7 +61,7 @@ if ($search !== '') {
     $from .= " AND (
         CONCAT_WS(' ', c.first_name, c.last_name) LIKE ?
         OR CAST(ps.order_id AS CHAR) LIKE ? OR CAST(ps.job_order_id AS CHAR) LIKE ?
-        OR COALESCE(o.order_sku, '') LIKE ?
+        OR COALESCE({$orderSkuExpression}, '') LIKE ?
         OR COALESCE(NULLIF(ps.reference_number, ''), ps.ocr_reference_number, '') LIKE ?
         OR COALESCE(NULLIF(ps.sender_name, ''), ps.ocr_sender_name, '') LIKE ?
     )";
@@ -73,9 +80,18 @@ if ($method !== '') {
     $params[] = $method;
 }
 if ($amountFilter !== '') {
-    $from .= ' AND ps.amount_match_status = ?';
-    $types .= 's';
-    $params[] = $amountFilter;
+    $effectiveAmount = 'COALESCE(ps.amount_sent, ps.ocr_amount_sent)';
+    if ($amountFilter === 'pending_ocr') {
+        $from .= " AND ps.ocr_status IN ('Pending', 'Processing')";
+    } elseif ($amountFilter === 'unreadable') {
+        $from .= " AND ps.ocr_status NOT IN ('Pending', 'Processing') AND {$effectiveAmount} IS NULL";
+    } elseif ($amountFilter === 'exact_match') {
+        $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} = ps.expected_amount";
+    } elseif ($amountFilter === 'underpaid') {
+        $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} < ps.expected_amount";
+    } elseif ($amountFilter === 'overpaid') {
+        $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} > ps.expected_amount";
+    }
 }
 if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
     $from .= ' AND ps.created_at >= ?';
@@ -94,13 +110,16 @@ if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
 
 $total = 0;
 $submissions = [];
+$queueError = '';
+$queueErrorBaseline = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
 if ($schemaReady) {
     $count = db_query('SELECT COUNT(*) AS total' . $from, $types, $params);
     $total = (int)($count[0]['total'] ?? 0);
     $submissions = db_query(
-        "SELECT ps.*, o.order_sku,
+        "SELECT ps.*,
+                {$orderSkuExpression} AS order_sku,
                 CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
-                COALESCE(o.branch_id, jo.branch_id, 0) AS branch_id
+                {$branchExpression} AS resolved_branch_id
          {$from}
          ORDER BY
             CASE ps.verification_status
@@ -124,7 +143,7 @@ if ($schemaReady) {
     $kpiTypes = '';
     $kpiParams = [];
     if ($branchFilter !== null) {
-        $kpiWhere .= ' AND COALESCE(o.branch_id, jo.branch_id, 0) = ?';
+        $kpiWhere .= " AND {$branchExpression} = ?";
         $kpiTypes = 'i';
         $kpiParams[] = (int)$branchFilter;
     }
@@ -142,6 +161,17 @@ if ($schemaReady) {
         foreach ($kpis as $key => $unused) $kpis[$key] = (int)($kpiRows[0][$key] ?? 0);
     }
 }
+$queueErrors = function_exists('printflow_db_errors') ? array_slice(printflow_db_errors(), $queueErrorBaseline) : [];
+if ($schemaReady && !empty($queueErrors)) {
+    $queueError = 'The payment queue could not be loaded. Your current results were kept; please try Refresh Queue again.';
+    payment_verification_log('staff_queue_query_failed', [
+        'branch_id' => $branchFilter,
+        'error_count' => count($queueErrors),
+        'last_error' => (string)($queueErrors[array_key_last($queueErrors)]['error'] ?? 'unknown'),
+    ]);
+} else {
+    payment_verification_log('staff_queue_loaded', ['branch_id' => $branchFilter, 'records' => count($submissions), 'total' => $total]);
+}
 
 $detailId = (int)($_GET['submission_id'] ?? 0);
 $detail = $detailId > 0 ? payment_verification_get_submission($detailId) : null;
@@ -149,6 +179,18 @@ if ($detail && !payment_verification_can_access($detail, $branchFilter)) $detail
 if ($detail) {
     payment_verification_recalculate($detailId);
     $detail = payment_verification_get_submission($detailId);
+}
+$detailItems = [];
+if ($detail && (int)($detail['order_id'] ?? 0) > 0) {
+    $detailItems = db_query(
+        "SELECT oi.quantity, oi.unit_price, COALESCE(NULLIF(p.name, ''), 'Custom item') AS item_name
+         FROM order_items oi
+         LEFT JOIN products p ON p.product_id = oi.product_id
+         WHERE oi.order_id = ?
+         ORDER BY oi.order_item_id ASC",
+        'i',
+        [(int)$detail['order_id']]
+    ) ?: [];
 }
 
 function pv_h($value): string {
@@ -205,7 +247,7 @@ $filterState = [
         .pv-kpi-label { color:#68808a; text-transform:uppercase; letter-spacing:.08em; font-size:11px; font-weight:800; }
         .pv-kpi-value { display:block; margin-top:6px; font-size:28px; font-weight:850; color:var(--pv-ink); }
         .pv-panel { background:#fff; border:1px solid var(--pv-line); border-radius:18px; box-shadow:0 12px 32px rgba(8,47,58,.055); }
-        .pv-filters { padding:16px; display:grid; grid-template-columns:2fr repeat(5,minmax(125px,1fr)) auto; gap:10px; margin-bottom:18px; }
+        .pv-filters { padding:16px; display:grid; grid-template-columns:2fr repeat(5,minmax(125px,1fr)) auto auto; gap:10px; margin-bottom:18px; }
         .pv-field, .pv-select { width:100%; height:42px; border:1px solid #c9dde1; border-radius:10px; padding:0 12px; background:#fff; color:#163e48; font-size:13px; box-sizing:border-box; }
         .pv-field:focus, .pv-select:focus { outline:3px solid rgba(83,197,224,.22); border-color:#32a1c4; }
         .pv-button { border:0; border-radius:10px; min-height:42px; padding:0 16px; font-weight:800; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px; text-decoration:none; }
@@ -274,7 +316,7 @@ $filterState = [
                 <h1 class="pv-title">Payment Verification</h1>
                 <p class="pv-subtitle">OCR-assisted receipt review. Staff confirmation is always required before payment approval.</p>
             </div>
-            <a class="pv-button light" href="<?php echo pv_h($basePath); ?>/staff/payment_verification.php">Refresh Queue</a>
+            <button class="pv-button light" type="button" id="pvRefreshQueue">Refresh Queue</button>
         </header>
 
         <?php if (!$schemaReady): ?>
@@ -291,14 +333,17 @@ $filterState = [
             <input class="pv-field" type="search" name="search" value="<?php echo pv_h($search); ?>" placeholder="Customer, order, sender, or reference">
             <select class="pv-select" name="status"><option value="">All statuses</option><?php foreach ($allowedStatuses as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $status === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select>
             <select class="pv-select" name="method"><option value="">All methods</option><?php foreach (['GCash','Maya','Bank Transfer','Bank Transfer / InstaPay','Bank Transfer / PESONet'] as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $method === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select>
-            <select class="pv-select" name="amount_match"><option value="">Any amount result</option><?php foreach ($allowedAmountFilters as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $amountFilter === $option ? 'selected' : ''; ?>>Amount <?php echo pv_h($option); ?></option><?php endforeach; ?></select>
+            <select class="pv-select" name="amount_match"><option value="">Any amount result</option><?php foreach ($allowedAmountFilters as $option): $label = ucwords(str_replace('_', ' ', $option)); ?><option value="<?php echo pv_h($option); ?>" <?php echo $amountFilter === $option ? 'selected' : ''; ?>><?php echo pv_h($label); ?></option><?php endforeach; ?></select>
             <input class="pv-field" type="date" name="date_from" value="<?php echo pv_h($dateFrom); ?>" title="Submitted from">
             <input class="pv-field" type="date" name="date_to" value="<?php echo pv_h($dateTo); ?>" title="Submitted through">
             <button class="pv-button primary" type="submit">Apply Filters</button>
+            <a class="pv-button light" href="<?php echo pv_h($basePath); ?>/staff/payment_verification.php">Clear</a>
         </form>
 
         <section class="pv-panel">
-            <?php if (empty($submissions)): ?>
+            <?php if ($queueError !== ''): ?>
+                <div class="pv-empty" role="alert"><strong>Payment queue unavailable.</strong><div class="pv-muted"><?php echo pv_h($queueError); ?></div></div>
+            <?php elseif (empty($submissions)): ?>
                 <div class="pv-empty"><strong>No payment submissions found.</strong><div class="pv-muted">New and imported payment proofs will appear here.</div></div>
             <?php else: ?>
             <div class="pv-table-wrap">
@@ -312,15 +357,17 @@ $filterState = [
                         $amountRaw = payment_verification_effective_value($submission, 'amount_sent', 'ocr_amount_sent');
                         $amount = ($amountRaw === null || $amountRaw === '') ? null : (float)$amountRaw;
                         $confidence = (float)($submission['overall_confidence'] ?? 0);
+                        $amountResult = payment_verification_amount_result($submission);
+                        $amountResultLabel = ucwords(str_replace('_', ' ', $amountResult));
                         $previewPath = (string)($submission['receipt_thumbnail'] ?: $submission['receipt_file']);
                         $isPdf = strtolower((string)$submission['receipt_mime']) === 'application/pdf' || preg_match('/\.pdf(?:$|\?)/i', (string)$submission['receipt_file']);
                         $viewQuery = array_merge($filterState, ['page' => $page, 'submission_id' => (int)$submission['id']]);
                     ?>
                     <tr>
-                        <td><?php if ($isPdf): ?><div class="pv-pdf-thumb">PDF</div><?php else: ?><img class="pv-receipt-thumb" loading="lazy" src="<?php echo pv_h(payment_verification_proof_url($previewPath)); ?>" alt="Receipt preview"><?php endif; ?><div class="pv-muted"><?php echo pv_h(date('M j, Y', strtotime((string)$submission['created_at']))); ?></div></td>
+                        <td><?php if ($isPdf): ?><div class="pv-pdf-thumb">PDF</div><?php else: ?><img class="pv-receipt-thumb" loading="lazy" src="<?php echo pv_h(payment_verification_proof_url($previewPath)); ?>" alt="Receipt preview"><?php endif; ?><div class="pv-muted"><?php echo pv_h(date('M j, Y g:i A', strtotime((string)$submission['created_at']))); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h(payment_verification_order_label($submission)); ?></div><div class="pv-muted"><?php echo pv_h($submission['customer_name'] ?: 'Customer'); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h($sender !== '' ? $sender : 'Not detected'); ?></div><div class="pv-muted">Ref: <?php echo pv_h($reference !== '' ? $reference : 'Not detected'); ?></div></td>
-                        <td><div class="pv-money"><?php echo $amount === null ? 'Not detected' : pv_h(format_currency($amount)); ?></div><div class="pv-muted">Expected <?php echo pv_h(format_currency((float)$submission['expected_amount'])); ?></div><div class="pv-match <?php echo $submission['amount_match_status'] === 'Matched' ? 'ok' : ($submission['amount_match_status'] === 'Mismatch' ? 'bad' : 'unknown'); ?>"><?php echo pv_h('Amount ' . $submission['amount_match_status']); ?></div></td>
+                        <td><div class="pv-money"><?php echo $amount === null ? 'Not detected' : pv_h(format_currency($amount)); ?></div><div class="pv-muted">Expected <?php echo pv_h(format_currency((float)$submission['expected_amount'])); ?></div><div class="pv-match <?php echo $amountResult === 'exact_match' ? 'ok' : (in_array($amountResult, ['underpaid','overpaid'], true) ? 'bad' : 'unknown'); ?>"><?php echo pv_h($amountResultLabel); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h($detectedMethod !== '' ? $detectedMethod : 'Not detected'); ?></div><div class="pv-muted">Selected: <?php echo pv_h($submission['selected_payment_method'] ?: 'Unknown'); ?></div><div class="pv-match <?php echo $submission['method_match_status'] === 'Matched' ? 'ok' : ($submission['method_match_status'] === 'Mismatch' ? 'bad' : 'unknown'); ?>"><?php echo pv_h('Method ' . $submission['method_match_status']); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h(pv_effective($submission, 'transaction_date', 'ocr_transaction_date') ?: 'Date unknown'); ?></div><div class="pv-muted"><?php echo pv_h(pv_effective($submission, 'transaction_time', 'ocr_transaction_time') ?: 'Time unknown'); ?></div></td>
                         <td><span class="pv-confidence <?php echo pv_confidence_class($confidence); ?>"><?php echo number_format($confidence, 0); ?>%</span><div class="pv-muted"><?php echo pv_h($submission['ocr_status']); ?></div></td>
@@ -343,6 +390,8 @@ $filterState = [
     $isFinal = in_array($detailStatus, ['Approved', 'Rejected'], true);
     $detailAmountRaw = payment_verification_effective_value($detail, 'amount_sent', 'ocr_amount_sent');
     $detailAmount = ($detailAmountRaw === null || $detailAmountRaw === '') ? null : (float)$detailAmountRaw;
+    $detailAmountResult = payment_verification_amount_result($detail);
+    $detailAmountResultLabel = ucwords(str_replace('_', ' ', $detailAmountResult));
     $detailMethod = pv_effective($detail, 'detected_payment_method', 'ocr_detected_payment_method');
     $closeQuery = $filterState + ['page' => $page];
     $proofUrl = payment_verification_proof_url((string)$detail['receipt_file']);
@@ -354,10 +403,10 @@ $filterState = [
         <div class="pv-detail-grid">
             <div>
                 <div class="pv-card"><h2 class="pv-card-title">Receipt</h2><?php if ($detailIsPdf): ?><object class="pv-proof-pdf" data="<?php echo pv_h($proofUrl); ?>" type="application/pdf"><a href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open PDF receipt</a></object><?php else: ?><img class="pv-proof-large" src="<?php echo pv_h($proofUrl); ?>" alt="Uploaded payment receipt"><?php endif; ?><div class="pv-actions"><a class="pv-button light" href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open Full Receipt</a><button class="pv-button light" type="button" onclick="pvRescan(<?php echo (int)$detail['id']; ?>)" <?php echo $isFinal ? 'disabled' : ''; ?>>Re-scan OCR</button></div></div>
-                <div class="pv-card"><h2 class="pv-card-title">Order Information</h2><div class="pv-info-grid"><div class="pv-info"><span class="pv-info-label">Order Code</span><span class="pv-info-value"><?php echo pv_h(payment_verification_order_label($detail)); ?></span></div><div class="pv-info"><span class="pv-info-label">Customer</span><span class="pv-info-value"><?php echo pv_h($detail['customer_name'] ?: 'Customer'); ?></span></div><div class="pv-info"><span class="pv-info-label">Order Total</span><span class="pv-info-value"><?php echo pv_h(format_currency((float)$detail['expected_amount'])); ?></span></div><div class="pv-info"><span class="pv-info-label">Selected Method</span><span class="pv-info-value"><?php echo pv_h($detail['selected_payment_method'] ?: 'Unknown'); ?></span></div><div class="pv-info"><span class="pv-info-label">Order Status</span><span class="pv-info-value"><?php echo pv_h($detail['order_status'] ?: $detail['job_status']); ?></span></div><div class="pv-info"><span class="pv-info-label">Payment Status</span><span class="pv-info-value"><?php echo pv_h($detail['order_payment_status'] ?: $detail['job_payment_status']); ?></span></div></div></div>
+                <div class="pv-card"><h2 class="pv-card-title">Order Information</h2><div class="pv-info-grid"><div class="pv-info"><span class="pv-info-label">Order Code</span><span class="pv-info-value"><?php echo pv_h(payment_verification_order_label($detail)); ?></span></div><div class="pv-info"><span class="pv-info-label">Customer</span><span class="pv-info-value"><?php echo pv_h($detail['customer_name'] ?: 'Customer'); ?></span></div><div class="pv-info"><span class="pv-info-label">Order Total</span><span class="pv-info-value"><?php echo pv_h(format_currency((float)$detail['expected_amount'])); ?></span></div><div class="pv-info"><span class="pv-info-label">Selected Method</span><span class="pv-info-value"><?php echo pv_h($detail['selected_payment_method'] ?: 'Unknown'); ?></span></div><div class="pv-info"><span class="pv-info-label">Order Status</span><span class="pv-info-value"><?php echo pv_h($detail['order_status'] ?: $detail['job_status']); ?></span></div><div class="pv-info"><span class="pv-info-label">Payment Status</span><span class="pv-info-value"><?php echo pv_h($detail['order_payment_status'] ?: $detail['job_payment_status']); ?></span></div><?php if (!empty($detail['job_title']) || !empty($detail['service_type'])): ?><div class="pv-info"><span class="pv-info-label">Job / Service</span><span class="pv-info-value"><?php echo pv_h(trim((string)($detail['job_title'] ?: $detail['service_type']))); ?></span></div><?php endif; ?></div><?php if ($detailItems): ?><div style="margin-top:12px;"><?php foreach ($detailItems as $item): ?><div class="pv-info" style="margin-top:7px;"><span class="pv-info-label">Order Item</span><span class="pv-info-value"><?php echo pv_h($item['item_name']); ?> × <?php echo (int)$item['quantity']; ?> — <?php echo pv_h(format_currency((float)$item['unit_price'] * (int)$item['quantity'])); ?></span></div><?php endforeach; ?></div><?php endif; ?></div>
             </div>
             <div>
-                <div class="pv-card"><h2 class="pv-card-title">Amount Comparison</h2><div class="pv-compare"><div class="pv-compare-box"><span class="pv-info-label">Expected Amount</span><div class="pv-compare-value"><?php echo pv_h(format_currency((float)$detail['expected_amount'])); ?></div></div><span class="pv-status <?php echo $detail['amount_match_status'] === 'Matched' ? 'is-matched' : ($detail['amount_match_status'] === 'Mismatch' ? 'is-rejected' : 'is-pending'); ?>"><?php echo pv_h($detail['amount_match_status']); ?></span><div class="pv-compare-box"><span class="pv-info-label">OCR Detected</span><div class="pv-compare-value"><?php echo $detailAmount === null ? 'Unknown' : pv_h(format_currency($detailAmount)); ?></div></div></div></div>
+                <div class="pv-card"><h2 class="pv-card-title">Amount Comparison</h2><div class="pv-compare"><div class="pv-compare-box"><span class="pv-info-label">Expected Amount</span><div class="pv-compare-value"><?php echo pv_h(format_currency((float)$detail['expected_amount'])); ?></div></div><span class="pv-status <?php echo $detailAmountResult === 'exact_match' ? 'is-matched' : (in_array($detailAmountResult, ['underpaid','overpaid'], true) ? 'is-rejected' : 'is-pending'); ?>"><?php echo pv_h($detailAmountResultLabel); ?></span><div class="pv-compare-box"><span class="pv-info-label">OCR Detected</span><div class="pv-compare-value"><?php echo $detailAmount === null ? 'Unknown' : pv_h(format_currency($detailAmount)); ?></div></div></div></div>
 
                 <form class="pv-card" id="pvCorrectionForm" onsubmit="return false;">
                     <input type="hidden" name="submission_id" value="<?php echo (int)$detail['id']; ?>">
@@ -378,9 +427,9 @@ $filterState = [
                     </div>
                     <div class="pv-edit-field" style="margin-top:13px;"><label>Staff Notes</label><textarea name="staff_notes" rows="3" <?php echo $isFinal ? 'disabled' : ''; ?>><?php echo pv_h($detail['staff_notes']); ?></textarea></div>
                     <div class="pv-actions">
-                        <button class="pv-button light" type="button" onclick="pvSaveCorrections()" <?php echo $isFinal ? 'disabled' : ''; ?>>Save Corrections</button>
+                        <button class="pv-button light" type="button" onclick="pvSaveCorrections()" <?php echo $isFinal ? 'disabled' : ''; ?>>Save Manual Review</button>
                         <button class="pv-button teal" type="button" onclick="pvApprove()" <?php echo $isFinal ? 'disabled' : ''; ?>>Approve Payment</button>
-                        <button class="pv-button danger" type="button" onclick="pvReject()" <?php echo $isFinal ? 'disabled' : ''; ?>>Reject / New Receipt</button>
+                        <button class="pv-button danger" type="button" onclick="pvReject()" <?php echo $isFinal ? 'disabled' : ''; ?>>Reject / Request Resubmission</button>
                         <button class="pv-button warning" type="button" onclick="pvMarkDuplicate()" <?php echo $isFinal ? 'disabled' : ''; ?>>Mark as Duplicate</button>
                         <span class="pv-status <?php echo pv_status_class($detailStatus); ?>"><?php echo pv_h($detailStatus); ?></span>
                     </div>
@@ -505,13 +554,30 @@ window.pvDetail = <?php echo json_encode([
     document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape' && detail) location.href = detail.returnUrl;
     });
-    const queueData = new FormData();
-    queueData.set('action', 'process_queue');
-    queueData.set('csrf_token', csrf);
-    fetch(base + '/staff/api_payment_verification.php', {
-        method:'POST', body:queueData, credentials:'same-origin', keepalive:true,
-        headers:{'X-Requested-With':'XMLHttpRequest'}
-    }).catch(function () {});
+    const refreshButton = document.getElementById('pvRefreshQueue');
+    if (refreshButton) {
+        refreshButton.addEventListener('click', async function () {
+            const originalLabel = refreshButton.textContent;
+            refreshButton.disabled = true;
+            refreshButton.textContent = 'Refreshing…';
+            try {
+                const queueData = new FormData();
+                queueData.set('action', 'process_queue');
+                await post(base + '/staff/api_payment_verification.php', queueData);
+                const probe = await fetch(base + '/staff/api_payment_verification.php?action=queue_snapshot', {
+                    method: 'GET', credentials: 'same-origin', cache: 'no-store',
+                    headers: {'X-Requested-With':'XMLHttpRequest'}
+                });
+                const payload = await probe.json().catch(() => ({}));
+                if (!probe.ok || !payload.success) throw new Error(payload.error || 'The refreshed queue could not be loaded.');
+                window.location.reload();
+            } catch (error) {
+                refreshButton.disabled = false;
+                refreshButton.textContent = originalLabel;
+                toast(error.message || 'Refresh failed. The current queue was not changed.', true);
+            }
+        });
+    }
 })();
 </script>
 </body>

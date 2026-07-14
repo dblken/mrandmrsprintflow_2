@@ -833,9 +833,11 @@ if (!function_exists('pf_payment_qr_url')) {
                         <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="btn-primary w-full mt-6 text-center block" style="text-decoration: none;">Track Order Status</a>
                     </div>
                 <?php else: ?>
+                    <?php $payment_submission_token = bin2hex(random_bytes(24)); ?>
                     <form id="paymentForm" enctype="multipart/form-data">
                         <input type="hidden" name="order_id" value="<?php echo $order_id; ?>">
                         <input type="hidden" name="is_job" value="<?php echo $is_job_order ? '1' : '0'; ?>">
+                        <input type="hidden" name="submission_token" value="<?php echo htmlspecialchars($payment_submission_token, ENT_QUOTES, 'UTF-8'); ?>">
                         <?php echo csrf_field(); ?>
 
                         <?php if ($is_rejected_payment): ?>
@@ -932,12 +934,12 @@ if (!function_exists('pf_payment_qr_url')) {
                         <h2 class="payment-section-title" style="margin-bottom: 1rem; font-size: 1rem; color: #eaf6fb;">2. Upload Reference Receipt</h2>
                         
                         <div class="input-group">
-                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/jpeg,image/png,application/pdf" required>
+                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/jpeg,image/png,image/webp,application/pdf" required>
                             <div id="dropzone" class="dropzone" onclick="document.getElementById('proofInput').click()">
                                 <div id="placeholder" style="display: block;">
                                     <div style="font-size: 2rem; margin-bottom: 0.5rem;">📸</div>
                                     <div class="dz-title">Click to upload receipt</div>
-                                    <div class="dz-sub">JPG, PNG or PDF, up to 10 MB</div>
+                                    <div class="dz-sub">JPG, PNG, WEBP or PDF, up to 10 MB</div>
                                 </div>
                                 <div id="preview" style="display: none; align-items: center; justify-content: center; flex-direction: column; width: 100%; overflow: hidden;">
                                     <img id="previewImg" src="" style="max-height: 120px; border-radius: 8px; margin-bottom: 10px; max-width: 100%; object-fit: contain;">
@@ -1017,10 +1019,10 @@ if (!function_exists('pf_payment_qr_url')) {
         proofInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                const validTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+                const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
                 if (!validTypes.includes(file.type) || file.size > 10 * 1024 * 1024) {
                     e.target.value = '';
-                    showToast('Please choose a JPG, PNG, or PDF receipt up to 10 MB.');
+                    showToast('Please choose a JPG, PNG, WEBP, or PDF receipt up to 10 MB.');
                     updateSubmitState();
                     return;
                 }
@@ -1083,7 +1085,7 @@ if (!function_exists('pf_payment_qr_url')) {
                     return;
                 }
 
-                if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+                if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && data.submission_id) {
                     if (data.submission_id) {
                         const ocrData = new FormData();
                         ocrData.append('submission_id', data.submission_id);

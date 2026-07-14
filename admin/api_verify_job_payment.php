@@ -356,7 +356,9 @@ if ($action === 'verify_payment') {
         if (($conn->in_transaction ?? false)) {
             $conn->rollback();
         }
-        echo json_encode(['success' => false, 'error' => 'Database error during verification: ' . $e->getMessage()]);
+        payment_verification_log('job_payment_approval_failed', ['job_order_id' => $job_id, 'staff_id' => $user_id, 'reason' => $e->getMessage()]);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'The payment approval could not be saved. Please try again.']);
     }
 
 } 
@@ -454,7 +456,9 @@ elseif ($action === 'reject_payment') {
         
         echo json_encode(['success' => true]);
     } catch (Throwable $e) {
-        echo json_encode(['success' => false, 'error' => 'Database error during rejection: ' . $e->getMessage()]);
+        payment_verification_log('job_payment_rejection_failed', ['job_order_id' => $job_id, 'staff_id' => $user_id, 'reason' => $e->getMessage()]);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'The payment rejection could not be saved. Please try again.']);
     }
 
 } else {

@@ -15,6 +15,52 @@ if (($_SESSION['user_type'] ?? '') === 'Staff') {
 }
 header('Content-Type: application/json; charset=utf-8');
 
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'queue_snapshot') {
+    $errorBaseline = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+    if (!payment_verification_ensure_schema()) {
+        http_response_code(503);
+        echo json_encode(['success' => false, 'error' => 'Payment verification storage is unavailable.']);
+        exit;
+    }
+    payment_verification_import_legacy_submissions(100);
+    $branchId = function_exists('printflow_branch_filter_for_user') ? printflow_branch_filter_for_user() : null;
+    if (($_SESSION['user_type'] ?? '') === 'Staff' && ($branchId === null || $branchId <= 0)) {
+        $branchId = (int)($_SESSION['branch_id'] ?? 0);
+    }
+    $where = " FROM payment_submissions ps
+               LEFT JOIN orders o ON o.order_id = ps.order_id
+               LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
+               WHERE 1=1";
+    $types = '';
+    $params = [];
+    if ($branchId !== null) {
+        $where .= ' AND COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0) = ?';
+        $types = 'i';
+        $params[] = (int)$branchId;
+    }
+    $rows = db_query(
+        "SELECT COUNT(*) AS total,
+                SUM(ps.verification_status = 'Pending Review') AS pending,
+                SUM(ps.verification_status = 'Matched') AS matched,
+                SUM(ps.verification_status IN ('Needs Review', 'Duplicate Suspected')) AS review,
+                SUM(ps.verification_status = 'Approved') AS approved
+         {$where}",
+        $types,
+        $params
+    );
+    $newErrors = function_exists('printflow_db_errors') ? array_slice(printflow_db_errors(), $errorBaseline) : [];
+    if (!empty($newErrors) || empty($rows)) {
+        payment_verification_log('staff_queue_api_failed', ['branch_id' => $branchId, 'error_count' => count($newErrors)]);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'The payment queue could not be loaded. Your current results were kept.']);
+        exit;
+    }
+    $snapshot = array_map('intval', $rows[0]);
+    payment_verification_log('staff_queue_api_loaded', ['branch_id' => $branchId, 'records' => $snapshot['total'] ?? 0]);
+    echo json_encode(['success' => true, 'queue' => $snapshot, 'refreshed_at' => date(DATE_ATOM)]);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'Invalid request method.']);

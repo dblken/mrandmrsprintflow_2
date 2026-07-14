@@ -13,6 +13,11 @@ require_role('Customer');
 
 header('Content-Type: application/json');
 
+$upload = [];
+$transaction_started = false;
+$submission_committed = false;
+$update_success = false;
+
 try {
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -30,12 +35,22 @@ $is_job = (bool)($_POST['is_job'] ?? false);
 $customer_id = get_user_id();
 $payment_choice = $_POST['payment_choice'] ?? 'full';
 $selected_payment_method = payment_verification_normalize_method((string)($_POST['selected_payment_method'] ?? 'GCash'));
+$submission_token = strtolower(trim((string)($_POST['submission_token'] ?? '')));
+if (!preg_match('/^[a-f0-9]{32,64}$/', $submission_token)) {
+    $submission_token = '';
+}
 if ($selected_payment_method === '') {
     $selected_payment_method = 'GCash';
 }
 if (!in_array($payment_choice, ['full', 'half'], true)) {
     $payment_choice = 'full';
 }
+payment_verification_log('submission_request_received', [
+    'order_id' => $order_id,
+    'customer_id' => $customer_id,
+    'is_job' => $is_job,
+    'method' => $selected_payment_method,
+]);
 
 // 1. Validate order in correct table
 if (!$is_job) {
@@ -56,6 +71,35 @@ if (!$is_job) {
     $total_to_pay = (float)$order['estimated_total'];
 }
 
+if (!payment_verification_ensure_schema()) {
+    http_response_code(503);
+    echo json_encode(['success' => false, 'message' => 'Payment verification is temporarily unavailable. Please try again shortly.']);
+    exit;
+}
+
+// One rendered form gets one token. A fresh page after rejection gets a new token,
+// allowing valid resubmissions while making double-click/network retries idempotent.
+if ($submission_token !== '') {
+    $existing = db_query(
+        'SELECT id, ocr_status, receipt_url FROM payment_submissions WHERE customer_id = ? AND submission_token = ? LIMIT 1',
+        'is',
+        [$customer_id, $submission_token]
+    );
+    if (!empty($existing[0]['id'])) {
+        payment_verification_log('submission_request_reused', ['submission_id' => (int)$existing[0]['id'], 'order_id' => $order_id]);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Payment proof already submitted. Your payment is pending staff verification.',
+            'submission_id' => (int)$existing[0]['id'],
+            'record_created' => true,
+            'idempotent_replay' => true,
+            'ocr_status' => (string)($existing[0]['ocr_status'] ?? 'Pending'),
+            'receipt_url' => (string)($existing[0]['receipt_url'] ?? ''),
+        ]);
+        exit;
+    }
+}
+
 // Validate amount and proof
 $amount = (float)($_POST['amount'] ?? 0);
 $min_required = ($payment_choice === 'half') ? $total_to_pay * 0.5 : $total_to_pay;
@@ -65,7 +109,8 @@ if ($amount < $min_required - 0.01) {
     exit;
 }
 
-if (!isset($_FILES['payment_proof']) || $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK) {
+if (!isset($_FILES['payment_proof'])) {
+    payment_verification_log('upload_failed', ['reason' => 'missing_file_field', 'order_id' => $order_id]);
     echo json_encode(['success' => false, 'message' => 'Please upload a proof of payment.']);
     exit;
 }
@@ -79,6 +124,12 @@ if (!$upload['success']) {
 
 $file_path = $upload['file_path'];
 $payment_type = ($payment_choice === 'half') ? '50_percent' : 'full_payment';
+
+global $conn;
+if (!$conn->begin_transaction()) {
+    throw new RuntimeException('Could not start payment submission transaction.');
+}
+$transaction_started = true;
 
 if (!$is_job) {
     // 3. Update regular order
@@ -161,7 +212,10 @@ if ($update_success) {
         'order_id' => $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
         'job_order_id' => $is_job ? $order_id : 0,
         'customer_id' => $customer_id,
+        'branch_id' => (int)($order['branch_id'] ?? 0),
         'receipt_file' => $file_path,
+        'receipt_storage_path' => (string)($upload['storage_path'] ?? ''),
+        'receipt_url' => (string)($upload['receipt_url'] ?? ''),
         'receipt_thumbnail' => (string)($upload['thumbnail_path'] ?? ''),
         'receipt_original_name' => (string)($upload['original_name'] ?? ''),
         'receipt_mime' => (string)($upload['mime'] ?? ''),
@@ -169,10 +223,17 @@ if ($update_success) {
         'receipt_sha256' => (string)($upload['sha256'] ?? ''),
         'selected_payment_method' => $selected_payment_method,
         'submitted_amount' => $amount,
+        'submission_token' => $submission_token,
     ]);
     if ($submission_id <= 0) {
-        error_log("Payment submission audit row could not be created for order #{$order_id}.");
+        throw new RuntimeException("Payment submission audit row could not be created for order #{$order_id}.");
     }
+
+    if (!$conn->commit()) {
+        throw new RuntimeException('Could not commit payment submission transaction.');
+    }
+    $transaction_started = false;
+    $submission_committed = true;
 
     payment_verification_notify_reviewers(
         $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
@@ -199,24 +260,21 @@ if ($update_success) {
         'success' => true, 
         'message' => 'Payment proof submitted. Your payment is pending staff verification.',
         'file_path' => $file_path,
-        'submission_id' => $submission_id ?? 0,
-        'ocr_status' => ($submission_id ?? 0) > 0 ? 'Pending' : 'Unavailable'
+        'receipt_url' => (string)($upload['receipt_url'] ?? ''),
+        'submission_id' => $submission_id,
+        'record_created' => true,
+        'ocr_status' => 'Pending'
     ]);
 } else {
-    if (empty($update_success)) {
-        if (!empty($upload['local_path']) && is_file($upload['local_path'])) {
-            @unlink($upload['local_path']);
-        }
-        if (!empty($upload['thumbnail_path'])) {
-            $thumbnailLocal = payment_verification_local_file((string)$upload['thumbnail_path']);
-            if ($thumbnailLocal) @unlink($thumbnailLocal);
-        }
-    }
-    echo json_encode(['success' => false, 'message' => 'Database update failed. Please try again.']);
+    throw new RuntimeException('The order payment state could not be updated.');
 }
 
 } catch (Throwable $e) {
-    if (empty($update_success)) {
+    if ($transaction_started && isset($conn) && $conn instanceof mysqli) {
+        $conn->rollback();
+        $transaction_started = false;
+    }
+    if (!$submission_committed) {
         if (!empty($upload['local_path']) && is_file($upload['local_path'])) {
             @unlink($upload['local_path']);
         }
@@ -225,6 +283,7 @@ if ($update_success) {
             if ($thumbnailLocal) @unlink($thumbnailLocal);
         }
     }
-    error_log('Payment proof submission failed: ' . $e->getMessage());
+    payment_verification_log('submission_failed', ['order_id' => $order_id ?? 0, 'customer_id' => $customer_id ?? 0, 'reason' => $e->getMessage()]);
+    http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'The payment proof could not be submitted. Please try again.']);
 }

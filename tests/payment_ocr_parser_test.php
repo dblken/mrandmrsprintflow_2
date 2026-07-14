@@ -59,6 +59,13 @@ payment_ocr_test_assert($mismatch['verification_status'] === 'Needs Review', 'A 
 
 $matched = payment_verification_review_state(210.00, 210.00, true, 91.0, 'ABC123456', 0);
 payment_ocr_test_assert($matched['verification_status'] === 'Matched', 'High-confidence matching details should be marked Matched, not Approved.');
+$centSafe = payment_verification_review_state(210.004, 210.00, true, 91.0, 'ABC123456', 0);
+payment_ocr_test_assert($centSafe['amount_match_status'] === 'Matched', 'Money comparison should use rounded integer cents.');
+$oneCentShort = payment_verification_review_state(209.99, 210.00, true, 91.0, 'ABC123456', 0);
+payment_ocr_test_assert($oneCentShort['amount_match_status'] === 'Mismatch', 'A one-cent underpayment must not match.');
+payment_ocr_test_assert(payment_verification_amount_result(['ocr_status' => 'Completed', 'ocr_amount_sent' => '209.99', 'expected_amount' => '210.00']) === 'underpaid', 'Amount result should identify underpayment.');
+payment_ocr_test_assert(payment_verification_amount_result(['ocr_status' => 'Completed', 'ocr_amount_sent' => '210.01', 'expected_amount' => '210.00']) === 'overpaid', 'Amount result should identify overpayment.');
+payment_ocr_test_assert(payment_verification_amount_result(['ocr_status' => 'Pending', 'expected_amount' => '210.00']) === 'pending_ocr', 'Pending OCR should remain a distinct amount result.');
 $low = payment_verification_review_state(50.00, 50.00, true, 58.0, 'ABC123456', 0);
 payment_ocr_test_assert($low['verification_status'] === 'Needs Review', 'Low-confidence OCR must require review.');
 $duplicate = payment_verification_review_state(50.00, 50.00, true, 95.0, 'ABC123456', 42);
@@ -66,6 +73,15 @@ payment_ocr_test_assert($duplicate['verification_status'] === 'Duplicate Suspect
 
 payment_ocr_test_assert(payment_verification_methods_match('Bank Transfer', 'Bank Transfer / PESONet') === true, 'Generic bank transfer should match PESONet.');
 payment_ocr_test_assert(payment_verification_mask_account('09171234567') === '*******4567', 'Receiver account should be masked.');
+payment_ocr_test_assert(
+    payment_verification_sanitize_ocr_text("GCash\x00\x07\r\nAmount 100") === "GCash\nAmount 100",
+    'OCR control characters should be removed before persistence.'
+);
+
+$staffQueueSource = (string)file_get_contents(__DIR__ . '/../staff/payment_verification.php');
+$detailQuerySource = (string)file_get_contents(__DIR__ . '/../includes/payment_verification.php');
+payment_ocr_test_assert(strpos($staffQueueSource, 'o.order_sku') === false, 'Queue SQL must compute order SKU instead of selecting a nonexistent orders.order_sku column.');
+payment_ocr_test_assert(strpos($detailQuerySource, 'o.order_sku') === false, 'Detail SQL must compute order SKU instead of selecting a nonexistent orders.order_sku column.');
 
 if ($failures) {
     foreach ($failures as $failure) fwrite(STDERR, "FAIL: {$failure}\n");
