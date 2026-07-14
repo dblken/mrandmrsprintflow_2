@@ -243,6 +243,7 @@ $filterState = [
         .pv-kpi-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); position: relative; overflow: hidden; cursor: pointer; transition: all 0.2s; }
         .pv-kpi-card:hover { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transform: translateY(-1px); }
         .pv-kpi-card.active { border-color: #06A1A1; box-shadow: 0 0 0 2px rgba(6, 161, 161, 0.2); }
+        .pv-kpi-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--accent, #06A1A1); }
         .pv-kpi-card-inner { display: flex; flex-direction: column; }
         .pv-kpi-label { font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
         .pv-kpi-value { font-size: 28px; font-weight: 700; color: #1f2937; line-height: 1; }
@@ -390,7 +391,7 @@ $filterState = [
             <?php else: ?>
             <div class="pv-table-wrap">
                 <table class="pv-table">
-                    <thead><tr><th>Receipt</th><th>Order / Customer</th><th>Sender / Reference</th><th>Amount Comparison</th><th>Payment Method</th><th>Transaction</th><th>OCR Confidence</th><th>Status</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Order / Customer</th><th>Sender / Reference</th><th>Payment Method</th><th>Transaction</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
                     <?php foreach ($submissions as $submission):
                         $sender = pv_effective($submission, 'sender_name', 'ocr_sender_name');
@@ -406,13 +407,10 @@ $filterState = [
                         $viewQuery = array_merge($filterState, ['page' => $page, 'submission_id' => (int)$submission['id']]);
                     ?>
                     <tr>
-                        <td><?php if ($isPdf): ?><div class="pv-pdf-thumb">PDF</div><?php else: ?><img class="pv-receipt-thumb" loading="lazy" src="<?php echo pv_h(payment_verification_proof_url($previewPath)); ?>" alt="Receipt preview"><?php endif; ?><div class="pv-muted"><?php echo pv_h(date('M j, Y g:i A', strtotime((string)$submission['created_at']))); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h(payment_verification_order_label($submission)); ?></div><div class="pv-muted"><?php echo pv_h($submission['customer_name'] ?: 'Customer'); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h($sender !== '' ? $sender : 'Not detected'); ?></div><div class="pv-muted">Ref: <?php echo pv_h($reference !== '' ? $reference : 'Not detected'); ?></div></td>
-                        <td><div class="pv-money"><?php echo $amount === null ? 'Not detected' : pv_h(format_currency($amount)); ?></div><div class="pv-muted">Expected <?php echo pv_h(format_currency((float)$submission['expected_amount'])); ?></div><div class="pv-match <?php echo $amountResult === 'exact_match' ? 'ok' : (in_array($amountResult, ['underpaid','overpaid'], true) ? 'bad' : 'unknown'); ?>"><?php echo pv_h($amountResultLabel); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h($detectedMethod !== '' ? $detectedMethod : 'Not detected'); ?></div><div class="pv-muted">Selected: <?php echo pv_h($submission['selected_payment_method'] ?: 'Unknown'); ?></div><div class="pv-match <?php echo $submission['method_match_status'] === 'Matched' ? 'ok' : ($submission['method_match_status'] === 'Mismatch' ? 'bad' : 'unknown'); ?>"><?php echo pv_h('Method ' . $submission['method_match_status']); ?></div></td>
+                        <td><div class="pv-mainline"><?php echo pv_h($detectedMethod !== '' ? $detectedMethod : 'Not detected'); ?></div><div class="pv-muted">Selected: <?php echo pv_h($submission['selected_payment_method'] ?: 'Unknown'); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h(pv_effective($submission, 'transaction_date', 'ocr_transaction_date') ?: 'Date unknown'); ?></div><div class="pv-muted"><?php echo pv_h(pv_effective($submission, 'transaction_time', 'ocr_transaction_time') ?: 'Time unknown'); ?></div></td>
-                        <td><span class="pv-confidence <?php echo pv_confidence_class($confidence); ?>"><?php echo number_format($confidence, 0); ?>%</span><div class="pv-muted"><?php echo pv_h($submission['ocr_status']); ?></div></td>
                         <td><span class="pv-status <?php echo pv_status_class((string)$submission['verification_status']); ?>"><?php echo pv_h($submission['verification_status']); ?></span><?php if ((int)$submission['duplicate_submission_id'] > 0): ?><div class="pv-muted">Matches #<?php echo (int)$submission['duplicate_submission_id']; ?></div><?php endif; ?></td>
                         <td><a class="pv-button light" href="?<?php echo pv_h(http_build_query(array_filter($viewQuery, static fn($value) => $value !== ''))); ?>">Review</a></td>
                     </tr>
