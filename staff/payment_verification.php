@@ -14,217 +14,267 @@ if (($_SESSION['user_type'] ?? '') === 'Staff') {
     require_once __DIR__ . '/../includes/staff_pending_check.php';
 }
 
-$schemaReady = payment_verification_ensure_schema();
-if ($schemaReady) payment_verification_import_legacy_submissions(100);
-$branchFilter = printflow_branch_filter_for_user();
-if (($_SESSION['user_type'] ?? '') === 'Staff' && ($branchFilter === null || $branchFilter <= 0)) {
-    $branchFilter = (int)($_SESSION['branch_id'] ?? 0);
-    if ($branchFilter <= 0) $branchFilter = -1;
-}
+// ──────────────────────────────────────────────────────────────────────────
+// SAFE DATA-LOADING BOOTSTRAP
+// Any uncaught Throwable here is caught, logged with a reference ID, and
+// renders a friendly error panel instead of a blank white page.
+// ──────────────────────────────────────────────────────────────────────────
+$_pv_boot_error    = null;  // friendly message for the error panel
+$_pv_boot_ref      = null;  // opaque reference ID for log correlation
 
-$search = trim((string)($_GET['search'] ?? ''));
-$status = trim((string)($_GET['status'] ?? ''));
-$method = trim((string)($_GET['method'] ?? ''));
-$amountFilter = trim((string)($_GET['amount_match'] ?? ''));
-$dateFrom = trim((string)($_GET['date_from'] ?? ''));
-$dateTo = trim((string)($_GET['date_to'] ?? ''));
-$page = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 20;
-$offset = ($page - 1) * $perPage;
-
-$allowedStatuses = ['Pending Review', 'Matched', 'Needs Review', 'Approved', 'Rejected', 'Duplicate Suspected'];
-if (!in_array($status, $allowedStatuses, true)) $status = '';
-$legacyAmountFilters = ['Matched' => 'exact_match', 'Unknown' => 'unreadable'];
-if (isset($legacyAmountFilters[$amountFilter])) $amountFilter = $legacyAmountFilters[$amountFilter];
+$schemaReady  = false;
+$branchFilter = null;
+$search = $status = $method = $amountFilter = $dateFrom = $dateTo = '';
+$page = 1; $perPage = 20; $offset = 0;
+$allowedStatuses     = ['Pending Review', 'Matched', 'Needs Review', 'Approved', 'Rejected', 'Duplicate Suspected'];
 $allowedAmountFilters = ['exact_match', 'underpaid', 'overpaid', 'unreadable', 'pending_ocr'];
-if (!in_array($amountFilter, $allowedAmountFilters, true)) $amountFilter = '';
+$total        = 0;
+$submissions  = [];
+$queueError   = '';
+$totalPages   = 1;
+$kpis         = ['pending' => 0, 'matched' => 0, 'review' => 0, 'approved' => 0];
+$detailId     = 0;
+$detail       = null;
+$detailItems  = [];
+$filterState  = [];
 
-$branchExpression = "COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0)";
-$orderSkuExpression = "(SELECT GROUP_CONCAT(DISTINCT sku_product.sku ORDER BY sku_product.sku SEPARATOR '-')
-                        FROM order_items sku_item
-                        LEFT JOIN products sku_product ON sku_product.product_id = sku_item.product_id
-                        WHERE sku_item.order_id = ps.order_id)";
-$from = " FROM payment_submissions ps
-          LEFT JOIN orders o ON o.order_id = ps.order_id
-          LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
-          LEFT JOIN customers c ON c.customer_id = ps.customer_id
-          WHERE 1=1";
-$types = '';
-$params = [];
-if ($branchFilter !== null) {
-    $from .= " AND {$branchExpression} = ?";
-    $types .= 'i';
-    $params[] = (int)$branchFilter;
-}
-if ($search !== '') {
-    $like = '%' . $search . '%';
-    $from .= " AND (
-        CONCAT_WS(' ', c.first_name, c.last_name) LIKE ?
-        OR CAST(ps.order_id AS CHAR) LIKE ? OR CAST(ps.job_order_id AS CHAR) LIKE ?
-        OR COALESCE({$orderSkuExpression}, '') LIKE ?
-        OR COALESCE(NULLIF(ps.reference_number, ''), ps.ocr_reference_number, '') LIKE ?
-        OR COALESCE(NULLIF(ps.sender_name, ''), ps.ocr_sender_name, '') LIKE ?
-    )";
-    $types .= 'ssssss';
-    array_push($params, $like, $like, $like, $like, $like, $like);
-}
-if ($status !== '') {
-    $from .= ' AND ps.verification_status = ?';
-    $types .= 's';
-    $params[] = $status;
-}
-if ($method !== '') {
-    $from .= " AND (ps.selected_payment_method = ? OR COALESCE(NULLIF(ps.detected_payment_method, ''), ps.ocr_detected_payment_method, '') = ?)";
-    $types .= 'ss';
-    $params[] = $method;
-    $params[] = $method;
-}
-if ($amountFilter !== '') {
-    $effectiveAmount = 'COALESCE(ps.amount_sent, ps.ocr_amount_sent)';
-    if ($amountFilter === 'pending_ocr') {
-        $from .= " AND ps.ocr_status IN ('Pending', 'Processing')";
-    } elseif ($amountFilter === 'unreadable') {
-        $from .= " AND ps.ocr_status NOT IN ('Pending', 'Processing') AND {$effectiveAmount} IS NULL";
-    } elseif ($amountFilter === 'exact_match') {
-        $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} = ps.expected_amount";
-    } elseif ($amountFilter === 'underpaid') {
-        $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} < ps.expected_amount";
-    } elseif ($amountFilter === 'overpaid') {
-        $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} > ps.expected_amount";
+try {
+    $schemaReady = payment_verification_ensure_schema();
+    // Legacy import runs only when the queue is explicitly refreshed (via Refresh Queue button).
+    // Running it on every page load caused slow responses and potential timeout-induced blank pages.
+    // The Refresh Queue AJAX endpoint (api_payment_verification.php?action=process_queue) handles this.
+
+    $branchFilter = printflow_branch_filter_for_user();
+    if (($_SESSION['user_type'] ?? '') === 'Staff' && ($branchFilter === null || $branchFilter <= 0)) {
+        $branchFilter = (int)($_SESSION['branch_id'] ?? 0);
+        if ($branchFilter <= 0) $branchFilter = -1;
     }
-}
-if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
-    $from .= ' AND ps.created_at >= ?';
-    $types .= 's';
-    $params[] = $dateFrom . ' 00:00:00';
-} else {
-    $dateFrom = '';
-}
-if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
-    $from .= ' AND ps.created_at <= ?';
-    $types .= 's';
-    $params[] = $dateTo . ' 23:59:59';
-} else {
-    $dateTo = '';
-}
 
-$total = 0;
-$submissions = [];
-$queueError = '';
-$queueErrorBaseline = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
-if ($schemaReady) {
-    $count = db_query('SELECT COUNT(*) AS total' . $from, $types, $params);
-    $total = (int)($count[0]['total'] ?? 0);
-    $submissions = db_query(
-        "SELECT ps.*,
-                {$orderSkuExpression} AS order_sku,
-                CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
-                {$branchExpression} AS resolved_branch_id
-         {$from}
-         ORDER BY
-            CASE ps.verification_status
-                WHEN 'Duplicate Suspected' THEN 1
-                WHEN 'Needs Review' THEN 2
-                WHEN 'Pending Review' THEN 3
-                WHEN 'Matched' THEN 4
-                ELSE 5
-            END,
-            ps.created_at DESC
-         LIMIT ? OFFSET ?",
-        $types . 'ii',
-        array_merge($params, [$perPage, $offset])
-    ) ?: [];
-}
-$totalPages = max(1, (int)ceil($total / $perPage));
+    $search      = trim((string)($_GET['search']       ?? ''));
+    $status      = trim((string)($_GET['status']       ?? ''));
+    $method      = trim((string)($_GET['method']       ?? ''));
+    $amountFilter = trim((string)($_GET['amount_match'] ?? ''));
+    $dateFrom    = trim((string)($_GET['date_from']    ?? ''));
+    $dateTo      = trim((string)($_GET['date_to']      ?? ''));
+    $page        = max(1, (int)($_GET['page'] ?? 1));
+    $perPage     = 20;
+    $offset      = ($page - 1) * $perPage;
 
-$kpis = ['pending' => 0, 'matched' => 0, 'review' => 0, 'approved' => 0];
-if ($schemaReady) {
-    $kpiWhere = ' FROM payment_submissions ps LEFT JOIN orders o ON o.order_id = ps.order_id LEFT JOIN job_orders jo ON jo.id = ps.job_order_id WHERE 1=1';
-    $kpiTypes = '';
-    $kpiParams = [];
+    if (!in_array($status, $allowedStatuses, true)) $status = '';
+    $legacyAmountFilters = ['Matched' => 'exact_match', 'Unknown' => 'unreadable'];
+    if (isset($legacyAmountFilters[$amountFilter])) $amountFilter = $legacyAmountFilters[$amountFilter];
+    if (!in_array($amountFilter, $allowedAmountFilters, true)) $amountFilter = '';
+
+    $branchExpression = "COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0)";
+    $orderSkuExpression = "(SELECT GROUP_CONCAT(DISTINCT sku_product.sku ORDER BY sku_product.sku SEPARATOR '-')
+                            FROM order_items sku_item
+                            LEFT JOIN products sku_product ON sku_product.product_id = sku_item.product_id
+                            WHERE sku_item.order_id = ps.order_id)";
+    $from = " FROM payment_submissions ps
+              LEFT JOIN orders o ON o.order_id = ps.order_id
+              LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
+              LEFT JOIN customers c ON c.customer_id = ps.customer_id
+              WHERE 1=1";
+    $types  = '';
+    $params = [];
     if ($branchFilter !== null) {
-        $kpiWhere .= " AND {$branchExpression} = ?";
-        $kpiTypes = 'i';
-        $kpiParams[] = (int)$branchFilter;
+        $from   .= " AND {$branchExpression} = ?";
+        $types  .= 'i';
+        $params[] = (int)$branchFilter;
     }
-    $kpiRows = db_query(
-        "SELECT
-            SUM(ps.verification_status = 'Pending Review') AS pending,
-            SUM(ps.verification_status = 'Matched') AS matched,
-            SUM(ps.verification_status IN ('Needs Review', 'Duplicate Suspected')) AS review,
-            SUM(ps.verification_status = 'Approved') AS approved
-         {$kpiWhere}",
-        $kpiTypes,
-        $kpiParams
-    );
-    if (!empty($kpiRows)) {
-        foreach ($kpis as $key => $unused) $kpis[$key] = (int)($kpiRows[0][$key] ?? 0);
+    if ($search !== '') {
+        $like = '%' . $search . '%';
+        $from .= " AND (
+            CONCAT_WS(' ', c.first_name, c.last_name) LIKE ?
+            OR CAST(ps.order_id AS CHAR) LIKE ? OR CAST(ps.job_order_id AS CHAR) LIKE ?
+            OR COALESCE({$orderSkuExpression}, '') LIKE ?
+            OR COALESCE(NULLIF(ps.reference_number, ''), ps.ocr_reference_number, '') LIKE ?
+            OR COALESCE(NULLIF(ps.sender_name, ''), ps.ocr_sender_name, '') LIKE ?
+        )";
+        $types .= 'ssssss';
+        array_push($params, $like, $like, $like, $like, $like, $like);
+    }
+    if ($status !== '') {
+        $from   .= ' AND ps.verification_status = ?';
+        $types  .= 's';
+        $params[] = $status;
+    }
+    if ($method !== '') {
+        $from   .= " AND (ps.selected_payment_method = ? OR COALESCE(NULLIF(ps.detected_payment_method, ''), ps.ocr_detected_payment_method, '') = ?)";
+        $types  .= 'ss';
+        $params[] = $method;
+        $params[] = $method;
+    }
+    if ($amountFilter !== '') {
+        $effectiveAmount = 'COALESCE(ps.amount_sent, ps.ocr_amount_sent)';
+        if ($amountFilter === 'pending_ocr') {
+            $from .= " AND ps.ocr_status IN ('Pending', 'Processing')";
+        } elseif ($amountFilter === 'unreadable') {
+            $from .= " AND ps.ocr_status NOT IN ('Pending', 'Processing') AND {$effectiveAmount} IS NULL";
+        } elseif ($amountFilter === 'exact_match') {
+            $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} = ps.expected_amount";
+        } elseif ($amountFilter === 'underpaid') {
+            $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} < ps.expected_amount";
+        } elseif ($amountFilter === 'overpaid') {
+            $from .= " AND {$effectiveAmount} IS NOT NULL AND {$effectiveAmount} > ps.expected_amount";
+        }
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+        $from   .= ' AND ps.created_at >= ?';
+        $types  .= 's';
+        $params[] = $dateFrom . ' 00:00:00';
+    } else {
+        $dateFrom = '';
+    }
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+        $from   .= ' AND ps.created_at <= ?';
+        $types  .= 's';
+        $params[] = $dateTo . ' 23:59:59';
+    } else {
+        $dateTo = '';
+    }
+
+    $queueErrorBaseline = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+    if ($schemaReady) {
+        $count = db_query('SELECT COUNT(*) AS total' . $from, $types, $params);
+        $total = (int)($count[0]['total'] ?? 0);
+        $submissions = db_query(
+            "SELECT ps.*,
+                    {$orderSkuExpression} AS order_sku,
+                    CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
+                    {$branchExpression} AS resolved_branch_id
+             {$from}
+             ORDER BY
+                CASE ps.verification_status
+                    WHEN 'Duplicate Suspected' THEN 1
+                    WHEN 'Needs Review' THEN 2
+                    WHEN 'Pending Review' THEN 3
+                    WHEN 'Matched' THEN 4
+                    ELSE 5
+                END,
+                ps.created_at DESC
+             LIMIT ? OFFSET ?",
+            $types . 'ii',
+            array_merge($params, [$perPage, $offset])
+        ) ?: [];
+    }
+    $totalPages = max(1, (int)ceil($total / $perPage));
+
+    if ($schemaReady) {
+        $kpiWhere   = ' FROM payment_submissions ps LEFT JOIN orders o ON o.order_id = ps.order_id LEFT JOIN job_orders jo ON jo.id = ps.job_order_id WHERE 1=1';
+        $kpiTypes   = '';
+        $kpiParams  = [];
+        if ($branchFilter !== null) {
+            $kpiWhere   .= " AND {$branchExpression} = ?";
+            $kpiTypes    = 'i';
+            $kpiParams[] = (int)$branchFilter;
+        }
+        $kpiRows = db_query(
+            "SELECT
+                SUM(ps.verification_status = 'Pending Review') AS pending,
+                SUM(ps.verification_status = 'Matched') AS matched,
+                SUM(ps.verification_status IN ('Needs Review', 'Duplicate Suspected')) AS review,
+                SUM(ps.verification_status = 'Approved') AS approved
+             {$kpiWhere}",
+            $kpiTypes,
+            $kpiParams
+        );
+        if (!empty($kpiRows)) {
+            foreach ($kpis as $key => $unused) $kpis[$key] = (int)($kpiRows[0][$key] ?? 0);
+        }
+    }
+    $queueErrors = function_exists('printflow_db_errors') ? array_slice(printflow_db_errors(), $queueErrorBaseline) : [];
+    if ($schemaReady && !empty($queueErrors)) {
+        $queueError = 'The payment queue could not be loaded. Your current results were kept; please try Refresh Queue again.';
+        payment_verification_log('staff_queue_query_failed', [
+            'branch_id'   => $branchFilter,
+            'error_count' => count($queueErrors),
+            'last_error'  => (string)($queueErrors[array_key_last($queueErrors)]['error'] ?? 'unknown'),
+        ]);
+    } else {
+        payment_verification_log('staff_queue_loaded', ['branch_id' => $branchFilter, 'records' => count($submissions), 'total' => $total]);
+    }
+
+    $detailId    = (int)($_GET['submission_id'] ?? 0);
+    $detail      = $detailId > 0 ? payment_verification_get_submission($detailId) : null;
+    if ($detail && !payment_verification_can_access($detail, $branchFilter)) $detail = null;
+    if ($detail) {
+        payment_verification_recalculate($detailId);
+        $detail = payment_verification_get_submission($detailId);
+    }
+    if ($detail && (int)($detail['order_id'] ?? 0) > 0) {
+        $detailItems = db_query(
+            "SELECT oi.quantity, oi.unit_price, COALESCE(NULLIF(p.name, ''), 'Custom item') AS item_name
+             FROM order_items oi
+             LEFT JOIN products p ON p.product_id = oi.product_id
+             WHERE oi.order_id = ?
+             ORDER BY oi.order_item_id ASC",
+            'i',
+            [(int)$detail['order_id']]
+        ) ?: [];
+    }
+
+} catch (Throwable $e) {
+    // Generate an opaque reference ID so the admin can trace the real error in the server log.
+    $_pv_boot_ref = 'PV-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+    error_log('[Payment Verification Fatal] ref=' . $_pv_boot_ref
+        . ' message=' . $e->getMessage()
+        . ' in '      . $e->getFile()
+        . ':'         . $e->getLine());
+    $_pv_boot_error = 'Payment Verification could not be loaded. Please try again or contact the administrator.';
+    // Reset all output-sensitive state so the HTML shell below renders safely.
+    $schemaReady  = false;
+    $submissions  = [];
+    $detail       = null;
+    $detailItems  = [];
+    $kpis         = ['pending' => 0, 'matched' => 0, 'review' => 0, 'approved' => 0];
+    $queueError   = '';
+    $total        = 0;
+    $totalPages   = 1;
+}
+
+$filterState = [
+    'search'       => $search,
+    'status'       => $status,
+    'method'       => $method,
+    'amount_match' => $amountFilter,
+    'date_from'    => $dateFrom,
+    'date_to'      => $dateTo,
+];
+
+if (!function_exists('pv_h')) {
+    function pv_h($value): string {
+        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
     }
 }
-$queueErrors = function_exists('printflow_db_errors') ? array_slice(printflow_db_errors(), $queueErrorBaseline) : [];
-if ($schemaReady && !empty($queueErrors)) {
-    $queueError = 'The payment queue could not be loaded. Your current results were kept; please try Refresh Queue again.';
-    payment_verification_log('staff_queue_query_failed', [
-        'branch_id' => $branchFilter,
-        'error_count' => count($queueErrors),
-        'last_error' => (string)($queueErrors[array_key_last($queueErrors)]['error'] ?? 'unknown'),
-    ]);
-} else {
-    payment_verification_log('staff_queue_loaded', ['branch_id' => $branchFilter, 'records' => count($submissions), 'total' => $total]);
+if (!function_exists('pv_effective')) {
+    function pv_effective(array $row, string $corrected, string $ocr): string {
+        return trim((string)payment_verification_effective_value($row, $corrected, $ocr));
+    }
+}
+if (!function_exists('pv_status_class')) {
+    function pv_status_class(string $status): string {
+        return match ($status) {
+            'Approved'           => 'is-approved',
+            'Matched'            => 'is-matched',
+            'Rejected'           => 'is-rejected',
+            'Duplicate Suspected'=> 'is-duplicate',
+            'Needs Review'       => 'is-review',
+            default              => 'is-pending',
+        };
+    }
+}
+if (!function_exists('pv_confidence_class')) {
+    function pv_confidence_class(float $value): string {
+        if ($value >= 85) return 'confidence-high';
+        if ($value >= 60) return 'confidence-review';
+        return 'confidence-low';
+    }
 }
 
-$detailId = (int)($_GET['submission_id'] ?? 0);
-$detail = $detailId > 0 ? payment_verification_get_submission($detailId) : null;
-if ($detail && !payment_verification_can_access($detail, $branchFilter)) $detail = null;
-if ($detail) {
-    payment_verification_recalculate($detailId);
-    $detail = payment_verification_get_submission($detailId);
-}
-$detailItems = [];
-if ($detail && (int)($detail['order_id'] ?? 0) > 0) {
-    $detailItems = db_query(
-        "SELECT oi.quantity, oi.unit_price, COALESCE(NULLIF(p.name, ''), 'Custom item') AS item_name
-         FROM order_items oi
-         LEFT JOIN products p ON p.product_id = oi.product_id
-         WHERE oi.order_id = ?
-         ORDER BY oi.order_item_id ASC",
-        'i',
-        [(int)$detail['order_id']]
-    ) ?: [];
-}
-
-function pv_h($value): string {
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
-}
-
-function pv_effective(array $row, string $corrected, string $ocr): string {
-    return trim((string)payment_verification_effective_value($row, $corrected, $ocr));
-}
-
-function pv_status_class(string $status): string {
-    return match ($status) {
-        'Approved' => 'is-approved',
-        'Matched' => 'is-matched',
-        'Rejected' => 'is-rejected',
-        'Duplicate Suspected' => 'is-duplicate',
-        'Needs Review' => 'is-review',
-        default => 'is-pending',
-    };
-}
-
-function pv_confidence_class(float $value): string {
-    if ($value >= 85) return 'confidence-high';
-    if ($value >= 60) return 'confidence-review';
-    return 'confidence-low';
-}
-
-$basePath = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+$basePath  = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
 $pageTitle = 'Payment Verification - PrintFlow';
 $csrfToken = generate_csrf_token();
-$filterState = [
-    'search' => $search, 'status' => $status, 'method' => $method,
-    'amount_match' => $amountFilter, 'date_from' => $dateFrom, 'date_to' => $dateTo,
-];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -315,7 +365,19 @@ $filterState = [
             <button class="pv-button light" type="button" id="pvRefreshQueue">Refresh Queue</button>
         </header>
 
-        <?php if (!$schemaReady): ?>
+        <?php if ($_pv_boot_error): ?>
+            <div style="margin:24px 0; padding:20px 24px; background:#fff7f7; border:1.5px solid #fecaca; border-radius:12px; display:flex; gap:16px; align-items:flex-start;">
+                <span style="font-size:28px; line-height:1;">⚠️</span>
+                <div>
+                    <strong style="display:block; color:#991b1b; font-size:15px; margin-bottom:6px;">Page could not be loaded</strong>
+                    <p style="margin:0 0 10px; color:#7f1d1d; font-size:14px;"><?php echo pv_h($_pv_boot_error); ?></p>
+                    <p style="margin:0 0 12px; color:#6b7280; font-size:12px;">Reference: <code style="background:#fef2f2; padding:2px 6px; border-radius:4px;"><?php echo pv_h($_pv_boot_ref); ?></code> — share this with your administrator.</p>
+                    <a href="<?php echo pv_h($basePath); ?>/staff/payment_verification.php" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:#ef4444;color:#fff;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">
+                        ↺ Retry
+                    </a>
+                </div>
+            </div>
+        <?php elseif (!$schemaReady): ?>
             <div class="pv-panel pv-empty">Payment verification storage could not be initialized. Apply <strong>database/payment_verification_ocr_20260711.sql</strong> and refresh this page.</div>
         <?php else: ?>
         <section class="pv-kpi-row" aria-label="Payment verification totals">

@@ -500,37 +500,51 @@ if (!function_exists('payment_ocr_labeled_value')) {
 if (!function_exists('payment_ocr_parse_gcash_receipt')) {
     function payment_ocr_parse_gcash_receipt(array $lines): array {
         $result = [
-            'payment_method' => '',
-            'amount' => null,
+            'payment_method'   => '',
+            'amount'           => null,
             'reference_number' => '',
             'transaction_date' => null,
             'transaction_time' => null,
-            'receiver_name' => '',
+            'receiver_name'    => '',
             'receiver_account' => '',
-            'sender_name' => 'Not available on receipt',
+            'sender_name'      => '',
         ];
-        
-        $text = implode("\n", $lines);
-        $lowerText = strtolower($text);
-        
+
+        $text      = implode("\n", $lines);
+
         // Detect GCash
         if (preg_match('/\bgcash\b/i', $text)) {
             $result['payment_method'] = 'GCash';
         }
-        
-        // Extract amount - prioritize "Total Amount Sent" then "Amount"
+
+        // ── Sender name ────────────────────────────────────────────────────────
+        // Patterns: "Sent by: JUAN DELA CRUZ", "From: MARIA SANTOS"
         foreach ($lines as $line) {
-            if (preg_match('/total\s+amount\s+sent\s*[:\s]*\s*([0-9,.]+)/i', $line, $match)) {
-                $amount = payment_ocr_parse_money($match[1]);
-                if ($amount !== null) {
-                    $result['amount'] = $amount;
+            if (preg_match('/(?:sent\s+by|from)\s*:\s*(.+)/i', $line, $m)) {
+                $name = trim($m[1]);
+                if ($name !== '') {
+                    $result['sender_name'] = mb_substr($name, 0, 190);
                     break;
                 }
             }
         }
-        if ($result['amount'] === null) {
+
+        // ── Amount ─────────────────────────────────────────────────────────────
+        // Highest-priority: "Total Amount Sent [PHP/₱/P] 100.00"
+        // Then: "Amount Sent [PHP/₱/P] 100.00" or "Amount [PHP/₱/P] 100.00"
+        // The optional currency prefix handles receipts that embed "PHP" between
+        // the label and the number (e.g. "Amount Sent PHP 100.00").
+        $currencyPrefix = '(?:PHP|Php|₱|P\b)?\s*';
+        $amountPatterns = [
+            '/total\s+amount\s+sent\s*[:\s]*\s*' . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
+            '/amount\s+sent\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
+            '/amount\s+paid\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
+            '/amount\s*[:\s]*\s*'                 . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
+        ];
+        foreach ($amountPatterns as $pattern) {
+            if ($result['amount'] !== null) break;
             foreach ($lines as $line) {
-                if (preg_match('/amount\s*[:\s]*\s*([0-9,.]+)/i', $line, $match)) {
+                if (preg_match($pattern, $line, $match)) {
                     $amount = payment_ocr_parse_money($match[1]);
                     if ($amount !== null) {
                         $result['amount'] = $amount;
@@ -539,21 +553,28 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
                 }
             }
         }
-        
-        // Extract reference number - "Ref No." or "Reference No."
+
+        // ── Reference number ────────────────────────────────────────────────────
+        // GCash receipts sometimes format the ref as grouped digits with spaces:
+        // "Reference No. 1234 5678 9012". Capture a broader set of chars and
+        // then strip non-alphanumeric characters before storing.
         foreach ($lines as $line) {
-            if (preg_match('/ref\s*(?:erence)?\s*no\.?\s*[:\s]*\s*([A-Z0-9]+)/i', $line, $match)) {
-                $ref = preg_replace('/[^A-Z0-9]/', '', $match[1]);
+            if (preg_match('/ref\s*(?:erence)?\s*no\.?\s*[:\s]*\s*([A-Z0-9][\s\-A-Z0-9]*)/i', $line, $match)) {
+                $ref = preg_replace('/[^A-Z0-9]/i', '', $match[1]);
                 if (strlen($ref) >= 6) {
-                    $result['reference_number'] = mb_substr($ref, 0, 190);
+                    $result['reference_number'] = mb_strtoupper(mb_substr($ref, 0, 190));
                     break;
                 }
             }
         }
-        
-        // Extract date and time - formats like "Apr 13, 2026 8:17 PM"
+
+        // ── Date / time ─────────────────────────────────────────────────────────
+        // Formats: "Apr 13, 2026 8:17 PM" or "July 11, 2026 11:30 AM"
         foreach ($lines as $line) {
-            if (preg_match('/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+20\d{2})\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i', $line, $match)) {
+            if (preg_match(
+                '/((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+20\d{2})\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i',
+                $line, $match
+            )) {
                 $date = payment_ocr_normalize_date($match[1]);
                 $time = payment_ocr_normalize_time($match[2]);
                 if ($date !== null) $result['transaction_date'] = $date;
@@ -561,32 +582,31 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
                 break;
             }
         }
-        
-        // Extract receiver name (masked name near top of receipt)
-        // Look for patterns like "KE••••••D V." or similar masked names
-        foreach ($lines as $index => $line) {
-            if (preg_match('/([A-Z][A-Z•\*]{2,}[A-Z\s\.]+)/', $line, $match)) {
+
+        // ── Receiver name (masked) ──────────────────────────────────────────────
+        // Looks for masked names like "KE••••••D V."
+        foreach ($lines as $line) {
+            if (preg_match('/([A-Z][A-Z•*]{2,}[A-Z\s.]+)/', $line, $match)) {
                 $candidate = trim($match[1]);
-                // Check if it looks like a masked name (contains dots or asterisks)
-                if (preg_match('/[•\*]/', $candidate) && strlen($candidate) >= 3) {
+                if (preg_match('/[•*]/', $candidate) && strlen($candidate) >= 3) {
                     $result['receiver_name'] = mb_substr($candidate, 0, 190);
                     break;
                 }
             }
         }
-        
-        // Extract receiver account (mobile number with +63 or 09)
+
+        // ── Receiver account (mobile) ───────────────────────────────────────────
         foreach ($lines as $line) {
             if (preg_match('/(\+63\s*9\d{2}\s*\d{3}\s*\d{4}|09\d{2}\s*\d{3}\s*\d{4})/', $line, $match)) {
-                $account = preg_replace('/\s+/', '', $match[1]);
-                $result['receiver_account'] = mb_substr($account, 0, 190);
+                $result['receiver_account'] = mb_substr(preg_replace('/\s+/', '', $match[1]), 0, 190);
                 break;
             }
         }
-        
+
         return $result;
     }
 }
+
 
 if (!function_exists('payment_ocr_parse_money')) {
     function payment_ocr_parse_money(string $value): ?float {
@@ -698,7 +718,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             $gcashResult = payment_ocr_parse_gcash_receipt($lines);
             
             // Calculate confidence values for GCash-extracted fields
-            $senderConfidence = $gcashResult['sender_name'] !== 'Not available on receipt' ? 0.0 : 0.0;
+            $senderConfidence = $gcashResult['sender_name'] !== '' ? 80.0 : 0.0;
             $referenceConfidence = $gcashResult['reference_number'] !== '' ? 92.0 : 0.0;
             $amountConfidence = $gcashResult['amount'] !== null ? 94.0 : 0.0;
             $methodConfidence = $gcashResult['payment_method'] !== '' ? 96.0 : 0.0;
