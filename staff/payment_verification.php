@@ -271,7 +271,8 @@ $filterState = [
         .pv-page { min-width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #d1d5db; border-radius: 8px; color: #374151; background: #fff; text-decoration: none; font-weight: 600; font-size: 14px; transition: all 0.2s; }
         .pv-page:hover { border-color: #06A1A1; color: #06A1A1; }
         .pv-page.active { background: #06A1A1; color: #fff; border-color: #06A1A1; }
-        .pv-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); display: flex; justify-content: center; align-items: center; }
+        .pv-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); display: none; justify-content: center; align-items: center; }
+        .pv-overlay.active { display: flex; }
         .pv-drawer { width: min(1200px, 95vw); max-height: 90vh; background: #fff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); overflow: hidden; display: flex; flex-direction: column; }
         .pv-drawer-head { padding: 20px 24px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
         .pv-detail-grid { display: grid; grid-template-columns: minmax(350px, 0.9fr) minmax(450px, 1.1fr); gap: 24px; padding: 24px; overflow-y: auto; flex: 1; }
@@ -509,7 +510,7 @@ $filterState = [
     $proofUrl = payment_verification_proof_url((string)$detail['receipt_file']);
     $detailIsPdf = strtolower((string)$detail['receipt_mime']) === 'application/pdf' || preg_match('/\.pdf(?:$|\?)/i', (string)$detail['receipt_file']);
 ?>
-<div class="pv-overlay" role="dialog" aria-modal="true" aria-label="Payment submission review">
+<div class="pv-overlay active" role="dialog" aria-modal="true" aria-label="Payment submission review">
     <section class="pv-drawer">
         <header class="pv-drawer-head"><div><strong style="font-size:19px;">Review <?php echo pv_h(payment_verification_order_label($detail)); ?></strong><div class="pv-muted">Submission #<?php echo (int)$detail['id']; ?>, received <?php echo pv_h(date('M j, Y g:i A', strtotime((string)$detail['created_at']))); ?></div></div><a class="pv-button light" href="?<?php echo pv_h(http_build_query(array_filter($closeQuery, static fn($value) => $value !== ''))); ?>">Close</a></header>
         <div class="pv-detail-grid">
