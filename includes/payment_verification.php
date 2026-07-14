@@ -125,6 +125,7 @@ if (!function_exists('payment_verification_ensure_schema')) {
             'receipt_url' => 'VARCHAR(700) DEFAULT NULL AFTER receipt_storage_path',
             'submission_token' => 'CHAR(64) DEFAULT NULL AFTER selected_payment_method',
             'ocr_duration_ms' => 'INT UNSIGNED DEFAULT NULL AFTER ocr_attempts',
+            'ocr_normalized_text' => 'MEDIUMTEXT DEFAULT NULL AFTER raw_ocr_text',
         ];
         foreach ($columns as $column => $definition) {
             if (!db_table_has_column('payment_submissions', $column)) {
@@ -496,6 +497,97 @@ if (!function_exists('payment_ocr_labeled_value')) {
     }
 }
 
+if (!function_exists('payment_ocr_parse_gcash_receipt')) {
+    function payment_ocr_parse_gcash_receipt(array $lines): array {
+        $result = [
+            'payment_method' => '',
+            'amount' => null,
+            'reference_number' => '',
+            'transaction_date' => null,
+            'transaction_time' => null,
+            'receiver_name' => '',
+            'receiver_account' => '',
+            'sender_name' => 'Not available on receipt',
+        ];
+        
+        $text = implode("\n", $lines);
+        $lowerText = strtolower($text);
+        
+        // Detect GCash
+        if (preg_match('/\bgcash\b/i', $text)) {
+            $result['payment_method'] = 'GCash';
+        }
+        
+        // Extract amount - prioritize "Total Amount Sent" then "Amount"
+        foreach ($lines as $line) {
+            if (preg_match('/total\s+amount\s+sent\s*[:\s]*\s*([0-9,.]+)/i', $line, $match)) {
+                $amount = payment_ocr_parse_money($match[1]);
+                if ($amount !== null) {
+                    $result['amount'] = $amount;
+                    break;
+                }
+            }
+        }
+        if ($result['amount'] === null) {
+            foreach ($lines as $line) {
+                if (preg_match('/amount\s*[:\s]*\s*([0-9,.]+)/i', $line, $match)) {
+                    $amount = payment_ocr_parse_money($match[1]);
+                    if ($amount !== null) {
+                        $result['amount'] = $amount;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Extract reference number - "Ref No." or "Reference No."
+        foreach ($lines as $line) {
+            if (preg_match('/ref\s*(?:erence)?\s*no\.?\s*[:\s]*\s*([A-Z0-9]+)/i', $line, $match)) {
+                $ref = preg_replace('/[^A-Z0-9]/', '', $match[1]);
+                if (strlen($ref) >= 6) {
+                    $result['reference_number'] = mb_substr($ref, 0, 190);
+                    break;
+                }
+            }
+        }
+        
+        // Extract date and time - formats like "Apr 13, 2026 8:17 PM"
+        foreach ($lines as $line) {
+            if (preg_match('/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+20\d{2})\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)/i', $line, $match)) {
+                $date = payment_ocr_normalize_date($match[1]);
+                $time = payment_ocr_normalize_time($match[2]);
+                if ($date !== null) $result['transaction_date'] = $date;
+                if ($time !== null) $result['transaction_time'] = $time;
+                break;
+            }
+        }
+        
+        // Extract receiver name (masked name near top of receipt)
+        // Look for patterns like "KE••••••D V." or similar masked names
+        foreach ($lines as $index => $line) {
+            if (preg_match('/([A-Z][A-Z•\*]{2,}[A-Z\s\.]+)/', $line, $match)) {
+                $candidate = trim($match[1]);
+                // Check if it looks like a masked name (contains dots or asterisks)
+                if (preg_match('/[•\*]/', $candidate) && strlen($candidate) >= 3) {
+                    $result['receiver_name'] = mb_substr($candidate, 0, 190);
+                    break;
+                }
+            }
+        }
+        
+        // Extract receiver account (mobile number with +63 or 09)
+        foreach ($lines as $line) {
+            if (preg_match('/(\+63\s*9\d{2}\s*\d{3}\s*\d{4}|09\d{2}\s*\d{3}\s*\d{4})/', $line, $match)) {
+                $account = preg_replace('/\s+/', '', $match[1]);
+                $result['receiver_account'] = mb_substr($account, 0, 190);
+                break;
+            }
+        }
+        
+        return $result;
+    }
+}
+
 if (!function_exists('payment_ocr_parse_money')) {
     function payment_ocr_parse_money(string $value): ?float {
         $value = preg_replace('/[^0-9.,-]/', '', $value);
@@ -600,6 +692,45 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
         $text = trim(mb_substr(str_replace("\0", '', $text), 0, 100000));
         $lines = payment_ocr_text_lines($text);
         $method = payment_ocr_detect_method($text);
+        
+        // Use GCash-specific parser if GCash is detected
+        if (preg_match('/\bgcash\b/i', $text)) {
+            $gcashResult = payment_ocr_parse_gcash_receipt($lines);
+            
+            // Calculate confidence values for GCash-extracted fields
+            $senderConfidence = $gcashResult['sender_name'] !== 'Not available on receipt' ? 0.0 : 0.0;
+            $referenceConfidence = $gcashResult['reference_number'] !== '' ? 92.0 : 0.0;
+            $amountConfidence = $gcashResult['amount'] !== null ? 94.0 : 0.0;
+            $methodConfidence = $gcashResult['payment_method'] !== '' ? 96.0 : 0.0;
+            $dateConfidence = $gcashResult['transaction_date'] !== null ? 85.0 : 0.0;
+            $receiverConfidence = $gcashResult['receiver_name'] !== '' ? 75.0 : 0.0;
+            
+            $available = array_values(array_filter([
+                $referenceConfidence, $amountConfidence, $methodConfidence, $dateConfidence
+            ], static fn($value) => $value > 0));
+            $overall = !empty($available) ? array_sum($available) / count($available) : $providerConfidence;
+            if ($providerConfidence > 0 && $overall > 0) $overall = ($overall * 0.75) + ($providerConfidence * 0.25);
+            
+            return [
+                'sender_name' => $gcashResult['sender_name'],
+                'reference_number' => $gcashResult['reference_number'],
+                'amount_sent' => $gcashResult['amount'],
+                'detected_payment_method' => $gcashResult['payment_method'],
+                'transaction_date' => $gcashResult['transaction_date'],
+                'transaction_time' => $gcashResult['transaction_time'],
+                'receiver_name' => $gcashResult['receiver_name'],
+                'receiver_account' => $gcashResult['receiver_account'],
+                'overall_confidence' => round(max(0, min(100, $overall)), 2),
+                'sender_confidence' => round($senderConfidence, 2),
+                'reference_confidence' => round($referenceConfidence, 2),
+                'amount_confidence' => round($amountConfidence, 2),
+                'method_confidence' => round($methodConfidence, 2),
+                'date_confidence' => round($dateConfidence, 2),
+                'receiver_confidence' => round($receiverConfidence, 2),
+            ];
+        }
+        
+        // Fall back to generic parser for non-GCash receipts
         $amount = payment_ocr_extract_amount($lines);
 
         $sender = payment_ocr_labeled_value($lines, ['sent\s+by', 'sender', 'from', 'account\s+name']);
@@ -724,6 +855,98 @@ if (!function_exists('payment_ocr_tesseract_available')) {
     }
 }
 
+if (!function_exists('payment_ocr_preprocess_image')) {
+    function payment_ocr_preprocess_image(string $sourcePath, string $mime): ?string {
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true) || !function_exists('imagecreatetruecolor')) {
+            return null;
+        }
+
+        // Load original image
+        if ($mime === 'image/png') {
+            $image = @imagecreatefrompng($sourcePath);
+        } elseif ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) {
+            $image = @imagecreatefromwebp($sourcePath);
+        } else {
+            $image = @imagecreatefromjpeg($sourcePath);
+        }
+        if (!$image) return null;
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        if ($width <= 0 || $height <= 0) {
+            imagedestroy($image);
+            return null;
+        }
+
+        // Auto-rotate based on EXIF
+        if (function_exists('exif_read_data') && $mime === 'image/jpeg') {
+            $exif = @exif_read_data($sourcePath);
+            if ($exif && isset($exif['Orientation'])) {
+                $orientation = (int)$exif['Orientation'];
+                if ($orientation >= 2 && $orientation <= 8) {
+                    $rotated = imagerotate($image, [0, 0, 0, 180, 270, 90, 270, 90, 0][$orientation], 0);
+                    if ($rotated) {
+                        imagedestroy($image);
+                        $image = $rotated;
+                        $width = imagesx($image);
+                        $height = imagesy($image);
+                    }
+                }
+            }
+        }
+
+        // Resize if too large (max 3000px for OCR)
+        $maxDimension = 3000;
+        if ($width > $maxDimension || $height > $maxDimension) {
+            $ratio = min($maxDimension / $width, $maxDimension / $height);
+            $newWidth = (int)round($width * $ratio);
+            $newHeight = (int)round($height * $ratio);
+            $resized = imagecreatetruecolor($newWidth, $newHeight);
+            imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+            imagedestroy($image);
+            $image = $resized;
+            $width = $newWidth;
+            $height = $newHeight;
+        }
+
+        // Convert to grayscale
+        $grayscale = imagecreatetruecolor($width, $height);
+        for ($x = 0; $x < $width; $x++) {
+            for ($y = 0; $y < $height; $y++) {
+                $rgb = imagecolorat($image, $x, $y);
+                $r = ($rgb >> 16) & 0xFF;
+                $g = ($rgb >> 8) & 0xFF;
+                $b = $rgb & 0xFF;
+                $gray = (int)(0.299 * $r + 0.587 * $g + 0.114 * $b);
+                $grayColor = imagecolorallocate($grayscale, $gray, $gray, $gray);
+                imagesetpixel($grayscale, $x, $y, $grayColor);
+            }
+        }
+        imagedestroy($image);
+        $image = $grayscale;
+
+        // Increase contrast
+        imagefilter($image, IMG_FILTER_CONTRAST, 20);
+
+        // Mild sharpening
+        imagefilter($image, IMG_FILTER_GAUSSIAN_BLUR);
+        imagefilter($image, IMG_FILTER_UNSHARP_MASK, 50, 1, 3);
+
+        // Save to temporary file
+        $directory = dirname($sourcePath);
+        $stem = bin2hex(random_bytes(12));
+        $tempPath = $directory . '/ocr_temp_' . $stem . '.png';
+        imagepng($image, $tempPath, 9);
+        imagedestroy($image);
+
+        if (!is_file($tempPath)) {
+            return null;
+        }
+
+        return $tempPath;
+    }
+}
+
 if (!function_exists('payment_ocr_with_tesseract')) {
     function payment_ocr_with_tesseract(string $filePath, string $mime): array {
         if ($mime === 'application/pdf') {
@@ -732,12 +955,24 @@ if (!function_exists('payment_ocr_with_tesseract')) {
         if (!payment_ocr_tesseract_available()) {
             return ['success' => false, 'unavailable' => true, 'error' => 'Tesseract is not installed or configured.'];
         }
+        
+        // Try with preprocessed image first
+        $preprocessedPath = payment_ocr_preprocess_image($filePath, $mime);
+        $usePreprocessed = ($preprocessedPath !== null && is_file($preprocessedPath));
+        $ocrPath = $usePreprocessed ? $preprocessedPath : $filePath;
+        
         $language = payment_verification_env('PAYMENT_OCR_LANGUAGE', 'eng');
         $language = preg_replace('/[^a-zA-Z0-9_+-]/', '', $language) ?: 'eng';
         $result = payment_ocr_run_process([
-            payment_ocr_tesseract_binary(), $filePath, 'stdout', '-l', $language,
+            payment_ocr_tesseract_binary(), $ocrPath, 'stdout', '-l', $language,
             '--psm', '6', 'tsv'
         ], 50);
+        
+        // Clean up preprocessed file
+        if ($usePreprocessed && is_file($preprocessedPath)) {
+            @unlink($preprocessedPath);
+        }
+        
         if (empty($result['success'])) return $result + ['unavailable' => false];
 
         $lines = preg_split('/\r?\n/', trim((string)$result['output'])) ?: [];
@@ -928,6 +1163,32 @@ if (!function_exists('payment_verification_sanitize_ocr_text')) {
     }
 }
 
+if (!function_exists('payment_ocr_normalize_text')) {
+    function payment_ocr_normalize_text(string $text): string {
+        // Normalize line breaks
+        $text = str_replace(["\r\n", "\r"], "\n", $text);
+        
+        // Remove duplicate whitespace
+        $text = preg_replace('/[ \t]+/', ' ', $text);
+        $text = preg_replace('/\n{3,}/', "\n\n", $text);
+        
+        // Correct common OCR substitutions when context is clear
+        $text = preg_replace('/\bO\b(?=\d)/', '0', $text); // O -> 0 before digits
+        $text = preg_replace('/\b0\b(?=[A-Za-z])/', 'O', $text); // 0 -> O before letters
+        $text = preg_replace('/\bl\b(?=\d)/', '1', $text); // l -> 1 before digits
+        $text = preg_replace('/\bI\b(?=\d)/', '1', $text); // I -> 1 before digits
+        $text = preg_replace('/\bS\b(?=\d)/', '5', $text); // S -> 5 before digits (context-dependent)
+        
+        // Normalize Philippine peso symbols
+        $text = preg_replace('/[\x{20B1}₱PHP]/u', 'PHP ', $text);
+        
+        // Clean up
+        $text = trim($text);
+        
+        return $text;
+    }
+}
+
 if (!function_exists('payment_ocr_process_submission')) {
     function payment_ocr_process_submission(int $submissionId, bool $force = false): array {
         $startedAt = microtime(true);
@@ -993,8 +1254,9 @@ if (!function_exists('payment_ocr_process_submission')) {
         }
 
         $rawText = payment_verification_sanitize_ocr_text((string)$ocr['text']);
+        $normalizedText = payment_ocr_normalize_text($rawText);
         $parsed = payment_ocr_parse_receipt_text(
-            $rawText,
+            $normalizedText,
             is_array($ocr['tokens'] ?? null) ? $ocr['tokens'] : [],
             (float)($ocr['confidence'] ?? 0)
         );
@@ -1022,7 +1284,7 @@ if (!function_exists('payment_ocr_process_submission')) {
             $parsed['sender_name'], $parsed['reference_number'], $normalizedReference,
             $parsed['amount_sent'] === null ? null : number_format((float)$parsed['amount_sent'], 2, '.', ''),
             $parsed['detected_payment_method'], $parsed['transaction_date'], $parsed['transaction_time'],
-            $parsed['receiver_name'], $parsed['receiver_account'], $rawText,
+            $parsed['receiver_name'], $parsed['receiver_account'], $rawText, $normalizedText,
             $parsed['overall_confidence'], $parsed['sender_confidence'], $parsed['reference_confidence'],
             $parsed['amount_confidence'], $parsed['method_confidence'], $parsed['date_confidence'],
             $parsed['receiver_confidence'], (string)$ocr['provider'], $durationMs, $expected,
@@ -1034,14 +1296,14 @@ if (!function_exists('payment_ocr_process_submission')) {
                 ocr_sender_name = NULLIF(?, ''), ocr_reference_number = NULLIF(?, ''), reference_normalized = NULLIF(?, ''),
                 ocr_amount_sent = ?, ocr_detected_payment_method = NULLIF(?, ''),
                 ocr_transaction_date = ?, ocr_transaction_time = ?,
-                ocr_receiver_name = NULLIF(?, ''), ocr_receiver_account = NULLIF(?, ''), raw_ocr_text = ?,
+                ocr_receiver_name = NULLIF(?, ''), ocr_receiver_account = NULLIF(?, ''), raw_ocr_text = ?, ocr_normalized_text = ?,
                 overall_confidence = ?, sender_confidence = ?, reference_confidence = ?, amount_confidence = ?,
                 method_confidence = ?, date_confidence = ?, receiver_confidence = ?,
                 ocr_status = 'Completed', ocr_provider = ?, ocr_error = NULL, ocr_duration_ms = ?, ocr_processed_at = NOW(),
                 expected_amount = ?, amount_match_status = ?, method_match_status = ?,
                 duplicate_submission_id = ?, verification_status = ?
              WHERE id = ?",
-            str_repeat('s', 24) . 'i',
+            str_repeat('s', 25) . 'i',
             $params
         );
         payment_verification_log($ok ? 'ocr_succeeded' : 'ocr_save_failed', [

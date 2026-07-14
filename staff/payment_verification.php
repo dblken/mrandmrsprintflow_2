@@ -235,72 +235,90 @@ $filterState = [
     <link rel="stylesheet" href="<?php echo pv_h($basePath); ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        :root { --pv-ink:#082f3a; --pv-teal:#087f83; --pv-cyan:#53c5e0; --pv-mist:#eef9fa; --pv-line:#d7e8eb; --pv-warn:#b45309; --pv-danger:#b42318; }
-        body { background: radial-gradient(circle at 82% 5%, rgba(83,197,224,.16), transparent 28%), #f5f8f8; color:var(--pv-ink); }
-        .pv-main { padding:28px; min-width:0; }
-        .pv-header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:24px; }
-        .pv-title { margin:0; font-size:30px; line-height:1.1; letter-spacing:-.03em; font-weight:850; }
-        .pv-subtitle { margin:7px 0 0; color:#58717a; font-size:14px; }
-        .pv-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-bottom:18px; }
-        .pv-kpi { background:#fff; border:1px solid var(--pv-line); border-radius:16px; padding:17px 18px; box-shadow:0 8px 24px rgba(8,47,58,.045); position:relative; overflow:hidden; }
-        .pv-kpi:before { content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--accent,#53c5e0); }
-        .pv-kpi-label { color:#68808a; text-transform:uppercase; letter-spacing:.08em; font-size:11px; font-weight:800; }
-        .pv-kpi-value { display:block; margin-top:6px; font-size:28px; font-weight:850; color:var(--pv-ink); }
-        .pv-panel { background:#fff; border:1px solid var(--pv-line); border-radius:18px; box-shadow:0 12px 32px rgba(8,47,58,.055); }
-        .pv-filters { padding:16px; display:grid; grid-template-columns:2fr repeat(5,minmax(125px,1fr)) auto auto; gap:10px; margin-bottom:18px; }
-        .pv-field, .pv-select { width:100%; height:42px; border:1px solid #c9dde1; border-radius:10px; padding:0 12px; background:#fff; color:#163e48; font-size:13px; box-sizing:border-box; }
-        .pv-field:focus, .pv-select:focus { outline:3px solid rgba(83,197,224,.22); border-color:#32a1c4; }
-        .pv-button { border:0; border-radius:10px; min-height:42px; padding:0 16px; font-weight:800; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:7px; text-decoration:none; }
-        .pv-button.primary { background:var(--pv-ink); color:#fff; }
-        .pv-button.teal { background:#0c9b88; color:#fff; }
-        .pv-button.light { background:#edf7f8; color:#155866; border:1px solid #cce4e7; }
-        .pv-button.danger { background:#fff0ee; color:var(--pv-danger); border:1px solid #f4c7c2; }
-        .pv-button.warning { background:#fff8e8; color:#995300; border:1px solid #f5d99b; }
-        .pv-button:disabled { opacity:.5; cursor:not-allowed; }
-        .pv-table-wrap { overflow:auto; }
-        .pv-table { width:100%; border-collapse:collapse; min-width:1120px; }
-        .pv-table th { padding:13px 14px; text-align:left; color:#6a8088; font-size:10px; text-transform:uppercase; letter-spacing:.08em; border-bottom:1px solid var(--pv-line); background:#f8fbfb; }
-        .pv-table td { padding:14px; vertical-align:middle; border-bottom:1px solid #eaf1f2; font-size:13px; }
-        .pv-table tr:hover td { background:#fbfefe; }
-        .pv-receipt-thumb { width:58px; height:58px; border-radius:10px; object-fit:cover; border:1px solid #d8e5e7; background:#edf4f5; display:block; }
-        .pv-pdf-thumb { width:58px; height:58px; border-radius:10px; background:#fff1f0; color:#b42318; display:grid; place-items:center; font-size:11px; font-weight:900; border:1px solid #f1c8c4; }
-        .pv-mainline { font-weight:800; color:#123b45; }
-        .pv-muted { color:#70858d; font-size:12px; margin-top:3px; }
-        .pv-money { font-variant-numeric:tabular-nums; font-weight:850; }
-        .pv-status { display:inline-flex; align-items:center; padding:6px 9px; border-radius:999px; font-size:11px; font-weight:850; white-space:nowrap; }
-        .is-approved { background:#dcfce7; color:#166534; }.is-matched { background:#dff7f2; color:#08705f; }
-        .is-rejected { background:#fee2e2; color:#991b1b; }.is-duplicate { background:#ffedd5; color:#9a3412; }
-        .is-review { background:#fef3c7; color:#92400e; }.is-pending { background:#e7f3fb; color:#075985; }
-        .pv-match { font-size:11px; font-weight:800; }.pv-match.ok { color:#08705f; }.pv-match.bad { color:#b42318; }.pv-match.unknown { color:#74878e; }
-        .pv-confidence { display:inline-flex; padding:5px 8px; border-radius:8px; font-size:11px; font-weight:850; }
-        .confidence-high { background:#dcfce7; color:#166534; }.confidence-review { background:#fef3c7; color:#92400e; }.confidence-low { background:#fee2e2; color:#991b1b; }
-        .pv-empty { padding:54px 24px; text-align:center; color:#6b8189; }
-        .pv-pagination { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; color:#647981; font-size:12px; }
-        .pv-pages { display:flex; gap:6px; }.pv-page { min-width:34px; height:34px; display:grid; place-items:center; border:1px solid #d4e3e5; border-radius:8px; color:#315661; background:#fff; text-decoration:none; }.pv-page.active { background:var(--pv-ink); color:#fff; border-color:var(--pv-ink); }
-        .pv-overlay { position:fixed; inset:0; z-index:3000; background:rgba(1,24,30,.68); backdrop-filter:blur(5px); display:flex; justify-content:flex-end; }
-        .pv-drawer { width:min(1120px,96vw); height:100%; background:#f7faf9; overflow:auto; box-shadow:-24px 0 70px rgba(0,0,0,.2); }
-        .pv-drawer-head { position:sticky; top:0; z-index:5; padding:18px 22px; background:rgba(255,255,255,.96); border-bottom:1px solid var(--pv-line); display:flex; align-items:center; justify-content:space-between; gap:14px; }
-        .pv-detail-grid { display:grid; grid-template-columns:minmax(320px,.82fr) minmax(460px,1.18fr); gap:18px; padding:18px; }
-        .pv-card { background:#fff; border:1px solid var(--pv-line); border-radius:16px; padding:18px; margin-bottom:16px; }
-        .pv-card-title { margin:0 0 14px; font-size:13px; text-transform:uppercase; letter-spacing:.07em; color:#38606a; }
-        .pv-proof-large { width:100%; max-height:68vh; object-fit:contain; background:#eef3f3; border-radius:12px; border:1px solid #d6e3e5; }
-        .pv-proof-pdf { width:100%; height:68vh; border:1px solid #d6e3e5; border-radius:12px; background:#fff; }
-        .pv-info-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-        .pv-info { padding:12px; border-radius:11px; background:#f4f9f9; border:1px solid #e1eeee; }
-        .pv-info-label { display:block; color:#72878e; font-size:10px; text-transform:uppercase; letter-spacing:.07em; font-weight:800; margin-bottom:4px; }
-        .pv-info-value { font-size:13px; font-weight:800; color:#143c46; overflow-wrap:anywhere; }
-        .pv-compare { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:center; }
-        .pv-compare-box { padding:15px; border-radius:12px; background:#f4f9f9; text-align:center; }.pv-compare-value { font-size:21px; font-weight:900; font-variant-numeric:tabular-nums; }
-        .pv-edit-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
-        .pv-edit-field label { display:flex; justify-content:space-between; gap:8px; font-size:11px; font-weight:850; color:#355e67; margin-bottom:6px; }
-        .pv-edit-field input, .pv-edit-field select, .pv-edit-field textarea { width:100%; box-sizing:border-box; border:1px solid #c9dce0; border-radius:9px; padding:10px 11px; color:#153d47; background:#fff; font-size:13px; }
-        .pv-original { margin-top:5px; font-size:10px; color:#768b92; overflow-wrap:anywhere; }
-        .pv-actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:16px; padding-top:16px; border-top:1px solid #e4eeee; }
-        .pv-raw { white-space:pre-wrap; max-height:260px; overflow:auto; background:#071e25; color:#cbe9ee; border-radius:10px; padding:13px; font:12px/1.55 ui-monospace,Consolas,monospace; }
-        .pv-toast { position:fixed; right:22px; bottom:22px; z-index:5000; max-width:380px; padding:13px 16px; border-radius:11px; color:#fff; background:#082f3a; box-shadow:0 12px 30px rgba(0,0,0,.24); font-size:13px; font-weight:750; display:none; }
-        @media(max-width:1150px){.pv-filters{grid-template-columns:repeat(3,1fr)}.pv-kpis{grid-template-columns:repeat(2,1fr)}}
-        @media(max-width:820px){.pv-main{padding:18px 12px}.pv-header{align-items:flex-start;flex-direction:column}.pv-kpis{grid-template-columns:1fr 1fr}.pv-filters{grid-template-columns:1fr 1fr}.pv-detail-grid{grid-template-columns:1fr}.pv-edit-grid,.pv-info-grid{grid-template-columns:1fr}.pv-drawer{width:100vw}.pv-compare{grid-template-columns:1fr}.pv-proof-large,.pv-proof-pdf{max-height:50vh;height:50vh}}
-        @media(max-width:520px){.pv-kpis,.pv-filters{grid-template-columns:1fr}.pv-title{font-size:25px}}
+        .pv-main { padding: 24px; min-width: 0; }
+        .pv-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+        .pv-title { margin: 0; font-size: 24px; font-weight: 700; color: #1f2937; line-height: 1.2; }
+        .pv-subtitle { margin: 4px 0 0; color: #6b7280; font-size: 14px; }
+        .pv-kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .pv-kpi-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); position: relative; overflow: hidden; cursor: pointer; transition: all 0.2s; }
+        .pv-kpi-card:hover { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transform: translateY(-1px); }
+        .pv-kpi-card.active { border-color: #06A1A1; box-shadow: 0 0 0 2px rgba(6, 161, 161, 0.2); }
+        .pv-kpi-card-inner { display: flex; flex-direction: column; }
+        .pv-kpi-label { font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+        .pv-kpi-value { font-size: 28px; font-weight: 700; color: #1f2937; line-height: 1; }
+        .pv-kpi-sub { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+        .pv-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+        .pv-filters { padding: 16px; display: grid; grid-template-columns: 2fr repeat(5, minmax(140px, 1fr)) auto auto; gap: 12px; margin-bottom: 24px; align-items: end; }
+        .pv-field, .pv-select { width: 100%; height: 40px; border: 1px solid #d1d5db; border-radius: 8px; padding: 0 12px; background: #fff; color: #374151; font-size: 14px; transition: border-color 0.2s, box-shadow 0.2s; }
+        .pv-field:focus, .pv-select:focus { outline: none; border-color: #06A1A1; box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.1); }
+        .pv-field::placeholder { color: #9ca3af; }
+        .pv-button { border: 0; border-radius: 8px; min-height: 40px; padding: 0 16px; font-weight: 600; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; transition: all 0.2s; }
+        .pv-button.primary { background: #06A1A1; color: #fff; }
+        .pv-button.primary:hover { background: #058a8a; }
+        .pv-button.light { background: #f9fafb; color: #374151; border: 1px solid #d1d5db; }
+        .pv-button.light:hover { background: #f3f4f6; border-color: #9ca3af; }
+        .pv-button.danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .pv-button.danger:hover { background: #fee2e2; border-color: #fca5a5; }
+        .pv-button.warning { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+        .pv-button.warning:hover { background: #fef3c7; border-color: #fcd34d; }
+        .pv-button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pv-table-wrap { overflow-x: auto; }
+        .pv-table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+        .pv-table th { padding: 12px 16px; text-align: left; color: #6b7280; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+        .pv-table td { padding: 14px 16px; vertical-align: middle; border-bottom: 1px solid #f3f4f6; font-size: 14px; color: #374151; }
+        .pv-table tr:hover td { background: #f9fafb; }
+        .pv-receipt-thumb { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; border: 1px solid #e5e7eb; background: #f3f4f6; display: block; }
+        .pv-pdf-thumb { width: 56px; height: 56px; border-radius: 8px; background: #fef2f2; color: #dc2626; display: grid; place-items: center; font-size: 11px; font-weight: 700; border: 1px solid #fecaca; }
+        .pv-mainline { font-weight: 600; color: #1f2937; }
+        .pv-muted { color: #6b7280; font-size: 13px; margin-top: 2px; }
+        .pv-money { font-variant-numeric: tabular-nums; font-weight: 700; }
+        .pv-status { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .is-approved { background: #d1fae5; color: #065f46; }
+        .is-matched { background: #d1fae5; color: #065f46; }
+        .is-rejected { background: #fee2e2; color: #991b1b; }
+        .is-duplicate { background: #ffedd5; color: #9a3412; }
+        .is-review { background: #fef3c7; color: #92400e; }
+        .is-pending { background: #dbeafe; color: #1e40af; }
+        .pv-match { font-size: 12px; font-weight: 600; }
+        .pv-match.ok { color: #059669; }
+        .pv-match.bad { color: #dc2626; }
+        .pv-match.unknown { color: #6b7280; }
+        .pv-confidence { display: inline-flex; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .confidence-high { background: #d1fae5; color: #065f46; }
+        .confidence-review { background: #fef3c7; color: #92400e; }
+        .confidence-low { background: #fee2e2; color: #991b1b; }
+        .pv-empty { padding: 48px 24px; text-align: center; color: #6b7280; }
+        .pv-pagination { display: flex; justify-content: space-between; align-items: center; padding: 16px; color: #6b7280; font-size: 13px; }
+        .pv-pages { display: flex; gap: 6px; }
+        .pv-page { min-width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #d1d5db; border-radius: 8px; color: #374151; background: #fff; text-decoration: none; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+        .pv-page:hover { border-color: #06A1A1; color: #06A1A1; }
+        .pv-page.active { background: #06A1A1; color: #fff; border-color: #06A1A1; }
+        .pv-overlay { position: fixed; inset: 0; z-index: 3000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); display: flex; justify-content: flex-end; }
+        .pv-drawer { width: min(1000px, 96vw); height: 100%; background: #f9fafb; overflow: auto; box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15); }
+        .pv-drawer-head { position: sticky; top: 0; z-index: 10; padding: 20px 24px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .pv-detail-grid { display: grid; grid-template-columns: minmax(320px, 0.8fr) minmax(400px, 1.2fr); gap: 20px; padding: 24px; }
+        .pv-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+        .pv-card-title { margin: 0 0 16px; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #374151; }
+        .pv-proof-large { width: 100%; max-height: 65vh; object-fit: contain; background: #f3f4f6; border-radius: 8px; border: 1px solid #e5e7eb; }
+        .pv-proof-pdf { width: 100%; height: 65vh; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+        .pv-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .pv-info { padding: 12px; border-radius: 8px; background: #f9fafb; border: 1px solid #e5e7eb; }
+        .pv-info-label { display: block; color: #6b7280; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .pv-info-value { font-size: 14px; font-weight: 600; color: #1f2937; overflow-wrap: anywhere; }
+        .pv-compare { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: center; }
+        .pv-compare-box { padding: 16px; border-radius: 10px; background: #f9fafb; text-align: center; }
+        .pv-compare-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; color: #1f2937; }
+        .pv-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+        .pv-edit-field label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 6px; }
+        .pv-edit-field input, .pv-edit-field select, .pv-edit-field textarea { width: 100%; box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 12px; color: #374151; background: #fff; font-size: 14px; transition: border-color 0.2s, box-shadow 0.2s; }
+        .pv-edit-field input:focus, .pv-edit-field select:focus, .pv-edit-field textarea:focus { outline: none; border-color: #06A1A1; box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.1); }
+        .pv-original { margin-top: 4px; font-size: 11px; color: #9ca3af; overflow-wrap: anywhere; }
+        .pv-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+        .pv-raw { white-space: pre-wrap; max-height: 250px; overflow: auto; background: #1f2937; color: #e5e7eb; border-radius: 8px; padding: 16px; font: 12px/1.6 ui-monospace, Consolas, monospace; }
+        .pv-toast { position: fixed; right: 24px; bottom: 24px; z-index: 5000; max-width: 400px; padding: 16px 20px; border-radius: 10px; color: #fff; background: #1f2937; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); font-size: 14px; font-weight: 600; display: none; }
+        @media(max-width: 1150px) { .pv-filters { grid-template-columns: repeat(3, 1fr) } .pv-kpi-row { grid-template-columns: repeat(2, 1fr) } }
+        @media(max-width: 820px) { .pv-main { padding: 16px 12px } .pv-header { align-items: flex-start; flex-direction: column } .pv-kpi-row { grid-template-columns: 1fr 1fr } .pv-filters { grid-template-columns: 1fr 1fr } .pv-detail-grid { grid-template-columns: 1fr } .pv-edit-grid, .pv-info-grid { grid-template-columns: 1fr } .pv-drawer { width: 100vw } .pv-compare { grid-template-columns: 1fr } .pv-proof-large, .pv-proof-pdf { max-height: 50vh; height: 50vh } }
+        @media(max-width: 520px) { .pv-kpi-row, .pv-filters { grid-template-columns: 1fr } .pv-title { font-size: 20px } }
     </style>
 </head>
 <body data-csrf="<?php echo pv_h($csrfToken); ?>" data-base-path="<?php echo pv_h($basePath); ?>">
@@ -322,14 +340,38 @@ $filterState = [
         <?php if (!$schemaReady): ?>
             <div class="pv-panel pv-empty">Payment verification storage could not be initialized. Apply <strong>database/payment_verification_ocr_20260711.sql</strong> and refresh this page.</div>
         <?php else: ?>
-        <section class="pv-kpis" aria-label="Payment verification totals">
-            <div class="pv-kpi" style="--accent:#4aaed0"><span class="pv-kpi-label">Pending OCR Review</span><strong class="pv-kpi-value"><?php echo number_format($kpis['pending']); ?></strong></div>
-            <div class="pv-kpi" style="--accent:#0c9b88"><span class="pv-kpi-label">Amount Matched</span><strong class="pv-kpi-value"><?php echo number_format($kpis['matched']); ?></strong></div>
-            <div class="pv-kpi" style="--accent:#e29b31"><span class="pv-kpi-label">Needs Attention</span><strong class="pv-kpi-value"><?php echo number_format($kpis['review']); ?></strong></div>
-            <div class="pv-kpi" style="--accent:#25a76f"><span class="pv-kpi-label">Approved</span><strong class="pv-kpi-value"><?php echo number_format($kpis['approved']); ?></strong></div>
+        <section class="pv-kpi-row" aria-label="Payment verification totals">
+            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Pending Review'])); ?>'" style="--accent:#4aaed0">
+                <span class="pv-kpi-card-inner">
+                    <span class="pv-kpi-label">Pending OCR Review</span>
+                    <strong class="pv-kpi-value"><?php echo number_format($kpis['pending']); ?></strong>
+                    <span class="pv-kpi-sub">Awaiting processing</span>
+                </span>
+            </div>
+            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['amount_match' => 'exact_match'])); ?>'" style="--accent:#0c9b88">
+                <span class="pv-kpi-card-inner">
+                    <span class="pv-kpi-label">Amount Matched</span>
+                    <strong class="pv-kpi-value"><?php echo number_format($kpis['matched']); ?></strong>
+                    <span class="pv-kpi-sub">Exact amount detected</span>
+                </span>
+            </div>
+            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Needs Review'])); ?>'" style="--accent:#e29b31">
+                <span class="pv-kpi-card-inner">
+                    <span class="pv-kpi-label">Needs Attention</span>
+                    <strong class="pv-kpi-value"><?php echo number_format($kpis['review']); ?></strong>
+                    <span class="pv-kpi-sub">Requires staff review</span>
+                </span>
+            </div>
+            <div class="pv-kpi-card" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Approved'])); ?>'" style="--accent:#25a76f">
+                <span class="pv-kpi-card-inner">
+                    <span class="pv-kpi-label">Approved</span>
+                    <strong class="pv-kpi-value"><?php echo number_format($kpis['approved']); ?></strong>
+                    <span class="pv-kpi-sub">Verified payments</span>
+                </span>
+            </div>
         </section>
 
-        <form class="pv-panel pv-filters" method="get">
+        <form class="pv-card pv-filters" method="get">
             <input class="pv-field" type="search" name="search" value="<?php echo pv_h($search); ?>" placeholder="Customer, order, sender, or reference">
             <select class="pv-select" name="status"><option value="">All statuses</option><?php foreach ($allowedStatuses as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $status === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select>
             <select class="pv-select" name="method"><option value="">All methods</option><?php foreach (['GCash','Maya','Bank Transfer','Bank Transfer / InstaPay','Bank Transfer / PESONet'] as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $method === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select>
@@ -340,7 +382,7 @@ $filterState = [
             <a class="pv-button light" href="<?php echo pv_h($basePath); ?>/staff/payment_verification.php">Clear</a>
         </form>
 
-        <section class="pv-panel">
+        <section class="pv-card">
             <?php if ($queueError !== ''): ?>
                 <div class="pv-empty" role="alert"><strong>Payment queue unavailable.</strong><div class="pv-muted"><?php echo pv_h($queueError); ?></div></div>
             <?php elseif (empty($submissions)): ?>
@@ -428,7 +470,7 @@ $filterState = [
                     <div class="pv-edit-field" style="margin-top:13px;"><label>Staff Notes</label><textarea name="staff_notes" rows="3" <?php echo $isFinal ? 'disabled' : ''; ?>><?php echo pv_h($detail['staff_notes']); ?></textarea></div>
                     <div class="pv-actions">
                         <button class="pv-button light" type="button" onclick="pvSaveCorrections()" <?php echo $isFinal ? 'disabled' : ''; ?>>Save Manual Review</button>
-                        <button class="pv-button teal" type="button" onclick="pvApprove()" <?php echo $isFinal ? 'disabled' : ''; ?>>Approve Payment</button>
+                        <button class="pv-button light" type="button" onclick="pvApprove()" <?php echo $isFinal ? 'disabled' : ''; ?>>Approve Payment</button>
                         <button class="pv-button danger" type="button" onclick="pvReject()" <?php echo $isFinal ? 'disabled' : ''; ?>>Reject / Request Resubmission</button>
                         <button class="pv-button warning" type="button" onclick="pvMarkDuplicate()" <?php echo $isFinal ? 'disabled' : ''; ?>>Mark as Duplicate</button>
                         <span class="pv-status <?php echo pv_status_class($detailStatus); ?>"><?php echo pv_h($detailStatus); ?></span>
