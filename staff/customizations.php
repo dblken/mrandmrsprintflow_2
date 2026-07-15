@@ -1903,7 +1903,7 @@ $online_closed_count = 0;
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
                                                placeholder="0.00"
-                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput ?? '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; }); })"
+                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput !== null && jobPriceInput !== undefined ? jobPriceInput : '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; }); })"
                                                x-on:input="
                                                    let val = $event.target.value.replace(/[^0-9.]/g, '');
                                                    let parts = val.split('.');
@@ -2333,8 +2333,9 @@ window.pfCustomizationPreloadedOrders = (() => {
     (function registerStaffCustomizationManager() {
         let registered = false;
 
+        console.info('[Customizations] JavaScript reached joManager registration');
         function createJoManager(defaultStatus) {
-            console.info('[Customizations] joManager created', defaultStatus || 'ALL');
+            console.info('[Customizations] joManager created');
             defaultStatus = defaultStatus || 'ALL';
             let ordersAbortController = null;
             return {
@@ -2486,7 +2487,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
-                const uom = String(item?.unit_of_measure || '').trim().toLowerCase();
+                const uom = String(item && item.unit_of_measure ? item.unit_of_measure : '').trim().toLowerCase();
                 return uom === 'pcs' || uom === 'pc' || uom === 'piece' || uom === 'pieces';
             },
             getMaterialEntryUom(itemId) {
@@ -2502,7 +2503,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             getDefaultMaterialQty(itemId) {
                 if (!this.isPcsMaterial(itemId)) return 1;
-                return this.normalizeMaterialQtyValue(this.currentJo?.quantity || 1, 1);
+                return this.normalizeMaterialQtyValue(this.currentJo && this.currentJo.quantity ? this.currentJo.quantity : 1, 1);
             },
             handleMaterialSelection(selectedId) {
                 this.newMaterialId = selectedId;
@@ -2554,7 +2555,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             getQueuedMaterialRequiredStock(itemId) {
                 return this.pendingMaterials
                     .filter(m => String(m.item_id) === String(itemId))
-                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata?.height_ft || 0), 0);
+                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata && m.metadata.height_ft ? m.metadata.height_ft : 0), 0);
             },
             get selectedMaterialStockError() {
                 if (!this.newMaterialId) return '';
@@ -2836,7 +2837,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
             statusPriority(row) {
-                const raw = String(row?.status || '').trim().toUpperCase().replace(/\s+/g, '_');
+                const raw = String((row && row.status) || '').trim().toUpperCase().replace(/\s+/g, '_');
                 const priorities = {
                     REJECTED: 100,
                     CANCELLED: 95,
@@ -2857,7 +2858,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return priorities[raw] || 0;
             },
             typePriority(row) {
-                const type = String(row?.order_type || 'JOB').toUpperCase();
+                const type = String((row && row.order_type) || 'JOB').toUpperCase();
                 const priorities = {
                     ORDER: 4,
                     CUSTOMIZATION: 3,
@@ -2867,11 +2868,13 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return priorities[type] || 0;
             },
             orderGroupKey(row) {
-                const oid = row?.order_id ?? row?.id ?? null;
+                const oid = row && row.order_id !== null && row.order_id !== undefined
+                    ? row.order_id
+                    : (row && row.id !== null && row.id !== undefined ? row.id : null);
                 if (oid != null && oid !== '') {
                     return `ORDER:${oid}`;
                 }
-                return `${String(row?.order_type || 'JOB').toUpperCase()}:${row?.id ?? ''}`;
+                return `${String((row && row.order_type) || 'JOB').toUpperCase()}:${row && row.id !== null && row.id !== undefined ? row.id : ''}`;
             },
             isGenericServiceLabel(value) {
                 const raw = String(value || '').trim().toUpperCase();
@@ -2887,7 +2890,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 ].includes(raw);
             },
             descriptiveTypePriority(row) {
-                const type = String(row?.order_type || 'JOB').toUpperCase();
+                const type = String((row && row.order_type) || 'JOB').toUpperCase();
                 const priorities = {
                     CUSTOMIZATION: 4,
                     ORDER: 3,
@@ -2897,19 +2900,19 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return priorities[type] || 0;
             },
             mergeGroupedRows(existing, incoming) {
-                const existingTs = existing?._ts || 0;
-                const incomingTs = incoming?._ts || 0;
+                const existingTs = (existing && existing._ts) || 0;
+                const incomingTs = (incoming && incoming._ts) || 0;
                 let winner = existing;
                 let loser = incoming;
-                const existingType = String(existing?.order_type || 'JOB').toUpperCase();
-                const incomingType = String(incoming?.order_type || 'JOB').toUpperCase();
-                const existingSource = String(existing?.order_source || 'customer').toLowerCase();
-                const incomingSource = String(incoming?.order_source || 'customer').toLowerCase();
+                const existingType = String((existing && existing.order_type) || 'JOB').toUpperCase();
+                const incomingType = String((incoming && incoming.order_type) || 'JOB').toUpperCase();
+                const existingSource = String((existing && existing.order_source) || 'customer').toLowerCase();
+                const incomingSource = String((incoming && incoming.order_source) || 'customer').toLowerCase();
                 const existingIsPos = ['pos', 'walk-in'].includes(existingSource);
                 const incomingIsPos = ['pos', 'walk-in'].includes(incomingSource);
                 const sameOnlineStoreOrder =
-                    existing?.order_id &&
-                    incoming?.order_id &&
+                    existing && existing.order_id &&
+                    incoming && incoming.order_id &&
                     String(existing.order_id) === String(incoming.order_id) &&
                     !existingIsPos &&
                     !incomingIsPos &&
@@ -2935,10 +2938,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const merged = { ...winner };
                 const winnerTypePriority = this.descriptiveTypePriority(winner);
                 const loserTypePriority = this.descriptiveTypePriority(loser);
-                const winnerService = String(winner?.service_type || '').trim();
-                const loserService = String(loser?.service_type || '').trim();
-                const winnerTitle = String(winner?.job_title || '').trim();
-                const loserTitle = String(loser?.job_title || '').trim();
+                const winnerService = String((winner && winner.service_type) || '').trim();
+                const loserService = String((loser && loser.service_type) || '').trim();
+                const winnerTitle = String((winner && winner.job_title) || '').trim();
+                const loserTitle = String((loser && loser.job_title) || '').trim();
 
                 const shouldUseLoserService =
                     loserService &&
@@ -2961,25 +2964,25 @@ window.pfCustomizationPreloadedOrders = (() => {
                     merged.job_title = loserTitle;
                 }
 
-                if ((!merged.width_ft || merged.width_ft === '1') && loser?.width_ft && loser.width_ft !== '1') {
+                if ((!merged.width_ft || merged.width_ft === '1') && loser && loser.width_ft && loser.width_ft !== '1') {
                     merged.width_ft = loser.width_ft;
                 }
-                if ((!merged.height_ft || merged.height_ft === '1') && loser?.height_ft && loser.height_ft !== '1') {
+                if ((!merged.height_ft || merged.height_ft === '1') && loser && loser.height_ft && loser.height_ft !== '1') {
                     merged.height_ft = loser.height_ft;
                 }
-                if ((!Number(merged.quantity) || Number(merged.quantity) <= 1) && Number(loser?.quantity) > 1) {
+                if ((!Number(merged.quantity) || Number(merged.quantity) <= 1) && Number(loser && loser.quantity) > 1) {
                     merged.quantity = loser.quantity;
                 }
-                if (!merged.order_code && loser?.order_code) {
+                if (!merged.order_code && loser && loser.order_code) {
                     merged.order_code = loser.order_code;
                 }
-                if ((!merged.order_source || merged.order_source === 'customer') && loser?.order_source) {
+                if ((!merged.order_source || merged.order_source === 'customer') && loser && loser.order_source) {
                     merged.order_source = loser.order_source;
                 }
-                if (!merged.job_order_id && loser?.job_order_id) {
+                if (!merged.job_order_id && loser && loser.job_order_id) {
                     merged.job_order_id = loser.job_order_id;
                 }
-                if ((!merged.items || !merged.items.length) && Array.isArray(loser?.items) && loser.items.length) {
+                if ((!merged.items || !merged.items.length) && loser && Array.isArray(loser.items) && loser.items.length) {
                     merged.items = loser.items;
                 }
 
@@ -3043,13 +3046,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (type === 'SERVICE') {
                     return 'SRV-' + String(row.id || 0).padStart(5, '0');
                 }
-                const orderId = row.order_id ?? row.id ?? 0;
+                const orderId = row.order_id !== null && row.order_id !== undefined
+                    ? row.order_id
+                    : (row.id !== null && row.id !== undefined ? row.id : 0);
                 return 'ORD-' + String(orderId).padStart(5, '0');
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';
-                const width = String(row.width_ft ?? '').trim();
-                const height = String(row.height_ft ?? '').trim();
+                const width = String(row.width_ft !== null && row.width_ft !== undefined ? row.width_ft : '').trim();
+                const height = String(row.height_ft !== null && row.height_ft !== undefined ? row.height_ft : '').trim();
                 const quantity = Number(row.quantity || 0);
                 const parts = [];
 
@@ -3095,8 +3100,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             normalizeOrderRow(row) {
                 const normalized = {
                     ...row,
-                    customer_type: this.normalizeCustomerType(row?.customer_type, row?.transaction_count),
-                    _ts: new Date(row?.updated_at || row?.created_at || row?.order_date || 0).getTime()
+                    customer_type: this.normalizeCustomerType(row && row.customer_type, row && row.transaction_count),
+                    _ts: new Date((row && row.updated_at) || (row && row.created_at) || (row && row.order_date) || 0).getTime()
                 };
                 const override = this.statusOverrides[this.statusOverrideKey(normalized)] || null;
                 const overrideMaxAgeMs = 15000;
@@ -3110,7 +3115,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return normalized;
             },
             verificationStockBlockMessage() {
-                const readiness = String(this.currentJo?.readiness || '').toUpperCase();
+                const readiness = String((this.currentJo && this.currentJo.readiness) || '').toUpperCase();
                 if (readiness === 'MISSING') {
                     return 'Cannot approve payment yet because required materials are missing in inventory.';
                 }
@@ -3186,15 +3191,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Also try raw customization_data for service_type in case processing pipeline stripped it
                 const rawCustom = this.parseSpecsObject(item && item.customization_data);
                 const custom = Object.keys(itemCustom).length > 0 ? itemCustom : (Object.keys(rawCustom).length > 0 ? rawCustom : fallbackCustom);
-                const fromCustomLine = String(custom?.service_type || custom?.product_type || rawCustom?.service_type || '').trim();
+                const fromCustomLine = String((custom && custom.service_type) || (custom && custom.product_type) || (rawCustom && rawCustom.service_type) || '').trim();
                 if (fromCustomLine && !this.isGenericServiceLabel(fromCustomLine)) {
                     return fromCustomLine;
                 }
-                const productName = String(item?.product_name || '').trim();
+                const productName = String((item && item.product_name) || '').trim();
                 if (productName && !this.isGenericServiceLabel(productName)) {
                     return productName;
                 }
-                const explicitService = String(custom?.service_type || custom?.product_type || item?.product_name || rawCustom?.service_type || '').trim();
+                const explicitService = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || (rawCustom && rawCustom.service_type) || '').trim();
                 if (explicitService) {
                     return explicitService;
                 }
@@ -3244,7 +3249,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 if (jo.items && jo.items.length > 0) {
                     for (const item of jo.items) {
-                        const pn = String(item?.product_name || '').trim();
+                        const pn = String((item && item.product_name) || '').trim();
                         if (pn && !this.isGenericServiceLabel(pn)) {
                             return pn;
                         }
@@ -3257,7 +3262,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             ? item.customization
                             : {};
                         const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
-                        const explicit = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();
+                        const explicit = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || '').trim();
                         if (explicit) return explicit;
                         const findKey = (searchKeys) => {
                             for (const [k, v] of Object.entries(custom)) {
@@ -3468,7 +3473,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
                     || this.staffFilenameLooksLikeImage(item.design_upload_name)
-                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_name || item.customization?.design_upload)
+                    || this.staffFilenameLooksLikeImage((item.customization && item.customization.design_upload_name) || (item.customization && item.customization.design_upload))
                 )) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
@@ -3478,11 +3483,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (designFile) return this.staffResolveOrderUploadUrl(designFile);
 
                 // Priority 3b: POS-staged upload path stored in customization payload.
-                const customizationDesignPath = (item.customization?.design_upload_path || '').trim();
+                const customizationDesignPath = ((item.customization && item.customization.design_upload_path) || '').trim();
                 if (customizationDesignPath) return this.staffResolveOrderUploadUrl(customizationDesignPath);
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
-                const artworkPath = (item.artwork_path || this.currentJo?.artwork_path || '').trim();
+                const artworkPath = (item.artwork_path || (this.currentJo && this.currentJo.artwork_path) || '').trim();
                 if (artworkPath) return this.staffResolveOrderUploadUrl(artworkPath);
 
                 // Priority 5: Reference file as last real upload fallback before placeholder behavior.
@@ -3808,7 +3813,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     // Drop stale optimistic overrides before applying freshly fetched rows.
                     const now = Date.now();
                     Object.keys(this.statusOverrides || {}).forEach((key) => {
-                        const ts = Number(this.statusOverrides[key]?.ts || 0);
+                        const ts = Number((this.statusOverrides[key] && this.statusOverrides[key].ts) || 0);
                         if (!ts || (now - ts) > 15000) {
                             delete this.statusOverrides[key];
                         }
@@ -3856,10 +3861,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.bumpOrdersVersion();
                     }
                 } catch(err) {
-                    if (err?.name === 'AbortError' && ordersAbortController !== controller) {
+                    if (err && err.name === 'AbortError' && ordersAbortController !== controller) {
                         return;
                     }
-                    if (!silent || err?.name !== 'AbortError') {
+                    if (!silent || !err || err.name !== 'AbortError') {
                         console.error('Error loading orders:', err);
                     }
                     if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders)) {
@@ -3867,7 +3872,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.bumpOrdersVersion();
                     }
                     this.ordersError = this.orders.length === 0
-                        ? (err?.message || 'Unable to load customizations.')
+                        ? ((err && err.message) || 'Unable to load customizations.')
                         : '';
                 } finally {
                     window.clearTimeout(timeoutId);
@@ -3933,7 +3938,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     return null;
                 }
                 if (j.order_type !== 'ORDER') return null;
-                const oid = j.order_id ?? j.id;
+                const oid = j.order_id !== null && j.order_id !== undefined ? j.order_id : j.id;
                 if (oid == null || oid === '') return null;
                 try {
                     const res = await this.parseJsonResponse(
@@ -4020,7 +4025,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return raw || 'OTHER';
             },
             isPosWalkInSource(jo) {
-                return ['pos', 'walk-in'].includes(String(jo?.order_source || '').toLowerCase());
+                return ['pos', 'walk-in'].includes(String((jo && jo.order_source) || '').toLowerCase());
             },
             isPosPricingReturnFlow(jo) {
                 if (!jo || !this.isPosWalkInSource(jo)) return false;
@@ -4032,7 +4037,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return details.source === 'POS' || this.deepLinkSourceOrderId === String(jo.order_id || '');
             },
             getPosWalkInBucket(jo) {
-                const status = String(jo?.status || '').toUpperCase();
+                const status = String((jo && jo.status) || '').toUpperCase();
                 if (status === 'COMPLETED') return 'COMPLETED';
                 if (status === 'CANCELLED' || status === 'REJECTED') return 'CANCELLED';
                 return 'PENDING';
@@ -4217,7 +4222,7 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             async viewDetails(id, orderType = 'JOB') {
                 let order = this.findOrder(id, orderType);
-                if (orderType === 'SERVICE' || order?.order_type === 'SERVICE') {
+                if (orderType === 'SERVICE' || (order && order.order_type) === 'SERVICE') {
                     await this.openSvcModal(id);
                     return;
                 }
@@ -4251,7 +4256,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 
                 if (orderType === 'CUSTOMIZATION') {
                     try {
-                        const fallbackOrderId = order?.order_id ?? id;
+                        const fallbackOrderId = order && order.order_id !== null && order.order_id !== undefined ? order.order_id : id;
                         let detailRes = null;
 
                         if (fallbackOrderId) {
@@ -4264,11 +4269,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                             );
                         }
 
-                        if (detailRes?.success && detailRes.data && requestToken === this.detailRequestToken) {
+                        if (detailRes && detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             const normalized = this.applyPosSetPriceDeepLinkOverride({
                                 ...detailRes.data,
                                 order_type: detailRes.data.order_type || (fallbackOrderId ? 'ORDER' : 'CUSTOMIZATION'),
-                                status: order?.status || detailRes.data.status
+                                status: (order && order.status) || detailRes.data.status
                             });
                             this.finishDetailLoadWith(normalized, normalized.order_type || 'ORDER', cacheKey);
                             this.loadingDetails = false;
@@ -4277,14 +4282,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 this.loadModalAssignments(this.currentJo.order_id, cacheKey, requestToken);
                             }
                         } else {
-                            this.detailError = detailRes?.error || 'Customization details could not be loaded.';
+                            this.detailError = (detailRes && detailRes.error) || 'Customization details could not be loaded.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
                     } catch (e) {
                         console.error('Error fetching customization detail:', e);
                         if (requestToken === this.detailRequestToken) {
-                            this.detailError = e?.message || 'Customization details could not be loaded.';
+                            this.detailError = (e && e.message) || 'Customization details could not be loaded.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
@@ -4293,7 +4298,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 
                 if (orderType === 'ORDER') {
-                    const regularOrderId = order?.order_id ?? order?.id ?? id;
+                    const regularOrderId = order && order.order_id !== null && order.order_id !== undefined
+                        ? order.order_id
+                        : (order && order.id !== null && order.id !== undefined ? order.id : id);
                     try {
                         const detailRes = await this.fetchOrderModalSummary(regularOrderId, {
                             includeAssignments: true,
@@ -4312,7 +4319,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     } catch (e) {
                         console.error('Error fetching order detail:', e);
                         if (requestToken === this.detailRequestToken) {
-                            this.detailError = e?.message || 'Order details could not be loaded for this entry.';
+                            this.detailError = (e && e.message) || 'Order details could not be loaded for this entry.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
@@ -4348,7 +4355,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     } catch (e) {
                         console.error('Error loading job details', e);
                         if (requestToken === this.detailRequestToken) {
-                            this.detailError = e?.message || 'Order details could not be loaded.';
+                            this.detailError = (e && e.message) || 'Order details could not be loaded.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
@@ -4511,7 +4518,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         await this.loadOrders();
                         await this.loadAllInventoryItems();
                         this.currentJo.status = 'IN_PRODUCTION';
-                        const currentOrderId = this.currentJo.order_id ?? null;
+                        const currentOrderId = this.currentJo.order_id !== null && this.currentJo.order_id !== undefined ? this.currentJo.order_id : null;
                         this.orders = this.orders.map(o => (
                             (
                                 (this.sameId(o.id, this.currentJo.id) && (o.order_type || 'JOB') === (this.currentJo.order_type || 'JOB')) ||
@@ -4596,7 +4603,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.activeStatus = this.isPosSimplifiedView ? 'REJECTED' : 'CLOSED';
                         await this.loadOrders();
                         this.currentJo.status = 'REJECTED';
-                        const currentOrderId = this.currentJo.order_id ?? null;
+                        const currentOrderId = this.currentJo.order_id !== null && this.currentJo.order_id !== undefined ? this.currentJo.order_id : null;
                         this.orders = this.orders.map(o => (
                             (
                                 (this.sameId(o.id, this.currentJo.id) && (o.order_type || 'JOB') === (this.currentJo.order_type || 'JOB')) ||
@@ -5003,7 +5010,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('order_id', oid);
                         fd.append('status', 'To Pay');
                         fd.append('update_status', '1');
-                        fd.append('csrf_token', document.querySelector('input[name="csrf_token"]')?.value || '');
+                        const csrfInput = document.querySelector('input[name="csrf_token"]');
+                        fd.append('csrf_token', csrfInput && csrfInput.value ? csrfInput.value : '');
                         const res = await (await fetch('orders.php', { 
                             method: 'POST', 
                             body: fd, 
@@ -5223,7 +5231,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
                 if (!jid) return;
-                const isStoreOrderDetail = ['ORDER', 'CUSTOMIZATION'].includes(String(this.currentJo?.order_type || '').toUpperCase()) && this.currentJo?.order_id;
+                const isStoreOrderDetail = ['ORDER', 'CUSTOMIZATION'].includes(String((this.currentJo && this.currentJo.order_type) || '').toUpperCase()) && this.currentJo && this.currentJo.order_id;
                 const res = isStoreOrderDetail
                     ? await this.fetchOrderModalSummary(this.currentJo.order_id, { includeAssignments: true, ensureJob: true })
                     : await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
@@ -5240,10 +5248,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         merged.status = previousJo.status || merged.status;
                         merged.payment_proof_status = previousJo.payment_proof_status || merged.payment_proof_status;
                         merged.payment_proof_path = previousJo.payment_proof_path || merged.payment_proof_path;
-                        merged.payment_submitted_amount = previousJo.payment_submitted_amount ?? merged.payment_submitted_amount;
-                        merged.final_price = previousJo.final_price ?? merged.final_price;
-                        merged.estimated_total = previousJo.estimated_total ?? merged.estimated_total;
-                        merged.estimated_price = previousJo.estimated_price ?? merged.estimated_price;
+                        merged.payment_submitted_amount = previousJo.payment_submitted_amount !== null && previousJo.payment_submitted_amount !== undefined ? previousJo.payment_submitted_amount : merged.payment_submitted_amount;
+                        merged.final_price = previousJo.final_price !== null && previousJo.final_price !== undefined ? previousJo.final_price : merged.final_price;
+                        merged.estimated_total = previousJo.estimated_total !== null && previousJo.estimated_total !== undefined ? previousJo.estimated_total : merged.estimated_total;
+                        merged.estimated_price = previousJo.estimated_price !== null && previousJo.estimated_price !== undefined ? previousJo.estimated_price : merged.estimated_price;
                     }
                     this.currentJo = merged;
                     for(const m of (this.currentJo.materials || [])) {
