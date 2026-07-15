@@ -1053,7 +1053,7 @@ $online_closed_count = 0;
     }
     ?>
     <div class="main-content">
-        <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" x-init="init()" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()">
+        <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
             <div>
                 <h1 class="page-title">Customizations</h1>
@@ -1346,7 +1346,7 @@ $online_closed_count = 0;
                                 <td colspan="6" class="px-6 py-20 text-center">
                                     <div style="color:#475569;font-weight:700;font-size:14px;">Unable to load customizations. Please try again.</div>
                                     <div style="margin-top:8px;color:#64748b;font-size:13px;" x-text="ordersError"></div>
-                                    <button type="button" @click="retryLoadOrders()" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
+                                    <button type="button" @click="retryLoadOrders()" :disabled="loadingOrders" :style="loadingOrders ? 'opacity:.6;cursor:not-allowed' : ''" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
                                 </td>
                             </tr>
                             <tr x-show="!loadingOrders && !ordersError && filteredOrders.length === 0">
@@ -1459,7 +1459,7 @@ $online_closed_count = 0;
                 <div style="font-size:15px;font-weight:700;color:#991b1b;">Unable to load job details</div>
                 <p style="font-size:13px;color:#7f1d1d;margin-top:8px;" x-text="detailError"></p>
                 <div class="modal-error-actions">
-                    <button @click="retryLastDetailRequest()" class="table-action-btn" style="background:#06A1A1;color:#fff;border-color:#06A1A1;">Retry</button>
+                    <button @click="retryLastDetailRequest()" :disabled="loadingDetails" class="table-action-btn" style="background:#06A1A1;color:#fff;border-color:#06A1A1;">Retry</button>
                     <button @click="closeDetailsModal()" class="table-action-btn">Close</button>
                 </div>
             </div>
@@ -2344,6 +2344,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             }),
             statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
+            _initialized: false,
             loadingOrders: true,
             ordersError: '',
             ordersLastLoadedAt: 0,
@@ -3893,6 +3894,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
 
             async init() {
+                if (this._initialized) return;
+                this._initialized = true;
                 console.info('[Customizations] init started');
                 if (Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                     const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
@@ -4718,13 +4721,26 @@ window.pfCustomizationPreloadedOrders = (() => {
             async parseJsonResponse(r, label = 'Request', endpoint = '') {
                 const contentType = r.headers.get('content-type') || '';
                 const text = await r.text();
+                let payload = null;
+                if (contentType.includes('application/json') || /^\s*[\[{]/.test(text)) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (e) {
+                        payload = null;
+                    }
+                }
                 if (!r.ok) {
                     console.error(`[Customizations] ${label} failed`, {
                         endpoint,
                         status: r.status,
                         body: text.slice(0, 500)
                     });
-                    return { success: false, error: `${label} failed: HTTP ${r.status}` };
+                    const backendMessage = payload && (payload.message || payload.error);
+                    return {
+                        ...(payload || {}),
+                        success: false,
+                        error: backendMessage || `${label} failed: HTTP ${r.status}`
+                    };
                 }
                 if (!contentType.includes('application/json')) {
                     console.error(`[Customizations] ${label} returned non-JSON`, {
@@ -4733,6 +4749,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                         body: text.slice(0, 500)
                     });
                     return { success: false, error: `${label} returned a non-JSON response.` };
+                }
+                if (payload) {
+                    return payload;
                 }
                 try {
                     return JSON.parse(text);

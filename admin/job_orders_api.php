@@ -4,6 +4,61 @@
  * Admin/Staff CRUD for job orders and material assignment.
  */
 
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+error_reporting(E_ALL);
+
+set_exception_handler(static function (Throwable $e): void {
+    $debugId = uniqid('job_api_', true);
+    error_log('[job_orders_api] Uncaught exception [' . $debugId . ']: ' . $e->getMessage());
+    error_log($e->getTraceAsString());
+
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+
+    echo json_encode([
+        'success' => false,
+        'message' => 'Internal server error',
+        'debug_id' => $debugId,
+    ]);
+    exit;
+});
+
+register_shutdown_function(static function (): void {
+    $error = error_get_last();
+    if (!$error || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        return;
+    }
+
+    $debugId = uniqid('job_api_', true);
+    error_log(sprintf(
+        '[job_orders_api] Fatal error [%s]: %s in %s:%d',
+        $debugId,
+        $error['message'],
+        $error['file'],
+        $error['line']
+    ));
+
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+
+    echo json_encode([
+        'success' => false,
+        'message' => 'Internal server error',
+        'debug_id' => $debugId,
+    ]);
+});
+
 // Prevent any output before JSON
 ob_start();
 $joApiStartedAt = microtime(true);
@@ -29,7 +84,7 @@ ob_end_clean();
 // Start fresh buffer for JSON output only
 ob_start();
 
-header('Content-Type: application/json');
+header('Content-Type: application/json; charset=utf-8');
 
 function jo_api_json_response(array $payload, int $statusCode = 200): never {
     global $joApiStartedAt, $joStaffBranch;
@@ -990,6 +1045,681 @@ try {
                 LIMIT " . (int)$dashboardListLimit;
 
             $svc_orders = $listSource === 'pos' ? [] : (db_query($svc_sql) ?: []);
+            foreach ($svc_orders as &$so) {
+                $so['readiness'] = 'READY';
+                $so['estimated_cost'] = 0;
+                $so['order_code'] = 'SRV-' . str_pad((string)((int)($so['id'] ?? 0)), 5, '0', STR_PAD_LEFT);
+            }
+            unset($so);
+
+            $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
+            usort($merged, function ($a, $b) {
+                $ta = strtotime($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? 'now');
+                $tb = strtotime($b['updated_at'] ?? $b['created_at'] ?? $b['order_date'] ?? 'now');
+                return $tb <=> $ta;
+            });
+
+            jo_api_json_response(['success' => true, 'data' => $merged]);
+            break;
+
+        case 'list_machines':
+            $machines = db_query("SELECT * FROM machines WHERE status = 'ACTIVE'") ?: [];
+            jo_api_json_response(['success' => true, 'data' => $machines]);
+            break;
+
+        case 'get_order':
+            $id = (int)($_GET['id'] ?? 0);
+            jo_api_require_staff_branch($joStaffBranch, $id);
+            $order = JobOrderService::getOrder($id);
+            if (!$order) throw new Exception("Order not found.");
+            $order['readiness'] = JobOrderService::getMaterialReadiness($id);
+            $order['order_code'] = printflow_get_job_inventory_reference($id)['code'] ?? printflow_format_job_code($id);
+            if (is_array($order['items'] ?? null)) {
+                jo_api_hydrate_items_raw((int)($order['order_id'] ?? 0), $order['items']);
+            }
+            jo_api_debug_staff_order_items($order, is_array($order['items'] ?? null) ? $order['items'] : []);
+            jo_api_json_response(['success' => true, 'data' => $order]);
+            break;
+
+        case 'update_customization':
+            if (!in_array($_SESSION['user_type'] ?? '', ['Admin', 'Staff', 'Manager'])) {
+                throw new Exception('Unauthorized');
+            }
+            $cust_id = (int)($_POST['id'] ?? 0);
+            $raw_status = sanitize($_POST['status'] ?? '');
+            $price = isset($_POST['price']) ? (float)$_POST['price'] : null;
+            if (!$cust_id || !$raw_status) throw new Exception('ID and status required.');
+
+            // Normalize frontend enum values to DB-stored strings
+            $status_to_db = [
+                'PENDING'       => 'Pending',
+                'APPROVED'      => 'Approved',
+                'TO_PAY'        => 'To Pay',
+                'VERIFY_PAY'    => 'Pending Verification',
+                'IN_PRODUCTION' => 'Processing',
+                'TO_RECEIVE'    => 'Ready for Pickup',
+                'COMPLETED'     => 'Completed',
+                'REJECTED'      => 'Rejected',
+                'CANCELLED'     => 'Cancelled',
+                'FOR REVISION'  => 'For Revision',
+                'For Revision'  => 'For Revision',
+            ];
+            $new_status = $status_to_db[$raw_status] ?? $raw_status;
+            $rejection_reason = sanitize($_POST['reason'] ?? '');
+
+            // Check if payment proof already exists for this customization's order
+            $order_check = db_query(
+                "SELECT o.order_id, o.payment_proof_path, o.downpayment_amount
+                 FROM orders o
+                 JOIN customizations c ON o.order_id = c.order_id
+                 WHERE c.customization_id = ? LIMIT 1",
+                'i', [$cust_id]
+            );
+
+            $has_payment_proof = !empty($order_check) && !empty($order_check[0]['payment_proof_path']);
+            $payment_amount    = !empty($order_check) ? (float)($order_check[0]['downpayment_amount'] ?? 0) : 0;
+            $linked_order_id   = !empty($order_check) ? (int)$order_check[0]['order_id'] : null;
+
+            // If TO_PAY but proof already uploaded, skip straight to verification
+            if ($new_status === 'To Pay' && $has_payment_proof && $payment_amount > 0) {
+                $new_status = 'Pending Verification';
+            }
+
+            $linked_job_ids = [];
+            if ($linked_order_id) {
+                JobOrderService::ensureJobsForStoreOrder($linked_order_id);
+                $linked_jobs = db_query(
+                    "SELECT id FROM job_orders WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY id ASC",
+                    'i',
+                    [$linked_order_id]
+                ) ?: [];
+                $linked_job_ids = array_map(static fn(array $row): int => (int)$row['id'], $linked_jobs);
+            }
+
+            $job_status_sync = [
+                'Approved'              => 'APPROVED',
+                'To Pay'                => 'TO_PAY',
+                'Pending Verification'  => 'VERIFY_PAY',
+                'Processing'            => 'IN_PRODUCTION',
+                'Ready for Pickup'      => 'TO_RECEIVE',
+                'Completed'             => 'COMPLETED',
+                'Cancelled'             => 'CANCELLED',
+            ];
+
+            if (!empty($linked_job_ids) && isset($job_status_sync[$new_status])) {
+                $targetJobStatus = $job_status_sync[$new_status];
+                foreach ($linked_job_ids as $jobId) {
+                    if ($price !== null) {
+                        db_execute(
+                            "UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?",
+                            'ddi',
+                            [$price, $price, $jobId]
+                        );
+                    }
+                    JobOrderService::updateStatus($jobId, $targetJobStatus);
+                }
+            } elseif ($new_status === 'Processing' && empty($linked_job_ids)) {
+                throw new Exception('Cannot move customization to Processing without a linked production job.');
+            }
+
+            db_execute('UPDATE customizations SET status = ?, updated_at = NOW() WHERE customization_id = ?', 'si', [$new_status, $cust_id]);
+            if ($new_status === 'Rejected' && !empty($rejection_reason)) {
+                db_execute('UPDATE customizations SET rejection_reason = ? WHERE customization_id = ?', 'si', [$rejection_reason, $cust_id]);
+            }
+            if ($new_status === 'For Revision' && !empty($rejection_reason)) {
+                db_execute('UPDATE customizations SET rejection_reason = ? WHERE customization_id = ?', 'si', [$rejection_reason, $cust_id]);
+            }
+
+            if ($price !== null && $linked_order_id) {
+                db_execute('UPDATE orders SET total_amount = ? WHERE order_id = ?', 'di', [$price, $linked_order_id]);
+                // Also update the order_items unit_price so POS cart reflects the correct price
+                db_execute('UPDATE order_items SET unit_price = ? WHERE order_id = ? LIMIT 1', 'di', [$price, $linked_order_id]);
+            }
+
+            // Sync orders.status for key transitions
+            if ($linked_order_id) {
+                $order_status_sync = [
+                    'To Pay'               => 'To Pay',
+                    'Pending Verification' => 'Pending Verification',
+                    'Processing'           => 'Processing',
+                    'Ready for Pickup'     => 'Ready for Pickup',
+                    'Completed'            => 'Completed',
+                    'Rejected'             => 'Rejected',
+                    'Cancelled'            => 'Cancelled',
+                    'For Revision'         => 'For Revision',
+                ];
+                if (isset($order_status_sync[$new_status])) {
+                    if (($new_status === 'Rejected' || $new_status === 'For Revision') && $rejection_reason !== '') {
+                        db_execute(
+                            'UPDATE orders SET status = ?, rejection_reason = ?, design_status = ? WHERE order_id = ?',
+                            'sssi',
+                            [$order_status_sync[$new_status], $rejection_reason, ($new_status === 'For Revision' ? 'Revision Requested' : 'Rejected'), $linked_order_id]
+                        );
+                    } else {
+                        db_execute('UPDATE orders SET status = ? WHERE order_id = ?', 'si', [$order_status_sync[$new_status], $linked_order_id]);
+                    }
+                }
+            }
+
+            // ── Automated chat update card ───────────────────────────────────────
+            if ($linked_order_id) {
+                $chat_step_map = [
+                    'Approved'          => 'approved',
+                    'To Pay'            => 'send_to_payment',
+                    'Processing'        => 'in_production',
+                    'Ready for Pickup'  => 'ready_to_pickup',
+                    'Completed'         => 'completed',
+                    'For Revision'      => 'for_revision',
+                ];
+                if (isset($chat_step_map[$new_status])) {
+                    require_once __DIR__ . '/../includes/functions.php';
+                    $additional_meta = [];
+                    if ($new_status === 'For Revision' && !empty($rejection_reason)) {
+                        $additional_meta['reason'] = $rejection_reason;
+                    }
+                    printflow_send_order_update($linked_order_id, $chat_step_map[$new_status], 'view_status', '', '', $additional_meta);
+                }
+            }
+
+            jo_api_json_response(['success' => true]);
+            break;
+
+        case 'get_customization':
+            // Get customization entry details (from POS services)
+            if (!in_array($_SESSION['user_type'] ?? '', ['Admin', 'Staff', 'Manager'])) {
+                throw new Exception("Unauthorized");
+            }
+            $cust_id = (int)($_GET['id'] ?? 0);
+            if (!$cust_id) throw new Exception("Customization ID required.");
+
+            $revisionCountSelect = (function_exists('db_table_has_column') && db_table_has_column('orders', 'revision_count'))
+                ? 'o.revision_count AS store_revision_count'
+                : '0 AS store_revision_count';
+
+            $cust_row = db_query(
+                "SELECT cust.*,
+                       c.first_name, c.last_name, c.customer_type, c.contact_number, c.email, c.transaction_count,
+                       c.profile_picture AS customer_profile_picture,
+                       CONCAT(c.first_name, ' ', c.last_name) AS customer_full_name,
+                       COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
+                       TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
+                       o.total_amount AS order_total,
+                       COALESCE(NULLIF(o.payment_proof_path,''), NULLIF(o.payment_proof,''), NULLIF(jo.payment_proof_path,'')) AS payment_proof_path,
+                       COALESCE(jo.payment_submitted_amount, o.downpayment_amount, 0) AS downpayment_amount,
+                       o.order_source,
+                       o.design_status AS store_design_status,
+                       o.revision_reason AS store_revision_reason,
+                       " . $revisionCountSelect . "
+                FROM customizations cust
+                LEFT JOIN customers c ON cust.customer_id = c.customer_id
+                LEFT JOIN orders o ON cust.order_id = o.order_id
+                LEFT JOIN job_orders jo ON jo.order_id = o.order_id AND jo.status NOT IN ('CANCELLED')
+                WHERE cust.customization_id = ?
+                ORDER BY jo.id ASC
+                LIMIT 1",
+                'i',
+                [$cust_id]
+            );
+
+            if (empty($cust_row)) throw new Exception("Customization not found.");
+            $cust = $cust_row[0];
+
+            // Parse customization details (unwrap nested JSON like customer order summary)
+            $details = printflow_decode_modal_customization_payload((string)($cust['customization_details'] ?? ''));
+            $design_name = '';
+            $reference_name = '';
+            foreach ($details as $detail_key => $detail_value) {
+                if (is_array($detail_value) || $detail_value === null || $detail_value === '') {
+                    continue;
+                }
+                $normalized_key = strtolower(trim((string)$detail_key));
+                if ($design_name === '' && (
+                    $normalized_key === 'design_upload' ||
+                    $normalized_key === 'design_file' ||
+                    $normalized_key === 'design_upload_path' ||
+                    (strpos($normalized_key, 'upload design') !== false) ||
+                    (strpos($normalized_key, 'design upload') !== false)
+                )) {
+                    $design_name = (string)$detail_value;
+                    continue;
+                }
+                if ($reference_name === '' && (
+                    $normalized_key === 'reference_upload' ||
+                    $normalized_key === 'reference_file' ||
+                    $normalized_key === 'reference_upload_path' ||
+                    (strpos($normalized_key, 'reference upload') !== false)
+                )) {
+                    $reference_name = (string)$detail_value;
+                }
+            }
+
+            // Map DB status → frontend enum
+            $status_map = [
+                'Pending Review'        => 'PENDING',
+                'Pending'               => 'PENDING',
+                'Pending Approval'      => 'PENDING',
+                'For Revision'          => 'PENDING',
+                'Approved'              => 'APPROVED',
+                'To Pay'                => 'TO_PAY',
+                'Pending Verification'  => 'VERIFY_PAY',
+                'Downpayment Submitted' => 'VERIFY_PAY',
+                'To Verify'             => 'VERIFY_PAY',
+                'Processing'            => 'IN_PRODUCTION',
+                'In Production'         => 'IN_PRODUCTION',
+                'Ready for Pickup'      => 'TO_RECEIVE',
+                'Ready For Pickup'      => 'TO_RECEIVE',
+                'Completed'             => 'COMPLETED',
+                'Cancelled'             => 'CANCELLED',
+                'Rejected'              => 'REJECTED',
+            ];
+            $mapped_status = $status_map[$cust['status'] ?? ''] ?? 'PENDING';
+
+            if (!empty($cust['order_id']) && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
+                try {
+                    JobOrderService::ensureStoreOrderProductionDeductions((int)$cust['order_id']);
+                } catch (Throwable $syncErr) {
+                    error_log(sprintf(
+                        'PrintFlow customization deduction sync failed for order %d: %s',
+                        (int)$cust['order_id'],
+                        $syncErr->getMessage()
+                    ));
+                }
+            }
+            if ($mapped_status === 'IN_PRODUCTION') {
+                try {
+                    $linkedJobForDeduction = db_query(
+                        "SELECT id
+                         FROM job_orders
+                         WHERE order_id = ?
+                           AND status NOT IN ('COMPLETED', 'CANCELLED')
+                         ORDER BY id ASC
+                         LIMIT 1",
+                        'i',
+                        [(int)($cust['order_id'] ?? 0)]
+                    ) ?: [];
+                    $linkedJobId = (int)($linkedJobForDeduction[0]['id'] ?? 0);
+                    if ($linkedJobId > 0) {
+                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
+                    }
+                } catch (Throwable $syncErr) {
+                    error_log(sprintf(
+                        'PrintFlow customization job-level deduction sync failed for order %d: %s',
+                        (int)($cust['order_id'] ?? 0),
+                        $syncErr->getMessage()
+                    ));
+                }
+            }
+
+            // Determine payment proof status
+            $payment_proof_status = 'NONE';
+            $payment_proof_url = null;
+            if (!empty($cust['payment_proof_path'])) {
+                $payment_proof_status = in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'])
+                    ? 'VERIFIED' : 'SUBMITTED';
+
+                // Resolve path to URL
+                $raw_path = $cust['payment_proof_path'];
+                if (!preg_match('#^https?://#i', $raw_path)) {
+                    $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
+                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_path);
+                } else {
+                    $payment_proof_url = $raw_path;
+                }
+            }
+
+            // Use order total if set (price was already approved)
+            $estimated_total = (float)($cust['order_estimated_price'] ?? $cust['order_total'] ?? 0);
+            $final_price = (float)($cust['order_total'] ?? 0);
+            $linked_job_id = 0;
+            $linked_job = null;
+            $linked_job_materials = [];
+            $linked_job_ink_usage = [];
+            if (!empty($cust['order_id'])) {
+                JobOrderService::ensureJobsForStoreOrder((int)$cust['order_id']);
+                $linked_job_rows = db_query(
+                    "SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC",
+                    'i',
+                    [(int)$cust['order_id']]
+                ) ?: [];
+                $linked_job_id = (int)($linked_job_rows[0]['id'] ?? 0);
+                if ($linked_job_id > 0) {
+                    $linked_job = JobOrderService::getOrder($linked_job_id);
+                }
+            }
+
+            $items = [[
+                'order_item_id' => $cust['order_item_id'] ?? null,
+                'product_name'  => $details['service_type'] ?? ($cust['service_type'] ?? 'Service'),
+                'quantity'      => 1,
+                'customization' => $details,
+                'design_name'   => $design_name,
+                'design_url'    => $design_name ? (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . (int)($cust['order_item_id'] ?? 0) : null,
+                'reference_name'=> $reference_name,
+                'reference_url' => $reference_name ? (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . (int)($cust['order_item_id'] ?? 0) . '&field=reference' : null,
+            ]];
+
+            // Check for revision design
+            if (!empty($cust['order_item_id'])) {
+                $revisionDesignRow = db_query(
+                    "SELECT revision_design_name, revision_design_path FROM order_items WHERE order_item_id = ? LIMIT 1",
+                    'i',
+                    [(int)$cust['order_item_id']]
+                ) ?: [];
+                if (!empty($revisionDesignRow) && !empty($revisionDesignRow[0]['revision_design_name'])) {
+                    $items[0]['revision_design_name'] = $revisionDesignRow[0]['revision_design_name'];
+                    $items[0]['revision_design_url'] = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . (int)$cust['order_item_id'] . '&field=revision_design';
+                }
+            }
+
+            $summary = printflow_customization_summary($details, $cust['service_type'] ?? 'Service');
+            $items[0]['product_name'] = $summary['job_title'];
+            $items[0]['quantity'] = $summary['quantity'];
+
+            if (!empty($cust['order_id'])) {
+                $storeLinePayload = JobOrderService::getStoreOrderItemsPayload((int)$cust['order_id'], false, true);
+                if (!empty($storeLinePayload['items'])) {
+                    $items = $storeLinePayload['items'];
+                }
+                if (!empty($storeLinePayload['customization_details']) && is_array($storeLinePayload['customization_details'])) {
+                    $details = printflow_overlay_nonempty_assoc($storeLinePayload['customization_details'], $details);
+                }
+                if (!empty($items[0]['customization']) && is_array($items[0]['customization'])) {
+                    $details = printflow_overlay_nonempty_assoc($items[0]['customization'], $details);
+                }
+                if (!empty($storeLinePayload['service_type'])) {
+                    $summary['service_type'] = $storeLinePayload['service_type'];
+                    $summary['job_title'] = $storeLinePayload['service_type'];
+                }
+                if (!empty($storeLinePayload['width_ft'])) {
+                    $summary['width_ft'] = $storeLinePayload['width_ft'];
+                }
+                if (!empty($storeLinePayload['height_ft'])) {
+                    $summary['height_ft'] = $storeLinePayload['height_ft'];
+                }
+                if (isset($storeLinePayload['line_qty']) && (int)$storeLinePayload['line_qty'] > 0) {
+                    $summary['quantity'] = (int)$storeLinePayload['line_qty'];
+                }
+
+                // When the modal is opened from a specific customization row, prefer that row's
+                // non-empty specs for the matching order item. Some online-service orders keep the
+                // fullest field set in customizations.customization_details while order_items
+                // contains only a partial payload.
+                $targetOrderItemId = (int)($cust['order_item_id'] ?? 0);
+                if (!empty($items)) {
+                    $matchedCustomizationItem = false;
+                    foreach ($items as &$itemRow) {
+                        $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
+                        $shouldMergeDetails =
+                            ($targetOrderItemId > 0 && $lineOrderItemId === $targetOrderItemId)
+                            || count($items) === 1;
+
+                        if (!$shouldMergeDetails) {
+                            continue;
+                        }
+
+                        $lineCustom = is_array($itemRow['customization'] ?? null)
+                            ? $itemRow['customization']
+                            : [];
+                        $itemRow['customization'] = printflow_overlay_nonempty_assoc($lineCustom, $details);
+                        $matchedCustomizationItem = true;
+                    }
+                    unset($itemRow);
+
+                    if (!$matchedCustomizationItem && count($items) === 1) {
+                        $lineCustom = is_array($items[0]['customization'] ?? null)
+                            ? $items[0]['customization']
+                            : [];
+                        $items[0]['customization'] = printflow_overlay_nonempty_assoc($lineCustom, $details);
+                    }
+                }
+
+            $posDesignMedia = jo_api_pos_upload_media_meta($details, 'design');
+            $posReferenceMedia = jo_api_pos_upload_media_meta($details, 'reference');
+            if (!empty($items) && (!empty($posDesignMedia) || !empty($posReferenceMedia))) {
+                foreach ($items as &$itemRow) {
+                    if (!is_array($itemRow)) {
+                        continue;
+                    }
+                    if (!empty($posDesignMedia)) {
+                        $itemRow['design_name'] = $posDesignMedia['name'] ?: ($itemRow['design_name'] ?? null);
+                        $itemRow['design_open_url'] = $posDesignMedia['url'];
+                        $itemRow['design_url'] = !empty($posDesignMedia['is_image']) ? $posDesignMedia['url'] : ($itemRow['design_url'] ?? null);
+                        $itemRow['design_is_image'] = !empty($posDesignMedia['is_image']);
+                        $itemRow['design_image_mime'] = $posDesignMedia['mime'] ?: ($itemRow['design_image_mime'] ?? '');
+                    }
+                    if (!empty($posReferenceMedia)) {
+                        $itemRow['reference_name'] = $posReferenceMedia['name'] ?: ($itemRow['reference_name'] ?? null);
+                        $itemRow['reference_open_url'] = $posReferenceMedia['url'];
+                        $itemRow['reference_url'] = !empty($posReferenceMedia['is_image']) ? $posReferenceMedia['url'] : ($itemRow['reference_url'] ?? null);
+                        $itemRow['reference_is_image'] = !empty($posReferenceMedia['is_image']);
+                    }
+                    break;
+                }
+                unset($itemRow);
+            }
+
+                foreach ($items as &$itemRow) {
+                    if (!is_array($itemRow)) {
+                        continue;
+                    }
+                    $lineOrderItemId = (int)($itemRow['order_item_id'] ?? 0);
+                    if ($lineOrderItemId > 0) {
+                        $itemRow['design_open_url'] = (defined('BASE_PATH') ? BASE_PATH : '/printflow') . '/public/serve_design.php?type=order_item&id=' . $lineOrderItemId;
+                    }
+                    $itemRow['debug_order_item_id'] = $lineOrderItemId > 0 ? $lineOrderItemId : null;
+                    $itemRow['debug_design_file'] = $itemRow['design_file'] ?? null;
+                    $itemRow['debug_design_image_name'] = $itemRow['design_image_name'] ?? null;
+                    $itemRow['debug_design_mime'] = $itemRow['design_image_mime'] ?? null;
+                    $itemRow['debug_design_blob_size'] = (int)($itemRow['debug_design_blob_size'] ?? $itemRow['pf_design_image_bytes'] ?? 0);
+                    $itemRow['debug_reference_image_file'] = $itemRow['reference_image_file'] ?? null;
+                    $itemRow['debug_artwork_path'] = $itemRow['artwork_path'] ?? ($linked_job['artwork_path'] ?? null);
+                }
+                unset($itemRow);
+
+                $linked_job_candidates = $linked_job_rows ?? [];
+
+                if (!empty($linked_job_candidates)) {
+                    $targetService = strtoupper(trim((string)($summary['service_type'] ?? '')));
+                    $targetTitle = strtoupper(trim((string)($summary['job_title'] ?? '')));
+                    $targetQty = (int)($summary['quantity'] ?? 0);
+                    $targetWidth = (string)($summary['width_ft'] ?? '');
+                    $targetHeight = (string)($summary['height_ft'] ?? '');
+
+                    $bestJob = null;
+                    $bestScore = -1;
+                    foreach ($linked_job_candidates as $linked_job_row) {
+                        $candidateId = (int)($linked_job_row['id'] ?? 0);
+                        if ($candidateId <= 0) {
+                            continue;
+                        }
+                        $candidateJob = JobOrderService::getOrder($candidateId);
+                        if (!$candidateJob) {
+                            continue;
+                        }
+
+                        $score = 0;
+                        $candidateService = strtoupper(trim((string)($candidateJob['service_type'] ?? '')));
+                        $candidateTitle = strtoupper(trim((string)($candidateJob['job_title'] ?? '')));
+                        if ($targetService !== '' && $candidateService === $targetService) {
+                            $score += 6;
+                        } elseif ($targetService !== '' && $candidateService !== '' && (
+                            strpos($candidateService, $targetService) !== false ||
+                            strpos($targetService, $candidateService) !== false
+                        )) {
+                            $score += 4;
+                        }
+
+                        if ($targetTitle !== '' && $candidateTitle === $targetTitle) {
+                            $score += 5;
+                        } elseif ($targetTitle !== '' && $candidateTitle !== '' && (
+                            strpos($candidateTitle, $targetTitle) !== false ||
+                            strpos($targetTitle, $candidateTitle) !== false
+                        )) {
+                            $score += 3;
+                        }
+
+                        if ($targetQty > 0 && (int)($candidateJob['quantity'] ?? 0) === $targetQty) {
+                            $score += 2;
+                        }
+                        if ($targetWidth !== '' && $targetHeight !== '' &&
+                            (string)($candidateJob['width_ft'] ?? '') === $targetWidth &&
+                            (string)($candidateJob['height_ft'] ?? '') === $targetHeight) {
+                            $score += 2;
+                        }
+
+                        if ($score > $bestScore) {
+                            $bestScore = $score;
+                            $bestJob = $candidateJob;
+                        }
+                    }
+
+                    if ($bestJob) {
+                        $linked_job = $bestJob;
+                        $linked_job_id = (int)($bestJob['id'] ?? 0);
+                    }
+                }
+            }
+
+            $linked_job_ids = array_values(array_filter(array_map(static function ($row) {
+                return (int)($row['id'] ?? 0);
+            }, $linked_job_rows ?? [])));
+
+            $materialClauses = [];
+            $materialParams = [];
+            $materialTypes = '';
+            if (!empty($linked_job_ids)) {
+                $jobIdPlaceholders = implode(',', array_fill(0, count($linked_job_ids), '?'));
+                $materialClauses[] = "m.job_order_id IN ($jobIdPlaceholders)";
+                $materialParams = array_merge($materialParams, $linked_job_ids);
+                $materialTypes .= str_repeat('i', count($linked_job_ids));
+            }
+            if (!empty($cust['order_id']) && db_table_has_column('job_order_materials', 'std_order_id')) {
+                $materialClauses[] = "(m.std_order_id = ? AND (m.job_order_id IS NULL OR m.job_order_id = 0))";
+                $materialParams[] = (int)$cust['order_id'];
+                $materialTypes .= 'i';
+            }
+            if (!empty($materialClauses)) {
+                $linked_job_materials = db_query(
+                    "SELECT m.*, i.name as item_name, i.track_by_roll, i.category_id, r.roll_code,
+                            (SELECT SUM(IF(direction='IN', quantity, -quantity)) FROM inventory_transactions WHERE item_id = m.item_id) as total_stock
+                     FROM job_order_materials m
+                     JOIN inv_items i ON m.item_id = i.id
+                     LEFT JOIN inv_rolls r ON m.roll_id = r.id
+                     WHERE " . implode(' OR ', $materialClauses),
+                    $materialTypes,
+                    $materialParams
+                ) ?: [];
+                foreach ($linked_job_materials as &$material) {
+                    $material['metadata'] = $material['metadata'] ? json_decode($material['metadata'], true) : null;
+                }
+                unset($material);
+            }
+
+            $inkClauses = [];
+            $inkParams = [];
+            $inkTypes = '';
+            if (!empty($linked_job_ids)) {
+                $jobIdPlaceholders = implode(',', array_fill(0, count($linked_job_ids), '?'));
+                $inkClauses[] = "u.job_order_id IN ($jobIdPlaceholders)";
+                $inkParams = array_merge($inkParams, $linked_job_ids);
+                $inkTypes .= str_repeat('i', count($linked_job_ids));
+            }
+            if (!empty($cust['order_id']) && db_table_has_column('job_order_ink_usage', 'std_order_id')) {
+                $inkClauses[] = "(u.std_order_id = ? AND (u.job_order_id IS NULL OR u.job_order_id = 0))";
+                $inkParams[] = (int)$cust['order_id'];
+                $inkTypes .= 'i';
+            }
+            if (!empty($inkClauses)) {
+                $linked_job_ink_usage = db_query(
+                    "SELECT u.*, i.name as item_name
+                     FROM job_order_ink_usage u
+                     JOIN inv_items i ON u.item_id = i.id
+                     WHERE " . implode(' OR ', $inkClauses),
+                    $inkTypes,
+                    $inkParams
+                ) ?: [];
+            }
+
+            $resolvedOrderSource = jo_api_resolve_order_source(
+                (int)($cust['order_id'] ?? 0),
+                $cust['order_source'] ?? null
+            );
+
+            if (in_array($resolvedOrderSource, ['pos', 'walk-in'], true) && $mapped_status === 'APPROVED') {
+                $autoAssignedIds = [];
+                $filteredMaterials = [];
+                foreach ($linked_job_materials as $material) {
+                    $metadata = $material['metadata'] ?? null;
+                    if (is_string($metadata)) {
+                        $metadata = json_decode($metadata, true);
+                    }
+                    $manualAssignment = is_array($metadata) && !empty($metadata['manual_assignment']);
+                    $deductedAt = trim((string)($material['deducted_at'] ?? ''));
+                    if (!$manualAssignment && $deductedAt === '') {
+                        $autoAssignedIds[] = (int)($material['id'] ?? 0);
+                        continue;
+                    }
+                    $material['metadata'] = $metadata;
+                    $filteredMaterials[] = $material;
+                }
+                $linked_job_materials = $filteredMaterials;
+
+                $autoAssignedIds = array_values(array_filter($autoAssignedIds));
+                if (!empty($autoAssignedIds)) {
+                    $placeholders = implode(',', array_fill(0, count($autoAssignedIds), '?'));
+                    db_execute(
+                        "DELETE FROM job_order_materials WHERE id IN ($placeholders) AND deducted_at IS NULL",
+                        str_repeat('i', count($autoAssignedIds)),
+                        $autoAssignedIds
+                    );
+                    error_log(sprintf(
+                        'PrintFlow POS customization cleanup: removed %d pre-approval material rows from order %d',
+                        count($autoAssignedIds),
+                        (int)($cust['order_id'] ?? 0)
+                    ));
+                }
+            }
+
+            // Hydrate items with raw customization_data, real service name, and design URLs
+            if (!empty($cust['order_id'])) {
+                jo_api_hydrate_items_raw((int)$cust['order_id'], $items);
+            }
+
+            $data = [
+                'id'                       => $cust['customization_id'],
+                'order_id'                 => $cust['order_id'],
+                'order_item_id'            => (int)($cust['order_item_id'] ?? 0),
+                'order_type'               => 'CUSTOMIZATION',
+                'order_code'               => !empty($cust['order_id'])
+                    ? (printflow_get_order_inventory_reference((int)$cust['order_id'])['code'] ?? '')
+                    : printflow_format_customization_code((int)$cust['customization_id']),
+                'customer_full_name'       => $cust['customer_full_name'] ?? '',
+                'customer_profile_picture' => $cust['customer_profile_picture'] ?? '',
+                'customer_contact'         => $cust['customer_contact'] ?? '',
+                'customer_address'         => $cust['customer_address'] ?? '',
+                'customer_type'            => jo_api_normalize_customer_type($cust['customer_type'] ?? '', $cust['transaction_count'] ?? 0),
+                'transaction_count'        => (int)($cust['transaction_count'] ?? 0),
+                'service_type'             => $summary['service_type'],
+                'job_title'                => $summary['job_title'],
+                'width_ft'                 => $summary['width_ft'],
+                'height_ft'                => $summary['height_ft'],
+                'quantity'                 => $summary['quantity'],
+                'status'                   => $mapped_status,
+                'estimated_total'          => $estimated_total,
+                'estimated_price'          => $estimated_total,
+                'final_price'              => $final_price,
+                'amount_paid'              => 0,
+                'job_order_id'             => $linked_job_id > 0 ? $linked_job_id : null,
+                'notes'                    => '',
+                'store_order_notes'        => '',
+                'payment_proof_status'     => $payment_proof_status,
+                'payment_proof_path'       => $payment_proof_url,
+                'payment_submitted_amount' => (float)($cust['downpayment_amount'] ?? 0),
+                'payment_status'           => 'NO',
+                'readiness'                => $linked_job['readiness'] ?? 'READY',
+                'order_source'             => $resolvedOrderSource,
+                'design_status'            => (string)($cust['store_design_status'] ?? ''),
+                'revision_reason'          => (string)($cust['store_revision_reason'] ?? ''),
                 'revision_count'           => (int)($cust['store_revision_count'] ?? 0),
                 'files'                    => ($linked_job_id > 0 && is_array($linked_job) && isset($linked_job['files']))
                     ? $linked_job['files']
@@ -1458,8 +2188,23 @@ try {
     }
 } catch (Throwable $e) {
     ob_clean(); // Clear any partial output
-    http_response_code(400);
-    jo_api_json_response(['success' => false, 'error' => $e->getMessage()], 400);
+    $message = trim($e->getMessage());
+    if (strcasecmp($message, 'Unauthorized') === 0) {
+        jo_api_json_response(['success' => false, 'message' => 'Forbidden'], 403);
+    }
+    if (stripos($message, 'not found') !== false) {
+        jo_api_json_response(['success' => false, 'message' => $message], 404);
+    }
+    if ($e instanceof PDOException || $e instanceof mysqli_sql_exception) {
+        $debugId = uniqid('job_api_', true);
+        error_log('[job_orders_api] Database error [' . $debugId . ']: ' . $message);
+        jo_api_json_response([
+            'success' => false,
+            'message' => 'Internal server error',
+            'debug_id' => $debugId,
+        ], 500);
+    }
+    jo_api_json_response(['success' => false, 'message' => $message], 400);
 }
 
 // Flush clean JSON output
