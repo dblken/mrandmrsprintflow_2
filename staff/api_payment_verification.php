@@ -239,6 +239,7 @@ $submissionId = (int)($_POST['submission_id'] ?? 0);
 $action = trim((string)($_POST['action'] ?? ''));
 if ($action === 'process_queue') {
     session_write_close();
+    payment_verification_import_legacy_submissions(100);
     $summary = payment_ocr_process_queue(2);
     echo json_encode(['success' => true, 'processed' => (int)$summary['processed']]);
     exit;

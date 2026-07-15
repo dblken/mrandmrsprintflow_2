@@ -124,6 +124,9 @@ if (!$upload['success']) {
 
 $file_path = $upload['file_path'];
 $payment_type = ($payment_choice === 'half') ? '50_percent' : 'full_payment';
+error_log('[Payment Upload] order_id=' . $order_id);
+error_log('[Payment Upload] customer_id=' . $customer_id);
+error_log('[Payment Upload] file_saved=' . (string)($upload['storage_path'] ?? basename($file_path)));
 
 global $conn;
 if (!$conn->begin_transaction()) {
@@ -228,6 +231,7 @@ if ($update_success) {
     if ($submission_id <= 0) {
         throw new RuntimeException("Payment submission audit row could not be created for order #{$order_id}.");
     }
+    error_log('[Payment Upload] payment_record_id=' . (int)$submission_id);
 
     if (!$conn->commit()) {
         throw new RuntimeException('Could not commit payment submission transaction.');

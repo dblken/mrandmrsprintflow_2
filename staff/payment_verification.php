@@ -264,6 +264,16 @@ if (!function_exists('pv_status_class')) {
         };
     }
 }
+if (!function_exists('pv_status_label')) {
+    function pv_status_label(array $row): string {
+        $status = (string)($row['verification_status'] ?? 'Pending Review');
+        $ocrStatus = (string)($row['ocr_status'] ?? '');
+        if ($status === 'Pending Review' && in_array($ocrStatus, ['Pending', 'Processing'], true)) {
+            return 'Pending OCR Review';
+        }
+        return $status;
+    }
+}
 if (!function_exists('pv_confidence_class')) {
     function pv_confidence_class(float $value): string {
         if ($value >= 85) return 'confidence-high';
@@ -544,10 +554,10 @@ $csrfToken = generate_csrf_token();
                     ?>
                     <tr>
                         <td><div class="pv-mainline"><?php echo pv_h(payment_verification_order_label($submission)); ?></div><div class="pv-muted"><?php echo pv_h($submission['customer_name'] ?: 'Customer'); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h($sender !== '' ? $sender : 'Not detected'); ?></div><div class="pv-muted">Ref: <?php echo pv_h($reference !== '' ? $reference : 'Not detected'); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h($detectedMethod !== '' ? $detectedMethod : 'Not detected'); ?></div><div class="pv-muted">Selected: <?php echo pv_h($submission['selected_payment_method'] ?: 'Unknown'); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h(pv_effective($submission, 'transaction_date', 'ocr_transaction_date') ?: 'Date unknown'); ?></div><div class="pv-muted"><?php echo pv_h(pv_effective($submission, 'transaction_time', 'ocr_transaction_time') ?: 'Time unknown'); ?></div></td>
-                        <td><span class="pv-status <?php echo pv_status_class((string)$submission['verification_status']); ?>"><?php echo pv_h($submission['verification_status']); ?></span><?php if ((int)$submission['duplicate_submission_id'] > 0): ?><div class="pv-muted">Matches #<?php echo (int)$submission['duplicate_submission_id']; ?></div><?php endif; ?></td>
+                        <td><div class="pv-mainline"><?php echo pv_h($sender !== '' ? $sender : 'Not Detected'); ?></div><div class="pv-muted">Ref: <?php echo pv_h($reference !== '' ? $reference : 'Not Detected'); ?></div></td>
+                        <td><div class="pv-mainline"><?php echo pv_h($detectedMethod !== '' ? $detectedMethod : 'Not Detected'); ?></div><div class="pv-muted">Selected: <?php echo pv_h($submission['selected_payment_method'] ?: 'Unknown'); ?></div></td>
+                        <td><div class="pv-mainline"><?php echo pv_h(pv_effective($submission, 'transaction_date', 'ocr_transaction_date') ?: 'Date Unknown'); ?></div><div class="pv-muted"><?php echo pv_h(pv_effective($submission, 'transaction_time', 'ocr_transaction_time') ?: 'Time Unknown'); ?></div></td>
+                        <td><span class="pv-status <?php echo pv_status_class((string)$submission['verification_status']); ?>"><?php echo pv_h(pv_status_label($submission)); ?></span><?php if ((int)$submission['duplicate_submission_id'] > 0): ?><div class="pv-muted">Matches #<?php echo (int)$submission['duplicate_submission_id']; ?></div><?php endif; ?></td>
                         <td><a class="pv-button light" href="?<?php echo pv_h(http_build_query(array_filter($viewQuery, static fn($value) => $value !== ''))); ?>">Review</a></td>
                     </tr>
                     <?php endforeach; ?>
