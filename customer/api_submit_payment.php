@@ -241,7 +241,8 @@ if ($update_success) {
 
     payment_verification_notify_reviewers(
         $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
-        $is_job ? $order_id : 0
+        $is_job ? $order_id : 0,
+        $submission_id
     );
     
     // Log activity (if staff logged in, otherwise skip)

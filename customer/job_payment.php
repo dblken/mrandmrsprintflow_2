@@ -115,21 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             $error = 'Payment proof was saved, but the verification queue record could not be created. Please try again.';
                             payment_verification_log('job_payment_submission_create_failed', ['job_order_id' => $job_id, 'customer_id' => $customer_id]);
                         } else {
-                            $cust_id = (int)$customer_id;
-                            $cust_row = db_query("SELECT first_name, last_name FROM customers WHERE customer_id = ?", 'i', [$cust_id]);
-                            $cust_name = !empty($cust_row) ? trim($cust_row[0]['first_name'] . ' ' . $cust_row[0]['last_name']) : "Customer";
-
-                            $action_verb = (($job['payment_proof_status'] ?? '') === 'REJECTED') ? "resubmitted" : "submitted";
-                            $srv_name = normalize_service_name($job['service_type'] ?? 'Custom Job');
-                            $msg = "{$cust_name} {$action_verb} payment for {$srv_name}";
-
-                            // Get all activated staff users to notify
-                            $staff_users = db_query("SELECT user_id, role FROM users WHERE role IN ('Staff', 'Admin', 'Manager') AND status = 'Activated'");
-                            foreach ($staff_users as $staff) {
-                                create_notification($staff['user_id'], $staff['role'], $msg, 'Payment', true, false, $job_id);
-                            }
-
-                            payment_verification_notify_reviewers((int)($job['order_id'] ?? 0), $job_id);
+                            payment_verification_notify_reviewers((int)($job['order_id'] ?? 0), $job_id, $submission_id);
                             $success = 'Payment proof uploaded successfully! Our staff will verify it shortly.';
                             // Refresh job data
                             $job = db_query("SELECT * FROM job_orders WHERE id = ?", 'i', [$job_id])[0];

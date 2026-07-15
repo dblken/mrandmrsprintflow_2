@@ -1112,7 +1112,7 @@
                 url = USER_TYPE.toLowerCase() === 'staff' ? base + '/staff/reviews.php' : base + '/admin/notifications.php';
             }
             else if (t.indexOf('payment') !== -1) {
-                url = did ? base + '/staff/orders.php?order_id=' + did : base + '/staff/notifications.php';
+                url = did ? base + '/staff/payment_verification.php?submission_id=' + did : base + '/staff/payment_verification.php';
             }
             else if (t.indexOf('order') !== -1 || t.indexOf('job') !== -1 || t.indexOf('design') !== -1 || t.indexOf('custom') !== -1) {
                 var oType = (orderType || '').toLowerCase();

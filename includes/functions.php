@@ -202,11 +202,20 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
             $col = db_query("SHOW COLUMNS FROM notifications LIKE 'type'");
             if (!empty($col[0]['Type'])) {
                 $t = (string)$col[0]['Type'];
-                if (stripos($t, "'Rating'") === false || stripos($t, "'Review'") === false) {
+                $required_notification_types = ['Order', 'Stock', 'System', 'Message', 'Profile', 'Job Order', 'Payment Issue', 'Design', 'Payment', 'Status', 'Rating', 'Review'];
+                $missing_notification_type = false;
+                foreach ($required_notification_types as $required_notification_type) {
+                    if (stripos($t, "'" . $required_notification_type . "'") === false) {
+                        $missing_notification_type = true;
+                        break;
+                    }
+                }
+                if ($missing_notification_type) {
                     preg_match_all("/'((?:[^'\\\\]|\\\\.)*)'/", $t, $m);
                     $vals = $m[1] ?? [];
-                    if (!in_array('Rating', $vals)) $vals[] = 'Rating';
-                    if (!in_array('Review', $vals)) $vals[] = 'Review';
+                    foreach ($required_notification_types as $required_notification_type) {
+                        if (!in_array($required_notification_type, $vals, true)) $vals[] = $required_notification_type;
+                    }
                     $escaped = array_map(function($v) { return "'" . str_replace("'", "\\'", $v) . "'"; }, $vals);
                     db_execute("ALTER TABLE notifications MODIFY COLUMN type ENUM(" . implode(",", $escaped) . ") DEFAULT 'System'");
                 }

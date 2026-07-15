@@ -1749,29 +1749,67 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
 }
 
 if (!function_exists('payment_verification_notify_reviewers')) {
-    function payment_verification_notify_reviewers(int $orderId = 0, int $jobOrderId = 0): void {
-        $labelRow = ['order_id' => $orderId, 'job_order_id' => $jobOrderId];
-        $label = payment_verification_order_label($labelRow);
-        $message = 'New payment proof submitted for Order #' . $label . '.';
-        $users = db_query(
-            "SELECT user_id, user_type, position FROM users
-             WHERE user_type IN ('Staff', 'Admin') AND COALESCE(status, 'Activated') <> 'Archived'"
-        ) ?: [];
+    function payment_verification_notify_reviewers(int $orderId = 0, int $jobOrderId = 0, int $submissionId = 0): void {
+        if ($submissionId <= 0) {
+            $submissionId = payment_verification_latest_submission_id($orderId, $jobOrderId);
+        }
+        $submission = $submissionId > 0 ? payment_verification_get_submission($submissionId) : null;
+        if ($submission) {
+            $orderId = (int)($submission['order_id'] ?? $orderId);
+            $jobOrderId = (int)($submission['job_order_id'] ?? $jobOrderId);
+        }
+
+        $branchId = (int)($submission['branch_id'] ?? 0);
+        if ($branchId <= 0) $branchId = (int)($submission['order_branch_id'] ?? 0);
+        if ($branchId <= 0) $branchId = (int)($submission['job_branch_id'] ?? 0);
+        if ($branchId <= 0 && $jobOrderId > 0) {
+            $branch = db_query('SELECT branch_id FROM job_orders WHERE id = ? LIMIT 1', 'i', [$jobOrderId]);
+            $branchId = (int)($branch[0]['branch_id'] ?? 0);
+        }
+        if ($branchId <= 0 && $orderId > 0) {
+            $branch = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
+            $branchId = (int)($branch[0]['branch_id'] ?? 0);
+        }
+
+        $label = payment_verification_order_label($submission ?: ['order_id' => $orderId, 'job_order_id' => $jobOrderId]);
+        $customerName = trim((string)($submission['customer_name'] ?? ''));
+        $customerPart = $customerName !== '' ? ' from ' . $customerName : '';
+        $message = 'Payment proof for ' . $label . $customerPart . ' needs verification.';
+
+        $usersSql = "SELECT user_id, user_type, position, branch_id FROM users
+                     WHERE user_type = 'Staff'
+                       AND COALESCE(status, 'Activated') <> 'Archived'";
+        $types = '';
+        $params = [];
+        if ($branchId > 0) {
+            $usersSql .= ' AND branch_id = ?';
+            $types = 'i';
+            $params[] = $branchId;
+        }
+        $users = db_query($usersSql, $types, $params) ?: [];
+        $created = 0;
         foreach ($users as $user) {
-            $role = (string)($user['user_type'] ?? 'Staff');
-            if ($role === 'Staff' && function_exists('printflow_detect_staff_access_role')) {
+            if (function_exists('printflow_detect_staff_access_role')) {
                 if (printflow_detect_staff_access_role((string)($user['position'] ?? '')) !== 'online') continue;
             }
-            create_notification(
+            $notificationId = create_notification(
                 (int)$user['user_id'],
-                $role,
+                'Staff',
                 $message,
-                'Order',
+                'Payment',
                 false,
                 false,
-                $orderId > 0 ? $orderId : $jobOrderId
+                $submissionId > 0 ? $submissionId : ($orderId > 0 ? $orderId : $jobOrderId)
             );
+            if ((int)$notificationId > 0) $created++;
         }
+        payment_verification_log('notification_inserted', [
+            'submission_id' => $submissionId,
+            'order_id' => $orderId,
+            'job_order_id' => $jobOrderId,
+            'branch_id' => $branchId,
+            'staff_notifications' => $created,
+        ]);
     }
 }
 
@@ -1896,4 +1934,3 @@ if (!function_exists('payment_verification_resolve_proof')) {
         return null;
     }
 }
-
