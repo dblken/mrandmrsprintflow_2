@@ -40,9 +40,8 @@ $filterState  = [];
 
 try {
     $schemaReady = payment_verification_ensure_schema();
-    // Legacy import runs only when the queue is explicitly refreshed (via Refresh Queue button).
-    // Running it on every page load caused slow responses and potential timeout-induced blank pages.
-    // The Refresh Queue AJAX endpoint (api_payment_verification.php?action=process_queue) handles this.
+    // Repair a bounded set of proof-bearing legacy rows before rendering. This does not run OCR.
+    if ($schemaReady) payment_verification_import_legacy_submissions(25);
 
     $branchFilter = printflow_branch_filter_for_user();
     if (($_SESSION['user_type'] ?? '') === 'Staff' && ($branchFilter === null || $branchFilter <= 0)) {
@@ -77,6 +76,28 @@ try {
               WHERE 1=1";
     $types  = '';
     $params = [];
+    if ($branchFilter !== null) {
+        $recentQueueRows = db_query(
+            "SELECT ps.id, ps.order_id, ps.job_order_id, ps.verification_status, ps.ocr_status,
+                    {$branchExpression} AS resolved_branch_id
+             FROM payment_submissions ps
+             LEFT JOIN orders o ON o.order_id = ps.order_id
+             LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
+             ORDER BY ps.created_at DESC, ps.id DESC LIMIT 25"
+        ) ?: [];
+        foreach ($recentQueueRows as $recentQueueRow) {
+            $resolvedBranch = (int)($recentQueueRow['resolved_branch_id'] ?? 0);
+            if ($resolvedBranch !== (int)$branchFilter) {
+                payment_verification_queue_log('record excluded: branch mismatch', [
+                    'submission_id' => (int)($recentQueueRow['id'] ?? 0),
+                    'order_id' => (int)($recentQueueRow['order_id'] ?? 0),
+                    'job_order_id' => (int)($recentQueueRow['job_order_id'] ?? 0),
+                    'record_branch_id' => $resolvedBranch,
+                    'staff_branch_id' => (int)$branchFilter,
+                ]);
+            }
+        }
+    }
     if ($branchFilter !== null) {
         $from   .= " AND {$branchExpression} = ?";
         $types  .= 'i';
@@ -193,6 +214,23 @@ try {
         ]);
     } else {
         payment_verification_log('staff_queue_loaded', ['branch_id' => $branchFilter, 'records' => count($submissions), 'total' => $total]);
+        payment_verification_queue_log('query conditions', [
+            'branch_id' => $branchFilter,
+            'status' => $status,
+            'method' => $method,
+            'amount_filter' => $amountFilter,
+            'total' => $total,
+        ]);
+        foreach ($submissions as $matchedSubmission) {
+            payment_verification_queue_log('record matched', [
+                'submission_id' => (int)($matchedSubmission['id'] ?? 0),
+                'order_id' => (int)($matchedSubmission['order_id'] ?? 0),
+                'job_order_id' => (int)($matchedSubmission['job_order_id'] ?? 0),
+                'branch_id' => (int)($matchedSubmission['resolved_branch_id'] ?? 0),
+                'verification_status' => (string)($matchedSubmission['verification_status'] ?? ''),
+                'ocr_status' => (string)($matchedSubmission['ocr_status'] ?? ''),
+            ]);
+        }
     }
 
     $detailId    = (int)($_GET['submission_id'] ?? 0);

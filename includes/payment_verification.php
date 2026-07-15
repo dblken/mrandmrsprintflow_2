@@ -29,6 +29,51 @@ if (!function_exists('payment_verification_log')) {
     }
 }
 
+if (!function_exists('payment_verification_flow_log')) {
+    function payment_verification_flow_log(string $stage, array $context = []): void {
+        $safe = [];
+        foreach ($context as $key => $value) {
+            if (is_scalar($value) || $value === null) $safe[(string)$key] = $value;
+        }
+        error_log('[PaymentFlow] ' . $stage . ' ' . json_encode($safe, JSON_UNESCAPED_SLASHES));
+    }
+}
+
+if (!function_exists('payment_verification_queue_log')) {
+    function payment_verification_queue_log(string $stage, array $context = []): void {
+        $safe = [];
+        foreach ($context as $key => $value) {
+            if (is_scalar($value) || $value === null) $safe[(string)$key] = $value;
+        }
+        error_log('[PaymentQueue] ' . $stage . ' ' . json_encode($safe, JSON_UNESCAPED_SLASHES));
+    }
+}
+
+if (!function_exists('payment_verification_canonical_status')) {
+    function payment_verification_canonical_status(?string $status, ?string $ocrStatus = null): string {
+        $value = strtoupper(trim((string)$status));
+        $ocr = strtoupper(trim((string)$ocrStatus));
+        $map = [
+            'PENDING REVIEW' => 'Pending Review',
+            'TO_VERIFY' => 'Pending Review',
+            'FOR_VERIFICATION' => 'Pending Review',
+            'PAYMENT_SUBMITTED' => 'Pending Review',
+            'OCR_PENDING' => 'Pending Review',
+            'OCR_FAILED' => 'Needs Review',
+            'NEEDS_REVIEW' => 'Needs Review',
+            'NEEDS REVIEW' => 'Needs Review',
+            'AMOUNT_MATCHED' => 'Matched',
+            'MATCHED' => 'Matched',
+            'DUPLICATE SUSPECTED' => 'Duplicate Suspected',
+            'APPROVED' => 'Approved',
+            'REJECTED' => 'Rejected',
+        ];
+        if (isset($map[$value])) return $map[$value];
+        if ($ocr === 'FAILED') return 'Needs Review';
+        return 'Pending Review';
+    }
+}
+
 if (!function_exists('payment_verification_ensure_schema')) {
     function payment_verification_ensure_schema(): bool {
         static $ready = null;
@@ -447,7 +492,10 @@ if (!function_exists('payment_verification_create_submission')) {
             $expected,
             max(0, (float)($data['submitted_amount'] ?? 0)),
             $submissionToken,
-            (string)($data['verification_status'] ?? 'Pending Review'),
+            payment_verification_canonical_status(
+                (string)($data['verification_status'] ?? 'Pending Review'),
+                (string)($data['ocr_status'] ?? 'Pending')
+            ),
             (string)($data['ocr_status'] ?? 'Pending'),
         ];
         $ok = db_execute(
@@ -461,7 +509,12 @@ if (!function_exists('payment_verification_create_submission')) {
             $values
         );
         $id = is_int($ok) ? $ok : 0;
-        if ($id > 0) payment_verification_log('submission_created', ['submission_id' => $id, 'order_id' => $orderId, 'job_order_id' => $jobOrderId, 'branch_id' => $branchId]);
+        if ($id > 0) {
+            payment_verification_log('submission_created', ['submission_id' => $id, 'order_id' => $orderId, 'job_order_id' => $jobOrderId, 'branch_id' => $branchId]);
+            payment_verification_flow_log('verification row inserted', ['submission_id' => $id, 'order_id' => $orderId, 'job_order_id' => $jobOrderId]);
+            payment_verification_flow_log('branch assigned', ['submission_id' => $id, 'branch_id' => $branchId]);
+            payment_verification_flow_log('OCR queued', ['submission_id' => $id, 'ocr_status' => (string)($data['ocr_status'] ?? 'Pending')]);
+        }
         else payment_verification_log('submission_insert_failed', ['order_id' => $orderId, 'job_order_id' => $jobOrderId]);
         return $id;
     }
@@ -1663,15 +1716,21 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
         $limit = max(1, min(500, $limit));
         $imported = 0;
 
+        $hasOrderProof = db_table_has_column('orders', 'payment_proof');
+        $hasOrderProofPath = db_table_has_column('orders', 'payment_proof_path');
+        $orderProofExpression = $hasOrderProof && $hasOrderProofPath
+            ? "COALESCE(NULLIF(TRIM(o.payment_proof), ''), NULLIF(TRIM(o.payment_proof_path), ''))"
+            : ($hasOrderProof ? "NULLIF(TRIM(o.payment_proof), '')" : ($hasOrderProofPath ? "NULLIF(TRIM(o.payment_proof_path), '')" : 'NULL'));
+
         $orders = db_query(
-            "SELECT o.order_id, o.customer_id, o.branch_id, o.payment_proof, o.total_amount,
+            "SELECT o.order_id, o.customer_id, o.branch_id, {$orderProofExpression} AS payment_proof, o.total_amount,
                     o.payment_status, o.status, o.payment_submitted_at, pm.name AS payment_method_name
              FROM orders o
              LEFT JOIN payment_methods pm ON pm.payment_method_id = o.payment_method_id
-             WHERE NULLIF(TRIM(o.payment_proof), '') IS NOT NULL
+             WHERE {$orderProofExpression} IS NOT NULL
                AND NOT EXISTS (
                     SELECT 1 FROM payment_submissions ps
-                    WHERE ps.order_id = o.order_id AND ps.receipt_file = o.payment_proof
+                    WHERE ps.order_id = o.order_id AND ps.receipt_file = {$orderProofExpression}
                )
              ORDER BY o.payment_submitted_at DESC, o.order_id DESC LIMIT ?",
             'i',
@@ -1700,7 +1759,13 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
                 'verification_status' => $verificationStatus,
                 'ocr_status' => $ocrStatus,
             ]);
-            if ($id > 0) $imported++;
+            if ($id > 0) {
+                $imported++;
+                payment_verification_queue_log('record matched', ['submission_id' => $id, 'order_id' => (int)$order['order_id'], 'source' => 'orders']);
+                payment_verification_notify_reviewers((int)$order['order_id'], 0, $id);
+            } else {
+                payment_verification_queue_log('record excluded: verification insert failed', ['order_id' => (int)$order['order_id'], 'source' => 'orders']);
+            }
         }
 
         $remaining = max(1, $limit - $imported);
@@ -1742,7 +1807,13 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
                 'verification_status' => $verificationStatus,
                 'ocr_status' => $ocrStatus,
             ]);
-            if ($id > 0) $imported++;
+            if ($id > 0) {
+                $imported++;
+                payment_verification_queue_log('record matched', ['submission_id' => $id, 'order_id' => (int)($job['order_id'] ?? 0), 'job_order_id' => (int)$job['id'], 'source' => 'job_orders']);
+                payment_verification_notify_reviewers((int)($job['order_id'] ?? 0), (int)$job['id'], $id);
+            } else {
+                payment_verification_queue_log('record excluded: verification insert failed', ['job_order_id' => (int)$job['id'], 'source' => 'job_orders']);
+            }
         }
         return $imported;
     }
@@ -1770,6 +1841,20 @@ if (!function_exists('payment_verification_notify_reviewers')) {
             $branch = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
             $branchId = (int)($branch[0]['branch_id'] ?? 0);
         }
+        if ($branchId <= 0) {
+            payment_verification_queue_log('record excluded: branch unresolved', [
+                'submission_id' => $submissionId,
+                'order_id' => $orderId,
+                'job_order_id' => $jobOrderId,
+            ]);
+            payment_verification_flow_log('notification skipped', [
+                'submission_id' => $submissionId,
+                'branch_id' => 0,
+                'staff_notifications' => 0,
+                'reason' => 'branch unresolved',
+            ]);
+            return;
+        }
 
         $customerName = trim((string)($submission['customer_name'] ?? ''));
         $customerLabel = $customerName !== '' ? $customerName : 'A customer';
@@ -1792,17 +1877,23 @@ if (!function_exists('payment_verification_notify_reviewers')) {
                        AND COALESCE(status, 'Activated') <> 'Archived'";
         $types = '';
         $params = [];
-        if ($branchId > 0) {
-            $usersSql .= ' AND branch_id = ?';
-            $types = 'i';
-            $params[] = $branchId;
-        }
+        $usersSql .= ' AND branch_id = ?';
+        $types = 'i';
+        $params[] = $branchId;
         $users = db_query($usersSql, $types, $params) ?: [];
         $created = 0;
         foreach ($users as $user) {
             if (function_exists('printflow_detect_staff_access_role')) {
                 if (printflow_detect_staff_access_role((string)($user['position'] ?? '')) !== 'online') continue;
             }
+            $existingNotification = db_query(
+                "SELECT notification_id FROM notifications
+                 WHERE user_id = ? AND type = 'Payment' AND COALESCE(data_id, 0) = ?
+                 ORDER BY notification_id DESC LIMIT 1",
+                'ii',
+                [(int)$user['user_id'], $submissionId]
+            );
+            if (!empty($existingNotification)) continue;
             $notificationId = create_notification(
                 (int)$user['user_id'],
                 'Staff',
@@ -1818,6 +1909,11 @@ if (!function_exists('payment_verification_notify_reviewers')) {
             'submission_id' => $submissionId,
             'order_id' => $orderId,
             'job_order_id' => $jobOrderId,
+            'branch_id' => $branchId,
+            'staff_notifications' => $created,
+        ]);
+        payment_verification_flow_log('notification inserted', [
+            'submission_id' => $submissionId,
             'branch_id' => $branchId,
             'staff_notifications' => $created,
         ]);

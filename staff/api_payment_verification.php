@@ -56,8 +56,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'queue_s
         exit;
     }
     $snapshot = array_map('intval', $rows[0]);
+    $records = db_query(
+        "SELECT ps.id, ps.order_id, ps.job_order_id, ps.customer_id,
+                COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0) AS branch_id,
+                ps.receipt_file, ps.verification_status, ps.ocr_status, ps.created_at
+         {$where}
+         ORDER BY ps.created_at DESC, ps.id DESC LIMIT 50",
+        $types,
+        $params
+    ) ?: [];
     payment_verification_log('staff_queue_api_loaded', ['branch_id' => $branchId, 'records' => $snapshot['total'] ?? 0]);
-    echo json_encode(['success' => true, 'queue' => $snapshot, 'refreshed_at' => date(DATE_ATOM)]);
+    echo json_encode(['success' => true, 'queue' => $snapshot, 'records' => $records, 'refreshed_at' => date(DATE_ATOM)]);
     exit;
 }
 
@@ -239,9 +248,9 @@ $submissionId = (int)($_POST['submission_id'] ?? 0);
 $action = trim((string)($_POST['action'] ?? ''));
 if ($action === 'process_queue') {
     session_write_close();
-    payment_verification_import_legacy_submissions(100);
+    $imported = payment_verification_import_legacy_submissions(100);
     $summary = payment_ocr_process_queue(2);
-    echo json_encode(['success' => true, 'processed' => (int)$summary['processed']]);
+    echo json_encode(['success' => true, 'imported' => $imported, 'processed' => (int)$summary['processed']]);
     exit;
 }
 $submission = payment_verification_get_submission($submissionId);

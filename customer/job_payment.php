@@ -76,6 +76,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     error_log('[Payment Upload] order_id=' . (int)($job['order_id'] ?? 0));
                     error_log('[Payment Upload] customer_id=' . (int)$customer_id);
                     error_log('[Payment Upload] file_saved=' . $file_name);
+                    payment_verification_flow_log('upload saved', [
+                        'order_id' => (int)($job['order_id'] ?? 0),
+                        'job_order_id' => $job_id,
+                        'customer_id' => $customer_id,
+                        'receipt_file' => $file_name,
+                    ]);
 
                     $update_success = db_execute("UPDATE job_orders SET
                                 payment_proof_status = 'SUBMITTED',
@@ -115,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             $error = 'Payment proof was saved, but the verification queue record could not be created. Please try again.';
                             payment_verification_log('job_payment_submission_create_failed', ['job_order_id' => $job_id, 'customer_id' => $customer_id]);
                         } else {
+                            payment_verification_flow_log('payment row inserted', ['submission_id' => $submission_id, 'job_order_id' => $job_id]);
                             payment_verification_notify_reviewers((int)($job['order_id'] ?? 0), $job_id, $submission_id);
                             $success = 'Payment proof uploaded successfully! Our staff will verify it shortly.';
                             // Refresh job data
