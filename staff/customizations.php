@@ -1345,6 +1345,7 @@ $online_closed_count = 0;
                             <tr x-show="ordersError && orders.length === 0" x-cloak>
                                 <td colspan="6" class="px-6 py-20 text-center">
                                     <div style="color:#475569;font-weight:700;font-size:14px;">Unable to load customizations. Please try again.</div>
+                                    <div style="margin-top:8px;color:#64748b;font-size:13px;" x-text="ordersError"></div>
                                     <button type="button" @click="retryLoadOrders()" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
                                 </td>
                             </tr>
@@ -2328,18 +2329,16 @@ window.pfCustomizationPreloadedOrders = (() => {
 })();
 </script>
 <script>
+    console.info('[Customizations] script loaded');
     (function registerStaffCustomizationManager() {
         let registered = false;
 
-        function boot() {
-            if (registered || typeof Alpine === 'undefined') return;
-            registered = true;
-
-            Alpine.data('joManager', function (defaultStatus) {
+        function createJoManager(defaultStatus) {
+            console.info('[Customizations] joManager created', defaultStatus || 'ALL');
             defaultStatus = defaultStatus || 'ALL';
             let ordersAbortController = null;
             return {
-            ...printflowStaffServiceOrderModalMixin({
+            ...window.printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
             }),
             statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
@@ -3628,6 +3627,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
 
             async init() {
+                console.info('[Customizations] init started');
                 if (Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                     const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
                     this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
@@ -3822,13 +3822,21 @@ window.pfCustomizationPreloadedOrders = (() => {
                         signal: controller.signal,
                         headers: { 'Accept': 'application/json' }
                     };
+                    const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&service_only=1&summary_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=200&_=${refreshToken}`;
+                    const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&service_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=250&_=${refreshToken}`;
                     const [joRes, pendingRes] = await Promise.all([
-                        fetch(`../admin/job_orders_api.php?action=list_orders&service_only=1&summary_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=200&_=${refreshToken}`, requestOptions).then(r => this.parseJsonResponse(r)),
-                        fetch(`../admin/job_orders_api.php?action=list_pending_orders&service_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=250&_=${refreshToken}`, requestOptions).then(r => this.parseJsonResponse(r)),
+                        fetch(ordersEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Customization orders', ordersEndpoint)),
+                        fetch(pendingEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Pending customization orders', pendingEndpoint)),
                     ]);
 
                     if (!joRes.success && !pendingRes.success) {
-                        throw new Error('Customization list requests failed');
+                        throw new Error(joRes.error || pendingRes.error || 'Customization list requests failed');
+                    }
+                    if (!joRes.success) {
+                        console.error('[Customizations] Primary orders request failed:', joRes.error);
+                    }
+                    if (!pendingRes.success) {
+                        console.error('[Customizations] Pending orders request failed:', pendingRes.error);
                     }
 
                     const jobOrders = joRes.success ? joRes.data : [];
@@ -3858,7 +3866,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.orders = <?php echo $showLatestCustomizationOnly ? 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders).slice(0, 1)' : 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders)'; ?>;
                         this.bumpOrdersVersion();
                     }
-                    this.ordersError = this.orders.length === 0 ? 'load_failed' : '';
+                    this.ordersError = this.orders.length === 0
+                        ? (err?.message || 'Unable to load customizations.')
+                        : '';
                 } finally {
                     window.clearTimeout(timeoutId);
                     if (ordersAbortController === controller) {
@@ -4437,13 +4447,34 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return false;
             },
 
-            async parseJsonResponse(r) {
+            async parseJsonResponse(r, label = 'Request', endpoint = '') {
+                const contentType = r.headers.get('content-type') || '';
                 const text = await r.text();
+                if (!r.ok) {
+                    console.error(`[Customizations] ${label} failed`, {
+                        endpoint,
+                        status: r.status,
+                        body: text.slice(0, 500)
+                    });
+                    return { success: false, error: `${label} failed: HTTP ${r.status}` };
+                }
+                if (!contentType.includes('application/json')) {
+                    console.error(`[Customizations] ${label} returned non-JSON`, {
+                        endpoint,
+                        contentType,
+                        body: text.slice(0, 500)
+                    });
+                    return { success: false, error: `${label} returned a non-JSON response.` };
+                }
                 try {
                     return JSON.parse(text);
                 } catch (e) {
-                    console.error('Non-JSON response', text.slice(0, 500));
-                    return { success: false, error: 'Server returned an invalid response. Check console or PHP error log.' };
+                    console.error(`[Customizations] ${label} returned invalid JSON`, {
+                        endpoint,
+                        error: e,
+                        body: text.slice(0, 500)
+                    });
+                    return { success: false, error: `${label} returned invalid JSON.` };
                 }
             },
             async verifyPayment() {
@@ -5342,7 +5373,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
             }
         };
-            });
+
+        window.joManager = createJoManager;
+
+        function boot() {
+            if (registered || typeof Alpine === 'undefined') return;
+            registered = true;
+            console.info('[Customizations] Alpine init received');
+            Alpine.data('joManager', window.joManager);
         }
 
         if (typeof Alpine !== 'undefined') {
