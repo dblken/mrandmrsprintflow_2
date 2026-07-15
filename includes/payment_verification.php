@@ -1771,10 +1771,21 @@ if (!function_exists('payment_verification_notify_reviewers')) {
             $branchId = (int)($branch[0]['branch_id'] ?? 0);
         }
 
-        $label = payment_verification_order_label($submission ?: ['order_id' => $orderId, 'job_order_id' => $jobOrderId]);
         $customerName = trim((string)($submission['customer_name'] ?? ''));
-        $customerPart = $customerName !== '' ? ' from ' . $customerName : '';
-        $message = 'Payment proof for ' . $label . $customerPart . ' needs verification.';
+        $customerLabel = $customerName !== '' ? $customerName : 'A customer';
+        $itemLabel = '';
+        if ($orderId > 0 && function_exists('printflow_order_notification_preview')) {
+            $preview = printflow_order_notification_preview($orderId);
+            $itemLabel = trim((string)($preview['display_name'] ?? ''));
+        }
+        if ($itemLabel === '' && $jobOrderId > 0 && function_exists('printflow_job_notification_preview')) {
+            $preview = printflow_job_notification_preview($jobOrderId);
+            $itemLabel = trim((string)($preview['display_name'] ?? ''));
+        }
+        if ($itemLabel === '') {
+            $itemLabel = payment_verification_order_label($submission ?: ['order_id' => $orderId, 'job_order_id' => $jobOrderId]);
+        }
+        $message = $customerLabel . ' submitted payment proof for ' . $itemLabel . '. Needs verification.';
 
         $usersSql = "SELECT user_id, user_type, position, branch_id FROM users
                      WHERE user_type = 'Staff'
