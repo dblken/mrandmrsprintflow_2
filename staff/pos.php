@@ -2089,7 +2089,7 @@ try {
                     <div class="receipt-section-title">Customer</div>
                     <div class="receipt-customer">
                         <div>
-                            <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Customer')}</div>
+                            <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Guest')}</div>
                             ${receiptContact ? `<div class="receipt-value" style="margin-top:4px;">${escapeHtml(receiptContact)}</div>` : ''}
                         </div>
                         <div class="receipt-payment-chip">${escapeHtml(payment.method || 'Cash')}</div>
