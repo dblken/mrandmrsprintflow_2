@@ -998,6 +998,46 @@ if (!function_exists('pf_payment_qr_url')) {
     const preview = document.getElementById('preview');
     const previewImg = document.getElementById('previewImg');
     const fileName = document.getElementById('fileName');
+    let paymentSubmissionInFlight = false;
+
+    function showPaymentFeedback(message, type = 'info') {
+        const safeMessage = String(message || 'Something went wrong. Please try again.');
+        const sharedFeedback = [window.showNotification, window.displayToast]
+            .find((candidate) => typeof candidate === 'function');
+        if (sharedFeedback) {
+            sharedFeedback.call(window, safeMessage, type);
+            return;
+        }
+
+        let toast = document.getElementById('payment-feedback-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'payment-feedback-toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            toast.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:100000;max-width:min(360px,calc(100vw - 40px));padding:12px 16px;border-radius:6px;color:#fff;font:600 14px/1.45 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.24);';
+            document.body.appendChild(toast);
+        }
+        toast.textContent = safeMessage;
+        toast.style.background = type === 'error' ? '#b91c1c' : (type === 'success' ? '#047857' : '#0a2530');
+        toast.hidden = false;
+        window.clearTimeout(toast._paymentHideTimer);
+        toast._paymentHideTimer = window.setTimeout(() => { toast.hidden = true; }, 6000);
+    }
+
+    // Compatibility for any older inline branch that still calls showToast.
+    function showToast(message, type = 'error') {
+        showPaymentFeedback(message, type);
+    }
+
+    function resetPaymentSubmitButton() {
+        paymentSubmissionInFlight = false;
+        const button = document.getElementById('submitBtn');
+        if (!button) return;
+        button.textContent = 'Submit Payment Proof';
+        button.classList.remove('is-uploading');
+        updateSubmitState();
+    }
 
     function updateSubmitState() {
         const btn = document.getElementById('submitBtn');
@@ -1022,7 +1062,7 @@ if (!function_exists('pf_payment_qr_url')) {
                 const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
                 if (!validTypes.includes(file.type) || file.size > 10 * 1024 * 1024) {
                     e.target.value = '';
-                    showToast('Please choose a JPG, PNG, WEBP, or PDF receipt up to 10 MB.');
+                    showPaymentFeedback('Please choose a JPG, PNG, WEBP, or PDF receipt up to 10 MB.', 'error');
                     updateSubmitState();
                     return;
                 }
@@ -1051,13 +1091,16 @@ if (!function_exists('pf_payment_qr_url')) {
     if (paymentForm) {
         paymentForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            if (paymentSubmissionInFlight) return;
             if (!proofInput || !proofInput.files || proofInput.files.length === 0) {
                 const errorEl = document.getElementById('submitError');
                 if (errorEl) errorEl.style.display = 'block';
                 return;
             }
             const btn = document.getElementById('submitBtn');
+            paymentSubmissionInFlight = true;
             btn.disabled = true;
+            btn.classList.add('is-uploading');
             btn.innerHTML = '<span style="display:flex; align-items:center; justify-content:center; gap:8px;">Uploading...</span>';
 
             const formData = new FormData(this);
@@ -1065,56 +1108,76 @@ if (!function_exists('pf_payment_qr_url')) {
             // Use XHR for more reliable file upload and progress on mobile browsers
             var xhr = new XMLHttpRequest();
             xhr.open('POST', 'api_submit_payment.php', true);
-            xhr.timeout = 120000; // 2 minutes
+            xhr.timeout = 60000;
 
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
                     var percent = Math.round((e.loaded / e.total) * 100);
-                    btn.innerHTML = 'Uploading... ' + percent + '%';
+                    btn.textContent = percent >= 100 ? 'Processing payment...' : 'Uploading... ' + percent + '%';
                 }
             };
 
             xhr.onload = function() {
                 try {
-                    var data = JSON.parse(xhr.responseText || '{}');
-                } catch (err) {
-                    console.error('Invalid JSON response', xhr.responseText);
-                    showToast('Server error. Please try again.');
-                    btn.disabled = false;
-                    btn.textContent = 'Submit Payment Proof';
-                    return;
-                }
+                    let data;
+                    try {
+                        data = JSON.parse(xhr.responseText || '');
+                    } catch (parseError) {
+                        console.error('Invalid payment submission response:', xhr.responseText);
+                        throw new Error('The server returned an invalid response. Please try again.');
+                    }
 
-                const submissionId = data.payment_submission_id || data.submission_id;
-                if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && submissionId) {
-                    showSuccessModal(
-                        'Receipt Submitted',
-                        data.message || 'Payment proof submitted successfully and sent for staff verification.',
-                        'orders.php?highlight=<?php echo $order_id; ?>',
-                        'services.php',
-                        'View Order',
-                        'Back to Services',
-                        'services.php',
-                        4000
-                    );
-                } else {
-                    showToast('Error: ' + (data.message || 'Upload failed'));
-                    btn.disabled = false;
-                    btn.textContent = 'Submit Payment Proof';
+                    const submissionId = data.payment_submission_id || data.submission_id;
+                    if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && submissionId) {
+                        const successMessage = data.message || 'Payment proof submitted successfully and sent for staff verification.';
+                        if (typeof window.showSuccessModal === 'function') {
+                            window.showSuccessModal(
+                                'Receipt Submitted',
+                                successMessage,
+                                'orders.php?highlight=<?php echo $order_id; ?>',
+                                'services.php',
+                                'View Order',
+                                'Back to Services',
+                                'services.php',
+                                4000
+                            );
+                        } else {
+                            showPaymentFeedback(successMessage, 'success');
+                        }
+                        return;
+                    }
+
+                    const step = data && data.step ? ` [${data.step}]` : '';
+                    const message = data && data.message
+                        ? data.message
+                        : `Payment submission failed with HTTP ${xhr.status}.`;
+                    throw new Error(message + step);
+                } catch (error) {
+                    console.error('Payment submission error:', error, {
+                        status: xhr.status,
+                        response: xhr.responseText
+                    });
+                    showPaymentFeedback(error.message, 'error');
+                } finally {
+                    resetPaymentSubmitButton();
                 }
             };
 
             xhr.onerror = function() {
-                console.error('Upload error');
-                showToast('Network error during upload. Please try again.');
-                btn.disabled = false;
-                btn.textContent = 'Submit Payment Proof';
+                console.error('Network error while submitting payment proof.');
+                showPaymentFeedback('Network error. Please try again.', 'error');
+                resetPaymentSubmitButton();
             };
 
             xhr.ontimeout = function() {
-                showToast('Upload timed out. Try a smaller file or use Wi‑Fi.');
-                btn.disabled = false;
-                btn.textContent = 'Submit Payment Proof';
+                console.error('Payment submission request timed out.');
+                showPaymentFeedback('The upload timed out. Please try again.', 'error');
+                resetPaymentSubmitButton();
+            };
+
+            xhr.onabort = function() {
+                showPaymentFeedback('Payment submission was cancelled.', 'error');
+                resetPaymentSubmitButton();
             };
 
             xhr.send(formData);

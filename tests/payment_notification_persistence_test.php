@@ -2,6 +2,7 @@
 
 $notificationInserts = [];
 $failNotificationInsert = false;
+$reviewerMode = 'staff';
 
 function db_execute($sql, $types = '', $params = []) {
     global $notificationInserts, $failNotificationInsert;
@@ -14,6 +15,7 @@ function db_execute($sql, $types = '', $params = []) {
 }
 
 function db_query($sql, $types = '', $params = []): array {
+    global $reviewerMode;
     $sql = (string)$sql;
     if (stripos($sql, "SHOW TABLES LIKE 'notifications'") !== false) return [['table' => 'notifications']];
     if (stripos($sql, "SHOW TABLE STATUS LIKE 'notifications'") !== false) return [['Engine' => 'InnoDB']];
@@ -42,10 +44,16 @@ function db_query($sql, $types = '', $params = []): array {
         ]];
     }
     if (stripos($sql, "FROM users") !== false && stripos($sql, "user_type = 'Staff'") !== false) {
+        if ($reviewerMode !== 'staff') return [];
         return [
             ['user_id' => 21, 'user_type' => 'Staff', 'position' => '', 'branch_id' => 3],
             ['user_id' => 22, 'user_type' => 'Staff', 'position' => '', 'branch_id' => 3],
         ];
+    }
+    if (stripos($sql, "FROM users") !== false && stripos($sql, "user_type = 'Admin'") !== false) {
+        return $reviewerMode === 'admin'
+            ? [['user_id' => 31, 'user_type' => 'Admin']]
+            : [];
     }
     if (stripos($sql, 'FROM notifications') !== false) return [];
     return [];
@@ -69,6 +77,13 @@ foreach ($notificationInserts as $insert) {
     if (stripos((string)$insert['sql'], '0, 0, 0') === false) $failures[] = 'Notification must be unread with external delivery disabled.';
 }
 
+$reviewerMode = 'admin';
+$adminFallback = payment_verification_notify_reviewers(11233, 0, 93, true);
+if (empty($adminFallback['success']) || ($adminFallback['recipient_count'] ?? 0) !== 1) {
+    $failures[] = 'Expected an active admin fallback when a branch has no online reviewer.';
+}
+
+$reviewerMode = 'staff';
 $failNotificationInsert = true;
 $failed = payment_verification_notify_reviewers(11233, 0, 92, true);
 if (!empty($failed['success'])) $failures[] = 'Strict mode must fail when a notification insert fails.';
@@ -83,6 +98,17 @@ if ($jobPreparation === false || $begin === false || $jobPreparation > $begin) {
 }
 if ($notify === false || $commit === false || $notify > $commit) {
     $failures[] = 'Reviewer notifications must be written before the payment commit.';
+}
+if (strpos($endpoint, "error_reference") === false || strpos($endpoint, '[PAYMENT SUBMISSION ERROR]') === false) {
+    $failures[] = 'Backend failures must return a correlation ID and write detailed server logs.';
+}
+$tryPosition = strpos($endpoint, 'try {');
+$authRequirePosition = strpos($endpoint, "require_once __DIR__ . '/../includes/auth.php'");
+if ($tryPosition === false || $authRequirePosition === false || $tryPosition > $authRequirePosition) {
+    $failures[] = 'The JSON exception boundary must include endpoint bootstrap files.';
+}
+if (strpos($endpoint, "Content-Type: application/json; charset=utf-8") === false) {
+    $failures[] = 'The payment endpoint must declare UTF-8 JSON responses.';
 }
 
 if ($failures) {

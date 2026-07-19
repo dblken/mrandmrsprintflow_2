@@ -4,20 +4,45 @@
  * PrintFlow - Printing Shop PWA
  */
 
-require_once __DIR__ . '/../includes/auth.php';
-require_once __DIR__ . '/../includes/functions.php';
-require_once __DIR__ . '/../includes/JobOrderService.php';
-require_once __DIR__ . '/../includes/payment_verification.php';
+ini_set('log_errors', '1');
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+header('Content-Type: application/json; charset=utf-8');
 
-require_role('Customer');
-
-header('Content-Type: application/json');
-
+$failure_step = 'bootstrap';
 $upload = [];
 $transaction_started = false;
 $submission_committed = false;
 $update_success = false;
 $post_commit_warnings = [];
+
+try {
+
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
+
+$failure_step = 'authentication';
+if (!is_logged_in()) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Your session has expired. Please sign in and try again.',
+        'step' => 'authentication',
+    ]);
+    exit;
+}
+if (get_user_type() !== 'Customer') {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'message' => 'This payment endpoint is available to customers only.',
+        'step' => 'authorization',
+    ]);
+    exit;
+}
+
 $failure_step = 'request_validation';
 $api_verification_status = static function (?string $status): string {
     $canonical = payment_verification_canonical_status($status);
@@ -25,8 +50,6 @@ $api_verification_status = static function (?string $status): string {
     if ($canonical === 'Pending Review') return 'pending_review';
     return 'needs_review';
 };
-
-try {
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -63,6 +86,7 @@ payment_verification_log('submission_request_received', [
 ]);
 
 // 1. Validate order in correct table
+$failure_step = 'order_lookup';
 if (!$is_job) {
     $order_result = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
     if (empty($order_result)) {
@@ -83,6 +107,7 @@ if (!$is_job) {
     $total_to_pay = (float)$order['estimated_total'];
 }
 
+$failure_step = 'payment_verification_schema';
 if (!payment_verification_ensure_schema()) {
     http_response_code(503);
     echo json_encode([
@@ -92,6 +117,7 @@ if (!payment_verification_ensure_schema()) {
     ]);
     exit;
 }
+$failure_step = 'notification_schema';
 if (!payment_verification_ensure_notification_schema()) {
     http_response_code(503);
     echo json_encode([
@@ -178,6 +204,7 @@ if (!isset($_FILES['payment_proof'])) {
 }
 
 // Store receipts in the protected payment directory after server-side MIME validation.
+$failure_step = 'proof_upload';
 $upload = payment_verification_store_receipt($_FILES['payment_proof']);
 if (!$upload['success']) {
     http_response_code(422);
@@ -401,7 +428,7 @@ if ($update_success) {
 }
 
 } catch (Throwable $e) {
-    if ($transaction_started && isset($conn) && $conn instanceof mysqli) {
+    if (!empty($transaction_started) && isset($conn) && $conn instanceof mysqli) {
         $conn->rollback();
         $transaction_started = false;
     }
@@ -452,12 +479,27 @@ if ($update_success) {
             }
         }
     }
-    payment_verification_log('submission_failed', [
+    $errorReference = strtoupper(substr(hash('sha256', microtime(true) . '|' . mt_rand()), 0, 12));
+    $databaseErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+    $lastDatabaseError = $databaseErrors ? $databaseErrors[array_key_last($databaseErrors)] : [];
+    $failureContext = [
+        'reference' => $errorReference,
         'order_id' => $order_id ?? 0,
         'customer_id' => $customer_id ?? 0,
         'step' => $failure_step,
+        'exception' => get_class($e),
         'reason' => $e->getMessage(),
-    ]);
+        'exception_file' => $e->getFile(),
+        'exception_line' => $e->getLine(),
+        'exception_trace' => $e->getTraceAsString(),
+        'db_stage' => (string)($lastDatabaseError['stage'] ?? ''),
+        'db_errno' => (int)($lastDatabaseError['errno'] ?? 0),
+        'db_error' => (string)($lastDatabaseError['error'] ?? ''),
+        'db_sql' => (string)($lastDatabaseError['sql'] ?? ''),
+        'upload_error' => (int)($_FILES['payment_proof']['error'] ?? UPLOAD_ERR_NO_FILE),
+    ];
+    payment_verification_log('submission_failed', $failureContext);
+    error_log('[PAYMENT SUBMISSION ERROR] ' . json_encode($failureContext, JSON_UNESCAPED_SLASHES));
     http_response_code(500);
     $stepMessages = [
         'order_status_update' => 'The order payment status could not be updated. No payment submission was saved.',
@@ -467,8 +509,12 @@ if ($update_success) {
         'job_preparation' => 'The order could not be prepared for payment verification.',
     ];
     $safeMessage = $stepMessages[$failure_step]
-        ?? ($e instanceof RuntimeException
-            ? $e->getMessage()
-            : 'The payment proof could not be submitted because of a server error. Please try again.');
-    echo json_encode(['success' => false, 'message' => $safeMessage, 'step' => $failure_step]);
+        ?? 'The payment proof could not be submitted because of a server error. Please try again.';
+    echo json_encode([
+        'success' => false,
+        'message' => $safeMessage,
+        'step' => $failure_step,
+        'error_reference' => $errorReference,
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
 }

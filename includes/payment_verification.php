@@ -543,13 +543,32 @@ if (!function_exists('payment_verification_store_receipt')) {
 
         $directory = dirname(__DIR__) . '/uploads/secure_payments';
         if (!is_dir($directory) && !@mkdir($directory, 0750, true)) {
+            payment_verification_log('upload_failed', [
+                'reason' => 'storage_directory_create_failed',
+                'directory' => $directory,
+                'parent_writable' => is_writable(dirname($directory)),
+            ]);
             return ['success' => false, 'error' => 'Secure receipt storage is unavailable.'];
+        }
+        if (!is_writable($directory)) {
+            payment_verification_log('upload_failed', [
+                'reason' => 'storage_directory_not_writable',
+                'directory' => $directory,
+            ]);
+            return ['success' => false, 'error' => 'Secure receipt storage is not writable.'];
         }
         $stem = bin2hex(random_bytes(18));
         $filename = $stem . '.' . $extensions[$mime];
         $target = $directory . '/' . $filename;
         if (!move_uploaded_file($tmp, $target)) {
-            payment_verification_log('upload_failed', ['reason' => 'move_failed']);
+            $lastError = error_get_last();
+            payment_verification_log('upload_failed', [
+                'reason' => 'move_failed',
+                'directory' => $directory,
+                'directory_writable' => is_writable($directory),
+                'php_upload_error' => (int)($file['error'] ?? UPLOAD_ERR_NO_FILE),
+                'last_error' => (string)($lastError['message'] ?? ''),
+            ]);
             return ['success' => false, 'error' => 'The receipt could not be saved.'];
         }
         @chmod($target, 0640);
@@ -2228,6 +2247,29 @@ if (!function_exists('payment_verification_notify_reviewers')) {
             }
             $userId = (int)($user['user_id'] ?? 0);
             if ($userId > 0) $recipientIds[$userId] = $userId;
+        }
+
+        // Some branches only have counter/POS staff, who cannot open the Payment
+        // Verification module. Fall back to active admins so the required review
+        // notification does not make an otherwise valid submission impossible.
+        if ($recipientIds === []) {
+            $admins = db_query(
+                "SELECT user_id FROM users
+                 WHERE user_type = 'Admin'
+                   AND COALESCE(status, 'Activated') <> 'Archived'
+                 ORDER BY user_id ASC"
+            ) ?: [];
+            foreach ($admins as $admin) {
+                $userId = (int)($admin['user_id'] ?? 0);
+                if ($userId > 0) $recipientIds[$userId] = $userId;
+            }
+            if ($recipientIds !== []) {
+                payment_verification_log('notification_reviewer_fallback', [
+                    'submission_id' => $submissionId,
+                    'branch_id' => $branchId,
+                    'admin_recipients' => count($recipientIds),
+                ]);
+            }
         }
         $recipientIds = array_values($recipientIds);
         if ($recipientIds === []) {
