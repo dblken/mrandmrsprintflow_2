@@ -18,18 +18,25 @@ $transaction_started = false;
 $submission_committed = false;
 $update_success = false;
 $post_commit_warnings = [];
+$failure_step = 'request_validation';
+$api_verification_status = static function (?string $status): string {
+    $canonical = payment_verification_canonical_status($status);
+    if ($canonical === 'Matched') return 'matched';
+    if ($canonical === 'Pending Review') return 'pending_review';
+    return 'needs_review';
+};
 
 try {
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Invalid request method']);
+    echo json_encode(['success' => false, 'message' => 'Invalid request method', 'step' => 'request_method']);
     exit;
 }
 
 if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
     http_response_code(419);
-    echo json_encode(['success' => false, 'message' => 'Invalid CSRF token']);
+    echo json_encode(['success' => false, 'message' => 'Invalid CSRF token', 'step' => 'csrf_validation']);
     exit;
 }
 
@@ -60,7 +67,7 @@ if (!$is_job) {
     $order_result = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
     if (empty($order_result)) {
         http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Order not found']);
+        echo json_encode(['success' => false, 'message' => 'Order not found', 'step' => 'order_lookup']);
         exit;
     }
     $order = $order_result[0];
@@ -69,7 +76,7 @@ if (!$is_job) {
     $order_result = db_query("SELECT * FROM job_orders WHERE id = ? AND customer_id = ?", 'ii', [$order_id, $customer_id]);
     if (empty($order_result)) {
         http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Job Order not found']);
+        echo json_encode(['success' => false, 'message' => 'Job Order not found', 'step' => 'order_lookup']);
         exit;
     }
     $order = $order_result[0];
@@ -78,7 +85,20 @@ if (!$is_job) {
 
 if (!payment_verification_ensure_schema()) {
     http_response_code(503);
-    echo json_encode(['success' => false, 'message' => 'Payment verification is temporarily unavailable. Please try again shortly.']);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Payment verification is temporarily unavailable. Please try again shortly.',
+        'step' => 'payment_verification_schema',
+    ]);
+    exit;
+}
+if (!payment_verification_ensure_notification_schema()) {
+    http_response_code(503);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Staff payment notifications are temporarily unavailable. Please try again shortly.',
+        'step' => 'notification_schema',
+    ]);
     exit;
 }
 
@@ -96,18 +116,37 @@ if ($submission_token !== '') {
             : (int)($existing[0]['order_id'] ?? 0);
         if ($existingOrderId !== $order_id) {
             http_response_code(409);
-            echo json_encode(['success' => false, 'message' => 'This payment submission token belongs to a different order. Please refresh the page.']);
+            echo json_encode([
+                'success' => false,
+                'message' => 'This payment submission token belongs to a different order. Please refresh the page.',
+                'step' => 'idempotency_validation',
+            ]);
+            exit;
+        }
+        $existingNotification = payment_verification_notify_reviewers(
+            $is_job ? (int)($existing[0]['order_id'] ?? 0) : $order_id,
+            $is_job ? $order_id : 0,
+            (int)$existing[0]['id'],
+            true
+        );
+        if (empty($existingNotification['success'])) {
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => 'The payment submission exists, but its staff notification could not be created.',
+                'step' => 'notification_insert',
+            ]);
             exit;
         }
         payment_verification_log('submission_request_reused', ['submission_id' => (int)$existing[0]['id'], 'order_id' => $order_id]);
         echo json_encode([
             'success' => true,
-            'message' => 'Payment proof submitted successfully. It is now waiting for staff verification.',
+            'message' => 'Payment proof submitted successfully and sent for staff verification.',
             'payment_submission_id' => (int)$existing[0]['id'],
             'submission_id' => (int)$existing[0]['id'],
             'order_id' => $order_id,
             'status' => 'pending_review',
-            'verification_status' => (string)($existing[0]['verification_status'] ?? 'Pending Review'),
+            'verification_status' => $api_verification_status((string)($existing[0]['verification_status'] ?? 'Pending Review')),
             'record_created' => true,
             'idempotent_replay' => true,
             'ocr_status' => (string)($existing[0]['ocr_status'] ?? 'Pending'),
@@ -123,14 +162,18 @@ $min_required = ($payment_choice === 'half') ? $total_to_pay * 0.5 : $total_to_p
 
 if ($amount < $min_required - 0.01) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'message' => 'Amount must be at least ' . ($payment_choice === 'half' ? '50%' : '100%') . ' of the total (' . format_currency($min_required) . ')']);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Amount must be at least ' . ($payment_choice === 'half' ? '50%' : '100%') . ' of the total (' . format_currency($min_required) . ')',
+        'step' => 'amount_validation',
+    ]);
     exit;
 }
 
 if (!isset($_FILES['payment_proof'])) {
     http_response_code(422);
     payment_verification_log('upload_failed', ['reason' => 'missing_file_field', 'order_id' => $order_id]);
-    echo json_encode(['success' => false, 'message' => 'Please upload a proof of payment.']);
+    echo json_encode(['success' => false, 'message' => 'Please upload a proof of payment.', 'step' => 'upload_validation']);
     exit;
 }
 
@@ -138,7 +181,7 @@ if (!isset($_FILES['payment_proof'])) {
 $upload = payment_verification_store_receipt($_FILES['payment_proof']);
 if (!$upload['success']) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'message' => 'Upload failed: ' . $upload['error']]);
+    echo json_encode(['success' => false, 'message' => 'Upload failed: ' . $upload['error'], 'step' => 'proof_upload']);
     exit;
 }
 
@@ -153,7 +196,15 @@ error_log('[Payment Upload] order_id=' . $order_id);
 error_log('[Payment Upload] customer_id=' . $customer_id);
 error_log('[Payment Upload] file_saved=' . (string)($upload['storage_path'] ?? basename($file_path)));
 
+// This repair can create jobs using its own transaction. Run it before the
+// payment transaction so its internal COMMIT cannot partially commit a proof.
+if (!$is_job) {
+    $failure_step = 'job_preparation';
+    JobOrderService::ensureJobsForStoreOrder($order_id);
+}
+
 global $conn;
+$failure_step = 'transaction_begin';
 if (!$conn->begin_transaction()) {
     throw new RuntimeException('Could not start payment submission transaction.');
 }
@@ -161,6 +212,7 @@ $transaction_started = true;
 
 if (!$is_job) {
     // 3. Update regular order
+    $failure_step = 'order_status_update';
     $sql = "UPDATE orders SET 
             status = 'To Verify', 
             payment_type = ?,
@@ -186,6 +238,7 @@ if (!$is_job) {
     }
 } else {
     // 4. Update job order
+    $failure_step = 'order_status_update';
     $sql = "UPDATE job_orders SET 
             status = 'VERIFY_PAY',
             payment_proof_status = 'SUBMITTED', 
@@ -219,8 +272,7 @@ if ($update_success) {
     // Keep linked production jobs in sync so staff Customizations → TO_VERIFY tab shows this row
     // (store payment only touched `orders`; merged list often hides ORDER when any JOB exists).
     if (!$is_job) {
-        JobOrderService::ensureJobsForStoreOrder($order_id);
-        db_execute(
+        $linkedJobsUpdated = db_execute(
             "UPDATE job_orders SET
                 status = 'VERIFY_PAY',
                 payment_proof_status = 'SUBMITTED',
@@ -233,9 +285,13 @@ if ($update_success) {
             'dssi',
             [$amount, $file_path, $selected_payment_method, $order_id]
         );
+        if (!$linkedJobsUpdated) {
+            throw new RuntimeException('The linked job payment state could not be updated.');
+        }
     }
 
     // OCR is advisory and stored separately so existing payment/order fields remain untouched.
+    $failure_step = 'payment_verification_insert';
     $submission_id = payment_verification_create_submission([
         'order_id' => $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
         'job_order_id' => $is_job ? $order_id : 0,
@@ -259,25 +315,23 @@ if ($update_success) {
     error_log('[Payment Upload] payment_record_id=' . (int)$submission_id);
     payment_verification_flow_log('payment row inserted', ['submission_id' => $submission_id, 'order_id' => $order_id, 'is_job' => $is_job]);
 
+    $failure_step = 'notification_insert';
+    $notificationResult = payment_verification_notify_reviewers(
+        $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
+        $is_job ? $order_id : 0,
+        $submission_id,
+        true
+    );
+    if (empty($notificationResult['success'])) {
+        throw new RuntimeException((string)($notificationResult['error'] ?? 'Staff notification could not be created.'));
+    }
+
+    $failure_step = 'transaction_commit';
     if (!$conn->commit()) {
         throw new RuntimeException('Could not commit payment submission transaction.');
     }
     $transaction_started = false;
     $submission_committed = true;
-
-    try {
-        payment_verification_notify_reviewers(
-            $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
-            $is_job ? $order_id : 0,
-            $submission_id
-        );
-    } catch (Throwable $notificationError) {
-        $post_commit_warnings[] = 'staff_notification';
-        payment_verification_log('notification_failed', [
-            'submission_id' => $submission_id,
-            'reason' => $notificationError->getMessage(),
-        ]);
-    }
 
     try {
         log_activity($customer_id, 'Payment Submitted', "Submitted proof for {$type_label} #{$order_id}");
@@ -330,18 +384,19 @@ if ($update_success) {
 
     echo json_encode([
         'success' => true,
-        'message' => 'Payment proof submitted successfully. It is now waiting for staff verification.',
+        'message' => 'Payment proof submitted successfully and sent for staff verification.',
         'receipt_url' => (string)($upload['receipt_url'] ?? ''),
         'payment_submission_id' => $submission_id,
         'submission_id' => $submission_id,
         'order_id' => $order_id,
         'status' => 'pending_review',
-        'verification_status' => $verification_status,
+        'verification_status' => $api_verification_status($verification_status),
         'record_created' => true,
         'ocr_status' => $ocr_status,
         'ocr_processed' => $ocr_status === 'Completed',
     ]);
 } else {
+    $failure_step = 'order_status_update';
     throw new RuntimeException('The order payment state could not be updated.');
 }
 
@@ -367,30 +422,53 @@ if ($update_success) {
             [$customer_id, $submission_token]
         );
         if (!empty($replayed[0]['id'])) {
-            payment_verification_log('submission_race_reused', [
-                'submission_id' => (int)$replayed[0]['id'],
-                'order_id' => $order_id ?? 0,
-            ]);
-            echo json_encode([
-                'success' => true,
-                'message' => 'Payment proof submitted successfully. It is now waiting for staff verification.',
-                'payment_submission_id' => (int)$replayed[0]['id'],
-                'submission_id' => (int)$replayed[0]['id'],
-                'order_id' => (int)($order_id ?? 0),
-                'status' => 'pending_review',
-                'verification_status' => (string)($replayed[0]['verification_status'] ?? 'Pending Review'),
-                'record_created' => true,
-                'idempotent_replay' => true,
-                'ocr_status' => (string)($replayed[0]['ocr_status'] ?? 'Pending'),
-                'receipt_url' => (string)($replayed[0]['receipt_url'] ?? ''),
-            ]);
-            exit;
+            $raceNotification = payment_verification_notify_reviewers(
+                !empty($is_job) ? (int)($replayed[0]['order_id'] ?? 0) : (int)($order_id ?? 0),
+                !empty($is_job) ? (int)($order_id ?? 0) : 0,
+                (int)$replayed[0]['id'],
+                true
+            );
+            if (empty($raceNotification['success'])) {
+                $failure_step = 'notification_insert';
+            } else {
+                payment_verification_log('submission_race_reused', [
+                    'submission_id' => (int)$replayed[0]['id'],
+                    'order_id' => $order_id ?? 0,
+                ]);
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Payment proof submitted successfully and sent for staff verification.',
+                    'payment_submission_id' => (int)$replayed[0]['id'],
+                    'submission_id' => (int)$replayed[0]['id'],
+                    'order_id' => (int)($order_id ?? 0),
+                    'status' => 'pending_review',
+                    'verification_status' => $api_verification_status((string)($replayed[0]['verification_status'] ?? 'Pending Review')),
+                    'record_created' => true,
+                    'idempotent_replay' => true,
+                    'ocr_status' => (string)($replayed[0]['ocr_status'] ?? 'Pending'),
+                    'receipt_url' => (string)($replayed[0]['receipt_url'] ?? ''),
+                ]);
+                exit;
+            }
         }
     }
-    payment_verification_log('submission_failed', ['order_id' => $order_id ?? 0, 'customer_id' => $customer_id ?? 0, 'reason' => $e->getMessage()]);
+    payment_verification_log('submission_failed', [
+        'order_id' => $order_id ?? 0,
+        'customer_id' => $customer_id ?? 0,
+        'step' => $failure_step,
+        'reason' => $e->getMessage(),
+    ]);
     http_response_code(500);
-    $safeMessage = $e instanceof RuntimeException
-        ? $e->getMessage()
-        : 'The payment proof could not be submitted because of a server error. Please try again.';
-    echo json_encode(['success' => false, 'message' => $safeMessage]);
+    $stepMessages = [
+        'order_status_update' => 'The order payment status could not be updated. No payment submission was saved.',
+        'payment_verification_insert' => 'Payment proof was uploaded, but the verification record could not be created.',
+        'notification_insert' => 'The verification record could not be sent to staff. No payment submission was saved.',
+        'transaction_commit' => 'The payment submission could not be committed. Please try again.',
+        'job_preparation' => 'The order could not be prepared for payment verification.',
+    ];
+    $safeMessage = $stepMessages[$failure_step]
+        ?? ($e instanceof RuntimeException
+            ? $e->getMessage()
+            : 'The payment proof could not be submitted because of a server error. Please try again.');
+    echo json_encode(['success' => false, 'message' => $safeMessage, 'step' => $failure_step]);
 }

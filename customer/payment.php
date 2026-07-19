@@ -1089,7 +1089,7 @@ if (!function_exists('pf_payment_qr_url')) {
                 if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && submissionId) {
                     showSuccessModal(
                         'Receipt Submitted',
-                        data.message || 'Payment proof submitted successfully. It is now waiting for staff verification.',
+                        data.message || 'Payment proof submitted successfully and sent for staff verification.',
                         'orders.php?highlight=<?php echo $order_id; ?>',
                         'services.php',
                         'View Order',

@@ -236,6 +236,96 @@ if (!function_exists('payment_verification_ensure_schema')) {
     }
 }
 
+if (!function_exists('payment_verification_ensure_notification_schema')) {
+    /**
+     * Prepare the in-system notification columns before a payment transaction starts.
+     * Notification inserts inside the transaction must never execute DDL because MySQL
+     * implicitly commits around ALTER TABLE statements.
+     */
+    function payment_verification_ensure_notification_schema(): bool {
+        static $ready = null;
+        if ($ready !== null) return $ready;
+
+        $ready = !empty(db_query("SHOW TABLES LIKE 'notifications'"));
+        if (!$ready) {
+            payment_verification_log('notification_schema_missing', ['table' => 'notifications']);
+            return false;
+        }
+
+        $tableStatus = db_query("SHOW TABLE STATUS LIKE 'notifications'");
+        $engine = strtolower(trim((string)($tableStatus[0]['Engine'] ?? '')));
+        if ($engine !== 'innodb') {
+            if (!db_execute('ALTER TABLE notifications ENGINE=InnoDB')) {
+                payment_verification_log('notification_schema_upgrade_failed', [
+                    'table' => 'notifications',
+                    'reason' => 'transactional_engine_required',
+                    'engine' => $engine,
+                ]);
+                return $ready = false;
+            }
+            $tableStatus = db_query("SHOW TABLE STATUS LIKE 'notifications'");
+            $engine = strtolower(trim((string)($tableStatus[0]['Engine'] ?? '')));
+            if ($engine !== 'innodb') {
+                payment_verification_log('notification_schema_invalid', [
+                    'table' => 'notifications',
+                    'reason' => 'transactional_engine_required',
+                    'engine' => $engine,
+                ]);
+                return $ready = false;
+            }
+        }
+
+        $requiredColumns = [
+            'user_id' => 'INT DEFAULT NULL',
+            'customer_id' => 'INT DEFAULT NULL',
+            'message' => 'TEXT NOT NULL',
+            'type' => "VARCHAR(40) NOT NULL DEFAULT 'System'",
+            'data_id' => 'INT DEFAULT 0',
+            'is_read' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'send_email' => 'TINYINT(1) NOT NULL DEFAULT 0',
+            'send_sms' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        ];
+        foreach ($requiredColumns as $column => $definition) {
+            $columnRows = db_query("SHOW COLUMNS FROM notifications LIKE '{$column}'");
+            if (!empty($columnRows)) continue;
+            if (!db_execute("ALTER TABLE notifications ADD COLUMN `{$column}` {$definition}")) {
+                payment_verification_log('notification_schema_upgrade_failed', ['column' => $column]);
+                return $ready = false;
+            }
+        }
+
+        $typeRows = db_query("SHOW COLUMNS FROM notifications LIKE 'type'");
+        $typeDefinition = (string)($typeRows[0]['Type'] ?? '');
+        if (stripos($typeDefinition, 'enum(') === 0 && stripos($typeDefinition, "'Payment'") === false) {
+            preg_match_all("/'((?:[^'\\\\]|\\\\.)*)'/", $typeDefinition, $matches);
+            $values = array_map(static fn(string $value): string => stripcslashes($value), $matches[1] ?? []);
+            if (!in_array('Payment', $values, true)) $values[] = 'Payment';
+            if ($values === []) {
+                payment_verification_log('notification_schema_upgrade_failed', ['column' => 'type', 'reason' => 'enum_parse_failed']);
+                return $ready = false;
+            }
+            $escaped = array_map(
+                static fn(string $value): string => "'" . str_replace("'", "\\'", $value) . "'",
+                $values
+            );
+            if (!db_execute(
+                'ALTER TABLE notifications MODIFY COLUMN type ENUM(' . implode(',', $escaped) . ") NOT NULL DEFAULT 'System'"
+            )) {
+                payment_verification_log('notification_schema_upgrade_failed', ['column' => 'type', 'reason' => 'payment_type_missing']);
+                return $ready = false;
+            }
+        }
+
+        foreach (array_keys($requiredColumns) as $column) {
+            if (empty(db_query("SHOW COLUMNS FROM notifications LIKE '{$column}'"))) {
+                payment_verification_log('notification_schema_invalid', ['column' => $column]);
+                return $ready = false;
+            }
+        }
+        return $ready = true;
+    }
+}
+
 if (!function_exists('payment_verification_normalize_method')) {
     function payment_verification_normalize_method(?string $value): string {
         $value = trim((string)$value);
@@ -1382,7 +1472,14 @@ if (!function_exists('payment_verification_record_ocr_failure')) {
             'submission_id' => $submissionId,
             'status' => $status,
             'reason' => $message,
+            'failure_state_saved' => (bool)$ok,
         ]);
+        if (!$ok) {
+            payment_verification_log('ocr_failure_save_failed', [
+                'submission_id' => $submissionId,
+                'status' => $status,
+            ]);
+        }
         return (bool)$ok;
     }
 }
@@ -1425,12 +1522,15 @@ if (!function_exists('payment_ocr_process_submission')) {
         $filePath = payment_verification_local_file((string)$submission['receipt_file']);
         if ($filePath === null) {
             $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
-            db_execute(
+            $failureSaved = db_execute(
                 "UPDATE payment_submissions SET ocr_status = 'Failed', ocr_error = ?, verification_status = 'Needs Review', ocr_duration_ms = ?, ocr_processed_at = NOW() WHERE id = ?",
                 'sii',
                 ['Receipt file is unavailable for OCR.', $durationMs, $submissionId]
             );
             payment_verification_log('ocr_failed', ['submission_id' => $submissionId, 'reason' => 'file_unavailable', 'duration_ms' => $durationMs]);
+            if (!$failureSaved) {
+                payment_verification_log('ocr_failure_save_failed', ['submission_id' => $submissionId, 'status' => 'Failed']);
+            }
             return ['success' => false, 'status' => 'Failed', 'error' => 'Receipt file is unavailable for OCR.'];
         }
         $mime = trim((string)($submission['receipt_mime'] ?? ''));
@@ -1450,7 +1550,7 @@ if (!function_exists('payment_ocr_process_submission')) {
             $status = !empty($ocr['unavailable']) ? 'Unavailable' : 'Failed';
             $safeError = mb_substr(trim((string)($ocr['error'] ?? 'OCR could not process this receipt.')), 0, 500);
             $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
-            db_execute(
+            $failureSaved = db_execute(
                 "UPDATE payment_submissions
                  SET ocr_status = ?, ocr_error = ?, verification_status = 'Needs Review', ocr_duration_ms = ?, ocr_processed_at = NOW()
                  WHERE id = ?",
@@ -1458,6 +1558,9 @@ if (!function_exists('payment_ocr_process_submission')) {
                 [$status, $safeError, $durationMs, $submissionId]
             );
             payment_verification_log('ocr_failed', ['submission_id' => $submissionId, 'status' => $status, 'reason' => $safeError, 'duration_ms' => $durationMs]);
+            if (!$failureSaved) {
+                payment_verification_log('ocr_failure_save_failed', ['submission_id' => $submissionId, 'status' => $status]);
+            }
             return ['success' => false, 'status' => $status, 'verification_status' => 'Needs Review', 'error' => $safeError];
         }
 
@@ -2023,11 +2126,41 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
 }
 
 if (!function_exists('payment_verification_notify_reviewers')) {
-    function payment_verification_notify_reviewers(int $orderId = 0, int $jobOrderId = 0, int $submissionId = 0): void {
+    /**
+     * Insert branch-scoped, unread in-system notifications without push or DDL.
+     * In strict mode every eligible reviewer must have a notification row and at
+     * least one eligible reviewer must exist.
+     */
+    function payment_verification_notify_reviewers(
+        int $orderId = 0,
+        int $jobOrderId = 0,
+        int $submissionId = 0,
+        bool $required = false
+    ): array {
+        $failure = static function (string $reason, array $context = []) use ($required): array {
+            $result = array_merge([
+                'success' => false,
+                'required' => $required,
+                'recipient_count' => 0,
+                'created' => 0,
+                'existing' => 0,
+                'error' => $reason,
+            ], $context);
+            payment_verification_log('notification_failed', $result);
+            payment_verification_flow_log('notification failed', $result);
+            return $result;
+        };
+
+        if (!payment_verification_ensure_notification_schema()) {
+            return $failure('The notification schema is unavailable.');
+        }
         if ($submissionId <= 0) {
             $submissionId = payment_verification_latest_submission_id($orderId, $jobOrderId);
         }
         $submission = $submissionId > 0 ? payment_verification_get_submission($submissionId) : null;
+        if (!$submission) {
+            return $failure('The payment submission could not be loaded.', ['submission_id' => $submissionId]);
+        }
         if ($submission) {
             $orderId = (int)($submission['order_id'] ?? $orderId);
             $jobOrderId = (int)($submission['job_order_id'] ?? $jobOrderId);
@@ -2056,7 +2189,11 @@ if (!function_exists('payment_verification_notify_reviewers')) {
                 'staff_notifications' => 0,
                 'reason' => 'branch unresolved',
             ]);
-            return;
+            return $failure('The payment submission branch could not be resolved.', [
+                'submission_id' => $submissionId,
+                'order_id' => $orderId,
+                'job_order_id' => $jobOrderId,
+            ]);
         }
 
         $customerName = trim((string)($submission['customer_name'] ?? ''));
@@ -2084,42 +2221,78 @@ if (!function_exists('payment_verification_notify_reviewers')) {
         $types = 'i';
         $params[] = $branchId;
         $users = db_query($usersSql, $types, $params) ?: [];
-        $created = 0;
+        $recipientIds = [];
         foreach ($users as $user) {
             if (function_exists('printflow_detect_staff_access_role')) {
                 if (printflow_detect_staff_access_role((string)($user['position'] ?? '')) !== 'online') continue;
             }
+            $userId = (int)($user['user_id'] ?? 0);
+            if ($userId > 0) $recipientIds[$userId] = $userId;
+        }
+        $recipientIds = array_values($recipientIds);
+        if ($recipientIds === []) {
+            return $failure('No eligible branch reviewer is available.', [
+                'submission_id' => $submissionId,
+                'branch_id' => $branchId,
+            ]);
+        }
+
+        $created = 0;
+        $existing = 0;
+        foreach ($recipientIds as $userId) {
             $existingNotification = db_query(
                 "SELECT notification_id FROM notifications
                  WHERE user_id = ? AND type = 'Payment' AND COALESCE(data_id, 0) = ?
                  ORDER BY notification_id DESC LIMIT 1",
                 'ii',
-                [(int)$user['user_id'], $submissionId]
+                [$userId, $submissionId]
             );
-            if (!empty($existingNotification)) continue;
-            $notificationId = create_notification(
-                (int)$user['user_id'],
-                'Staff',
-                $message,
-                'Payment',
-                false,
-                false,
-                $submissionId > 0 ? $submissionId : ($orderId > 0 ? $orderId : $jobOrderId)
+            if (!empty($existingNotification)) {
+                $existing++;
+                continue;
+            }
+            $notificationId = db_execute(
+                "INSERT INTO notifications
+                    (user_id, customer_id, message, type, data_id, is_read, send_email, send_sms)
+                 VALUES (?, NULL, ?, 'Payment', ?, 0, 0, 0)",
+                'isi',
+                [$userId, $message, $submissionId]
             );
-            if ((int)$notificationId > 0) $created++;
+            if (!$notificationId) {
+                return $failure('A reviewer notification row could not be inserted.', [
+                    'submission_id' => $submissionId,
+                    'branch_id' => $branchId,
+                    'user_id' => $userId,
+                    'recipient_count' => count($recipientIds),
+                    'created' => $created,
+                    'existing' => $existing,
+                ]);
+            }
+            $created++;
         }
+        $success = ($created + $existing) === count($recipientIds);
         payment_verification_log('notification_inserted', [
             'submission_id' => $submissionId,
             'order_id' => $orderId,
             'job_order_id' => $jobOrderId,
             'branch_id' => $branchId,
             'staff_notifications' => $created,
+            'existing_notifications' => $existing,
         ]);
         payment_verification_flow_log('notification inserted', [
             'submission_id' => $submissionId,
             'branch_id' => $branchId,
             'staff_notifications' => $created,
+            'existing_notifications' => $existing,
         ]);
+        return [
+            'success' => $success,
+            'required' => $required,
+            'recipient_count' => count($recipientIds),
+            'created' => $created,
+            'existing' => $existing,
+            'error' => $success ? '' : 'Not every reviewer received a notification.',
+        ];
     }
 }
 

@@ -19,6 +19,12 @@ if (!payment_verification_ensure_schema()) {
     exit(1);
 }
 
+if (!payment_verification_ensure_notification_schema()) {
+    fwrite(STDERR, "Payment notification schema upgrade failed. Check the PHP/database error log.\n");
+    fwrite(STDERR, "The database user must be able to ALTER notifications before customer payment submissions are enabled.\n");
+    exit(1);
+}
+
 $ocrColumns = [
     'ocr_normalized_text',
     'ocr_sender_mobile',
