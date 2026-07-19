@@ -186,13 +186,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'rescan_
         $branchId = (int)($_SESSION['branch_id'] ?? 0);
     }
     $diagRow = payment_verification_ensure_schema() && $diagId > 0
-        ? (db_query('SELECT id, ocr_status, ocr_error, ocr_attempts, overall_confidence,
-                            ocr_sender_name, ocr_reference_number, ocr_amount_sent, ocr_detected_payment_method,
-                            ocr_transaction_date, ocr_transaction_time, ocr_receiver_name, ocr_receiver_account,
-                            verification_status
+        ? (db_query('SELECT id, branch_id, order_id, job_order_id,
+                            ocr_status, ocr_provider, ocr_error, ocr_attempts, overall_confidence,
+                            sender_name, ocr_sender_name, sender_mobile, ocr_sender_mobile,
+                            reference_number, ocr_reference_number, amount_sent, ocr_amount_sent,
+                            total_amount_sent, ocr_total_amount_sent,
+                            detected_payment_method, ocr_detected_payment_method,
+                            transaction_date, ocr_transaction_date, transaction_time, ocr_transaction_time,
+                            transaction_status, ocr_transaction_status,
+                            receiver_name, ocr_receiver_name, receiver_account, ocr_receiver_account,
+                            sender_confidence, sender_mobile_confidence, reference_confidence,
+                            amount_confidence, total_amount_confidence, method_confidence, date_confidence, status_confidence,
+                            receiver_confidence, raw_ocr_text, verification_status
                      FROM payment_submissions WHERE id = ? LIMIT 1', 'i', [$diagId])[0] ?? null)
         : null;
-    if (!$diagRow || !payment_verification_can_access($diagRow + ['branch_id' => null, 'order_id' => null, 'job_order_id' => null], $branchId)) {
+    if (!$diagRow || !payment_verification_can_access($diagRow, $branchId)) {
         http_response_code(404);
         echo json_encode(['success' => false, 'error' => 'Not found.']);
         exit;
@@ -213,17 +221,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'rescan_
         'ocr_error_internal'  => ($_SESSION['user_type'] ?? '') === 'Admin' ? $ocrError : '',
         'ocr_error_human'     => $humanError,
         'ocr_attempts'        => (int)($diagRow['ocr_attempts'] ?? 0),
+        'ocr_provider'        => (string)($diagRow['ocr_provider'] ?? ''),
         'overall_confidence'  => (float)($diagRow['overall_confidence'] ?? 0),
         'verification_status' => (string)($diagRow['verification_status'] ?? ''),
+        'raw_ocr_text'        => (string)($diagRow['raw_ocr_text'] ?? ''),
         'fields' => [
-            'sender_name'       => (string)($diagRow['ocr_sender_name'] ?? ''),
-            'reference_number'  => (string)($diagRow['ocr_reference_number'] ?? ''),
-            'amount_sent'       => $diagRow['ocr_amount_sent'],
-            'payment_method'    => (string)($diagRow['ocr_detected_payment_method'] ?? ''),
-            'transaction_date'  => (string)($diagRow['ocr_transaction_date'] ?? ''),
-            'transaction_time'  => (string)($diagRow['ocr_transaction_time'] ?? ''),
-            'receiver_name'     => (string)($diagRow['ocr_receiver_name'] ?? ''),
-            'receiver_account'  => (string)($diagRow['ocr_receiver_account'] ?? ''),
+            'sender_name'              => (string)payment_verification_effective_value($diagRow, 'sender_name', 'ocr_sender_name'),
+            'sender_mobile'            => (string)payment_verification_effective_value($diagRow, 'sender_mobile', 'ocr_sender_mobile'),
+            'reference_number'         => (string)payment_verification_effective_value($diagRow, 'reference_number', 'ocr_reference_number'),
+            'amount_sent'              => payment_verification_effective_value($diagRow, 'amount_sent', 'ocr_amount_sent'),
+            'total_amount_sent'        => payment_verification_effective_value($diagRow, 'total_amount_sent', 'ocr_total_amount_sent'),
+            'detected_payment_method'  => (string)payment_verification_effective_value($diagRow, 'detected_payment_method', 'ocr_detected_payment_method'),
+            'transaction_date'         => (string)payment_verification_effective_value($diagRow, 'transaction_date', 'ocr_transaction_date'),
+            'transaction_time'         => (string)payment_verification_effective_value($diagRow, 'transaction_time', 'ocr_transaction_time'),
+            'transaction_status'       => (string)payment_verification_effective_value($diagRow, 'transaction_status', 'ocr_transaction_status'),
+            'receiver_name'            => (string)payment_verification_effective_value($diagRow, 'receiver_name', 'ocr_receiver_name'),
+        ],
+        'ocr_originals' => [
+            'sender_name'              => (string)($diagRow['ocr_sender_name'] ?? ''),
+            'sender_mobile'            => (string)($diagRow['ocr_sender_mobile'] ?? ''),
+            'reference_number'         => (string)($diagRow['ocr_reference_number'] ?? ''),
+            'amount_sent'              => $diagRow['ocr_amount_sent'],
+            'total_amount_sent'        => $diagRow['ocr_total_amount_sent'],
+            'detected_payment_method'  => (string)($diagRow['ocr_detected_payment_method'] ?? ''),
+            'transaction_date'         => (string)($diagRow['ocr_transaction_date'] ?? ''),
+            'transaction_time'         => (string)($diagRow['ocr_transaction_time'] ?? ''),
+            'transaction_status'       => (string)($diagRow['ocr_transaction_status'] ?? ''),
+            'receiver_name'            => (string)($diagRow['ocr_receiver_name'] ?? ''),
+            'receiver_account'         => payment_verification_mask_account((string)($diagRow['ocr_receiver_account'] ?? '')),
+        ],
+        'confidences' => [
+            'sender_name'             => (float)($diagRow['sender_confidence'] ?? 0),
+            'sender_mobile'           => (float)($diagRow['sender_mobile_confidence'] ?? 0),
+            'reference_number'        => (float)($diagRow['reference_confidence'] ?? 0),
+            'amount_sent'             => (float)($diagRow['amount_confidence'] ?? 0),
+            'total_amount_sent'       => (float)($diagRow['total_amount_confidence'] ?? 0),
+            'detected_payment_method' => (float)($diagRow['method_confidence'] ?? 0),
+            'transaction_date'        => (float)($diagRow['date_confidence'] ?? 0),
+            'transaction_status'      => (float)($diagRow['status_confidence'] ?? 0),
+            'receiver_name'           => (float)($diagRow['receiver_confidence'] ?? 0),
         ],
     ]);
     exit;

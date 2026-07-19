@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS `payment_submissions` (
   `reference_normalized` varchar(190) DEFAULT NULL,
   `ocr_amount_sent` decimal(12,2) DEFAULT NULL,
   `amount_sent` decimal(12,2) DEFAULT NULL,
+  `ocr_total_amount_sent` decimal(12,2) DEFAULT NULL,
+  `total_amount_sent` decimal(12,2) DEFAULT NULL,
   `ocr_detected_payment_method` varchar(80) DEFAULT NULL,
   `detected_payment_method` varchar(80) DEFAULT NULL,
   `ocr_transaction_date` date DEFAULT NULL,
@@ -44,6 +46,7 @@ CREATE TABLE IF NOT EXISTS `payment_submissions` (
   `sender_mobile_confidence` decimal(5,2) DEFAULT NULL,
   `reference_confidence` decimal(5,2) DEFAULT NULL,
   `amount_confidence` decimal(5,2) DEFAULT NULL,
+  `total_amount_confidence` decimal(5,2) DEFAULT NULL,
   `method_confidence` decimal(5,2) DEFAULT NULL,
   `date_confidence` decimal(5,2) DEFAULT NULL,
   `receiver_confidence` decimal(5,2) DEFAULT NULL,
@@ -87,4 +90,7 @@ ALTER TABLE `payment_submissions`
   ADD COLUMN IF NOT EXISTS `ocr_transaction_status` varchar(80) DEFAULT NULL AFTER `transaction_time`,
   ADD COLUMN IF NOT EXISTS `transaction_status` varchar(80) DEFAULT NULL AFTER `ocr_transaction_status`,
   ADD COLUMN IF NOT EXISTS `sender_mobile_confidence` decimal(5,2) DEFAULT NULL AFTER `sender_confidence`,
-  ADD COLUMN IF NOT EXISTS `status_confidence` decimal(5,2) DEFAULT NULL AFTER `receiver_confidence`;
+  ADD COLUMN IF NOT EXISTS `status_confidence` decimal(5,2) DEFAULT NULL AFTER `receiver_confidence`,
+  ADD COLUMN IF NOT EXISTS `ocr_total_amount_sent` decimal(12,2) DEFAULT NULL AFTER `amount_sent`,
+  ADD COLUMN IF NOT EXISTS `total_amount_sent` decimal(12,2) DEFAULT NULL AFTER `ocr_total_amount_sent`,
+  ADD COLUMN IF NOT EXISTS `total_amount_confidence` decimal(5,2) DEFAULT NULL AFTER `amount_confidence`;

@@ -43,10 +43,12 @@ $parsedProvided = payment_ocr_parse_receipt_text($providedGcash, [], 90.0);
 payment_ocr_test_assert($parsedProvided['sender_name'] === 'AR**N T.', 'Masked GCash sender name should be extracted.');
 payment_ocr_test_assert($parsedProvided['sender_mobile'] === '+63 995 484 9142', 'GCash sender mobile should be extracted.');
 payment_ocr_test_assert(abs((float)$parsedProvided['amount_sent'] - 60.00) < 0.001, 'Provided GCash amount should be 60.00.');
+payment_ocr_test_assert(abs((float)$parsedProvided['total_amount_sent'] - 60.00) < 0.001, 'Provided GCash total amount sent should be 60.00.');
 payment_ocr_test_assert($parsedProvided['reference_number'] === '6039905089284', 'Reference Number label should be supported.');
 payment_ocr_test_assert($parsedProvided['transaction_date'] === '2026-04-17', 'Separate GCash date label should normalize.');
 payment_ocr_test_assert($parsedProvided['transaction_time'] === '12:01:00', 'Separate GCash time label should normalize.');
 payment_ocr_test_assert($parsedProvided['transaction_status'] === 'Successful', 'GCash transaction status should be extracted.');
+payment_ocr_test_assert((float)$parsedProvided['total_amount_confidence'] > 0, 'Total amount sent should include a confidence score.');
 
 $maya = <<<'TEXT'
 Maya
@@ -114,6 +116,7 @@ if (function_exists('imagecreatetruecolor') && function_exists('imagejpeg')) {
     $sourceHash = hash_file('sha256', $source);
     $processed = payment_ocr_preprocess_image($source, 'image/jpeg');
     payment_ocr_test_assert($processed !== null && is_file($processed), 'OCR preprocessing should create a separate readable copy.');
+    payment_ocr_test_assert($processed !== null && dirname($processed) === payment_ocr_temp_directory(), 'OCR preprocessing should use the private temporary directory.');
     payment_ocr_test_assert(hash_file('sha256', $source) === $sourceHash, 'OCR preprocessing must preserve the original proof.');
     if ($processed !== null && is_file($processed)) unlink($processed);
     if (is_file($source)) unlink($source);

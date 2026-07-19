@@ -114,6 +114,8 @@ if (!function_exists('payment_verification_ensure_schema')) {
             reference_normalized VARCHAR(190) DEFAULT NULL,
             ocr_amount_sent DECIMAL(12,2) DEFAULT NULL,
             amount_sent DECIMAL(12,2) DEFAULT NULL,
+            ocr_total_amount_sent DECIMAL(12,2) DEFAULT NULL,
+            total_amount_sent DECIMAL(12,2) DEFAULT NULL,
             ocr_detected_payment_method VARCHAR(80) DEFAULT NULL,
             detected_payment_method VARCHAR(80) DEFAULT NULL,
             ocr_transaction_date DATE DEFAULT NULL,
@@ -133,6 +135,7 @@ if (!function_exists('payment_verification_ensure_schema')) {
             sender_mobile_confidence DECIMAL(5,2) DEFAULT NULL,
             reference_confidence DECIMAL(5,2) DEFAULT NULL,
             amount_confidence DECIMAL(5,2) DEFAULT NULL,
+            total_amount_confidence DECIMAL(5,2) DEFAULT NULL,
             method_confidence DECIMAL(5,2) DEFAULT NULL,
             date_confidence DECIMAL(5,2) DEFAULT NULL,
             receiver_confidence DECIMAL(5,2) DEFAULT NULL,
@@ -192,6 +195,9 @@ if (!function_exists('payment_verification_ensure_schema')) {
             'transaction_status' => 'VARCHAR(80) DEFAULT NULL AFTER ocr_transaction_status',
             'sender_mobile_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER sender_confidence',
             'status_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER receiver_confidence',
+            'ocr_total_amount_sent' => 'DECIMAL(12,2) DEFAULT NULL AFTER amount_sent',
+            'total_amount_sent' => 'DECIMAL(12,2) DEFAULT NULL AFTER ocr_total_amount_sent',
+            'total_amount_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER amount_confidence',
         ];
         foreach ($columns as $column => $definition) {
             if (!db_table_has_column('payment_submissions', $column)) {
@@ -705,6 +711,7 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         $result = [
             'payment_method'   => '',
             'amount'           => null,
+            'total_amount'     => null,
             'reference_number' => '',
             'transaction_date' => null,
             'transaction_time' => null,
@@ -748,8 +755,13 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         // The optional currency prefix handles receipts that embed "PHP" between
         // the label and the number (e.g. "Amount Sent PHP 100.00").
         $currencyPrefix = '(?:PHP|Php|P\b)?\s*';
+        foreach ($lines as $line) {
+            if (preg_match('/total\s+amount\s+sent\s*[:\s]*\s*' . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i', $line, $match)) {
+                $result['total_amount'] = payment_ocr_parse_money($match[1]);
+                if ($result['total_amount'] !== null) break;
+            }
+        }
         $amountPatterns = [
-            '/total\s+amount\s+sent\s*[:\s]*\s*' . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
             '/amount\s+sent\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
             '/amount\s+paid\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
             '/amount\s*[:\s]*\s*'                 . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
@@ -757,6 +769,7 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         foreach ($amountPatterns as $pattern) {
             if ($result['amount'] !== null) break;
             foreach ($lines as $line) {
+                if (preg_match('/total\s+amount/i', $line)) continue;
                 if (preg_match($pattern, $line, $match)) {
                     $amount = payment_ocr_parse_money($match[1]);
                     if ($amount !== null) {
@@ -766,6 +779,8 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
                 }
             }
         }
+        if ($result['amount'] === null) $result['amount'] = $result['total_amount'];
+        if ($result['total_amount'] === null) $result['total_amount'] = $result['amount'];
 
         // ── Reference number ────────────────────────────────────────────────────
         // GCash receipts sometimes format the ref as grouped digits with spaces:
@@ -958,6 +973,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             $senderMobileConfidence = $gcashResult['sender_mobile'] !== '' ? 82.0 : 0.0;
             $referenceConfidence = $gcashResult['reference_number'] !== '' ? 92.0 : 0.0;
             $amountConfidence = $gcashResult['amount'] !== null ? 94.0 : 0.0;
+            $totalAmountConfidence = $gcashResult['total_amount'] !== null ? 94.0 : 0.0;
             $methodConfidence = $gcashResult['payment_method'] !== '' ? 96.0 : 0.0;
             $dateConfidence = $gcashResult['transaction_date'] !== null ? 85.0 : 0.0;
             $receiverConfidence = $gcashResult['receiver_name'] !== '' ? 75.0 : 0.0;
@@ -974,6 +990,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
                 'sender_mobile' => $gcashResult['sender_mobile'],
                 'reference_number' => $gcashResult['reference_number'],
                 'amount_sent' => $gcashResult['amount'],
+                'total_amount_sent' => $gcashResult['total_amount'],
                 'detected_payment_method' => $gcashResult['payment_method'],
                 'transaction_date' => $gcashResult['transaction_date'],
                 'transaction_time' => $gcashResult['transaction_time'],
@@ -985,6 +1002,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
                 'sender_mobile_confidence' => round($senderMobileConfidence, 2),
                 'reference_confidence' => round($referenceConfidence, 2),
                 'amount_confidence' => round($amountConfidence, 2),
+                'total_amount_confidence' => round($totalAmountConfidence, 2),
                 'method_confidence' => round($methodConfidence, 2),
                 'date_confidence' => round($dateConfidence, 2),
                 'receiver_confidence' => round($receiverConfidence, 2),
@@ -1050,6 +1068,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             'sender_mobile' => mb_substr($senderMobile, 0, 40),
             'reference_number' => mb_substr($reference, 0, 190),
             'amount_sent' => $amount['value'],
+            'total_amount_sent' => $amount['value'],
             'detected_payment_method' => (string)$method['value'],
             'transaction_date' => $date,
             'transaction_time' => $time,
@@ -1061,6 +1080,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             'sender_mobile_confidence' => round($senderMobileConfidence, 2),
             'reference_confidence' => round($referenceConfidence, 2),
             'amount_confidence' => round($amountConfidence, 2),
+            'total_amount_confidence' => round($amountConfidence, 2),
             'method_confidence' => round($methodConfidence, 2),
             'date_confidence' => round($dateConfidence, 2),
             'receiver_confidence' => round($receiverConfidence, 2),
@@ -1125,6 +1145,26 @@ if (!function_exists('payment_ocr_tesseract_available')) {
         if ($available !== null) return $available;
         $result = payment_ocr_run_process([payment_ocr_tesseract_binary(), '--version'], 5);
         return $available = !empty($result['success']);
+    }
+}
+
+if (!function_exists('payment_ocr_temp_directory')) {
+    function payment_ocr_temp_directory(): ?string {
+        $configured = trim(payment_verification_env('PAYMENT_OCR_TEMP_DIR'));
+        $directory = $configured !== ''
+            ? rtrim($configured, "\\/")
+            : rtrim(sys_get_temp_dir(), "\\/") . DIRECTORY_SEPARATOR . 'printflow-payment-ocr';
+        if ($directory === '') return null;
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
+            payment_verification_log('ocr_temp_directory_failed', ['reason' => 'create_failed']);
+            return null;
+        }
+        if (!is_writable($directory)) {
+            payment_verification_log('ocr_temp_directory_failed', ['reason' => 'not_writable']);
+            return null;
+        }
+        @chmod($directory, 0700);
+        return $directory;
     }
 }
 
@@ -1209,9 +1249,13 @@ if (!function_exists('payment_ocr_preprocess_image')) {
             imagefilter($image, IMG_FILTER_MEAN_REMOVAL);
         }
 
-        $directory = dirname($sourcePath);
+        $directory = payment_ocr_temp_directory();
+        if ($directory === null) {
+            imagedestroy($image);
+            return null;
+        }
         $stem = bin2hex(random_bytes(12));
-        $tempPath = $directory . '/ocr_temp_' . $stem . '.png';
+        $tempPath = $directory . DIRECTORY_SEPARATOR . 'ocr_temp_' . $stem . '.png';
         $saved = imagepng($image, $tempPath, 6);
         imagedestroy($image);
 
@@ -1227,10 +1271,10 @@ if (!function_exists('payment_ocr_preprocess_image')) {
 if (!function_exists('payment_ocr_with_tesseract')) {
     function payment_ocr_with_tesseract(string $filePath, string $mime): array {
         if ($mime === 'application/pdf') {
-            return ['success' => false, 'unavailable' => true, 'error' => 'Local OCR cannot process PDF receipts without a PDF renderer.'];
+            return ['success' => false, 'attempted' => false, 'unavailable' => true, 'error' => 'Local OCR cannot process PDF receipts without a PDF renderer.'];
         }
         if (!payment_ocr_tesseract_available()) {
-            return ['success' => false, 'unavailable' => true, 'error' => 'Tesseract is not installed or configured.'];
+            return ['success' => false, 'attempted' => false, 'unavailable' => true, 'error' => 'Tesseract is not installed or configured.'];
         }
         
         // Try with preprocessed image first
@@ -1244,6 +1288,7 @@ if (!function_exists('payment_ocr_with_tesseract')) {
             payment_ocr_tesseract_binary(), $ocrPath, 'stdout', '-l', $language,
             '--psm', '6', 'tsv'
         ], payment_ocr_timeout_seconds());
+        $result['attempted'] = true;
         
         // Clean up preprocessed file
         if ($usePreprocessed && is_file($preprocessedPath)) {
@@ -1270,9 +1315,10 @@ if (!function_exists('payment_ocr_with_tesseract')) {
         $confidences = array_column($tokens, 'confidence');
         $overall = empty($confidences) ? 0.0 : array_sum($confidences) / count($confidences);
         $text = trim(implode("\n", $textLines));
-        if ($text === '') return ['success' => false, 'unavailable' => false, 'error' => 'No readable text was found in the receipt.'];
+        if ($text === '') return ['success' => false, 'attempted' => true, 'unavailable' => false, 'error' => 'No readable text was found in the receipt.'];
         return [
             'success' => true,
+            'attempted' => true,
             'provider' => 'Tesseract',
             'text' => $text,
             'tokens' => $tokens,
@@ -1285,12 +1331,12 @@ if (!function_exists('payment_ocr_with_ocrspace')) {
     function payment_ocr_with_ocrspace(string $filePath, string $mime): array {
         $apiKey = payment_verification_env('PAYMENT_OCR_API_KEY');
         if ($apiKey === '') $apiKey = payment_verification_env('OCR_SPACE_API_KEY');
-        if ($apiKey === '') return ['success' => false, 'unavailable' => true, 'error' => 'OCR API key is not configured.'];
-        if (!function_exists('curl_init')) return ['success' => false, 'unavailable' => true, 'error' => 'PHP cURL is unavailable.'];
+        if ($apiKey === '') return ['success' => false, 'attempted' => false, 'unavailable' => true, 'error' => 'OCR API key is not configured.'];
+        if (!function_exists('curl_init')) return ['success' => false, 'attempted' => false, 'unavailable' => true, 'error' => 'PHP cURL is unavailable.'];
 
         $endpoint = payment_verification_env('PAYMENT_OCR_API_URL', 'https://api.ocr.space/parse/image');
         if (!filter_var($endpoint, FILTER_VALIDATE_URL) || stripos($endpoint, 'https://') !== 0) {
-            return ['success' => false, 'unavailable' => true, 'error' => 'OCR API URL must use HTTPS.'];
+            return ['success' => false, 'attempted' => false, 'unavailable' => true, 'error' => 'OCR API URL must use HTTPS.'];
         }
         $language = payment_verification_env('PAYMENT_OCR_LANGUAGE', 'eng');
         $language = preg_replace('/[^a-zA-Z0-9_-]/', '', $language) ?: 'eng';
@@ -1327,16 +1373,17 @@ if (!function_exists('payment_ocr_with_ocrspace')) {
             @unlink($preprocessedPath);
         }
         if ($response === false || $status < 200 || $status >= 300) {
-            return ['success' => false, 'unavailable' => false, 'error' => 'OCR API request failed' . ($curlError !== '' ? ': ' . mb_substr($curlError, 0, 150) : '.')];
+            $detail = $curlError !== '' ? ': ' . mb_substr($curlError, 0, 150) : ' (HTTP ' . $status . ').';
+            return ['success' => false, 'attempted' => true, 'unavailable' => false, 'error' => 'OCR API request failed' . $detail];
         }
         if (strlen((string)$response) > 5242880) {
-            return ['success' => false, 'unavailable' => false, 'error' => 'OCR API response was unexpectedly large.'];
+            return ['success' => false, 'attempted' => true, 'unavailable' => false, 'error' => 'OCR API response was unexpectedly large.'];
         }
         $decoded = json_decode((string)$response, true);
         if (!is_array($decoded) || !empty($decoded['IsErroredOnProcessing'])) {
             $message = $decoded['ErrorMessage'] ?? 'OCR API could not process the receipt.';
             if (is_array($message)) $message = implode(' ', array_map('strval', $message));
-            return ['success' => false, 'unavailable' => false, 'error' => mb_substr((string)$message, 0, 180)];
+            return ['success' => false, 'attempted' => true, 'unavailable' => false, 'error' => mb_substr((string)$message, 0, 180)];
         }
 
         $texts = [];
@@ -1352,9 +1399,10 @@ if (!function_exists('payment_ocr_with_ocrspace')) {
             }
         }
         $text = trim(implode("\n", $texts));
-        if ($text === '') return ['success' => false, 'unavailable' => false, 'error' => 'No readable text was found in the receipt.'];
+        if ($text === '') return ['success' => false, 'attempted' => true, 'unavailable' => false, 'error' => 'No readable text was found in the receipt.'];
         return [
             'success' => true,
+            'attempted' => true,
             'provider' => 'OCR.Space',
             'text' => $text,
             'tokens' => $tokens,
@@ -1367,16 +1415,59 @@ if (!function_exists('payment_ocr_extract')) {
     function payment_ocr_extract(string $filePath, string $mime): array {
         $provider = strtolower(payment_verification_env('PAYMENT_OCR_PROVIDER', 'auto'));
         if (in_array($provider, ['off', 'disabled', 'none'], true)) {
-            return ['success' => false, 'unavailable' => true, 'error' => 'OCR processing is disabled.'];
+            return ['success' => false, 'attempted' => false, 'unavailable' => true, 'error' => 'OCR processing is disabled.'];
+        }
+        if (!in_array($provider, ['auto', 'tesseract', 'ocrspace', 'ocr.space', 'api'], true)) {
+            payment_verification_log('ocr_provider_invalid', ['provider_mode' => $provider]);
+            $provider = 'auto';
         }
         if ($provider === 'tesseract') return payment_ocr_with_tesseract($filePath, $mime);
-        if (in_array($provider, ['ocrspace', 'ocr.space', 'api'], true)) return payment_ocr_with_ocrspace($filePath, $mime);
 
-        if ($mime !== 'application/pdf' && payment_ocr_tesseract_available()) {
-            $local = payment_ocr_with_tesseract($filePath, $mime);
+        $apiKey = payment_verification_env('PAYMENT_OCR_API_KEY');
+        if ($apiKey === '') $apiKey = payment_verification_env('OCR_SPACE_API_KEY');
+        $useApiFirst = in_array($provider, ['ocrspace', 'ocr.space', 'api'], true) || ($provider === 'auto' && $apiKey !== '');
+        $results = [];
+        if ($useApiFirst) {
+            $results[] = payment_ocr_with_ocrspace($filePath, $mime);
+            if (!empty($results[0]['success'])) return $results[0];
+        }
+        if ($mime !== 'application/pdf') {
+            $results[] = payment_ocr_with_tesseract($filePath, $mime);
+            $local = $results[count($results) - 1];
             if (!empty($local['success'])) return $local;
         }
-        return payment_ocr_with_ocrspace($filePath, $mime);
+        if (!$useApiFirst && $provider === 'auto' && $apiKey !== '') {
+            $results[] = payment_ocr_with_ocrspace($filePath, $mime);
+            $api = $results[count($results) - 1];
+            if (!empty($api['success'])) return $api;
+        }
+
+        if ($results === []) $results[] = payment_ocr_with_ocrspace($filePath, $mime);
+        $attempted = false;
+        $unavailable = true;
+        $errors = [];
+        foreach ($results as $result) {
+            $attempted = $attempted || !empty($result['attempted']);
+            $unavailable = $unavailable && !empty($result['unavailable']);
+            $error = trim((string)($result['error'] ?? ''));
+            if ($error !== '' && !in_array($error, $errors, true)) $errors[] = $error;
+        }
+        if ($provider === 'auto' && $apiKey === '') {
+            $errors[] = 'OCR.Space API key is not configured.';
+        }
+        $error = implode(' Fallback: ', $errors);
+        payment_verification_log('ocr_providers_failed', [
+            'provider_mode' => $provider,
+            'attempted' => $attempted,
+            'unavailable' => $unavailable,
+            'reason' => mb_substr($error, 0, 500),
+        ]);
+        return [
+            'success' => false,
+            'attempted' => $attempted,
+            'unavailable' => $unavailable && !$attempted,
+            'error' => $error !== '' ? $error : 'No OCR provider could process the receipt.',
+        ];
     }
 }
 
@@ -1520,7 +1611,7 @@ if (!function_exists('payment_ocr_process_submission')) {
         }
         $claimed = db_execute_affected_rows(
             "UPDATE payment_submissions
-             SET ocr_status = 'Processing', ocr_attempts = ocr_attempts + 1, ocr_error = NULL
+             SET ocr_status = 'Processing', ocr_error = NULL
              WHERE id = ? AND ocr_status IN ('Pending', 'Failed', 'Unavailable')
                AND verification_status NOT IN ('Approved', 'Rejected')",
             'i',
@@ -1564,6 +1655,19 @@ if (!function_exists('payment_ocr_process_submission')) {
                 'verification_status' => 'Needs Review',
                 'error' => $ocrException->getMessage(),
             ];
+        }
+        $attempted = !empty($ocr['attempted']);
+        if ($attempted) {
+            db_execute('UPDATE payment_submissions SET ocr_attempts = ocr_attempts + 1 WHERE id = ?', 'i', [$submissionId]);
+            payment_verification_log('ocr_engine_attempted', [
+                'submission_id' => $submissionId,
+                'provider' => (string)($ocr['provider'] ?? 'provider_failed'),
+            ]);
+        } else {
+            payment_verification_log('ocr_not_attempted', [
+                'submission_id' => $submissionId,
+                'reason' => mb_substr((string)($ocr['error'] ?? ''), 0, 500),
+            ]);
         }
         if (empty($ocr['success'])) {
             $status = !empty($ocr['unavailable']) ? 'Unavailable' : 'Failed';
@@ -1642,8 +1746,10 @@ if (!function_exists('payment_ocr_process_submission')) {
             'ocr_normalized_text' => ['ocr_normalized_text = ?', $normalizedText],
             'ocr_sender_mobile' => ["ocr_sender_mobile = NULLIF(?, '')", (string)($parsed['sender_mobile'] ?? '')],
             'ocr_transaction_status' => ["ocr_transaction_status = NULLIF(?, '')", (string)($parsed['transaction_status'] ?? '')],
+            'ocr_total_amount_sent' => ['ocr_total_amount_sent = ?', ($parsed['total_amount_sent'] ?? null) === null ? null : number_format((float)$parsed['total_amount_sent'], 2, '.', '')],
             'sender_mobile_confidence' => ['sender_mobile_confidence = ?', (float)($parsed['sender_mobile_confidence'] ?? 0)],
             'status_confidence' => ['status_confidence = ?', (float)($parsed['status_confidence'] ?? 0)],
+            'total_amount_confidence' => ['total_amount_confidence = ?', (float)($parsed['total_amount_confidence'] ?? 0)],
         ];
         foreach ($optionalOcrValues as $column => [$assignment, $value]) {
             if (!db_table_has_column('payment_submissions', $column)) continue;
@@ -1812,6 +1918,9 @@ if (!function_exists('payment_verification_save_corrections')) {
         $amountInput = trim((string)($input['amount_sent'] ?? ''));
         $amount = $amountInput === '' ? null : payment_ocr_parse_money($amountInput);
         if ($amountInput !== '' && $amount === null) return ['success' => false, 'error' => 'Enter a valid detected amount.'];
+        $totalAmountInput = trim((string)($input['total_amount_sent'] ?? ''));
+        $totalAmount = $totalAmountInput === '' ? null : payment_ocr_parse_money($totalAmountInput);
+        if ($totalAmountInput !== '' && $totalAmount === null) return ['success' => false, 'error' => 'Enter a valid total amount sent.'];
         $method = payment_verification_normalize_method((string)($input['detected_payment_method'] ?? ''));
         $dateInput = trim((string)($input['transaction_date'] ?? ''));
         $date = $dateInput === '' ? null : payment_ocr_normalize_date($dateInput);
@@ -1841,6 +1950,10 @@ if (!function_exists('payment_verification_save_corrections')) {
         if (db_table_has_column('payment_submissions', 'transaction_status')) {
             $assignments[] = "transaction_status = NULLIF(?, '')";
             $params[] = $transactionStatus;
+        }
+        if (db_table_has_column('payment_submissions', 'total_amount_sent')) {
+            $assignments[] = 'total_amount_sent = ?';
+            $params[] = $totalAmount === null ? null : number_format($totalAmount, 2, '.', '');
         }
         $params[] = $submissionId;
         $ok = db_execute(

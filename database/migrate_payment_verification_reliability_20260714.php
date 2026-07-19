@@ -33,6 +33,9 @@ $ocrColumns = [
     'transaction_status',
     'sender_mobile_confidence',
     'status_confidence',
+    'ocr_total_amount_sent',
+    'total_amount_sent',
+    'total_amount_confidence',
 ];
 $missingOcrColumns = array_values(array_filter(
     $ocrColumns,
