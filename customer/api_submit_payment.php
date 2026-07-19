@@ -51,6 +51,77 @@ $api_verification_status = static function (?string $status): string {
     return 'needs_review';
 };
 
+$notify_reviewers_best_effort = static function (
+    int $notificationOrderId,
+    int $notificationJobOrderId,
+    int $notificationSubmissionId,
+    int $notificationCustomerId,
+    string $transactionState = 'committed'
+) use (&$post_commit_warnings): array {
+    $errorReference = strtoupper(substr(hash('sha256', microtime(true) . '|' . mt_rand()), 0, 12));
+    $databaseErrorCount = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
+
+    try {
+        $result = payment_verification_notify_reviewers(
+            $notificationOrderId,
+            $notificationJobOrderId,
+            $notificationSubmissionId,
+            false
+        );
+    } catch (Throwable $notificationError) {
+        $result = [
+            'success' => false,
+            'error' => $notificationError->getMessage(),
+            'exception' => get_class($notificationError),
+            'sql_state' => method_exists($notificationError, 'getSqlState')
+                ? $notificationError->getSqlState()
+                : null,
+        ];
+    }
+
+    if (!empty($result['success'])) {
+        return [
+            'created' => (int)($result['created'] ?? 0) > 0,
+            'available' => ((int)($result['created'] ?? 0) + (int)($result['existing'] ?? 0)) > 0,
+            'recipient_count' => (int)($result['recipient_count'] ?? 0),
+            'error_reference' => null,
+        ];
+    }
+
+    $post_commit_warnings[] = 'notification';
+    $databaseErrors = function_exists('printflow_db_errors') ? printflow_db_errors() : [];
+    $newDatabaseErrors = array_slice($databaseErrors, $databaseErrorCount);
+    $lastDatabaseError = $newDatabaseErrors ? $newDatabaseErrors[array_key_last($newDatabaseErrors)] : [];
+    $context = [
+        'context' => 'payment_notification_insert',
+        'error_reference' => $errorReference,
+        'order_id' => $notificationOrderId,
+        'job_order_id' => $notificationJobOrderId,
+        'payment_submission_id' => $notificationSubmissionId,
+        'branch_id' => (int)($result['branch_id'] ?? 0),
+        'customer_id' => $notificationCustomerId,
+        'recipient_user_id' => (int)($result['user_id'] ?? 0),
+        'recipient_role' => (string)($result['recipient_role'] ?? ''),
+        'transaction_state' => $transactionState,
+        'exception' => (string)($result['exception'] ?? ''),
+        'message' => (string)($result['error'] ?? 'Payment notification could not be created.'),
+        'sql_state' => (string)($lastDatabaseError['sqlstate'] ?? $result['sql_state'] ?? ''),
+        'db_code' => (int)($lastDatabaseError['errno'] ?? 0),
+        'db_stage' => (string)($lastDatabaseError['stage'] ?? ''),
+        'failed_sql' => (string)($lastDatabaseError['sql'] ?? ''),
+        'bound_parameters' => $result['bound_parameters'] ?? [],
+    ];
+    payment_verification_log('notification_post_commit_failed', $context);
+    error_log('[PAYMENT NOTIFICATION ERROR] ' . json_encode($context, JSON_UNESCAPED_SLASHES));
+
+    return [
+        'created' => false,
+        'available' => false,
+        'recipient_count' => (int)($result['recipient_count'] ?? 0),
+        'error_reference' => $errorReference,
+    ];
+};
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'Invalid request method', 'step' => 'request_method']);
@@ -117,17 +188,6 @@ if (!payment_verification_ensure_schema()) {
     ]);
     exit;
 }
-$failure_step = 'notification_schema';
-if (!payment_verification_ensure_notification_schema()) {
-    http_response_code(503);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Staff payment notifications are temporarily unavailable. Please try again shortly.',
-        'step' => 'notification_schema',
-    ]);
-    exit;
-}
-
 // One rendered form gets one token. A fresh page after rejection gets a new token,
 // allowing valid resubmissions while making double-click/network retries idempotent.
 if ($submission_token !== '') {
@@ -149,21 +209,13 @@ if ($submission_token !== '') {
             ]);
             exit;
         }
-        $existingNotification = payment_verification_notify_reviewers(
+        $existingNotification = $notify_reviewers_best_effort(
             $is_job ? (int)($existing[0]['order_id'] ?? 0) : $order_id,
             $is_job ? $order_id : 0,
             (int)$existing[0]['id'],
-            true
+            $customer_id,
+            'preexisting_committed'
         );
-        if (empty($existingNotification['success'])) {
-            http_response_code(500);
-            echo json_encode([
-                'success' => false,
-                'message' => 'The payment submission exists, but its staff notification could not be created.',
-                'step' => 'notification_insert',
-            ]);
-            exit;
-        }
         payment_verification_log('submission_request_reused', ['submission_id' => (int)$existing[0]['id'], 'order_id' => $order_id]);
         echo json_encode([
             'success' => true,
@@ -177,6 +229,9 @@ if ($submission_token !== '') {
             'idempotent_replay' => true,
             'ocr_status' => (string)($existing[0]['ocr_status'] ?? 'Pending'),
             'receipt_url' => (string)($existing[0]['receipt_url'] ?? ''),
+            'notification_created' => $existingNotification['created'],
+            'notification_available' => $existingNotification['available'],
+            'notification_error_reference' => $existingNotification['error_reference'],
         ]);
         exit;
     }
@@ -342,23 +397,22 @@ if ($update_success) {
     error_log('[Payment Upload] payment_record_id=' . (int)$submission_id);
     payment_verification_flow_log('payment row inserted', ['submission_id' => $submission_id, 'order_id' => $order_id, 'is_job' => $is_job]);
 
-    $failure_step = 'notification_insert';
-    $notificationResult = payment_verification_notify_reviewers(
-        $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
-        $is_job ? $order_id : 0,
-        $submission_id,
-        true
-    );
-    if (empty($notificationResult['success'])) {
-        throw new RuntimeException((string)($notificationResult['error'] ?? 'Staff notification could not be created.'));
-    }
-
     $failure_step = 'transaction_commit';
     if (!$conn->commit()) {
         throw new RuntimeException('Could not commit payment submission transaction.');
     }
     $transaction_started = false;
     $submission_committed = true;
+
+    // Notifications are deliberately outside the core transaction. A missing
+    // reviewer or notification schema problem must not roll back the proof.
+    $notificationResult = $notify_reviewers_best_effort(
+        $is_job ? (int)($order['order_id'] ?? 0) : $order_id,
+        $is_job ? $order_id : 0,
+        $submission_id,
+        $customer_id,
+        'committed'
+    );
 
     try {
         log_activity($customer_id, 'Payment Submitted', "Submitted proof for {$type_label} #{$order_id}");
@@ -421,6 +475,9 @@ if ($update_success) {
         'record_created' => true,
         'ocr_status' => $ocr_status,
         'ocr_processed' => $ocr_status === 'Completed',
+        'notification_created' => $notificationResult['created'],
+        'notification_available' => $notificationResult['available'],
+        'notification_error_reference' => $notificationResult['error_reference'],
     ]);
 } else {
     $failure_step = 'order_status_update';
@@ -449,34 +506,34 @@ if ($update_success) {
             [$customer_id, $submission_token]
         );
         if (!empty($replayed[0]['id'])) {
-            $raceNotification = payment_verification_notify_reviewers(
+            $raceNotification = $notify_reviewers_best_effort(
                 !empty($is_job) ? (int)($replayed[0]['order_id'] ?? 0) : (int)($order_id ?? 0),
                 !empty($is_job) ? (int)($order_id ?? 0) : 0,
                 (int)$replayed[0]['id'],
-                true
+                (int)($customer_id ?? 0),
+                'preexisting_committed'
             );
-            if (empty($raceNotification['success'])) {
-                $failure_step = 'notification_insert';
-            } else {
-                payment_verification_log('submission_race_reused', [
-                    'submission_id' => (int)$replayed[0]['id'],
-                    'order_id' => $order_id ?? 0,
-                ]);
-                echo json_encode([
-                    'success' => true,
-                    'message' => 'Payment proof submitted successfully and sent for staff verification.',
-                    'payment_submission_id' => (int)$replayed[0]['id'],
-                    'submission_id' => (int)$replayed[0]['id'],
-                    'order_id' => (int)($order_id ?? 0),
-                    'status' => 'pending_review',
-                    'verification_status' => $api_verification_status((string)($replayed[0]['verification_status'] ?? 'Pending Review')),
-                    'record_created' => true,
-                    'idempotent_replay' => true,
-                    'ocr_status' => (string)($replayed[0]['ocr_status'] ?? 'Pending'),
-                    'receipt_url' => (string)($replayed[0]['receipt_url'] ?? ''),
-                ]);
-                exit;
-            }
+            payment_verification_log('submission_race_reused', [
+                'submission_id' => (int)$replayed[0]['id'],
+                'order_id' => $order_id ?? 0,
+            ]);
+            echo json_encode([
+                'success' => true,
+                'message' => 'Payment proof submitted successfully and sent for staff verification.',
+                'payment_submission_id' => (int)$replayed[0]['id'],
+                'submission_id' => (int)$replayed[0]['id'],
+                'order_id' => (int)($order_id ?? 0),
+                'status' => 'pending_review',
+                'verification_status' => $api_verification_status((string)($replayed[0]['verification_status'] ?? 'Pending Review')),
+                'record_created' => true,
+                'idempotent_replay' => true,
+                'ocr_status' => (string)($replayed[0]['ocr_status'] ?? 'Pending'),
+                'receipt_url' => (string)($replayed[0]['receipt_url'] ?? ''),
+                'notification_created' => $raceNotification['created'],
+                'notification_available' => $raceNotification['available'],
+                'notification_error_reference' => $raceNotification['error_reference'],
+            ]);
+            exit;
         }
     }
     $errorReference = strtoupper(substr(hash('sha256', microtime(true) . '|' . mt_rand()), 0, 12));
@@ -494,6 +551,7 @@ if ($update_success) {
         'exception_trace' => $e->getTraceAsString(),
         'db_stage' => (string)($lastDatabaseError['stage'] ?? ''),
         'db_errno' => (int)($lastDatabaseError['errno'] ?? 0),
+        'db_sqlstate' => (string)($lastDatabaseError['sqlstate'] ?? ''),
         'db_error' => (string)($lastDatabaseError['error'] ?? ''),
         'db_sql' => (string)($lastDatabaseError['sql'] ?? ''),
         'upload_error' => (int)($_FILES['payment_proof']['error'] ?? UPLOAD_ERR_NO_FILE),
@@ -504,7 +562,6 @@ if ($update_success) {
     $stepMessages = [
         'order_status_update' => 'The order payment status could not be updated. No payment submission was saved.',
         'payment_verification_insert' => 'Payment proof was uploaded, but the verification record could not be created.',
-        'notification_insert' => 'The verification record could not be sent to staff. No payment submission was saved.',
         'transaction_commit' => 'The payment submission could not be committed. Please try again.',
         'job_preparation' => 'The order could not be prepared for payment verification.',
     ];

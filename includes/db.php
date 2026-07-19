@@ -235,6 +235,7 @@ function db_query($sql, $types = '', $params = []) {
                     'stage' => 'prepare',
                     'error' => $conn->error,
                     'errno' => $conn->errno,
+                    'sqlstate' => $conn->sqlstate,
                     'sql' => $sql,
                 ]);
                 error_log("DB Prepare Error: " . $conn->error);
@@ -246,6 +247,7 @@ function db_query($sql, $types = '', $params = []) {
                     'stage' => 'execute',
                     'error' => $stmt->error,
                     'errno' => $stmt->errno,
+                    'sqlstate' => $stmt->sqlstate,
                     'sql' => $sql,
                 ]);
                 error_log("DB Execute Error: " . $stmt->error);
@@ -262,6 +264,7 @@ function db_query($sql, $types = '', $params = []) {
                         'stage' => 'get_result',
                         'error' => $stmt->error,
                         'errno' => $stmt->errno,
+                        'sqlstate' => $stmt->sqlstate,
                         'sql' => $sql,
                     ]);
                     error_log("DB get_result Error: " . $stmt->error);
@@ -301,6 +304,8 @@ function db_query($sql, $types = '', $params = []) {
             'stage' => 'exception',
             'error' => $e->getMessage(),
             'class' => get_class($e),
+            'errno' => $stmt instanceof mysqli_stmt ? $stmt->errno : $conn->errno,
+            'sqlstate' => $stmt instanceof mysqli_stmt ? $stmt->sqlstate : $conn->sqlstate,
             'sql' => $sql,
         ]);
         error_log("DB Exception: " . $e->getMessage());
@@ -315,6 +320,7 @@ function db_query($sql, $types = '', $params = []) {
             'stage' => 'query',
             'error' => $conn->error,
             'errno' => $conn->errno,
+            'sqlstate' => $conn->sqlstate,
             'sql' => $sql,
         ]);
         error_log("DB Query Error: " . $conn->error);
@@ -405,6 +411,7 @@ function db_execute($sql, $types = '', $params = []) {
                     'stage' => 'execute_query',
                     'error' => $conn->error,
                     'errno' => $conn->errno,
+                    'sqlstate' => $conn->sqlstate,
                     'sql' => $sql,
                 ]);
                 error_log("DB Execute Error: " . $conn->error);
@@ -419,6 +426,7 @@ function db_execute($sql, $types = '', $params = []) {
                 'stage' => 'prepare',
                 'error' => $conn->error,
                 'errno' => $conn->errno,
+                'sqlstate' => $conn->sqlstate,
                 'sql' => $sql,
             ]);
             error_log("DB Prepare Error: " . $conn->error);
@@ -431,6 +439,7 @@ function db_execute($sql, $types = '', $params = []) {
                 'stage' => 'execute',
                 'error' => $stmt->error,
                 'errno' => $stmt->errno,
+                'sqlstate' => $stmt->sqlstate,
                 'sql' => $sql,
             ]);
             error_log("DB Execute Error: " . $stmt->error);
@@ -446,6 +455,8 @@ function db_execute($sql, $types = '', $params = []) {
             'stage' => 'exception',
             'error' => $e->getMessage(),
             'class' => get_class($e),
+            'errno' => $stmt instanceof mysqli_stmt ? $stmt->errno : $conn->errno,
+            'sqlstate' => $stmt instanceof mysqli_stmt ? $stmt->sqlstate : $conn->sqlstate,
             'sql' => $sql,
         ]);
         error_log("DB Exception: " . $e->getMessage());

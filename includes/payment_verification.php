@@ -2146,9 +2146,9 @@ if (!function_exists('payment_verification_import_legacy_submissions')) {
 
 if (!function_exists('payment_verification_notify_reviewers')) {
     /**
-     * Insert branch-scoped, unread in-system notifications without push or DDL.
-     * In strict mode every eligible reviewer must have a notification row and at
-     * least one eligible reviewer must exist.
+     * Create branch-scoped, unread in-system notifications through the same
+     * notification helper used by customer inquiries. Call this after the core
+     * payment transaction commits because notification persistence is secondary.
      */
     function payment_verification_notify_reviewers(
         int $orderId = 0,
@@ -2170,9 +2170,6 @@ if (!function_exists('payment_verification_notify_reviewers')) {
             return $result;
         };
 
-        if (!payment_verification_ensure_notification_schema()) {
-            return $failure('The notification schema is unavailable.');
-        }
         if ($submissionId <= 0) {
             $submissionId = payment_verification_latest_submission_id($orderId, $jobOrderId);
         }
@@ -2217,63 +2214,65 @@ if (!function_exists('payment_verification_notify_reviewers')) {
 
         $customerName = trim((string)($submission['customer_name'] ?? ''));
         $customerLabel = $customerName !== '' ? $customerName : 'A customer';
-        $itemLabel = '';
-        if ($orderId > 0 && function_exists('printflow_order_notification_preview')) {
-            $preview = printflow_order_notification_preview($orderId);
-            $itemLabel = trim((string)($preview['display_name'] ?? ''));
-        }
-        if ($itemLabel === '' && $jobOrderId > 0 && function_exists('printflow_job_notification_preview')) {
-            $preview = printflow_job_notification_preview($jobOrderId);
-            $itemLabel = trim((string)($preview['display_name'] ?? ''));
-        }
-        if ($itemLabel === '') {
-            $itemLabel = payment_verification_order_label($submission ?: ['order_id' => $orderId, 'job_order_id' => $jobOrderId]);
-        }
-        $message = $customerLabel . ' submitted payment proof for ' . $itemLabel . '. Needs verification.';
+        $orderLabel = payment_verification_order_label(
+            $submission ?: ['order_id' => $orderId, 'job_order_id' => $jobOrderId]
+        );
+        $message = $customerLabel . ' submitted a payment proof for order ' . $orderLabel . '.';
 
-        $usersSql = "SELECT user_id, user_type, position, branch_id FROM users
-                     WHERE user_type = 'Staff'
-                       AND COALESCE(status, 'Activated') <> 'Archived'";
+        $usersSql = "SELECT user_id, role, position, branch_id FROM users
+                     WHERE role = 'Staff'
+                       AND status = 'Activated'";
         $types = '';
         $params = [];
         $usersSql .= ' AND branch_id = ?';
         $types = 'i';
         $params[] = $branchId;
         $users = db_query($usersSql, $types, $params) ?: [];
-        $recipientIds = [];
+        $recipients = [];
         foreach ($users as $user) {
             if (function_exists('printflow_detect_staff_access_role')) {
                 if (printflow_detect_staff_access_role((string)($user['position'] ?? '')) !== 'online') continue;
             }
             $userId = (int)($user['user_id'] ?? 0);
-            if ($userId > 0) $recipientIds[$userId] = $userId;
+            if ($userId > 0) $recipients[$userId] = 'Staff';
         }
 
         // Some branches only have counter/POS staff, who cannot open the Payment
         // Verification module. Fall back to active admins so the required review
         // notification does not make an otherwise valid submission impossible.
-        if ($recipientIds === []) {
+        if ($recipients === []) {
             $admins = db_query(
-                "SELECT user_id FROM users
-                 WHERE user_type = 'Admin'
-                   AND COALESCE(status, 'Activated') <> 'Archived'
+                "SELECT user_id, role FROM users
+                 WHERE role = 'Admin'
+                   AND status = 'Activated'
                  ORDER BY user_id ASC"
             ) ?: [];
             foreach ($admins as $admin) {
                 $userId = (int)($admin['user_id'] ?? 0);
-                if ($userId > 0) $recipientIds[$userId] = $userId;
+                if ($userId > 0) $recipients[$userId] = 'Admin';
             }
-            if ($recipientIds !== []) {
+            if ($recipients !== []) {
                 payment_verification_log('notification_reviewer_fallback', [
                     'submission_id' => $submissionId,
                     'branch_id' => $branchId,
-                    'admin_recipients' => count($recipientIds),
+                    'admin_recipients' => count($recipients),
                 ]);
             }
         }
-        $recipientIds = array_values($recipientIds);
-        if ($recipientIds === []) {
+        if ($recipients === []) {
             return $failure('No eligible branch reviewer is available.', [
+                'submission_id' => $submissionId,
+                'branch_id' => $branchId,
+                'failed_operation' => 'reviewer_lookup',
+                'bound_parameters' => [
+                    'role' => 'Staff',
+                    'status' => 'Activated',
+                    'branch_id' => $branchId,
+                ],
+            ]);
+        }
+        if (!function_exists('create_notification')) {
+            return $failure('The shared notification helper is unavailable.', [
                 'submission_id' => $submissionId,
                 'branch_id' => $branchId,
             ]);
@@ -2281,7 +2280,7 @@ if (!function_exists('payment_verification_notify_reviewers')) {
 
         $created = 0;
         $existing = 0;
-        foreach ($recipientIds as $userId) {
+        foreach ($recipients as $userId => $recipientRole) {
             $existingNotification = db_query(
                 "SELECT notification_id FROM notifications
                  WHERE user_id = ? AND type = 'Payment' AND COALESCE(data_id, 0) = ?
@@ -2293,26 +2292,38 @@ if (!function_exists('payment_verification_notify_reviewers')) {
                 $existing++;
                 continue;
             }
-            $notificationId = db_execute(
-                "INSERT INTO notifications
-                    (user_id, customer_id, message, type, data_id, is_read, send_email, send_sms)
-                 VALUES (?, NULL, ?, 'Payment', ?, 0, 0, 0)",
-                'isi',
-                [$userId, $message, $submissionId]
+            $notificationId = create_notification(
+                (int)$userId,
+                $recipientRole,
+                $message,
+                'Payment',
+                false,
+                false,
+                $submissionId
             );
             if (!$notificationId) {
                 return $failure('A reviewer notification row could not be inserted.', [
                     'submission_id' => $submissionId,
                     'branch_id' => $branchId,
-                    'user_id' => $userId,
-                    'recipient_count' => count($recipientIds),
+                    'user_id' => (int)$userId,
+                    'recipient_role' => $recipientRole,
+                    'recipient_count' => count($recipients),
                     'created' => $created,
                     'existing' => $existing,
+                    'failed_operation' => 'create_notification',
+                    'bound_parameters' => [
+                        'user_id' => (int)$userId,
+                        'user_type' => $recipientRole,
+                        'type' => 'Payment',
+                        'data_id' => $submissionId,
+                        'send_email' => 0,
+                        'send_sms' => 0,
+                    ],
                 ]);
             }
             $created++;
         }
-        $success = ($created + $existing) === count($recipientIds);
+        $success = ($created + $existing) === count($recipients);
         payment_verification_log('notification_inserted', [
             'submission_id' => $submissionId,
             'order_id' => $orderId,
@@ -2330,7 +2341,7 @@ if (!function_exists('payment_verification_notify_reviewers')) {
         return [
             'success' => $success,
             'required' => $required,
-            'recipient_count' => count($recipientIds),
+            'recipient_count' => count($recipients),
             'created' => $created,
             'existing' => $existing,
             'error' => $success ? '' : 'Not every reviewer received a notification.',

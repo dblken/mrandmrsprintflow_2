@@ -5,13 +5,18 @@ $failNotificationInsert = false;
 $reviewerMode = 'staff';
 
 function db_execute($sql, $types = '', $params = []) {
-    global $notificationInserts, $failNotificationInsert;
-    if (stripos((string)$sql, 'INSERT INTO notifications') !== false) {
-        if ($failNotificationInsert) return false;
-        $notificationInserts[] = ['sql' => $sql, 'types' => $types, 'params' => $params];
-        return 500 + count($notificationInserts);
-    }
     return true;
+}
+
+function create_notification($userId, $userType, $message, $type = 'System', $sendEmail = false, $sendSms = false, $dataId = null) {
+    global $notificationInserts, $failNotificationInsert;
+    if ($failNotificationInsert) return false;
+    $notificationInserts[] = compact('userId', 'userType', 'message', 'type', 'sendEmail', 'sendSms', 'dataId');
+    return 500 + count($notificationInserts);
+}
+
+function printflow_format_order_code($orderId, $sku = ''): string {
+    return trim((string)$sku) !== '' ? $sku : 'ORD-' . (int)$orderId;
 }
 
 function db_query($sql, $types = '', $params = []): array {
@@ -43,14 +48,14 @@ function db_query($sql, $types = '', $params = []): array {
             'order_sku' => 'TSH-0003-11233',
         ]];
     }
-    if (stripos($sql, "FROM users") !== false && stripos($sql, "user_type = 'Staff'") !== false) {
+    if (stripos($sql, "FROM users") !== false && stripos($sql, "role = 'Staff'") !== false) {
         if ($reviewerMode !== 'staff') return [];
         return [
             ['user_id' => 21, 'user_type' => 'Staff', 'position' => '', 'branch_id' => 3],
             ['user_id' => 22, 'user_type' => 'Staff', 'position' => '', 'branch_id' => 3],
         ];
     }
-    if (stripos($sql, "FROM users") !== false && stripos($sql, "user_type = 'Admin'") !== false) {
+    if (stripos($sql, "FROM users") !== false && stripos($sql, "role = 'Admin'") !== false) {
         return $reviewerMode === 'admin'
             ? [['user_id' => 31, 'user_type' => 'Admin']]
             : [];
@@ -71,10 +76,13 @@ if (empty($result['success'])) $failures[] = 'Expected strict reviewer notificat
 if (($result['recipient_count'] ?? 0) !== 2) $failures[] = 'Expected both branch reviewers to be selected.';
 if (count($notificationInserts) !== 2) $failures[] = 'Expected one in-system notification per reviewer.';
 foreach ($notificationInserts as $insert) {
-    if (($insert['types'] ?? '') !== 'isi') $failures[] = 'Notification bind types changed unexpectedly.';
-    if (($insert['params'][2] ?? 0) !== 91) $failures[] = 'Notification data_id must be the payment submission ID.';
-    if (stripos((string)$insert['sql'], "'Payment'") === false) $failures[] = 'Notification type must be Payment.';
-    if (stripos((string)$insert['sql'], '0, 0, 0') === false) $failures[] = 'Notification must be unread with external delivery disabled.';
+    if (($insert['userType'] ?? '') !== 'Staff') $failures[] = 'Branch reviewers must use the Staff recipient role.';
+    if (($insert['dataId'] ?? 0) !== 91) $failures[] = 'Notification data_id must be the payment submission ID.';
+    if (($insert['type'] ?? '') !== 'Payment') $failures[] = 'Notification type must be Payment.';
+    if (!empty($insert['sendEmail']) || !empty($insert['sendSms'])) $failures[] = 'External delivery must remain disabled.';
+    if (($insert['message'] ?? '') !== 'Jenny Ferr submitted a payment proof for order TSH-0003-11233.') {
+        $failures[] = 'Notification content must identify the customer and formatted order code.';
+    }
 }
 
 $reviewerMode = 'admin';
@@ -86,18 +94,34 @@ if (empty($adminFallback['success']) || ($adminFallback['recipient_count'] ?? 0)
 $reviewerMode = 'staff';
 $failNotificationInsert = true;
 $failed = payment_verification_notify_reviewers(11233, 0, 92, true);
-if (!empty($failed['success'])) $failures[] = 'Strict mode must fail when a notification insert fails.';
+if (!empty($failed['success'])) $failures[] = 'Notification helper must report a failed shared-helper insert.';
 
 $endpoint = file_get_contents(__DIR__ . '/../customer/api_submit_payment.php');
 $jobPreparation = strpos($endpoint, 'JobOrderService::ensureJobsForStoreOrder');
 $begin = strpos($endpoint, '$conn->begin_transaction()');
-$notify = strpos($endpoint, 'payment_verification_notify_reviewers(', $begin ?: 0);
+$notify = strpos($endpoint, '$notify_reviewers_best_effort(', $begin ?: 0);
 $commit = strpos($endpoint, '$conn->commit()', $begin ?: 0);
 if ($jobPreparation === false || $begin === false || $jobPreparation > $begin) {
     $failures[] = 'Job preparation must run before the payment transaction.';
 }
-if ($notify === false || $commit === false || $notify > $commit) {
-    $failures[] = 'Reviewer notifications must be written before the payment commit.';
+if ($notify === false || $commit === false || $notify < $commit) {
+    $failures[] = 'Reviewer notifications must run only after the payment commit.';
+}
+if (strpos($endpoint, 'if (!payment_verification_ensure_notification_schema())') !== false) {
+    $failures[] = 'Notification schema availability must not gate the core payment submission.';
+}
+if (strpos($endpoint, "'notification_created'") === false || strpos($endpoint, '[PAYMENT NOTIFICATION ERROR]') === false) {
+    $failures[] = 'The success response and post-commit notification failure log are required.';
+}
+if (strpos($endpoint, "'transaction_state' => \$transactionState") === false) {
+    $failures[] = 'Notification diagnostics must record the committed transaction state.';
+}
+if (strpos($endpoint, 'The verification record could not be sent to staff. No payment submission was saved.') !== false) {
+    $failures[] = 'A notification failure must never claim that a committed payment was not saved.';
+}
+$helperSource = file_get_contents(__DIR__ . '/../includes/payment_verification.php');
+if (strpos($helperSource, "WHERE role = 'Staff'") === false || strpos($helperSource, 'create_notification(') === false) {
+    $failures[] = 'Payment notifications must use the established users.role schema and shared helper.';
 }
 if (strpos($endpoint, "error_reference") === false || strpos($endpoint, '[PAYMENT SUBMISSION ERROR]') === false) {
     $failures[] = 'Backend failures must return a correlation ID and write detailed server logs.';
