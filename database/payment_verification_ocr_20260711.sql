@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS `payment_submissions` (
   `submitted_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
   `ocr_sender_name` varchar(190) DEFAULT NULL,
   `sender_name` varchar(190) DEFAULT NULL,
+  `ocr_sender_mobile` varchar(40) DEFAULT NULL,
+  `sender_mobile` varchar(40) DEFAULT NULL,
   `ocr_reference_number` varchar(190) DEFAULT NULL,
   `reference_number` varchar(190) DEFAULT NULL,
   `reference_normalized` varchar(190) DEFAULT NULL,
@@ -29,18 +31,23 @@ CREATE TABLE IF NOT EXISTS `payment_submissions` (
   `transaction_date` date DEFAULT NULL,
   `ocr_transaction_time` time DEFAULT NULL,
   `transaction_time` time DEFAULT NULL,
+  `ocr_transaction_status` varchar(80) DEFAULT NULL,
+  `transaction_status` varchar(80) DEFAULT NULL,
   `ocr_receiver_name` varchar(190) DEFAULT NULL,
   `receiver_name` varchar(190) DEFAULT NULL,
   `ocr_receiver_account` varchar(190) DEFAULT NULL,
   `receiver_account` varchar(190) DEFAULT NULL,
   `raw_ocr_text` mediumtext,
+  `ocr_normalized_text` mediumtext,
   `overall_confidence` decimal(5,2) DEFAULT NULL,
   `sender_confidence` decimal(5,2) DEFAULT NULL,
+  `sender_mobile_confidence` decimal(5,2) DEFAULT NULL,
   `reference_confidence` decimal(5,2) DEFAULT NULL,
   `amount_confidence` decimal(5,2) DEFAULT NULL,
   `method_confidence` decimal(5,2) DEFAULT NULL,
   `date_confidence` decimal(5,2) DEFAULT NULL,
   `receiver_confidence` decimal(5,2) DEFAULT NULL,
+  `status_confidence` decimal(5,2) DEFAULT NULL,
   `ocr_status` varchar(30) NOT NULL DEFAULT 'Pending',
   `ocr_provider` varchar(50) DEFAULT NULL,
   `ocr_error` varchar(500) DEFAULT NULL,
@@ -70,3 +77,14 @@ CREATE TABLE IF NOT EXISTS `payment_submissions` (
   KEY `idx_payment_submissions_hash` (`receipt_sha256`),
   UNIQUE KEY `uq_payment_submissions_token` (`customer_id`, `submission_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Upgrade existing installations. These columns are OCR metadata only; the
+-- original proof and core queue row remain reviewable if OCR is unavailable.
+ALTER TABLE `payment_submissions`
+  ADD COLUMN IF NOT EXISTS `ocr_normalized_text` mediumtext AFTER `raw_ocr_text`,
+  ADD COLUMN IF NOT EXISTS `ocr_sender_mobile` varchar(40) DEFAULT NULL AFTER `sender_name`,
+  ADD COLUMN IF NOT EXISTS `sender_mobile` varchar(40) DEFAULT NULL AFTER `ocr_sender_mobile`,
+  ADD COLUMN IF NOT EXISTS `ocr_transaction_status` varchar(80) DEFAULT NULL AFTER `transaction_time`,
+  ADD COLUMN IF NOT EXISTS `transaction_status` varchar(80) DEFAULT NULL AFTER `ocr_transaction_status`,
+  ADD COLUMN IF NOT EXISTS `sender_mobile_confidence` decimal(5,2) DEFAULT NULL AFTER `sender_confidence`,
+  ADD COLUMN IF NOT EXISTS `status_confidence` decimal(5,2) DEFAULT NULL AFTER `receiver_confidence`;

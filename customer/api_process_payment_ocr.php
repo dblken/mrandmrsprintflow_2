@@ -38,9 +38,23 @@ if (empty($rows)) {
 }
 
 session_write_close();
-$result = payment_ocr_process_submission($submissionId);
+try {
+    $result = payment_ocr_process_submission($submissionId);
+} catch (Throwable $error) {
+    payment_verification_record_ocr_failure($submissionId, $error, 'Failed');
+    payment_verification_log('customer_ocr_endpoint_failed', [
+        'submission_id' => $submissionId,
+        'customer_id' => $customerId,
+        'reason' => $error->getMessage(),
+    ]);
+    $result = [
+        'success' => false,
+        'status' => 'Failed',
+        'verification_status' => 'Needs Review',
+    ];
+}
 $status = (string)($result['status'] ?? 'Failed');
 echo json_encode([
-    'success' => in_array($status, ['Completed', 'Processing', 'Unavailable', 'Failed'], true),
+    'success' => true,
     'status' => $status === 'Completed' ? 'Processed' : 'Pending Staff Review',
 ]);

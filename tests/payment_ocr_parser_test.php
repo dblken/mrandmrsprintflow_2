@@ -28,6 +28,26 @@ payment_ocr_test_assert(payment_verification_normalize_reference($parsed['refere
 payment_ocr_test_assert($parsed['transaction_date'] === '2026-07-11', 'Transaction date should normalize.');
 payment_ocr_test_assert($parsed['transaction_time'] === '11:30:00', 'Transaction time should normalize.');
 
+$providedGcash = <<<'TEXT'
+GCash
+Payment successful
+Sender Name: AR**N T.
+Sender Mobile: +63 995 484 9142
+Amount Sent PHP 60.00
+Total Amount Sent PHP 60.00
+Reference Number: 6039905089284
+Date: Apr 17, 2026
+Time: 12:01 PM
+TEXT;
+$parsedProvided = payment_ocr_parse_receipt_text($providedGcash, [], 90.0);
+payment_ocr_test_assert($parsedProvided['sender_name'] === 'AR**N T.', 'Masked GCash sender name should be extracted.');
+payment_ocr_test_assert($parsedProvided['sender_mobile'] === '+63 995 484 9142', 'GCash sender mobile should be extracted.');
+payment_ocr_test_assert(abs((float)$parsedProvided['amount_sent'] - 60.00) < 0.001, 'Provided GCash amount should be 60.00.');
+payment_ocr_test_assert($parsedProvided['reference_number'] === '6039905089284', 'Reference Number label should be supported.');
+payment_ocr_test_assert($parsedProvided['transaction_date'] === '2026-04-17', 'Separate GCash date label should normalize.');
+payment_ocr_test_assert($parsedProvided['transaction_time'] === '12:01:00', 'Separate GCash time label should normalize.');
+payment_ocr_test_assert($parsedProvided['transaction_status'] === 'Successful', 'GCash transaction status should be extracted.');
+
 $maya = <<<'TEXT'
 Maya
 Payment Successful
@@ -77,6 +97,27 @@ payment_ocr_test_assert(
     payment_verification_sanitize_ocr_text("GCash\x00\x07\r\nAmount 100") === "GCash\nAmount 100",
     'OCR control characters should be removed before persistence.'
 );
+payment_ocr_test_assert(
+    payment_ocr_normalize_text('PAYMENT PHP RECEIPT') === 'PAYMENT PHP RECEIPT',
+    'OCR normalization must not replace ordinary P or H letters.'
+);
+
+if (function_exists('imagecreatetruecolor') && function_exists('imagejpeg')) {
+    $source = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'payment_ocr_source_' . bin2hex(random_bytes(6)) . '.jpg';
+    $image = imagecreatetruecolor(640, 960);
+    $white = imagecolorallocate($image, 255, 255, 255);
+    $black = imagecolorallocate($image, 0, 0, 0);
+    imagefill($image, 0, 0, $white);
+    imagestring($image, 5, 30, 50, 'GCash Amount PHP 60.00 Ref 6039905089284', $black);
+    imagejpeg($image, $source, 90);
+    imagedestroy($image);
+    $sourceHash = hash_file('sha256', $source);
+    $processed = payment_ocr_preprocess_image($source, 'image/jpeg');
+    payment_ocr_test_assert($processed !== null && is_file($processed), 'OCR preprocessing should create a separate readable copy.');
+    payment_ocr_test_assert(hash_file('sha256', $source) === $sourceHash, 'OCR preprocessing must preserve the original proof.');
+    if ($processed !== null && is_file($processed)) unlink($processed);
+    if (is_file($source)) unlink($source);
+}
 
 $staffQueueSource = (string)file_get_contents(__DIR__ . '/../staff/payment_verification.php');
 $detailQuerySource = (string)file_get_contents(__DIR__ . '/../includes/payment_verification.php');

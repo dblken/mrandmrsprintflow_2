@@ -39,10 +39,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'queue_s
         $params[] = (int)$branchId;
     }
     $rows = db_query(
-        "SELECT COUNT(*) AS total,
-                SUM(ps.verification_status = 'Pending Review') AS pending,
-                SUM(ps.verification_status = 'Matched') AS matched,
-                SUM(ps.verification_status IN ('Needs Review', 'Duplicate Suspected')) AS review,
+         "SELECT COUNT(*) AS total,
+                 SUM(ps.verification_status = 'Pending Review') AS pending,
+                 SUM(ps.expected_amount > 0 AND COALESCE(ps.amount_sent, ps.ocr_amount_sent) IS NOT NULL
+                     AND COALESCE(ps.amount_sent, ps.ocr_amount_sent) = ps.expected_amount) AS matched,
+                 SUM(ps.verification_status IN ('Needs Review', 'Duplicate Suspected')) AS review,
                 SUM(ps.verification_status = 'Approved') AS approved
          {$where}",
         $types,

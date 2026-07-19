@@ -19,6 +19,25 @@ if (!payment_verification_ensure_schema()) {
     exit(1);
 }
 
+$ocrColumns = [
+    'ocr_normalized_text',
+    'ocr_sender_mobile',
+    'sender_mobile',
+    'ocr_transaction_status',
+    'transaction_status',
+    'sender_mobile_confidence',
+    'status_confidence',
+];
+$missingOcrColumns = array_values(array_filter(
+    $ocrColumns,
+    static fn(string $column): bool => !db_table_has_column('payment_submissions', $column, true)
+));
+if ($missingOcrColumns) {
+    fwrite(STDERR, 'Payment verification OCR columns could not be added: ' . implode(', ', $missingOcrColumns) . PHP_EOL);
+    fwrite(STDERR, "Grant ALTER permission to the deployment database user or apply database/payment_verification_ocr_20260711.sql manually.\n");
+    exit(1);
+}
+
 $backfilled = db_execute_affected_rows(
     "UPDATE payment_submissions ps
      LEFT JOIN orders o ON o.order_id = ps.order_id

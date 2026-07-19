@@ -1,6 +1,7 @@
 <?php
 
 $capturedInsert = null;
+$duplicateQueryCount = 0;
 
 function db_execute($sql, $types = '', $params = []) {
     global $capturedInsert;
@@ -12,6 +13,7 @@ function db_execute($sql, $types = '', $params = []) {
 }
 
 function db_query($sql, $types = '', $params = []): array {
+    global $duplicateQueryCount;
     if (stripos((string)$sql, "SHOW TABLES LIKE 'payment_submissions'") !== false) return [['table' => 'payment_submissions']];
     if (stripos((string)$sql, 'SHOW INDEX FROM payment_submissions') !== false) {
         return [
@@ -21,6 +23,9 @@ function db_query($sql, $types = '', $params = []): array {
     }
     if (stripos((string)$sql, 'AS payable_amount') !== false) return [['payable_amount' => '125.50']];
     if (stripos((string)$sql, 'SELECT branch_id FROM orders') !== false) return [['branch_id' => 3]];
+    if (stripos((string)$sql, 'reference_normalized = ?') !== false || stripos((string)$sql, 'receipt_sha256 = ?') !== false) {
+        $duplicateQueryCount++;
+    }
     return [];
 }
 
@@ -54,6 +59,10 @@ if (($capturedInsert['params'][3] ?? null) !== 3) $failures[] = 'Expected branch
 if (($capturedInsert['params'][5] ?? null) !== 'secure_payments/example.webp') $failures[] = 'Expected the storage path to be persisted.';
 if (($capturedInsert['params'][6] ?? null) !== '/api_view_proof.php?file=example.webp') $failures[] = 'Expected the authorized receipt URL to be persisted.';
 if (($capturedInsert['params'][15] ?? null) !== str_repeat('b', 48)) $failures[] = 'Expected the idempotency token to be persisted.';
+
+$blankDuplicate = payment_verification_duplicate_id(77, '', '');
+if ($blankDuplicate !== 0) $failures[] = 'Blank reference/hash values must not be classified as duplicates.';
+if ($duplicateQueryCount !== 0) $failures[] = 'Blank reference/hash values must not run duplicate matching queries.';
 
 if ($failures) {
     foreach ($failures as $failure) fwrite(STDERR, "FAIL: {$failure}\n");

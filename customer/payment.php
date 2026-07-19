@@ -1085,21 +1085,11 @@ if (!function_exists('pf_payment_qr_url')) {
                     return;
                 }
 
-                if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && data.submission_id) {
-                    if (data.submission_id) {
-                        const ocrData = new FormData();
-                        ocrData.append('submission_id', data.submission_id);
-                        ocrData.append('csrf_token', formData.get('csrf_token') || '');
-                        fetch('api_process_payment_ocr.php', {
-                            method: 'POST',
-                            body: ocrData,
-                            credentials: 'same-origin',
-                            keepalive: true
-                        }).catch(function() {});
-                    }
+                const submissionId = data.payment_submission_id || data.submission_id;
+                if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && submissionId) {
                     showSuccessModal(
                         'Receipt Submitted',
-                        'Payment proof submitted. Your payment is pending staff verification.',
+                        data.message || 'Payment proof submitted successfully. It is now waiting for staff verification.',
                         'orders.php?highlight=<?php echo $order_id; ?>',
                         'services.php',
                         'View Order',

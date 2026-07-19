@@ -17,6 +17,12 @@ if (!function_exists('payment_verification_env')) {
     }
 }
 
+if (!function_exists('payment_ocr_timeout_seconds')) {
+    function payment_ocr_timeout_seconds(): int {
+        return max(10, min(90, (int)payment_verification_env('PAYMENT_OCR_TIMEOUT_SECONDS', '25')));
+    }
+}
+
 if (!function_exists('payment_verification_log')) {
     function payment_verification_log(string $event, array $context = []): void {
         $safe = [];
@@ -101,6 +107,8 @@ if (!function_exists('payment_verification_ensure_schema')) {
             submitted_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
             ocr_sender_name VARCHAR(190) DEFAULT NULL,
             sender_name VARCHAR(190) DEFAULT NULL,
+            ocr_sender_mobile VARCHAR(40) DEFAULT NULL,
+            sender_mobile VARCHAR(40) DEFAULT NULL,
             ocr_reference_number VARCHAR(190) DEFAULT NULL,
             reference_number VARCHAR(190) DEFAULT NULL,
             reference_normalized VARCHAR(190) DEFAULT NULL,
@@ -112,18 +120,23 @@ if (!function_exists('payment_verification_ensure_schema')) {
             transaction_date DATE DEFAULT NULL,
             ocr_transaction_time TIME DEFAULT NULL,
             transaction_time TIME DEFAULT NULL,
+            ocr_transaction_status VARCHAR(80) DEFAULT NULL,
+            transaction_status VARCHAR(80) DEFAULT NULL,
             ocr_receiver_name VARCHAR(190) DEFAULT NULL,
             receiver_name VARCHAR(190) DEFAULT NULL,
             ocr_receiver_account VARCHAR(190) DEFAULT NULL,
             receiver_account VARCHAR(190) DEFAULT NULL,
             raw_ocr_text MEDIUMTEXT,
+            ocr_normalized_text MEDIUMTEXT,
             overall_confidence DECIMAL(5,2) DEFAULT NULL,
             sender_confidence DECIMAL(5,2) DEFAULT NULL,
+            sender_mobile_confidence DECIMAL(5,2) DEFAULT NULL,
             reference_confidence DECIMAL(5,2) DEFAULT NULL,
             amount_confidence DECIMAL(5,2) DEFAULT NULL,
             method_confidence DECIMAL(5,2) DEFAULT NULL,
             date_confidence DECIMAL(5,2) DEFAULT NULL,
             receiver_confidence DECIMAL(5,2) DEFAULT NULL,
+            status_confidence DECIMAL(5,2) DEFAULT NULL,
             ocr_status VARCHAR(30) NOT NULL DEFAULT 'Pending',
             ocr_provider VARCHAR(50) DEFAULT NULL,
             ocr_error VARCHAR(500) DEFAULT NULL,
@@ -170,7 +183,15 @@ if (!function_exists('payment_verification_ensure_schema')) {
             'receipt_url' => 'VARCHAR(700) DEFAULT NULL AFTER receipt_storage_path',
             'submission_token' => 'CHAR(64) DEFAULT NULL AFTER selected_payment_method',
             'ocr_duration_ms' => 'INT UNSIGNED DEFAULT NULL AFTER ocr_attempts',
+        ];
+        $optionalColumns = [
             'ocr_normalized_text' => 'MEDIUMTEXT DEFAULT NULL AFTER raw_ocr_text',
+            'ocr_sender_mobile' => 'VARCHAR(40) DEFAULT NULL AFTER sender_name',
+            'sender_mobile' => 'VARCHAR(40) DEFAULT NULL AFTER ocr_sender_mobile',
+            'ocr_transaction_status' => 'VARCHAR(80) DEFAULT NULL AFTER transaction_time',
+            'transaction_status' => 'VARCHAR(80) DEFAULT NULL AFTER ocr_transaction_status',
+            'sender_mobile_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER sender_confidence',
+            'status_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER receiver_confidence',
         ];
         foreach ($columns as $column => $definition) {
             if (!db_table_has_column('payment_submissions', $column)) {
@@ -181,6 +202,16 @@ if (!function_exists('payment_verification_ensure_schema')) {
                     $ready = false;
                     return false;
                 }
+            }
+        }
+        foreach ($optionalColumns as $column => $definition) {
+            if (db_table_has_column('payment_submissions', $column)) continue;
+            $altered = db_execute("ALTER TABLE payment_submissions ADD COLUMN `{$column}` {$definition}");
+            db_table_has_column('payment_submissions', $column, true);
+            if (!$altered || !db_table_has_column('payment_submissions', $column)) {
+                // Optional OCR metadata must never prevent the core proof and
+                // queue record from being persisted for manual review.
+                payment_verification_log('optional_schema_upgrade_failed', ['column' => $column]);
             }
         }
 
@@ -472,6 +503,16 @@ if (!function_exists('payment_verification_create_submission')) {
             $branch = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]);
             $branchId = max(0, (int)($branch[0]['branch_id'] ?? 0));
         }
+        if ($branchId <= 0 && function_exists('printflow_get_default_admin_branch_id')) {
+            $branchId = max(0, (int)printflow_get_default_admin_branch_id());
+            if ($branchId > 0) {
+                payment_verification_log('submission_branch_defaulted', [
+                    'order_id' => $orderId,
+                    'job_order_id' => $jobOrderId,
+                    'branch_id' => $branchId,
+                ]);
+            }
+        }
 
         $submissionToken = strtolower(trim((string)($data['submission_token'] ?? '')));
         if (!preg_match('/^[a-f0-9]{32,64}$/', $submissionToken)) $submissionToken = null;
@@ -561,6 +602,8 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
             'receiver_name'    => '',
             'receiver_account' => '',
             'sender_name'      => '',
+            'sender_mobile'    => '',
+            'transaction_status' => '',
         ];
 
         $text      = implode("\n", $lines);
@@ -573,10 +616,18 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         // ── Sender name ────────────────────────────────────────────────────────
         // Patterns: "Sent by: JUAN DELA CRUZ", "From: MARIA SANTOS"
         foreach ($lines as $line) {
-            if (preg_match('/(?:sent\s+by|from)\s*:\s*(.+)/i', $line, $m)) {
+            if (preg_match('/(?:sender\s+name|sent\s+by|from)\s*[:\-]?\s*(.+)/i', $line, $m)) {
                 $name = trim($m[1]);
-                if ($name !== '') {
+                if ($name !== '' && !preg_match('/^(?:mobile|number|account)\b/i', $name)) {
                     $result['sender_name'] = mb_substr($name, 0, 190);
+                    break;
+                }
+            }
+        }
+        if ($result['sender_name'] === '') {
+            foreach ($lines as $index => $line) {
+                if (preg_match('/^(?:sender|sent\s+by|from)\s*[:\-]?$/i', $line) && !empty($lines[$index + 1])) {
+                    $result['sender_name'] = mb_substr(trim((string)$lines[$index + 1]), 0, 190);
                     break;
                 }
             }
@@ -587,7 +638,7 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         // Then: "Amount Sent [PHP/₱/P] 100.00" or "Amount [PHP/₱/P] 100.00"
         // The optional currency prefix handles receipts that embed "PHP" between
         // the label and the number (e.g. "Amount Sent PHP 100.00").
-        $currencyPrefix = '(?:PHP|Php|₱|P\b)?\s*';
+        $currencyPrefix = '(?:PHP|Php|P\b)?\s*';
         $amountPatterns = [
             '/total\s+amount\s+sent\s*[:\s]*\s*' . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
             '/amount\s+sent\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
@@ -612,7 +663,7 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         // "Reference No. 1234 5678 9012". Capture a broader set of chars and
         // then strip non-alphanumeric characters before storing.
         foreach ($lines as $line) {
-            if (preg_match('/ref\s*(?:erence)?\s*no\.?\s*[:\s]*\s*([A-Z0-9][\s\-A-Z0-9]*)/i', $line, $match)) {
+            if (preg_match('/ref\s*(?:erence)?\s*(?:no\.?|number|#|id)?\s*[:\s]*\s*([A-Z0-9][\s\-A-Z0-9]*)/i', $line, $match)) {
                 $ref = preg_replace('/[^A-Z0-9]/i', '', $match[1]);
                 if (strlen($ref) >= 6) {
                     $result['reference_number'] = mb_strtoupper(mb_substr($ref, 0, 190));
@@ -636,6 +687,24 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
             }
         }
 
+        if ($result['transaction_date'] === null || $result['transaction_time'] === null) {
+            foreach ($lines as $line) {
+                if ($result['transaction_date'] === null && preg_match('/(?:date\s*[:\-]?\s*)?((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+20\d{2})/i', $line, $match)) {
+                    $result['transaction_date'] = payment_ocr_normalize_date($match[1]);
+                }
+                if ($result['transaction_time'] === null && preg_match('/(?:time\s*[:\-]?\s*)?(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM))/i', $line, $match)) {
+                    $result['transaction_time'] = payment_ocr_normalize_time($match[1]);
+                }
+            }
+        }
+
+        if (preg_match('/\b(successful|success|completed|complete|sent)\b/i', $text, $statusMatch)) {
+            $status = strtolower($statusMatch[1]);
+            $result['transaction_status'] = in_array($status, ['successful', 'success'], true)
+                ? 'Successful'
+                : (in_array($status, ['completed', 'complete'], true) ? 'Completed' : 'Sent');
+        }
+
         // ── Receiver name (masked) ──────────────────────────────────────────────
         // Looks for masked names like "KE••••••D V."
         foreach ($lines as $line) {
@@ -649,10 +718,15 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         }
 
         // ── Receiver account (mobile) ───────────────────────────────────────────
-        foreach ($lines as $line) {
+        foreach ($lines as $index => $line) {
             if (preg_match('/(\+63\s*9\d{2}\s*\d{3}\s*\d{4}|09\d{2}\s*\d{3}\s*\d{4})/', $line, $match)) {
-                $result['receiver_account'] = mb_substr(preg_replace('/\s+/', '', $match[1]), 0, 190);
-                break;
+                $mobile = mb_substr(trim((string)preg_replace('/\s+/', ' ', $match[1])), 0, 40);
+                $nearby = strtolower(implode(' ', array_slice($lines, max(0, $index - 2), 3)));
+                if (preg_match('/\b(?:sent\s+to|receiver|recipient)\b/', $nearby)) {
+                    if ($result['receiver_account'] === '') $result['receiver_account'] = $mobile;
+                } elseif ($result['sender_mobile'] === '') {
+                    $result['sender_mobile'] = $mobile;
+                }
             }
         }
 
@@ -772,11 +846,13 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             
             // Calculate confidence values for GCash-extracted fields
             $senderConfidence = $gcashResult['sender_name'] !== '' ? 80.0 : 0.0;
+            $senderMobileConfidence = $gcashResult['sender_mobile'] !== '' ? 82.0 : 0.0;
             $referenceConfidence = $gcashResult['reference_number'] !== '' ? 92.0 : 0.0;
             $amountConfidence = $gcashResult['amount'] !== null ? 94.0 : 0.0;
             $methodConfidence = $gcashResult['payment_method'] !== '' ? 96.0 : 0.0;
             $dateConfidence = $gcashResult['transaction_date'] !== null ? 85.0 : 0.0;
             $receiverConfidence = $gcashResult['receiver_name'] !== '' ? 75.0 : 0.0;
+            $statusConfidence = $gcashResult['transaction_status'] !== '' ? 88.0 : 0.0;
             
             $available = array_values(array_filter([
                 $referenceConfidence, $amountConfidence, $methodConfidence, $dateConfidence
@@ -786,20 +862,24 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             
             return [
                 'sender_name' => $gcashResult['sender_name'],
+                'sender_mobile' => $gcashResult['sender_mobile'],
                 'reference_number' => $gcashResult['reference_number'],
                 'amount_sent' => $gcashResult['amount'],
                 'detected_payment_method' => $gcashResult['payment_method'],
                 'transaction_date' => $gcashResult['transaction_date'],
                 'transaction_time' => $gcashResult['transaction_time'],
+                'transaction_status' => $gcashResult['transaction_status'],
                 'receiver_name' => $gcashResult['receiver_name'],
                 'receiver_account' => $gcashResult['receiver_account'],
                 'overall_confidence' => round(max(0, min(100, $overall)), 2),
                 'sender_confidence' => round($senderConfidence, 2),
+                'sender_mobile_confidence' => round($senderMobileConfidence, 2),
                 'reference_confidence' => round($referenceConfidence, 2),
                 'amount_confidence' => round($amountConfidence, 2),
                 'method_confidence' => round($methodConfidence, 2),
                 'date_confidence' => round($dateConfidence, 2),
                 'receiver_confidence' => round($receiverConfidence, 2),
+                'status_confidence' => round($statusConfidence, 2),
             ];
         }
         
@@ -807,6 +887,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
         $amount = payment_ocr_extract_amount($lines);
 
         $sender = payment_ocr_labeled_value($lines, ['sent\s+by', 'sender', 'from', 'account\s+name']);
+        $senderMobile = payment_ocr_labeled_value($lines, ['sender\s+mobile', 'sender\s+number', 'mobile\s+number']);
         $receiver = payment_ocr_labeled_value($lines, ['sent\s+to', 'receiver', 'recipient', 'merchant']);
         $receiverAccount = payment_ocr_labeled_value($lines, ['receiver\s+account', 'account\s+number', 'mobile\s+number', 'gcash\s+number']);
         $reference = payment_ocr_labeled_value($lines, [
@@ -841,6 +922,12 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
         $methodConfidence = (float)$method['confidence'];
         $dateConfidence = $date !== null ? 78.0 : 0.0;
         $receiverConfidence = $receiver !== '' ? payment_ocr_confidence_for_value($receiver, $tokens, 74.0) : 0.0;
+        $senderMobileConfidence = $senderMobile !== '' ? payment_ocr_confidence_for_value($senderMobile, $tokens, 78.0) : 0.0;
+        $transactionStatus = '';
+        if (preg_match('/\b(successful|success|completed|complete)\b/i', $text, $statusMatch)) {
+            $transactionStatus = in_array(strtolower($statusMatch[1]), ['successful', 'success'], true) ? 'Successful' : 'Completed';
+        }
+        $statusConfidence = $transactionStatus !== '' ? 86.0 : 0.0;
 
         $available = array_values(array_filter([
             $senderConfidence, $referenceConfidence, $amountConfidence,
@@ -851,20 +938,24 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
 
         return [
             'sender_name' => mb_substr($sender, 0, 190),
+            'sender_mobile' => mb_substr($senderMobile, 0, 40),
             'reference_number' => mb_substr($reference, 0, 190),
             'amount_sent' => $amount['value'],
             'detected_payment_method' => (string)$method['value'],
             'transaction_date' => $date,
             'transaction_time' => $time,
+            'transaction_status' => $transactionStatus,
             'receiver_name' => mb_substr($receiver, 0, 190),
             'receiver_account' => mb_substr($receiverAccount, 0, 190),
             'overall_confidence' => round(max(0, min(100, $overall)), 2),
             'sender_confidence' => round($senderConfidence, 2),
+            'sender_mobile_confidence' => round($senderMobileConfidence, 2),
             'reference_confidence' => round($referenceConfidence, 2),
             'amount_confidence' => round($amountConfidence, 2),
             'method_confidence' => round($methodConfidence, 2),
             'date_confidence' => round($dateConfidence, 2),
             'receiver_confidence' => round($receiverConfidence, 2),
+            'status_confidence' => round($statusConfidence, 2),
         ];
     }
 }
@@ -934,7 +1025,6 @@ if (!function_exists('payment_ocr_preprocess_image')) {
             return null;
         }
 
-        // Load original image
         if ($mime === 'image/png') {
             $image = @imagecreatefrompng($sourcePath);
         } elseif ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) {
@@ -951,13 +1041,22 @@ if (!function_exists('payment_ocr_preprocess_image')) {
             return null;
         }
 
-        // Auto-rotate based on EXIF
+        // Correct orientation on the OCR copy. The original upload is never changed.
         if (function_exists('exif_read_data') && $mime === 'image/jpeg') {
             $exif = @exif_read_data($sourcePath);
             if ($exif && isset($exif['Orientation'])) {
                 $orientation = (int)$exif['Orientation'];
-                if ($orientation >= 2 && $orientation <= 8) {
-                    $rotated = imagerotate($image, [0, 0, 0, 180, 270, 90, 270, 90, 0][$orientation], 0);
+                if (in_array($orientation, [2, 4, 5, 7], true) && function_exists('imageflip')) {
+                    imageflip($image, in_array($orientation, [2, 5], true) ? IMG_FLIP_HORIZONTAL : IMG_FLIP_VERTICAL);
+                }
+                $degrees = match ($orientation) {
+                    3, 4 => 180,
+                    5, 6 => 270,
+                    7, 8 => 90,
+                    default => 0,
+                };
+                if ($degrees !== 0) {
+                    $rotated = imagerotate($image, $degrees, 0xFFFFFF);
                     if ($rotated) {
                         imagedestroy($image);
                         $image = $rotated;
@@ -968,13 +1067,23 @@ if (!function_exists('payment_ocr_preprocess_image')) {
             }
         }
 
-        // Resize if too large (max 3000px for OCR)
-        $maxDimension = 3000;
-        if ($width > $maxDimension || $height > $maxDimension) {
-            $ratio = min($maxDimension / $width, $maxDimension / $height);
+        // Upscale small screenshots for text recognition and cap large images.
+        $maxDimension = 3200;
+        $minShortDimension = 1400;
+        $longDimension = max($width, $height);
+        $shortDimension = min($width, $height);
+        $ratio = 1.0;
+        if ($longDimension > $maxDimension) {
+            $ratio = $maxDimension / $longDimension;
+        } elseif ($shortDimension < $minShortDimension) {
+            $ratio = min($minShortDimension / max(1, $shortDimension), $maxDimension / $longDimension, 2.0);
+        }
+        if (abs($ratio - 1.0) > 0.01) {
             $newWidth = (int)round($width * $ratio);
             $newHeight = (int)round($height * $ratio);
             $resized = imagecreatetruecolor($newWidth, $newHeight);
+            $white = imagecolorallocate($resized, 255, 255, 255);
+            imagefill($resized, 0, 0, $white);
             imagecopyresampled($resized, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
             imagedestroy($image);
             $image = $resized;
@@ -982,39 +1091,25 @@ if (!function_exists('payment_ocr_preprocess_image')) {
             $height = $newHeight;
         }
 
-        // Convert to grayscale
-        $grayscale = imagecreatetruecolor($width, $height);
-        for ($x = 0; $x < $width; $x++) {
-            for ($y = 0; $y < $height; $y++) {
-                $rgb = imagecolorat($image, $x, $y);
-                $r = ($rgb >> 16) & 0xFF;
-                $g = ($rgb >> 8) & 0xFF;
-                $b = $rgb & 0xFF;
-                $gray = (int)(0.299 * $r + 0.587 * $g + 0.114 * $b);
-                $grayColor = imagecolorallocate($grayscale, $gray, $gray, $gray);
-                imagesetpixel($grayscale, $x, $y, $grayColor);
-            }
+        imagefilter($image, IMG_FILTER_GRAYSCALE);
+        imagefilter($image, IMG_FILTER_CONTRAST, -20);
+        imagefilter($image, IMG_FILTER_SELECTIVE_BLUR);
+        if (function_exists('imageconvolution')) {
+            imageconvolution($image, [[0, -1, 0], [-1, 5, -1], [0, -1, 0]], 1, 0);
+        } else {
+            imagefilter($image, IMG_FILTER_MEAN_REMOVAL);
         }
-        imagedestroy($image);
-        $image = $grayscale;
 
-        // Increase contrast
-        imagefilter($image, IMG_FILTER_CONTRAST, 20);
-
-        // Mild sharpening
-        imagefilter($image, IMG_FILTER_GAUSSIAN_BLUR);
-        imagefilter($image, IMG_FILTER_UNSHARP_MASK, 50, 1, 3);
-
-        // Save to temporary file
         $directory = dirname($sourcePath);
         $stem = bin2hex(random_bytes(12));
         $tempPath = $directory . '/ocr_temp_' . $stem . '.png';
-        imagepng($image, $tempPath, 9);
+        $saved = imagepng($image, $tempPath, 6);
         imagedestroy($image);
 
-        if (!is_file($tempPath)) {
+        if (!$saved || !is_file($tempPath)) {
             return null;
         }
+        @chmod($tempPath, 0640);
 
         return $tempPath;
     }
@@ -1039,7 +1134,7 @@ if (!function_exists('payment_ocr_with_tesseract')) {
         $result = payment_ocr_run_process([
             payment_ocr_tesseract_binary(), $ocrPath, 'stdout', '-l', $language,
             '--psm', '6', 'tsv'
-        ], 50);
+        ], payment_ocr_timeout_seconds());
         
         // Clean up preprocessed file
         if ($usePreprocessed && is_file($preprocessedPath)) {
@@ -1090,9 +1185,13 @@ if (!function_exists('payment_ocr_with_ocrspace')) {
         }
         $language = payment_verification_env('PAYMENT_OCR_LANGUAGE', 'eng');
         $language = preg_replace('/[^a-zA-Z0-9_-]/', '', $language) ?: 'eng';
+        $preprocessedPath = $mime !== 'application/pdf' ? payment_ocr_preprocess_image($filePath, $mime) : null;
+        $usePreprocessed = $preprocessedPath !== null && is_file($preprocessedPath);
+        $ocrPath = $usePreprocessed ? $preprocessedPath : $filePath;
+        $ocrMime = $usePreprocessed ? 'image/png' : $mime;
         $curl = curl_init($endpoint);
         $post = [
-            'file' => new CURLFile($filePath, $mime, basename($filePath)),
+            'file' => new CURLFile($ocrPath, $ocrMime, basename($ocrPath)),
             'language' => $language,
             'isOverlayRequired' => 'true',
             'detectOrientation' => 'true',
@@ -1106,7 +1205,7 @@ if (!function_exists('payment_ocr_with_ocrspace')) {
             CURLOPT_HTTPHEADER => ['apikey: ' . $apiKey, 'Accept: application/json'],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => 60,
+            CURLOPT_TIMEOUT => payment_ocr_timeout_seconds(),
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_MAXREDIRS => 0,
@@ -1115,6 +1214,9 @@ if (!function_exists('payment_ocr_with_ocrspace')) {
         $status = (int)curl_getinfo($curl, CURLINFO_HTTP_CODE);
         $curlError = curl_error($curl);
         curl_close($curl);
+        if ($usePreprocessed && is_file($preprocessedPath)) {
+            @unlink($preprocessedPath);
+        }
         if ($response === false || $status < 200 || $status >= 300) {
             return ['success' => false, 'unavailable' => false, 'error' => 'OCR API request failed' . ($curlError !== '' ? ': ' . mb_substr($curlError, 0, 150) : '.')];
         }
@@ -1252,13 +1354,36 @@ if (!function_exists('payment_ocr_normalize_text')) {
         $text = preg_replace('/\bI\b(?=\d)/', '1', $text); // I -> 1 before digits
         $text = preg_replace('/\bS\b(?=\d)/', '5', $text); // S -> 5 before digits (context-dependent)
         
-        // Normalize Philippine peso symbols
-        $text = preg_replace('/[\x{20B1}₱PHP]/u', 'PHP ', $text);
+        // Normalize the peso symbol without replacing ordinary P or H letters.
+        $text = str_replace("\xE2\x82\xB1", 'PHP ', $text);
         
         // Clean up
         $text = trim($text);
         
         return $text;
+    }
+}
+
+if (!function_exists('payment_verification_record_ocr_failure')) {
+    function payment_verification_record_ocr_failure(int $submissionId, Throwable|string $failure, string $status = 'Failed'): bool {
+        if ($submissionId <= 0) return false;
+        $allowedStatuses = ['Failed', 'Unavailable'];
+        if (!in_array($status, $allowedStatuses, true)) $status = 'Failed';
+        $message = $failure instanceof Throwable ? $failure->getMessage() : $failure;
+        $message = mb_substr(trim($message !== '' ? $message : 'OCR could not process this receipt.'), 0, 500);
+        $ok = db_execute(
+            "UPDATE payment_submissions
+             SET ocr_status = ?, ocr_error = ?, verification_status = 'Needs Review', ocr_processed_at = NOW()
+             WHERE id = ? AND verification_status NOT IN ('Approved', 'Rejected')",
+            'ssi',
+            [$status, $message, $submissionId]
+        );
+        payment_verification_log('ocr_failed', [
+            'submission_id' => $submissionId,
+            'status' => $status,
+            'reason' => $message,
+        ]);
+        return (bool)$ok;
     }
 }
 
@@ -1310,7 +1435,17 @@ if (!function_exists('payment_ocr_process_submission')) {
         }
         $mime = trim((string)($submission['receipt_mime'] ?? ''));
         if ($mime === '') $mime = (string)(@mime_content_type($filePath) ?: 'application/octet-stream');
-        $ocr = payment_ocr_extract($filePath, $mime);
+        try {
+            $ocr = payment_ocr_extract($filePath, $mime);
+        } catch (Throwable $ocrException) {
+            payment_verification_record_ocr_failure($submissionId, $ocrException, 'Failed');
+            return [
+                'success' => false,
+                'status' => 'Failed',
+                'verification_status' => 'Needs Review',
+                'error' => $ocrException->getMessage(),
+            ];
+        }
         if (empty($ocr['success'])) {
             $status = !empty($ocr['unavailable']) ? 'Unavailable' : 'Failed';
             $safeError = mb_substr(trim((string)($ocr['error'] ?? 'OCR could not process this receipt.')), 0, 500);
@@ -1353,32 +1488,73 @@ if (!function_exists('payment_ocr_process_submission')) {
         );
 
         $durationMs = (int)round((microtime(true) - $startedAt) * 1000);
+        $assignments = [
+            "ocr_sender_name = NULLIF(?, '')",
+            "ocr_reference_number = NULLIF(?, '')",
+            "reference_normalized = NULLIF(?, '')",
+            'ocr_amount_sent = ?',
+            "ocr_detected_payment_method = NULLIF(?, '')",
+            'ocr_transaction_date = ?',
+            'ocr_transaction_time = ?',
+            "ocr_receiver_name = NULLIF(?, '')",
+            "ocr_receiver_account = NULLIF(?, '')",
+            'raw_ocr_text = ?',
+            'overall_confidence = ?',
+            'sender_confidence = ?',
+            'reference_confidence = ?',
+            'amount_confidence = ?',
+            'method_confidence = ?',
+            'date_confidence = ?',
+            'receiver_confidence = ?',
+        ];
         $params = [
             $parsed['sender_name'], $parsed['reference_number'], $normalizedReference,
             $parsed['amount_sent'] === null ? null : number_format((float)$parsed['amount_sent'], 2, '.', ''),
             $parsed['detected_payment_method'], $parsed['transaction_date'], $parsed['transaction_time'],
-            $parsed['receiver_name'], $parsed['receiver_account'], $rawText, $normalizedText,
+            $parsed['receiver_name'], $parsed['receiver_account'], $rawText,
             $parsed['overall_confidence'], $parsed['sender_confidence'], $parsed['reference_confidence'],
             $parsed['amount_confidence'], $parsed['method_confidence'], $parsed['date_confidence'],
-            $parsed['receiver_confidence'], (string)$ocr['provider'], $durationMs, $expected,
-            $state['amount_match_status'], $state['method_match_status'], $duplicateId > 0 ? $duplicateId : null,
-            $state['verification_status'], $submissionId,
+            $parsed['receiver_confidence'],
         ];
+        $optionalOcrValues = [
+            'ocr_normalized_text' => ['ocr_normalized_text = ?', $normalizedText],
+            'ocr_sender_mobile' => ["ocr_sender_mobile = NULLIF(?, '')", (string)($parsed['sender_mobile'] ?? '')],
+            'ocr_transaction_status' => ["ocr_transaction_status = NULLIF(?, '')", (string)($parsed['transaction_status'] ?? '')],
+            'sender_mobile_confidence' => ['sender_mobile_confidence = ?', (float)($parsed['sender_mobile_confidence'] ?? 0)],
+            'status_confidence' => ['status_confidence = ?', (float)($parsed['status_confidence'] ?? 0)],
+        ];
+        foreach ($optionalOcrValues as $column => [$assignment, $value]) {
+            if (!db_table_has_column('payment_submissions', $column)) continue;
+            $assignments[] = $assignment;
+            $params[] = $value;
+        }
+        array_push(
+            $assignments,
+            "ocr_status = 'Completed'",
+            'ocr_provider = ?',
+            'ocr_error = NULL',
+            'ocr_duration_ms = ?',
+            'ocr_processed_at = NOW()',
+            'expected_amount = ?',
+            'amount_match_status = ?',
+            'method_match_status = ?',
+            'duplicate_submission_id = ?',
+            'verification_status = ?'
+        );
+        array_push(
+            $params,
+            (string)$ocr['provider'], $durationMs, $expected,
+            $state['amount_match_status'], $state['method_match_status'],
+            $duplicateId > 0 ? $duplicateId : null, $state['verification_status'], $submissionId
+        );
         $ok = db_execute(
-            "UPDATE payment_submissions SET
-                ocr_sender_name = NULLIF(?, ''), ocr_reference_number = NULLIF(?, ''), reference_normalized = NULLIF(?, ''),
-                ocr_amount_sent = ?, ocr_detected_payment_method = NULLIF(?, ''),
-                ocr_transaction_date = ?, ocr_transaction_time = ?,
-                ocr_receiver_name = NULLIF(?, ''), ocr_receiver_account = NULLIF(?, ''), raw_ocr_text = ?, ocr_normalized_text = ?,
-                overall_confidence = ?, sender_confidence = ?, reference_confidence = ?, amount_confidence = ?,
-                method_confidence = ?, date_confidence = ?, receiver_confidence = ?,
-                ocr_status = 'Completed', ocr_provider = ?, ocr_error = NULL, ocr_duration_ms = ?, ocr_processed_at = NOW(),
-                expected_amount = ?, amount_match_status = ?, method_match_status = ?,
-                duplicate_submission_id = ?, verification_status = ?
-             WHERE id = ?",
-            str_repeat('s', 25) . 'i',
+            'UPDATE payment_submissions SET ' . implode(', ', $assignments) . ' WHERE id = ?',
+            str_repeat('s', count($params) - 1) . 'i',
             $params
         );
+        if (!$ok) {
+            payment_verification_record_ocr_failure($submissionId, 'OCR text was extracted but could not be saved.', 'Failed');
+        }
         payment_verification_log($ok ? 'ocr_succeeded' : 'ocr_save_failed', [
             'submission_id' => $submissionId,
             'provider' => (string)($ocr['provider'] ?? ''),
@@ -1397,6 +1573,13 @@ if (!function_exists('payment_ocr_process_queue')) {
     function payment_ocr_process_queue(int $limit = 10): array {
         if (!payment_verification_ensure_schema()) return ['processed' => 0, 'completed' => 0, 'needs_review' => 0, 'failed' => 0];
         $limit = max(1, min(50, $limit));
+        db_execute(
+            "UPDATE payment_submissions
+             SET ocr_status = 'Pending', ocr_error = 'Previous OCR attempt was interrupted and queued again.'
+             WHERE ocr_status = 'Processing'
+               AND updated_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+               AND verification_status NOT IN ('Approved', 'Rejected')"
+        );
         $rows = db_query(
             "SELECT id FROM payment_submissions
              WHERE ocr_status = 'Pending' AND verification_status NOT IN ('Approved', 'Rejected')
@@ -1406,7 +1589,13 @@ if (!function_exists('payment_ocr_process_queue')) {
         ) ?: [];
         $summary = ['processed' => 0, 'completed' => 0, 'needs_review' => 0, 'failed' => 0];
         foreach ($rows as $row) {
-            $result = payment_ocr_process_submission((int)$row['id']);
+            $submissionId = (int)$row['id'];
+            try {
+                $result = payment_ocr_process_submission($submissionId);
+            } catch (Throwable $error) {
+                payment_verification_record_ocr_failure($submissionId, $error, 'Failed');
+                $result = ['status' => 'Failed', 'verification_status' => 'Needs Review'];
+            }
             $summary['processed']++;
             if (($result['status'] ?? '') === 'Completed') $summary['completed']++;
             else $summary['failed']++;
@@ -1496,6 +1685,7 @@ if (!function_exists('payment_verification_save_corrections')) {
         }
 
         $sender = mb_substr(trim((string)($input['sender_name'] ?? '')), 0, 190);
+        $senderMobile = mb_substr(trim((string)($input['sender_mobile'] ?? '')), 0, 40);
         $reference = mb_substr(trim((string)($input['reference_number'] ?? '')), 0, 190);
         $amountInput = trim((string)($input['amount_sent'] ?? ''));
         $amount = $amountInput === '' ? null : payment_ocr_parse_money($amountInput);
@@ -1507,22 +1697,35 @@ if (!function_exists('payment_verification_save_corrections')) {
         $timeInput = trim((string)($input['transaction_time'] ?? ''));
         $time = $timeInput === '' ? null : payment_ocr_normalize_time($timeInput);
         if ($timeInput !== '' && $time === null) return ['success' => false, 'error' => 'Enter a valid transaction time.'];
+        $transactionStatus = mb_substr(trim((string)($input['transaction_status'] ?? '')), 0, 80);
         $receiver = mb_substr(trim((string)($input['receiver_name'] ?? '')), 0, 190);
         $account = mb_substr(trim((string)($input['receiver_account'] ?? '')), 0, 190);
         $notes = mb_substr(trim((string)($input['staff_notes'] ?? '')), 0, 5000);
 
+        $assignments = [
+            "sender_name = NULLIF(?, '')", "reference_number = NULLIF(?, '')", 'amount_sent = ?',
+            "detected_payment_method = NULLIF(?, '')", 'transaction_date = ?', 'transaction_time = ?',
+            "receiver_name = NULLIF(?, '')", "receiver_account = NULLIF(?, '')",
+            "staff_notes = NULLIF(?, '')", 'corrected_by = ?', 'corrected_at = NOW()',
+        ];
+        $params = [
+            $sender, $reference, $amount === null ? null : number_format($amount, 2, '.', ''),
+            $method, $date, $time, $receiver, $account, $notes, $staffId,
+        ];
+        if (db_table_has_column('payment_submissions', 'sender_mobile')) {
+            $assignments[] = "sender_mobile = NULLIF(?, '')";
+            $params[] = $senderMobile;
+        }
+        if (db_table_has_column('payment_submissions', 'transaction_status')) {
+            $assignments[] = "transaction_status = NULLIF(?, '')";
+            $params[] = $transactionStatus;
+        }
+        $params[] = $submissionId;
         $ok = db_execute(
-            "UPDATE payment_submissions SET
-                sender_name = NULLIF(?, ''), reference_number = NULLIF(?, ''), amount_sent = ?,
-                detected_payment_method = NULLIF(?, ''), transaction_date = ?, transaction_time = ?,
-                receiver_name = NULLIF(?, ''), receiver_account = NULLIF(?, ''),
-                staff_notes = NULLIF(?, ''), corrected_by = ?, corrected_at = NOW()
-             WHERE id = ? AND verification_status NOT IN ('Approved', 'Rejected')",
-            'sssssssssii',
-            [
-                $sender, $reference, $amount === null ? null : number_format($amount, 2, '.', ''),
-                $method, $date, $time, $receiver, $account, $notes, $staffId, $submissionId,
-            ]
+            'UPDATE payment_submissions SET ' . implode(', ', $assignments)
+            . " WHERE id = ? AND verification_status NOT IN ('Approved', 'Rejected')",
+            str_repeat('s', count($params) - 1) . 'i',
+            $params
         );
         if (!$ok) return ['success' => false, 'error' => 'Could not save the corrected OCR details.'];
         payment_verification_recalculate($submissionId);
