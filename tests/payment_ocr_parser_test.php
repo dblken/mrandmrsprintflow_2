@@ -50,6 +50,27 @@ payment_ocr_test_assert($parsedProvided['transaction_time'] === '12:01:00', 'Sep
 payment_ocr_test_assert($parsedProvided['transaction_status'] === 'Successful', 'GCash transaction status should be extracted.');
 payment_ocr_test_assert((float)$parsedProvided['total_amount_confidence'] > 0, 'Total amount sent should include a confidence score.');
 
+$newGcash = <<<'TEXT'
+Express Send
+AR•••N T.
++63 995 484 9142
+Sent via GCash
+Amount 60.00
+Total Amount Sent ₱60.00
+Ref No. 6039905089284
+Apr 17, 2026
+12:01 PM
+TEXT;
+$parsedNewGcash = payment_ocr_parse_receipt_text($newGcash, [], 79.5);
+payment_ocr_test_assert($parsedNewGcash['sender_name'] === 'AR***N T.', 'Unlabeled masked GCash sender name should be inferred.');
+payment_ocr_test_assert($parsedNewGcash['sender_mobile'] === '+63 995 484 9142', 'Unlabeled Philippine sender mobile should be inferred.');
+payment_ocr_test_assert($parsedNewGcash['detected_payment_method'] === 'GCash', '"Sent via GCash" should detect GCash.');
+payment_ocr_test_assert(abs((float)$parsedNewGcash['amount_sent'] - 60.00) < 0.001, 'New GCash amount should be 60.00.');
+payment_ocr_test_assert(abs((float)$parsedNewGcash['total_amount_sent'] - 60.00) < 0.001, 'Peso-symbol total amount should be 60.00.');
+payment_ocr_test_assert($parsedNewGcash['reference_number'] === '6039905089284', 'Ref No. should be extracted from the new GCash layout.');
+payment_ocr_test_assert($parsedNewGcash['transaction_date'] === '2026-04-17', 'Unlabeled new GCash date should normalize.');
+payment_ocr_test_assert($parsedNewGcash['transaction_time'] === '12:01:00', 'Unlabeled new GCash time should normalize.');
+
 $maya = <<<'TEXT'
 Maya
 Payment Successful
@@ -63,6 +84,27 @@ $parsedMaya = payment_ocr_parse_receipt_text($maya, [], 90.0);
 payment_ocr_test_assert($parsedMaya['detected_payment_method'] === 'Maya', 'Maya should be detected.');
 payment_ocr_test_assert(abs((float)$parsedMaya['amount_sent'] - 1000.00) < 0.001, 'Maya amount should be 1000.00.');
 payment_ocr_test_assert(payment_verification_normalize_reference($parsedMaya['reference_number']) === 'MAYAABC998877', 'Alphanumeric Maya reference should normalize.');
+
+$bankTransfer = <<<'TEXT'
+Bank Transfer
+From
+MARIA SANTOS
+Sender Mobile: 09954849142
+Amount Sent ₱2,500.00
+Total Amount Sent ₱2,500.00
+Reference Number: BANK-778899
+2026-07-27
+14:35
+TEXT;
+$parsedBankTransfer = payment_ocr_parse_receipt_text($bankTransfer, [], 87.0);
+payment_ocr_test_assert($parsedBankTransfer['detected_payment_method'] === 'Bank Transfer', 'Explicit bank transfer should be detected.');
+payment_ocr_test_assert($parsedBankTransfer['sender_name'] === 'MARIA SANTOS', 'Standalone From label should extract the sender.');
+payment_ocr_test_assert($parsedBankTransfer['sender_mobile'] === '09954849142', '09-format sender mobile should be extracted.');
+payment_ocr_test_assert(abs((float)$parsedBankTransfer['amount_sent'] - 2500.00) < 0.001, 'Bank transfer amount should be extracted.');
+payment_ocr_test_assert(abs((float)$parsedBankTransfer['total_amount_sent'] - 2500.00) < 0.001, 'Bank transfer total amount should be extracted.');
+payment_ocr_test_assert(payment_verification_normalize_reference($parsedBankTransfer['reference_number']) === 'BANK778899', 'Bank reference should normalize.');
+payment_ocr_test_assert($parsedBankTransfer['transaction_date'] === '2026-07-27', 'ISO transaction date should normalize.');
+payment_ocr_test_assert($parsedBankTransfer['transaction_time'] === '14:35:00', '24-hour transaction time should normalize.');
 
 $instapay = "InstaPay Transfer\nAmount PHP 80.00\nTrace No: 0000-1111-2222\n";
 $parsedInstaPay = payment_ocr_parse_receipt_text($instapay, [], 92.0);

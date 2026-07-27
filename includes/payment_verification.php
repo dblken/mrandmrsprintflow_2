@@ -689,6 +689,109 @@ if (!function_exists('payment_ocr_text_lines')) {
     }
 }
 
+if (!function_exists('payment_ocr_normalize_masked_name')) {
+    function payment_ocr_normalize_masked_name(string $value): string {
+        $value = str_replace(['•', '·', '●', '∙', '▪', '■'], '*', trim($value));
+        $value = trim((string)preg_replace('/\s+/u', ' ', $value));
+        return mb_substr($value, 0, 190);
+    }
+}
+
+if (!function_exists('payment_ocr_name_candidate')) {
+    function payment_ocr_name_candidate(string $value): string {
+        $value = payment_ocr_normalize_masked_name($value);
+        if ($value === '' || mb_strlen($value) > 90) return '';
+        if (preg_match(
+            '/\b(?:gcash|g\s+cash|maya|express\s+send|sent\s+via|payment|successful|'
+            . 'amount|total|reference|ref(?:erence)?\s*(?:no|number)?|date|time|'
+            . 'mobile|number|account|receipt|transaction|fee|balance)\b/iu',
+            $value
+        )) {
+            return '';
+        }
+        if (!preg_match('/^[\p{L}][\p{L}\p{M}\s.\'’*\-]{1,89}$/u', $value)) return '';
+        preg_match_all('/\p{L}/u', $value, $letters);
+        return count($letters[0] ?? []) >= 2 ? $value : '';
+    }
+}
+
+if (!function_exists('payment_ocr_mobile_from_text')) {
+    function payment_ocr_mobile_from_text(string $value): string {
+        if (!preg_match('/((?:\+\s*63|63|0)[\s().-]*9(?:[\s().-]*\d){9})/u', $value, $match)) {
+            return '';
+        }
+        $digits = (string)preg_replace('/\D+/', '', (string)$match[1]);
+        if (strlen($digits) === 12 && str_starts_with($digits, '639')) {
+            $subscriber = substr($digits, 2);
+            return '+63 ' . substr($subscriber, 0, 3) . ' ' . substr($subscriber, 3, 3) . ' ' . substr($subscriber, 6, 4);
+        }
+        if (strlen($digits) === 11 && str_starts_with($digits, '09')) return $digits;
+        return '';
+    }
+}
+
+if (!function_exists('payment_ocr_infer_sender_name')) {
+    function payment_ocr_infer_sender_name(array $lines): string {
+        foreach ($lines as $index => $line) {
+            if (payment_ocr_mobile_from_text($line) === '') continue;
+            $context = implode(' ', array_slice($lines, max(0, $index - 3), 4));
+            if (preg_match('/\b(?:sent\s+to|receiver|recipient)\b/i', $context)) continue;
+            for ($candidateIndex = $index - 1; $candidateIndex >= max(0, $index - 3); $candidateIndex--) {
+                $candidate = payment_ocr_name_candidate((string)$lines[$candidateIndex]);
+                if ($candidate !== '') return $candidate;
+            }
+        }
+        return '';
+    }
+}
+
+if (!function_exists('payment_ocr_extract_labeled_amount')) {
+    function payment_ocr_extract_labeled_amount(array $lines, array $labels): ?float {
+        $currency = '(?:(?:PHP|P)\.?\s*|\x{20B1}\s*)?';
+        $number = '([0-9O][0-9O,]*(?:\.[0-9O]{1,2})?)';
+        $labelPattern = '(?:' . implode('|', $labels) . ')';
+        foreach ($lines as $index => $line) {
+            if (preg_match('/\b' . $labelPattern . '\b\s*[:\-]?\s*' . $currency . $number . '/iu', $line, $match)) {
+                $amount = payment_ocr_parse_money($match[1]);
+                if ($amount !== null) return $amount;
+            }
+            if (
+                isset($lines[$index + 1])
+                && preg_match('/^\s*' . $labelPattern . '\s*[:\-]?\s*$/iu', $line)
+                && preg_match('/^\s*' . $currency . $number . '/iu', (string)$lines[$index + 1], $match)
+            ) {
+                $amount = payment_ocr_parse_money($match[1]);
+                if ($amount !== null) return $amount;
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('payment_ocr_extract_datetime')) {
+    function payment_ocr_extract_datetime(array $lines): array {
+        $date = null;
+        $time = null;
+        $datePattern = '/\b(?:'
+            . '20\d{2}[\/.-]\d{1,2}[\/.-]\d{1,2}'
+            . '|\d{1,2}[\/.-]\d{1,2}[\/.-](?:20)?\d{2}'
+            . '|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+            . 'Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|'
+            . 'Dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}'
+            . ')\b/iu';
+        $timePattern = '/\b(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?\s*(?:AM|PM)?\b/i';
+        foreach ($lines as $line) {
+            if ($date === null && preg_match($datePattern, $line, $match)) {
+                $date = payment_ocr_normalize_date($match[0]);
+            }
+            if ($time === null && preg_match($timePattern, $line, $match)) {
+                $time = payment_ocr_normalize_time($match[0]);
+            }
+        }
+        return ['date' => $date, 'time' => $time];
+    }
+}
+
 if (!function_exists('payment_ocr_labeled_value')) {
     function payment_ocr_labeled_value(array $lines, array $labels): string {
         foreach ($lines as $index => $line) {
@@ -722,63 +825,40 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
             'transaction_status' => '',
         ];
 
-        $text      = implode("\n", $lines);
+        $text = implode("\n", $lines);
 
-        // Detect GCash
-        if (preg_match('/\bgcash\b/i', $text)) {
+        // OCR.Space occasionally inserts whitespace in brand names.
+        if (preg_match('/\bg\s*cash\b/i', $text)) {
             $result['payment_method'] = 'GCash';
         }
 
         // ── Sender name ────────────────────────────────────────────────────────
         // Patterns: "Sent by: JUAN DELA CRUZ", "From: MARIA SANTOS"
-        foreach ($lines as $line) {
-            if (preg_match('/(?:sender\s+name|sent\s+by|from)\s*[:\-]?\s*(.+)/i', $line, $m)) {
-                $name = trim($m[1]);
-                if ($name !== '' && !preg_match('/^(?:mobile|number|account)\b/i', $name)) {
-                    $result['sender_name'] = mb_substr($name, 0, 190);
-                    break;
-                }
-            }
-        }
+        $result['sender_name'] = payment_ocr_name_candidate(payment_ocr_labeled_value(
+            $lines,
+            ['sender\s+name', 'sent\s+by', 'sender', 'from']
+        ));
         if ($result['sender_name'] === '') {
-            foreach ($lines as $index => $line) {
-                if (preg_match('/^(?:sender|sent\s+by|from)\s*[:\-]?$/i', $line) && !empty($lines[$index + 1])) {
-                    $result['sender_name'] = mb_substr(trim((string)$lines[$index + 1]), 0, 190);
-                    break;
-                }
-            }
+            $result['sender_name'] = payment_ocr_infer_sender_name($lines);
         }
+        $result['receiver_name'] = payment_ocr_name_candidate(payment_ocr_labeled_value(
+            $lines,
+            ['sent\s+to', 'receiver', 'recipient']
+        ));
 
         // ── Amount ─────────────────────────────────────────────────────────────
         // Highest-priority: "Total Amount Sent [PHP/₱/P] 100.00"
         // Then: "Amount Sent [PHP/₱/P] 100.00" or "Amount [PHP/₱/P] 100.00"
         // The optional currency prefix handles receipts that embed "PHP" between
         // the label and the number (e.g. "Amount Sent PHP 100.00").
-        $currencyPrefix = '(?:PHP|Php|P\b)?\s*';
-        foreach ($lines as $line) {
-            if (preg_match('/total\s+amount\s+sent\s*[:\s]*\s*' . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i', $line, $match)) {
-                $result['total_amount'] = payment_ocr_parse_money($match[1]);
-                if ($result['total_amount'] !== null) break;
-            }
-        }
-        $amountPatterns = [
-            '/amount\s+sent\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
-            '/amount\s+paid\s*[:\s]*\s*'          . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
-            '/amount\s*[:\s]*\s*'                 . $currencyPrefix . '([0-9][0-9,]*\.?\d*)/i',
-        ];
-        foreach ($amountPatterns as $pattern) {
-            if ($result['amount'] !== null) break;
-            foreach ($lines as $line) {
-                if (preg_match('/total\s+amount/i', $line)) continue;
-                if (preg_match($pattern, $line, $match)) {
-                    $amount = payment_ocr_parse_money($match[1]);
-                    if ($amount !== null) {
-                        $result['amount'] = $amount;
-                        break;
-                    }
-                }
-            }
-        }
+        $result['total_amount'] = payment_ocr_extract_labeled_amount(
+            $lines,
+            ['total\s+amount\s+sent', 'total\s+amount', 'total\s+paid']
+        );
+        $result['amount'] = payment_ocr_extract_labeled_amount(
+            $lines,
+            ['amount\s+sent', 'amount\s+paid', 'amount']
+        );
         if ($result['amount'] === null) $result['amount'] = $result['total_amount'];
         if ($result['total_amount'] === null) $result['total_amount'] = $result['amount'];
 
@@ -786,15 +866,10 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         // GCash receipts sometimes format the ref as grouped digits with spaces:
         // "Reference No. 1234 5678 9012". Capture a broader set of chars and
         // then strip non-alphanumeric characters before storing.
-        foreach ($lines as $line) {
-            if (preg_match('/ref\s*(?:erence)?\s*(?:no\.?|number|#|id)?\s*[:\s]*\s*([A-Z0-9][\s\-A-Z0-9]*)/i', $line, $match)) {
-                $ref = preg_replace('/[^A-Z0-9]/i', '', $match[1]);
-                if (strlen($ref) >= 6) {
-                    $result['reference_number'] = mb_strtoupper(mb_substr($ref, 0, 190));
-                    break;
-                }
-            }
-        }
+        $reference = payment_ocr_labeled_value($lines, [
+            'reference', 'ref(?:erence)?', 'transaction\s+id', 'trace'
+        ]);
+        $result['reference_number'] = payment_verification_normalize_reference($reference);
 
         // ── Date / time ─────────────────────────────────────────────────────────
         // Formats: "Apr 13, 2026 8:17 PM" or "July 11, 2026 11:30 AM"
@@ -822,6 +897,10 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
             }
         }
 
+        $dateTime = payment_ocr_extract_datetime($lines);
+        if ($result['transaction_date'] === null) $result['transaction_date'] = $dateTime['date'];
+        if ($result['transaction_time'] === null) $result['transaction_time'] = $dateTime['time'];
+
         if (preg_match('/\b(successful|success|completed|complete|sent)\b/i', $text, $statusMatch)) {
             $status = strtolower($statusMatch[1]);
             $result['transaction_status'] = in_array($status, ['successful', 'success'], true)
@@ -831,26 +910,31 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
 
         // ── Receiver name (masked) ──────────────────────────────────────────────
         // Looks for masked names like "KE••••••D V."
-        foreach ($lines as $line) {
-            if (preg_match('/([A-Z][A-Z•*]{2,}[A-Z\s.]+)/', $line, $match)) {
-                $candidate = trim($match[1]);
-                if (preg_match('/[•*]/', $candidate) && strlen($candidate) >= 3) {
-                    $result['receiver_name'] = mb_substr($candidate, 0, 190);
+        if ($result['receiver_name'] === '') {
+            foreach ($lines as $line) {
+                if (!preg_match('/([A-Z][A-Z•*]{2,}[A-Z\s.]+)/', $line, $match)) continue;
+                $candidate = payment_ocr_name_candidate($match[1]);
+                if ($candidate !== '' && $candidate !== $result['sender_name']) {
+                    $result['receiver_name'] = $candidate;
                     break;
                 }
             }
         }
 
         // ── Receiver account (mobile) ───────────────────────────────────────────
+        $labeledSenderMobile = payment_ocr_labeled_value(
+            $lines,
+            ['sender\s+mobile', 'sender\s+(?:no\.?|number)', 'mobile\s+number']
+        );
+        $result['sender_mobile'] = payment_ocr_mobile_from_text($labeledSenderMobile);
         foreach ($lines as $index => $line) {
-            if (preg_match('/(\+63\s*9\d{2}\s*\d{3}\s*\d{4}|09\d{2}\s*\d{3}\s*\d{4})/', $line, $match)) {
-                $mobile = mb_substr(trim((string)preg_replace('/\s+/', ' ', $match[1])), 0, 40);
-                $nearby = strtolower(implode(' ', array_slice($lines, max(0, $index - 2), 3)));
-                if (preg_match('/\b(?:sent\s+to|receiver|recipient)\b/', $nearby)) {
-                    if ($result['receiver_account'] === '') $result['receiver_account'] = $mobile;
-                } elseif ($result['sender_mobile'] === '') {
-                    $result['sender_mobile'] = $mobile;
-                }
+            $mobile = payment_ocr_mobile_from_text($line);
+            if ($mobile === '') continue;
+            $nearby = implode(' ', array_slice($lines, max(0, $index - 3), 4));
+            if (preg_match('/\b(?:sent\s+to|receiver|recipient)\b/i', $nearby)) {
+                if ($result['receiver_account'] === '') $result['receiver_account'] = $mobile;
+            } elseif ($result['sender_mobile'] === '') {
+                $result['sender_mobile'] = $mobile;
             }
         }
 
@@ -861,6 +945,7 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
 
 if (!function_exists('payment_ocr_parse_money')) {
     function payment_ocr_parse_money(string $value): ?float {
+        $value = strtr($value, ['O' => '0', 'o' => '0', 'I' => '1', 'l' => '1']);
         $value = preg_replace('/[^0-9.,-]/', '', $value);
         if ($value === null || $value === '') return null;
         $value = str_replace(',', '', $value);
@@ -927,11 +1012,11 @@ if (!function_exists('payment_ocr_normalize_time')) {
 if (!function_exists('payment_ocr_detect_method')) {
     function payment_ocr_detect_method(string $text): array {
         $checks = [
-            ['pattern' => '/\bgcash\b/i', 'value' => 'GCash', 'confidence' => 96.0],
-            ['pattern' => '/\b(?:paymaya|maya)\b/i', 'value' => 'Maya', 'confidence' => 94.0],
+            ['pattern' => '/\bg\s*cash\b/i', 'value' => 'GCash', 'confidence' => 96.0],
+            ['pattern' => '/\b(?:pay\s*maya|maya)\b/i', 'value' => 'Maya', 'confidence' => 94.0],
             ['pattern' => '/\binstapay\b/i', 'value' => 'Bank Transfer / InstaPay', 'confidence' => 94.0],
             ['pattern' => '/\bpesonet\b/i', 'value' => 'Bank Transfer / PESONet', 'confidence' => 94.0],
-            ['pattern' => '/\b(?:bdo|bpi|metrobank|union\s?bank|security bank|rcbc|land\s?bank|china\s?bank|pnb|east\s?west|cimb|sea\s?bank|gotyme)\b/i', 'value' => 'Bank Transfer', 'confidence' => 86.0],
+            ['pattern' => '/\b(?:bank\s+transfer|online\s+banking|bdo|bpi|metrobank|union\s?bank|security\s+bank|rcbc|land\s?bank|china\s?bank|pnb|east\s?west|cimb|sea\s?bank|gotyme)\b/i', 'value' => 'Bank Transfer', 'confidence' => 86.0],
         ];
         foreach ($checks as $check) {
             if (preg_match($check['pattern'], $text)) {
@@ -961,11 +1046,12 @@ if (!function_exists('payment_ocr_confidence_for_value')) {
 if (!function_exists('payment_ocr_parse_receipt_text')) {
     function payment_ocr_parse_receipt_text(string $text, array $tokens = [], float $providerConfidence = 0.0): array {
         $text = trim(mb_substr(str_replace("\0", '', $text), 0, 100000));
+        $text = payment_ocr_normalize_text($text);
         $lines = payment_ocr_text_lines($text);
         $method = payment_ocr_detect_method($text);
         
         // Use GCash-specific parser if GCash is detected
-        if (preg_match('/\bgcash\b/i', $text)) {
+        if ($method['value'] === 'GCash') {
             $gcashResult = payment_ocr_parse_gcash_receipt($lines);
             
             // Calculate confidence values for GCash-extracted fields
@@ -1012,6 +1098,10 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
         
         // Fall back to generic parser for non-GCash receipts
         $amount = payment_ocr_extract_amount($lines);
+        $totalAmount = payment_ocr_extract_labeled_amount(
+            $lines,
+            ['total\s+amount\s+sent', 'total\s+amount', 'total\s+paid']
+        );
 
         $sender = payment_ocr_labeled_value($lines, ['sent\s+by', 'sender', 'from', 'account\s+name']);
         $senderMobile = payment_ocr_labeled_value($lines, ['sender\s+mobile', 'sender\s+number', 'mobile\s+number']);
@@ -1028,8 +1118,28 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             if (payment_verification_normalize_reference($reference) === '') $reference = '';
         }
 
-        $date = null;
-        $time = null;
+        $sender = payment_ocr_name_candidate($sender);
+        if ($sender === '') $sender = payment_ocr_infer_sender_name($lines);
+        $senderMobile = payment_ocr_mobile_from_text($senderMobile);
+        if ($senderMobile === '') {
+            foreach ($lines as $index => $line) {
+                $candidateMobile = payment_ocr_mobile_from_text($line);
+                if ($candidateMobile === '') continue;
+                $nearby = implode(' ', array_slice($lines, max(0, $index - 3), 4));
+                if (!preg_match('/\b(?:sent\s+to|receiver|recipient)\b/i', $nearby)) {
+                    $senderMobile = $candidateMobile;
+                    break;
+                }
+            }
+        }
+
+        $dateTime = payment_ocr_extract_datetime($lines);
+        $date = $dateTime['date'];
+        $time = $dateTime['time'];
+        /*
+         * Keep the older scan as a fallback for unusual OCR punctuation that
+         * the normalized date/time helper could not recognize.
+         */
         foreach ($lines as $line) {
             if ($date === null && preg_match('/\b(?:20\d{2}[\/-]\d{1,2}[\/-]\d{1,2}|\d{1,2}[\/-]\d{1,2}[\/-](?:20)?\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+20\d{2})\b/i', $line, $match)) {
                 $date = payment_ocr_normalize_date($match[0]);
@@ -1068,7 +1178,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
             'sender_mobile' => mb_substr($senderMobile, 0, 40),
             'reference_number' => mb_substr($reference, 0, 190),
             'amount_sent' => $amount['value'],
-            'total_amount_sent' => $amount['value'],
+            'total_amount_sent' => $totalAmount ?? $amount['value'],
             'detected_payment_method' => (string)$method['value'],
             'transaction_date' => $date,
             'transaction_time' => $time,

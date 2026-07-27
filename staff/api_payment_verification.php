@@ -157,10 +157,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['action'] ?? '') === 'ocr_dia
         $diag['parsed'] = [
             'detected_method'    => $parsed['detected_payment_method'] ?? '',
             'amount_sent'        => $parsed['amount_sent'],
+            'total_amount_sent'  => $parsed['total_amount_sent'] ?? null,
             'reference_number'   => $parsed['reference_number'] ?? '',
             'transaction_date'   => $parsed['transaction_date'] ?? '',
             'transaction_time'   => $parsed['transaction_time'] ?? '',
+            'transaction_status' => $parsed['transaction_status'] ?? '',
             'sender_name'        => $parsed['sender_name'] ?? '',
+            'sender_mobile'      => $parsed['sender_mobile'] ?? '',
             'receiver_name'      => $parsed['receiver_name'] ?? '',
             'receiver_account'   => $parsed['receiver_account'] ?? '',
             'overall_confidence' => $parsed['overall_confidence'] ?? 0,
