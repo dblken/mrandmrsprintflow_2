@@ -48,7 +48,7 @@ function seed_default_customer_services_if_empty(): void {
         return;
     }
     $desc = 'Order flow for this service.';
-    $price = 1.0;
+    $price = 0.0;
     $status = 'Activated';
     foreach ($defaults as $d) {
         $name = $d['name'];
@@ -80,7 +80,7 @@ function sync_default_catalog_services_missing_rows(): void {
         return;
     }
     $desc = 'Order flow for this service.';
-    $price = 1.0;
+    $price = 0.0;
     $status = 'Activated';
     foreach ($defaults as $d) {
         $name = trim($d['name']);
@@ -142,7 +142,7 @@ function ensure_services_table(): void {
         `name` varchar(150) NOT NULL,
         `category` varchar(80) DEFAULT NULL,
         `description` text,
-        `price` decimal(10,2) NOT NULL,
+        `price` decimal(10,2) NOT NULL DEFAULT 0.00,
         `duration` varchar(100) DEFAULT NULL COMMENT 'e.g. 2-3 business days',
         `status` enum('Activated','Deactivated','Archived') NOT NULL DEFAULT 'Activated',
         `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,

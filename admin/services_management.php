@@ -160,7 +160,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $name = preg_replace('/\s+/', ' ', trim($_POST['name'] ?? ''));
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
-        $price = 1.0;
+        // Catalog cards derive pricing from enabled service option choices.
+        // Keep the legacy NOT NULL services.price column neutral.
+        $price = 0.0;
         $statusRaw = trim((string) ($_POST['status'] ?? ''));
         $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
         $hero_image = admin_service_media_url(sanitize(trim((string) ($_POST['hero_image'] ?? ''))));
@@ -208,7 +210,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $name = preg_replace('/\s+/', ' ', trim($_POST['name'] ?? ''));
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
-        $price = 1.0;
+        // Staff quotations belong to orders; they must never become a shared
+        // service catalog price.
+        $price = 0.0;
         $statusRaw = trim((string) ($_POST['status'] ?? ''));
         $status = ($statusRaw === 'Deactivated') ? 'Deactivated' : 'Activated';
         $hero_image = admin_service_media_url(sanitize(trim((string) ($_POST['hero_image'] ?? ''))));

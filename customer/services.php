@@ -74,17 +74,22 @@ $visible_rows = db_query(
     )) as sold_count,
     (SELECT AVG(rating) FROM reviews r WHERE r.service_type COLLATE utf8mb4_unicode_ci = s.name COLLATE utf8mb4_unicode_ci) as avg_rating,
     (SELECT COUNT(*) FROM reviews r WHERE r.service_type COLLATE utf8mb4_unicode_ci = s.name COLLATE utf8mb4_unicode_ci) as review_count
-    FROM services s WHERE s.status = \'Activated\' ORDER BY name ASC',
+    FROM services s
+    WHERE s.status = \'Activated\'
+      AND COALESCE(s.visible_to_customer, 1) = 1
+    ORDER BY name ASC',
     '',
     []
 ) ?: [];
 
+$pricing_by_service = printflow_catalog_pricing_metadata_map(array_column($visible_rows, 'service_id'));
 $core_services = [];
 foreach ($visible_rows as $row) {
     $sid = (int)($row['service_id'] ?? 0);
     if ($sid < 1) {
         continue;
     }
+    $pricing = $pricing_by_service[$sid] ?? printflow_catalog_pricing_metadata_from_fields([]);
 
     // Every catalog tile must hit order_service_dynamic.php so order_items.customization_data always carries
     // service_id + the same field labels as admin service_field_configs (legacy customer_link flows omit these).
@@ -115,7 +120,10 @@ foreach ($visible_rows as $row) {
         'sold_count' => (int)$row['sold_count'],
         'avg_rating' => (float)$row['avg_rating'],
         'review_count' => (int)$row['review_count'],
-        'price' => (float)($row['price'] ?? 0),
+        'pricing_type' => $pricing['pricing_type'],
+        'display_price' => $pricing['display_price'],
+        'minimum_price' => $pricing['minimum_price'],
+        'price_label' => $pricing['price_label'],
     ];
 }
 
@@ -171,7 +179,10 @@ function render_service_card($srv) {
     $rcount = $srv['review_count'];
     $sold = (int)$srv['sold_count'];
     $sold_display = $sold >= 1000 ? number_format($sold / 1000, 1) . 'k' : $sold;
-    $price = (float)($srv['price'] ?? 0);
+    $pricing_type = (string)($srv['pricing_type'] ?? 'custom');
+    $minimum_price = $srv['minimum_price'] ?? null;
+    $price_label = trim((string)($srv['price_label'] ?? ''));
+    if ($price_label === '') $price_label = 'Custom Pricing';
     $order_link = (string)($srv['link'] ?? '');
     ?>
     <div class="shopee-card" onclick="window.location.href=<?php echo $json_link; ?>;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.href=<?php echo $json_link; ?>;}" role="link" tabindex="0" aria-label="Order <?php echo htmlspecialchars($srv['name']); ?>">
@@ -206,7 +217,11 @@ function render_service_card($srv) {
             </div>
 
             <div class="shopee-price-row">
-                <span class="shopee-price"><?php echo $price > 0 ? format_currency($price) : 'Get quote'; ?></span>
+                <span
+                    class="shopee-price"
+                    data-pricing-type="<?php echo htmlspecialchars($pricing_type); ?>"
+                    data-minimum-price="<?php echo $minimum_price === null ? '' : htmlspecialchars(number_format((float)$minimum_price, 2, '.', '')); ?>"
+                ><?php echo htmlspecialchars($price_label); ?></span>
             </div>
         </div>
         <div class="shopee-footer" onclick="event.stopPropagation();">
