@@ -25,6 +25,7 @@ $branchId = $branchCtx['selected_branch_id'];
 $search = trim((string)($_GET['search'] ?? ''));
 $statusFilter = strtolower(trim((string)($_GET['status'] ?? 'to_verify')));
 $typeFilter = strtolower(trim((string)($_GET['type'] ?? 'all')));
+$sortBy = strtolower(trim((string)($_GET['sort'] ?? 'newest')));
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 20;
 
@@ -36,6 +37,11 @@ if (!in_array($statusFilter, $allowedStatusFilters, true)) {
 $allowedTypeFilters = ['all', 'product', 'customization'];
 if (!in_array($typeFilter, $allowedTypeFilters, true)) {
     $typeFilter = 'all';
+}
+
+$allowedSorts = ['newest', 'oldest', 'amount_high', 'amount_low'];
+if (!in_array($sortBy, $allowedSorts, true)) {
+    $sortBy = 'newest';
 }
 
 function pf_admin_payment_has_column(string $table, string $column): bool
@@ -226,8 +232,13 @@ $payments = array_values(array_filter($payments, static function (array $row) us
     return $statusFilter === 'all' || (($row['bucket'] ?? '') === $statusFilter);
 }));
 
-usort($payments, static function (array $a, array $b): int {
-    return strtotime((string)($b['submitted_at'] ?? '')) <=> strtotime((string)($a['submitted_at'] ?? ''));
+usort($payments, static function (array $a, array $b) use ($sortBy): int {
+    return match ($sortBy) {
+        'oldest' => strtotime((string)($a['submitted_at'] ?? '')) <=> strtotime((string)($b['submitted_at'] ?? '')),
+        'amount_high' => ((float)($b['submitted_amount'] ?? 0)) <=> ((float)($a['submitted_amount'] ?? 0)),
+        'amount_low' => ((float)($a['submitted_amount'] ?? 0)) <=> ((float)($b['submitted_amount'] ?? 0)),
+        default => strtotime((string)($b['submitted_at'] ?? '')) <=> strtotime((string)($a['submitted_at'] ?? '')),
+    };
 });
 
 $totalRows = count($payments);
@@ -246,7 +257,14 @@ $buildFilterUrl = static function (array $overrides = []): string {
     return '?' . http_build_query($query);
 };
 
+$activeFiltersCount = 0;
+if ($search !== '') $activeFiltersCount++;
+if ($typeFilter !== 'all') $activeFiltersCount++;
+if ($statusFilter !== 'to_verify') $activeFiltersCount++;
+if ($sortBy !== 'newest') $activeFiltersCount++;
+
 $page_title = 'Payment - Admin | PrintFlow';
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -258,6 +276,7 @@ $page_title = 'Payment - Admin | PrintFlow';
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <?php render_branch_css(); ?>
     <style>
+        [x-cloak] { display:none !important; }
         .payment-page { padding: 0; }
         .pf-mobile-branch-inline { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
         .page-title { margin:0; font-size:28px; font-weight:800; color:#111827; letter-spacing:0; }
@@ -271,6 +290,29 @@ $page_title = 'Payment - Admin | PrintFlow';
         .kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:6px; }
         .kpi-value { font-size:28px; font-weight:800; color:#111827; line-height:1.1; }
         .kpi-sub { font-size:12px; color:#6b7280; margin-top:4px; }
+        .toolbar-btn { display:inline-flex; align-items:center; gap:6px; height:38px; padding:0 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:500; color:#374151; cursor:pointer; transition:all .15s; }
+        .toolbar-btn:hover { border-color:#9ca3af; background:#f9fafb; }
+        .toolbar-btn.active { border-color:#0d9488; color:#0d9488; background:#f0fdfa; }
+        .sort-dropdown, .filter-panel { position:absolute; top:calc(100% + 6px); right:0; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:40; overflow:hidden; }
+        .sort-dropdown { min-width:190px; padding:6px 0; }
+        .sort-option { display:flex; justify-content:space-between; align-items:center; padding:9px 14px; font-size:13px; color:#374151; text-decoration:none; cursor:pointer; }
+        .sort-option:hover { background:#f9fafb; }
+        .sort-option.selected { color:#0d9488; background:#f0fdfa; font-weight:600; }
+        .filter-panel { width:320px; }
+        .filter-panel-header { padding:14px 18px; border-bottom:1px solid #f3f4f6; font-size:14px; font-weight:700; color:#111827; }
+        .filter-section { padding:14px 18px; border-bottom:1px solid #f3f4f6; }
+        .filter-section:last-of-type { border-bottom:none; }
+        .filter-section-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+        .filter-section-label { font-size:13px; font-weight:600; color:#374151; }
+        .filter-input, .filter-select { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; padding:0 10px; font-size:13px; background:#fff; box-sizing:border-box; }
+        .filter-input:focus, .filter-select:focus { outline:none; border-color:#0d9488; }
+        .filter-actions { display:flex; gap:8px; padding:14px 18px; border-top:1px solid #f3f4f6; }
+        .filter-btn-reset { flex:1; height:36px; border:1px solid #e5e7eb; background:#fff; border-radius:7px; font-size:13px; font-weight:600; color:#374151; cursor:pointer; }
+        .filter-btn-reset:hover { background:#f9fafb; }
+        .filter-btn-apply { flex:1; height:36px; border:1px solid #0d9488; background:#0d9488; border-radius:7px; font-size:13px; font-weight:600; color:#fff; cursor:pointer; }
+        .filter-badge { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#0d9488; color:#fff; font-size:11px; font-weight:700; }
+        .customs-table tbody tr { transition:background .1s; }
+        .customs-table tbody tr:hover td { background:#f9fafb; }
         .payment-filters { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
         .payment-filters input, .payment-filters select { height:38px; border:1px solid #d1d5db; border-radius:7px; padding:0 10px; font-size:13px; color:#111827; background:#fff; }
         .payment-filters input { min-width:260px; }
@@ -292,6 +334,13 @@ $page_title = 'Payment - Admin | PrintFlow';
         .pf-pay-badge { display:inline-flex; align-items:center; border-radius:999px; padding:3px 9px; font-size:11px; font-weight:800; white-space:nowrap; }
         .proof-link { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:7px; border:1px solid #d1d5db; color:#374151; background:#fff; text-decoration:none; }
         .row-actions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
+        .btn-action { display:inline-flex; align-items:center; justify-content:center; min-width:64px; height:34px; padding:0 12px; border:1px solid transparent; background:#fff; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; transition:all .15s; }
+        .btn-action.blue { color:#2563eb; border-color:#2563eb; }
+        .btn-action.blue:hover { background:#2563eb; color:#fff; }
+        .btn-action.teal { color:#0d9488; border-color:#0d9488; }
+        .btn-action.teal:hover { background:#0d9488; color:#fff; }
+        .btn-action.red { color:#dc2626; border-color:#dc2626; }
+        .btn-action.red:hover { background:#dc2626; color:#fff; }
         .empty-state { padding:42px 16px; text-align:center; color:#6b7280; }
         .pagination { display:flex; justify-content:flex-end; gap:8px; padding:14px 0; }
         .modal-backdrop { position:fixed; inset:0; z-index:1000; background:rgba(17,24,39,.55); display:none; align-items:center; justify-content:center; padding:16px; }
@@ -335,105 +384,141 @@ $page_title = 'Payment - Admin | PrintFlow';
                 <div class="kpi-card emerald"><div class="kpi-label">Rejected</div><div class="kpi-value"><?php echo number_format((int)$counts['rejected']); ?></div><div class="kpi-sub">Returned to customer</div></div>
             </div>
 
-            <form class="payment-filters" method="get">
-                <input type="search" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Search customer, order, branch, reference">
-                <select name="type">
-                    <option value="all" <?php echo $typeFilter === 'all' ? 'selected' : ''; ?>>All payment types</option>
-                    <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>Product orders</option>
-                    <option value="customization" <?php echo $typeFilter === 'customization' ? 'selected' : ''; ?>>Customizations</option>
-                </select>
-                <input type="hidden" name="status" value="<?php echo htmlspecialchars($statusFilter); ?>">
-                <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId; ?>">
-                <button class="pf-btn primary" type="submit">Apply</button>
-                <a class="pf-btn ghost" href="<?php echo htmlspecialchars($buildFilterUrl(['search' => '', 'type' => 'all', 'status' => 'to_verify', 'page' => 1])); ?>">Reset</a>
-            </form>
-
-            <div class="payment-tabs">
-                <a class="payment-tab <?php echo $statusFilter === 'to_verify' ? 'active' : ''; ?>" href="<?php echo htmlspecialchars($buildFilterUrl(['status' => 'to_verify', 'page' => 1])); ?>">To Verify <small><?php echo (int)$counts['to_verify']; ?></small></a>
-                <a class="payment-tab <?php echo $statusFilter === 'verified' ? 'active' : ''; ?>" href="<?php echo htmlspecialchars($buildFilterUrl(['status' => 'verified', 'page' => 1])); ?>">Verified <small><?php echo (int)$counts['verified']; ?></small></a>
-                <a class="payment-tab <?php echo $statusFilter === 'rejected' ? 'active' : ''; ?>" href="<?php echo htmlspecialchars($buildFilterUrl(['status' => 'rejected', 'page' => 1])); ?>">Rejected <small><?php echo (int)$counts['rejected']; ?></small></a>
-                <a class="payment-tab <?php echo $statusFilter === 'all' ? 'active' : ''; ?>" href="<?php echo htmlspecialchars($buildFilterUrl(['status' => 'all', 'page' => 1])); ?>">All <small><?php echo (int)$counts['all']; ?></small></a>
-            </div>
-
-            <div class="payment-table-wrap">
-                <table class="payment-table">
-                    <thead>
-                        <tr>
-                            <th>Payment</th>
-                            <th>Customer</th>
-                            <th>Branch</th>
-                            <th>Amount</th>
-                            <th>Status</th>
-                            <th>Uploaded</th>
-                            <th>Proof</th>
-                            <th style="text-align:right;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($visiblePayments)): ?>
-                            <tr>
-                                <td colspan="8">
-                                    <div class="empty-state">No payment proofs match this view.</div>
-                                </td>
-                            </tr>
-                        <?php endif; ?>
-                        <?php foreach ($visiblePayments as $payment):
-                            $isCustomization = ($payment['payment_type'] ?? '') === 'customization';
-                            $recordId = (int)($payment['record_id'] ?? 0);
-                            $orderId = (int)($payment['order_id'] ?? 0);
-                            $proofPath = (string)($payment['proof_path'] ?? '');
-                            $proofUrl = pf_admin_payment_proof_url($proofPath);
-                            $bucket = (string)($payment['bucket'] ?? 'all');
-                            $openUrl = $isCustomization
-                                ? $base_path . '/admin/customizations.php?open_job=' . $recordId
-                                : $base_path . '/admin/orders_management.php?search=' . urlencode((string)$orderId);
-                        ?>
-                            <tr>
-                                <td>
-                                    <div class="main-text"><?php echo $isCustomization ? 'Customization #' : 'Order #'; ?><?php echo $recordId; ?></div>
-                                    <div class="muted"><?php echo htmlspecialchars((string)($payment['service_type'] ?? '')); ?><?php echo $orderId > 0 && $orderId !== $recordId ? ' / Order #' . $orderId : ''; ?></div>
-                                </td>
-                                <td>
-                                    <div class="main-text"><?php echo htmlspecialchars(trim((string)($payment['customer_name'] ?? '')) ?: 'Customer'); ?></div>
-                                    <div class="muted"><?php echo htmlspecialchars((string)($payment['customer_email'] ?? '')); ?></div>
-                                </td>
-                                <td><?php echo htmlspecialchars((string)($payment['branch_name'] ?? 'Unassigned')); ?></td>
-                                <td>
-                                    <div class="main-text"><?php echo format_currency((float)($payment['submitted_amount'] ?? 0)); ?></div>
-                                    <div class="muted">Total <?php echo format_currency((float)($payment['total_amount'] ?? 0)); ?></div>
-                                </td>
-                                <td>
-                                    <?php echo pf_admin_payment_badge((string)($payment['proof_status'] ?? ''), 'proof'); ?>
-                                    <div class="muted"><?php echo htmlspecialchars((string)($payment['payment_status'] ?? '')); ?></div>
-                                </td>
-                                <td><?php echo !empty($payment['submitted_at']) ? htmlspecialchars(format_datetime((string)$payment['submitted_at'])) : '<span class="muted">No date</span>'; ?></td>
-                                <td>
-                                    <?php if ($proofUrl !== ''): ?>
-                                        <a class="proof-link" href="<?php echo htmlspecialchars($proofUrl); ?>" target="_blank" rel="noopener" title="View proof">
-                                            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                                            </svg>
-                                        </a>
-                                    <?php else: ?>
-                                        <span class="muted">None</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <div class="row-actions">
-                                        <a class="pf-btn ghost" href="<?php echo htmlspecialchars($openUrl); ?>">Open</a>
-                                        <?php if ($bucket === 'to_verify'): ?>
-                                            <button class="pf-btn primary" type="button" onclick="verifyPayment('<?php echo $isCustomization ? 'customization' : 'product'; ?>', <?php echo $recordId; ?>, <?php echo $orderId; ?>)">Approve</button>
-                                            <button class="pf-btn danger" type="button" onclick="openRejectModal('<?php echo $isCustomization ? 'customization' : 'product'; ?>', <?php echo $recordId; ?>, <?php echo $orderId; ?>)">Reject</button>
+            <div class="card" x-data="{ sortOpen:false, filterOpen:false }">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                    <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">Payment List</h3>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        <div style="position:relative;">
+                            <button type="button" class="toolbar-btn <?php echo $sortBy !== 'newest' ? 'active' : ''; ?>" @click="sortOpen = !sortOpen; filterOpen = false">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
+                                </svg>
+                                Sort by
+                            </button>
+                            <div class="sort-dropdown" x-show="sortOpen" x-cloak @click.outside="sortOpen = false">
+                                <?php foreach (['newest' => 'Newest to Oldest', 'oldest' => 'Oldest to Newest', 'amount_high' => 'Amount High to Low', 'amount_low' => 'Amount Low to High'] as $sortKey => $sortLabel): ?>
+                                    <a class="sort-option <?php echo $sortBy === $sortKey ? 'selected' : ''; ?>" href="<?php echo htmlspecialchars($buildFilterUrl(['sort' => $sortKey, 'page' => 1])); ?>">
+                                        <?php echo htmlspecialchars($sortLabel); ?>
+                                        <?php if ($sortBy === $sortKey): ?>
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                                         <?php endif; ?>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+                                    </a>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <div style="position:relative;">
+                            <button type="button" class="toolbar-btn <?php echo $activeFiltersCount > 0 ? 'active' : ''; ?>" @click="filterOpen = !filterOpen; sortOpen = false">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                                </svg>
+                                Filter
+                                <?php if ($activeFiltersCount > 0): ?><span class="filter-badge"><?php echo (int)$activeFiltersCount; ?></span><?php endif; ?>
+                            </button>
+                            <form class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get">
+                                <div class="filter-panel-header">Filter</div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Keyword search</span></div>
+                                    <input type="text" name="search" class="filter-input" placeholder="Search..." value="<?php echo htmlspecialchars($search); ?>">
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Payment type</span></div>
+                                    <select name="type" class="filter-select">
+                                        <option value="all" <?php echo $typeFilter === 'all' ? 'selected' : ''; ?>>All payment types</option>
+                                        <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>Product orders</option>
+                                        <option value="customization" <?php echo $typeFilter === 'customization' ? 'selected' : ''; ?>>Customizations</option>
+                                    </select>
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Status</span></div>
+                                    <select name="status" class="filter-select">
+                                        <option value="to_verify" <?php echo $statusFilter === 'to_verify' ? 'selected' : ''; ?>>To Verify</option>
+                                        <option value="verified" <?php echo $statusFilter === 'verified' ? 'selected' : ''; ?>>Verified</option>
+                                        <option value="rejected" <?php echo $statusFilter === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
+                                        <option value="all" <?php echo $statusFilter === 'all' ? 'selected' : ''; ?>>All statuses</option>
+                                    </select>
+                                </div>
+                                <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
+                                <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId; ?>">
+                                <div class="filter-actions">
+                                    <a class="filter-btn-reset" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;" href="<?php echo htmlspecialchars($buildFilterUrl(['search' => '', 'type' => 'all', 'status' => 'to_verify', 'sort' => 'newest', 'page' => 1])); ?>">Reset</a>
+                                    <button class="filter-btn-apply" type="submit">Apply</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
 
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm customs-table">
+                        <thead>
+                            <tr style="border-bottom: 1px solid #e5e7eb;">
+                                <th class="text-left py-3">Payment</th>
+                                <th class="text-left py-3">Customer</th>
+                                <th class="text-left py-3">Branch</th>
+                                <th class="text-right py-3">Amount</th>
+                                <th class="text-center py-3">Payment</th>
+                                <th class="text-center py-3">Uploaded</th>
+                                <th class="text-center py-3">Proof</th>
+                                <th class="text-right py-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($visiblePayments)): ?>
+                                <tr><td colspan="8" class="py-12 text-center text-gray-400" style="border-bottom: 1px solid #f3f4f6;">No payment proofs found</td></tr>
+                            <?php endif; ?>
+                            <?php foreach ($visiblePayments as $payment):
+                                $isCustomization = ($payment['payment_type'] ?? '') === 'customization';
+                                $recordId = (int)($payment['record_id'] ?? 0);
+                                $orderId = (int)($payment['order_id'] ?? 0);
+                                $proofPath = (string)($payment['proof_path'] ?? '');
+                                $proofUrl = pf_admin_payment_proof_url($proofPath);
+                                $bucket = (string)($payment['bucket'] ?? 'all');
+                                $openUrl = $isCustomization
+                                    ? $base_path . '/admin/customizations.php?open_job=' . $recordId
+                                    : $base_path . '/admin/orders_management.php?search=' . urlencode((string)$orderId);
+                            ?>
+                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                    <td class="py-3 text-gray-900">
+                                        <div style="font-weight:600;"><?php echo $isCustomization ? 'Customization #' : 'Order #'; ?><?php echo $recordId; ?></div>
+                                        <div class="text-xs text-gray-400"><?php echo htmlspecialchars((string)($payment['service_type'] ?? '')); ?><?php echo $orderId > 0 && $orderId !== $recordId ? ' / Order #' . $orderId : ''; ?></div>
+                                    </td>
+                                    <td class="py-3">
+                                        <div class="text-gray-900" style="max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars(trim((string)($payment['customer_name'] ?? '')) ?: 'Customer'); ?>"><?php echo htmlspecialchars(trim((string)($payment['customer_name'] ?? '')) ?: 'Customer'); ?></div>
+                                        <div class="text-xs text-gray-400" style="max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars((string)($payment['customer_email'] ?? '')); ?>"><?php echo htmlspecialchars((string)($payment['customer_email'] ?? '')); ?></div>
+                                    </td>
+                                    <td class="py-3"><?php echo htmlspecialchars((string)($payment['branch_name'] ?? 'Unassigned')); ?></td>
+                                    <td class="py-3 text-right">
+                                        <?php echo format_currency((float)($payment['submitted_amount'] ?? 0)); ?>
+                                        <div class="text-xs text-gray-400">Total <?php echo format_currency((float)($payment['total_amount'] ?? 0)); ?></div>
+                                    </td>
+                                    <td class="py-3 text-center">
+                                        <?php echo pf_admin_payment_badge((string)($payment['proof_status'] ?? ''), 'proof'); ?>
+                                    </td>
+                                    <td class="py-3 text-center text-gray-500 text-xs"><?php echo !empty($payment['submitted_at']) ? htmlspecialchars(date('M j, Y', strtotime((string)$payment['submitted_at']))) : 'No date'; ?></td>
+                                    <td class="py-3 text-center">
+                                        <?php if ($proofUrl !== ''): ?>
+                                            <a class="proof-link" href="<?php echo htmlspecialchars($proofUrl); ?>" target="_blank" rel="noopener" title="View proof">
+                                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                            </a>
+                                        <?php else: ?>
+                                            <span class="text-gray-400 text-xs">None</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="py-3 text-right">
+                                        <div class="row-actions">
+                                            <a class="btn-action blue" href="<?php echo htmlspecialchars($openUrl); ?>">View</a>
+                                            <?php if ($bucket === 'to_verify'): ?>
+                                                <button class="btn-action teal" type="button" onclick="verifyPayment('<?php echo $isCustomization ? 'customization' : 'product'; ?>', <?php echo $recordId; ?>, <?php echo $orderId; ?>)">Approve</button>
+                                                <button class="btn-action red" type="button" onclick="openRejectModal('<?php echo $isCustomization ? 'customization' : 'product'; ?>', <?php echo $recordId; ?>, <?php echo $orderId; ?>)">Reject</button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             <?php if ($totalPages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
