@@ -74,17 +74,18 @@ function pf_admin_payment_proof_url(string $proof): string
 
 function pf_admin_payment_badge(string $status, string $kind = 'proof'): string
 {
-    $normalized = strtoupper(trim($status));
+    $normalized = strtoupper(str_replace([' ', '-'], '_', trim($status)));
     $map = [
-        'SUBMITTED' => ['#fef3c7', '#92400e', 'To Verify'],
-        'TO_VERIFY' => ['#fef3c7', '#92400e', 'To Verify'],
-        'DOWNPAYMENT_SUBMITTED' => ['#fef3c7', '#92400e', 'To Verify'],
-        'PENDING_VERIFICATION' => ['#fef3c7', '#92400e', 'To Verify'],
+        'SUBMITTED' => ['#fef9c3', '#854d0e', 'To Verify'],
+        'TO_VERIFY' => ['#fef9c3', '#854d0e', 'To Verify'],
+        'VERIFY_PAY' => ['#fef9c3', '#854d0e', 'To Verify'],
+        'DOWNPAYMENT_SUBMITTED' => ['#fef9c3', '#854d0e', 'To Verify'],
+        'PENDING_VERIFICATION' => ['#fef9c3', '#854d0e', 'To Verify'],
         'VERIFIED' => ['#dcfce7', '#166534', 'Verified'],
         'PAID' => ['#dcfce7', '#166534', 'Paid'],
-        'PARTIAL' => ['#dbeafe', '#1d4ed8', 'Partial'],
+        'PARTIAL' => ['#fef3c7', '#b45309', 'Partial'],
         'REJECTED' => ['#fee2e2', '#991b1b', 'Rejected'],
-        'UNPAID' => ['#f3f4f6', '#4b5563', 'Unpaid'],
+        'UNPAID' => ['#fee2e2', '#991b1b', 'Unpaid'],
     ];
     [$bg, $fg, $label] = $map[$normalized] ?? ['#f3f4f6', '#4b5563', ($status !== '' ? $status : 'Unknown')];
 
@@ -290,6 +291,16 @@ $page_title = 'Payment - Admin | PrintFlow';
     <?php render_branch_css(); ?>
     <style>
         [x-cloak] { display:none !important; }
+        .kpi-row { display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px; }
+        @media(max-width:768px){ .kpi-row{grid-template-columns:repeat(2,1fr);} }
+        .kpi-card { background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;position:relative;overflow:hidden; }
+        .kpi-card::before { content:'';position:absolute;top:0;left:0;right:0;height:3px; }
+        .kpi-card.indigo::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
+        .kpi-card.amber::before { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
+        .kpi-card.blue::before { background:linear-gradient(90deg,#3b82f6,#60a5fa); }
+        .kpi-card.emerald::before { background:linear-gradient(90deg,#059669,#34d399); }
+        .kpi-label { font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;margin-bottom:6px; }
+        .kpi-sub { font-size:12px;color:#6b7280;margin-top:4px; }
         .toolbar-btn {
             display: inline-flex;
             align-items: center;
@@ -360,7 +371,9 @@ $page_title = 'Payment - Admin | PrintFlow';
         .customs-table tbody tr { transition: background 0.1s; }
         .customs-table tbody tr:hover td { background: #f9fafb; }
         .pf-pay-badge { display:inline-flex; align-items:center; border-radius:20px; padding:3px 10px; font-size:12px; font-weight:500; white-space:nowrap; }
-        .proof-link { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:7px; border:1px solid #d1d5db; color:#374151; background:#fff; text-decoration:none; }
+        .proof-thumb { width:38px;height:38px;border-radius:50%;border:1px solid #e5e7eb;padding:0;background:#fff;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;vertical-align:middle; }
+        .proof-thumb img { width:100%;height:100%;object-fit:cover;display:block; }
+        .proof-thumb:hover { border-color:#9ca3af; box-shadow:0 2px 8px rgba(15,23,42,.08); }
         .row-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; align-items:center; }
         .btn-action { display:inline-flex; align-items:center; justify-content:center; padding:6px 12px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; transition:all 0.2s; cursor:pointer; text-decoration:none; line-height:1.2; }
         .btn-action.blue { color:#3b82f6; border-color:#3b82f6; }
@@ -381,6 +394,9 @@ $page_title = 'Payment - Admin | PrintFlow';
         .modal-body { padding:18px; }
         .modal-body textarea { width:100%; min-height:120px; border:1px solid #d1d5db; border-radius:7px; padding:10px; font-size:14px; resize:vertical; }
         .modal-foot { padding:14px 18px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; }
+        .proof-modal-panel { width:min(92vw,720px);max-height:88vh;background:#fff;border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.24);overflow:hidden; }
+        .proof-modal-image-wrap { background:#f9fafb;display:flex;align-items:center;justify-content:center;padding:16px;max-height:72vh; }
+        .proof-modal-image-wrap img { max-width:100%;max-height:68vh;object-fit:contain;border-radius:8px; }
         @media (max-width: 980px) {
             .kpi-row { grid-template-columns:repeat(2,1fr); }
         }
@@ -403,11 +419,27 @@ $page_title = 'Payment - Admin | PrintFlow';
                 <?php render_branch_context_banner($branchCtx['branch_name']); ?>
 
                 <div class="kpi-row">
-                <div class="kpi-card indigo"><div class="kpi-label">Visible Proofs</div><div class="kpi-value"><?php echo number_format((int)$counts['all']); ?></div><div class="kpi-sub">Across visible branches</div></div>
-                <div class="kpi-card amber"><div class="kpi-label">To Verify</div><div class="kpi-value"><?php echo number_format((int)$counts['to_verify']); ?></div><div class="kpi-sub">Needs review</div></div>
-                <div class="kpi-card blue"><div class="kpi-label">Verified</div><div class="kpi-value"><?php echo number_format((int)$counts['verified']); ?></div><div class="kpi-sub">Approved proofs</div></div>
-                <div class="kpi-card emerald"><div class="kpi-label">Rejected</div><div class="kpi-value"><?php echo number_format((int)$counts['rejected']); ?></div><div class="kpi-sub">Returned to customer</div></div>
-            </div>
+                    <div class="kpi-card indigo">
+                        <div class="kpi-label">Visible Proofs</div>
+                        <div class="kpi-value"><?php echo number_format((int)$counts['all']); ?></div>
+                        <div class="kpi-sub">Across visible branches</div>
+                    </div>
+                    <div class="kpi-card amber">
+                        <div class="kpi-label">To Verify</div>
+                        <div class="kpi-value"><?php echo number_format((int)$counts['to_verify']); ?></div>
+                        <div class="kpi-sub">Needs review</div>
+                    </div>
+                    <div class="kpi-card blue">
+                        <div class="kpi-label">Verified</div>
+                        <div class="kpi-value"><?php echo number_format((int)$counts['verified']); ?></div>
+                        <div class="kpi-sub">Approved proofs</div>
+                    </div>
+                    <div class="kpi-card emerald">
+                        <div class="kpi-label">Rejected</div>
+                        <div class="kpi-value"><?php echo number_format((int)$counts['rejected']); ?></div>
+                        <div class="kpi-sub">Returned to customer</div>
+                    </div>
+                </div>
 
                 <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
@@ -514,17 +546,22 @@ $page_title = 'Payment - Admin | PrintFlow';
                                     <td class="py-3"><?php echo htmlspecialchars((string)($payment['branch_name'] ?? 'Unassigned')); ?></td>
                                     <td class="py-3 text-right">
                                         <?php echo format_currency((float)($payment['submitted_amount'] ?? 0)); ?>
-                                        <div class="text-xs text-gray-400">Total <?php echo format_currency((float)($payment['total_amount'] ?? 0)); ?></div>
                                     </td>
                                     <td class="py-3 text-center">
-                                        <?php echo pf_admin_payment_badge((string)($payment['proof_status'] ?? ''), 'proof'); ?>
+                                        <?php
+                                            $paymentBadgeStatus = (string)($payment['proof_status'] ?? '');
+                                            if ($paymentBadgeStatus === '' || strtoupper(str_replace([' ', '-'], '_', $paymentBadgeStatus)) === 'TO_VERIFY') {
+                                                $paymentBadgeStatus = $bucket === 'to_verify' ? 'PENDING_VERIFICATION' : ($paymentBadgeStatus ?: (string)($payment['payment_status'] ?? ''));
+                                            }
+                                            echo pf_admin_payment_badge($paymentBadgeStatus, 'proof');
+                                        ?>
                                     </td>
                                     <td class="py-3 text-center text-gray-500 text-xs"><?php echo !empty($payment['submitted_at']) ? htmlspecialchars(date('M j, Y', strtotime((string)$payment['submitted_at']))) : 'No date'; ?></td>
                                     <td class="py-3 text-center">
                                         <?php if ($proofUrl !== ''): ?>
-                                            <a class="proof-link" href="<?php echo htmlspecialchars($proofUrl); ?>" target="_blank" rel="noopener" title="View proof">
-                                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                                            </a>
+                                            <button class="proof-thumb" type="button" onclick="openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars(($isCustomization ? 'Customization #' : 'Order #') . $recordId, ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
+                                                <img src="<?php echo htmlspecialchars($proofUrl); ?>" alt="Payment proof">
+                                            </button>
                                         <?php else: ?>
                                             <span class="text-gray-400 text-xs">None</span>
                                         <?php endif; ?>
@@ -532,10 +569,6 @@ $page_title = 'Payment - Admin | PrintFlow';
                                     <td class="py-3 text-right">
                                         <div class="row-actions">
                                             <a class="btn-action blue" href="<?php echo htmlspecialchars($openUrl); ?>">View</a>
-                                            <?php if ($bucket === 'to_verify'): ?>
-                                                <button class="btn-action teal" type="button" onclick="verifyPayment('<?php echo $isCustomization ? 'customization' : 'product'; ?>', <?php echo $recordId; ?>, <?php echo $orderId; ?>)">Approve</button>
-                                                <button class="btn-action red" type="button" onclick="openRejectModal('<?php echo $isCustomization ? 'customization' : 'product'; ?>', <?php echo $recordId; ?>, <?php echo $orderId; ?>)">Reject</button>
-                                            <?php endif; ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -559,87 +592,39 @@ $page_title = 'Payment - Admin | PrintFlow';
     </div>
 </div>
 
-<div class="modal-backdrop" id="rejectModal">
-    <div class="modal-panel">
-        <div class="modal-head">
-            <h2>Reject Payment Proof</h2>
+<div class="modal-backdrop" id="proofModal" onclick="closeProofModal()">
+    <div class="proof-modal-panel" onclick="event.stopPropagation()">
+        <div class="modal-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <h2 id="proofModalTitle">Payment Proof</h2>
+            <button class="btn-action blue" type="button" onclick="closeProofModal()">Close</button>
         </div>
-        <div class="modal-body">
-            <textarea id="rejectReason" placeholder="Reason for rejection"></textarea>
-        </div>
-        <div class="modal-foot">
-            <button class="pf-btn ghost" type="button" onclick="closeRejectModal()">Cancel</button>
-            <button class="pf-btn danger" type="button" onclick="submitRejectPayment()">Reject</button>
+        <div class="proof-modal-image-wrap">
+            <img id="proofModalImage" src="" alt="Payment proof preview">
         </div>
     </div>
 </div>
-
 <script>
-let pendingReject = null;
+function openProofModal(src, title) {
+    const modal = document.getElementById('proofModal');
+    const image = document.getElementById('proofModalImage');
+    const heading = document.getElementById('proofModalTitle');
+    image.src = src;
+    heading.textContent = title || 'Payment Proof';
+    modal.classList.add('open');
+}
 
-async function postPaymentAction(type, id, orderId, action, reason) {
-    const fd = new FormData();
-    if (type === 'customization') {
-        fd.append('id', id);
-        fd.append('action', action === 'approve' ? 'verify_payment' : 'reject_payment');
-        if (orderId) fd.append('order_id', orderId);
-        if (reason) fd.append('reason', reason);
-        return fetch('<?php echo $base_path; ?>/admin/api_verify_job_payment.php', { method: 'POST', body: fd });
+function closeProofModal() {
+    const modal = document.getElementById('proofModal');
+    const image = document.getElementById('proofModalImage');
+    modal.classList.remove('open');
+    image.src = '';
+}
+
+window.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+        closeProofModal();
     }
-
-    fd.append('order_id', orderId || id);
-    fd.append('action', action === 'approve' ? 'Approve' : 'Reject');
-    if (reason) fd.append('reason', reason);
-    return fetch('<?php echo $base_path; ?>/staff/api_verify_payment.php', { method: 'POST', body: fd });
-}
-
-async function parsePaymentResponse(response) {
-    const text = await response.text();
-    try {
-        return JSON.parse(text);
-    } catch (error) {
-        return { success: false, error: text || 'Unexpected server response.' };
-    }
-}
-
-async function verifyPayment(type, id, orderId) {
-    if (!confirm('Approve this payment proof?')) return;
-    const response = await postPaymentAction(type, id, orderId, 'approve', '');
-    const data = await parsePaymentResponse(response);
-    if (data.success) {
-        window.location.reload();
-        return;
-    }
-    alert(data.error || data.message || 'Payment approval failed.');
-}
-
-function openRejectModal(type, id, orderId) {
-    pendingReject = { type, id, orderId };
-    document.getElementById('rejectReason').value = '';
-    document.getElementById('rejectModal').classList.add('open');
-    setTimeout(() => document.getElementById('rejectReason').focus(), 50);
-}
-
-function closeRejectModal() {
-    pendingReject = null;
-    document.getElementById('rejectModal').classList.remove('open');
-}
-
-async function submitRejectPayment() {
-    if (!pendingReject) return;
-    const reason = document.getElementById('rejectReason').value.trim();
-    if (!reason) {
-        alert('Please enter a rejection reason.');
-        return;
-    }
-    const response = await postPaymentAction(pendingReject.type, pendingReject.id, pendingReject.orderId, 'reject', reason);
-    const data = await parsePaymentResponse(response);
-    if (data.success) {
-        window.location.reload();
-        return;
-    }
-    alert(data.error || data.message || 'Payment rejection failed.');
-}
+});
 </script>
 </body>
 </html>
