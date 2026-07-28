@@ -244,6 +244,19 @@ try {
 
 $dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
 $dashboard_sales_bar_is_category = true;
+$dashboard_branch_revenue_js = [[
+    'branch_id' => (int)$branchId,
+    'branch_name' => $dashboard_branch_display,
+    'revenue' => round((float)$total_revenue, 2),
+    'prev_revenue' => null,
+    'growth_pct' => null,
+    'product_revenue' => round((float)($store_revenue ?? 0), 2),
+    'service_revenue' => round((float)($custom_revenue ?? 0), 2),
+]];
+$dashboard_branch_revenue_json = json_encode($dashboard_branch_revenue_js, JSON_UNESCAPED_UNICODE);
+if ($dashboard_branch_revenue_json === false) {
+    $dashboard_branch_revenue_json = '[]';
+}
 
 $customer_locations = [];
 try {
@@ -578,37 +591,15 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                         Branch Revenue
                         <span class="chart-badge"><?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                     </h3>
-                    <div class="chart-filters">
-                        <label class="chart-filter-label">Period</label>
-                        <select id="dash-chart-period" class="chart-select chart-select-period">
-                            <option value="today">Today</option>
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly" selected>Monthly</option>
-                            <option value="6months">Last 6 Months</option>
-                            <option value="yearly">Yearly</option>
-                        </select>
-                        <span id="dash-year-month" class="chart-filter-group">
-                            <select id="dash-chart-month" class="chart-select chart-select-month" style="display:none;" title="Month">
-                                <?php foreach (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] as $i => $m): ?>
-                                <option value="<?php echo $i+1; ?>" <?php echo ($i+1)==date('n')?'selected':''; ?>><?php echo $m; ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <select id="dash-chart-year" class="chart-select chart-select-year" title="Year">
-                                <?php for ($y = date('Y'); $y >= date('Y')-5; $y--): ?>
-                                <option value="<?php echo $y; ?>" <?php echo $y==date('Y')?'selected':''; ?>><?php echo $y; ?></option>
-                                <?php endfor; ?>
-                            </select>
-                        </span>
-                    </div>
                 </div>
                 <div class="ana-bd">
-                    <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:320px;">
+                    <div class="chart-wrap ch-box" id="dash-sales-chart-wrap" style="height:520px;" data-branch-revenue="<?php echo htmlspecialchars($dashboard_branch_revenue_json, ENT_QUOTES, 'UTF-8'); ?>">
                         <div class="chart-loading" id="dash-sales-loading">
                             <div class="chart-loading-spinner"></div>
                         </div>
                         <div class="chart-nodata" id="dash-sales-nodata">
                             <svg width="36" height="36" fill="none" stroke="currentColor" viewBox="0 0 24 24" opacity="0.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                            <span>No sales data for this period</span>
+                            <span>No branch revenue data for this period</span>
                         </div>
                         <div class="pf-wide-chart-canvas"><canvas id="salesChart"></canvas></div>
                     </div>
@@ -866,49 +857,48 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         var colors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
         var doughnutAnim = { animateRotate: true, animateScale: true, duration: 1500 };
 
-        function getChartPeriod() {
-            var sel = document.getElementById('dash-chart-period');
-            return sel ? sel.value : 'monthly';
+        function isDashMobile() {
+            return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
         }
-        function updateChartYearMonthVisibility(period) {
-            var wrap = document.getElementById('dash-year-month');
-            var monthEl = document.getElementById('dash-chart-month');
-            if (!wrap) return;
-            wrap.style.display = ['monthly', '6months', 'yearly'].includes(period) ? 'flex' : 'none';
-            if (monthEl) monthEl.style.display = period === 'monthly' ? 'inline-block' : 'none';
+        function pfReadDashBranchRevenue() {
+            return parseJsonAttr(document.getElementById('dash-sales-chart-wrap'), 'data-branch-revenue', []);
         }
-        async function loadSalesChart(period) {
+        function loadSalesChart() {
             if (!window.__pfDashSalesChart) return;
             var loadingEl = document.getElementById('dash-sales-loading');
             var noDataEl = document.getElementById('dash-sales-nodata');
-            var yearEl = document.getElementById('dash-chart-year');
-            var monthEl = document.getElementById('dash-chart-month');
             if (loadingEl) loadingEl.classList.remove('hidden');
             if (noDataEl) noDataEl.classList.remove('visible');
-            var year = yearEl ? yearEl.value : new Date().getFullYear();
-            var month = monthEl ? monthEl.value : new Date().getMonth() + 1;
-            var url = '/printflow/admin/api_revenue_chart.php?period=' + encodeURIComponent(period) + '&year=' + encodeURIComponent(year) + '&branch_id=' + DASH_BRANCH_ID;
-            if (period === 'monthly') url += '&month=' + encodeURIComponent(month);
             try {
-                var resp = await fetch(url, { credentials: 'same-origin', signal: dashCtrl.signal });
-                var data = await resp.json();
-                var labels = data.labels || [];
-                var revenue = [];
-                if (Array.isArray(data.revenue) && data.revenue.length) {
-                    revenue = data.revenue.map(function (v) { return Number(v) || 0; });
-                } else {
-                    var store = Array.isArray(data.revenue_store) ? data.revenue_store : [];
-                    var custom = Array.isArray(data.revenue_custom) ? data.revenue_custom : [];
-                    for (var i = 0; i < labels.length; i++) revenue.push(Number(store[i] || 0) + Number(custom[i] || 0));
-                }
+                var branchRows = pfReadDashBranchRevenue().slice().filter(function (row) {
+                    return Number(row.revenue || 0) > 0;
+                }).sort(function (a, b) {
+                    return Number(b.revenue || 0) - Number(a.revenue || 0);
+                });
+                var labels = branchRows.map(function (row) {
+                    var shortLabel = String(row.branch_name || 'Unknown Branch').replace(/\s+Branch$/i, '').trim();
+                    return [shortLabel, 'Branch'];
+                });
+                var revenue = branchRows.map(function (row) { return Number(row.revenue) || 0; });
+                var fills = revenue.map(function (_, index) { return index === 0 ? '#0F4C5C' : 'rgba(0,35,43,0.82)'; });
+                var borders = revenue.map(function (_, index) { return index === 0 ? '#53C5E0' : '#00232b'; });
+                var maxRevenue = revenue.reduce(function (max, value) { return Math.max(max, value); }, 0);
+                var yStep = maxRevenue > 100000 ? 10000 : 5000;
+                var yMax = maxRevenue > 0 ? Math.ceil((maxRevenue * 1.02) / yStep) * yStep : undefined;
+                window.__pfDashSalesRows = branchRows;
                 window.__pfDashSalesChart.data.labels = labels;
                 window.__pfDashSalesChart.data.datasets[0].data = revenue;
+                window.__pfDashSalesChart.data.datasets[0].backgroundColor = fills;
+                window.__pfDashSalesChart.data.datasets[0].borderColor = borders;
+                if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.scales && window.__pfDashSalesChart.options.scales.y) {
+                    window.__pfDashSalesChart.options.scales.y.max = yMax;
+                }
                 window.__pfDashSalesChart.options.animation.duration = salesFirstFetch ? 1750 : 680;
                 salesFirstFetch = false;
                 window.__pfDashSalesChart.update();
                 if (noDataEl) noDataEl.classList.toggle('visible', labels.length === 0);
             } catch (e) {
-                if (e && e.name !== 'AbortError' && noDataEl) {
+                if (noDataEl) {
                     noDataEl.querySelector('span').textContent = 'Failed to load chart data';
                     noDataEl.classList.add('visible');
                 }
@@ -932,20 +922,104 @@ $page_title = 'Dashboard - Manager | PrintFlow';
 
         var salesCanvas = document.getElementById('salesChart');
         if (salesCanvas) {
+            var currencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', maximumFractionDigits: 0 });
+            var compactCurrencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP', notation: 'compact', maximumFractionDigits: 1 });
             window.__pfDashSalesChart = new Chart(salesCanvas.getContext('2d'), {
-                type: 'line',
-                data: { labels: [], datasets: [{ label: 'Branch revenue (PHP)', data: [], borderColor: colors[0], backgroundColor: 'rgba(0,35,43,.10)', borderWidth: 2.5, fill: true, tension: 0.35, pointBackgroundColor: colors[0], pointRadius: 3, pointHoverRadius: 6 }] },
-                options: { responsive: true, maintainAspectRatio: false, animation: { duration: 1750, easing: 'easeOutQuart' }, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12, font: pfDashChartFont(11, '600') } }, tooltip: { animation: { duration: 180 }, padding: 10, cornerRadius: 8, titleFont: pfDashChartFont(11, '600'), bodyFont: pfDashChartFont(11, '600') } }, scales: { y: { beginAtZero: true, ticks: { font: pfDashChartFont(11, '600'), callback: function (v) { return '\u20b1' + Number(v).toLocaleString(); } }, grid: { color: '#f3f4f6' } }, x: { ticks: { font: pfDashChartFont(10, '600'), maxRotation: 45 }, grid: { display: false } } } }
+                type: 'bar',
+                data: { labels: [], datasets: [{
+                    label: 'Total sales revenue',
+                    data: [],
+                    borderColor: [],
+                    backgroundColor: [],
+                    borderWidth: 1.5,
+                    borderRadius: 10,
+                    borderSkipped: false,
+                    barPercentage: 0.58,
+                    categoryPercentage: 0.68
+                }] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: { padding: { top: 32, right: 18, bottom: 0, left: 8 } },
+                    animation: { duration: 1750, easing: 'easeOutCubic' },
+                    interaction: { mode: 'nearest', intersect: true },
+                    hover: { mode: 'index', intersect: false, animationDuration: 400 },
+                    plugins: {
+                        legend: { display: true, position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, color: '#00232b', font: pfDashChartFont(11, '700') } },
+                        tooltip: {
+                            animation: { duration: 180 },
+                            padding: 12,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            titleFont: pfDashChartFont(11, '600'),
+                            bodyFont: pfDashChartFont(11, '600'),
+                            callbacks: {
+                                title: function (items) {
+                                    if (!items[0]) return '';
+                                    var raw = (window.__pfDashSalesRows || [])[items[0].dataIndex];
+                                    return raw ? raw.branch_name : '';
+                                },
+                                label: function (ctx) {
+                                    var idx = ctx.dataIndex;
+                                    var rows = window.__pfDashSalesRows || [];
+                                    var row = rows[idx] || {};
+                                    var prev = row.prev_revenue != null ? Number(row.prev_revenue) : null;
+                                    var growth = row.growth_pct != null ? Number(row.growth_pct) : null;
+                                    var label = 'Total sales revenue: ' + currencyFmt.format(Number(ctx.parsed.y) || 0);
+                                    if (prev !== null && !isNaN(prev)) label += '\nPrev: ' + currencyFmt.format(prev);
+                                    if (growth !== null && !isNaN(growth)) label += '\nGrowth: ' + (growth > 0 ? '+' : '') + growth.toFixed(1) + '%';
+                                    return label;
+                                },
+                                afterLabel: function (ctx) {
+                                    var totalRevenue = (window.__pfDashSalesRows || []).reduce(function (sum, row) { return sum + (Number(row.revenue) || 0); }, 0);
+                                    var pct = totalRevenue > 0 ? ((Number(ctx.parsed.y) || 0) / totalRevenue) * 100 : 0;
+                                    return 'Contribution: ' + pct.toFixed(1) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { font: pfDashChartFont(isDashMobile() ? 10 : 11, '600'), maxTicksLimit: isDashMobile() ? 5 : 7, callback: function (v) { return compactCurrencyFmt.format(Number(v) || 0); } }, grid: { color: '#f3f4f6' } },
+                        x: { ticks: { color: '#334155', font: pfDashChartFont(isDashMobile() ? 9 : 11, '600'), maxRotation: 0, minRotation: 0 }, grid: { display: false } }
+                    }
+                },
+                plugins: [{
+                    id: 'pfBranchRevenueLabels',
+                    afterDatasetsDraw: function (chart) {
+                        var ctx = chart.ctx;
+                        var meta = chart.getDatasetMeta(0);
+                        var dataset = chart.data.datasets[0];
+                        var rows = window.__pfDashSalesRows || [];
+                        ctx.save();
+                        ctx.font = '600 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        meta.data.forEach(function (bar, index) {
+                            var value = Number(dataset.data[index]) || 0;
+                            var row = rows[index] || {};
+                            var growth = row.growth_pct != null ? Number(row.growth_pct) : null;
+                            ctx.fillStyle = index === 0 ? '#0F172A' : '#334155';
+                            ctx.fillText('\u20b1' + value.toLocaleString(undefined, { maximumFractionDigits: 0 }), bar.x, bar.y - 6);
+                            if (growth !== null && !isNaN(growth)) {
+                                ctx.save();
+                                ctx.font = 'bold 10px sans-serif';
+                                ctx.fillStyle = growth > 0 ? '#059669' : (growth < 0 ? '#dc2626' : '#64748b');
+                                ctx.fillText((growth > 0 ? '+' : '') + growth.toFixed(1) + '%', bar.x, bar.y - 22);
+                                ctx.restore();
+                            }
+                        });
+                        ctx.restore();
+                    }
+                }]
             });
-            loadSalesChart(getChartPeriod());
+            loadSalesChart();
         }
-
         var statusCanvas = document.getElementById('statusChart');
         if (statusCanvas) {
             var statusLabels = <?php echo json_encode(array_map(fn($d) => $d['status'], $order_status)); ?>;
             var statusValues = <?php echo json_encode(array_map(fn($d) => (int)$d['cnt'], $order_status)); ?>;
-            var statusPalette = { 'completed':'#22c55e', 'processing':'#3b82f6', 'in production':'#3b82f6', 'printing':'#3b82f6', 'ready for pickup':'#06b6d4', 'pending':'#f59e0b', 'pending review':'#6b7280', 'cancelled':'#ef4444', 'rejected':'#ef4444', 'design approved':'#6366f1' };
-            var statusColors = statusLabels.map(function (label) { return statusPalette[String(label || '').toLowerCase().trim()] || '#6B7C85'; });
+            var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
+            var statusColors = statusLabels.map(function(_, i) { return catColors[i % catColors.length]; });
             window.__pfDashStatusChart = new Chart(statusCanvas.getContext('2d'), { type: 'doughnut', data: { labels: statusLabels, datasets: [{ data: statusValues, backgroundColor: statusColors, borderWidth: 2, borderColor: '#fff', hoverOffset: 8 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', animation: doughnutAnim, plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } } } });
             renderLegend('status-legend', statusLabels, statusColors);
         }
@@ -968,15 +1042,6 @@ $page_title = 'Dashboard - Manager | PrintFlow';
             });
             window.__pfDashProductsChart.render();
         }
-
-        document.getElementById('dash-chart-period')?.addEventListener('change', function () {
-            var period = getChartPeriod();
-            updateChartYearMonthVisibility(period);
-            loadSalesChart(period);
-        }, sig);
-        document.getElementById('dash-chart-year')?.addEventListener('change', function () { loadSalesChart(getChartPeriod()); }, sig);
-        document.getElementById('dash-chart-month')?.addEventListener('change', function () { loadSalesChart(getChartPeriod()); }, sig);
-        updateChartYearMonthVisibility(getChartPeriod());
 
         document.querySelectorAll('.performer-btn').forEach(function (btn) {
             btn.addEventListener('click', function () {
