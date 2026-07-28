@@ -13,8 +13,11 @@ $rescanBlock = ($rescanStart !== false && $rescanEnd !== false) ? substr($page, 
 
 if ($rescanBlock === '') $failures[] = 'The Re-scan OCR handler is missing.';
 if (strpos($rescanBlock, 'location.reload') !== false) $failures[] = 'Re-scan must refresh extracted fields without a full-page reload.';
-foreach (['fetchRescanStatus', 'updateOcrUi', 'pvOcrStatus', 'pvRawOcrText'] as $fragment) {
+foreach (['fetchRescanStatus', 'updateOcrUi', 'pvOcrStatus'] as $fragment) {
     if (strpos($page, $fragment) === false) $failures[] = "Missing in-place OCR refresh fragment: {$fragment}";
+}
+if (strpos($page, 'pvRawOcrText') !== false || strpos($page, 'Raw OCR Text (staff only)') !== false) {
+    $failures[] = 'Raw OCR text must stay stored by the API but hidden from the standard review modal.';
 }
 foreach (['ocr_sender_mobile', 'ocr_transaction_status', 'ocr_total_amount_sent', 'raw_ocr_text', 'ocr_provider', 'confidences'] as $fragment) {
     if (strpos($api, $fragment) === false) $failures[] = "Re-scan status API is missing: {$fragment}";

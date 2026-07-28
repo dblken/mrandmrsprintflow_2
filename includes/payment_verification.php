@@ -2061,6 +2061,90 @@ if (!function_exists('payment_verification_repair_duplicate_states')) {
     }
 }
 
+if (!function_exists('payment_verification_repair_contaminated_reference')) {
+    function payment_verification_repair_contaminated_reference(int $submissionId): bool {
+        if ($submissionId <= 0) return false;
+        $rows = db_query(
+            "SELECT id, raw_ocr_text, ocr_reference_number, reference_number, corrected_at
+             FROM payment_submissions WHERE id = ? LIMIT 1",
+            'i',
+            [$submissionId]
+        );
+        $row = $rows[0] ?? null;
+        if (!$row) return false;
+
+        $ocrReference = trim((string)($row['ocr_reference_number'] ?? ''));
+        $effectiveReference = trim((string)($row['reference_number'] ?: $ocrReference));
+        $looksContaminated = (bool)preg_match(
+            '/(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|20\d{2}|(?:AM|PM)$)/i',
+            $effectiveReference
+        );
+        if (!$looksContaminated) return true;
+
+        $parsed = payment_ocr_parse_receipt_text((string)($row['raw_ocr_text'] ?? ''));
+        $reference = payment_verification_normalize_reference((string)($parsed['reference_number'] ?? ''));
+        if ($reference === '' || $reference === payment_verification_normalize_reference($effectiveReference)) {
+            return false;
+        }
+
+        $assignments = [
+            'ocr_reference_number = ?',
+            'reference_normalized = ?',
+            'ocr_transaction_date = COALESCE(?, ocr_transaction_date)',
+            'ocr_transaction_time = COALESCE(?, ocr_transaction_time)',
+        ];
+        $params = [
+            $reference,
+            $reference,
+            $parsed['transaction_date'] ?? null,
+            $parsed['transaction_time'] ?? null,
+        ];
+        if (empty($row['corrected_at'])) {
+            $assignments[] = "reference_number = NULL";
+        }
+        $params[] = $submissionId;
+        $ok = db_execute(
+            'UPDATE payment_submissions SET ' . implode(', ', $assignments) . ' WHERE id = ?',
+            str_repeat('s', count($params) - 1) . 'i',
+            $params
+        );
+        if (!$ok) return false;
+        return payment_verification_recalculate($submissionId);
+    }
+}
+
+if (!function_exists('payment_verification_sync_submitted_payment_status')) {
+    function payment_verification_sync_submitted_payment_status(array $submission): bool {
+        $verificationStatus = (string)($submission['verification_status'] ?? '');
+        if (in_array($verificationStatus, ['Approved', 'Rejected'], true)) return true;
+
+        $ok = true;
+        $orderId = (int)($submission['order_id'] ?? 0);
+        if ($orderId > 0 && db_table_has_column('orders', 'payment_status')) {
+            $ok = db_execute(
+                "UPDATE orders
+                 SET payment_status = 'Payment Proof Submitted'
+                 WHERE order_id = ?
+                   AND LOWER(TRIM(COALESCE(payment_status, ''))) IN ('', 'unpaid')",
+                'i',
+                [$orderId]
+            ) && $ok;
+        }
+        $jobOrderId = (int)($submission['job_order_id'] ?? 0);
+        if ($jobOrderId > 0 && db_table_has_column('job_orders', 'payment_status')) {
+            $ok = db_execute(
+                "UPDATE job_orders
+                 SET payment_status = 'UNDER VERIFICATION'
+                 WHERE id = ?
+                   AND UPPER(TRIM(COALESCE(payment_status, ''))) IN ('', 'UNPAID')",
+                'i',
+                [$jobOrderId]
+            ) && $ok;
+        }
+        return $ok;
+    }
+}
+
 if (!function_exists('payment_verification_save_corrections')) {
     function payment_verification_save_corrections(int $submissionId, array $input, int $staffId): array {
         if ($submissionId <= 0 || $staffId <= 0 || !payment_verification_ensure_schema()) {

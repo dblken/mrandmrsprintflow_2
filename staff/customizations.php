@@ -1045,6 +1045,56 @@ $online_closed_count = 0;
             border-color: #dc2626 !important;
             box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
         }
+        .payment-proof-preview,
+        .payment-proof-preview img {
+            opacity: 1 !important;
+            filter: none !important;
+        }
+        .payment-proof-preview {
+            isolation: isolate;
+            background: #fff;
+        }
+        .payment-proof-preview img {
+            display: block;
+            width: auto;
+            max-width: 100%;
+            height: auto;
+            max-height: 70vh;
+            object-fit: contain;
+            image-rendering: auto;
+            mix-blend-mode: normal;
+        }
+        .ink-set-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .ink-set-option {
+            min-width: 88px;
+            padding: 10px 18px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #fff;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+        }
+        .ink-set-option:hover {
+            border-color: #0f766e;
+            background: #f0fdfa;
+        }
+        .ink-set-option:focus-visible {
+            outline: 3px solid rgba(15, 118, 110, .22);
+            outline-offset: 2px;
+        }
+        .ink-set-option.is-selected {
+            border-color: #0f766e;
+            background: #ccfbf1;
+            color: #115e59;
+        }
     </style>
 </head>
 <body data-base-url="<?php echo htmlspecialchars(BASE_URL); ?>" data-csrf="<?php echo htmlspecialchars(generate_csrf_token()); ?>" data-user-type="<?php echo htmlspecialchars($_SESSION['user_type'] ?? 'Staff'); ?>">
@@ -1689,10 +1739,9 @@ $online_closed_count = 0;
                     <template x-if="staffPaymentProofSrc(currentJo) && !isVerifyStageRow(currentJo)">
                         <div style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
                             <label style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;display:block;margin-bottom:12px;">Payment proof (customer)</label>
-                            <div @click="previewFile = staffPaymentProofSrc(currentJo)"
+                            <div class="payment-proof-preview" @click="previewFile = staffPaymentProofSrc(currentJo)"
                                  style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
                                 <img :src="staffPaymentProofSrc(currentJo)"
-                                     style="display:block;width:auto;max-width:100%;height:auto;max-height:420px;object-fit:contain;image-rendering:auto;filter:none;opacity:1;background:#fff;"
                                      alt="Payment proof"
                                      @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment+proof'; $el.style.opacity='0.4'">
                             </div>
@@ -1724,10 +1773,9 @@ $online_closed_count = 0;
                             
                             <div style="display:flex; flex-direction:column; gap:14px;">
                                 <template x-if="staffPaymentProofSrc(currentJo)">
-                                        <div @click="previewFile = staffPaymentProofSrc(currentJo)"
+                                        <div class="payment-proof-preview" @click="previewFile = staffPaymentProofSrc(currentJo)"
                                              style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
                                             <img :src="staffPaymentProofSrc(currentJo)"
-                                                 style="display:block;width:auto;max-width:100%;height:auto;max-height:460px;object-fit:contain;image-rendering:auto;filter:none;opacity:1;background:#fff;"
                                                  alt="Payment Proof"
                                                  @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment Proof'; $el.style.opacity='0.4'">
                                         </div>
@@ -1816,11 +1864,13 @@ $online_closed_count = 0;
                                         <div x-show="requiresInk" x-transition
                                              :style="productionErrors.ink_set ? 'padding:16px;border:1px solid #dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12);border-radius:12px;background:#f9fafb;' : 'padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f9fafb;'">
                                             <label style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:10px; display:block;">Select Ink Set</label>
-                                            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+                                            <div class="ink-set-options" role="radiogroup" aria-label="Ink set">
                                                 <template x-for="type in availableInkOptionsForService" :key="type">
                                                     <button type="button" @click="inkCategorySelected = type; productionErrors.ink_set = ''"
-                                                            :style="inkCategorySelected === type ? 'background:#06A1A1; color:white; border-color:#06A1A1;' : 'background:white; color:#64748b; border-color:#e2e8f0;'"
-                                                            style="padding:8px 16px; border-radius:8px; border:2px solid; font-size:12px; font-weight:700; transition:all 0.2s; cursor:pointer;"
+                                                            class="ink-set-option"
+                                                            :class="{ 'is-selected': inkCategorySelected === type }"
+                                                            role="radio"
+                                                            :aria-checked="inkCategorySelected === type ? 'true' : 'false'"
                                                             x-text="type"></button>
                                                 </template>
                                             </div>
@@ -3601,7 +3651,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             staffPaymentProofSrc(jo) {
                 if (!jo) return '';
-                const raw = (jo.payment_proof_path || jo.payment_proof || '').trim();
+                const raw = (jo.payment_proof_original_url || jo.payment_proof_path || jo.payment_proof || '').trim();
                 return raw ? this.staffResolveMediaUrl(raw) : '';
             },
             staffFilenameLooksLikeImage(name) {

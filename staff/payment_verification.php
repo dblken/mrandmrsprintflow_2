@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/JobOrderService.php';
 
 require_role(['Admin', 'Staff']);
 printflow_require_staff_module('payment_verification');
@@ -241,19 +242,40 @@ try {
     $detail      = $detailId > 0 ? payment_verification_get_submission($detailId) : null;
     if ($detail && !payment_verification_can_access($detail, $branchFilter)) $detail = null;
     if ($detail) {
+        payment_verification_sync_submitted_payment_status($detail);
+        payment_verification_repair_contaminated_reference($detailId);
         payment_verification_recalculate($detailId);
         $detail = payment_verification_get_submission($detailId);
     }
     if ($detail && (int)($detail['order_id'] ?? 0) > 0) {
-        $detailItems = db_query(
-            "SELECT oi.quantity, oi.unit_price, COALESCE(NULLIF(p.name, ''), 'Custom item') AS item_name
-             FROM order_items oi
-             LEFT JOIN products p ON p.product_id = oi.product_id
-             WHERE oi.order_id = ?
-             ORDER BY oi.order_item_id ASC",
+        $detailOrderId = (int)$detail['order_id'];
+        $resolvedPayload = JobOrderService::getStoreOrderItemsPayload($detailOrderId, false, true);
+        $priceRows = db_query(
+            "SELECT order_item_id, order_id, quantity, unit_price
+             FROM order_items
+             WHERE order_id = ?
+             ORDER BY order_item_id ASC",
             'i',
-            [(int)$detail['order_id']]
+            [$detailOrderId]
         ) ?: [];
+        $priceByItemId = [];
+        foreach ($priceRows as $priceRow) {
+            if ((int)($priceRow['order_id'] ?? 0) !== $detailOrderId) continue;
+            $priceByItemId[(int)$priceRow['order_item_id']] = $priceRow;
+        }
+        foreach ((array)($resolvedPayload['items'] ?? []) as $resolvedItem) {
+            if ((int)($resolvedItem['order_id'] ?? 0) !== $detailOrderId) continue;
+            $orderItemId = (int)($resolvedItem['order_item_id'] ?? 0);
+            $priceRow = $priceByItemId[$orderItemId] ?? null;
+            if (!$priceRow) continue;
+            $detailItems[] = [
+                'order_item_id' => $orderItemId,
+                'order_id' => $detailOrderId,
+                'quantity' => max(1, (int)($priceRow['quantity'] ?? $resolvedItem['quantity'] ?? 1)),
+                'unit_price' => (float)($priceRow['unit_price'] ?? 0),
+                'item_name' => trim((string)($resolvedItem['product_name'] ?? '')) ?: 'Custom item',
+            ];
+        }
     }
 
 } catch (Throwable $e) {
@@ -625,7 +647,7 @@ $csrfToken = generate_csrf_token();
         <header class="pv-drawer-head"><div><strong style="font-size:19px;">Review <?php echo pv_h(payment_verification_order_label($detail)); ?></strong><div class="pv-muted">Submission #<?php echo (int)$detail['id']; ?>, received <?php echo pv_h(date('M j, Y g:i A', strtotime((string)$detail['created_at']))); ?></div></div><a class="pv-button light" href="?<?php echo pv_h(http_build_query(array_filter($closeQuery, static fn($value) => $value !== ''))); ?>">Close</a></header>
         <div class="pv-detail-grid">
             <div>
-                <div class="pv-card"><h2 class="pv-card-title">Receipt</h2><?php if ($detailIsPdf): ?><object class="pv-proof-pdf" data="<?php echo pv_h($proofUrl); ?>" type="application/pdf"><a href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open PDF receipt</a></object><?php else: ?><img class="pv-proof-large" src="<?php echo pv_h($proofUrl); ?>" alt="Uploaded payment receipt"><?php endif; ?><div class="pv-actions"><a class="pv-button light" href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open Full Receipt</a><button class="pv-button light" id="pvRescanButton" type="button" onclick="pvRescan(<?php echo (int)$detail['id']; ?>)" <?php echo $isFinal ? 'disabled' : ''; ?>>Re-scan OCR</button></div></div>
+                <div class="pv-card"><h2 class="pv-card-title">Payment Proof</h2><?php if ($detailIsPdf): ?><object class="pv-proof-pdf" data="<?php echo pv_h($proofUrl); ?>" type="application/pdf"><a href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open PDF receipt</a></object><?php else: ?><img class="pv-proof-large" src="<?php echo pv_h($proofUrl); ?>" alt="Uploaded payment receipt"><?php endif; ?><div class="pv-actions"><a class="pv-button light" href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open Full Receipt</a><button class="pv-button light" id="pvRescanButton" type="button" onclick="pvRescan(<?php echo (int)$detail['id']; ?>)" <?php echo $isFinal ? 'disabled' : ''; ?>>Re-scan OCR</button></div></div>
                 <div class="pv-card"><h2 class="pv-card-title">Order Information</h2><div class="pv-info-grid"><div class="pv-info"><span class="pv-info-label">Order Code</span><span class="pv-info-value"><?php echo pv_h(payment_verification_order_label($detail)); ?></span></div><div class="pv-info"><span class="pv-info-label">Customer</span><span class="pv-info-value"><?php echo pv_h($detail['customer_name'] ?: 'Customer'); ?></span></div><div class="pv-info"><span class="pv-info-label">Order Total</span><span class="pv-info-value"><?php echo pv_h(format_currency((float)$detail['expected_amount'])); ?></span></div><div class="pv-info"><span class="pv-info-label">Selected Method</span><span class="pv-info-value"><?php echo pv_h($detail['selected_payment_method'] ?: 'Unknown'); ?></span></div><div class="pv-info"><span class="pv-info-label">Order Status</span><span class="pv-info-value"><?php echo pv_h($detail['order_status'] ?: $detail['job_status']); ?></span></div><div class="pv-info"><span class="pv-info-label">Payment Status</span><span class="pv-info-value"><?php echo pv_h($detail['order_payment_status'] ?: $detail['job_payment_status']); ?></span></div><?php if (!empty($detail['job_title']) || !empty($detail['service_type'])): ?><div class="pv-info"><span class="pv-info-label">Job / Service</span><span class="pv-info-value"><?php echo pv_h(trim((string)($detail['job_title'] ?: $detail['service_type']))); ?></span></div><?php endif; ?></div><?php if ($detailItems): ?><div style="margin-top:12px;"><?php foreach ($detailItems as $item): ?><div class="pv-info" style="margin-top:7px;"><span class="pv-info-label">Order Item</span><span class="pv-info-value"><?php echo pv_h($item['item_name']); ?> × <?php echo (int)$item['quantity']; ?> — <?php echo pv_h(format_currency((float)$item['unit_price'] * (int)$item['quantity'])); ?></span></div><?php endforeach; ?></div><?php endif; ?></div>
             </div>
             <div>
@@ -672,15 +694,7 @@ $csrfToken = generate_csrf_token();
                         <div class="pv-edit-field"><label>Transaction Time</label><input type="time" name="transaction_time" readonly value="<?php echo pv_h(substr(pv_effective($detail, 'transaction_time', 'ocr_transaction_time'), 0, 5)); ?>"></div>
                         <div class="pv-edit-field"><label>Transaction Status</label><input name="transaction_status" readonly value="<?php echo pv_h(pv_effective($detail, 'transaction_status', 'ocr_transaction_status')); ?>"></div>
                     </div>
-                    <div class="pv-edit-field" style="margin-top:13px;"><label>Staff Notes</label><textarea name="staff_notes" rows="3" <?php echo $isFinal ? 'disabled' : ''; ?>><?php echo pv_h($detail['staff_notes']); ?></textarea></div>
-                    <div class="pv-actions">
-                        <button class="pv-button light" type="button" onclick="pvApprove()" <?php echo $isFinal ? 'disabled' : ''; ?>>Approve Payment</button>
-                        <button class="pv-button danger" type="button" onclick="pvReject()" <?php echo $isFinal ? 'disabled' : ''; ?>>Reject / Request Resubmission</button>
-                        <button class="pv-button warning" type="button" onclick="pvMarkDuplicate()" <?php echo $isFinal ? 'disabled' : ''; ?>>Mark as Duplicate</button>
-                        <span class="pv-status <?php echo pv_status_class($detailStatus); ?>" id="pvVerificationStatus"><?php echo pv_h($detailStatus); ?></span>
-                    </div>
                 </form>
-                <details class="pv-card"><summary class="pv-card-title" style="cursor:pointer;margin:0;">Raw OCR Text (staff only)</summary><pre class="pv-raw" id="pvRawOcrText"><?php echo pv_h($detail['raw_ocr_text'] ?: 'No OCR text is available. Review the receipt manually.'); ?></pre></details>
             </div>
         </div>
     </section>
@@ -716,61 +730,6 @@ window.pvDetail = <?php echo json_encode([
         if (!response.ok || !payload.success) throw new Error(payload.error || 'The action could not be completed.');
         return payload;
     }
-    window.pvApprove = async function () {
-        if (!detail || !confirm('Approve this payment after reviewing the original receipt and OCR details?')) return;
-        try {
-            const data = new FormData();
-            data.set('submission_id', detail.submissionId);
-            data.set('staff_notes', new FormData(form).get('staff_notes') || '');
-            let url;
-            if (detail.jobOrderId > 0) {
-                url = base + '/admin/api_verify_job_payment.php';
-                data.set('id', detail.jobOrderId);
-                data.set('order_id', detail.orderId);
-                data.set('action', 'verify_payment');
-            } else {
-                url = base + '/staff/api_verify_payment.php';
-                data.set('order_id', detail.orderId);
-                data.set('action', 'Approve');
-            }
-            await post(url, data);
-            toast('Payment verified and approved.');
-            window.setTimeout(() => { location.href = detail.returnUrl; }, 800);
-        } catch (error) { toast(error.message, true); }
-    };
-    window.pvReject = async function () {
-        if (!detail) return;
-        const reason = prompt('Enter the rejection reason. The customer will be asked to upload a new receipt:');
-        if (!reason || !reason.trim()) return;
-        try {
-            const data = new FormData();
-            data.set('submission_id', detail.submissionId);
-            data.set('staff_notes', new FormData(form).get('staff_notes') || '');
-            data.set('reason', reason.trim());
-            let url;
-            if (detail.jobOrderId > 0) {
-                url = base + '/admin/api_verify_job_payment.php';
-                data.set('id', detail.jobOrderId);
-                data.set('order_id', detail.orderId);
-                data.set('action', 'reject_payment');
-            } else {
-                url = base + '/staff/api_verify_payment.php';
-                data.set('order_id', detail.orderId);
-                data.set('action', 'Reject');
-            }
-            await post(url, data);
-            toast('Payment proof rejected. The customer can upload a new receipt.');
-            window.setTimeout(() => { location.href = detail.returnUrl; }, 900);
-        } catch (error) { toast(error.message, true); }
-    };
-    window.pvMarkDuplicate = async function () {
-        if (!detail || !confirm('Mark this reference or receipt as a suspected duplicate? This does not reject or approve payment.')) return;
-        const data = new FormData(form);
-        data.set('submission_id', detail.submissionId);
-        data.set('action', 'mark_duplicate');
-        try { await post(base + '/staff/api_payment_verification.php', data); toast('Submission marked as Duplicate Suspected.'); window.setTimeout(() => location.reload(), 650); }
-        catch (error) { toast(error.message, true); }
-    };
     async function fetchRescanStatus(submissionId) {
         const response = await fetch(base + '/staff/api_payment_verification.php?action=rescan_status&submission_id=' + encodeURIComponent(submissionId), {
             method: 'GET', credentials: 'same-origin', cache: 'no-store',
@@ -819,14 +778,10 @@ window.pvDetail = <?php echo json_encode([
             statusPanel.style.borderColor = colors[1];
             statusPanel.style.color = colors[2];
         }
-        const raw = document.getElementById('pvRawOcrText');
-        if (raw) raw.textContent = payload.raw_ocr_text || 'No OCR text is available. Review the receipt manually.';
         const amount = document.getElementById('pvDetectedAmount');
         if (amount) amount.textContent = fields.amount_sent === null || fields.amount_sent === ''
             ? 'OCR could not detect this field'
             : '\u20B1' + Number(fields.amount_sent).toFixed(2);
-        const verification = document.getElementById('pvVerificationStatus');
-        if (verification) verification.textContent = payload.verification_status || 'Needs Review';
     }
     window.pvRescan = async function (submissionId) {
         if (!confirm('Run OCR on this receipt again? Existing staff corrections will be preserved.')) return;

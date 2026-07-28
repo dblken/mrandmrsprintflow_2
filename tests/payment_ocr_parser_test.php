@@ -77,6 +77,7 @@ $referenceLabels = [
     'Reference Number: 7039745278878 Apr 13, 2026 8:17 PM',
     'Ref# 7039745278878 Apr 13, 2026 8:17 PM',
     'RefNo.7039745278878APR132026817PM',
+    'RefNo7039745278878APR132026817PM',
 ];
 foreach ($referenceLabels as $referenceLine) {
     $parsedReference = payment_ocr_parse_receipt_text("GCash\nPayment successful\n{$referenceLine}", [], 90.0);

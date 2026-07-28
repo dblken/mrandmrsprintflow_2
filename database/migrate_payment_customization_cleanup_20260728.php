@@ -51,35 +51,16 @@ $jobsUpdated = db_execute_affected_rows(
 );
 
 $ocrRows = db_query(
-    "SELECT id, raw_ocr_text
+    "SELECT id
      FROM payment_submissions
      WHERE NULLIF(TRIM(raw_ocr_text), '') IS NOT NULL
-       AND UPPER(COALESCE(ocr_reference_number, '')) REGEXP '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|AM|PM)'
+       AND UPPER(COALESCE(NULLIF(reference_number, ''), ocr_reference_number, ''))
+           REGEXP '(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC|20[0-9]{2}|AM|PM)'
      ORDER BY id ASC"
 ) ?: [];
 $ocrRepaired = 0;
 foreach ($ocrRows as $row) {
-    $parsed = payment_ocr_parse_receipt_text((string)$row['raw_ocr_text']);
-    $reference = payment_verification_normalize_reference((string)($parsed['reference_number'] ?? ''));
-    if ($reference === '') continue;
-    if (db_execute(
-        "UPDATE payment_submissions
-         SET ocr_reference_number = ?, reference_normalized = ?,
-             ocr_transaction_date = COALESCE(?, ocr_transaction_date),
-             ocr_transaction_time = COALESCE(?, ocr_transaction_time)
-         WHERE id = ?",
-        'ssssi',
-        [
-            $reference,
-            $reference,
-            $parsed['transaction_date'] ?? null,
-            $parsed['transaction_time'] ?? null,
-            (int)$row['id'],
-        ]
-    )) {
-        payment_verification_recalculate((int)$row['id']);
-        $ocrRepaired++;
-    }
+    if (payment_verification_repair_contaminated_reference((int)$row['id'])) $ocrRepaired++;
 }
 
 $duplicateRowsRecalculated = payment_verification_repair_duplicate_states(500, true);

@@ -199,6 +199,7 @@ $data = [
     'notes' => $o['notes'] ?? '',
     'payment_proof_status' => $payment_proof_status,
     'payment_proof_path' => $payment_proof_url,
+    'payment_proof_original_url' => $payment_proof_url,
     'payment_submitted_amount' => $payment_submitted_amount,
     'payment_proof_uploaded_at' => $payment_proof_uploaded_at,
     'payment_submission_id' => $payment_submission_id,
