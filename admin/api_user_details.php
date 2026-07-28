@@ -9,16 +9,49 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/staff_access.php';
 
 require_role(['Admin', 'Manager']);
-function printflow_admin_user_asset_url(?string $path, string $defaultDir): string
+function printflow_admin_user_asset_candidates(?string $path, string $defaultDir): array
 {
     $path = trim(str_replace('\\', '/', (string)$path));
-    if ($path === '') return '';
-    if (preg_match('#^https?://#i', $path)) return $path;
+    if ($path === '') return [];
+    if (preg_match('#^https?://#i', $path)) return [$path];
+
     $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
     $path = preg_replace('#^(?:\.\./|\./)+#', '', $path);
-    if (str_starts_with($path, '/')) return $base . '/' . ltrim($path, '/');
-    if (str_contains($path, '/')) return $base . '/' . ltrim($path, '/');
-    return $base . '/' . trim($defaultDir, '/') . '/' . rawurlencode($path);
+    $path = preg_replace('#^[A-Za-z]:/#', '', $path);
+    if (preg_match('#(?:^|/)uploads/(.+)$#i', $path, $matches)) {
+        $path = 'uploads/' . ltrim($matches[1], '/');
+    }
+
+    $candidates = [];
+    $add = static function (string $candidate) use (&$candidates, $base): void {
+        $candidate = trim(str_replace('\\', '/', $candidate));
+        if ($candidate === '') return;
+        if (preg_match('#^https?://#i', $candidate)) {
+            $candidates[] = $candidate;
+            return;
+        }
+        $candidates[] = $base . '/' . ltrim($candidate, '/');
+    };
+
+    if (str_starts_with($path, '/') || str_contains($path, '/')) {
+        $add($path);
+    }
+
+    $filename = basename($path);
+    if ($filename !== '') {
+        $encoded = rawurlencode($filename);
+        $add(trim($defaultDir, '/') . '/' . $encoded);
+        $add('uploads/ids/' . $encoded);
+        $add('public/assets/uploads/ids/' . $encoded);
+        $add('uploads/' . $encoded);
+    }
+
+    return array_values(array_unique($candidates));
+}
+
+function printflow_admin_user_asset_url(?string $path, string $defaultDir): string
+{
+    return printflow_admin_user_asset_candidates($path, $defaultDir)[0] ?? '';
 }
 
 $user_id = (int)($_GET['id'] ?? 0);
@@ -59,7 +92,8 @@ if (($user[0]['role'] ?? '') === 'Admin' && ($user[0]['status'] ?? '') !== 'Arch
     }
 }
 
-$user[0]['id_validation_image_url'] = printflow_admin_user_asset_url($user[0]['id_validation_image'] ?? '', 'uploads/ids');
+$user[0]['id_validation_image_candidates'] = printflow_admin_user_asset_candidates($user[0]['id_validation_image'] ?? '', 'uploads/ids');
+$user[0]['id_validation_image_url'] = $user[0]['id_validation_image_candidates'][0] ?? '';
 $user[0]['profile_picture_url'] = printflow_admin_user_asset_url($user[0]['profile_picture'] ?? '', 'uploads/profiles');
 $user[0]['role_display'] = printflow_staff_role_display_name($user[0]['role'] ?? '', $user[0]['position'] ?? null);
 $user[0]['role_key'] = match ($user[0]['role'] ?? '') {

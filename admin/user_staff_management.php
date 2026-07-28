@@ -481,6 +481,7 @@ if (isset($_GET['ajax'])) {
         .um-status-badge.is-archived { background:#f3f4f6;color:#374151; }
         .um-status-badge.is-pending { background:#fef9c3;color:#92400e; }
         .um-id-image { max-width:100%; height:auto; border-radius:8px; border:1px solid #e5e7eb; display:block; }
+        .um-id-fallback { display:none; margin-top:8px; font-size:12px; color:#2563eb; text-decoration:none; font-weight:500; }
         .mf-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
         .mf-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:14px; }
         .mf-full { grid-column:1/-1; }
@@ -1112,7 +1113,8 @@ if (isset($_GET['ajax'])) {
                         <img src="<?php echo $base_path; ?>/uploads/id_validation.png" alt="Valid vs Invalid ID" style="max-width:100%; height:auto; border-radius:6px; margin-bottom:8px;">
                         <template x-if="viewModal.user?.id_validation_image">
                             <div>
-                                <img :src="viewModal.user.id_validation_image_url || idValidationImageUrl(viewModal.user.id_validation_image)" alt="Uploaded ID" class="um-id-image" @error="$el.style.display='none'">
+                                <img :src="idValidationImageSrc(viewModal.user)" alt="Uploaded ID" class="um-id-image" @error="recoverIdImage($event)">
+                                <a :href="idValidationImageSrc(viewModal.user)" target="_blank" rel="noopener" class="um-id-fallback">Open uploaded ID</a>
                             </div>
                         </template>
                     </div>
@@ -2032,9 +2034,45 @@ function userManagement() {
             if (/^https?:\/\//i.test(path)) return path;
             const base = '<?php echo rtrim($base_path, '/'); ?>';
             path = path.replace(/^(\.\.\/|\.\/)+/, '');
+            path = path.replace(/^[A-Za-z]:\//, '');
+            const uploadsMatch = path.match(/(?:^|\/)uploads\/(.+)$/i);
+            if (uploadsMatch) path = 'uploads/' + uploadsMatch[1].replace(/^\/+/, '');
             if (path.startsWith('/')) return base + '/' + path.replace(/^\/+/, '');
             if (path.includes('/')) return base + '/' + path.replace(/^\/+/, '');
             return base + '/uploads/ids/' + encodeURIComponent(path);
+        },
+
+        idValidationImageSrc(user) {
+            const candidates = user?.id_validation_image_candidates || [];
+            return candidates[0] || user?.id_validation_image_url || this.idValidationImageUrl(user?.id_validation_image);
+        },
+
+        recoverIdImage(event) {
+            const img = event.target;
+            const user = this.viewModal.user || {};
+            const tried = Number(img.dataset.tryIndex || '0') + 1;
+            const raw = String(user.id_validation_image || '').trim().replace(/\\/g, '/');
+            const filename = raw.split('/').pop();
+            const base = '<?php echo rtrim($base_path, '/'); ?>';
+            const candidates = [
+                ...(user.id_validation_image_candidates || []),
+                this.idValidationImageUrl(raw),
+                filename ? base + '/uploads/ids/' + encodeURIComponent(filename) : '',
+                filename ? base + '/public/assets/uploads/ids/' + encodeURIComponent(filename) : '',
+                filename ? base + '/uploads/' + encodeURIComponent(filename) : ''
+            ].filter(Boolean);
+            const unique = [...new Set(candidates)];
+            if (tried < unique.length) {
+                img.dataset.tryIndex = String(tried);
+                img.src = unique[tried];
+                return;
+            }
+            img.style.display = 'none';
+            const fallback = img.nextElementSibling;
+            if (fallback) {
+                fallback.href = unique[0] || fallback.href;
+                fallback.style.display = 'inline-flex';
+            }
         },
 
         formatName(name) {

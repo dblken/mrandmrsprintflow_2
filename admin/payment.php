@@ -55,7 +55,15 @@ function pf_admin_payment_proof_url(string $proof): string
     if ($proof === '') {
         return '';
     }
+
     $base = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
+    if (stripos($proof, 'api_view_proof.php') !== false) {
+        if (preg_match('#^https?://#i', $proof)) {
+            return $proof;
+        }
+        return $base . '/' . ltrim($proof, '/');
+    }
+
     return $base . '/staff/api_view_proof.php?file=' . rawurlencode($proof);
 }
 
@@ -217,9 +225,9 @@ if ($schemaReady) {
         $row['proof_status'] = (string)($row['verification_status'] ?? 'Pending Review');
         $row['workflow_status'] = (string)($row['verification_status'] ?? 'Pending Review');
         $row['proof_path'] = $receiptFile;
-        $row['proof_url'] = payment_verification_proof_url($receiptFile);
+        $row['proof_url'] = pf_admin_payment_proof_url($receiptFile);
         $previewPath = (string)(($row['receipt_thumbnail'] ?? '') ?: $receiptFile);
-        $row['proof_preview_url'] = payment_verification_proof_url($previewPath);
+        $row['proof_preview_url'] = pf_admin_payment_proof_url($previewPath);
         $row['submitted_at'] = (string)($row['created_at'] ?? '');
         $row['service_type'] = trim((string)($row['service_type'] ?? '')) ?: ($isCustomization ? 'Customization' : 'Product');
         $row['customer_name'] = trim((string)($row['customer_name'] ?? '')) ?: 'Customer';
@@ -367,8 +375,8 @@ $page_title = 'Payment - Admin | PrintFlow';
         .payment-order-text { font-weight:400;white-space:nowrap;color:#111827; }
         .customs-table tbody tr:hover td { background: #f9fafb; }
         .pf-pay-badge { display:inline-flex; align-items:center; border-radius:20px; padding:3px 10px; font-size:12px; font-weight:500; white-space:nowrap; }
-        .proof-thumb { width:38px;height:38px;border-radius:50%;border:1px solid #e5e7eb;padding:0;background:#fff;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;vertical-align:middle; }
-        .proof-thumb img { width:100%;height:100%;object-fit:cover;display:block; }
+        .proof-thumb { width:42px;height:42px;border-radius:50%;border:1px solid #e5e7eb;padding:2px;background:#fff;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;vertical-align:middle; }
+        .proof-thumb img { width:100%;height:100%;object-fit:contain;display:block;border-radius:50%; }
         .proof-thumb:hover { border-color:#9ca3af; box-shadow:0 2px 8px rgba(15,23,42,.08); }
         .row-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; align-items:center; }
         .btn-action { display:inline-flex; align-items:center; justify-content:center; padding:6px 12px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; transition:all 0.2s; cursor:pointer; text-decoration:none; line-height:1.2; }
@@ -556,7 +564,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                                     <td class="py-3 text-center">
                                         <?php if ($proofUrl !== ''): ?>
                                             <button class="proof-thumb" type="button" onclick="event.stopPropagation(); openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars((string)($payment['order_label'] ?? (($isCustomization ? 'Customization #' : 'Order #') . $recordId)), ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
-                                                <img src="<?php echo htmlspecialchars($proofPreviewUrl); ?>" alt="Payment proof">
+                                                <img src="<?php echo htmlspecialchars($proofPreviewUrl); ?>" alt="Payment proof" onerror="this.onerror=null; this.src='<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>';">
                                             </button>
                                         <?php else: ?>
                                             <span class="text-gray-400 text-xs">None</span>
