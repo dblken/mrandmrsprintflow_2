@@ -475,6 +475,12 @@ if (isset($_GET['ajax'])) {
         .detail-block { flex:1; min-width:140px; background:#f9fafb; border-radius:8px; padding:12px 14px; }
         .detail-block label { font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.4px; display:block; margin-bottom:4px; }
         .detail-block span { font-size:13px; font-weight:400; color:#1f2937; word-wrap:break-word; overflow-wrap:break-word; }
+        .um-status-badge { display:inline-flex !important; align-items:center; padding:3px 10px !important; border-radius:20px !important; font-size:12px !important; font-weight:500 !important; line-height:1.25 !important; white-space:nowrap; }
+        .um-status-badge.is-activated { background:#dcfce7;color:#166534; }
+        .um-status-badge.is-deactivated { background:#fee2e2;color:#991b1b; }
+        .um-status-badge.is-archived { background:#f3f4f6;color:#374151; }
+        .um-status-badge.is-pending { background:#fef9c3;color:#92400e; }
+        .um-id-image { max-width:100%; height:auto; border-radius:8px; border:1px solid #e5e7eb; display:block; }
         .mf-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
         .mf-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:14px; }
         .mf-full { grid-column:1/-1; }
@@ -1012,7 +1018,7 @@ if (isset($_GET['ajax'])) {
             <div>
                 <h2 x-text="'Team Member #' + (viewModal.user?.user_id || '')"></h2>
                 <div x-show="viewModal.user" style="margin-top:4px;">
-                    <span :style="viewModal.user?.status === 'Activated' ? 'background:#dcfce7;color:#166534;' : (viewModal.user?.status === 'Deactivated' ? 'background:#fee2e2;color:#991b1b;' : (viewModal.user?.status === 'Archived' ? 'background:#f3f4f6;color:#374151;' : 'background:#fef9c3;color:#854d0e;'))" style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;" x-text="viewModal.user?.status || '—'"></span>
+                    <span class="um-status-badge" :class="statusBadgeClass(viewModal.user?.status)" x-text="viewModal.user?.status || 'N/A'"></span>
                 </div>
             </div>
             <button @click="viewModal.isOpen = false">
@@ -1090,7 +1096,7 @@ if (isset($_GET['ajax'])) {
                         </div>
                         <div class="detail-block">
                             <label>Account Status</label>
-                            <span :style="viewModal.user?.status === 'Activated' ? 'background:#dcfce7;color:#166534;' : (viewModal.user?.status === 'Deactivated' ? 'background:#fee2e2;color:#991b1b;' : (viewModal.user?.status === 'Archived' ? 'background:#f3f4f6;color:#374151;' : 'background:#fef9c3;color:#854d0e;'))" style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;" x-text="viewModal.user?.status || '—'"></span>
+                            <span class="um-status-badge" :class="statusBadgeClass(viewModal.user?.status)" x-text="viewModal.user?.status || 'N/A'"></span>
                         </div>
                     </div>
                 </div>
@@ -1106,7 +1112,7 @@ if (isset($_GET['ajax'])) {
                         <img src="<?php echo $base_path; ?>/uploads/id_validation.png" alt="Valid vs Invalid ID" style="max-width:100%; height:auto; border-radius:6px; margin-bottom:8px;">
                         <template x-if="viewModal.user?.id_validation_image">
                             <div>
-                                <img :src="'<?php echo $base_path; ?>/uploads/ids/' + viewModal.user.id_validation_image" alt="Uploaded ID" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #e5e7eb;">
+                                <img :src="viewModal.user.id_validation_image_url || idValidationImageUrl(viewModal.user.id_validation_image)" alt="Uploaded ID" class="um-id-image" @error="$el.style.display='none'">
                             </div>
                         </template>
                     </div>
@@ -2011,6 +2017,24 @@ function userManagement() {
                    !this.errors.contact_number && 
                    !this.errors.address &&
                    !this.errors.dob;
+        },
+
+        statusBadgeClass(status) {
+            if (status === 'Activated') return 'is-activated';
+            if (status === 'Deactivated') return 'is-deactivated';
+            if (status === 'Archived') return 'is-archived';
+            return 'is-pending';
+        },
+
+        idValidationImageUrl(path) {
+            path = String(path || '').trim().replace(/\\/g, '/');
+            if (!path) return '';
+            if (/^https?:\/\//i.test(path)) return path;
+            const base = '<?php echo rtrim($base_path, '/'); ?>';
+            path = path.replace(/^(\.\.\/|\.\/)+/, '');
+            if (path.startsWith('/')) return base + '/' + path.replace(/^\/+/, '');
+            if (path.includes('/')) return base + '/' + path.replace(/^\/+/, '');
+            return base + '/uploads/ids/' + encodeURIComponent(path);
         },
 
         formatName(name) {

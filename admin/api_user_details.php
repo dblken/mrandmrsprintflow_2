@@ -9,6 +9,17 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/staff_access.php';
 
 require_role(['Admin', 'Manager']);
+function printflow_admin_user_asset_url(?string $path, string $defaultDir): string
+{
+    $path = trim(str_replace('\\', '/', (string)$path));
+    if ($path === '') return '';
+    if (preg_match('#^https?://#i', $path)) return $path;
+    $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+    $path = preg_replace('#^(?:\.\./|\./)+#', '', $path);
+    if (str_starts_with($path, '/')) return $base . '/' . ltrim($path, '/');
+    if (str_contains($path, '/')) return $base . '/' . ltrim($path, '/');
+    return $base . '/' . trim($defaultDir, '/') . '/' . rawurlencode($path);
+}
 
 $user_id = (int)($_GET['id'] ?? 0);
 if (!$user_id) {
@@ -48,6 +59,8 @@ if (($user[0]['role'] ?? '') === 'Admin' && ($user[0]['status'] ?? '') !== 'Arch
     }
 }
 
+$user[0]['id_validation_image_url'] = printflow_admin_user_asset_url($user[0]['id_validation_image'] ?? '', 'uploads/ids');
+$user[0]['profile_picture_url'] = printflow_admin_user_asset_url($user[0]['profile_picture'] ?? '', 'uploads/profiles');
 $user[0]['role_display'] = printflow_staff_role_display_name($user[0]['role'] ?? '', $user[0]['position'] ?? null);
 $user[0]['role_key'] = match ($user[0]['role'] ?? '') {
     'Staff' => printflow_detect_staff_access_role($user[0]['position'] ?? null) === 'pos'

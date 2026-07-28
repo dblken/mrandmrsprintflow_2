@@ -573,17 +573,20 @@ $page_title = 'Payment - Admin | PrintFlow';
                     </table>
                 </div>
             </div>
-                <?php if ($totalPages > 1): ?>
-                <div class="pagination">
-                    <?php if ($page > 1): ?>
-                        <a class="pf-btn ghost" href="<?php echo htmlspecialchars($buildFilterUrl(['page' => $page - 1])); ?>">Previous</a>
-                    <?php endif; ?>
-                    <span class="pf-btn ghost">Page <?php echo (int)$page; ?> of <?php echo (int)$totalPages; ?></span>
-                    <?php if ($page < $totalPages): ?>
-                        <a class="pf-btn ghost" href="<?php echo htmlspecialchars($buildFilterUrl(['page' => $page + 1])); ?>">Next</a>
-                    <?php endif; ?>
+                <div id="paymentPagination">
+                    <?php
+                    if (!empty($visiblePayments)) {
+                        $pagination_params = array_filter([
+                            'search' => $search,
+                            'type' => $typeFilter !== 'all' ? $typeFilter : '',
+                            'status' => $statusFilter !== 'all' ? $statusFilter : '',
+                            'sort' => $sortBy !== 'newest' ? $sortBy : '',
+                            'branch_id' => printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId,
+                        ], static function ($value) { return $value !== null && $value !== ''; });
+                        echo render_pagination($page, $totalPages, $pagination_params);
+                    }
+                    ?>
                 </div>
-                <?php endif; ?>
             </main>
     </div>
 </div>
