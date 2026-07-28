@@ -312,6 +312,25 @@ if ($action === 'save_corrections') {
 }
 
 if ($action === 'mark_duplicate') {
+    $reference = payment_verification_normalize_reference((string)payment_verification_effective_value(
+        $submission,
+        'reference_number',
+        'ocr_reference_number'
+    ));
+    $duplicateId = payment_verification_duplicate_id(
+        $submissionId,
+        $reference,
+        trim((string)($submission['receipt_sha256'] ?? ''))
+    );
+    if ($duplicateId <= 0) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'error' => 'No matching valid reference number or identical proof image was found.',
+            'csrf_token' => generate_csrf_token(),
+        ]);
+        exit;
+    }
     $notes = trim((string)($_POST['staff_notes'] ?? ''));
     $ok = payment_verification_mark_decision($submissionId, 'Duplicate Suspected', $staffId, '', $notes);
     echo json_encode([

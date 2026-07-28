@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/production_requirements.php';
 
 header('Content-Type: application/json');
 
@@ -176,6 +177,7 @@ $data = [
     'id' => $o['order_id'],
     'order_id' => $o['order_id'],
     'job_order_id' => $linked_job_id ?: null,
+    'requires_ink' => $linked_job_id ? printflow_job_requires_ink($linked_job_id) : true,
     'order_type' => 'ORDER',
     'customer_full_name' => $o['customer_full_name'] ?? trim(($o['first_name'] ?? '') . ' ' . ($o['last_name'] ?? '')),
     'customer_contact' => $o['customer_contact'] ?? '',
@@ -203,7 +205,7 @@ $data = [
     'ocr_status' => $ocr_status,
     'ocr_error' => $ocr_error,
     'verification_status' => $verification_status,
-    'payment_status' => 'NO',
+    'payment_status' => (string)($o['payment_status'] ?? 'Unpaid'),
     'readiness' => 'READY',
     'items' => $items_out,
     'materials' => $materials,

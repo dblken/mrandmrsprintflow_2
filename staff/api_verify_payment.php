@@ -63,7 +63,7 @@ function printflow_staff_apply_orders_payment_proof_rejection(int $orderId, stri
     if (db_table_has_column('orders', 'payment_status')) {
         $sets[] = 'payment_status = ?';
         $types .= 's';
-        $params[] = 'Unpaid';
+        $params[] = 'Rejected';
     }
     if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
         $sets[] = 'payment_proof_needs_resubmit = 1';
@@ -307,7 +307,7 @@ try {
         // Persist Rejected status + markers; uploaded proof stays in DB/on disk until customer replaces it.
         $success = printflow_staff_apply_orders_payment_proof_rejection($order_id, $new_status, $reason);
         if ($success && db_table_has_column('orders', 'payment_status')) {
-            $payment_status = 'Unpaid';
+            $payment_status = 'Rejected';
         }
         
         if ($success) {

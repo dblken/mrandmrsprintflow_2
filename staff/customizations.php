@@ -1041,6 +1041,10 @@ $online_closed_count = 0;
                 width: 100% !important;
             }
         }
+        .production-field-invalid {
+            border-color: #dc2626 !important;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+        }
     </style>
 </head>
 <body data-base-url="<?php echo htmlspecialchars(BASE_URL); ?>" data-csrf="<?php echo htmlspecialchars(generate_csrf_token()); ?>" data-user-type="<?php echo htmlspecialchars($_SESSION['user_type'] ?? 'Staff'); ?>">
@@ -1686,9 +1690,9 @@ $online_closed_count = 0;
                         <div style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
                             <label style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;display:block;margin-bottom:12px;">Payment proof (customer)</label>
                             <div @click="previewFile = staffPaymentProofSrc(currentJo)"
-                                 style="display:block;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:hidden;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
+                                 style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
                                 <img :src="staffPaymentProofSrc(currentJo)"
-                                     style="display:block;width:100%;max-height:420px;object-fit:contain;background:#fff;"
+                                     style="display:block;width:auto;max-width:100%;height:auto;max-height:420px;object-fit:contain;image-rendering:auto;filter:none;opacity:1;background:#fff;"
                                      alt="Payment proof"
                                      @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment+proof'; $el.style.opacity='0.4'">
                             </div>
@@ -1721,9 +1725,9 @@ $online_closed_count = 0;
                             <div style="display:flex; flex-direction:column; gap:14px;">
                                 <template x-if="staffPaymentProofSrc(currentJo)">
                                         <div @click="previewFile = staffPaymentProofSrc(currentJo)"
-                                             style="display:block;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:hidden;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
+                                             style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
                                             <img :src="staffPaymentProofSrc(currentJo)"
-                                                 style="display:block;width:100%;max-height:460px;object-fit:contain;background:#fff;"
+                                                 style="display:block;width:auto;max-width:100%;height:auto;max-height:460px;object-fit:contain;image-rendering:auto;filter:none;opacity:1;background:#fff;"
                                                  alt="Payment Proof"
                                                  @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment Proof'; $el.style.opacity='0.4'">
                                         </div>
@@ -1753,14 +1757,14 @@ $online_closed_count = 0;
                                     
                                     <!-- A. Materials Selection -->
                                     <div style="display:flex; flex-direction:column; gap:12px;">
-                                        <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials</label>
+                                        <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials <span style="color:#dc2626;">*</span></label>
                                         
                                         <!-- Searchable Selection -->
                                         <div style="position:relative;">
                                             <input type="text" x-model="materialSearch" placeholder="Search materials (e.g. tarpaulin, vinyl...)" 
                                                    style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
                                             
-                                            <select x-model="newMaterialId" @change="handleMaterialSelection($event.target.value)" 
+                                            <select x-model="newMaterialId" @change="handleMaterialSelection($event.target.value); productionErrors.material = ''"
                                                     style="width:100%; padding:10px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; background:white; cursor:pointer;">
                                                 <option value="">-- Choose Material --</option>
                                                 <template x-for="item in availableMaterialsForCurrentOrder" :key="item.id">
@@ -1800,23 +1804,21 @@ $online_closed_count = 0;
                                                 </div>
                                             </template>
                                         </div>
+                                        <div x-show="productionErrors.material" x-text="productionErrors.material" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                     </div>
 
                                     <!-- B. Ink Options -->
                                     <div style="display:flex; flex-direction:column; gap:12px;">
                                         <div style="display:flex; align-items:center; justify-content:space-between;">
-                                            <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options</label>
-                                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                                                <input type="checkbox" x-model="useInk" style="width:16px; height:16px; cursor:pointer; accent-color:#06A1A1;">
-                                                <span style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase;">Use Ink</span>
-                                            </label>
+                                            <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options <span x-show="requiresInk" style="color:#dc2626;">*</span></label>
                                         </div>
 
-                                        <div x-show="useInk" x-transition style="padding:16px; border:1px solid #cbd5e1; border-radius:12px; background:#f9fafb;">
+                                        <div x-show="requiresInk" x-transition
+                                             :style="productionErrors.ink_set ? 'padding:16px;border:1px solid #dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12);border-radius:12px;background:#f9fafb;' : 'padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f9fafb;'">
                                             <label style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:10px; display:block;">Select Ink Set</label>
                                             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
                                                 <template x-for="type in availableInkOptionsForService" :key="type">
-                                                    <button type="button" @click="inkCategorySelected = type" 
+                                                    <button type="button" @click="inkCategorySelected = type; productionErrors.ink_set = ''"
                                                             :style="inkCategorySelected === type ? 'background:#06A1A1; color:white; border-color:#06A1A1;' : 'background:white; color:#64748b; border-color:#e2e8f0;'"
                                                             style="padding:8px 16px; border-radius:8px; border:2px solid; font-size:12px; font-weight:700; transition:all 0.2s; cursor:pointer;"
                                                             x-text="type"></button>
@@ -1837,7 +1839,7 @@ $online_closed_count = 0;
                                                                     RED
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkRed" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#ef4444'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkRed" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1847,7 +1849,7 @@ $online_closed_count = 0;
                                                                     BLUE
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkBlue" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkBlue" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1857,7 +1859,7 @@ $online_closed_count = 0;
                                                                     BLACK
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkBlack" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#1f2937'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkBlack" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1867,7 +1869,7 @@ $online_closed_count = 0;
                                                                     YELLOW
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkYellow" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#eab308'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkYellow" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1877,12 +1879,14 @@ $online_closed_count = 0;
                                                                 <div x-text="issue"></div>
                                                             </template>
                                                         </div>
+                                                        <div x-show="productionErrors.ink_consumption" x-text="productionErrors.ink_consumption" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                                     </div>
                                                 </div>
                                             </template>
+                                            <div x-show="productionErrors.ink_set" x-text="productionErrors.ink_set" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                         </div>
-                                        <div x-show="!useInk" style="font-size:12px; color:#94a3b8; font-style:italic; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
-                                            No ink required for this job
+                                        <div x-show="!requiresInk" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
+                                            This service is configured as non-ink production.
                                         </div>
                                     </div>
                                 </div>
@@ -2663,6 +2667,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             inkBlack: '',
             inkYellow: '',
             useInk: false,
+            productionErrors: { material: '', ink_set: '', ink_consumption: '' },
             materialSearch: '',
             dateFilter: 'ALL',
             serviceFilter: 'ALL',
@@ -2703,6 +2708,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
 
                 return row;
+            },
+            get requiresInk() {
+                const value = this.currentJo ? this.currentJo.requires_ink : true;
+                return value !== false && value !== 0 && value !== '0';
             },
             clearDeepLinkParams() {
                 try {
@@ -2751,6 +2760,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
                     ? this.currentJo.final_price
                     : '';
+                this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
+                this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
             },
             async fetchOrderModalSummary(orderId, options = {}) {
@@ -2779,6 +2790,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
                     merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
                     this.currentJo = merged;
+                    this.restoreSavedInkUsage();
                     this.modalCache[cacheKey] = merged;
                 } catch (e) {
                     console.warn('Deferred modal assignments load failed:', e);
@@ -4499,6 +4511,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                         ? this.currentJo.final_price
                         : '';
                     this.showDetailsModal = true;
+                    this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
+                    this.restoreSavedInkUsage();
                     this.loadingDetails = false;
                     this.detailError = '';
                     return;
@@ -4995,7 +5009,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
             buildInkPayload() {
-                if (!this.useInk || !this.inkCategorySelected || !this.inkTypes[this.inkCategorySelected]) return [];
+                if (!this.requiresInk || !this.inkCategorySelected || !this.inkTypes[this.inkCategorySelected]) return [];
                 const mappedInks = this.inkTypes[this.inkCategorySelected];
                 const inkPayload = [];
                 if (this.inkBlue > 0) inkPayload.push({ item_id: mappedInks['BLUE'], color: 'BLUE', quantity: this.inkBlue });
@@ -5003,6 +5017,51 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (this.inkBlack > 0) inkPayload.push({ item_id: mappedInks['BLACK'], color: 'BLACK', quantity: this.inkBlack });
                 if (this.inkYellow > 0) inkPayload.push({ item_id: mappedInks['YELLOW'], color: 'YELLOW', quantity: this.inkYellow });
                 return inkPayload;
+            },
+            restoreSavedInkUsage() {
+                const saved = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
+                if (!saved.length) return;
+                const category = Object.keys(this.inkTypes).find(type => {
+                    const ids = Object.values(this.inkTypes[type]).map(String);
+                    return saved.some(ink => ids.includes(String(ink.item_id)));
+                });
+                if (category) this.inkCategorySelected = category;
+                const quantityFor = color => {
+                    const row = saved.find(ink => String(ink.ink_color || ink.color || '').toUpperCase() === color);
+                    return row ? Number(row.quantity_used ?? row.quantity ?? 0) : '';
+                };
+                this.inkRed = quantityFor('RED');
+                this.inkBlue = quantityFor('BLUE');
+                this.inkBlack = quantityFor('BLACK');
+                this.inkYellow = quantityFor('YELLOW');
+                this.useInk = this.requiresInk;
+            },
+            validateProductionAssignments(extraMaterials = [], extraInks = []) {
+                const errors = { material: '', ink_set: '', ink_consumption: '' };
+                const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials : [];
+                const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
+                if (savedMaterials.length + extraMaterials.length <= 0) {
+                    errors.material = 'Please select and add a material.';
+                }
+                if (this.requiresInk) {
+                    if (!this.inkCategorySelected && savedInks.length === 0) {
+                        errors.ink_set = 'Please select an ink set.';
+                    }
+                    const rawValues = [this.inkRed, this.inkBlue, this.inkBlack, this.inkYellow]
+                        .filter(value => value !== '' && value !== null && value !== undefined)
+                        .map(Number);
+                    if (rawValues.some(value => !Number.isFinite(value) || value < 0)) {
+                        errors.ink_consumption = 'Ink consumption cannot be negative.';
+                    } else {
+                        const savedTotal = savedInks.reduce((sum, ink) => sum + Number(ink.quantity_used || ink.quantity || 0), 0);
+                        const pendingTotal = extraInks.reduce((sum, ink) => sum + Number(ink.quantity || 0), 0);
+                        if (savedTotal + pendingTotal <= 0) {
+                            errors.ink_consumption = 'Please enter the required ink consumption.';
+                        }
+                    }
+                }
+                this.productionErrors = errors;
+                return !Object.values(errors).some(Boolean);
             },
             hasProductionAssignments(extraMaterials = [], extraInks = []) {
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials.length : 0;
@@ -5036,8 +5095,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                         materialsToSave.push(currentMaterial);
                     }
                     const inkPayload = this.buildInkPayload();
-                    if (!this.hasProductionAssignments(materialsToSave, inkPayload)) {
-                        this.setFooterActionError('Please add at least one production material or ink before approving.');
+                    if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
+                        this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                         return;
                     }
                     for (const pm of materialsToSave) {
@@ -5149,6 +5208,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const jid = target.jobId;
                 const userEnteredPrice = parseFloat(this.jobPriceInput);
                 console.log('User entered price (captured early):', userEnteredPrice);
+                if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
+                    this.setFooterActionError('Please enter a valid final price before submitting.');
+                    return;
+                }
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
                 const fromPOS = this.isPosPricingMode()
@@ -5161,8 +5224,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                     materialsToSave.push(currentMaterial);
                 }
                 const inkPayload = this.buildInkPayload();
-                if (!this.hasProductionAssignments(materialsToSave, inkPayload)) {
-                    this.setFooterActionError('Please add at least one production material or ink before submitting.');
+                if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
+                    this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                     return;
                 }
                 for (const pm of materialsToSave) {

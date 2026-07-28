@@ -297,6 +297,7 @@ if (!$is_job) {
     $failure_step = 'order_status_update';
     $sql = "UPDATE orders SET 
             status = 'To Verify', 
+            payment_status = 'Payment Proof Submitted',
             payment_type = ?,
             downpayment_amount = ?, 
             payment_proof = ?, 
@@ -324,6 +325,7 @@ if (!$is_job) {
     $sql = "UPDATE job_orders SET 
             status = 'VERIFY_PAY',
             payment_proof_status = 'SUBMITTED', 
+            payment_status = 'UNDER VERIFICATION',
             payment_proof_path = ?, 
             payment_method = ?,
             payment_submitted_amount = ?, 
@@ -358,6 +360,7 @@ if ($update_success) {
             "UPDATE job_orders SET
                 status = 'VERIFY_PAY',
                 payment_proof_status = 'SUBMITTED',
+                payment_status = 'UNDER VERIFICATION',
                 payment_submitted_amount = ?,
                 payment_proof_path = ?,
                 payment_method = ?,

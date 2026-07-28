@@ -383,7 +383,7 @@ elseif ($action === 'reject_payment') {
     try {
         db_execute("UPDATE job_orders SET 
                     status = 'REJECTED',
-                    payment_status = 'UNPAID',
+                    payment_status = 'REJECTED',
                     payment_proof_status = 'REJECTED',
                     payment_rejection_reason = ?,
                     payment_verified_at = NOW(),
@@ -403,7 +403,7 @@ elseif ($action === 'reject_payment') {
 
         // If linked to a store order, revert to 'To Pay' so they can submit again
         if ($job['order_id']) {
-            db_execute("UPDATE orders SET status = 'Rejected', payment_status = 'Unpaid' WHERE order_id = ?", 'i', [$job['order_id']]);
+            db_execute("UPDATE orders SET status = 'Rejected', payment_status = 'Rejected' WHERE order_id = ?", 'i', [$job['order_id']]);
             db_execute(
                 "UPDATE customizations
                  SET status = 'Rejected', updated_at = NOW()
@@ -414,7 +414,7 @@ elseif ($action === 'reject_payment') {
             db_execute(
                 "UPDATE job_orders
                  SET status = 'REJECTED',
-                     payment_status = 'UNPAID'
+                     payment_status = 'REJECTED'
                  WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
                 'i',
                 [$job['order_id']]

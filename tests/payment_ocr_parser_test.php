@@ -71,6 +71,20 @@ payment_ocr_test_assert($parsedNewGcash['reference_number'] === '6039905089284',
 payment_ocr_test_assert($parsedNewGcash['transaction_date'] === '2026-04-17', 'Unlabeled new GCash date should normalize.');
 payment_ocr_test_assert($parsedNewGcash['transaction_time'] === '12:01:00', 'Unlabeled new GCash time should normalize.');
 
+$referenceLabels = [
+    'Ref No. 7039745278878 Apr 13, 2026 8:17 PM',
+    'Reference No. 7039745278878 Apr 13, 2026 8:17 PM',
+    'Reference Number: 7039745278878 Apr 13, 2026 8:17 PM',
+    'Ref# 7039745278878 Apr 13, 2026 8:17 PM',
+    'RefNo.7039745278878APR132026817PM',
+];
+foreach ($referenceLabels as $referenceLine) {
+    $parsedReference = payment_ocr_parse_receipt_text("GCash\nPayment successful\n{$referenceLine}", [], 90.0);
+    payment_ocr_test_assert($parsedReference['reference_number'] === '7039745278878', "{$referenceLine}: reference must exclude date and time.");
+    payment_ocr_test_assert($parsedReference['transaction_date'] === '2026-04-13', "{$referenceLine}: date should be parsed separately.");
+    payment_ocr_test_assert($parsedReference['transaction_time'] === '20:17:00', "{$referenceLine}: time should be parsed separately.");
+}
+
 $maya = <<<'TEXT'
 Maya
 Payment Successful

@@ -70,6 +70,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/production_requirements.php';
 
 if (!is_logged_in()) {
     jo_api_json_response(['success' => false, 'error' => 'Unauthorized'], 401);
@@ -1073,6 +1074,7 @@ try {
             $order = JobOrderService::getOrder($id);
             if (!$order) throw new Exception("Order not found.");
             $order['readiness'] = JobOrderService::getMaterialReadiness($id);
+            $order['requires_ink'] = printflow_job_requires_ink($id);
             $order['order_code'] = printflow_get_job_inventory_reference($id)['code'] ?? printflow_format_job_code($id);
             if (is_array($order['items'] ?? null)) {
                 jo_api_hydrate_items_raw((int)($order['order_id'] ?? 0), $order['items']);
@@ -2120,7 +2122,16 @@ try {
             $id = (int)($_POST['id'] ?? 0);
             $price = (float)($_POST['price'] ?? 0);
             if (!$id) throw new Exception("ID required.");
+            if (!is_finite($price) || $price <= 0) throw new Exception("Price must be greater than zero.");
             jo_api_require_staff_branch($joStaffBranch, $id);
+            $assignmentErrors = printflow_job_production_assignment_errors($id);
+            if (!empty($assignmentErrors)) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => reset($assignmentErrors),
+                    'errors' => $assignmentErrors,
+                ], 422);
+            }
             // Setting the price also means updating the required payment to match exactly
             $res = db_execute("UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?", 'ddi', [$price, $price, $id]);
             // Also update the orders table so the customer sees the correct price
@@ -2158,6 +2169,13 @@ try {
             $inkData = isset($_POST['ink_data']) ? json_decode($_POST['ink_data'], true) : [];
             
             if (!$orderId) throw new Exception("Order ID required.");
+            if (!is_array($inkData)) throw new Exception("Invalid ink usage data.");
+            foreach ($inkData as $ink) {
+                $quantity = filter_var($ink['quantity'] ?? null, FILTER_VALIDATE_FLOAT);
+                if ($quantity === false || $quantity < 0) {
+                    throw new Exception("Ink consumption cannot be negative.");
+                }
+            }
             if (strtoupper((string)$orderType) === 'ORDER') {
                 jo_api_require_staff_order_branch($joStaffBranch, $orderId);
             } else {

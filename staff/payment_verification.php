@@ -41,7 +41,10 @@ $filterState  = [];
 try {
     $schemaReady = payment_verification_ensure_schema();
     // Repair a bounded set of proof-bearing legacy rows before rendering. This does not run OCR.
-    if ($schemaReady) payment_verification_import_legacy_submissions(25);
+    if ($schemaReady) {
+        payment_verification_import_legacy_submissions(25);
+        payment_verification_repair_duplicate_states(100);
+    }
 
     $branchFilter = printflow_branch_filter_for_user();
     if (($_SESSION['user_type'] ?? '') === 'Staff' && ($branchFilter === null || $branchFilter <= 0)) {
@@ -576,33 +579,19 @@ $csrfToken = generate_csrf_token();
             <?php else: ?>
             <div class="pv-table-wrap">
                 <table class="pv-table">
-                    <thead><tr><th>Proof</th><th>Order / Customer</th><th>Sender / Reference</th><th>Payment Method</th><th>Amounts</th><th>Transaction</th><th>OCR</th><th>Verification</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Proof</th><th>Order / Customer</th><th>Expected Amount</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
                     <?php foreach ($submissions as $submission):
-                        $sender = pv_effective($submission, 'sender_name', 'ocr_sender_name');
-                        $reference = pv_effective($submission, 'reference_number', 'ocr_reference_number');
-                        $detectedMethod = pv_effective($submission, 'detected_payment_method', 'ocr_detected_payment_method');
-                        $amountRaw = payment_verification_effective_value($submission, 'amount_sent', 'ocr_amount_sent');
-                        $amount = ($amountRaw === null || $amountRaw === '') ? null : (float)$amountRaw;
-                        $confidence = (float)($submission['overall_confidence'] ?? 0);
-                        $amountResult = payment_verification_amount_result($submission);
-                        $amountResultLabel = ucwords(str_replace('_', ' ', $amountResult));
                         $previewPath = (string)($submission['receipt_thumbnail'] ?: $submission['receipt_file']);
                         $previewUrl = payment_verification_proof_url($previewPath);
                         $isPdf = strtolower((string)$submission['receipt_mime']) === 'application/pdf' || preg_match('/\.pdf(?:$|\?)/i', (string)$submission['receipt_file']);
-                        $missingField = 'OCR could not detect this field';
-                        $senderMobile = pv_effective($submission, 'sender_mobile', 'ocr_sender_mobile');
-                        $transactionStatus = pv_effective($submission, 'transaction_status', 'ocr_transaction_status');
                         $viewQuery = array_merge($filterState, ['page' => $page, 'submission_id' => (int)$submission['id']]);
                     ?>
                     <tr>
                         <td><?php if ($isPdf): ?><a class="pv-pdf-thumb" href="<?php echo pv_h(payment_verification_proof_url((string)$submission['receipt_file'])); ?>" target="_blank" rel="noopener">PDF</a><?php else: ?><img class="pv-receipt-thumb" src="<?php echo pv_h($previewUrl); ?>" alt="Payment proof thumbnail" loading="lazy"><?php endif; ?></td>
                         <td><div class="pv-mainline"><?php echo pv_h(payment_verification_order_label($submission)); ?></div><div class="pv-muted"><?php echo pv_h($submission['customer_name'] ?: 'Customer'); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h($sender !== '' ? $sender : $missingField); ?></div><div class="pv-muted"><?php echo pv_h($senderMobile !== '' ? $senderMobile : $missingField); ?></div><div class="pv-muted">Ref: <?php echo pv_h($reference !== '' ? $reference : $missingField); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h($detectedMethod !== '' ? $detectedMethod : $missingField); ?></div><div class="pv-muted">Selected: <?php echo pv_h($submission['selected_payment_method'] ?: 'Unknown'); ?></div></td>
-                        <td><div class="pv-mainline">Expected: <?php echo pv_h(format_currency((float)$submission['expected_amount'])); ?></div><div class="pv-muted">Detected: <?php echo $amount === null ? pv_h($missingField) : pv_h(format_currency($amount)); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h(pv_effective($submission, 'transaction_date', 'ocr_transaction_date') ?: $missingField); ?></div><div class="pv-muted"><?php echo pv_h(pv_effective($submission, 'transaction_time', 'ocr_transaction_time') ?: $missingField); ?></div><div class="pv-muted"><?php echo pv_h($transactionStatus !== '' ? $transactionStatus : $missingField); ?></div></td>
-                        <td><div class="pv-mainline"><?php echo pv_h((string)($submission['ocr_status'] ?: 'Pending')); ?></div><div class="pv-muted"><?php echo number_format($confidence, 0); ?>% confidence</div></td>
+                        <td><div class="pv-mainline"><?php echo pv_h(format_currency((float)$submission['expected_amount'])); ?></div></td>
+                        <td><div class="pv-mainline"><?php echo pv_h(date('M j, Y', strtotime((string)$submission['created_at']))); ?></div><div class="pv-muted"><?php echo pv_h(date('g:i A', strtotime((string)$submission['created_at']))); ?></div></td>
                         <td><span class="pv-status <?php echo pv_status_class((string)$submission['verification_status']); ?>"><?php echo pv_h(pv_status_label($submission)); ?></span><?php if ((int)$submission['duplicate_submission_id'] > 0): ?><div class="pv-muted">Matches #<?php echo (int)$submission['duplicate_submission_id']; ?></div><?php endif; ?></td>
                         <td><a class="pv-button light" href="?<?php echo pv_h(http_build_query(array_filter($viewQuery, static fn($value) => $value !== ''))); ?>">Review</a></td>
                     </tr>
@@ -673,27 +662,18 @@ $csrfToken = generate_csrf_token();
                         <span id="pvOcrAttempts" style="font-size:11px;background:rgba(0,0,0,.05);padding:2px 6px;border-radius:4px;<?php echo $ocrAttempts > 0 ? '' : 'display:none;'; ?>">Attempts: <?php echo $ocrAttempts; ?></span>
                     </div>
                     <div class="pv-edit-grid">
-                        <?php $senderConfidence = (float)($detail['sender_confidence'] ?? 0); ?>
-                        <div class="pv-edit-field"><label>Sender Name <span class="pv-confidence <?php echo pv_confidence_class($senderConfidence); ?>" data-ocr-confidence="sender_name"><?php echo number_format($senderConfidence, 0); ?>%</span></label><input name="sender_name" value="<?php echo pv_h(pv_effective($detail, 'sender_name', 'ocr_sender_name')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="sender_name">OCR original: <?php echo pv_h($detail['ocr_sender_name'] ?: 'OCR could not detect this field'); ?></div></div>
-                        <?php $senderMobileConfidence = (float)($detail['sender_mobile_confidence'] ?? 0); ?>
-                        <div class="pv-edit-field"><label>Sender Mobile <span class="pv-confidence <?php echo pv_confidence_class($senderMobileConfidence); ?>" data-ocr-confidence="sender_mobile"><?php echo number_format($senderMobileConfidence, 0); ?>%</span></label><input name="sender_mobile" value="<?php echo pv_h(pv_effective($detail, 'sender_mobile', 'ocr_sender_mobile')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="sender_mobile">OCR original: <?php echo pv_h(($detail['ocr_sender_mobile'] ?? '') ?: 'OCR could not detect this field'); ?></div></div>
-                        <?php $referenceConfidence = (float)($detail['reference_confidence'] ?? 0); ?>
-                        <div class="pv-edit-field"><label>Reference Number <span class="pv-confidence <?php echo pv_confidence_class($referenceConfidence); ?>" data-ocr-confidence="reference_number"><?php echo number_format($referenceConfidence, 0); ?>%</span></label><input name="reference_number" value="<?php echo pv_h(pv_effective($detail, 'reference_number', 'ocr_reference_number')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="reference_number">OCR original: <?php echo pv_h($detail['ocr_reference_number'] ?: 'OCR could not detect this field'); ?></div></div>
-                        <?php $amountConfidence = (float)($detail['amount_confidence'] ?? 0); ?>
-                        <div class="pv-edit-field"><label>Amount Sent <span class="pv-confidence <?php echo pv_confidence_class($amountConfidence); ?>" data-ocr-confidence="amount_sent"><?php echo number_format($amountConfidence, 0); ?>%</span></label><input name="amount_sent" inputmode="decimal" value="<?php echo $detailAmount === null ? '' : pv_h(number_format($detailAmount, 2, '.', '')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="amount_sent">OCR original: <?php echo $detail['ocr_amount_sent'] === null ? 'OCR could not detect this field' : pv_h(format_currency((float)$detail['ocr_amount_sent'])); ?></div></div>
-                        <?php $totalAmountConfidence = (float)($detail['total_amount_confidence'] ?? 0); ?>
-                        <div class="pv-edit-field"><label>Total Amount Sent <span class="pv-confidence <?php echo pv_confidence_class($totalAmountConfidence); ?>" data-ocr-confidence="total_amount_sent"><?php echo number_format($totalAmountConfidence, 0); ?>%</span></label><input name="total_amount_sent" inputmode="decimal" value="<?php echo $detailTotalAmount === null ? '' : pv_h(number_format($detailTotalAmount, 2, '.', '')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="total_amount_sent">OCR original: <?php echo ($detail['ocr_total_amount_sent'] ?? null) === null ? 'OCR could not detect this field' : pv_h(format_currency((float)$detail['ocr_total_amount_sent'])); ?></div></div>
-                        <?php $methodConfidence = (float)($detail['method_confidence'] ?? 0); ?>
-                        <div class="pv-edit-field"><label>Detected Method <span class="pv-confidence <?php echo pv_confidence_class($methodConfidence); ?>" data-ocr-confidence="detected_payment_method"><?php echo number_format($methodConfidence, 0); ?>%</span></label><select name="detected_payment_method" <?php echo $isFinal ? 'disabled' : ''; ?>><option value="">OCR could not detect this field</option><?php foreach (['GCash','Maya','Bank Transfer','Bank Transfer / InstaPay','Bank Transfer / PESONet'] as $option): ?><option value="<?php echo pv_h($option); ?>" <?php echo $detailMethod === $option ? 'selected' : ''; ?>><?php echo pv_h($option); ?></option><?php endforeach; ?></select><div class="pv-original" data-ocr-original="detected_payment_method">OCR original: <?php echo pv_h($detail['ocr_detected_payment_method'] ?: 'OCR could not detect this field'); ?></div></div>
-                        <div class="pv-edit-field"><label>Transaction Date <span class="pv-confidence <?php echo pv_confidence_class((float)($detail['date_confidence'] ?? 0)); ?>" data-ocr-confidence="transaction_date"><?php echo number_format((float)($detail['date_confidence'] ?? 0), 0); ?>%</span></label><input type="date" name="transaction_date" value="<?php echo pv_h(pv_effective($detail, 'transaction_date', 'ocr_transaction_date')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="transaction_date">OCR original: <?php echo pv_h(($detail['ocr_transaction_date'] ?? '') ?: 'OCR could not detect this field'); ?></div></div>
-                        <div class="pv-edit-field"><label>Transaction Time</label><input type="time" name="transaction_time" value="<?php echo pv_h(substr(pv_effective($detail, 'transaction_time', 'ocr_transaction_time'), 0, 5)); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="transaction_time">OCR original: <?php echo pv_h(($detail['ocr_transaction_time'] ?? '') ?: 'OCR could not detect this field'); ?></div></div>
-                        <div class="pv-edit-field"><label>Transaction Status <span class="pv-confidence <?php echo pv_confidence_class((float)($detail['status_confidence'] ?? 0)); ?>" data-ocr-confidence="transaction_status"><?php echo number_format((float)($detail['status_confidence'] ?? 0), 0); ?>%</span></label><input name="transaction_status" value="<?php echo pv_h(pv_effective($detail, 'transaction_status', 'ocr_transaction_status')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="transaction_status">OCR original: <?php echo pv_h(($detail['ocr_transaction_status'] ?? '') ?: 'OCR could not detect this field'); ?></div></div>
-                        <div class="pv-edit-field"><label>Receiver Name</label><input name="receiver_name" value="<?php echo pv_h(pv_effective($detail, 'receiver_name', 'ocr_receiver_name')); ?>" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="receiver_name">OCR original: <?php echo pv_h($detail['ocr_receiver_name'] ?: 'OCR could not detect this field'); ?></div></div>
-                        <div class="pv-edit-field"><label>Receiver Account</label><input name="receiver_account" value="" placeholder="Enter a correction only if needed" <?php echo $isFinal ? 'disabled' : ''; ?>><div class="pv-original" data-ocr-original="receiver_account">Stored masked: <?php echo pv_h(payment_verification_mask_account(pv_effective($detail, 'receiver_account', 'ocr_receiver_account')) ?: 'OCR could not detect this field'); ?></div></div>
+                        <div class="pv-edit-field"><label>Sender Name</label><input name="sender_name" readonly value="<?php echo pv_h(pv_effective($detail, 'sender_name', 'ocr_sender_name')); ?>"></div>
+                        <div class="pv-edit-field"><label>Sender Mobile</label><input name="sender_mobile" readonly value="<?php echo pv_h(pv_effective($detail, 'sender_mobile', 'ocr_sender_mobile')); ?>"></div>
+                        <div class="pv-edit-field"><label>Reference Number</label><input name="reference_number" readonly value="<?php echo pv_h(pv_effective($detail, 'reference_number', 'ocr_reference_number')); ?>"></div>
+                        <div class="pv-edit-field"><label>Amount Sent</label><input name="amount_sent" readonly inputmode="decimal" value="<?php echo $detailAmount === null ? '' : pv_h(number_format($detailAmount, 2, '.', '')); ?>"></div>
+                        <div class="pv-edit-field"><label>Total Amount Sent</label><input name="total_amount_sent" readonly inputmode="decimal" value="<?php echo $detailTotalAmount === null ? '' : pv_h(number_format($detailTotalAmount, 2, '.', '')); ?>"></div>
+                        <div class="pv-edit-field"><label>Detected Method</label><input name="detected_payment_method" readonly value="<?php echo pv_h($detailMethod); ?>"></div>
+                        <div class="pv-edit-field"><label>Transaction Date</label><input type="date" name="transaction_date" readonly value="<?php echo pv_h(pv_effective($detail, 'transaction_date', 'ocr_transaction_date')); ?>"></div>
+                        <div class="pv-edit-field"><label>Transaction Time</label><input type="time" name="transaction_time" readonly value="<?php echo pv_h(substr(pv_effective($detail, 'transaction_time', 'ocr_transaction_time'), 0, 5)); ?>"></div>
+                        <div class="pv-edit-field"><label>Transaction Status</label><input name="transaction_status" readonly value="<?php echo pv_h(pv_effective($detail, 'transaction_status', 'ocr_transaction_status')); ?>"></div>
                     </div>
                     <div class="pv-edit-field" style="margin-top:13px;"><label>Staff Notes</label><textarea name="staff_notes" rows="3" <?php echo $isFinal ? 'disabled' : ''; ?>><?php echo pv_h($detail['staff_notes']); ?></textarea></div>
                     <div class="pv-actions">
-                        <button class="pv-button light" type="button" onclick="pvSaveCorrections()" <?php echo $isFinal ? 'disabled' : ''; ?>>Save Manual Review</button>
                         <button class="pv-button light" type="button" onclick="pvApprove()" <?php echo $isFinal ? 'disabled' : ''; ?>>Approve Payment</button>
                         <button class="pv-button danger" type="button" onclick="pvReject()" <?php echo $isFinal ? 'disabled' : ''; ?>>Reject / Request Resubmission</button>
                         <button class="pv-button warning" type="button" onclick="pvMarkDuplicate()" <?php echo $isFinal ? 'disabled' : ''; ?>>Mark as Duplicate</button>
@@ -736,25 +716,9 @@ window.pvDetail = <?php echo json_encode([
         if (!response.ok || !payload.success) throw new Error(payload.error || 'The action could not be completed.');
         return payload;
     }
-    function correctionData() {
-        const data = new FormData(form);
-        data.set('action', 'save_corrections');
-        return data;
-    }
-    async function saveCorrections(silent) {
-        if (!detail || !form) throw new Error('Payment details are unavailable.');
-        const result = await post(base + '/staff/api_payment_verification.php', correctionData());
-        if (!silent) toast('OCR corrections and staff notes were saved.');
-        return result;
-    }
-    window.pvSaveCorrections = async function () {
-        try { await saveCorrections(false); window.setTimeout(() => location.reload(), 500); }
-        catch (error) { toast(error.message, true); }
-    };
     window.pvApprove = async function () {
         if (!detail || !confirm('Approve this payment after reviewing the original receipt and OCR details?')) return;
         try {
-            await saveCorrections(true);
             const data = new FormData();
             data.set('submission_id', detail.submissionId);
             data.set('staff_notes', new FormData(form).get('staff_notes') || '');
@@ -779,7 +743,6 @@ window.pvDetail = <?php echo json_encode([
         const reason = prompt('Enter the rejection reason. The customer will be asked to upload a new receipt:');
         if (!reason || !reason.trim()) return;
         try {
-            await saveCorrections(true);
             const data = new FormData();
             data.set('submission_id', detail.submissionId);
             data.set('staff_notes', new FormData(form).get('staff_notes') || '');
@@ -817,14 +780,6 @@ window.pvDetail = <?php echo json_encode([
         if (!response.ok || !payload.success) throw new Error(payload.error || 'The OCR result could not be refreshed.');
         return payload;
     }
-    function setConfidence(name, value) {
-        const badge = document.querySelector('[data-ocr-confidence="' + name + '"]');
-        if (!badge) return;
-        const confidence = Number(value || 0);
-        badge.textContent = Math.round(confidence) + '%';
-        badge.classList.remove('confidence-high', 'confidence-review', 'confidence-low');
-        badge.classList.add(confidence >= 85 ? 'confidence-high' : (confidence >= 60 ? 'confidence-review' : 'confidence-low'));
-    }
     function updateOcrUi(payload) {
         if (!form) return;
         const fields = payload.fields || {};
@@ -839,17 +794,6 @@ window.pvDetail = <?php echo json_encode([
                 control.value = value == null ? '' : String(value);
             }
         });
-
-        const originals = payload.ocr_originals || {};
-        Object.entries(originals).forEach(([name, value]) => {
-            const original = document.querySelector('[data-ocr-original="' + name + '"]');
-            if (!original) return;
-            let display = value;
-            if ((name === 'amount_sent' || name === 'total_amount_sent') && value !== null && value !== '') display = '\u20B1' + Number(value).toFixed(2);
-            const prefix = name === 'receiver_account' ? 'Stored masked: ' : 'OCR original: ';
-            original.textContent = prefix + (display === null || display === '' ? 'OCR could not detect this field' : String(display));
-        });
-        Object.entries(payload.confidences || {}).forEach(([name, value]) => setConfidence(name, value));
 
         const status = String(payload.ocr_status || 'Failed');
         const statusPanel = document.getElementById('pvOcrStatusPanel');

@@ -781,6 +781,17 @@ if (!function_exists('payment_ocr_extract_datetime')) {
             . ')\b/iu';
         $timePattern = '/\b(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?\s*(?:AM|PM)?\b/i';
         foreach ($lines as $line) {
+            if (
+                ($date === null || $time === null)
+                && preg_match(
+                    '/((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?))\s*(\d{1,2})\s*,?\s*(20\d{2})\s*(\d{1,2})([0-5]\d)\s*(AM|PM)\b/i',
+                    (string)$line,
+                    $compact
+                )
+            ) {
+                $date = payment_ocr_normalize_date($compact[1] . ' ' . $compact[2] . ', ' . $compact[3]);
+                $time = payment_ocr_normalize_time($compact[4] . ':' . $compact[5] . ' ' . $compact[6]);
+            }
             if ($date === null && preg_match($datePattern, $line, $match)) {
                 $date = payment_ocr_normalize_date($match[0]);
             }
@@ -803,6 +814,36 @@ if (!function_exists('payment_ocr_labeled_value')) {
                 if ($value === '' && isset($lines[$index + 1])) $value = trim((string)$lines[$index + 1]);
                 $value = trim((string)preg_replace('/\s{2,}.*/', '', $value));
                 return mb_substr($value, 0, 190);
+            }
+        }
+        return '';
+    }
+}
+
+if (!function_exists('payment_ocr_extract_reference')) {
+    function payment_ocr_extract_reference(array $lines): string {
+        $label = '(?:reference\s*(?:no\.?|number)?|ref(?:erence)?\s*(?:no\.?|number)?|ref\s*#|transaction\s+id|trace(?:\s+number)?|instapay\s+trace)';
+        $month = '(?:JAN(?:UARY)?|FEB(?:RUARY)?|MAR(?:CH)?|APR(?:IL)?|MAY|JUN(?:E)?|JUL(?:Y)?|AUG(?:UST)?|SEP(?:T(?:EMBER)?)?|OCT(?:OBER)?|NOV(?:EMBER)?|DEC(?:EMBER)?)';
+
+        foreach ($lines as $index => $line) {
+            if (!preg_match('/(?:^|\b)' . $label . '\s*[:#.\-]*\s*(.*)$/i', (string)$line, $match)) {
+                continue;
+            }
+            $value = trim((string)($match[1] ?? ''));
+            if ($value === '' && isset($lines[$index + 1])) {
+                $value = trim((string)$lines[$index + 1]);
+            }
+
+            // OCR frequently joins "Ref No.", the identifier, and the timestamp.
+            // Stop before a month/date/time suffix without damaging alphanumeric IDs.
+            $value = (string)preg_replace(
+                '/(?:\s*' . $month . '\s*\d{1,2}(?:,|\s)*20\d{2}.*|\s+20\d{2}[\/.\-]\d{1,2}[\/.\-]\d{1,2}.*|\s+\d{1,2}[\/.\-]\d{1,2}[\/.\-](?:20)?\d{2}.*|\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?.*)$/i',
+                '',
+                $value
+            );
+            if (preg_match('/^([A-Z0-9]+(?:[\s\-][A-Z0-9]+)*)/i', trim($value), $idMatch)) {
+                $normalized = payment_verification_normalize_reference($idMatch[1]);
+                if ($normalized !== '') return $normalized;
             }
         }
         return '';
@@ -866,10 +907,7 @@ if (!function_exists('payment_ocr_parse_gcash_receipt')) {
         // GCash receipts sometimes format the ref as grouped digits with spaces:
         // "Reference No. 1234 5678 9012". Capture a broader set of chars and
         // then strip non-alphanumeric characters before storing.
-        $reference = payment_ocr_labeled_value($lines, [
-            'reference', 'ref(?:erence)?', 'transaction\s+id', 'trace'
-        ]);
-        $result['reference_number'] = payment_verification_normalize_reference($reference);
+        $result['reference_number'] = payment_ocr_extract_reference($lines);
 
         // ── Date / time ─────────────────────────────────────────────────────────
         // Formats: "Apr 13, 2026 8:17 PM" or "July 11, 2026 11:30 AM"
@@ -1107,16 +1145,7 @@ if (!function_exists('payment_ocr_parse_receipt_text')) {
         $senderMobile = payment_ocr_labeled_value($lines, ['sender\s+mobile', 'sender\s+number', 'mobile\s+number']);
         $receiver = payment_ocr_labeled_value($lines, ['sent\s+to', 'receiver', 'recipient', 'merchant']);
         $receiverAccount = payment_ocr_labeled_value($lines, ['receiver\s+account', 'account\s+number', 'mobile\s+number', 'gcash\s+number']);
-        $reference = payment_ocr_labeled_value($lines, [
-            'reference', 'ref(?:erence)?', 'transaction', 'transaction\s+id',
-            'trace', 'trace\s+number', 'instapay\s+trace'
-        ]);
-        if ($reference !== '') {
-            if (preg_match('/([A-Z0-9][A-Z0-9\- ]{5,40})/i', $reference, $match)) {
-                $reference = trim((string)$match[1]);
-            }
-            if (payment_verification_normalize_reference($reference) === '') $reference = '';
-        }
+        $reference = payment_ocr_extract_reference($lines);
 
         $sender = payment_ocr_name_candidate($sender);
         if ($sender === '') $sender = payment_ocr_infer_sender_name($lines);
@@ -2008,6 +2037,27 @@ if (!function_exists('payment_verification_recalculate')) {
                 $state['verification_status'], $submissionId,
             ]
         );
+    }
+}
+
+if (!function_exists('payment_verification_repair_duplicate_states')) {
+    function payment_verification_repair_duplicate_states(int $limit = 100, bool $includeLinked = false): int {
+        $limit = max(1, min(500, $limit));
+        $linkedFilter = $includeLinked ? '' : ' AND (duplicate_submission_id IS NULL OR duplicate_submission_id = 0)';
+        $rows = db_query(
+            "SELECT id FROM payment_submissions
+             WHERE verification_status = 'Duplicate Suspected'
+             {$linkedFilter}
+             ORDER BY id ASC LIMIT ?",
+            'i',
+            [$limit]
+        ) ?: [];
+        $repaired = 0;
+        foreach ($rows as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0 && payment_verification_recalculate($id)) $repaired++;
+        }
+        return $repaired;
     }
 }
 
