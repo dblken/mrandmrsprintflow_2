@@ -21,9 +21,65 @@ $branchCtx = init_branch_context(false);
 $branchId  = $branchCtx['selected_branch_id']; // always an int for Manager
 $basePath  = defined('BASE_PATH') ? BASE_PATH : '';
 
-// Rolling 30-day window (aligned with admin/dashboard.php KPIs)
-$kpiDateFrom  = date('Y-m-d 00:00:00', strtotime('-29 days'));
-$kpiDateToEnd = date('Y-m-d 23:59:59');
+// Dashboard date filter - mirrors admin/dashboard.php while manager stays branch-locked.
+$dashToday = date('Y-m-d');
+$hasExplicitDateFilter = isset($_GET['preset']) || isset($_GET['from']) || isset($_GET['to']);
+$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? ($hasExplicitDateFilter ? '' : 'this_month'))));
+$dashFromInput = trim((string)($_GET['from'] ?? ''));
+$dashToInput = trim((string)($_GET['to'] ?? ''));
+$dashPreset = 'this_month';
+$dashboard_filter_label = 'This month';
+
+$isValidDate = static function (string $date): bool {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
+    $dt = DateTime::createFromFormat('Y-m-d', $date);
+    return $dt && $dt->format('Y-m-d') === $date;
+};
+
+if ($dashPresetRaw === 'today') {
+    $dashPreset = 'today';
+    $dashboard_filter_label = 'Today';
+    $dashFromDate = $dashToday;
+    $dashToDate = $dashToday;
+} elseif ($dashPresetRaw === 'this_week') {
+    $dashPreset = 'this_week';
+    $dashboard_filter_label = 'This week';
+    $dashFromDate = date('Y-m-d', strtotime('monday this week'));
+    $dashToDate = $dashToday;
+} elseif ($dashPresetRaw === 'this_month') {
+    $dashPreset = 'this_month';
+    $dashboard_filter_label = 'This month';
+    $dashFromDate = date('Y-m-01');
+    $dashToDate = $dashToday;
+} elseif ($isValidDate($dashFromInput) && $isValidDate($dashToInput)) {
+    $dashPreset = '';
+    $dashboard_filter_label = 'Custom range';
+    $dashFromDate = $dashFromInput;
+    $dashToDate = $dashToInput;
+    if (strtotime($dashFromDate) > strtotime($dashToDate)) {
+        [$dashFromDate, $dashToDate] = [$dashToDate, $dashFromDate];
+    }
+} else {
+    $dashPreset = 'this_month';
+    $dashboard_filter_label = 'This month';
+    $dashFromDate = date('Y-m-01');
+    $dashToDate = $dashToday;
+}
+
+$dashFromStart = $dashFromDate . ' 00:00:00';
+$dashToEnd = $dashToDate . ' 23:59:59';
+$dashboard_branch_display = (string)($branchCtx['branch_name'] ?? 'Assigned Branch');
+$dashboard_context_label = $dashboard_branch_display
+    . ' - '
+    . date('M j, Y', strtotime($dashFromDate))
+    . ' - '
+    . date('M j, Y', strtotime($dashToDate))
+    . ' ('
+    . $dashboard_filter_label
+    . ')';
+
+$kpiDateFrom  = $dashFromStart;
+$kpiDateToEnd = $dashToEnd;
 
 // ── KPI: Total Customers (distinct, with activity in window) ───
 try {
@@ -106,10 +162,10 @@ try {
     [$bSqlFrag, $bT5, $bP5] = branch_where_parts('o', $branchId);
     $daily_sales = db_query(
         "SELECT DATE(o.order_date) as day, SUM(o.total_amount) as revenue, COUNT(*) as orders
-         FROM orders o WHERE o.payment_status='Paid' AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+         FROM orders o WHERE o.payment_status='Paid' AND o.order_date BETWEEN ? AND ?
          {$bSqlFrag}
          GROUP BY DATE(o.order_date) ORDER BY day",
-        $bT5 ?: null, $bP5 ?: null
+        'ss' . ($bT5 ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP5 ?: [])
     ) ?: [];
 } catch (Exception $e) { $daily_sales = []; }
 
@@ -117,32 +173,32 @@ try {
 try {
     [$bSqlFrag, $bT6, $bP6] = branch_where_parts('o', $branchId);
     $order_status = db_query(
-        "SELECT o.status, COUNT(*) as cnt FROM orders o WHERE 1=1 {$bSqlFrag} GROUP BY o.status",
-        $bT6 ?: null, $bP6 ?: null
+        "SELECT o.status, COUNT(*) as cnt FROM orders o WHERE o.order_date BETWEEN ? AND ? {$bSqlFrag} GROUP BY o.status",
+        'ss' . ($bT6 ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP6 ?: [])
     ) ?: [];
 } catch (Exception $e) { $order_status = []; }
 
 // ── Sales by Product Category ──────────────────────────────────
 try {
-    $category_sales = pf_dashboard_sales_by_product_category($branchId);
+    $category_sales = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $branchId);
 } catch (Exception $e) { $category_sales = []; }
 
 // ── Top Customers (by spending) ────────────────────────────────
 try {
     [$bSqlFrag_c, $bT_c, $bP_c] = branch_where_parts('o', $branchId);
     [$bSqlFrag_j, $bT_j, $bP_j] = branch_where_parts('j', $branchId);
-    $types = ($bT_c ?: '') . ($bT_j ?: '');
-    $params = array_merge($bP_c ?: [], $bP_j ?: []);
+    $types = 'ss' . ($bT_c ?: '') . 'ss' . ($bT_j ?: '');
+    $params = array_merge([$dashFromStart, $dashToEnd], $bP_c ?: [], [$dashFromStart, $dashToEnd], $bP_j ?: []);
     $top_customers = db_query(
         "SELECT customer_name as name, COUNT(id) as orders, SUM(spent) as spent
          FROM (
              SELECT CONCAT(c.first_name, ' ', c.last_name) COLLATE utf8mb4_unicode_ci as customer_name, o.order_id as id, o.total_amount as spent
              FROM customers c JOIN orders o ON c.customer_id = o.customer_id
-             WHERE o.payment_status = 'Paid' {$bSqlFrag_c}
+             WHERE o.payment_status = 'Paid' AND o.order_date BETWEEN ? AND ? {$bSqlFrag_c}
              UNION ALL
              SELECT j.customer_name COLLATE utf8mb4_unicode_ci, j.id, j.amount_paid as spent
              FROM job_orders j
-             WHERE j.payment_status = 'PAID' AND j.customer_name IS NOT NULL AND j.customer_name != '' {$bSqlFrag_j}
+             WHERE j.payment_status = 'PAID' AND j.created_at BETWEEN ? AND ? AND j.customer_name IS NOT NULL AND j.customer_name != '' {$bSqlFrag_j}
          ) as all_orders
          GROUP BY customer_name ORDER BY spent DESC LIMIT 5",
         $types ?: null, $params ?: null
@@ -159,15 +215,15 @@ try {
          FROM order_items oi
          JOIN products p ON oi.product_id = p.product_id
          JOIN orders o ON oi.order_id = o.order_id
-         WHERE o.payment_status = 'Paid' {$bSqlFrag_tp}
+         WHERE o.payment_status = 'Paid' AND o.order_date BETWEEN ? AND ? {$bSqlFrag_tp}
          GROUP BY p.product_id, p.name, p.sku
          ORDER BY revenue DESC, qty_sold DESC LIMIT 5",
-        $bT_tp ?: null, $bP_tp ?: null
+        'ss' . ($bT_tp ?: ''), array_merge([$dashFromStart, $dashToEnd], $bP_tp ?: [])
     ) ?: [];
 } catch (Exception $e) { $top_products = []; }
 
 try {
-    $top_products_full = pf_reports_top_products_merged('', '', $branchId, 10);
+    $top_products_full = pf_reports_top_products_merged($dashFromDate, $dashToDate, $branchId, 10);
 } catch (Exception $e) {
     $top_products_full = [];
 }
@@ -179,8 +235,8 @@ $dashboard_sales_bar_is_category = !empty($category_sales);
 
 $customer_locations = [];
 try {
-    $locFrom = date('Y-m-d', strtotime('-30 days'));
-    $locTo = date('Y-m-d') . ' 23:59:59';
+    $locFrom = $dashFromDate;
+    $locTo = $dashToEnd;
     $customer_locations = pf_reports_customer_locations_merged($locFrom, $locTo, $branchId, 8, false);
 } catch (Exception $e) {}
 
@@ -365,6 +421,52 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         <main>
             <!-- Branch context banner -->
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
+            <div class="no-print" id="pf-dashboard-toolbar" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;" x-data="dashboardFilterPanel('<?php echo htmlspecialchars($dashPreset); ?>')">
+                <div id="pf-dashboard-toolbar-summary" class="pf-branch-meta-badge" title="Current dashboard branch and date filter">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
+                    <span id="pf-dashboard-toolbar-summary-text"><?php echo htmlspecialchars($dashboard_context_label); ?></span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;position:relative;">
+                    <button class="toolbar-btn" :class="{active: filterOpen}" @click="filterOpen = !filterOpen" style="height:38px;">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V20a1 1 0 01-1.447.894l-2-1A1 1 0 0110 19v-5.5L3.2 4.6A1 1 0 013 4z"/></svg>
+                        Filter
+                    </button>
+                    <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
+                        <div class="filter-panel-header">Filter</div>
+                        <form method="get" id="reportsFilterForm" action="<?php echo htmlspecialchars($basePath . '/manager/dashboard.php'); ?>">
+                            <input type="hidden" name="branch_id" value="<?php echo (int)$branchId; ?>">
+                            <input type="hidden" name="preset" id="dash_preset" value="<?php echo htmlspecialchars($dashPreset); ?>">
+                            <div class="filter-section">
+                                <div class="filter-section-head">
+                                    <div class="filter-section-label">Date range</div>
+                                    <button type="button" class="filter-reset-link" @click="resetDateRange()">Reset</button>
+                                </div>
+                                <div class="filter-date-row">
+                                    <div>
+                                        <div class="filter-date-label">From:</div>
+                                        <input type="date" name="from" id="fp_from" class="filter-input" value="<?php echo htmlspecialchars($dashFromDate); ?>" @input="handleDateTyping(420)" @blur="handleDateTyping(120)">
+                                    </div>
+                                    <div>
+                                        <div class="filter-date-label">To:</div>
+                                        <input type="date" name="to" id="fp_to" class="filter-input" value="<?php echo htmlspecialchars($dashToDate); ?>" @input="handleDateTyping(420)" @blur="handleDateTyping(120)">
+                                    </div>
+                                </div>
+                                <div style="margin-top:10px;font-size:12px;font-weight:600;color:#6b7280;">Quick presets</div>
+                                <div class="fp-preset-grid">
+                                    <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'today' }" @click="setPreset('today')">Today</button>
+                                    <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'this_week' }" @click="setPreset('this_week')">This week</button>
+                                    <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'this_month' }" @click="setPreset('this_month')">This month</button>
+                                </div>
+                            </div>
+                            <div class="filter-actions">
+                                <button type="button" class="filter-btn-reset" style="width:100%;" @click="resetDateRange()">Reset</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div id="pf-dashboard-content">
 
             <!-- KPI Summary Row -->
             <div class="kpi-row">
@@ -375,7 +477,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Branch Customers</span>
                         <span class="kpi-value"><?php echo number_format($total_customers); ?></span>
-                        <span class="kpi-sub">Active in last 30 days</span>
+                        <span class="kpi-sub"><?php echo htmlspecialchars($dashboard_filter_label); ?> period</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
@@ -386,7 +488,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Branch Revenue</span>
                         <span class="kpi-value">₱<?php echo number_format((float)$total_revenue, 2); ?></span>
-                        <span class="kpi-sub">Last 30 days</span>
+                        <span class="kpi-sub"><?php echo htmlspecialchars($dashboard_filter_label); ?> period</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details →</span>
                     </span>
                 </a>
@@ -397,7 +499,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Total Orders</span>
                         <span class="kpi-value"><?php echo number_format($total_orders); ?></span>
-                        <span class="kpi-sub">Last 30 days</span>
+                        <span class="kpi-sub"><?php echo htmlspecialchars($dashboard_filter_label); ?> period</span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
@@ -408,7 +510,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <span class="kpi-card-inner">
                         <span class="kpi-label">Pending Orders</span>
                         <span class="kpi-value"><?php echo number_format($pending_orders); ?></span>
-                        <span class="kpi-sub">Pending in last 30 days</span>
+                        <span class="kpi-sub">Pending in <?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                         <span class="kpi-card-cta" aria-hidden="true">View details &rarr;</span>
                     </span>
                 </a>
@@ -420,7 +522,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <h3 class="chart-title-nowrap">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
                         Branch Revenue
-                        <span class="chart-badge">Live Period</span>
+                        <span class="chart-badge"><?php echo htmlspecialchars($dashboard_filter_label); ?></span>
                     </h3>
                     <div class="chart-filters">
                         <label class="chart-filter-label">Period</label>
@@ -684,6 +786,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <div class="dash-card-empty" style="color:#9ca3af; font-size:13px;">No orders yet</div>
                     <?php endif; ?>
                 </div>
+            </div>
             </div>
         </main>
     </div>
@@ -1142,6 +1245,139 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         })();
     };
 })();
+</script>
+<script>
+window.__pfDashFilterTimer = null;
+window.__pfDashLastSubmittedRange = null;
+window.__pfDashDateRe = /^\d{4}-\d{2}-\d{2}$/;
+window.__pfDashFilterFetchCtrl = null;
+window.__pfDashFilterBusy = false;
+window.__pfDashFilterQueued = false;
+
+window.pfDashApplyFilterAjax = function() {
+    var form = document.getElementById('reportsFilterForm');
+    var fromEl = document.getElementById('fp_from');
+    var toEl = document.getElementById('fp_to');
+    if (!form || !fromEl || !toEl) return;
+
+    var fromVal = String(fromEl.value || '').trim();
+    var toVal = String(toEl.value || '').trim();
+    if (!window.__pfDashDateRe.test(fromVal) || !window.__pfDashDateRe.test(toVal)) return;
+    if (fromVal > toVal) return;
+
+    var presetVal = document.getElementById('dash_preset')?.value || '';
+    var key = fromVal + '|' + toVal + '|' + presetVal;
+    if (window.__pfDashLastSubmittedRange === key && !window.__pfDashFilterQueued) return;
+    window.__pfDashLastSubmittedRange = key;
+
+    if (window.__pfDashFilterBusy) {
+        window.__pfDashFilterQueued = true;
+        return;
+    }
+    window.__pfDashFilterBusy = true;
+    window.__pfDashFilterQueued = false;
+
+    try {
+        if (window.__pfDashFilterFetchCtrl) {
+            try { window.__pfDashFilterFetchCtrl.abort(); } catch (e0) {}
+        }
+        window.__pfDashFilterFetchCtrl = new AbortController();
+    } catch (e1) {
+        window.__pfDashFilterFetchCtrl = null;
+    }
+
+    var params = new URLSearchParams(new FormData(form));
+    params.set('_', String(Date.now()));
+    var reqUrl = window.location.pathname + '?' + params.toString();
+
+    fetch(reqUrl, {
+        credentials: 'same-origin',
+        signal: window.__pfDashFilterFetchCtrl ? window.__pfDashFilterFetchCtrl.signal : undefined
+    })
+    .then(function(resp) { return resp.text(); })
+    .then(function(html) {
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+
+        var nextContent = doc.querySelector('#pf-dashboard-content');
+        var curContent = document.querySelector('#pf-dashboard-content');
+        if (nextContent && curContent) {
+            curContent.innerHTML = nextContent.innerHTML;
+        }
+
+        var nextSummaryText = doc.querySelector('#pf-dashboard-toolbar-summary-text');
+        var curSummaryText = document.querySelector('#pf-dashboard-toolbar-summary-text');
+        if (nextSummaryText && curSummaryText) {
+            curSummaryText.textContent = nextSummaryText.textContent;
+        }
+
+        var cleanParams = new URLSearchParams(new FormData(form));
+        var cleanUrl = window.location.pathname + '?' + cleanParams.toString();
+        window.history.replaceState({}, '', cleanUrl);
+
+        if (typeof window.printflowInitDashboardCharts === 'function') {
+            window.printflowInitDashboardCharts();
+        }
+    })
+    .catch(function(err) {
+        if (err && err.name === 'AbortError') return;
+        console.error('Dashboard live filter failed:', err);
+    })
+    .finally(function() {
+        window.__pfDashFilterBusy = false;
+        if (window.__pfDashFilterQueued) {
+            window.__pfDashFilterQueued = false;
+            window.pfDashApplyFilterAjax();
+        }
+    });
+};
+
+window.debouncedSubmitDashboardFilter = function(delay) {
+    if (window.__pfDashFilterTimer) clearTimeout(window.__pfDashFilterTimer);
+    window.__pfDashFilterTimer = setTimeout(function() {
+        window.pfDashApplyFilterAjax();
+    }, typeof delay === 'number' ? delay : 300);
+};
+function dashboardFilterPanel(initialPreset) {
+    return {
+        filterOpen: false,
+        selectedPreset: initialPreset || 'this_month',
+        handleDateTyping(delay) {
+            this.selectedPreset = '';
+            var p = document.getElementById('dash_preset');
+            if (p) p.value = '';
+            window.debouncedSubmitDashboardFilter(typeof delay === 'number' ? delay : 300);
+        },
+        resetDateRange() {
+            this.setPreset('this_month');
+        },
+        setPreset(preset) {
+            var today = new Date();
+            var from = new Date(today);
+            var to = new Date(today);
+            if (preset === 'this_week') {
+                var day = from.getDay();
+                var diff = day === 0 ? 6 : (day - 1);
+                from.setDate(from.getDate() - diff);
+            } else if (preset === 'this_month') {
+                from = new Date(today.getFullYear(), today.getMonth(), 1);
+            } else {
+                preset = 'today';
+            }
+            var fmt = function(d) {
+                return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            };
+            var f = document.getElementById('fp_from');
+            var t = document.getElementById('fp_to');
+            var p = document.getElementById('dash_preset');
+            if (f) f.value = fmt(from);
+            if (t) t.value = fmt(to);
+            if (p) p.value = preset;
+            this.selectedPreset = preset;
+            window.debouncedSubmitDashboardFilter(300);
+        }
+    };
+}
 </script>
 </body>
 </html>
