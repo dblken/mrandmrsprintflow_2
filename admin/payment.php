@@ -258,14 +258,19 @@ $page_title = 'Payment - Admin | PrintFlow';
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <?php render_branch_css(); ?>
     <style>
-        .payment-page { padding: 24px; }
-        .page-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; }
+        .payment-page { padding: 0; }
+        .pf-mobile-branch-inline { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
         .page-title { margin:0; font-size:28px; font-weight:800; color:#111827; letter-spacing:0; }
-        .page-subtitle { margin:6px 0 0; color:#6b7280; font-size:14px; }
-        .payment-kpis { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; margin-bottom:18px; }
-        .payment-kpi { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
-        .payment-kpi span { display:block; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#6b7280; }
-        .payment-kpi strong { display:block; margin-top:6px; font-size:26px; line-height:1; color:#111827; }
+        .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+        .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; }
+        .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+        .kpi-card.indigo::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
+        .kpi-card.amber::before { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
+        .kpi-card.blue::before { background:linear-gradient(90deg,#3b82f6,#60a5fa); }
+        .kpi-card.emerald::before { background:linear-gradient(90deg,#059669,#34d399); }
+        .kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:6px; }
+        .kpi-value { font-size:28px; font-weight:800; color:#111827; line-height:1.1; }
+        .kpi-sub { font-size:12px; color:#6b7280; margin-top:4px; }
         .payment-filters { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
         .payment-filters input, .payment-filters select { height:38px; border:1px solid #d1d5db; border-radius:7px; padding:0 10px; font-size:13px; color:#111827; background:#fff; }
         .payment-filters input { min-width:260px; }
@@ -298,14 +303,14 @@ $page_title = 'Payment - Admin | PrintFlow';
         .modal-body textarea { width:100%; min-height:120px; border:1px solid #d1d5db; border-radius:7px; padding:10px; font-size:14px; resize:vertical; }
         .modal-foot { padding:14px 18px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; }
         @media (max-width: 980px) {
-            .payment-kpis { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+            .kpi-row { grid-template-columns:repeat(2,1fr); }
             .payment-table-wrap { overflow-x:auto; }
             .payment-table { min-width:980px; }
         }
         @media (max-width: 640px) {
             .payment-page { padding:16px; }
-            .page-header { display:block; }
-            .payment-kpis { grid-template-columns:1fr; }
+            .pf-mobile-branch-inline { display:block; }
+            .kpi-row { grid-template-columns:1fr; }
             .payment-filters input, .payment-filters select, .pf-btn { width:100%; }
         }
     </style>
@@ -314,23 +319,20 @@ $page_title = 'Payment - Admin | PrintFlow';
 <div class="dashboard-container">
     <?php include __DIR__ . '/../includes/' . (($current_user['role'] ?? '') === 'Admin' ? 'admin_sidebar.php' : 'manager_sidebar.php'); ?>
 
-    <main class="main-content">
+    <div class="main-content">
         <div class="payment-page">
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">Payment</h1>
-                    <p class="page-subtitle">Review uploaded payment proofs across visible branches.</p>
-                </div>
+            <header class="pf-mobile-branch-inline">
+                <h1 class="page-title">Payment</h1>
                 <?php render_branch_selector($branchCtx); ?>
-            </div>
+            </header>
 
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
 
-            <div class="payment-kpis">
-                <div class="payment-kpi"><span>Visible Proofs</span><strong><?php echo (int)$counts['all']; ?></strong></div>
-                <div class="payment-kpi"><span>To Verify</span><strong><?php echo (int)$counts['to_verify']; ?></strong></div>
-                <div class="payment-kpi"><span>Verified</span><strong><?php echo (int)$counts['verified']; ?></strong></div>
-                <div class="payment-kpi"><span>Rejected</span><strong><?php echo (int)$counts['rejected']; ?></strong></div>
+            <div class="kpi-row">
+                <div class="kpi-card indigo"><div class="kpi-label">Visible Proofs</div><div class="kpi-value"><?php echo number_format((int)$counts['all']); ?></div><div class="kpi-sub">Across visible branches</div></div>
+                <div class="kpi-card amber"><div class="kpi-label">To Verify</div><div class="kpi-value"><?php echo number_format((int)$counts['to_verify']); ?></div><div class="kpi-sub">Needs review</div></div>
+                <div class="kpi-card blue"><div class="kpi-label">Verified</div><div class="kpi-value"><?php echo number_format((int)$counts['verified']); ?></div><div class="kpi-sub">Approved proofs</div></div>
+                <div class="kpi-card emerald"><div class="kpi-label">Rejected</div><div class="kpi-value"><?php echo number_format((int)$counts['rejected']); ?></div><div class="kpi-sub">Returned to customer</div></div>
             </div>
 
             <form class="payment-filters" method="get">
@@ -444,7 +446,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                 </div>
             <?php endif; ?>
         </div>
-    </main>
+    </div>
 </div>
 
 <div class="modal-backdrop" id="rejectModal">
