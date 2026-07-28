@@ -209,7 +209,6 @@ $page_title = 'Products & Inventory - Staff';
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        body { font-family: 'Inter', sans-serif; }
         .page-title, h1, h2, h3, .kpi-value, .kpi-label { font-family: 'Outfit', sans-serif; }
         .staff-products-table-card {
             margin-top: 20px;
