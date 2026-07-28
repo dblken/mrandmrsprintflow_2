@@ -20,6 +20,7 @@ if (!isset($base_path)) {
 }
 
 $current_user = get_logged_in_user();
+$isManagerPanel = defined('MANAGER_PANEL') && MANAGER_PANEL;
 $branchCtx = init_branch_context(false);
 $branchId = $branchCtx['selected_branch_id'];
 $search = trim((string)($_GET['search'] ?? ''));
@@ -279,7 +280,7 @@ if ($typeFilter !== 'all') $activeFiltersCount++;
 if ($statusFilter !== 'all') $activeFiltersCount++;
 if ($sortBy !== 'newest') $activeFiltersCount++;
 
-$page_title = 'Payment - Admin | PrintFlow';
+$page_title = $isManagerPanel ? 'Payment - Manager | PrintFlow' : 'Payment - Admin | PrintFlow';
 
 ?>
 <!DOCTYPE html>
@@ -426,7 +427,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                     <div class="kpi-card indigo">
                         <div class="kpi-label">Visible Proofs</div>
                         <div class="kpi-value"><?php echo number_format((int)$counts['all']); ?></div>
-                        <div class="kpi-sub">Across visible branches</div>
+                        <div class="kpi-sub"><?php echo $isManagerPanel ? 'Assigned branch only' : 'Across visible branches'; ?></div>
                     </div>
                     <div class="kpi-card amber">
                         <div class="kpi-label">To Verify</div>
@@ -534,9 +535,15 @@ $page_title = 'Payment - Admin | PrintFlow';
                                 $proofUrl = (string)($payment['proof_url'] ?? '');
                                 $proofPreviewUrl = (string)($payment['proof_preview_url'] ?? $proofUrl);
                                 $bucket = (string)($payment['bucket'] ?? 'all');
-                                $openUrl = $isCustomization
-                                    ? $base_path . '/admin/customizations.php?open_job=' . $recordId
-                                    : $base_path . '/admin/orders_management.php?search=' . urlencode((string)$orderId);
+                                if ($isManagerPanel) {
+                                    $openUrl = $isCustomization
+                                        ? $base_path . '/manager/customizations.php?open_job=' . $recordId
+                                        : $base_path . '/manager/orders.php?search=' . urlencode((string)$orderId);
+                                } else {
+                                    $openUrl = $isCustomization
+                                        ? $base_path . '/admin/customizations.php?open_job=' . $recordId
+                                        : $base_path . '/admin/orders_management.php?search=' . urlencode((string)$orderId);
+                                }
                             ?>
                                 <tr style="border-bottom: 1px solid #f3f4f6;" <?php if ($proofUrl !== ''): ?>onclick="openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars((string)($payment['order_label'] ?? (($isCustomization ? 'Customization #' : 'Order #') . $recordId)), ENT_QUOTES, 'UTF-8'); ?>')"<?php endif; ?>>
                                     <td class="py-3 text-gray-900">
