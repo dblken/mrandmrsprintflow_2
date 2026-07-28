@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -21,22 +22,8 @@ if (!isset($base_path)) {
 $current_user = get_logged_in_user();
 $branchCtx = init_branch_context(false);
 $branchId = $branchCtx['selected_branch_id'];
-// Match the customization list scope so generated product job rows do not duplicate product payments.
-$jobCustomizationScopeSql = " AND (
-    jo.order_id IS NULL
-    OR EXISTS (
-        SELECT 1
-        FROM orders o_scope
-        JOIN order_items oi_scope ON oi_scope.order_id = o_scope.order_id
-        LEFT JOIN products p_scope ON p_scope.product_id = oi_scope.product_id
-        WHERE o_scope.order_id = jo.order_id
-          AND o_scope.order_type = 'custom'
-          AND COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
-    )
-)";
-
 $search = trim((string)($_GET['search'] ?? ''));
-$statusFilter = strtolower(trim((string)($_GET['status'] ?? 'to_verify')));
+$statusFilter = strtolower(trim((string)($_GET['status'] ?? 'all')));
 $typeFilter = strtolower(trim((string)($_GET['type'] ?? 'all')));
 $sortBy = strtolower(trim((string)($_GET['sort'] ?? 'newest')));
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -44,7 +31,7 @@ $perPage = 20;
 
 $allowedStatusFilters = ['to_verify', 'verified', 'rejected', 'all'];
 if (!in_array($statusFilter, $allowedStatusFilters, true)) {
-    $statusFilter = 'to_verify';
+    $statusFilter = 'all';
 }
 
 $allowedTypeFilters = ['all', 'product', 'customization'];
@@ -81,6 +68,11 @@ function pf_admin_payment_badge(string $status, string $kind = 'proof'): string
         'VERIFY_PAY' => ['#fef9c3', '#854d0e', 'To Verify'],
         'DOWNPAYMENT_SUBMITTED' => ['#fef9c3', '#854d0e', 'To Verify'],
         'PENDING_VERIFICATION' => ['#fef9c3', '#854d0e', 'To Verify'],
+        'PENDING_REVIEW' => ['#fef9c3', '#854d0e', 'To Verify'],
+        'NEEDS_REVIEW' => ['#fef3c7', '#92400e', 'Needs Review'],
+        'DUPLICATE_SUSPECTED' => ['#ffedd5', '#9a3412', 'Duplicate Suspected'],
+        'MATCHED' => ['#dcfce7', '#166534', 'Matched'],
+        'APPROVED' => ['#dcfce7', '#166534', 'Approved'],
         'VERIFIED' => ['#dcfce7', '#166534', 'Verified'],
         'PAID' => ['#dcfce7', '#166534', 'Paid'],
         'PARTIAL' => ['#fef3c7', '#b45309', 'Partial'],
@@ -98,13 +90,13 @@ function pf_admin_payment_status_bucket(array $row): string
     $paymentStatus = strtoupper(trim((string)($row['payment_status'] ?? '')));
     $workflowStatus = strtoupper(str_replace([' ', '-'], '_', trim((string)($row['workflow_status'] ?? ''))));
 
-    if ($proofStatus === 'REJECTED' || $workflowStatus === 'REJECTED') {
+    if (in_array($proofStatus, ['REJECTED'], true) || $workflowStatus === 'REJECTED') {
         return 'rejected';
     }
-    if ($proofStatus === 'VERIFIED' || $paymentStatus === 'PAID') {
+    if (in_array($proofStatus, ['VERIFIED', 'APPROVED', 'MATCHED'], true) || $paymentStatus === 'PAID') {
         return 'verified';
     }
-    if (in_array($proofStatus, ['SUBMITTED', 'PENDING_VERIFICATION'], true)
+    if (in_array($proofStatus, ['SUBMITTED', 'PENDING_VERIFICATION', 'PENDING_REVIEW', 'NEEDS_REVIEW', 'DUPLICATE_SUSPECTED'], true)
         || in_array($workflowStatus, ['TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)
     ) {
         return 'to_verify';
@@ -132,107 +124,110 @@ function pf_admin_payment_search_match(array $row, string $search): bool
 }
 
 $payments = [];
-$hasOrderProofPath = pf_admin_payment_has_column('orders', 'payment_proof_path');
-$hasOrderProof = pf_admin_payment_has_column('orders', 'payment_proof');
-$hasOrderProofStatus = pf_admin_payment_has_column('orders', 'payment_proof_status');
-$hasOrderSubmittedAt = pf_admin_payment_has_column('orders', 'payment_submitted_at');
-$hasOrderPaymentReference = pf_admin_payment_has_column('orders', 'payment_reference');
+$schemaReady = payment_verification_ensure_schema();
+if ($schemaReady) {
+    // Keep admin Payment in sync with staff/payment_verification.php, including legacy proof imports.
+    payment_verification_import_legacy_submissions(100);
+    payment_verification_repair_duplicate_states(100);
 
-if ($typeFilter === 'all' || $typeFilter === 'product') {
-    $proofExprParts = [];
-    if ($hasOrderProofPath) {
-        $proofExprParts[] = "NULLIF(o.payment_proof_path, '')";
-    }
-    if ($hasOrderProof) {
-        $proofExprParts[] = "NULLIF(o.payment_proof, '')";
-    }
-    $proofExpr = !empty($proofExprParts) ? 'COALESCE(' . implode(', ', $proofExprParts) . ", '')" : "''";
-    $proofStatusExpr = $hasOrderProofStatus ? "COALESCE(NULLIF(o.payment_proof_status, ''), o.status)" : "o.status";
-    $submittedAtExpr = $hasOrderSubmittedAt ? "o.payment_submitted_at" : "o.updated_at";
-    $referenceExpr = $hasOrderPaymentReference ? "COALESCE(NULLIF(o.payment_reference, ''), o.reference_id, '')" : "COALESCE(o.reference_id, '')";
+    $branchExpression = "COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0)";
+    $orderSkuExpression = "(SELECT GROUP_CONCAT(DISTINCT sku_product.sku ORDER BY sku_product.sku SEPARATOR '-')
+                            FROM order_items sku_item
+                            LEFT JOIN products sku_product ON sku_product.product_id = sku_item.product_id
+                            WHERE sku_item.order_id = ps.order_id)";
+    $sql = "SELECT ps.*,
+                   {$orderSkuExpression} AS order_sku,
+                   CONCAT_WS(' ', c.first_name, c.last_name) AS customer_name,
+                   c.email AS customer_email,
+                   b.branch_name,
+                   {$branchExpression} AS resolved_branch_id,
+                   COALESCE(o.order_type, CASE WHEN ps.job_order_id IS NOT NULL AND ps.job_order_id > 0 THEN 'customization' ELSE 'product' END) AS source_order_type,
+                   COALESCE(NULLIF(jo.service_type, ''), NULLIF(jo.job_title, ''), COALESCE(o.order_type, 'Payment')) AS service_type,
+                   COALESCE(o.reference_id, ps.reference_number, ps.ocr_reference_number, '') AS reference
+            FROM payment_submissions ps
+            LEFT JOIN orders o ON o.order_id = ps.order_id
+            LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
+            LEFT JOIN customers c ON c.customer_id = ps.customer_id
+            LEFT JOIN branches b ON b.id = {$branchExpression}
+            WHERE 1=1";
+    $types = '';
+    $params = [];
 
-    $sql = "SELECT
-                'product' AS payment_type,
-                o.order_id AS record_id,
-                o.order_id,
-                CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) AS customer_name,
-                c.email AS customer_email,
-                b.branch_name,
-                o.branch_id,
-                o.total_amount AS total_amount,
-                COALESCE(o.downpayment_amount, o.total_amount, 0) AS submitted_amount,
-                o.payment_status,
-                {$proofStatusExpr} AS proof_status,
-                o.status AS workflow_status,
-                {$proofExpr} AS proof_path,
-                {$submittedAtExpr} AS submitted_at,
-                {$referenceExpr} AS reference,
-                COALESCE(o.order_type, 'product') AS service_type
-            FROM orders o
-            LEFT JOIN customers c ON c.customer_id = o.customer_id
-            LEFT JOIN branches b ON b.id = o.branch_id
-            WHERE o.order_type = 'product'";
-    [$bSql, $bTypes, $bParams] = branch_where_parts('o', $branchId);
-    $sql .= $bSql;
-    $rows = db_query($sql, $bTypes ?: null, $bParams ?: null) ?: [];
+    if (printflow_branch_value_is_all($branchId)) {
+        $sql .= " AND {$branchExpression} IN (SELECT id FROM branches WHERE status != 'Archived')";
+    } else {
+        $sql .= " AND {$branchExpression} = ?";
+        $types .= 'i';
+        $params[] = (int)$branchId;
+    }
+
+    if ($typeFilter === 'product') {
+        $sql .= " AND (ps.job_order_id IS NULL OR ps.job_order_id = 0)";
+    } elseif ($typeFilter === 'customization') {
+        $sql .= " AND ps.job_order_id IS NOT NULL AND ps.job_order_id > 0";
+    }
+
+    if ($search !== '') {
+        $like = '%' . $search . '%';
+        $sql .= " AND (
+            CONCAT_WS(' ', c.first_name, c.last_name) LIKE ?
+            OR CAST(ps.order_id AS CHAR) LIKE ?
+            OR CAST(ps.job_order_id AS CHAR) LIKE ?
+            OR CAST(ps.id AS CHAR) LIKE ?
+            OR COALESCE({$orderSkuExpression}, '') LIKE ?
+            OR COALESCE(NULLIF(ps.reference_number, ''), ps.ocr_reference_number, '') LIKE ?
+            OR COALESCE(NULLIF(ps.sender_name, ''), ps.ocr_sender_name, '') LIKE ?
+        )";
+        $types .= 'sssssss';
+        array_push($params, $like, $like, $like, $like, $like, $like, $like);
+    }
+
+    $sql .= " ORDER BY
+                CASE ps.verification_status
+                    WHEN 'Duplicate Suspected' THEN 1
+                    WHEN 'Needs Review' THEN 2
+                    WHEN 'Pending Review' THEN 3
+                    WHEN 'Matched' THEN 4
+                    ELSE 5
+                END,
+                ps.created_at DESC,
+                ps.id DESC";
+
+    $rows = db_query($sql, $types ?: null, $params ?: null) ?: [];
     foreach ($rows as $row) {
-        if (trim((string)($row['proof_path'] ?? '')) === '') {
+        $isCustomization = (int)($row['job_order_id'] ?? 0) > 0;
+        $receiptFile = (string)($row['receipt_file'] ?? '');
+        if (trim($receiptFile) === '') {
             continue;
         }
+        $row['payment_type'] = $isCustomization ? 'customization' : 'product';
+        $row['record_id'] = $isCustomization ? (int)($row['job_order_id'] ?? 0) : (int)($row['order_id'] ?? 0);
+        if ((int)$row['record_id'] <= 0) {
+            $row['record_id'] = (int)($row['id'] ?? 0);
+        }
+        $row['order_id'] = (int)($row['order_id'] ?? 0);
+        $row['branch_id'] = (int)($row['resolved_branch_id'] ?? 0);
+        $row['total_amount'] = (float)($row['expected_amount'] ?? 0);
+        $row['submitted_amount'] = (float)($row['expected_amount'] ?? $row['submitted_amount'] ?? 0);
+        $effectiveAmount = payment_verification_effective_value($row, 'amount_sent', 'ocr_amount_sent');
+        if ($effectiveAmount !== null && $effectiveAmount !== '') {
+            $row['submitted_amount'] = (float)$effectiveAmount;
+        }
+        $row['payment_status'] = (string)($row['verification_status'] ?? 'Pending Review');
+        $row['proof_status'] = (string)($row['verification_status'] ?? 'Pending Review');
+        $row['workflow_status'] = (string)($row['verification_status'] ?? 'Pending Review');
+        $row['proof_path'] = $receiptFile;
+        $row['proof_url'] = payment_verification_proof_url($receiptFile);
+        $previewPath = (string)(($row['receipt_thumbnail'] ?? '') ?: $receiptFile);
+        $row['proof_preview_url'] = payment_verification_proof_url($previewPath);
+        $row['submitted_at'] = (string)($row['created_at'] ?? '');
+        $row['service_type'] = trim((string)($row['service_type'] ?? '')) ?: ($isCustomization ? 'Customization' : 'Product');
+        $row['customer_name'] = trim((string)($row['customer_name'] ?? '')) ?: 'Customer';
+        $row['order_label'] = payment_verification_order_label($row);
         $row['bucket'] = pf_admin_payment_status_bucket($row);
         $payments[] = $row;
     }
 }
-
-if ($typeFilter === 'all' || $typeFilter === 'customization') {
-    $customProofExprParts = ["NULLIF(jo.payment_proof_path, '')", "NULLIF(jo.payment_proof, '')"];
-    if ($hasOrderProofPath) {
-        $customProofExprParts[] = "NULLIF(o.payment_proof_path, '')";
-    }
-    if ($hasOrderProof) {
-        $customProofExprParts[] = "NULLIF(o.payment_proof, '')";
-    }
-    $customProofExpr = 'COALESCE(' . implode(', ', $customProofExprParts) . ", '')";
-
-    $sql = "SELECT
-                'customization' AS payment_type,
-                jo.id AS record_id,
-                jo.order_id,
-                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), ''), jo.customer_name, 'Walk-in Customer') AS customer_name,
-                c.email AS customer_email,
-                b.branch_name,
-                COALESCE(jo.branch_id, o.branch_id) AS branch_id,
-                COALESCE(jo.estimated_total, o.total_amount, 0) AS total_amount,
-                COALESCE(jo.payment_submitted_amount, o.downpayment_amount, jo.amount_paid, 0) AS submitted_amount,
-                jo.payment_status,
-                jo.payment_proof_status AS proof_status,
-                jo.status AS workflow_status,
-                {$customProofExpr} AS proof_path,
-                COALESCE(jo.payment_proof_uploaded_at, o.updated_at, jo.updated_at, jo.created_at) AS submitted_at,
-                COALESCE(o.reference_id, '') AS reference,
-                COALESCE(NULLIF(jo.service_type, ''), 'Customization') AS service_type
-            FROM job_orders jo
-            LEFT JOIN orders o ON o.order_id = jo.order_id
-            LEFT JOIN customers c ON c.customer_id = COALESCE(jo.customer_id, o.customer_id)
-            LEFT JOIN branches b ON b.id = COALESCE(jo.branch_id, o.branch_id)
-            WHERE 1=1" . $jobCustomizationScopeSql;
-    [$bSql, $bTypes, $bParams] = branch_where_parts('jo', $branchId);
-    if ($bSql !== '') {
-        $sql .= str_replace('jo.branch_id', 'COALESCE(jo.branch_id, o.branch_id)', $bSql);
-    }
-    $rows = db_query($sql, $bTypes ?: null, $bParams ?: null) ?: [];
-    foreach ($rows as $row) {
-        if (trim((string)($row['proof_path'] ?? '')) === '') {
-            continue;
-        }
-        $row['bucket'] = pf_admin_payment_status_bucket($row);
-        $payments[] = $row;
-    }
-}
-
-$payments = array_values(array_filter($payments, static function (array $row) use ($search): bool {
-    return pf_admin_payment_search_match($row, $search);
-}));
 
 $counts = ['all' => count($payments), 'to_verify' => 0, 'verified' => 0, 'rejected' => 0];
 foreach ($payments as $payment) {
@@ -251,7 +246,7 @@ usort($payments, static function (array $a, array $b) use ($sortBy): int {
         'oldest' => strtotime((string)($a['submitted_at'] ?? '')) <=> strtotime((string)($b['submitted_at'] ?? '')),
         'amount_high' => ((float)($b['submitted_amount'] ?? 0)) <=> ((float)($a['submitted_amount'] ?? 0)),
         'amount_low' => ((float)($a['submitted_amount'] ?? 0)) <=> ((float)($b['submitted_amount'] ?? 0)),
-        default => strtotime((string)($b['submitted_at'] ?? '')) <=> strtotime((string)($a['submitted_at'] ?? '')),
+        default => 0,
     };
 });
 
@@ -260,7 +255,6 @@ $totalPages = max(1, (int)ceil($totalRows / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 $visiblePayments = array_slice($payments, $offset, $perPage);
-
 $buildFilterUrl = static function (array $overrides = []): string {
     $query = array_merge($_GET, $overrides);
     foreach ($query as $key => $value) {
@@ -274,7 +268,7 @@ $buildFilterUrl = static function (array $overrides = []): string {
 $activeFiltersCount = 0;
 if ($search !== '') $activeFiltersCount++;
 if ($typeFilter !== 'all') $activeFiltersCount++;
-if ($statusFilter !== 'to_verify') $activeFiltersCount++;
+if ($statusFilter !== 'all') $activeFiltersCount++;
 if ($sortBy !== 'newest') $activeFiltersCount++;
 
 $page_title = 'Payment - Admin | PrintFlow';
@@ -490,16 +484,16 @@ $page_title = 'Payment - Admin | PrintFlow';
                                 <div class="filter-section">
                                     <div class="filter-section-head"><span class="filter-section-label">Status</span><button type="button" class="filter-reset-link" onclick="resetPaymentFilter(['status'])">Reset</button></div>
                                     <select name="status" class="filter-select" onchange="submitPaymentFilters()">
+                                        <option value="all" <?php echo $statusFilter === 'all' ? 'selected' : ''; ?>>All statuses</option>
                                         <option value="to_verify" <?php echo $statusFilter === 'to_verify' ? 'selected' : ''; ?>>To Verify</option>
                                         <option value="verified" <?php echo $statusFilter === 'verified' ? 'selected' : ''; ?>>Verified</option>
                                         <option value="rejected" <?php echo $statusFilter === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
-                                        <option value="all" <?php echo $statusFilter === 'all' ? 'selected' : ''; ?>>All statuses</option>
                                     </select>
                                 </div>
                                 <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
                                 <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId; ?>">
                                 <div class="filter-actions">
-                                    <a class="filter-btn-reset" style="width:100%;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;" href="<?php echo htmlspecialchars($buildFilterUrl(['search' => '', 'type' => 'all', 'status' => 'to_verify', 'sort' => 'newest', 'page' => 1])); ?>">Reset all filters</a>
+                                    <a class="filter-btn-reset" style="width:100%;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;" href="<?php echo htmlspecialchars($buildFilterUrl(['search' => '', 'type' => 'all', 'status' => 'all', 'sort' => 'newest', 'page' => 1])); ?>">Reset all filters</a>
                                 </div>
                             </form>
                         </div>
@@ -529,15 +523,16 @@ $page_title = 'Payment - Admin | PrintFlow';
                                 $recordId = (int)($payment['record_id'] ?? 0);
                                 $orderId = (int)($payment['order_id'] ?? 0);
                                 $proofPath = (string)($payment['proof_path'] ?? '');
-                                $proofUrl = pf_admin_payment_proof_url($proofPath);
+                                $proofUrl = (string)($payment['proof_url'] ?? '');
+                                $proofPreviewUrl = (string)($payment['proof_preview_url'] ?? $proofUrl);
                                 $bucket = (string)($payment['bucket'] ?? 'all');
                                 $openUrl = $isCustomization
                                     ? $base_path . '/admin/customizations.php?open_job=' . $recordId
                                     : $base_path . '/admin/orders_management.php?search=' . urlencode((string)$orderId);
                             ?>
-                                <tr style="border-bottom: 1px solid #f3f4f6;" <?php if ($proofUrl !== ''): ?>onclick="openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars(($isCustomization ? 'Customization #' : 'Order #') . $recordId, ENT_QUOTES, 'UTF-8'); ?>')"<?php endif; ?>>
+                                <tr style="border-bottom: 1px solid #f3f4f6;" <?php if ($proofUrl !== ''): ?>onclick="openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars((string)($payment['order_label'] ?? (($isCustomization ? 'Customization #' : 'Order #') . $recordId)), ENT_QUOTES, 'UTF-8'); ?>')"<?php endif; ?>>
                                     <td class="py-3 text-gray-900">
-                                        <span class="payment-order-text"><?php echo $isCustomization ? 'Customization #' : 'Order #'; ?><?php echo $recordId; ?></span>
+                                        <span class="payment-order-text"><?php echo htmlspecialchars((string)($payment['order_label'] ?? (($isCustomization ? 'Customization #' : 'Order #') . $recordId))); ?></span>
                                         <div class="text-xs text-gray-400"><?php echo htmlspecialchars((string)($payment['service_type'] ?? '')); ?><?php echo $orderId > 0 && $orderId !== $recordId ? ' / Order #' . $orderId : ''; ?></div>
                                     </td>
                                     <td class="py-3">
@@ -560,8 +555,8 @@ $page_title = 'Payment - Admin | PrintFlow';
                                     <td class="py-3 text-center text-gray-500 text-xs"><?php echo !empty($payment['submitted_at']) ? htmlspecialchars(date('M j, Y', strtotime((string)$payment['submitted_at']))) : 'No date'; ?></td>
                                     <td class="py-3 text-center">
                                         <?php if ($proofUrl !== ''): ?>
-                                            <button class="proof-thumb" type="button" onclick="event.stopPropagation(); openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars(($isCustomization ? 'Customization #' : 'Order #') . $recordId, ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
-                                                <img src="<?php echo htmlspecialchars($proofUrl); ?>" alt="Payment proof">
+                                            <button class="proof-thumb" type="button" onclick="event.stopPropagation(); openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars((string)($payment['order_label'] ?? (($isCustomization ? 'Customization #' : 'Order #') . $recordId)), ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
+                                                <img src="<?php echo htmlspecialchars($proofPreviewUrl); ?>" alt="Payment proof">
                                             </button>
                                         <?php else: ?>
                                             <span class="text-gray-400 text-xs">None</span>
@@ -623,7 +618,7 @@ function resetPaymentFilter(fields) {
     fields.forEach(function (field) {
         const input = form.elements[field];
         if (!input) return;
-        input.value = field === 'type' ? 'all' : (field === 'status' ? 'to_verify' : '');
+        input.value = field === 'type' ? 'all' : (field === 'status' ? 'all' : '');
     });
     submitPaymentFilters();
 }
