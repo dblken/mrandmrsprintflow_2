@@ -163,6 +163,26 @@ try {
             box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
         }
 
+        .field-invalid {
+            border-color: #dc2626 !important;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+        }
+
+        .shopee-opt-group.field-invalid,
+        .quantity-container.field-invalid {
+            border: 1px solid #dc2626 !important;
+            border-radius: .65rem;
+            padding: .45rem;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+        }
+
+        .field-error-message {
+            color: #dc2626;
+            font-size: 13px;
+            margin-top: 6px;
+            line-height: 1.35;
+        }
+
         .input-field.input-field-locked,
         .shopee-opt-btn select.input-field-locked {
             background: var(--staff-primary) !important;
@@ -1723,7 +1743,7 @@ try {
                         style="flex:1;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#ffffff;color:#475569;font-weight:700;cursor:pointer;font-size:14px;"
                         onmouseover="this.style.background='#f8fafc';this.style.borderColor='#94a3b8';this.style.color='#334155'"
                         onmouseout="this.style.background='#ffffff';this.style.borderColor='#cbd5e1';this.style.color='#475569'">Cancel</button>
-                    <button onclick="confirmServiceModal()"
+                    <button id="sm-add-to-order-btn" onclick="confirmServiceModal()"
                         style="flex:2;padding:12px;border:none;border-radius:10px;background:#00232b;color:#fff;font-weight:700;cursor:pointer;font-size:14px;box-shadow:0 10px 24px rgba(0,35,43,0.28);"
                         onmouseover="this.style.background='#003a47'" onmouseout="this.style.background='#00232b'">Add
                         to Order</button>
@@ -1924,6 +1944,7 @@ try {
         let currentTotal = 0;
         let currentMode = null; // 'products' or 'services'
         let barcodeScanBusy = false;
+        let isAddingToOrder = false;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
@@ -2272,7 +2293,7 @@ try {
                 } else {
                     console.error('syncedCartAction Error:', data.message);
                     if (!options.silentErrors) await showPOSAlert('Error', data.message || 'Action failed', 'error');
-                    return { success: false, message: data.message };
+                    return { success: false, message: data.message, errors: data.errors || null };
                 }
             } catch (e) {
                 console.error('Cart Action Error:', e);
@@ -2342,6 +2363,8 @@ try {
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
                 footerActions.style.display = 'block';
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
 
                 // Lock branch to staff's assigned branch
                 if (data.staff_branch_id) {
@@ -2379,12 +2402,15 @@ try {
                         if (typeof updateConditionalFields === 'function') updateConditionalFields();
                     });
                 });
+                bindServiceValidationClearers(body);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
             }
         }
 
         function closeServiceModal() {
+            isAddingToOrder = false;
+            setServiceAddButtonBusy(false);
             document.getElementById('service-modal-overlay').style.display = 'none';
         }
 
@@ -2434,7 +2460,7 @@ try {
             return staged;
         }
 
-        async function confirmServiceModal() {
+        async function confirmServiceModalLegacy() {
             const overlay = document.getElementById('service-modal-overlay');
             const serviceId = parseInt(overlay.dataset.serviceId);
             const serviceName = overlay.dataset.serviceName;
@@ -2558,6 +2584,309 @@ try {
             });
 
             if (result.success) closeServiceModal();
+        }
+
+        function setServiceAddButtonBusy(isBusy) {
+            const btn = document.getElementById('sm-add-to-order-btn');
+            if (!btn) return;
+            btn.disabled = !!isBusy;
+            btn.style.opacity = isBusy ? '0.7' : '1';
+            btn.style.cursor = isBusy ? 'not-allowed' : 'pointer';
+            btn.textContent = isBusy ? 'Adding...' : 'Add to Order';
+        }
+
+        function isServiceFieldVisible(row) {
+            if (!row || row.hidden) return false;
+            const style = window.getComputedStyle(row);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const hiddenParent = row.parentElement ? row.parentElement.closest('[style*="display:none"], [style*="display: none"]') : null;
+            return !hiddenParent;
+        }
+
+        function serviceFieldLabel(row) {
+            const label = row ? row.querySelector('.shopee-form-label') : null;
+            return (label ? label.innerText : 'This field').replace(/\*/g, '').trim() || 'This field';
+        }
+
+        function serviceFieldKey(row, fallback = '') {
+            if (!row) return fallback || 'field';
+            if (row.dataset.fieldKey) return row.dataset.fieldKey;
+            const named = row.querySelector('[name]');
+            return named ? named.name : (fallback || serviceFieldLabel(row).toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+        }
+
+        function serviceValidationMessage(row, input) {
+            const label = serviceFieldLabel(row);
+            const name = String((input && input.name) || serviceFieldKey(row) || label).toLowerCase();
+            const type = input ? String(input.type || '').toLowerCase() : '';
+            if (name.includes('design') || type === 'file') return 'Please upload a design.';
+            if (name.includes('layout') || label.toLowerCase().includes('layout')) return 'Please select a layout.';
+            if (name.includes('needed_date') || label.toLowerCase().includes('needed date')) return 'Please select a needed date.';
+            if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Quantity must be at least 1.';
+            if (type === 'radio' || row.querySelector('input[type="radio"]')) return 'Please select ' + label.toLowerCase() + '.';
+            if (input && input.tagName === 'SELECT') return 'Please select ' + label.toLowerCase() + '.';
+            return 'Please enter ' + label.toLowerCase() + '.';
+        }
+
+        function clearServiceFieldError(row) {
+            if (!row) return;
+            row.classList.remove('field-invalid');
+            row.querySelectorAll('.field-invalid').forEach(el => el.classList.remove('field-invalid'));
+            row.querySelectorAll('.field-error-message').forEach(el => el.remove());
+        }
+
+        function clearAllServiceValidationErrors() {
+            const body = document.getElementById('sm-fields-body');
+            if (!body) return;
+            body.querySelectorAll('.field-invalid').forEach(el => el.classList.remove('field-invalid'));
+            body.querySelectorAll('.field-error-message').forEach(el => el.remove());
+        }
+
+        function markServiceFieldInvalid(row, message) {
+            if (!row) return;
+            clearServiceFieldError(row);
+            row.classList.add('field-invalid');
+            const targetGroup = row.querySelector('.shopee-opt-group') || row.querySelector('.quantity-container');
+            const targetControl = row.querySelector('input:not([type="hidden"]), select, textarea');
+            if (targetGroup) targetGroup.classList.add('field-invalid');
+            if (targetControl) targetControl.classList.add('field-invalid');
+            const field = row.querySelector('.shopee-form-field') || row;
+            const msg = document.createElement('div');
+            msg.className = 'field-error-message';
+            msg.textContent = message;
+            field.appendChild(msg);
+        }
+
+        function showValidationErrors(errors) {
+            clearAllServiceValidationErrors();
+            Object.values(errors || {}).forEach(error => {
+                if (error && error.row) markServiceFieldInvalid(error.row, error.message);
+            });
+        }
+
+        function serviceSelectorEscape(value) {
+            if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(value));
+            return String(value).replace(/["\\]/g, '\\$&');
+        }
+
+        function showBackendValidationErrors(errors) {
+            const body = document.getElementById('sm-fields-body');
+            if (!body || !errors) return;
+            clearAllServiceValidationErrors();
+            Object.entries(errors).forEach(([key, message]) => {
+                const keyLc = String(key || '').toLowerCase();
+                const escapedKey = serviceSelectorEscape(key);
+                let row = body.querySelector('.shopee-form-row[data-field-key="' + escapedKey + '"]');
+                if (!row) {
+                    const input = body.querySelector('[name="' + escapedKey + '"]');
+                    row = input ? input.closest('.shopee-form-row') : null;
+                }
+                if (!row) {
+                    row = Array.from(body.querySelectorAll('.shopee-form-row')).find(candidate => {
+                        return serviceFieldLabel(candidate).toLowerCase().replace(/[^a-z0-9]+/g, '_').includes(keyLc);
+                    }) || null;
+                }
+                if (row) markServiceFieldInvalid(row, message);
+            });
+        }
+
+        function focusFirstInvalidField(errors) {
+            const first = Object.values(errors || {}).find(error => error && error.row);
+            if (!first) return;
+            first.row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const focusable = first.row.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), .shopee-opt-btn');
+            if (focusable && typeof focusable.focus === 'function') {
+                setTimeout(() => focusable.focus({ preventScroll: true }), 180);
+            }
+        }
+
+        function bindServiceValidationClearers(container) {
+            if (!container) return;
+            container.querySelectorAll('input, select, textarea, button[data-dimension-choice], button[data-dimension-others]').forEach(el => {
+                ['input', 'change', 'click'].forEach(evt => {
+                    el.addEventListener(evt, function () {
+                        const row = this.closest('.shopee-form-row');
+                        if (row) clearServiceFieldError(row);
+                    });
+                });
+            });
+        }
+
+        function validateServiceOrderForm() {
+            const body = document.getElementById('sm-fields-body');
+            const errors = {};
+            if (!body) return { valid: false, errors };
+
+            const addError = (row, input, keyOverride) => {
+                const key = keyOverride || serviceFieldKey(row, input ? input.name : '');
+                if (!errors[key]) errors[key] = { row, field: key, message: serviceValidationMessage(row, input) };
+            };
+
+            body.querySelectorAll('.shopee-form-row').forEach(row => {
+                if (!isServiceFieldVisible(row)) return;
+                const requiredInputs = Array.from(row.querySelectorAll('[required]')).filter(input => {
+                    if (input.disabled) return false;
+                    const hiddenParent = input.closest('[style*="display:none"], [style*="display: none"]');
+                    return !hiddenParent;
+                });
+                if (requiredInputs.length === 0) return;
+
+                const radiosByName = new Map();
+                requiredInputs.forEach(input => {
+                    if (input.type === 'radio') {
+                        if (!radiosByName.has(input.name)) radiosByName.set(input.name, []);
+                        radiosByName.get(input.name).push(input);
+                    }
+                });
+                radiosByName.forEach((radios, name) => {
+                    if (!radios.some(radio => radio.checked)) addError(row, radios[0], name);
+                });
+
+                const dimensionInputs = requiredInputs.filter(input => input.type === 'hidden' && input.dataset.dimensionRole);
+                if (dimensionInputs.length && dimensionInputs.some(input => !String(input.value || '').trim())) {
+                    addError(row, dimensionInputs[0]);
+                }
+
+                requiredInputs.forEach(input => {
+                    if (input.type === 'radio' || (input.type === 'hidden' && input.dataset.dimensionRole)) return;
+                    const value = input.type === 'file'
+                        ? (input.files && input.files.length > 0 ? input.files[0].name : '')
+                        : String(input.value || '').trim();
+                    if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
+                        const qty = parseInt(value, 10);
+                        if (!Number.isFinite(qty) || qty < 1) addError(row, input);
+                        return;
+                    }
+                    if (!value) addError(row, input);
+                });
+            });
+
+            return { valid: Object.keys(errors).length === 0, errors };
+        }
+
+        function setCustomizationValue(customization, row, input, value) {
+            const label = serviceFieldLabel(row);
+            const key = serviceFieldKey(row, input ? input.name : '');
+            if (key) customization[key] = value;
+            if (label && label !== key) customization[label] = value;
+        }
+
+        async function confirmServiceModal() {
+            if (isAddingToOrder) return;
+            const overlay = document.getElementById('service-modal-overlay');
+            const serviceId = parseInt(overlay.dataset.serviceId);
+            const serviceName = overlay.dataset.serviceName;
+            const body = document.getElementById('sm-fields-body');
+
+            const validationResult = validateServiceOrderForm();
+            if (!validationResult.valid) {
+                showValidationErrors(validationResult.errors);
+                focusFirstInvalidField(validationResult.errors);
+                return;
+            }
+
+            isAddingToOrder = true;
+            setServiceAddButtonBusy(true);
+
+            const customization = {};
+            const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
+            const branchSel = body.querySelector('select[name="branch_id"]');
+            const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');
+            if (!branchVal) {
+                await showPOSAlert('Branch Required', 'Please select a branch.', 'warning');
+                if (branchSel) branchSel.focus();
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+            customization.branch_id = branchVal;
+            customization.branch = branchVal;
+            customization.service_id = serviceId;
+            customization.service_type = serviceName;
+
+            body.querySelectorAll('.shopee-form-row').forEach(row => {
+                if (!isServiceFieldVisible(row)) return;
+
+                const checkedRadio = row.querySelector('input[type="radio"]:checked');
+                if (checkedRadio) setCustomizationValue(customization, row, checkedRadio, checkedRadio.value);
+
+                const sel = row.querySelector('select:not([name="branch_id"])');
+                if (sel && sel.value) setCustomizationValue(customization, row, sel, sel.value);
+
+                const dateInput = row.querySelector('input[type="date"]');
+                if (dateInput && dateInput.value) setCustomizationValue(customization, row, dateInput, dateInput.value);
+
+                const qtyInput = row.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]');
+                if (qtyInput) customization.quantity = qtyInput.value || 1;
+
+                const textarea = row.querySelector('textarea');
+                if (textarea && textarea.value.trim()) setCustomizationValue(customization, row, textarea, textarea.value.trim());
+
+                const wh = row.querySelector('[data-dimension-role="width"], #width_hidden');
+                const hh = row.querySelector('[data-dimension-role="height"], #height_hidden');
+                if (wh && hh && wh.value && hh.value) setCustomizationValue(customization, row, wh, wh.value + 'x' + hh.value);
+
+                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
+                if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
+                    setCustomizationValue(customization, row, textInput, textInput.value.trim());
+                }
+            });
+
+            try {
+                const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
+                for (const fileInput of serviceFileInputs) {
+                    if (!(fileInput.files && fileInput.files.length > 0)) continue;
+                    const file = fileInput.files[0];
+                    const row = fileInput.closest('.shopee-form-row');
+                    const labelText = row ? serviceFieldLabel(row) : (fileInput.name || 'File');
+                    const nameLc = String(fileInput.name || '').toLowerCase();
+                    const labelLc = String(labelText || '').toLowerCase();
+                    const isDesignField = nameLc === 'design_file' || nameLc.includes('design') || (labelLc.includes('upload') && labelLc.includes('design'));
+                    const isReferenceField = nameLc === 'reference_file' || nameLc.includes('reference') || (labelLc.includes('upload') && labelLc.includes('reference'));
+
+                    if (isDesignField) {
+                        await posApplyStagedUpload(customization, file, 'design');
+                        setCustomizationValue(customization, row, fileInput, customization.design_upload_name);
+                    } else if (isReferenceField) {
+                        await posApplyStagedUpload(customization, file, 'reference');
+                        setCustomizationValue(customization, row, fileInput, customization.reference_upload_name);
+                    } else {
+                        const payload = await posReadFilePayload(file);
+                        setCustomizationValue(customization, row, fileInput, payload.name);
+                    }
+                }
+            } catch (uploadErr) {
+                await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+
+            const result = await syncedCartAction('add', {
+                product_id: serviceId,
+                name: serviceName,
+                price: 0,
+                qty: parseInt(customization.quantity || 1, 10),
+                customization: customization,
+                is_service: true
+            }, { silentErrors: true });
+
+            if (result.success) {
+                closeServiceModal();
+            } else {
+                if (result.errors) {
+                    showBackendValidationErrors(result.errors);
+                    focusFirstInvalidField(Object.fromEntries(Object.entries(result.errors).map(([key, message]) => {
+                        const body = document.getElementById('sm-fields-body');
+                        const escapedKey = serviceSelectorEscape(key);
+                        const row = body ? (body.querySelector('.shopee-form-row[data-field-key="' + escapedKey + '"]') || body.querySelector('[name="' + escapedKey + '"]')?.closest('.shopee-form-row')) : null;
+                        return [key, { row, message }];
+                    })));
+                }
+                await showPOSAlert('Incomplete Fields', result.message || 'Some required order details are missing.', 'warning');
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+            }
         }
 
         // ── Legacy service requirements (kept for product-based services) ─────────────
