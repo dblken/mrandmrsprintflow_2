@@ -21,6 +21,19 @@ if (!isset($base_path)) {
 $current_user = get_logged_in_user();
 $branchCtx = init_branch_context(false);
 $branchId = $branchCtx['selected_branch_id'];
+// Match the customization list scope so generated product job rows do not duplicate product payments.
+$jobCustomizationScopeSql = " AND (
+    jo.order_id IS NULL
+    OR EXISTS (
+        SELECT 1
+        FROM orders o_scope
+        JOIN order_items oi_scope ON oi_scope.order_id = o_scope.order_id
+        LEFT JOIN products p_scope ON p_scope.product_id = oi_scope.product_id
+        WHERE o_scope.order_id = jo.order_id
+          AND o_scope.order_type = 'custom'
+          AND COALESCE(LOWER(TRIM(p_scope.product_type)), 'custom') <> 'fixed'
+    )
+)";
 
 $search = trim((string)($_GET['search'] ?? ''));
 $statusFilter = strtolower(trim((string)($_GET['status'] ?? 'to_verify')));
@@ -201,7 +214,7 @@ if ($typeFilter === 'all' || $typeFilter === 'customization') {
             LEFT JOIN orders o ON o.order_id = jo.order_id
             LEFT JOIN customers c ON c.customer_id = COALESCE(jo.customer_id, o.customer_id)
             LEFT JOIN branches b ON b.id = COALESCE(jo.branch_id, o.branch_id)
-            WHERE 1=1";
+            WHERE 1=1" . $jobCustomizationScopeSql;
     [$bSql, $bTypes, $bParams] = branch_where_parts('jo', $branchId);
     if ($bSql !== '') {
         $sql .= str_replace('jo.branch_id', 'COALESCE(jo.branch_id, o.branch_id)', $bSql);
@@ -277,71 +290,88 @@ $page_title = 'Payment - Admin | PrintFlow';
     <?php render_branch_css(); ?>
     <style>
         [x-cloak] { display:none !important; }
-        .payment-page { padding: 0; }
-        .pf-mobile-branch-inline { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
-        .page-title { margin:0; font-size:28px; font-weight:800; color:#111827; letter-spacing:0; }
-        .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
-        .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; }
-        .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
-        .kpi-card.indigo::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
-        .kpi-card.amber::before { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
-        .kpi-card.blue::before { background:linear-gradient(90deg,#3b82f6,#60a5fa); }
-        .kpi-card.emerald::before { background:linear-gradient(90deg,#059669,#34d399); }
-        .kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:6px; }
-        .kpi-value { font-size:28px; font-weight:800; color:#111827; line-height:1.1; }
-        .kpi-sub { font-size:12px; color:#6b7280; margin-top:4px; }
-        .toolbar-btn { display:inline-flex; align-items:center; gap:6px; height:38px; padding:0 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px; font-size:13px; font-weight:500; color:#374151; cursor:pointer; transition:all .15s; }
-        .toolbar-btn:hover { border-color:#9ca3af; background:#f9fafb; }
-        .toolbar-btn.active { border-color:#0d9488; color:#0d9488; background:#f0fdfa; }
-        .sort-dropdown, .filter-panel { position:absolute; top:calc(100% + 6px); right:0; background:#fff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:40; overflow:hidden; }
-        .sort-dropdown { min-width:190px; padding:6px 0; }
-        .sort-option { display:flex; justify-content:space-between; align-items:center; padding:9px 14px; font-size:13px; color:#374151; text-decoration:none; cursor:pointer; }
-        .sort-option:hover { background:#f9fafb; }
-        .sort-option.selected { color:#0d9488; background:#f0fdfa; font-weight:600; }
-        .filter-panel { width:320px; }
-        .filter-panel-header { padding:14px 18px; border-bottom:1px solid #f3f4f6; font-size:14px; font-weight:700; color:#111827; }
-        .filter-section { padding:14px 18px; border-bottom:1px solid #f3f4f6; }
-        .filter-section:last-of-type { border-bottom:none; }
-        .filter-section-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-        .filter-section-label { font-size:13px; font-weight:600; color:#374151; }
-        .filter-input, .filter-select { width:100%; height:34px; border:1px solid #e5e7eb; border-radius:7px; padding:0 10px; font-size:13px; background:#fff; box-sizing:border-box; }
-        .filter-input:focus, .filter-select:focus { outline:none; border-color:#0d9488; }
-        .filter-actions { display:flex; gap:8px; padding:14px 18px; border-top:1px solid #f3f4f6; }
-        .filter-btn-reset { flex:1; height:36px; border:1px solid #e5e7eb; background:#fff; border-radius:7px; font-size:13px; font-weight:600; color:#374151; cursor:pointer; }
-        .filter-btn-reset:hover { background:#f9fafb; }
-        .filter-btn-apply { flex:1; height:36px; border:1px solid #0d9488; background:#0d9488; border-radius:7px; font-size:13px; font-weight:600; color:#fff; cursor:pointer; }
-        .filter-badge { display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:#0d9488; color:#fff; font-size:11px; font-weight:700; }
-        .customs-table tbody tr { transition:background .1s; }
-        .customs-table tbody tr:hover td { background:#f9fafb; }
-        .payment-filters { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:14px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:16px; }
-        .payment-filters input, .payment-filters select { height:38px; border:1px solid #d1d5db; border-radius:7px; padding:0 10px; font-size:13px; color:#111827; background:#fff; }
-        .payment-filters input { min-width:260px; }
-        .pf-btn { height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border-radius:7px; border:1px solid #d1d5db; background:#fff; color:#374151; font-size:13px; font-weight:700; padding:0 12px; cursor:pointer; text-decoration:none; }
-        .pf-btn.primary { border-color:#0d9488; background:#0d9488; color:#fff; }
-        .pf-btn.danger { border-color:#dc2626; background:#dc2626; color:#fff; }
-        .pf-btn.ghost:hover { background:#f9fafb; }
-        .payment-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
-        .payment-tab { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:7px; border:1px solid #e5e7eb; color:#4b5563; background:#fff; font-size:13px; font-weight:700; text-decoration:none; }
-        .payment-tab.active { border-color:#0d9488; color:#0f766e; background:#f0fdfa; }
-        .payment-tab small { min-width:22px; padding:1px 6px; border-radius:999px; background:#f3f4f6; color:#4b5563; text-align:center; }
-        .payment-table-wrap { background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
-        .payment-table { width:100%; border-collapse:collapse; }
-        .payment-table th { background:#f9fafb; color:#6b7280; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; text-align:left; padding:12px; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
-        .payment-table td { padding:13px 12px; border-bottom:1px solid #f3f4f6; vertical-align:middle; font-size:13px; color:#374151; }
-        .payment-table tr:last-child td { border-bottom:0; }
-        .payment-table .main-text { font-weight:800; color:#111827; }
-        .payment-table .muted { color:#6b7280; font-size:12px; margin-top:2px; }
-        .pf-pay-badge { display:inline-flex; align-items:center; border-radius:999px; padding:3px 9px; font-size:11px; font-weight:800; white-space:nowrap; }
+        .toolbar-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .toolbar-btn:hover { border-color: #9ca3af; background: #f9fafb; }
+        .toolbar-btn.active { border-color: #0d9488; color: #0d9488; background: #f0fdfa; }
+        .toolbar-btn svg { flex-shrink: 0; }
+        .sort-dropdown {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            width: 180px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            z-index: 200;
+            padding: 6px;
+        }
+        .sort-option {
+            padding: 9px 12px;
+            font-size: 13px;
+            color: #4b5563;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            text-decoration: none;
+        }
+        .sort-option:hover { background: #f9fafb; color: #111827; }
+        .sort-option.selected { background: #f0fdfa; color: #0d9488; font-weight: 600; }
+        .filter-panel {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            width: 320px;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+            z-index: 200;
+            overflow: hidden;
+        }
+        .filter-panel-header { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; font-size: 14px; font-weight: 700; color: #111827; }
+        .filter-section { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; }
+        .filter-section:last-of-type { border-bottom: none; }
+        .filter-section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .filter-section-label { font-size: 13px; font-weight: 600; color: #374151; }
+        .filter-input, .filter-select { width: 100%; height: 34px; border: 1px solid #e5e7eb; border-radius: 7px; font-size: 13px; padding: 0 10px; color: #1f2937; background: #fff; box-sizing: border-box; }
+        .filter-input:focus, .filter-select:focus { outline: none; border-color: #0d9488; }
+        .filter-actions { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid #f3f4f6; }
+        .filter-btn-reset { flex: 1; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
+        .filter-btn-reset:hover { background: #f9fafb; }
+        .filter-btn-apply { flex: 1; height: 36px; border: 1px solid #0d9488; background: #0d9488; border-radius: 8px; font-size: 13px; font-weight: 500; color: #fff; cursor: pointer; }
+        .filter-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: #0d9488; color: #fff; border-radius: 50%; font-size: 10px; font-weight: 700; }
+        .customs-table tbody tr { transition: background 0.1s; }
+        .customs-table tbody tr:hover td { background: #f9fafb; }
+        .pf-pay-badge { display:inline-flex; align-items:center; border-radius:20px; padding:3px 10px; font-size:12px; font-weight:500; white-space:nowrap; }
         .proof-link { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:7px; border:1px solid #d1d5db; color:#374151; background:#fff; text-decoration:none; }
-        .row-actions { display:flex; flex-wrap:wrap; gap:7px; justify-content:flex-end; }
-        .btn-action { display:inline-flex; align-items:center; justify-content:center; min-width:64px; height:34px; padding:0 12px; border:1px solid transparent; background:#fff; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; transition:all .15s; }
-        .btn-action.blue { color:#2563eb; border-color:#2563eb; }
-        .btn-action.blue:hover { background:#2563eb; color:#fff; }
-        .btn-action.teal { color:#0d9488; border-color:#0d9488; }
-        .btn-action.teal:hover { background:#0d9488; color:#fff; }
-        .btn-action.red { color:#dc2626; border-color:#dc2626; }
-        .btn-action.red:hover { background:#dc2626; color:#fff; }
-        .empty-state { padding:42px 16px; text-align:center; color:#6b7280; }
+        .row-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; align-items:center; }
+        .btn-action { display:inline-flex; align-items:center; justify-content:center; padding:6px 12px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; transition:all 0.2s; cursor:pointer; text-decoration:none; line-height:1.2; }
+        .btn-action.blue { color:#3b82f6; border-color:#3b82f6; }
+        .btn-action.blue:hover { background:#3b82f6; color:white; }
+        .btn-action.teal { color:#14b8a6; border-color:#14b8a6; }
+        .btn-action.teal:hover { background:#14b8a6; color:white; }
+        .btn-action.red { color:#ef4444; border-color:#ef4444; }
+        .btn-action.red:hover { background:#ef4444; color:white; }
+        .pf-btn { height:36px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border-radius:8px; border:1px solid #e5e7eb; background:#fff; color:#374151; font-size:13px; font-weight:500; padding:0 12px; cursor:pointer; text-decoration:none; }
+        .pf-btn.danger { border-color:#ef4444; background:#ef4444; color:#fff; }
+        .pf-btn.ghost:hover { background:#f9fafb; }
         .pagination { display:flex; justify-content:flex-end; gap:8px; padding:14px 0; }
         .modal-backdrop { position:fixed; inset:0; z-index:1000; background:rgba(17,24,39,.55); display:none; align-items:center; justify-content:center; padding:16px; }
         .modal-backdrop.open { display:flex; }
@@ -353,14 +383,9 @@ $page_title = 'Payment - Admin | PrintFlow';
         .modal-foot { padding:14px 18px; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:10px; }
         @media (max-width: 980px) {
             .kpi-row { grid-template-columns:repeat(2,1fr); }
-            .payment-table-wrap { overflow-x:auto; }
-            .payment-table { min-width:980px; }
         }
         @media (max-width: 640px) {
-            .payment-page { padding:16px; }
-            .pf-mobile-branch-inline { display:block; }
             .kpi-row { grid-template-columns:1fr; }
-            .payment-filters input, .payment-filters select, .pf-btn { width:100%; }
         }
     </style>
 </head>
@@ -369,27 +394,27 @@ $page_title = 'Payment - Admin | PrintFlow';
     <?php include __DIR__ . '/../includes/' . (($current_user['role'] ?? '') === 'Admin' ? 'admin_sidebar.php' : 'manager_sidebar.php'); ?>
 
     <div class="main-content">
-        <div class="payment-page">
-            <header class="pf-mobile-branch-inline">
+        <header class="pf-mobile-branch-inline">
                 <h1 class="page-title">Payment</h1>
-                <?php render_branch_selector($branchCtx); ?>
+                <?php if (!defined('MANAGER_PANEL') || !MANAGER_PANEL) { render_branch_selector($branchCtx); } ?>
             </header>
 
-            <?php render_branch_context_banner($branchCtx['branch_name']); ?>
+            <main x-data="{ sortOpen:false, filterOpen:false }">
+                <?php render_branch_context_banner($branchCtx['branch_name']); ?>
 
-            <div class="kpi-row">
+                <div class="kpi-row">
                 <div class="kpi-card indigo"><div class="kpi-label">Visible Proofs</div><div class="kpi-value"><?php echo number_format((int)$counts['all']); ?></div><div class="kpi-sub">Across visible branches</div></div>
                 <div class="kpi-card amber"><div class="kpi-label">To Verify</div><div class="kpi-value"><?php echo number_format((int)$counts['to_verify']); ?></div><div class="kpi-sub">Needs review</div></div>
                 <div class="kpi-card blue"><div class="kpi-label">Verified</div><div class="kpi-value"><?php echo number_format((int)$counts['verified']); ?></div><div class="kpi-sub">Approved proofs</div></div>
                 <div class="kpi-card emerald"><div class="kpi-label">Rejected</div><div class="kpi-value"><?php echo number_format((int)$counts['rejected']); ?></div><div class="kpi-sub">Returned to customer</div></div>
             </div>
 
-            <div class="card" x-data="{ sortOpen:false, filterOpen:false }">
+                <div class="card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
                     <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;">Payment List</h3>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                         <div style="position:relative;">
-                            <button type="button" class="toolbar-btn <?php echo $sortBy !== 'newest' ? 'active' : ''; ?>" @click="sortOpen = !sortOpen; filterOpen = false">
+                            <button type="button" class="toolbar-btn <?php echo $sortBy !== 'newest' ? 'active' : ''; ?>" @click="sortOpen = !sortOpen; filterOpen = false" style="height:38px;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/>
                                 </svg>
@@ -407,7 +432,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                             </div>
                         </div>
                         <div style="position:relative;">
-                            <button type="button" class="toolbar-btn <?php echo $activeFiltersCount > 0 ? 'active' : ''; ?>" @click="filterOpen = !filterOpen; sortOpen = false">
+                            <button type="button" class="toolbar-btn <?php echo $activeFiltersCount > 0 ? 'active' : ''; ?>" @click="filterOpen = !filterOpen; sortOpen = false" style="height:38px;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
                                 </svg>
@@ -448,7 +473,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                     </div>
                 </div>
 
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto" id="customsTableContainer">
                     <table class="w-full text-sm customs-table">
                         <thead>
                             <tr style="border-bottom: 1px solid #e5e7eb;">
@@ -519,7 +544,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                     </table>
                 </div>
             </div>
-            <?php if ($totalPages > 1): ?>
+                <?php if ($totalPages > 1): ?>
                 <div class="pagination">
                     <?php if ($page > 1): ?>
                         <a class="pf-btn ghost" href="<?php echo htmlspecialchars($buildFilterUrl(['page' => $page - 1])); ?>">Previous</a>
@@ -529,8 +554,8 @@ $page_title = 'Payment - Admin | PrintFlow';
                         <a class="pf-btn ghost" href="<?php echo htmlspecialchars($buildFilterUrl(['page' => $page + 1])); ?>">Next</a>
                     <?php endif; ?>
                 </div>
-            <?php endif; ?>
-        </div>
+                <?php endif; ?>
+            </main>
     </div>
 </div>
 
