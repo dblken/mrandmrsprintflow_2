@@ -1309,27 +1309,19 @@ $sql .= " ORDER BY $order_clause LIMIT $per_page OFFSET $offset";
 $products = db_query($sql, $types ?: null, $params ?: null) ?: [];
 
 foreach ($products as &$pfProduct) {
-    if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
-        $pfProduct['stock_quantity'] = (int)($pfProduct['eff_stock_qty'] ?? $pfProduct['stock_quantity']);
-        $pfProduct['low_stock_level'] = (int)($pfProduct['eff_low_stock'] ?? $pfProduct['low_stock_level'] ?? 10);
-        $pfProduct['critical_level'] = (int)($pfProduct['eff_critical'] ?? $pfProduct['critical_level'] ?? 0);
-    } else {
-        $pfProduct['critical_level'] = (int)($pfProduct['critical_level'] ?? 0);
-    }
-    $variantStock = printflow_products_variant_stock_payload((int)($pfProduct['product_id'] ?? 0), $product_stock_branch_id > 0 ? $product_stock_branch_id : 1);
-    if ($variantStock !== null) {
-        $pfProduct['variant_stock_field_key'] = $variantStock['field_key'];
-        $pfProduct['variant_stock_field_label'] = $variantStock['field_label'];
-        $pfProduct['variant_stock_options'] = $variantStock['options'];
-        $pfProduct['has_variant_stock'] = true;
-        $pfProduct['stock_quantity'] = (int)$variantStock['total_stock'];
-        $pfProduct['low_stock_level'] = (int)$variantStock['total_low_stock'];
-    } else {
-        $pfProduct['variant_stock_field_key'] = null;
-        $pfProduct['variant_stock_field_label'] = null;
-        $pfProduct['variant_stock_options'] = [];
-        $pfProduct['has_variant_stock'] = false;
-    }
+    $effectiveStock = printflow_get_branch_product_stock(
+        (int)($pfProduct['product_id'] ?? 0),
+        $product_stock_branch_id > 0 ? $product_stock_branch_id : 1
+    );
+    $pfProduct['stock_quantity'] = (int)$effectiveStock['stock_quantity'];
+    $pfProduct['low_stock_level'] = (int)$effectiveStock['low_stock_level'];
+    $pfProduct['variant_stock_field_key'] = $effectiveStock['variant_stock_field_key'];
+    $pfProduct['variant_stock_field_label'] = $effectiveStock['variant_stock_field_label'];
+    $pfProduct['variant_stock_options'] = $effectiveStock['variant_stock_options'];
+    $pfProduct['has_variant_stock'] = (bool)$effectiveStock['has_variant_stock'];
+    $pfProduct['critical_level'] = $product_stock_branch_id > 0 && !$product_stock_uses_base
+        ? (int)($pfProduct['eff_critical'] ?? $pfProduct['critical_level'] ?? 0)
+        : (int)($pfProduct['critical_level'] ?? 0);
     unset($pfProduct['eff_stock_qty'], $pfProduct['eff_low_stock'], $pfProduct['eff_critical']);
 }
 unset($pfProduct);

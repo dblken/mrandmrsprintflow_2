@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
+require_once __DIR__ . '/../includes/product_option_stock.php';
 
 require_role('Staff');
 printflow_require_staff_module('products');
@@ -20,6 +21,31 @@ $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_i
 $staffBranchNameRow = db_query('SELECT branch_name FROM branches WHERE id = ? LIMIT 1', 'i', [$staffBranchId]);
 $staffBranchName = trim((string)($staffBranchNameRow[0]['branch_name'] ?? 'Assigned Branch'));
 $usesBaseProductStock = printflow_product_branch_uses_base_stock($staffBranchId);
+
+function staff_products_apply_effective_stock(array $product, int $branchId): array {
+    $stock = printflow_get_branch_product_stock((int)($product['product_id'] ?? 0), $branchId);
+    $product['stock_quantity'] = (int)$stock['stock_quantity'];
+    $product['low_stock_level'] = (int)$stock['low_stock_level'];
+    $product['stock_status'] = (string)$stock['stock_status'];
+    $product['variant_stock_field_key'] = $stock['variant_stock_field_key'];
+    $product['variant_stock_field_label'] = $stock['variant_stock_field_label'];
+    $product['variant_stock_options'] = $stock['variant_stock_options'];
+    $product['has_variant_stock'] = (bool)$stock['has_variant_stock'];
+    return $product;
+}
+
+function staff_products_sort_rows(array &$rows, string $sort): void {
+    usort($rows, static function (array $a, array $b) use ($sort): int {
+        return match ($sort) {
+            'za' => strcasecmp((string)($b['name'] ?? ''), (string)($a['name'] ?? '')),
+            'price_high' => ((float)($b['price'] ?? 0)) <=> ((float)($a['price'] ?? 0)),
+            'price_low' => ((float)($a['price'] ?? 0)) <=> ((float)($b['price'] ?? 0)),
+            'stock_low' => ((int)($a['stock_quantity'] ?? 0)) <=> ((int)($b['stock_quantity'] ?? 0))
+                ?: strcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? '')),
+            default => strcasecmp((string)($a['name'] ?? ''), (string)($b['name'] ?? '')),
+        };
+    });
+}
 
 function staff_products_table_exists(string $table): bool {
     try {
@@ -70,51 +96,20 @@ if (!empty($search)) {
     $types .= 'ss';
 }
 
-// Pagination settings
+$sort = $_GET['sort'] ?? 'az';
 $items_per_page = 15;
 $current_page = max(1, (int)($_GET['page'] ?? 1));
 $offset = ($current_page - 1) * $items_per_page;
 
-// Count total items for pagination
-$count_sql = "SELECT COUNT(*) as total
-              FROM products p
-              LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
-              WHERE p.status = 'Activated'";
-$count_params = [$staffBranchId];
-$count_types = 'i';
-
-if (!empty($category)) {
-    $count_sql .= " AND p.category = ?";
-    $count_params[] = $category;
-    $count_types .= 's';
-}
-
-if (!empty($search)) {
-    $count_sql .= " AND (p.name LIKE ? OR p.sku LIKE ?)";
-    $count_params[] = '%' . $search . '%';
-    $count_params[] = '%' . $search . '%';
-    $count_types .= 'ss';
-}
-
-$total_result = db_query($count_sql, $count_types, $count_params);
-$total_items = $total_result[0]['total'] ?? 0;
-$total_pages = ceil($total_items / $items_per_page);
-
-$sort = $_GET['sort'] ?? 'az';
-$sort_clause = match($sort) {
-    'za'      => " ORDER BY p.name DESC",
-    'price_high' => " ORDER BY p.price DESC",
-    'price_low'  => " ORDER BY p.price ASC",
-    'stock_low'  => " ORDER BY {$stockExpr} ASC",
-    default   => " ORDER BY p.name ASC"
-};
-
-$sql .= $sort_clause . " LIMIT ? OFFSET ?";
-$params[] = $items_per_page;
-$params[] = $offset;
-$types .= 'ii';
-
-$products = db_query($sql, $types, $params);
+$allFilteredProducts = db_query($sql, $types, $params) ?: [];
+$allFilteredProducts = array_map(
+    fn(array $product): array => staff_products_apply_effective_stock($product, $staffBranchId),
+    $allFilteredProducts
+);
+staff_products_sort_rows($allFilteredProducts, $sort);
+$total_items = count($allFilteredProducts);
+$total_pages = (int)ceil($total_items / $items_per_page);
+$products = array_slice($allFilteredProducts, $offset, $items_per_page);
 $categories = db_query("SELECT DISTINCT category FROM products WHERE status = 'Activated' ORDER BY category ASC");
 
 $inventory_items = [];
@@ -496,31 +491,21 @@ $page_title = 'Products & Inventory - Staff';
         <main x-data="{ filterOpen: false, sortOpen: false, hasActiveFilters: <?php echo (!empty($search) || !empty($category)) ? 'true' : 'false'; ?> }">
             <?php
             // Calculate KPIs for products
-            $total_products = db_query("
-                SELECT COUNT(*) as count
+            $allActiveProducts = db_query("
+                SELECT p.product_id, p.sku, p.name, p.category, p.product_type, p.price, p.status,
+                       {$stockExpr} AS stock_quantity, {$lowStockExpr} AS low_stock_level
                 FROM products p
                 LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
                 WHERE p.status = 'Activated'
-            ", 'i', [$staffBranchId])[0]['count'] ?? 0;
-            $low_stock_count = db_query("
-                SELECT COUNT(*) as count
-                FROM products p
-                LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
-                WHERE p.status = 'Activated'
-                  AND {$stockExpr} <= {$lowStockExpr}
-            ", 'i', [$staffBranchId])[0]['count'] ?? 0;
-            $fixed_count = db_query("
-                SELECT COUNT(*) as count
-                FROM products p
-                LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
-                WHERE p.status = 'Activated' AND p.product_type = 'fixed'
-            ", 'i', [$staffBranchId])[0]['count'] ?? 0;
-            $variable_count = db_query("
-                SELECT COUNT(*) as count
-                FROM products p
-                LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
-                WHERE p.status = 'Activated' AND p.product_type = 'variable'
-            ", 'i', [$staffBranchId])[0]['count'] ?? 0;
+            ", 'i', [$staffBranchId]) ?: [];
+            $allActiveProducts = array_map(
+                fn(array $product): array => staff_products_apply_effective_stock($product, $staffBranchId),
+                $allActiveProducts
+            );
+            $total_products = count($allActiveProducts);
+            $low_stock_count = count(array_filter($allActiveProducts, static function (array $product): bool {
+                return (int)($product['stock_quantity'] ?? 0) <= (int)($product['low_stock_level'] ?? 10);
+            }));
             ?>
 
             <!-- Standardized KPI Row -->
@@ -680,9 +665,11 @@ $page_title = 'Products & Inventory - Staff';
                                     <td data-label="Price" style="font-weight:600;"><?php echo format_currency($product['price']); ?></td>
                                     <td data-label="Stock">
                                         <?php $productLowLevel = (int)($product['low_stock_level'] ?? 10); ?>
-                                        <?php if ((int)$product['stock_quantity'] <= $productLowLevel): ?>
+                                        <?php $productStockQty = (int)($product['stock_quantity'] ?? 0); ?>
+                                        <?php if ($productStockQty <= 0): ?>
                                             <span style="color:#dc2626; font-weight:700;"><?php echo $product['stock_quantity']; ?></span>
-                                            <span style="font-size:11px; color:#dc2626; font-weight:600;">LOW</span>
+                                        <?php elseif ($productStockQty <= $productLowLevel): ?>
+                                            <span style="color:#f59e0b; font-weight:700;"><?php echo $product['stock_quantity']; ?></span>
                                         <?php else: ?>
                                             <span style="color:#16a34a;"><?php echo $product['stock_quantity']; ?></span>
                                         <?php endif; ?>
@@ -751,7 +738,7 @@ $page_title = 'Products & Inventory - Staff';
                                                 if ($itemStock <= 0) {
                                                     echo '<span class="inventory-chip out">OUT</span>';
                                                 } elseif ($itemStock <= $itemReorder) {
-                                                    echo '<span class="inventory-chip out">LOW</span>';
+                                                    echo '<span class="inventory-chip out">ALERT</span>';
                                                 } else {
                                                     echo '<span class="inventory-chip in">OK</span>';
                                                 }
