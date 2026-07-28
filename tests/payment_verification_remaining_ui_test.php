@@ -7,6 +7,7 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 
 $paymentPage = (string)file_get_contents(__DIR__ . '/../staff/payment_verification.php');
 $customizations = (string)file_get_contents(__DIR__ . '/../staff/customizations.php');
+$servicesPage = (string)file_get_contents(__DIR__ . '/../customer/services.php');
 $modalStart = strpos($paymentPage, '<?php if ($detail):');
 $modalEnd = strpos($paymentPage, '<div id="pvToast"', $modalStart === false ? 0 : $modalStart);
 $reviewModal = ($modalStart !== false && $modalEnd !== false)
@@ -21,6 +22,7 @@ foreach ([
     'Mark as Duplicate',
     'Duplicate Suspected',
     'Raw OCR Text',
+    'Payment Status',
 ] as $removedLabel) {
     $assert(strpos($reviewModal, $removedLabel) === false, "{$removedLabel} must not appear in the standard review modal.");
 }
@@ -56,6 +58,11 @@ $assert(strpos($customizations, 'payment_proof_original_url') !== false, 'Custom
 $assert(strpos($customizations, '.ink-set-options') !== false, 'Ink set selector should use scoped component styles.');
 $assert(strpos($customizations, 'role="radiogroup"') !== false, 'Ink set selector should expose a radio group.');
 $assert(strpos($customizations, ':aria-checked=') !== false, 'Ink set options should expose selected state accessibly.');
+$assert(strpos($customizations, 'Download Image') !== false, 'Image lightbox should use the Download Image label.');
+$assert(strpos($customizations, 'Download Artwork') === false, 'The old Download Artwork label should be removed.');
+$assert(strpos($servicesPage, '>Customize Now</a>') !== false, 'Service cards should use the Customize Now action.');
+$serviceCardRender = substr($servicesPage, 0, (int)(strpos($servicesPage, '<style>') ?: strlen($servicesPage)));
+$assert(strpos($serviceCardRender, 'class="shopee-price-row"') === false, 'Service cards should not render a price row.');
 
 if ($failures) {
     foreach ($failures as $failure) fwrite(STDERR, "FAIL: {$failure}\n");

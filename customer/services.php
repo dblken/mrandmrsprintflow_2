@@ -185,7 +185,7 @@ function render_service_card($srv) {
     if ($price_label === '') $price_label = 'Custom Pricing';
     $order_link = (string)($srv['link'] ?? '');
     ?>
-    <div class="shopee-card" onclick="window.location.href=<?php echo $json_link; ?>;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.href=<?php echo $json_link; ?>;}" role="link" tabindex="0" aria-label="Order <?php echo htmlspecialchars($srv['name']); ?>">
+    <div class="shopee-card" onclick="window.location.href=<?php echo $json_link; ?>;" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.location.href=<?php echo $json_link; ?>;}" role="link" tabindex="0" aria-label="Customize <?php echo htmlspecialchars($srv['name']); ?>">
         <?php if ($is_video): ?>
             <video
                 src="<?php echo htmlspecialchars($img); ?>#t=1"
@@ -216,19 +216,12 @@ function render_service_card($srv) {
                 <span class="shopee-sold"><?php echo htmlspecialchars((string)$sold_display); ?> sold</span>
             </div>
 
-            <div class="shopee-price-row">
-                <span
-                    class="shopee-price"
-                    data-pricing-type="<?php echo htmlspecialchars($pricing_type); ?>"
-                    data-minimum-price="<?php echo $minimum_price === null ? '' : htmlspecialchars(number_format((float)$minimum_price, 2, '.', '')); ?>"
-                ><?php echo htmlspecialchars($price_label); ?></span>
-            </div>
         </div>
         <div class="shopee-footer" onclick="event.stopPropagation();">
             <button type="button" onclick="window.location.href='<?php echo htmlspecialchars($order_link, ENT_QUOTES, 'UTF-8'); ?>'" class="shopee-btn shopee-btn-cart" title="Order Service">
                 <svg style="width: 1.25rem; height: 1.25rem;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
             </button>
-            <a href="<?php echo htmlspecialchars($order_link); ?>" class="shopee-btn shopee-btn-buy">Order Now</a>
+            <a href="<?php echo htmlspecialchars($order_link); ?>" class="shopee-btn shopee-btn-buy">Customize Now</a>
         </div>
     </div>
     <?php
