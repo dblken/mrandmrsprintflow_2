@@ -178,10 +178,24 @@ try {
     ) ?: [];
 } catch (Exception $e) { $order_status = []; }
 
-// ── Sales by Product Category ──────────────────────────────────
+// Sales by Product (official product list, branch-filtered)
 try {
     $category_sales = pf_reports_sales_by_official_product($dashFromStart, $dashToEnd, $branchId);
 } catch (Exception $e) { $category_sales = []; }
+
+$dashboard_chart_value = static function (array $row): float {
+    $total = (float)($row['total'] ?? 0);
+    if ($total > 0) {
+        return round($total, 2);
+    }
+    return (float)(($row['items_sold'] ?? null) ?? ($row['qty_sold'] ?? 0));
+};
+
+// Sales by Service Category (customization / job orders, branch-filtered)
+try {
+    $service_category_sales = pf_reports_sales_by_service_category($dashFromStart, $dashToEnd, $branchId);
+    $service_category_sales = pf_reports_fold_demo_service_categories($service_category_sales, ['Eunsoyaaaaa', 'Ink']);
+} catch (Exception $e) { $service_category_sales = []; }
 
 // ── Top Customers (by spending) ────────────────────────────────
 try {
@@ -228,10 +242,8 @@ try {
     $top_products_full = [];
 }
 
-$dashboard_sales_bar = !empty($category_sales)
-    ? pf_reports_category_sales_for_dashboard_bar_chart($category_sales, 8)
-    : array_slice($top_products_full, 0, 8);
-$dashboard_sales_bar_is_category = !empty($category_sales);
+$dashboard_sales_bar = pf_reports_category_sales_for_dashboard_bar_chart($service_category_sales, 8);
+$dashboard_sales_bar_is_category = true;
 
 $customer_locations = [];
 try {
@@ -660,7 +672,7 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                     <?php if (!empty($dashboard_sales_bar)): ?>
                     <div class="products-chart"><div id="productsChart"></div></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product data</div>
+                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No service sales data for this filter.</div>
                     <?php endif; ?>
                 </div>
 
@@ -726,72 +738,32 @@ $page_title = 'Dashboard - Manager | PrintFlow';
                 </div>
             </div>
 
+            <!-- Category Sales -->
             <div class="dash-grid">
                 <div class="dash-card">
                     <div class="dash-card-title">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/></svg>
-                        Sales by Product Category
+                        Sales by Product
                     </div>
                     <?php if (!empty($category_sales)): ?>
-                    <div style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;"><canvas id="categoryChart"></canvas></div>
-                    <div id="category-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:center; gap:12px; padding:0 10px;"></div>
+                    <div id="dash-product-single-chart" class="dash-single-chart-wrap" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Uncategorized product', $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-category-totals="<?php echo htmlspecialchars(json_encode(array_map($dashboard_chart_value, $category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="categoryChart"></canvas></div>
+                    <div id="category-legend" class="dash-single-chart-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
                     <?php else: ?>
-                    <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product sales data yet</div>
+                    <div class="dash-empty-state">No official product sales data yet</div>
                     <?php endif; ?>
                 </div>
 
                 <div class="dash-card">
-                    <div class="dash-card-title" style="justify-content: space-between;">
-                        <span style="display:flex; align-items:center; gap:8px;">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-                            Top Performers
-                        </span>
-                        <div class="performer-toggle">
-                            <button type="button" class="performer-btn is-active" data-perf-target="products">Products</button>
-                            <button type="button" class="performer-btn" data-perf-target="customers">Customers</button>
-                        </div>
+                    <div class="dash-card-title">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4-4 4 4 4-8 4 8"/></svg>
+                        Sales by Service Category
                     </div>
-                    <div class="performer-panel" data-perf-panel="products">
-                        <?php if (!empty($top_products)): ?>
-                        <table class="mini-table">
-                            <thead><tr><th>#</th><th>Product</th><th>Qty Sold</th><th style="text-align:right;">Revenue</th></tr></thead>
-                            <tbody>
-                                <?php foreach ($top_products as $i => $tp): ?>
-                                <tr>
-                                    <td style="font-weight:700; color:#9ca3af;"><?php echo $i + 1; ?></td>
-                                    <td style="font-weight:600;" title="<?php echo htmlspecialchars($tp['product_name']); ?>">
-                                        <?php echo mb_strlen($tp['product_name']) > 25 ? htmlspecialchars(mb_substr($tp['product_name'], 0, 25)) . '...' : htmlspecialchars($tp['product_name']); ?>
-                                        <div style="font-size:10px; color:#9ca3af;"><?php echo htmlspecialchars($tp['sku'] ?? ''); ?></div>
-                                    </td>
-                                    <td><?php echo (int)$tp['qty_sold']; ?></td>
-                                    <td style="text-align:right; font-weight:700; color:#059669;">₱<?php echo number_format((float)$tp['revenue'], 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                        <?php else: ?>
-                        <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No product sales data yet</div>
-                        <?php endif; ?>
-                    </div>
-                    <div class="performer-panel" data-perf-panel="customers" hidden>
-                        <?php if (!empty($top_customers)): ?>
-                        <table class="mini-table">
-                            <thead><tr><th>#</th><th>Customer</th><th>Orders</th><th style="text-align:right;">Spent</th></tr></thead>
-                            <tbody>
-                                <?php foreach ($top_customers as $i => $tc): ?>
-                                <tr>
-                                    <td style="font-weight:700; color:#9ca3af;"><?php echo $i + 1; ?></td>
-                                    <td style="font-weight:600;"><?php echo htmlspecialchars($tc['name']); ?></td>
-                                    <td><?php echo $tc['orders']; ?></td>
-                                    <td style="text-align:right; font-weight:700; color:#059669;">₱<?php echo number_format((float)$tc['spent'], 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                        <?php else: ?>
-                        <div style="text-align:center; color:#9ca3af; padding:40px 0; font-size:13px;">No customer sales data yet</div>
-                        <?php endif; ?>
-                    </div>
+                    <?php if (!empty($service_category_sales)): ?>
+                    <div id="dash-service-category-single-chart" class="dash-single-chart-wrap" style="position:relative; height:240px; margin-bottom:16px; display:flex; align-items:center; justify-content:center;" data-service-category-labels="<?php echo htmlspecialchars(json_encode(array_map(static fn($c) => trim((string)($c['category'] ?? '')) !== '' ? trim((string)$c['category']) : 'Customization', $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>" data-service-category-totals="<?php echo htmlspecialchars(json_encode(array_map($dashboard_chart_value, $service_category_sales), JSON_UNESCAPED_UNICODE) ?: '[]', ENT_QUOTES, 'UTF-8'); ?>"><canvas id="serviceCategoryChart"></canvas></div>
+                    <div id="service-category-legend" class="dash-single-chart-legend" style="font-size:12px; display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; padding:0 10px;"></div>
+                    <?php else: ?>
+                    <div class="dash-empty-state">No service category data for this filter.</div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -848,136 +820,63 @@ $page_title = 'Dashboard - Manager | PrintFlow';
         Chart.defaults.font.size = 11;
         Chart.defaults.font.weight = '600';
     }
-    pfApplyDashChartFontDefaults();
-    document.addEventListener('DOMContentLoaded', pfApplyDashChartFontDefaults);
+    function parseJsonAttr(el, attr, fallback) {
+        if (!el) return fallback;
+        try { return JSON.parse(el.getAttribute(attr) || '[]'); } catch (e) { return fallback; }
+    }
+    function renderLegend(legendId, labels, colors) {
+        var legendContainer = document.getElementById(legendId);
+        if (!legendContainer) return;
+        legendContainer.innerHTML = labels.map(function(label, i) {
+            return '<div style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">' +
+                '<span style="width:10px; height:10px; border-radius:50%; background:' + colors[i % colors.length] + ';"></span>' +
+                '<span style="font-weight:600; color:#374151;">' + String(label || '') + '</span>' +
+                '</div>';
+        }).join('');
+    }
+    function destroyChart(key) {
+        if (!window[key]) return;
+        try { window[key].destroy(); } catch (e) {}
+        window[key] = null;
+    }
     window.printflowTeardownDashboardCharts = function () {
-        if (window.__pfDashRevealIOs && window.__pfDashRevealIOs.length) {
-            window.__pfDashRevealIOs.forEach(function (io) {
-                try { io.disconnect(); } catch (e) {}
-            });
-            window.__pfDashRevealIOs = [];
-        }
-        if (window.__pfDashChartIO) {
-            try { window.__pfDashChartIO.disconnect(); } catch (e) {}
-            window.__pfDashChartIO = null;
-        }
-        if (window.__pfDashMainRO) {
-            try { window.__pfDashMainRO.disconnect(); } catch (e) {}
-            window.__pfDashMainRO = null;
-        }
-        if (window.__pfDashScrollKick) {
-            try { window.removeEventListener('resize', window.__pfDashScrollKick); } catch (e) {}
-            window.__pfDashScrollKick = null;
-        }
-        if (window.__pfDashScrollSettledHandler) {
-            var mc0 = document.querySelector('.main-content');
-            if (mc0) {
-                try { mc0.removeEventListener('scroll', window.__pfDashScrollSettledHandler); } catch (e) {}
-            }
-            window.__pfDashScrollSettledHandler = null;
-        }
-        if (window.__pfDashScrollSettleTimer) {
-            try { clearTimeout(window.__pfDashScrollSettleTimer); } catch (e) {}
-            window.__pfDashScrollSettleTimer = null;
-        }
-        if (window.__pfDashLayoutTimer) {
-            try { clearTimeout(window.__pfDashLayoutTimer); } catch (e) {}
-            window.__pfDashLayoutTimer = null;
-        }
         if (dashCtrl) {
             try { dashCtrl.abort(); } catch (e) {}
             dashCtrl = null;
         }
         salesFirstFetch = true;
-        if (window.__pfDashSalesChart) {
-            try { window.__pfDashSalesChart.destroy(); } catch (e) {}
-            window.__pfDashSalesChart = null;
-        }
-        if (window.__pfDashStatusChart) {
-            try { window.__pfDashStatusChart.destroy(); } catch (e) {}
-            window.__pfDashStatusChart = null;
-        }
-        if (window.__pfDashCategoryChart) {
-            try { window.__pfDashCategoryChart.destroy(); } catch (e) {}
-            window.__pfDashCategoryChart = null;
+        ['__pfDashSalesChart', '__pfDashStatusChart', '__pfDashCategoryChart', '__pfDashServiceCategoryChart'].forEach(destroyChart);
+        if (window.__pfDashProductsChart) {
+            try { window.__pfDashProductsChart.destroy(); } catch (e) {}
+            window.__pfDashProductsChart = null;
         }
     };
     window.printflowInitDashboardCharts = function () {
-        if (!document.getElementById('salesChart')) return;
         if (typeof Chart === 'undefined') {
             setTimeout(function () {
                 if (typeof window.printflowInitDashboardCharts === 'function') window.printflowInitDashboardCharts();
-            }, 40);
+            }, 60);
             return;
         }
-
-        function normalizePesoText(raw) {
-            var text = String(raw || '').trim();
-            if (!text) return text;
-            var numeric = text.replace(/^[^0-9-]+/, '');
-            return numeric ? ('₱' + numeric) : text;
-        }
-
-        function normalizeDashboardCurrency() {
-            var revenueValue = document.querySelector('.kpi-card.emerald .kpi-value');
-            if (revenueValue) {
-                revenueValue.textContent = normalizePesoText(revenueValue.textContent);
-            }
-            document.querySelectorAll('.dash-card.dash-full .mini-table tbody td:last-child').forEach(function (cell) {
-                cell.textContent = normalizePesoText(cell.textContent);
-            });
-        }
-
-        function normalizePesoText(raw) {
-            var text = String(raw || '').trim();
-            if (!text) return text;
-            var numeric = text.replace(/^[^0-9-]+/, '');
-            return numeric ? ('₱' + numeric) : text;
-        }
-
-        function normalizeDashboardCurrency() {
-            var revenueValue = document.querySelector('.kpi-card.emerald .kpi-value');
-            if (revenueValue) {
-                revenueValue.textContent = normalizePesoText(revenueValue.textContent);
-            }
-            document.querySelectorAll('.mini-table tbody td:last-child').forEach(function (cell) {
-                cell.textContent = normalizePesoText(cell.textContent);
-            });
-        }
-
+        pfApplyDashChartFontDefaults();
         window.printflowTeardownDashboardCharts();
-        window.__pfDashRevealIOs = [];
         dashCtrl = new AbortController();
         var sig = { signal: dashCtrl.signal };
         var DASH_BRANCH_ID = <?php echo (int)$branchId; ?>;
-        normalizeDashboardCurrency();
-        // Keep this palette aligned with Admin Reports "Revenue Distribution" chart.
-        var ADMIN_REVENUE_DISTRIBUTION_PALETTE = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#8ED6E6', '#6B7C85', '#F39C12', '#2ECC71'];
-
-        var dashAnimLong = 1750;
-        var dashAnimShort = 680;
+        var colors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
         var doughnutAnim = { animateRotate: true, animateScale: true, duration: 1500 };
 
-        function bindWhenVisible(target, onFirst) {
-            if (!target || typeof onFirst !== 'function') return;
-            if (typeof IntersectionObserver === 'undefined') {
-                requestAnimationFrame(onFirst);
-                return;
-            }
-            var root = document.querySelector('.main-content');
-            var fired = false;
-            var io = new IntersectionObserver(function (entries) {
-                entries.forEach(function (en) {
-                    if (!en.isIntersecting || fired) return;
-                    fired = true;
-                    try { io.disconnect(); } catch (e) {}
-                    onFirst();
-                });
-            }, { root: root || null, threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
-            io.observe(target);
-            window.__pfDashRevealIOs.push(io);
+        function getChartPeriod() {
+            var sel = document.getElementById('dash-chart-period');
+            return sel ? sel.value : 'monthly';
         }
-
+        function updateChartYearMonthVisibility(period) {
+            var wrap = document.getElementById('dash-year-month');
+            var monthEl = document.getElementById('dash-chart-month');
+            if (!wrap) return;
+            wrap.style.display = ['monthly', '6months', 'yearly'].includes(period) ? 'flex' : 'none';
+            if (monthEl) monthEl.style.display = period === 'monthly' ? 'inline-block' : 'none';
+        }
         async function loadSalesChart(period) {
             if (!window.__pfDashSalesChart) return;
             var loadingEl = document.getElementById('dash-sales-loading');
@@ -988,307 +887,107 @@ $page_title = 'Dashboard - Manager | PrintFlow';
             if (noDataEl) noDataEl.classList.remove('visible');
             var year = yearEl ? yearEl.value : new Date().getFullYear();
             var month = monthEl ? monthEl.value : new Date().getMonth() + 1;
-            var url = '/printflow/admin/api_revenue_chart.php?period=' + encodeURIComponent(period) + '&year=' + encodeURIComponent(year);
+            var url = '/printflow/admin/api_revenue_chart.php?period=' + encodeURIComponent(period) + '&year=' + encodeURIComponent(year) + '&branch_id=' + DASH_BRANCH_ID;
             if (period === 'monthly') url += '&month=' + encodeURIComponent(month);
-            if (DASH_BRANCH_ID) url += '&branch_id=' + DASH_BRANCH_ID;
             try {
                 var resp = await fetch(url, { credentials: 'same-origin', signal: dashCtrl.signal });
-                var text = await resp.text();
-                var data;
-                try { data = JSON.parse(text); } catch (e) {
-                    if (noDataEl) { noDataEl.querySelector('span').textContent = 'Failed to load chart data'; noDataEl.classList.add('visible'); }
-                    return;
-                }
+                var data = await resp.json();
                 var labels = data.labels || [];
-                var revBranch = [];
+                var revenue = [];
                 if (Array.isArray(data.revenue) && data.revenue.length) {
-                    revBranch = data.revenue.map(function (v) { return Number(v) || 0; });
+                    revenue = data.revenue.map(function (v) { return Number(v) || 0; });
                 } else {
-                    var rs = Array.isArray(data.revenue_store) ? data.revenue_store : [];
-                    var rc = Array.isArray(data.revenue_custom) ? data.revenue_custom : [];
-                    for (var bi = 0; bi < labels.length; bi++) {
-                        revBranch.push(Number(rs[bi] || 0) + Number(rc[bi] || 0));
-                    }
+                    var store = Array.isArray(data.revenue_store) ? data.revenue_store : [];
+                    var custom = Array.isArray(data.revenue_custom) ? data.revenue_custom : [];
+                    for (var i = 0; i < labels.length; i++) revenue.push(Number(store[i] || 0) + Number(custom[i] || 0));
                 }
-                if (!window.__pfDashSalesChart) return;
                 window.__pfDashSalesChart.data.labels = labels;
-                window.__pfDashSalesChart.data.datasets[0].data = revBranch;
-                var dur = salesFirstFetch ? dashAnimLong : dashAnimShort;
+                window.__pfDashSalesChart.data.datasets[0].data = revenue;
+                window.__pfDashSalesChart.options.animation.duration = salesFirstFetch ? 1750 : 680;
                 salesFirstFetch = false;
-                if (window.__pfDashSalesChart.options && window.__pfDashSalesChart.options.animation) {
-                    window.__pfDashSalesChart.options.animation.duration = dur;
-                }
                 window.__pfDashSalesChart.update();
-                requestAnimationFrame(function () {
-                    try {
-                        if (window.__pfDashSalesChart && typeof window.__pfDashSalesChart.resize === 'function') {
-                            window.__pfDashSalesChart.resize();
-                        }
-                    } catch (e2) {}
-                });
                 if (noDataEl) noDataEl.classList.toggle('visible', labels.length === 0);
             } catch (e) {
-                if (e && e.name === 'AbortError') return;
-                if (noDataEl) { noDataEl.querySelector('span').textContent = 'Failed to load chart data'; noDataEl.classList.add('visible'); }
+                if (e && e.name !== 'AbortError' && noDataEl) {
+                    noDataEl.querySelector('span').textContent = 'Failed to load chart data';
+                    noDataEl.classList.add('visible');
+                }
             } finally {
                 if (loadingEl) loadingEl.classList.add('hidden');
             }
         }
-
-        function updateChartYearMonthVisibility(period) {
-            var wrap = document.getElementById('dash-year-month');
-            var monthEl = document.getElementById('dash-chart-month');
-            if (!wrap) return;
-            wrap.style.display = ['monthly', '6months', 'yearly'].includes(period) ? 'flex' : 'none';
-            if (monthEl) monthEl.style.display = period === 'monthly' ? 'inline-block' : 'none';
+        function renderDoughnut(canvasId, legendId, labelAttr, valueAttr, key) {
+            var cv = document.getElementById(canvasId);
+            if (!cv) return;
+            var labels = parseJsonAttr(cv.parentElement, labelAttr, []);
+            var values = parseJsonAttr(cv.parentElement, valueAttr, []);
+            if (!labels.length) return;
+            window[key] = new Chart(cv.getContext('2d'), {
+                type: 'doughnut',
+                data: { labels: labels, datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length), borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '70%', animation: doughnutAnim, plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } } }
+            });
+            renderLegend(legendId, labels, colors);
         }
 
-        function getChartPeriod() {
-            var sel = document.getElementById('dash-chart-period');
-            return sel ? sel.value : 'monthly';
+        var salesCanvas = document.getElementById('salesChart');
+        if (salesCanvas) {
+            window.__pfDashSalesChart = new Chart(salesCanvas.getContext('2d'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'Branch revenue (PHP)', data: [], borderColor: colors[0], backgroundColor: 'rgba(0,35,43,.10)', borderWidth: 2.5, fill: true, tension: 0.35, pointBackgroundColor: colors[0], pointRadius: 3, pointHoverRadius: 6 }] },
+                options: { responsive: true, maintainAspectRatio: false, animation: { duration: 1750, easing: 'easeOutQuart' }, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12, font: pfDashChartFont(11, '600') } }, tooltip: { animation: { duration: 180 }, padding: 10, cornerRadius: 8, titleFont: pfDashChartFont(11, '600'), bodyFont: pfDashChartFont(11, '600') } }, scales: { y: { beginAtZero: true, ticks: { font: pfDashChartFont(11, '600'), callback: function (v) { return '\u20b1' + Number(v).toLocaleString(); } }, grid: { color: '#f3f4f6' } }, x: { ticks: { font: pfDashChartFont(10, '600'), maxRotation: 45 }, grid: { display: false } } } }
+            });
+            loadSalesChart(getChartPeriod());
+        }
+
+        var statusCanvas = document.getElementById('statusChart');
+        if (statusCanvas) {
+            var statusLabels = <?php echo json_encode(array_map(fn($d) => $d['status'], $order_status)); ?>;
+            var statusValues = <?php echo json_encode(array_map(fn($d) => (int)$d['cnt'], $order_status)); ?>;
+            var statusPalette = { 'completed':'#22c55e', 'processing':'#3b82f6', 'in production':'#3b82f6', 'printing':'#3b82f6', 'ready for pickup':'#06b6d4', 'pending':'#f59e0b', 'pending review':'#6b7280', 'cancelled':'#ef4444', 'rejected':'#ef4444', 'design approved':'#6366f1' };
+            var statusColors = statusLabels.map(function (label) { return statusPalette[String(label || '').toLowerCase().trim()] || '#6B7C85'; });
+            window.__pfDashStatusChart = new Chart(statusCanvas.getContext('2d'), { type: 'doughnut', data: { labels: statusLabels, datasets: [{ data: statusValues, backgroundColor: statusColors, borderWidth: 2, borderColor: '#fff', hoverOffset: 8 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', animation: doughnutAnim, plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } } } });
+            renderLegend('status-legend', statusLabels, statusColors);
+        }
+
+        renderDoughnut('categoryChart', 'category-legend', 'data-category-labels', 'data-category-totals', '__pfDashCategoryChart');
+        renderDoughnut('serviceCategoryChart', 'service-category-legend', 'data-service-category-labels', 'data-service-category-totals', '__pfDashServiceCategoryChart');
+
+        var productsEl = document.getElementById('productsChart');
+        if (productsEl && typeof ApexCharts !== 'undefined') {
+            window.__pfDashProductsChart = new ApexCharts(productsEl, {
+                chart: { type: 'bar', height: 300, toolbar: { show: false } },
+                series: [{ name: 'Sales (PHP)', data: <?php echo json_encode(array_map(function ($r) { return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2); }, $dashboard_sales_bar)); ?> }],
+                xaxis: { categories: <?php echo json_encode(array_map(function ($r) { $label = trim((string)($r['category'] ?? '')); return mb_substr($label !== '' ? $label : 'Customization', 0, 20); }, $dashboard_sales_bar)); ?>, labels: { style: { fontSize: '11px' } } },
+                yaxis: { labels: { maxWidth: 160, style: { fontSize: '11px' } } },
+                colors: ['#00232b'],
+                plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '64%' } },
+                dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 700 } },
+                grid: { borderColor: '#f3f4f6', padding: { left: 8, right: 12 } },
+                tooltip: { theme: 'dark' }
+            });
+            window.__pfDashProductsChart.render();
         }
 
         document.getElementById('dash-chart-period')?.addEventListener('change', function () {
             var period = getChartPeriod();
             updateChartYearMonthVisibility(period);
-            if (window.__pfDashSalesChart) loadSalesChart(period);
+            loadSalesChart(period);
         }, sig);
-        document.getElementById('dash-chart-year')?.addEventListener('change', function () {
-            if (window.__pfDashSalesChart) loadSalesChart(getChartPeriod());
-        }, sig);
-        document.getElementById('dash-chart-month')?.addEventListener('change', function () {
-            if (window.__pfDashSalesChart) loadSalesChart(getChartPeriod());
-        }, sig);
-
-        updateChartYearMonthVisibility('monthly');
-
-        bindWhenVisible(document.getElementById('dash-sales-chart-wrap'), function () {
-            salesFirstFetch = true;
-            window.__pfDashSalesChart = new Chart(document.getElementById('salesChart').getContext('2d'), {
-                type: 'line',
-                data: { labels: [], datasets: [
-                    {
-                        label: 'Branch revenue (₱)', data: [],
-                        borderColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[0],
-                        backgroundColor: 'rgba(0,35,43,.10)',
-                        borderWidth: 2.5, fill: true, tension: 0.35,
-                        pointBackgroundColor: ADMIN_REVENUE_DISTRIBUTION_PALETTE[0], pointRadius: 3, pointHoverRadius: 6, yAxisID: 'y'
-                    }
-                ]},
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    animation: { duration: dashAnimLong, easing: 'easeOutQuart' },
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { display: true, position: 'top', labels: { boxWidth: 12, font: pfDashChartFont(11, '600') } },
-                        tooltip: {
-                            animation: { duration: 180 },
-                            padding: 10,
-                            cornerRadius: 8,
-                            displayColors: true,
-                            titleFont: pfDashChartFont(11, '600'),
-                            bodyFont: pfDashChartFont(11, '600')
-                        }
-                    },
-                    scales: {
-                        y:  { beginAtZero: true, ticks: { font: pfDashChartFont(11, '600'), callback: function (v) { return '₱' + v.toLocaleString(); } }, grid: { color: '#f3f4f6' } },
-                        x:  { ticks: { font: pfDashChartFont(10, '600'), maxRotation: 45 }, grid: { display: false } }
-                    }
-                }
-            });
-            loadSalesChart(getChartPeriod());
-        });
-
-        <?php if (!empty($order_status)): ?>
-        (function () {
-            var w = document.getElementById('statusChart') && document.getElementById('statusChart').closest('.chart-wrap');
-            bindWhenVisible(w, function () {
-                var statusLabels = <?php echo json_encode(array_map(fn($d) => $d['status'], $order_status)); ?>;
-                var statusValues = <?php echo json_encode(array_map(fn($d) => (int)$d['cnt'], $order_status)); ?>;
-                // Match Admin Reports palette, but normalize status text to avoid fallback-gray on variants.
-                var adminStatusPalette = {
-                    'completed': '#22c55e',
-                    'processing': '#3b82f6',
-                    'in production': '#3b82f6',
-                    'printing': '#3b82f6',
-                    'ready for pickup': '#06b6d4',
-                    'ready for pick up': '#06b6d4',
-                    'pending': '#f59e0b',
-                    'pending review': '#6b7280',
-                    'pending approval': '#6b7280',
-                    'for revision': '#6b7280',
-                    'downpayment submitted': '#8b5cf6',
-                    'pending verification': '#8b5cf6',
-                    'to verify': '#8b5cf6',
-                    'cancelled': '#ef4444',
-                    'rejected': '#ef4444',
-                    'design approved': '#6366f1',
-                    'approved': '#6366f1',
-                    'to pay': '#6366f1'
-                };
-                function normalizeStatusKey(v) {
-                    return String(v || '')
-                        .toLowerCase()
-                        .replace(/[–—]/g, '-')
-                        .replace(/\s+/g, ' ')
-                        .trim();
-                }
-                var statusColorsResolved = statusLabels.map(function (label) {
-                    var k = normalizeStatusKey(label);
-                    return adminStatusPalette[k] || '#6B7C85';
-                });
-
-                window.__pfDashStatusChart = new Chart(document.getElementById('statusChart').getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: statusLabels,
-                        datasets: [{
-                            data: statusValues,
-                            backgroundColor: statusColorsResolved,
-                            borderWidth: 2, borderColor: '#fff', hoverOffset: 8
-                        }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false, cutout: '70%',
-                        animation: doughnutAnim,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: { animation: { duration: 160 }, cornerRadius: 8 }
-                        }
-                    }
-                });
-                updateStatusLegend(statusLabels, statusValues, statusColorsResolved);
-            });
-        })();
-        <?php endif; ?>
-
-        function updateStatusLegend(labels, counts, colors) {
-            var legendContainer = document.getElementById('status-legend');
-            if (!legendContainer) return;
-            var html = '';
-            labels.forEach(function(label, i) {
-                html += '<div style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">';
-                html += '<span style="width:10px; height:10px; border-radius:50%; background:' + colors[i] + ';"></span>';
-                html += '<span style="font-weight:600; color:#374151;">' + label + '</span>';
-                html += '</div>';
-            });
-            legendContainer.innerHTML = html;
-        }
-
-        <?php if (!empty($category_sales)): ?>
-        (function () {
-            var cv = document.getElementById('categoryChart');
-            var w = cv ? cv.parentElement : null;
-            var catColors = ['#00232b', '#53C5E0', '#0F4C5C', '#3498DB', '#6C5CE7', '#3A86A8', '#F39C12', '#2ECC71'];
-            var catLabels = <?php echo json_encode(array_map(fn($c) => $c['category'] ?? 'Store items', $category_sales)); ?>;
-            bindWhenVisible(w, function () {
-                window.__pfDashCategoryChart = new Chart(cv.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: catLabels,
-                        datasets: [{
-                            data: <?php echo json_encode(array_map(fn($c) => (float)$c['total'], $category_sales)); ?>,
-                            backgroundColor: catColors.slice(0, <?php echo count($category_sales); ?>),
-                            borderWidth: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '70%',
-                        animation: doughnutAnim,
-                        plugins: { legend: { display: false }, tooltip: { animation: { duration: 160 }, cornerRadius: 8 } }
-                    }
-                });
-                var legendContainer = document.getElementById('category-legend');
-                if (legendContainer) {
-                    var html = '';
-                    catLabels.forEach(function(label, i) {
-                        html += '<div style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">';
-                        html += '<span style="width:10px; height:10px; border-radius:50%; background:' + catColors[i % catColors.length] + ';"></span>';
-                        html += '<span style="font-weight:600; color:#374151;">' + label + '</span>';
-                        html += '</div>';
-                    });
-                    legendContainer.innerHTML = html;
-                }
-            });
-        })();
-        <?php endif; ?>
-
-        <?php if (!empty($dashboard_sales_bar)): ?>
-        (function () {
-            var el = document.getElementById('productsChart');
-            if (!el || typeof ApexCharts === 'undefined') return;
-            bindWhenVisible(el.parentElement, function () {
-                var chart = new ApexCharts(el, {
-                    chart: { type: 'bar', height: 300, toolbar: { show: false } },
-                    series: [{ name: 'Sales (₱)', data: <?php echo json_encode(array_map(function ($r) {
-                        return round((float)($r['total'] ?? $r['revenue'] ?? 0), 2);
-                    }, $dashboard_sales_bar)); ?> }],
-                    xaxis: {
-                        categories: <?php echo json_encode(array_map(function ($r) use ($dashboard_sales_bar_is_category) {
-                            if ($dashboard_sales_bar_is_category) {
-                                $label = trim((string)($r['category'] ?? ''));
-                                return mb_substr($label !== '' ? $label : 'Uncategorized product', 0, 20);
-                            }
-                            return mb_substr((string)($r['product_name'] ?? ''), 0, 20);
-                        }, $dashboard_sales_bar)); ?>,
-                        labels: { style: { fontSize: '11px' } }
-                    },
-                    yaxis: { labels: { maxWidth: 160, style: { fontSize: '11px' } } },
-                    colors: ['#00232b'],
-                    plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '64%' } },
-                    dataLabels: { enabled: true, style: { fontSize: '11px', fontWeight: 700 } },
-                    grid: { borderColor: '#f3f4f6', padding: { left: 8, right: 12 } },
-                    tooltip: { theme: 'dark' }
-                });
-                chart.render();
-            });
-        })();
-        <?php endif; ?>
+        document.getElementById('dash-chart-year')?.addEventListener('change', function () { loadSalesChart(getChartPeriod()); }, sig);
+        document.getElementById('dash-chart-month')?.addEventListener('change', function () { loadSalesChart(getChartPeriod()); }, sig);
+        updateChartYearMonthVisibility(getChartPeriod());
 
         document.querySelectorAll('.performer-btn').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var target = btn.getAttribute('data-perf-target');
-                document.querySelectorAll('.performer-btn').forEach(function (b) {
-                    b.classList.toggle('is-active', b === btn);
-                });
-                document.querySelectorAll('.performer-panel').forEach(function (panel) {
-                    panel.hidden = panel.getAttribute('data-perf-panel') !== target;
-                });
-            });
+                document.querySelectorAll('.performer-btn').forEach(function (b) { b.classList.toggle('is-active', b === btn); });
+                document.querySelectorAll('.performer-panel').forEach(function (panel) { panel.hidden = panel.getAttribute('data-perf-panel') !== target; });
+            }, sig);
         });
-
-        (function attachDashboardChartLayout() {
-            var mainEl = document.querySelector('.main-content');
-            function runDashResize() {
-                ['__pfDashSalesChart', '__pfDashStatusChart', '__pfDashCategoryChart'].forEach(function (k) {
-                    var c = window[k];
-                    if (c && typeof c.resize === 'function') {
-                        try { c.resize(); } catch (e) {}
-                    }
-                });
-            }
-            function debouncedDashResize() {
-                if (window.__pfDashLayoutTimer) clearTimeout(window.__pfDashLayoutTimer);
-                window.__pfDashLayoutTimer = setTimeout(function () {
-                    window.__pfDashLayoutTimer = null;
-                    runDashResize();
-                }, 240);
-            }
-            window.__pfDashScrollKick = debouncedDashResize;
-            window.addEventListener('resize', debouncedDashResize);
-            if (mainEl && typeof ResizeObserver !== 'undefined') {
-                window.__pfDashMainRO = new ResizeObserver(function () {
-                    debouncedDashResize();
-                });
-                window.__pfDashMainRO.observe(mainEl);
-            }
-        })();
     };
 })();
-</script>
-<script>
+</script><script>
 window.__pfDashFilterTimer = null;
 window.__pfDashLastSubmittedRange = null;
 window.__pfDashDateRe = /^\d{4}-\d{2}-\d{2}$/;
