@@ -361,20 +361,22 @@ $page_title = 'Payment - Admin | PrintFlow';
         .filter-section:last-of-type { border-bottom: none; }
         .filter-section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .filter-section-label { font-size: 13px; font-weight: 600; color: #374151; }
+        .filter-reset-link { font-size:12px;font-weight:600;color:#0d9488;cursor:pointer;background:none;border:none;padding:0; }
+        .filter-reset-link:hover { text-decoration:underline; }
         .filter-input, .filter-select { width: 100%; height: 34px; border: 1px solid #e5e7eb; border-radius: 7px; font-size: 13px; padding: 0 10px; color: #1f2937; background: #fff; box-sizing: border-box; }
         .filter-input:focus, .filter-select:focus { outline: none; border-color: #0d9488; }
         .filter-actions { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid #f3f4f6; }
         .filter-btn-reset { flex: 1; height: 36px; border: 1px solid #e5e7eb; background: #fff; border-radius: 8px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
         .filter-btn-reset:hover { background: #f9fafb; }
-        .filter-btn-apply { flex: 1; height: 36px; border: 1px solid #0d9488; background: #0d9488; border-radius: 8px; font-size: 13px; font-weight: 500; color: #fff; cursor: pointer; }
         .filter-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: #0d9488; color: #fff; border-radius: 50%; font-size: 10px; font-weight: 700; }
-        .customs-table tbody tr { transition: background 0.1s; }
+        .customs-table tbody tr { cursor:pointer; transition: background 0.1s; }
+        .payment-order-text { font-weight:400;white-space:nowrap;color:#111827; }
         .customs-table tbody tr:hover td { background: #f9fafb; }
         .pf-pay-badge { display:inline-flex; align-items:center; border-radius:20px; padding:3px 10px; font-size:12px; font-weight:500; white-space:nowrap; }
         .proof-thumb { width:38px;height:38px;border-radius:50%;border:1px solid #e5e7eb;padding:0;background:#fff;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;vertical-align:middle; }
         .proof-thumb img { width:100%;height:100%;object-fit:cover;display:block; }
         .proof-thumb:hover { border-color:#9ca3af; box-shadow:0 2px 8px rgba(15,23,42,.08); }
-        .row-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; align-items:center; }
+        .row-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; align-items:center; }
         .btn-action { display:inline-flex; align-items:center; justify-content:center; padding:6px 12px; border:1px solid transparent; background:transparent; border-radius:6px; font-size:12px; font-weight:500; transition:all 0.2s; cursor:pointer; text-decoration:none; line-height:1.2; }
         .btn-action.blue { color:#3b82f6; border-color:#3b82f6; }
         .btn-action.blue:hover { background:#3b82f6; color:white; }
@@ -471,23 +473,23 @@ $page_title = 'Payment - Admin | PrintFlow';
                                 Filter
                                 <?php if ($activeFiltersCount > 0): ?><span class="filter-badge"><?php echo (int)$activeFiltersCount; ?></span><?php endif; ?>
                             </button>
-                            <form class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get">
+                            <form class="filter-panel" id="paymentFilterForm" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get" onsubmit="return false;">
                                 <div class="filter-panel-header">Filter</div>
                                 <div class="filter-section">
-                                    <div class="filter-section-head"><span class="filter-section-label">Keyword search</span></div>
-                                    <input type="text" name="search" class="filter-input" placeholder="Search..." value="<?php echo htmlspecialchars($search); ?>">
+                                    <div class="filter-section-head"><span class="filter-section-label">Keyword search</span><button type="button" class="filter-reset-link" onclick="resetPaymentFilter(['search'])">Reset</button></div>
+                                    <input type="text" name="search" class="filter-input" placeholder="Search..." value="<?php echo htmlspecialchars($search); ?>" oninput="paymentFilterChanged()">
                                 </div>
                                 <div class="filter-section">
-                                    <div class="filter-section-head"><span class="filter-section-label">Payment type</span></div>
-                                    <select name="type" class="filter-select">
+                                    <div class="filter-section-head"><span class="filter-section-label">Payment type</span><button type="button" class="filter-reset-link" onclick="resetPaymentFilter(['type'])">Reset</button></div>
+                                    <select name="type" class="filter-select" onchange="submitPaymentFilters()">
                                         <option value="all" <?php echo $typeFilter === 'all' ? 'selected' : ''; ?>>All payment types</option>
                                         <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>Product orders</option>
                                         <option value="customization" <?php echo $typeFilter === 'customization' ? 'selected' : ''; ?>>Customizations</option>
                                     </select>
                                 </div>
                                 <div class="filter-section">
-                                    <div class="filter-section-head"><span class="filter-section-label">Status</span></div>
-                                    <select name="status" class="filter-select">
+                                    <div class="filter-section-head"><span class="filter-section-label">Status</span><button type="button" class="filter-reset-link" onclick="resetPaymentFilter(['status'])">Reset</button></div>
+                                    <select name="status" class="filter-select" onchange="submitPaymentFilters()">
                                         <option value="to_verify" <?php echo $statusFilter === 'to_verify' ? 'selected' : ''; ?>>To Verify</option>
                                         <option value="verified" <?php echo $statusFilter === 'verified' ? 'selected' : ''; ?>>Verified</option>
                                         <option value="rejected" <?php echo $statusFilter === 'rejected' ? 'selected' : ''; ?>>Rejected</option>
@@ -497,8 +499,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                                 <input type="hidden" name="sort" value="<?php echo htmlspecialchars($sortBy); ?>">
                                 <input type="hidden" name="branch_id" value="<?php echo printflow_branch_value_is_all($branchId) ? 'all' : (int)$branchId; ?>">
                                 <div class="filter-actions">
-                                    <a class="filter-btn-reset" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;" href="<?php echo htmlspecialchars($buildFilterUrl(['search' => '', 'type' => 'all', 'status' => 'to_verify', 'sort' => 'newest', 'page' => 1])); ?>">Reset</a>
-                                    <button class="filter-btn-apply" type="submit">Apply</button>
+                                    <a class="filter-btn-reset" style="width:100%;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;" href="<?php echo htmlspecialchars($buildFilterUrl(['search' => '', 'type' => 'all', 'status' => 'to_verify', 'sort' => 'newest', 'page' => 1])); ?>">Reset all filters</a>
                                 </div>
                             </form>
                         </div>
@@ -516,7 +517,7 @@ $page_title = 'Payment - Admin | PrintFlow';
                                 <th class="text-center py-3">Payment</th>
                                 <th class="text-center py-3">Uploaded</th>
                                 <th class="text-center py-3">Proof</th>
-                                <th class="text-right py-3">Actions</th>
+                                <th class="text-center py-3">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -534,9 +535,9 @@ $page_title = 'Payment - Admin | PrintFlow';
                                     ? $base_path . '/admin/customizations.php?open_job=' . $recordId
                                     : $base_path . '/admin/orders_management.php?search=' . urlencode((string)$orderId);
                             ?>
-                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                <tr style="border-bottom: 1px solid #f3f4f6;" <?php if ($proofUrl !== ''): ?>onclick="openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars(($isCustomization ? 'Customization #' : 'Order #') . $recordId, ENT_QUOTES, 'UTF-8'); ?>')"<?php endif; ?>>
                                     <td class="py-3 text-gray-900">
-                                        <div style="font-weight:600;"><?php echo $isCustomization ? 'Customization #' : 'Order #'; ?><?php echo $recordId; ?></div>
+                                        <span class="payment-order-text"><?php echo $isCustomization ? 'Customization #' : 'Order #'; ?><?php echo $recordId; ?></span>
                                         <div class="text-xs text-gray-400"><?php echo htmlspecialchars((string)($payment['service_type'] ?? '')); ?><?php echo $orderId > 0 && $orderId !== $recordId ? ' / Order #' . $orderId : ''; ?></div>
                                     </td>
                                     <td class="py-3">
@@ -559,16 +560,16 @@ $page_title = 'Payment - Admin | PrintFlow';
                                     <td class="py-3 text-center text-gray-500 text-xs"><?php echo !empty($payment['submitted_at']) ? htmlspecialchars(date('M j, Y', strtotime((string)$payment['submitted_at']))) : 'No date'; ?></td>
                                     <td class="py-3 text-center">
                                         <?php if ($proofUrl !== ''): ?>
-                                            <button class="proof-thumb" type="button" onclick="openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars(($isCustomization ? 'Customization #' : 'Order #') . $recordId, ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
+                                            <button class="proof-thumb" type="button" onclick="event.stopPropagation(); openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars(($isCustomization ? 'Customization #' : 'Order #') . $recordId, ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
                                                 <img src="<?php echo htmlspecialchars($proofUrl); ?>" alt="Payment proof">
                                             </button>
                                         <?php else: ?>
                                             <span class="text-gray-400 text-xs">None</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="py-3 text-right">
+                                    <td class="py-3 text-center">
                                         <div class="row-actions">
-                                            <a class="btn-action blue" href="<?php echo htmlspecialchars($openUrl); ?>">View</a>
+                                            <a class="btn-action blue" href="<?php echo htmlspecialchars($openUrl); ?>" onclick="event.stopPropagation();">View</a>
                                         </div>
                                     </td>
                                 </tr>
@@ -604,6 +605,29 @@ $page_title = 'Payment - Admin | PrintFlow';
     </div>
 </div>
 <script>
+let paymentFilterTimer = null;
+
+function paymentFilterChanged() {
+    clearTimeout(paymentFilterTimer);
+    paymentFilterTimer = setTimeout(submitPaymentFilters, 500);
+}
+
+function submitPaymentFilters() {
+    const form = document.getElementById('paymentFilterForm');
+    if (form) form.submit();
+}
+
+function resetPaymentFilter(fields) {
+    const form = document.getElementById('paymentFilterForm');
+    if (!form) return;
+    fields.forEach(function (field) {
+        const input = form.elements[field];
+        if (!input) return;
+        input.value = field === 'type' ? 'all' : (field === 'status' ? 'to_verify' : '');
+    });
+    submitPaymentFilters();
+}
+
 function openProofModal(src, title) {
     const modal = document.getElementById('proofModal');
     const image = document.getElementById('proofModalImage');
