@@ -482,6 +482,7 @@ if (isset($_GET['ajax'])) {
         .um-status-badge.is-pending { background:#fef9c3;color:#92400e; }
         .um-id-image { max-width:100%; height:auto; border-radius:8px; border:1px solid #e5e7eb; display:block; }
         .um-id-fallback { display:none; margin-top:8px; font-size:12px; color:#2563eb; text-decoration:none; font-weight:500; }
+        .um-id-missing { margin-top:8px; font-size:12px; color:#92400e; background:#fef9c3; border-radius:8px; padding:8px 10px; }
         .mf-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
         .mf-row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:14px; }
         .mf-full { grid-column:1/-1; }
@@ -1113,8 +1114,13 @@ if (isset($_GET['ajax'])) {
                         <img src="<?php echo $base_path; ?>/uploads/id_validation.png" alt="Valid vs Invalid ID" style="max-width:100%; height:auto; border-radius:6px; margin-bottom:8px;">
                         <template x-if="viewModal.user?.id_validation_image">
                             <div>
-                                <img :src="idValidationImageSrc(viewModal.user)" alt="Uploaded ID" class="um-id-image" @error="recoverIdImage($event)">
-                                <a :href="idValidationImageSrc(viewModal.user)" target="_blank" rel="noopener" class="um-id-fallback">Open uploaded ID</a>
+                                <template x-if="idValidationImageSrc(viewModal.user)">
+                                    <div>
+                                        <img :src="idValidationImageSrc(viewModal.user)" alt="Uploaded ID" class="um-id-image" @error="recoverIdImage($event)">
+                                        <a :href="idValidationImageSrc(viewModal.user)" target="_blank" rel="noopener" class="um-id-fallback">Open uploaded ID</a>
+                                    </div>
+                                </template>
+                                <p x-show="!idValidationImageSrc(viewModal.user)" class="um-id-missing">No uploaded ID file was found for this pending record. Please resend the profile completion link so the staff member can upload the ID again.</p>
                             </div>
                         </template>
                     </div>
@@ -2043,8 +2049,13 @@ function userManagement() {
         },
 
         idValidationImageSrc(user) {
-            const candidates = user?.id_validation_image_candidates || [];
-            return candidates[0] || user?.id_validation_image_url || this.idValidationImageUrl(user?.id_validation_image);
+            const candidates = Array.isArray(user?.id_validation_image_candidates) ? user.id_validation_image_candidates : [];
+            if (candidates.length > 0) return candidates[0];
+            if (user?.id_validation_image_url) return user.id_validation_image_url;
+            if (Object.prototype.hasOwnProperty.call(user || {}, 'id_validation_image_candidates')) return '';
+            const raw = String(user?.id_validation_image || '').trim();
+            if (/^pending_\d+\.jpg$/i.test(raw)) return '';
+            return this.idValidationImageUrl(raw);
         },
 
         recoverIdImage(event) {

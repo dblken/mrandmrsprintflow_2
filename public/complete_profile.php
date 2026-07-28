@@ -280,11 +280,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $user && verify_csrf_token($_POST['
     } elseif ($id_type === '' || !in_array($id_type, $id_type_options, true)) {
         $error = 'Please select a valid ID type.';
     } else {
-        // Check if ID image is uploaded (either new upload or previously uploaded in session)
+        // Check if ID image is uploaded, or reuse an existing real saved ID file.
         $hasIdImage = !empty($_FILES['id_image']['tmp_name']) && $_FILES['id_image']['error'] === UPLOAD_ERR_OK;
-        $hasPreviousId = !empty($_SESSION['temp_id_filename']);
+        $previousIdFilename = trim((string)($user['id_validation_image'] ?? ''));
+        $previousIdPath = $previousIdFilename !== '' ? __DIR__ . '/../uploads/ids/' . basename($previousIdFilename) : '';
+        $hasPreviousId = $previousIdFilename !== ''
+            && !preg_match('/^pending_\d+\.jpg$/i', $previousIdFilename)
+            && is_file($previousIdPath);
         
         if (!$hasIdImage && !$hasPreviousId) {
+            unset($_SESSION['temp_id_filename']);
             $error = 'Please upload your ID image.';
         } else {
             // Use newly uploaded file or skip validation if already uploaded
@@ -316,8 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $user && verify_csrf_token($_POST['
                         $error = 'Failed to save ID image. Please try again.';
                     }
                 } else {
-                    // Use placeholder for previously uploaded file (will be handled by admin)
-                    $filename = 'pending_' . $user['user_id'] . '.jpg';
+                    $filename = basename($previousIdFilename);
                 }
                 
                 if (!$error) {
@@ -459,7 +463,7 @@ $page_title = 'Complete Your Profile - PrintFlow';
             </div>
 
             <div class="id-reference">
-                <h3>ID Photo Reference â€“ Upload a clear, valid ID (not blurred)</h3>
+                <h3>ID Photo Reference – Upload a clear, valid ID (not blurred)</h3>
                 <img src="<?php echo $base_path; ?>/uploads/id_validation.png" alt="Valid vs Invalid ID" style="max-width:100%;">
             </div>
 

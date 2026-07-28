@@ -22,15 +22,28 @@ function printflow_admin_user_asset_candidates(?string $path, string $defaultDir
         $path = 'uploads/' . ltrim($matches[1], '/');
     }
 
+    $projectRoot = dirname(__DIR__);
     $candidates = [];
-    $add = static function (string $candidate) use (&$candidates, $base): void {
+    $add = static function (string $candidate) use (&$candidates, $base, $projectRoot): void {
         $candidate = trim(str_replace('\\', '/', $candidate));
         if ($candidate === '') return;
         if (preg_match('#^https?://#i', $candidate)) {
             $candidates[] = $candidate;
             return;
         }
-        $candidates[] = $base . '/' . ltrim($candidate, '/');
+
+        $relative = ltrim($candidate, '/');
+        $diskCandidates = [
+            $projectRoot . '/' . $relative,
+            $projectRoot . '/public/' . $relative,
+            $projectRoot . '/public/assets/' . $relative,
+        ];
+        foreach ($diskCandidates as $diskPath) {
+            if (is_file($diskPath)) {
+                $candidates[] = $base . '/' . $relative;
+                return;
+            }
+        }
     };
 
     if (str_starts_with($path, '/') || str_contains($path, '/')) {
