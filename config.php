@@ -4,21 +4,10 @@
  * This file handles environment-specific settings
  */
 
-// Load environment variables from .env file (local development)
-if (file_exists(__DIR__ . '/.env')) {
-    $lines = file(__DIR__ . '/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        if (strpos(trim($line), '#') === 0) continue; // Skip comments
-        list($name, $value) = explode('=', $line, 2);
-        $name = trim($name);
-        $value = trim($value);
-        if (!getenv($name)) {
-            putenv("$name=$value");
-            $_ENV[$name] = $value;
-            $_SERVER[$name] = $value;
-        }
-    }
-}
+// Load local .env values without overriding environment variables supplied by
+// Apache, the container runtime, Railway, or the hosting control panel.
+require_once __DIR__ . '/includes/env.php';
+printflow_import_dotenv(__DIR__ . '/.env');
 
 // Detect environment
 $is_production = (

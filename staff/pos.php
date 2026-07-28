@@ -163,6 +163,26 @@ try {
             box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
         }
 
+        .field-invalid {
+            border-color: #dc2626 !important;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+        }
+
+        .shopee-opt-group.field-invalid,
+        .quantity-container.field-invalid {
+            border: 1px solid #dc2626 !important;
+            border-radius: .65rem;
+            padding: .45rem;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+        }
+
+        .field-error-message {
+            color: #dc2626;
+            font-size: 13px;
+            margin-top: 6px;
+            line-height: 1.35;
+        }
+
         .input-field.input-field-locked,
         .shopee-opt-btn select.input-field-locked {
             background: var(--staff-primary) !important;
@@ -317,8 +337,10 @@ try {
             border-radius: 8px;
             font-size: 14px;
             outline: none;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
             height: 44px;
+            background: #ffffff;
+            color: #334155;
         }
 
         .pos-search-input:focus {
@@ -347,27 +369,27 @@ try {
             grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 12px;
             align-content: start;
-            background: #f1f5f9;
+            background: #f8fafc;
         }
 
         /* Product Card */
         .pos-card {
             background: #ffffff;
-            border: 1px solid rgba(226, 232, 240, 0.6);
-            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
             overflow: hidden;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
             height: auto;
             min-height: 160px;
         }
 
         .pos-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.1);
             border-color: var(--staff-primary);
         }
 
@@ -481,19 +503,20 @@ try {
         }
 
         .pos-btn-clear {
-            background: #fee2e2;
-            color: #ef4444;
-            border: none;
+            background: #fff7f7;
+            color: #c2414d;
+            border: 1px solid #fecdd3;
             padding: 6px 12px;
-            border-radius: 6px;
+            border-radius: 10px;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
 
         .pos-btn-clear:hover {
-            background: #fca5a5;
+            background: #ffe4e6;
+            border-color: #fda4af;
         }
 
         .pos-customer-section {
@@ -552,11 +575,11 @@ try {
             display: flex;
             align-items: center;
             padding: 10px 14px;
-            border: 1px solid #f1f5f9;
+            border: 1px solid #e2e8f0;
             border-radius: 10px;
             margin-bottom: 8px;
             background: #fff;
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
             transition: all 0.2s;
         }
 
@@ -730,7 +753,8 @@ try {
         }
 
         .pos-tender-input:focus {
-            border-color: #06A1A1;
+            border-color: var(--staff-primary);
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.12);
         }
 
 
@@ -738,10 +762,10 @@ try {
         .pos-btn-checkout {
             width: 100%;
             padding: 16px;
-            background: #4f46e5;
+            background: var(--staff-pos-button-bg);
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 12px;
             font-size: 16px;
             font-weight: 700;
             display: flex;
@@ -749,13 +773,14 @@ try {
             align-items: center;
             gap: 8px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s;
+            box-shadow: 0 12px 26px var(--staff-pos-button-shadow);
         }
 
         .pos-btn-checkout:hover {
-            background: #4338ca;
+            filter: brightness(0.98);
             transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
         }
 
         .pos-btn-checkout:disabled {
@@ -1050,8 +1075,8 @@ try {
         }
 
         .receipt-action-btn--primary {
-            background: #0d9488;
-            border-color: #0d9488;
+            background: var(--staff-pos-button-bg);
+            border-color: var(--staff-primary);
             color: #ffffff;
         }
 
@@ -1481,9 +1506,9 @@ try {
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                                     <!-- Products Button -->
                                     <button onclick="showPOSMode('products')"
-                                        style="background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 48px 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 16px;"
-                                        onmouseover="this.style.borderColor='var(--staff-primary)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.08)';"
-                                        onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+                                        style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 48px 24px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 16px; box-shadow: 0 12px 26px rgba(15,23,42,0.05);"
+                                        onmouseover="this.style.borderColor='var(--staff-primary)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 18px 34px rgba(15,23,42,0.10)';"
+                                        onmouseout="this.style.borderColor='#e2e8f0'; this.style.transform='translateY(0)'; this.style.boxShadow='0 12px 26px rgba(15,23,42,0.05)';">
                                         <div
                                             style="width: 64px; height: 64px; background: var(--staff-pos-button-bg); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"
@@ -1557,7 +1582,7 @@ try {
                                 </select>
                                 <div style="flex: 1;"></div>
                                 <button onclick="backToSelection()" class="pos-category-select"
-                                    style="min-width: auto; padding: 12px 20px; background: #f8fafc; border-color: #cbd5e1; cursor: pointer; width: auto; display: flex; align-items: center; gap: 8px;"
+                                    style="min-width: auto; padding: 12px 20px; background: #f8fafc; border-color: #e2e8f0; color:#475569; cursor: pointer; width: auto; display: flex; align-items: center; gap: 8px;"
                                     title="Back to selection">
                                     <i class="fas fa-arrow-left"></i> <span>Back</span>
                                 </button>
@@ -1576,7 +1601,7 @@ try {
                                         service to the order.</p>
                                 </div>
                                 <button onclick="backToSelection()" class="pos-category-select"
-                                    style="min-width: auto; padding: 12px 16px; background: #f8fafc; border-color: #cbd5e1; cursor: pointer;"
+                                    style="min-width: auto; padding: 12px 16px; background: #f8fafc; border-color: #e2e8f0; color:#475569; cursor: pointer;"
                                     title="Back to selection">
                                     <i class="fas fa-arrow-left"></i> Back
                                 </button>
@@ -1718,7 +1743,7 @@ try {
                         style="flex:1;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#ffffff;color:#475569;font-weight:700;cursor:pointer;font-size:14px;"
                         onmouseover="this.style.background='#f8fafc';this.style.borderColor='#94a3b8';this.style.color='#334155'"
                         onmouseout="this.style.background='#ffffff';this.style.borderColor='#cbd5e1';this.style.color='#475569'">Cancel</button>
-                    <button onclick="confirmServiceModal()"
+                    <button id="sm-add-to-order-btn" onclick="confirmServiceModal()"
                         style="flex:2;padding:12px;border:none;border-radius:10px;background:#00232b;color:#fff;font-weight:700;cursor:pointer;font-size:14px;box-shadow:0 10px 24px rgba(0,35,43,0.28);"
                         onmouseover="this.style.background='#003a47'" onmouseout="this.style.background='#00232b'">Add
                         to Order</button>
@@ -1746,9 +1771,9 @@ try {
                     onmouseover="this.style.background='#f1f5f9';this.style.color='#1e293b'"
                     onmouseout="this.style.background='#f8fafc';this.style.color='#64748b'">Cancel</button>
                 <button onclick="confirmCustomization()"
-                    style="padding:12px 28px; border:none; background:#4f46e5; color:white; border-radius:12px; cursor:pointer; font-weight:700; font-size:14px; box-shadow:0 10px 15px -3px rgba(79,70,229,0.3); transition:all 0.2s;"
-                    onmouseover="this.style.transform='translateY(-1px)';this.style.background='#4338ca'"
-                    onmouseout="this.style.transform='translateY(0)';this.style.background='#4f46e5'">Add to
+                    style="padding:12px 28px; border:none; background:var(--staff-pos-button-bg); color:white; border-radius:12px; cursor:pointer; font-weight:700; font-size:14px; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
+                    onmouseover="this.style.transform='translateY(-1px)';this.style.filter='brightness(0.98)'"
+                    onmouseout="this.style.transform='translateY(0)';this.style.filter='none'">Add to
                     Cart</button>
             </div>
         </div>
@@ -1767,9 +1792,9 @@ try {
                     style="display:none; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b;"
                     onmouseover="this.style.background='#f1f5f9'"
                     onmouseout="this.style.background='#f8fafc'">Cancel</button>
-                <button id="pos-alert-confirm" class="pos-alert-btn" style="background:#4f46e5; color:white;"
-                    onmouseover="this.style.background='#4338ca'"
-                    onmouseout="this.style.background='#4f46e5'">OK</button>
+                <button id="pos-alert-confirm" class="pos-alert-btn" style="background:var(--staff-pos-button-bg); color:white; box-shadow:0 10px 24px rgba(15,23,42,0.14);"
+                    onmouseover="this.style.filter='brightness(0.98)'"
+                    onmouseout="this.style.filter='none'">OK</button>
             </div>
         </div>
     </div>
@@ -1822,7 +1847,7 @@ try {
                     Name *</label>
                 <input type="text" id="nc-first" placeholder="Enter first name"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
+                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
             <div style="margin-bottom:16px;">
@@ -1831,7 +1856,7 @@ try {
                     Name *</label>
                 <input type="text" id="nc-last" placeholder="Enter last name"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
+                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
             <div style="margin-bottom:16px;">
@@ -1840,7 +1865,7 @@ try {
                     Address *</label>
                 <input type="email" id="nc-email" placeholder="customer@example.com"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
+                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
                 <small style="display:block; margin-top:4px; font-size:11px; color:#64748b;">A password setup link will
                     be sent to this email</small>
@@ -1851,12 +1876,12 @@ try {
                     Number (Optional)</label>
                 <input type="tel" id="nc-phone" placeholder="09XX XXX XXXX"
                     style="width:100%; padding:12px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#1e293b; outline:none; transition:all 0.2s;"
-                    onfocus="this.style.borderColor='#06A1A1';this.style.background='#fff'"
+                    onfocus="this.style.borderColor='var(--staff-primary)';this.style.background='#fff';this.style.boxShadow='0 0 0 3px rgba(var(--staff-accent-rgb),0.12)'"
                     onblur="this.style.borderColor='#e2e8f0';this.style.background='#f8fafc'">
             </div>
             <button onclick="saveCustomer()" id="nc-save-btn"
-                style="width:100%; background:#4f46e5; color:white; padding:14px; border:none; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 10px 15px -3px rgba(79,70,229,0.3); transition:all 0.2s;"
-                onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">Create
+                style="width:100%; background:var(--staff-pos-button-bg); color:white; padding:14px; border:none; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
+                onmouseover="this.style.filter='brightness(0.98)'" onmouseout="this.style.filter='none'">Create
                 Customer & Send Email</button>
         </div>
     </div>
@@ -1893,9 +1918,9 @@ try {
                     onmouseover="this.style.background='#f1f5f9';this.style.color='#1e293b'"
                     onmouseout="this.style.background='#f8fafc';this.style.color='#64748b'">Cancel</button>
                 <button onclick="confirmPrice()"
-                    style="flex:1; padding:14px; border:none; border-radius:12px; background:#4f46e5; color:white; font-weight:700; cursor:pointer; box-shadow:0 10px 15px -3px rgba(79,70,229,0.3); transition:all 0.2s;"
-                    onmouseover="this.style.background='#4338ca';this.style.transform='translateY(-1px)'"
-                    onmouseout="this.style.background='#4f46e5';this.style.transform='translateY(0)'">Add Item</button>
+                    style="flex:1; padding:14px; border:none; border-radius:12px; background:var(--staff-pos-button-bg); color:white; font-weight:700; cursor:pointer; box-shadow:0 12px 24px rgba(15,23,42,0.14); transition:all 0.2s;"
+                    onmouseover="this.style.filter='brightness(0.98)';this.style.transform='translateY(-1px)'"
+                    onmouseout="this.style.filter='none';this.style.transform='translateY(0)'">Add Item</button>
             </div>
         </div>
     </div>
@@ -1919,6 +1944,7 @@ try {
         let currentTotal = 0;
         let currentMode = null; // 'products' or 'services'
         let barcodeScanBusy = false;
+        let isAddingToOrder = false;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
@@ -2084,7 +2110,7 @@ try {
                     <div class="receipt-section-title">Customer</div>
                     <div class="receipt-customer">
                         <div>
-                            <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Customer')}</div>
+                            <div class="receipt-customer-name">${escapeHtml(customer.name || 'Walk-in Guest')}</div>
                             ${receiptContact ? `<div class="receipt-value" style="margin-top:4px;">${escapeHtml(receiptContact)}</div>` : ''}
                         </div>
                         <div class="receipt-payment-chip">${escapeHtml(payment.method || 'Cash')}</div>
@@ -2267,7 +2293,7 @@ try {
                 } else {
                     console.error('syncedCartAction Error:', data.message);
                     if (!options.silentErrors) await showPOSAlert('Error', data.message || 'Action failed', 'error');
-                    return { success: false, message: data.message };
+                    return { success: false, message: data.message, errors: data.errors || null };
                 }
             } catch (e) {
                 console.error('Cart Action Error:', e);
@@ -2337,6 +2363,8 @@ try {
                 overlay.dataset.csrfToken = data.csrf_token;
                 body.innerHTML = data.fields_html;
                 footerActions.style.display = 'block';
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
 
                 // Lock branch to staff's assigned branch
                 if (data.staff_branch_id) {
@@ -2374,12 +2402,15 @@ try {
                         if (typeof updateConditionalFields === 'function') updateConditionalFields();
                     });
                 });
+                bindServiceValidationClearers(body);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
             }
         }
 
         function closeServiceModal() {
+            isAddingToOrder = false;
+            setServiceAddButtonBusy(false);
             document.getElementById('service-modal-overlay').style.display = 'none';
         }
 
@@ -2429,7 +2460,7 @@ try {
             return staged;
         }
 
-        async function confirmServiceModal() {
+        async function confirmServiceModalLegacy() {
             const overlay = document.getElementById('service-modal-overlay');
             const serviceId = parseInt(overlay.dataset.serviceId);
             const serviceName = overlay.dataset.serviceName;
@@ -2553,6 +2584,309 @@ try {
             });
 
             if (result.success) closeServiceModal();
+        }
+
+        function setServiceAddButtonBusy(isBusy) {
+            const btn = document.getElementById('sm-add-to-order-btn');
+            if (!btn) return;
+            btn.disabled = !!isBusy;
+            btn.style.opacity = isBusy ? '0.7' : '1';
+            btn.style.cursor = isBusy ? 'not-allowed' : 'pointer';
+            btn.textContent = isBusy ? 'Adding...' : 'Add to Order';
+        }
+
+        function isServiceFieldVisible(row) {
+            if (!row || row.hidden) return false;
+            const style = window.getComputedStyle(row);
+            if (style.display === 'none' || style.visibility === 'hidden') return false;
+            const hiddenParent = row.parentElement ? row.parentElement.closest('[style*="display:none"], [style*="display: none"]') : null;
+            return !hiddenParent;
+        }
+
+        function serviceFieldLabel(row) {
+            const label = row ? row.querySelector('.shopee-form-label') : null;
+            return (label ? label.innerText : 'This field').replace(/\*/g, '').trim() || 'This field';
+        }
+
+        function serviceFieldKey(row, fallback = '') {
+            if (!row) return fallback || 'field';
+            if (row.dataset.fieldKey) return row.dataset.fieldKey;
+            const named = row.querySelector('[name]');
+            return named ? named.name : (fallback || serviceFieldLabel(row).toLowerCase().replace(/[^a-z0-9]+/g, '_'));
+        }
+
+        function serviceValidationMessage(row, input) {
+            const label = serviceFieldLabel(row);
+            const name = String((input && input.name) || serviceFieldKey(row) || label).toLowerCase();
+            const type = input ? String(input.type || '').toLowerCase() : '';
+            if (name.includes('design') || type === 'file') return 'Please upload a design.';
+            if (name.includes('layout') || label.toLowerCase().includes('layout')) return 'Please select a layout.';
+            if (name.includes('needed_date') || label.toLowerCase().includes('needed date')) return 'Please select a needed date.';
+            if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Quantity must be at least 1.';
+            if (type === 'radio' || row.querySelector('input[type="radio"]')) return 'Please select ' + label.toLowerCase() + '.';
+            if (input && input.tagName === 'SELECT') return 'Please select ' + label.toLowerCase() + '.';
+            return 'Please enter ' + label.toLowerCase() + '.';
+        }
+
+        function clearServiceFieldError(row) {
+            if (!row) return;
+            row.classList.remove('field-invalid');
+            row.querySelectorAll('.field-invalid').forEach(el => el.classList.remove('field-invalid'));
+            row.querySelectorAll('.field-error-message').forEach(el => el.remove());
+        }
+
+        function clearAllServiceValidationErrors() {
+            const body = document.getElementById('sm-fields-body');
+            if (!body) return;
+            body.querySelectorAll('.field-invalid').forEach(el => el.classList.remove('field-invalid'));
+            body.querySelectorAll('.field-error-message').forEach(el => el.remove());
+        }
+
+        function markServiceFieldInvalid(row, message) {
+            if (!row) return;
+            clearServiceFieldError(row);
+            row.classList.add('field-invalid');
+            const targetGroup = row.querySelector('.shopee-opt-group') || row.querySelector('.quantity-container');
+            const targetControl = row.querySelector('input:not([type="hidden"]), select, textarea');
+            if (targetGroup) targetGroup.classList.add('field-invalid');
+            if (targetControl) targetControl.classList.add('field-invalid');
+            const field = row.querySelector('.shopee-form-field') || row;
+            const msg = document.createElement('div');
+            msg.className = 'field-error-message';
+            msg.textContent = message;
+            field.appendChild(msg);
+        }
+
+        function showValidationErrors(errors) {
+            clearAllServiceValidationErrors();
+            Object.values(errors || {}).forEach(error => {
+                if (error && error.row) markServiceFieldInvalid(error.row, error.message);
+            });
+        }
+
+        function serviceSelectorEscape(value) {
+            if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(value));
+            return String(value).replace(/["\\]/g, '\\$&');
+        }
+
+        function showBackendValidationErrors(errors) {
+            const body = document.getElementById('sm-fields-body');
+            if (!body || !errors) return;
+            clearAllServiceValidationErrors();
+            Object.entries(errors).forEach(([key, message]) => {
+                const keyLc = String(key || '').toLowerCase();
+                const escapedKey = serviceSelectorEscape(key);
+                let row = body.querySelector('.shopee-form-row[data-field-key="' + escapedKey + '"]');
+                if (!row) {
+                    const input = body.querySelector('[name="' + escapedKey + '"]');
+                    row = input ? input.closest('.shopee-form-row') : null;
+                }
+                if (!row) {
+                    row = Array.from(body.querySelectorAll('.shopee-form-row')).find(candidate => {
+                        return serviceFieldLabel(candidate).toLowerCase().replace(/[^a-z0-9]+/g, '_').includes(keyLc);
+                    }) || null;
+                }
+                if (row) markServiceFieldInvalid(row, message);
+            });
+        }
+
+        function focusFirstInvalidField(errors) {
+            const first = Object.values(errors || {}).find(error => error && error.row);
+            if (!first) return;
+            first.row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const focusable = first.row.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), .shopee-opt-btn');
+            if (focusable && typeof focusable.focus === 'function') {
+                setTimeout(() => focusable.focus({ preventScroll: true }), 180);
+            }
+        }
+
+        function bindServiceValidationClearers(container) {
+            if (!container) return;
+            container.querySelectorAll('input, select, textarea, button[data-dimension-choice], button[data-dimension-others]').forEach(el => {
+                ['input', 'change', 'click'].forEach(evt => {
+                    el.addEventListener(evt, function () {
+                        const row = this.closest('.shopee-form-row');
+                        if (row) clearServiceFieldError(row);
+                    });
+                });
+            });
+        }
+
+        function validateServiceOrderForm() {
+            const body = document.getElementById('sm-fields-body');
+            const errors = {};
+            if (!body) return { valid: false, errors };
+
+            const addError = (row, input, keyOverride) => {
+                const key = keyOverride || serviceFieldKey(row, input ? input.name : '');
+                if (!errors[key]) errors[key] = { row, field: key, message: serviceValidationMessage(row, input) };
+            };
+
+            body.querySelectorAll('.shopee-form-row').forEach(row => {
+                if (!isServiceFieldVisible(row)) return;
+                const requiredInputs = Array.from(row.querySelectorAll('[required]')).filter(input => {
+                    if (input.disabled) return false;
+                    const hiddenParent = input.closest('[style*="display:none"], [style*="display: none"]');
+                    return !hiddenParent;
+                });
+                if (requiredInputs.length === 0) return;
+
+                const radiosByName = new Map();
+                requiredInputs.forEach(input => {
+                    if (input.type === 'radio') {
+                        if (!radiosByName.has(input.name)) radiosByName.set(input.name, []);
+                        radiosByName.get(input.name).push(input);
+                    }
+                });
+                radiosByName.forEach((radios, name) => {
+                    if (!radios.some(radio => radio.checked)) addError(row, radios[0], name);
+                });
+
+                const dimensionInputs = requiredInputs.filter(input => input.type === 'hidden' && input.dataset.dimensionRole);
+                if (dimensionInputs.length && dimensionInputs.some(input => !String(input.value || '').trim())) {
+                    addError(row, dimensionInputs[0]);
+                }
+
+                requiredInputs.forEach(input => {
+                    if (input.type === 'radio' || (input.type === 'hidden' && input.dataset.dimensionRole)) return;
+                    const value = input.type === 'file'
+                        ? (input.files && input.files.length > 0 ? input.files[0].name : '')
+                        : String(input.value || '').trim();
+                    if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
+                        const qty = parseInt(value, 10);
+                        if (!Number.isFinite(qty) || qty < 1) addError(row, input);
+                        return;
+                    }
+                    if (!value) addError(row, input);
+                });
+            });
+
+            return { valid: Object.keys(errors).length === 0, errors };
+        }
+
+        function setCustomizationValue(customization, row, input, value) {
+            const label = serviceFieldLabel(row);
+            const key = serviceFieldKey(row, input ? input.name : '');
+            if (key) customization[key] = value;
+            if (label && label !== key) customization[label] = value;
+        }
+
+        async function confirmServiceModal() {
+            if (isAddingToOrder) return;
+            const overlay = document.getElementById('service-modal-overlay');
+            const serviceId = parseInt(overlay.dataset.serviceId);
+            const serviceName = overlay.dataset.serviceName;
+            const body = document.getElementById('sm-fields-body');
+
+            const validationResult = validateServiceOrderForm();
+            if (!validationResult.valid) {
+                showValidationErrors(validationResult.errors);
+                focusFirstInvalidField(validationResult.errors);
+                return;
+            }
+
+            isAddingToOrder = true;
+            setServiceAddButtonBusy(true);
+
+            const customization = {};
+            const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
+            const branchSel = body.querySelector('select[name="branch_id"]');
+            const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');
+            if (!branchVal) {
+                await showPOSAlert('Branch Required', 'Please select a branch.', 'warning');
+                if (branchSel) branchSel.focus();
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+            customization.branch_id = branchVal;
+            customization.branch = branchVal;
+            customization.service_id = serviceId;
+            customization.service_type = serviceName;
+
+            body.querySelectorAll('.shopee-form-row').forEach(row => {
+                if (!isServiceFieldVisible(row)) return;
+
+                const checkedRadio = row.querySelector('input[type="radio"]:checked');
+                if (checkedRadio) setCustomizationValue(customization, row, checkedRadio, checkedRadio.value);
+
+                const sel = row.querySelector('select:not([name="branch_id"])');
+                if (sel && sel.value) setCustomizationValue(customization, row, sel, sel.value);
+
+                const dateInput = row.querySelector('input[type="date"]');
+                if (dateInput && dateInput.value) setCustomizationValue(customization, row, dateInput, dateInput.value);
+
+                const qtyInput = row.querySelector('#quantity-input, .pf-service-quantity-input, input[name="quantity"]');
+                if (qtyInput) customization.quantity = qtyInput.value || 1;
+
+                const textarea = row.querySelector('textarea');
+                if (textarea && textarea.value.trim()) setCustomizationValue(customization, row, textarea, textarea.value.trim());
+
+                const wh = row.querySelector('[data-dimension-role="width"], #width_hidden');
+                const hh = row.querySelector('[data-dimension-role="height"], #height_hidden');
+                if (wh && hh && wh.value && hh.value) setCustomizationValue(customization, row, wh, wh.value + 'x' + hh.value);
+
+                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
+                if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
+                    setCustomizationValue(customization, row, textInput, textInput.value.trim());
+                }
+            });
+
+            try {
+                const serviceFileInputs = Array.from(body.querySelectorAll('input[type="file"]'));
+                for (const fileInput of serviceFileInputs) {
+                    if (!(fileInput.files && fileInput.files.length > 0)) continue;
+                    const file = fileInput.files[0];
+                    const row = fileInput.closest('.shopee-form-row');
+                    const labelText = row ? serviceFieldLabel(row) : (fileInput.name || 'File');
+                    const nameLc = String(fileInput.name || '').toLowerCase();
+                    const labelLc = String(labelText || '').toLowerCase();
+                    const isDesignField = nameLc === 'design_file' || nameLc.includes('design') || (labelLc.includes('upload') && labelLc.includes('design'));
+                    const isReferenceField = nameLc === 'reference_file' || nameLc.includes('reference') || (labelLc.includes('upload') && labelLc.includes('reference'));
+
+                    if (isDesignField) {
+                        await posApplyStagedUpload(customization, file, 'design');
+                        setCustomizationValue(customization, row, fileInput, customization.design_upload_name);
+                    } else if (isReferenceField) {
+                        await posApplyStagedUpload(customization, file, 'reference');
+                        setCustomizationValue(customization, row, fileInput, customization.reference_upload_name);
+                    } else {
+                        const payload = await posReadFilePayload(file);
+                        setCustomizationValue(customization, row, fileInput, payload.name);
+                    }
+                }
+            } catch (uploadErr) {
+                await showPOSAlert('Upload Failed', uploadErr.message || 'Could not save the design file.', 'error');
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+                return;
+            }
+
+            const result = await syncedCartAction('add', {
+                product_id: serviceId,
+                name: serviceName,
+                price: 0,
+                qty: parseInt(customization.quantity || 1, 10),
+                customization: customization,
+                is_service: true
+            }, { silentErrors: true });
+
+            if (result.success) {
+                closeServiceModal();
+            } else {
+                if (result.errors) {
+                    showBackendValidationErrors(result.errors);
+                    focusFirstInvalidField(Object.fromEntries(Object.entries(result.errors).map(([key, message]) => {
+                        const body = document.getElementById('sm-fields-body');
+                        const escapedKey = serviceSelectorEscape(key);
+                        const row = body ? (body.querySelector('.shopee-form-row[data-field-key="' + escapedKey + '"]') || body.querySelector('[name="' + escapedKey + '"]')?.closest('.shopee-form-row')) : null;
+                        return [key, { row, message }];
+                    })));
+                }
+                await showPOSAlert('Incomplete Fields', result.message || 'Some required order details are missing.', 'warning');
+                isAddingToOrder = false;
+                setServiceAddButtonBusy(false);
+            }
         }
 
         // ── Legacy service requirements (kept for product-based services) ─────────────
@@ -3424,7 +3758,7 @@ try {
                     }
 
                     const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
-                        ? `<button onclick="redirectToSetPrice(${index})" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;padding:2px 8px;background:#fef3c7;border:1px solid #f59e0b;border-radius:5px;font-size:12px;font-weight:700;color:#d97706;text-decoration:none;cursor:pointer;border:none;" title="Click to set price in Customizations">
+                        ? `<button onclick="redirectToSetPrice(${index})" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;padding:2px 8px;background:#edf4fc;border:1px solid #bfdbfe;border-radius:999px;font-size:12px;font-weight:700;color:#2f6fae;text-decoration:none;cursor:pointer;border:none;" title="Click to set price in Customizations">
                     <i class="fas fa-tag" style="font-size:10px;"></i> Set Price
                   </button>`
                         : `<div class="pos-item-price" style="margin-top:2px;">${formatMoney(item.price)}</div>`;
@@ -3846,15 +4180,15 @@ try {
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'none';
                 confirmBtn.textContent = 'OK';
-                confirmBtn.style.background = '#4f46e5';
+                confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
                 if (type === 'error') {
                     iconCont.style.background = '#fee2e2';
                     icon.style.color = '#ef4444';
                     icon.className = 'fas fa-exclamation-circle';
                 } else if (type === 'warning') {
-                    iconCont.style.background = '#fef3c7';
-                    icon.style.color = '#f59e0b';
+                    iconCont.style.background = '#edf4fc';
+                    icon.style.color = '#2f6fae';
                     icon.className = 'fas fa-exclamation-triangle';
                 } else if (type === 'success') {
                     iconCont.style.background = '#dcfce7';
@@ -3894,10 +4228,10 @@ try {
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'block';
                 confirmBtn.textContent = 'Confirm';
-                confirmBtn.style.background = '#06A1A1';
+                confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
                 iconCont.style.background = '#eef2ff';
-                icon.style.color = '#4f46e5';
+                icon.style.color = '#2f6fae';
                 icon.className = 'fas fa-question-circle';
 
                 overlay.style.display = 'flex';

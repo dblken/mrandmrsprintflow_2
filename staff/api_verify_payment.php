@@ -9,6 +9,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/ensure_orders_status_schema.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 require_role(['Admin', 'Staff', 'Manager']);
 
@@ -62,7 +63,7 @@ function printflow_staff_apply_orders_payment_proof_rejection(int $orderId, stri
     if (db_table_has_column('orders', 'payment_status')) {
         $sets[] = 'payment_status = ?';
         $types .= 's';
-        $params[] = 'Unpaid';
+        $params[] = 'Rejected';
     }
     if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
         $sets[] = 'payment_proof_needs_resubmit = 1';
@@ -87,8 +88,20 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
+    http_response_code(419);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Your session expired. Please refresh and try again.',
+        'csrf_token' => generate_csrf_token(),
+    ]);
+    exit;
+}
+
 $order_id = (int)($_POST['order_id'] ?? 0);
 $action = $_POST['action'] ?? ''; // 'Approve' or 'Reject'
+$submission_id = (int)($_POST['submission_id'] ?? 0);
+$submission_notes = mb_substr(trim((string)($_POST['staff_notes'] ?? '')), 0, 5000);
 
 if (!$order_id || !in_array($action, ['Approve', 'Reject'])) {
     echo json_encode(['success' => false, 'error' => 'Invalid parameters']);
@@ -102,6 +115,8 @@ if (empty($order_result)) {
     exit;
 }
 $order = $order_result[0];
+$submission_id = $submission_id > 0 ? $submission_id : payment_verification_latest_submission_id($order_id, 0);
+$submission = $submission_id > 0 ? payment_verification_get_submission($submission_id) : null;
 $orderBranchId = (int)($order['branch_id'] ?? 0);
 if ($staffBranchId !== null) {
     $branchMatches =
@@ -111,6 +126,19 @@ if ($staffBranchId !== null) {
         echo json_encode(['success' => false, 'error' => 'Unauthorized']);
         exit;
     }
+}
+if ($submission && (int)($submission['order_id'] ?? 0) !== $order_id) {
+    echo json_encode(['success' => false, 'error' => 'Payment submission does not belong to this order.']);
+    exit;
+}
+if ($submission && in_array((string)$submission['verification_status'], ['Approved', 'Rejected'], true)) {
+    $expectedDecision = $action === 'Approve' ? 'Approved' : 'Rejected';
+    if ((string)$submission['verification_status'] === $expectedDecision) {
+        echo json_encode(['success' => true, 'already_processed' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => 'This payment submission has already been finalized.']);
+    }
+    exit;
 }
 
 $staff_id = get_user_id();
@@ -168,9 +196,23 @@ try {
                 throw new Exception('Database update failed');
             }
 
-            $msg = $isPlainProductOrder 
-                ? "Your payment has been approved, and your order is now ready for pickup!" 
-                : "Your payment has been approved. We will now proceed with processing your order.";
+            if (!payment_verification_mark_order_decision(
+                $submission_id,
+                $order_id,
+                0,
+                'Approved',
+                $staff_id,
+                '',
+                $submission_notes
+            )) {
+                throw new Exception('Payment submission was already finalized.');
+            }
+
+            $approved_amount = payment_verification_expected_amount($order_id);
+            $msg = 'Your payment of ' . format_currency($approved_amount) . ' has been verified and approved.';
+            if ($isPlainProductOrder) {
+                $msg .= ' Your order is now ready for pickup.';
+            }
             
             if (!empty($order['customer_id'])) {
                 create_notification((int)$order['customer_id'], 'Customer', $msg, 'Order', false, false, $order_id);
@@ -265,10 +307,19 @@ try {
         // Persist Rejected status + markers; uploaded proof stays in DB/on disk until customer replaces it.
         $success = printflow_staff_apply_orders_payment_proof_rejection($order_id, $new_status, $reason);
         if ($success && db_table_has_column('orders', 'payment_status')) {
-            $payment_status = 'Unpaid';
+            $payment_status = 'Rejected';
         }
         
         if ($success) {
+            payment_verification_mark_order_decision(
+                $submission_id,
+                $order_id,
+                0,
+                'Rejected',
+                $staff_id,
+                $reason,
+                $submission_notes
+            );
             $msg = "Your payment proof was rejected. Reason: " . $reason . ". Please resubmit your payment proof.";
             if (!empty($order['customer_id'])) {
                 create_notification((int)$order['customer_id'], 'Customer', $msg, 'Order', false, false, $order_id);
@@ -319,7 +370,13 @@ try {
     }
 } catch (Exception $e) {
     $success = false;
-    $error_message = 'Database error: ' . $e->getMessage();
+    payment_verification_log('store_payment_review_failed', [
+        'order_id' => $order_id,
+        'staff_id' => $staff_id,
+        'action' => $action,
+        'reason' => $e->getMessage(),
+    ]);
+    $error_message = 'The payment review could not be saved. Please try again.';
 }
 
 if ($success) {

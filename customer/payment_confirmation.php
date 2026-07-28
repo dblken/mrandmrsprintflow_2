@@ -6,6 +6,8 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 require_role('Customer');
 
@@ -22,6 +24,7 @@ if (empty($order)) {
 $order = $order[0];
 $success = '';
 $error = '';
+$payment_upload = [];
 
 // Handle payment confirmation upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
@@ -30,23 +33,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     
     // Handle file upload
     if (isset($_FILES['proof_of_payment']) && $_FILES['proof_of_payment']['error'] === 0) {
-        $upload_result = upload_file($_FILES['proof_of_payment'], ['jpg', 'jpeg', 'png', 'pdf'], 'payments');
-        
-        if ($upload_result['success']) {
-            $file_path = $upload_result['file_path'];
-            
-            db_execute("UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ?",
-                'sssi', [$payment_method, $reference_number, $file_path, $order_id]);
-            
-            if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
-                db_execute('UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ?', 'i', [$order_id]);
-            }
-            
-            notify_shop_users("Payment proof uploaded for Order #{$order_id}", 'Payment', true, false, $order_id);
-            
-            $success = 'Payment proof uploaded successfully! Admin will verify shortly.';
+        if (!payment_verification_ensure_schema()) {
+            $error = 'Payment verification is temporarily unavailable. Please try again shortly.';
         } else {
-            $error = $upload_result['error'];
+            $payment_upload = payment_verification_store_receipt($_FILES['proof_of_payment']);
+            if (!$payment_upload['success']) {
+                $error = (string)$payment_upload['error'];
+            } else {
+                $file_path = (string)$payment_upload['file_path'];
+                payment_verification_flow_log('upload saved', [
+                    'order_id' => $order_id,
+                    'customer_id' => $customer_id,
+                    'receipt_file' => basename($file_path),
+                ]);
+
+                global $conn;
+                $transactionStarted = $conn instanceof mysqli && $conn->begin_transaction();
+                try {
+                    if (!$transactionStarted) throw new RuntimeException('Could not start payment transaction.');
+
+                    $updated = db_execute(
+                        "UPDATE orders SET status = 'To Verify', payment_status = 'Unpaid', payment_method = ?, payment_reference = ?, payment_proof_path = ?, updated_at = NOW() WHERE order_id = ?",
+                        'sssi',
+                        [$payment_method, $reference_number, $file_path, $order_id]
+                    );
+                    if (!$updated) throw new RuntimeException('Order payment state could not be updated.');
+                    if (db_table_has_column('orders', 'payment_proof')) {
+                        if (!db_execute('UPDATE orders SET payment_proof = ?, payment_submitted_at = NOW() WHERE order_id = ?', 'si', [$file_path, $order_id])) {
+                            throw new RuntimeException('Canonical payment proof could not be linked.');
+                        }
+                    }
+                    if (db_table_has_column('orders', 'payment_proof_needs_resubmit')) {
+                        db_execute('UPDATE orders SET payment_proof_needs_resubmit = 0 WHERE order_id = ?', 'i', [$order_id]);
+                    }
+
+                    JobOrderService::ensureJobsForStoreOrder($order_id);
+                    db_execute(
+                        "UPDATE job_orders SET status = 'VERIFY_PAY', payment_proof_status = 'SUBMITTED',
+                                payment_proof_path = ?, payment_method = ?, payment_submitted_amount = ?,
+                                payment_proof_uploaded_at = NOW()
+                         WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
+                        'ssdi',
+                        [$file_path, $payment_method, (float)$order['total_amount'], $order_id]
+                    );
+
+                    $submissionId = payment_verification_create_submission([
+                        'order_id' => $order_id,
+                        'customer_id' => $customer_id,
+                        'branch_id' => (int)($order['branch_id'] ?? 0),
+                        'receipt_file' => $file_path,
+                        'receipt_storage_path' => (string)($payment_upload['storage_path'] ?? ''),
+                        'receipt_url' => (string)($payment_upload['receipt_url'] ?? ''),
+                        'receipt_thumbnail' => (string)($payment_upload['thumbnail_path'] ?? ''),
+                        'receipt_original_name' => (string)($payment_upload['original_name'] ?? ''),
+                        'receipt_mime' => (string)($payment_upload['mime'] ?? ''),
+                        'receipt_size' => (int)($payment_upload['size'] ?? 0),
+                        'receipt_sha256' => (string)($payment_upload['sha256'] ?? ''),
+                        'selected_payment_method' => $payment_method,
+                        'submitted_amount' => (float)$order['total_amount'],
+                        'verification_status' => 'Pending Review',
+                        'ocr_status' => 'Pending',
+                    ]);
+                    if ($submissionId <= 0) throw new RuntimeException('Verification row could not be created.');
+                    payment_verification_flow_log('payment row inserted', ['submission_id' => $submissionId, 'order_id' => $order_id]);
+
+                    if (!$conn->commit()) throw new RuntimeException('Payment transaction could not be committed.');
+                    $transactionStarted = false;
+                    payment_verification_notify_reviewers($order_id, 0, $submissionId);
+                    $success = 'Payment proof uploaded successfully! Staff will verify it shortly.';
+                } catch (Throwable $e) {
+                    if ($transactionStarted) $conn->rollback();
+                    payment_verification_log('legacy_payment_submission_failed', ['order_id' => $order_id, 'reason' => $e->getMessage()]);
+                    if (!empty($payment_upload['local_path']) && is_file($payment_upload['local_path'])) @unlink($payment_upload['local_path']);
+                    $error = 'The payment proof could not be submitted. Please try again.';
+                }
+            }
         }
     } else {
         $error = 'Please upload payment proof';

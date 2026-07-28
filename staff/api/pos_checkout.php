@@ -47,6 +47,37 @@ function pos_table_has_column(string $table, string $column): bool {
     return $cache[$key] = !empty($rows);
 }
 
+function pos_get_walkin_customer_id(): int {
+    global $conn;
+
+    $res = db_query("SELECT customer_id FROM customers WHERE email='walkin@pos.local' LIMIT 1") ?: [];
+    if (!empty($res)) {
+        $customerId = (int)$res[0]['customer_id'];
+        db_execute(
+            "UPDATE customers
+             SET first_name = 'Walk-in',
+                 last_name = 'Guest',
+                 contact_number = NULL
+             WHERE customer_id = ?
+               AND email = 'walkin@pos.local'",
+            'i',
+            [$customerId]
+        );
+        return $customerId;
+    }
+
+    db_execute(
+        "INSERT INTO customers (first_name, last_name, email, contact_number, password_hash, status)
+         VALUES ('Walk-in', 'Guest', 'walkin@pos.local', NULL, '', 'Active')"
+    );
+
+    return (int)$conn->insert_id;
+}
+
+function pos_order_uses_walkin_placeholder(array $order): bool {
+    return strtolower(trim((string)($order['email'] ?? ''))) === 'walkin@pos.local';
+}
+
 function pos_ensure_customizations_table(): void {
     db_execute(
         "CREATE TABLE IF NOT EXISTS `customizations` (
@@ -699,10 +730,13 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
         ? rtrim((string)(defined('BASE_PATH') ? BASE_PATH : '/printflow'), '/') . '/public/assets/uploads/' . rawurlencode(basename($shopLogo))
         : '';
 
+    $isWalkinPlaceholder = pos_order_uses_walkin_placeholder($order);
     $customerName = trim(((string)($order['first_name'] ?? '')) . ' ' . ((string)($order['last_name'] ?? '')));
-    if ($customerName === '') {
-        $customerName = 'Walk-in Customer';
+    if ($isWalkinPlaceholder || $customerName === '') {
+        $customerName = 'Walk-in Guest';
     }
+    $customerEmail = $isWalkinPlaceholder ? '' : (string)($order['email'] ?? '');
+    $customerPhone = $isWalkinPlaceholder ? '' : (string)($order['contact_number'] ?? '');
 
     return [
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
@@ -717,8 +751,8 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
         ],
         'customer' => [
             'name' => $customerName,
-            'email' => (string)($order['email'] ?? ''),
-            'phone' => (string)($order['contact_number'] ?? ''),
+            'email' => $customerEmail,
+            'phone' => $customerPhone,
         ],
         'items' => $receiptItems,
         'subtotal' => round($subtotal, 2),
@@ -764,14 +798,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
     $transaction_open = false;
     
     if ($customer_id === null) {
-        global $conn;
-        $res = db_query("SELECT customer_id FROM customers WHERE email='walkin@pos.local' LIMIT 1");
-        if (!empty($res)) {
-            $customer_id = (int)$res[0]['customer_id'];
-        } else {
-            db_execute("INSERT INTO customers (first_name, last_name, email, password_hash, status) VALUES ('Walk-in', 'Guest', 'walkin@pos.local', '', 'Active')");
-            $customer_id = $conn->insert_id;
-        }
+        $customer_id = pos_get_walkin_customer_id();
     }
     
     $item = $data['item'];
@@ -894,14 +921,7 @@ pos_ensure_customizations_table();
 $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id'];
 
 if ($customer_id === null) {
-    global $conn;
-    $res = db_query("SELECT customer_id FROM customers WHERE email='walkin@pos.local' LIMIT 1");
-    if (!empty($res)) {
-        $customer_id = (int)$res[0]['customer_id'];
-    } else {
-        db_execute("INSERT INTO customers (first_name, last_name, email, password_hash, status) VALUES ('Walk-in', 'Guest', 'walkin@pos.local', '', 'Active')");
-        $customer_id = $conn->insert_id;
-    }
+    $customer_id = pos_get_walkin_customer_id();
 }
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');

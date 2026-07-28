@@ -40,10 +40,17 @@ class NotificationService {
         if (!$message) return false;
 
         // Fetch order details for dynamic placeholders and linking
-        $order = db_query("SELECT id, order_id, estimated_total FROM job_orders WHERE id = ?", 'i', [$jobOrderId]);
+        $order = db_query("SELECT id, order_id, estimated_total, required_payment FROM job_orders WHERE id = ?", 'i', [$jobOrderId]);
         if (!empty($order)) {
             $o = $order[0];
-            $amount = number_format((float)($o['estimated_total'] ?? 0), 2);
+            $latestAmount = 0.0;
+            if (!empty($o['order_id'])) {
+                $latestAmount = printflow_notification_latest_payable_amount((int)$o['order_id'], (int)$o['id']);
+            }
+            if ($latestAmount <= 0) {
+                $latestAmount = printflow_notification_latest_payable_amount(0, (int)$o['id']);
+            }
+            $amount = number_format($latestAmount, 2);
             // One customer-facing reference (matches orders list / inventory labels), not mixed #JO + #ORD.
             $refLabel = printflow_get_job_inventory_reference((int)$o['id']);
             $orderNo = (string)($refLabel['label'] ?? '');

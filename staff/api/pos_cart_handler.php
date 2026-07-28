@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/product_option_stock.php';
+require_once __DIR__ . '/../../includes/service_field_config_helper.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -72,6 +73,177 @@ function pos_cart_effective_product_stock(int $productId, int $branchId): int
     [$effectiveStock] = printflow_product_effective_stock($productId, $branchId);
     return (int)$effectiveStock;
 }
+
+function pos_cart_custom_value(array $customization, string $key, ?string $label = null): string
+{
+    $candidates = [$key];
+    if ($label !== null && $label !== '') {
+        $candidates[] = $label;
+    }
+    if ($key === 'branch') {
+        $candidates[] = 'branch_id';
+    }
+    if ($key === 'design_file') {
+        array_push($candidates, 'design_upload_path', 'design_upload_name', 'design_upload', 'Upload Design', 'Design');
+    }
+
+    foreach ($candidates as $candidate) {
+        if (array_key_exists($candidate, $customization)) {
+            $value = $customization[$candidate];
+            if (is_array($value)) {
+                $value = implode(' ', array_filter(array_map('strval', $value)));
+            }
+            $value = trim((string)$value);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+    }
+    return '';
+}
+
+function pos_cart_required_message(string $key, string $label, string $type): string
+{
+    $needle = strtolower($key . ' ' . $label);
+    if ($type === 'file' || strpos($needle, 'design') !== false) {
+        return 'Please upload a design.';
+    }
+    if (strpos($needle, 'layout') !== false) {
+        return 'Please select a layout.';
+    }
+    if (strpos($needle, 'needed_date') !== false || strpos($needle, 'needed date') !== false) {
+        return 'Please select a needed date.';
+    }
+    if (strpos($needle, 'quantity') !== false) {
+        return 'Quantity must be at least 1.';
+    }
+    if (in_array($type, ['select', 'radio'], true)) {
+        return 'Please select ' . strtolower($label) . '.';
+    }
+    return 'Please enter ' . strtolower($label) . '.';
+}
+
+function pos_cart_config_applies(array $config, array $customization): bool
+{
+    $parentKey = trim((string)($config['parent_field_key'] ?? ''));
+    $parentValue = trim((string)($config['parent_value'] ?? ''));
+    if ($parentKey === '' || $parentValue === '') {
+        return true;
+    }
+    $actual = pos_cart_custom_value($customization, $parentKey, $parentKey);
+    return strcasecmp($actual, $parentValue) === 0;
+}
+
+function pos_cart_validate_nested_required(array $fieldConfig, array $customization, array &$errors): void
+{
+    $fieldKey = (string)($fieldConfig['key'] ?? '');
+    $selected = pos_cart_custom_value($customization, $fieldKey, (string)($fieldConfig['label'] ?? ''));
+    if ($selected === '' || empty($fieldConfig['options']) || !is_array($fieldConfig['options'])) {
+        return;
+    }
+
+    foreach ($fieldConfig['options'] as $optionIndex => $option) {
+        if (!is_array($option)) {
+            continue;
+        }
+        $optionValue = trim((string)($option['value'] ?? ''));
+        if ($optionValue === '' || strcasecmp($optionValue, $selected) !== 0) {
+            continue;
+        }
+        foreach (($option['nested_fields'] ?? []) as $nestedIndex => $nestedField) {
+            if (empty($nestedField['required'])) {
+                continue;
+            }
+            $nestedKey = $fieldKey . '_nested_' . $optionIndex . '_' . $nestedIndex;
+            $nestedLabel = trim((string)($nestedField['label'] ?? $nestedKey));
+            $nestedType = trim((string)($nestedField['type'] ?? 'text'));
+            $value = pos_cart_custom_value($customization, $nestedKey, $nestedLabel);
+            if ($nestedType === 'dimension') {
+                $w = pos_cart_custom_value($customization, $nestedKey . '_width', $nestedLabel . ' Width');
+                $h = pos_cart_custom_value($customization, $nestedKey . '_height', $nestedLabel . ' Height');
+                if ($value === '' && ($w === '' || $h === '')) {
+                    $errors[$nestedKey] = pos_cart_required_message($nestedKey, $nestedLabel, $nestedType);
+                }
+            } elseif ($value === '') {
+                $errors[$nestedKey] = pos_cart_required_message($nestedKey, $nestedLabel, $nestedType);
+            }
+        }
+        return;
+    }
+}
+
+function pos_cart_validate_service_payload(int $serviceId, array $customization, int $qty): array
+{
+    $errors = [];
+    $configs = function_exists('get_service_field_config') ? get_service_field_config($serviceId) : [];
+
+    if (empty($configs)) {
+        foreach ([
+            'branch_id' => ['Branch', 'select'],
+            'needed_date' => ['Needed Date', 'date'],
+            'quantity' => ['Quantity', 'quantity'],
+        ] as $key => [$label, $type]) {
+            $value = $key === 'quantity' ? (string)$qty : pos_cart_custom_value($customization, $key, $label);
+            if ($key === 'quantity') {
+                $quantity = (int)$value;
+                if ($quantity < 1) {
+                    $errors[$key] = 'Quantity must be at least 1.';
+                }
+            } elseif ($value === '') {
+                $errors[$key] = pos_cart_required_message($key, $label, $type);
+            }
+        }
+        return $errors;
+    }
+
+    foreach ($configs as $fieldKey => $config) {
+        if (empty($config['visible']) || empty($config['required']) || !pos_cart_config_applies($config, $customization)) {
+            continue;
+        }
+
+        $label = trim((string)($config['label'] ?? $fieldKey));
+        $type = trim((string)($config['type'] ?? 'text'));
+        $value = pos_cart_custom_value($customization, (string)$fieldKey, $label);
+
+        if ($type === 'dimension') {
+            $w = pos_cart_custom_value($customization, $fieldKey . '_width', $label . ' Width');
+            $h = pos_cart_custom_value($customization, $fieldKey . '_height', $label . ' Height');
+            if ($value === '' && ($w === '' || $h === '')) {
+                $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
+            }
+        } elseif ($type === 'quantity') {
+            $quantity = (int)($value !== '' ? $value : $qty);
+            if ($quantity < 1) {
+                $errors[(string)$fieldKey] = 'Quantity must be at least 1.';
+            }
+        } elseif ($value === '') {
+            $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
+        }
+
+        $fieldConfigForNested = $config;
+        $fieldConfigForNested['key'] = (string)$fieldKey;
+        pos_cart_validate_nested_required($fieldConfigForNested, $customization, $errors);
+    }
+
+    $layout = strtolower(pos_cart_custom_value($customization, 'layout', 'Layout'));
+    if ($layout === 'with layout' && pos_cart_custom_value($customization, 'design_file', 'Upload Design') === '') {
+        $errors['design_file'] = 'Please upload a design.';
+    }
+
+    return $errors;
+}
+
+class PosCartValidationException extends Exception
+{
+    public array $errors;
+
+    public function __construct(array $errors)
+    {
+        parent::__construct('Some required order details are missing.');
+        $this->errors = $errors;
+    }
+}
+
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 if (!is_array($data)) {
@@ -95,6 +267,14 @@ try {
             $custom_json = $customization ? json_encode($customization) : null;
             $is_service = !empty($data['is_service']);
             $pos_branch_id = pos_cart_branch_id();
+
+            if ($is_service) {
+                $serviceCustomization = is_array($customization) ? $customization : [];
+                $serviceValidationErrors = pos_cart_validate_service_payload($product_id, $serviceCustomization, $qty);
+                if (!empty($serviceValidationErrors)) {
+                    throw new PosCartValidationException($serviceValidationErrors);
+                }
+            }
 
             $product = db_query("SELECT name, price FROM products WHERE product_id = ?", 'i', [$product_id]);
 
@@ -283,6 +463,14 @@ try {
         'cart' => array_values($_SESSION['pos_cart'])
     ]);
 
+} catch (PosCartValidationException $e) {
+    session_write_close();
+    echo json_encode([
+        'success' => false,
+        'message' => $e->getMessage(),
+        'errors' => $e->errors,
+        'cart' => array_values($_SESSION['pos_cart'] ?? [])
+    ]);
 } catch (Exception $e) {
     session_write_close();
     echo json_encode([

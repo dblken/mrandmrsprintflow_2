@@ -186,7 +186,7 @@
                 query: { userId: this.userId, userType: this.userType },
                 secure: url.startsWith('https'),
                 reconnection: true,
-                reconnectionAttempts: 5,
+                reconnectionAttempts: 1,
                 reconnectionDelay: 2000,
                 reconnectionDelayMax: 5000,
                 timeout: 10000
@@ -223,6 +223,12 @@
             this.socket.on('connect_error', () => {
                 this.isSocketConnected = false;
                 window.PFCallSocketConnected = false;
+                // The HTTP application remains fully usable without signaling.
+                // Stop retrying a missing Railway Socket.IO deployment after the
+                // first failure instead of flooding unrelated pages with 404s.
+                if (this.socket && this.socket.io && this.socket.io.opts) {
+                    this.socket.io.opts.reconnection = false;
+                }
                 if (!window.__PFCallFallbackWarned) {
                     window.__PFCallFallbackWarned = true;
                     console.warn("Socket not available, switching to fallback mode");

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 require_role('Customer');
 require_once __DIR__ . '/../includes/require_customer_profile_complete.php';
@@ -31,6 +32,166 @@ if (!$order_id) {
          </div>');
 }
 
+function pf_payment_service_image_payload(int $service_id, int $order_id = 0): array {
+    $service_id = (int)$service_id;
+    if ($service_id <= 0) {
+        return ['image' => '', 'name' => '', 'category' => ''];
+    }
+
+    $rows = db_query(
+        "SELECT service_id, name, category, display_image, hero_image, image_path, updated_at
+         FROM services
+         WHERE service_id = ?
+           AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived'
+         LIMIT 1",
+        'i',
+        [$service_id]
+    ) ?: [];
+
+    if (empty($rows)) {
+        error_log("payment service image: order_id={$order_id} item_type=service service_id={$service_id} selected_image= final_url= reason=service_not_found");
+        return ['image' => '', 'name' => '', 'category' => ''];
+    }
+
+    $service = $rows[0];
+    $base_path = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
+    $default_img = rtrim($base_path, '/') . '/public/assets/images/services/default.png';
+    $candidates = [];
+
+    foreach (explode(',', (string)($service['display_image'] ?? '')) as $image) {
+        $image = trim($image);
+        if ($image !== '') {
+            $candidates[] = $image;
+        }
+    }
+    foreach (['hero_image', 'image_path'] as $field) {
+        $image = trim((string)($service[$field] ?? ''));
+        if ($image !== '') {
+            $candidates[] = $image;
+        }
+    }
+
+    $selected = '';
+    $selected_raw = '';
+    foreach ($candidates as $candidate) {
+        if (function_exists('printflow_is_video_media_path') && printflow_is_video_media_path((string)$candidate)) {
+            continue;
+        }
+
+        $url = function_exists('pf_normalize_service_image_path')
+            ? pf_normalize_service_image_path((string)$candidate, $base_path, $default_img)
+            : (string)$candidate;
+
+        if ($url !== '' && (!function_exists('printflow_notification_local_media_exists') || printflow_notification_local_media_exists($url))) {
+            $selected = $url;
+            $selected_raw = (string)$candidate;
+            break;
+        }
+    }
+
+    error_log(
+        "payment service image: order_id={$order_id} item_type=service service_id={$service_id} selected_image={$selected_raw} final_url={$selected}"
+    );
+
+    return [
+        'image' => $selected,
+        'name' => (string)($service['name'] ?? ''),
+        'category' => (string)($service['category'] ?? ''),
+    ];
+}
+
+if (!function_exists('pf_payment_default_service_image_url')) {
+    function pf_payment_default_service_image_url(): string {
+        $base_path = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
+        return rtrim((string)$base_path, '/') . '/public/assets/images/services/default.png';
+    }
+}
+
+if (!function_exists('pf_payment_is_default_service_image')) {
+    function pf_payment_is_default_service_image(?string $url): bool {
+        $url = trim((string)$url);
+        if ($url === '') {
+            return true;
+        }
+        return strcasecmp($url, pf_payment_default_service_image_url()) === 0;
+    }
+}
+
+if (!function_exists('pf_payment_resolve_service_preview_image')) {
+    function pf_payment_resolve_service_preview_image(array $order, array $item, array $custom, int $resolvedServiceId = 0): string {
+        $default_img = pf_payment_default_service_image_url();
+
+        if ($resolvedServiceId > 0) {
+            $payload = pf_payment_service_image_payload($resolvedServiceId, (int)($order['order_id'] ?? 0));
+            $image = trim((string)($payload['image'] ?? ''));
+            if ($image !== '' && !pf_payment_is_default_service_image($image)) {
+                return $image;
+            }
+        }
+
+        $nameHints = array_values(array_unique(array_filter([
+            trim((string)($custom['service_type'] ?? '')),
+            trim((string)($item['product_name'] ?? '')),
+            trim((string)($order['first_job_title'] ?? '')),
+            trim((string)($order['first_job_service_type'] ?? '')),
+        ], static fn($value) => trim((string)$value) !== '')));
+
+        foreach ($nameHints as $hint) {
+            if (function_exists('printflow_notification_service_image_from_name')) {
+                $from_name = trim((string)printflow_notification_service_image_from_name((string)$hint));
+                if ($from_name !== '' && !pf_payment_is_default_service_image($from_name)) {
+                    return $from_name;
+                }
+            }
+
+            if (function_exists('get_service_image_url')) {
+                $fallback = trim((string)get_service_image_url((string)$hint));
+                if ($fallback !== '' && !pf_payment_is_default_service_image($fallback)) {
+                    return $fallback;
+                }
+            }
+        }
+
+        if (function_exists('printflow_order_list_thumbnail_url')) {
+            $order_like = $order;
+            $order_like['first_job_title'] = $order['first_job_title'] ?? '';
+            $order_like['first_job_service_type'] = $order['first_job_service_type'] ?? '';
+            $thumb = trim((string)printflow_order_list_thumbnail_url($order_like, (string)($item['product_name'] ?? '')));
+            if ($thumb !== '' && !pf_payment_is_default_service_image($thumb)) {
+                return $thumb;
+            }
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('printflow_resolve_order_service_catalog_image_url')) {
+    function printflow_resolve_order_service_catalog_image_url(array $item, string $displayName = ''): string {
+        foreach (['service_image', 'catalog_service_image'] as $field) {
+            $url = trim((string)($item[$field] ?? ''));
+            if ($url !== '') {
+                return $url;
+            }
+        }
+
+        $service_id = (int)($item['service_id'] ?? 0);
+        if ($service_id <= 0) {
+            $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+            if (is_array($custom)) {
+                $service_id = (int)($custom['service_id'] ?? 0);
+            }
+        }
+
+        if ($service_id > 0) {
+            $payload = pf_payment_service_image_payload($service_id, (int)($item['order_id'] ?? 0));
+            return (string)($payload['image'] ?? '');
+        }
+
+        return '';
+    }
+}
+
 // 1. First check regular orders
 $order_result = db_query("
     SELECT * FROM orders 
@@ -39,6 +200,7 @@ $order_result = db_query("
 
 if (!empty($order_result)) {
     $order = $order_result[0];
+    $items = [];
     $latest_payment_review = db_query("
         SELECT payment_status, payment_proof_status, payment_rejection_reason
         FROM job_orders
@@ -61,11 +223,95 @@ if (!empty($order_result)) {
     }
 
     $items = db_query("
-        SELECT oi.*, p.name as product_name, p.category, {$product_image_select}
+        SELECT oi.*,
+               p.name AS product_name,
+               p.category,
+               {$product_image_select}
         FROM order_items oi
         LEFT JOIN products p ON oi.product_id = p.product_id
         WHERE oi.order_id = ?
     ", 'i', [$order_id]);
+
+    foreach ($items as &$item) {
+        $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+
+        $looksServiceLike = strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom'
+            || strtolower(trim((string)($custom['source_page'] ?? ''))) === 'services'
+            || strtolower(trim((string)($custom['source'] ?? ''))) === 'service'
+            || strtolower(trim((string)($item['type'] ?? ''))) === 'service'
+            || (int)($custom['service_id'] ?? 0) > 0
+            || trim((string)($custom['service_type'] ?? '')) !== '';
+
+        $resolvedServiceId = function_exists('printflow_resolve_service_catalog_service_id_for_order_line')
+            ? printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item)
+            : 0;
+        if ($resolvedServiceId <= 0 && $looksServiceLike && (int)($item['product_id'] ?? 0) > 0) {
+            $candidate = (int)$item['product_id'];
+            $hit = db_query(
+                "SELECT service_id FROM services WHERE service_id = ? AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived' LIMIT 1",
+                'i',
+                [$candidate]
+            ) ?: [];
+            if (!empty($hit[0]['service_id'])) {
+                $resolvedServiceId = $candidate;
+            }
+        }
+
+        if ($resolvedServiceId > 0 && $looksServiceLike) {
+            $serviceMedia = pf_payment_service_image_payload($resolvedServiceId, $order_id);
+            $item['service_id'] = $resolvedServiceId;
+            $item['type'] = 'Service';
+            $item['source_page'] = 'services';
+
+            if (empty($custom['service_id'])) {
+                $custom['service_id'] = $resolvedServiceId;
+            }
+            if (empty($custom['source_page'])) {
+                $custom['source_page'] = 'services';
+            }
+
+            if (trim((string)($custom['service_type'] ?? '')) === '') {
+                $resolvedServiceName = trim((string)($serviceMedia['name'] ?? ''));
+                if ($resolvedServiceName === '' && function_exists('customer_orders_resolve_service_name_by_id')) {
+                    $resolvedServiceName = trim((string)customer_orders_resolve_service_name_by_id($resolvedServiceId));
+                }
+                if ($resolvedServiceName !== '') {
+                    $custom['service_type'] = $resolvedServiceName;
+                    $item['product_name'] = $resolvedServiceName;
+                }
+            }
+
+            if (!empty($serviceMedia['category'])) {
+                $item['category'] = $serviceMedia['category'];
+            }
+            $servicePreviewImage = trim((string)($serviceMedia['image'] ?? ''));
+            if ($servicePreviewImage === '' || pf_payment_is_default_service_image($servicePreviewImage)) {
+                $servicePreviewImage = pf_payment_resolve_service_preview_image($order, $item, $custom, $resolvedServiceId);
+            }
+            if ($servicePreviewImage !== '') {
+                $item['service_image'] = $servicePreviewImage;
+                $item['catalog_service_image'] = $servicePreviewImage;
+            }
+
+            // Service lines must not inherit a similarly-numbered product thumbnail.
+            $item['product_image'] = '';
+            $item['customization_data'] = printflow_encode_customization_payload($custom);
+        } elseif ($looksServiceLike) {
+            $item['type'] = 'Service';
+            $item['source_page'] = 'services';
+            $servicePreviewImage = pf_payment_resolve_service_preview_image($order, $item, $custom, 0);
+            if ($servicePreviewImage !== '') {
+                $item['service_image'] = $servicePreviewImage;
+                $item['catalog_service_image'] = $servicePreviewImage;
+            }
+            $item['product_image'] = '';
+            $item['customization_data'] = printflow_encode_customization_payload($custom);
+        }
+    }
+    unset($item);
     
     // Dynamically calculate total from items to ensure accuracy
     $calculated_total = 0;
@@ -137,11 +383,20 @@ if (!empty($order_result)) {
     $show_payment_form = !$is_paid_ui && !$is_verifying_payment && $order_status !== 'CANCELLED';
 }
 
+if (!isset($items) || !is_array($items)) {
+    $items = [];
+}
+
 $payment_rejection_reason = $payment_rejection_reason ?? '';
 $payment_proof_status = $payment_proof_status ?? '';
 $is_rejected_payment = $is_rejected_payment ?? false;
 $is_paid_ui = $is_paid_ui ?? false;
 $is_verifying_payment = $is_verifying_payment ?? false;
+$payment_verification_summary = payment_verification_customer_summary(
+    $customer_id,
+    $is_job_order ? (int)($order['order_id'] ?? 0) : $order_id,
+    $is_job_order ? $order_id : 0
+);
 
 if ($restore_cart_requested) {
     $restore_entry = $_SESSION['pending_payment_cart_restore'][(string)$order_id] ?? null;
@@ -573,14 +828,16 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
                         </div>
-                        <h3 style="font-weight: 800; color: #eaf6fb; margin-bottom: 0.5rem;">Payment Verifying</h3>
-                        <p style="color: #9fc4d4; font-size: 0.875rem;">Your payment proof is currently under review by our staff.</p>
+                        <h3 style="font-weight: 800; color: #eaf6fb; margin-bottom: 0.5rem;"><?php echo htmlspecialchars((string)($payment_verification_summary['customer_label'] ?? 'Under Review')); ?></h3>
+                        <p style="color: #9fc4d4; font-size: 0.875rem;"><?php echo htmlspecialchars((string)($payment_verification_summary['customer_message'] ?? 'Payment proof submitted. Your payment is pending staff verification.')); ?></p>
                         <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="btn-primary w-full mt-6 text-center block" style="text-decoration: none;">Track Order Status</a>
                     </div>
                 <?php else: ?>
+                    <?php $payment_submission_token = bin2hex(random_bytes(24)); ?>
                     <form id="paymentForm" enctype="multipart/form-data">
                         <input type="hidden" name="order_id" value="<?php echo $order_id; ?>">
                         <input type="hidden" name="is_job" value="<?php echo $is_job_order ? '1' : '0'; ?>">
+                        <input type="hidden" name="submission_token" value="<?php echo htmlspecialchars($payment_submission_token, ENT_QUOTES, 'UTF-8'); ?>">
                         <?php echo csrf_field(); ?>
 
                         <?php if ($is_rejected_payment): ?>
@@ -649,7 +906,7 @@ if (!function_exists('pf_payment_qr_url')) {
                         <?php else: ?>
                             <div style="display: flex; gap: 8px; margin-bottom: 1.5rem;">
                                 <?php $first = true; foreach ($enabled_methods as $index => $pm): ?>
-                                    <button type="button" onclick="selectPM(<?php echo $index; ?>)" id="btn-pm-<?php echo $index; ?>" class="pm-tab-btn <?php echo $first ? 'active' : ''; ?>">
+                                    <button type="button" onclick="selectPM(<?php echo $index; ?>)" id="btn-pm-<?php echo $index; ?>" data-provider="<?php echo htmlspecialchars((string)$pm['provider'], ENT_QUOTES, 'UTF-8'); ?>" class="pm-tab-btn <?php echo $first ? 'active' : ''; ?>">
                                         <?php echo htmlspecialchars($pm['provider']); ?>
                                     </button>
                                 <?php $first = false; endforeach; ?>
@@ -670,18 +927,19 @@ if (!function_exists('pf_payment_qr_url')) {
                         <?php endif; ?>
 
                         <!-- Simplified Flow: Always Full Payment -->
-                        <input type="hidden" name="amount" value="<?php echo number_format($order['total_amount'], 2, '.', ''); ?>">
+                        <input type="hidden" name="amount" value="<?php echo number_format($total_amount, 2, '.', ''); ?>">
                         <input type="hidden" name="payment_choice" value="full">
+                        <input type="hidden" name="selected_payment_method" id="selectedPaymentMethod" value="<?php echo htmlspecialchars((string)($enabled_methods[0]['provider'] ?? 'GCash'), ENT_QUOTES, 'UTF-8'); ?>">
 
                         <h2 class="payment-section-title" style="margin-bottom: 1rem; font-size: 1rem; color: #eaf6fb;">2. Upload Reference Receipt</h2>
                         
                         <div class="input-group">
-                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/*,application/pdf" required>
+                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/jpeg,image/png,image/webp,application/pdf" required>
                             <div id="dropzone" class="dropzone" onclick="document.getElementById('proofInput').click()">
                                 <div id="placeholder" style="display: block;">
                                     <div style="font-size: 2rem; margin-bottom: 0.5rem;">📸</div>
                                     <div class="dz-title">Click to upload receipt</div>
-                                    <div class="dz-sub">JPG, PNG or PDF</div>
+                                    <div class="dz-sub">JPG, PNG, WEBP or PDF, up to 10 MB</div>
                                 </div>
                                 <div id="preview" style="display: none; align-items: center; justify-content: center; flex-direction: column; width: 100%; overflow: hidden;">
                                     <img id="previewImg" src="" style="max-height: 120px; border-radius: 8px; margin-bottom: 10px; max-width: 100%; object-fit: contain;">
@@ -730,6 +988,9 @@ if (!function_exists('pf_payment_qr_url')) {
         
         document.querySelectorAll('[id^="pm-info-"]').forEach(i => i.style.display = 'none');
         document.getElementById('pm-info-' + idx).style.display = 'block';
+        const methodInput = document.getElementById('selectedPaymentMethod');
+        const methodButton = document.getElementById('btn-pm-' + idx);
+        if (methodInput && methodButton) methodInput.value = methodButton.dataset.provider || 'GCash';
     }
 
     const proofInput = document.getElementById('proofInput');
@@ -737,6 +998,46 @@ if (!function_exists('pf_payment_qr_url')) {
     const preview = document.getElementById('preview');
     const previewImg = document.getElementById('previewImg');
     const fileName = document.getElementById('fileName');
+    let paymentSubmissionInFlight = false;
+
+    function showPaymentFeedback(message, type = 'info') {
+        const safeMessage = String(message || 'Something went wrong. Please try again.');
+        const sharedFeedback = [window.showNotification, window.displayToast]
+            .find((candidate) => typeof candidate === 'function');
+        if (sharedFeedback) {
+            sharedFeedback.call(window, safeMessage, type);
+            return;
+        }
+
+        let toast = document.getElementById('payment-feedback-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'payment-feedback-toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            toast.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:100000;max-width:min(360px,calc(100vw - 40px));padding:12px 16px;border-radius:6px;color:#fff;font:600 14px/1.45 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.24);';
+            document.body.appendChild(toast);
+        }
+        toast.textContent = safeMessage;
+        toast.style.background = type === 'error' ? '#b91c1c' : (type === 'success' ? '#047857' : '#0a2530');
+        toast.hidden = false;
+        window.clearTimeout(toast._paymentHideTimer);
+        toast._paymentHideTimer = window.setTimeout(() => { toast.hidden = true; }, 6000);
+    }
+
+    // Compatibility for any older inline branch that still calls showToast.
+    function showToast(message, type = 'error') {
+        showPaymentFeedback(message, type);
+    }
+
+    function resetPaymentSubmitButton() {
+        paymentSubmissionInFlight = false;
+        const button = document.getElementById('submitBtn');
+        if (!button) return;
+        button.textContent = 'Submit Payment Proof';
+        button.classList.remove('is-uploading');
+        updateSubmitState();
+    }
 
     function updateSubmitState() {
         const btn = document.getElementById('submitBtn');
@@ -758,15 +1059,28 @@ if (!function_exists('pf_payment_qr_url')) {
         proofInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
+                const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+                if (!validTypes.includes(file.type) || file.size > 10 * 1024 * 1024) {
+                    e.target.value = '';
+                    showPaymentFeedback('Please choose a JPG, PNG, WEBP, or PDF receipt up to 10 MB.', 'error');
+                    updateSubmitState();
+                    return;
+                }
                 fileName.textContent = file.name;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    previewImg.src = e.target.result;
-                    previewImg.style.borderRadius = '0';
-                    placeholder.style.display = 'none';
-                    preview.style.display = 'flex';
-                };
-                reader.readAsDataURL(file);
+                placeholder.style.display = 'none';
+                preview.style.display = 'flex';
+                if (file.type === 'application/pdf') {
+                    previewImg.removeAttribute('src');
+                    previewImg.style.display = 'none';
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        previewImg.src = event.target.result;
+                        previewImg.style.display = 'block';
+                        previewImg.style.borderRadius = '0';
+                    };
+                    reader.readAsDataURL(file);
+                }
             }
             updateSubmitState();
         });
@@ -777,13 +1091,16 @@ if (!function_exists('pf_payment_qr_url')) {
     if (paymentForm) {
         paymentForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            if (paymentSubmissionInFlight) return;
             if (!proofInput || !proofInput.files || proofInput.files.length === 0) {
                 const errorEl = document.getElementById('submitError');
                 if (errorEl) errorEl.style.display = 'block';
                 return;
             }
             const btn = document.getElementById('submitBtn');
+            paymentSubmissionInFlight = true;
             btn.disabled = true;
+            btn.classList.add('is-uploading');
             btn.innerHTML = '<span style="display:flex; align-items:center; justify-content:center; gap:8px;">Uploading...</span>';
 
             const formData = new FormData(this);
@@ -791,55 +1108,76 @@ if (!function_exists('pf_payment_qr_url')) {
             // Use XHR for more reliable file upload and progress on mobile browsers
             var xhr = new XMLHttpRequest();
             xhr.open('POST', 'api_submit_payment.php', true);
-            xhr.timeout = 120000; // 2 minutes
+            xhr.timeout = 60000;
 
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
                     var percent = Math.round((e.loaded / e.total) * 100);
-                    btn.innerHTML = 'Uploading... ' + percent + '%';
+                    btn.textContent = percent >= 100 ? 'Processing payment...' : 'Uploading... ' + percent + '%';
                 }
             };
 
             xhr.onload = function() {
                 try {
-                    var data = JSON.parse(xhr.responseText || '{}');
-                } catch (err) {
-                    console.error('Invalid JSON response', xhr.responseText);
-                    showToast('Server error. Please try again.');
-                    btn.disabled = false;
-                    btn.textContent = 'Submit Payment Proof';
-                    return;
-                }
+                    let data;
+                    try {
+                        data = JSON.parse(xhr.responseText || '');
+                    } catch (parseError) {
+                        console.error('Invalid payment submission response:', xhr.responseText);
+                        throw new Error('The server returned an invalid response. Please try again.');
+                    }
 
-                if (xhr.status >= 200 && xhr.status < 300 && data.success) {
-                    showSuccessModal(
-                        'Payment Success',
-                        'Your payment proof has been submitted and is now under review. We\'ll notify you once verified!',
-                        'orders.php?highlight=<?php echo $order_id; ?>',
-                        'services.php',
-                        'View Order',
-                        'Back to Services',
-                        'services.php',
-                        4000
-                    );
-                } else {
-                    showToast('Error: ' + (data.message || 'Upload failed'));
-                    btn.disabled = false;
-                    btn.textContent = 'Submit Payment Proof';
+                    const submissionId = data.payment_submission_id || data.submission_id;
+                    if (xhr.status >= 200 && xhr.status < 300 && data.success && data.record_created && submissionId) {
+                        const successMessage = data.message || 'Payment proof submitted successfully and sent for staff verification.';
+                        if (typeof window.showSuccessModal === 'function') {
+                            window.showSuccessModal(
+                                'Receipt Submitted',
+                                successMessage,
+                                'orders.php?highlight=<?php echo $order_id; ?>',
+                                'services.php',
+                                'View Order',
+                                'Back to Services',
+                                'services.php',
+                                4000
+                            );
+                        } else {
+                            showPaymentFeedback(successMessage, 'success');
+                        }
+                        return;
+                    }
+
+                    const step = data && data.step ? ` [${data.step}]` : '';
+                    const message = data && data.message
+                        ? data.message
+                        : `Payment submission failed with HTTP ${xhr.status}.`;
+                    throw new Error(message + step);
+                } catch (error) {
+                    console.error('Payment submission error:', error, {
+                        status: xhr.status,
+                        response: xhr.responseText
+                    });
+                    showPaymentFeedback(error.message, 'error');
+                } finally {
+                    resetPaymentSubmitButton();
                 }
             };
 
             xhr.onerror = function() {
-                console.error('Upload error');
-                showToast('Network error during upload. Please try again.');
-                btn.disabled = false;
-                btn.textContent = 'Submit Payment Proof';
+                console.error('Network error while submitting payment proof.');
+                showPaymentFeedback('Network error. Please try again.', 'error');
+                resetPaymentSubmitButton();
             };
 
             xhr.ontimeout = function() {
-                showToast('Upload timed out. Try a smaller file or use Wi‑Fi.');
-                btn.disabled = false;
-                btn.textContent = 'Submit Payment Proof';
+                console.error('Payment submission request timed out.');
+                showPaymentFeedback('The upload timed out. Please try again.', 'error');
+                resetPaymentSubmitButton();
+            };
+
+            xhr.onabort = function() {
+                showPaymentFeedback('Payment submission was cancelled.', 'error');
+                resetPaymentSubmitButton();
             };
 
             xhr.send(formData);

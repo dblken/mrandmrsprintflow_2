@@ -92,8 +92,23 @@ function printflow_serve_payment_proof(): void {
             $has_needs_reset = db_table_has_column('orders', 'payment_proof_needs_resubmit');
         }
 
+        // OCR payment submissions also authorize generated thumbnails and retained audit files.
+        $hasPaymentSubmissions = !empty(db_query("SHOW TABLES LIKE 'payment_submissions'"));
+        if ($hasPaymentSubmissions) {
+            $submissionCheck = db_query(
+                "SELECT id FROM payment_submissions
+                 WHERE customer_id = ? AND (
+                    receipt_file = ? OR receipt_file LIKE CONCAT('%', ?, '%')
+                    OR receipt_thumbnail = ? OR receipt_thumbnail LIKE CONCAT('%', ?, '%')
+                 ) LIMIT 1",
+                'issss',
+                [$customer_id, $normalized_file, $basename, $normalized_file, $basename]
+            );
+            if (!empty($submissionCheck)) $is_owner = true;
+        }
+
         // job_orders linkage
-        $check = db_query(
+        $check = $is_owner ? [] : db_query(
             'SELECT id FROM job_orders '
             . 'WHERE customer_id = ? '
             . 'AND (payment_proof_path = ? OR payment_proof_path LIKE CONCAT(\'%\', ?, \'%\')) '
@@ -159,6 +174,11 @@ function printflow_serve_payment_proof(): void {
 
     header('Content-Type: ' . $mime);
     header('Content-Length: ' . (string)filesize($filepath));
+    header('Content-Disposition: inline; filename="' . addcslashes($basename, '"\\') . '"');
+    header('X-Content-Type-Options: nosniff');
+    if ($mime === 'application/pdf') {
+        header("Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'");
+    }
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
 

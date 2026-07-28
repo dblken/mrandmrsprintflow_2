@@ -111,8 +111,8 @@ function push_url_for_type(string $type, ?int $data_id, string $user_type): stri
             }
             if ($user_type === 'Staff' || $user_type === 'Manager') {
                 return $data_id
-                    ? $base . '/staff/orders.php?order_id=' . (int)$data_id
-                    : $base . '/staff/notifications.php';
+                    ? $base . '/staff/payment_verification.php?submission_id=' . (int)$data_id
+                    : $base . '/staff/payment_verification.php';
             }
             return $base . '/admin/notifications.php';
         case 'Rating':

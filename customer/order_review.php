@@ -54,11 +54,16 @@ function review_enrich_cart_item(array $item): array {
         }
     } else {
         $service_name = '';
-        if (!empty($item['service_id'])) {
+        $resolved_service_id = function_exists('printflow_resolve_service_catalog_service_id_from_cart_line')
+            ? (int) printflow_resolve_service_catalog_service_id_from_cart_line($item)
+            : (int)($item['service_id'] ?? 0);
+        if ($resolved_service_id > 0) {
+            $item['service_id'] = $resolved_service_id;
+            $custom['service_id'] = $resolved_service_id;
             $service_rows = db_query(
                 "SELECT name, category, display_image, hero_image FROM services WHERE service_id = ? LIMIT 1",
                 'i',
-                [(int)$item['service_id']]
+                [$resolved_service_id]
             );
             if (!empty($service_rows)) {
                 $service = $service_rows[0];
@@ -76,6 +81,7 @@ function review_enrich_cart_item(array $item): array {
                 $first_image = $display_image !== '' ? trim(explode(',', $display_image)[0]) : $hero_image;
                 $catalog_image = review_resolve_catalog_image($first_image);
                 if (!empty($catalog_image)) {
+                    $item['service_image'] = $catalog_image;
                     $item['product_image'] = $catalog_image;
                 }
             }
@@ -126,12 +132,23 @@ function review_item_is_product(array $item): bool {
     $cart_key = strtolower(trim((string)($item['_cart_key'] ?? '')));
     $product_id = (int)($item['product_id'] ?? 0);
     $service_id = (int)($item['service_id'] ?? 0);
+    $resolved_service_id = function_exists('printflow_resolve_service_catalog_service_id_from_cart_line')
+        ? (int) printflow_resolve_service_catalog_service_id_from_cart_line($item)
+        : 0;
 
-    if ($source_page === 'products' || $source_page === 'dynamic_form' || $item_type === 'product' || strpos($cart_key, 'product_') === 0) {
+    if ($source_page === 'products' || $item_type === 'product' || strpos($cart_key, 'product_') === 0) {
         return true;
     }
 
-    if ($source_page === 'services' || $item_type === 'service' || strpos($cart_key, 'service_') === 0 || $service_id > 0 || !empty($custom['service_type'])) {
+    if (
+        $source_page === 'services'
+        || $source_page === 'dynamic_form'
+        || $item_type === 'service'
+        || strpos($cart_key, 'service_') === 0
+        || $service_id > 0
+        || $resolved_service_id > 0
+        || !empty($custom['service_type'])
+    ) {
         return false;
     }
 

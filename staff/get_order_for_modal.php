@@ -8,6 +8,8 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/production_requirements.php';
 
 header('Content-Type: application/json');
 
@@ -61,8 +63,8 @@ $status_map = [
     'For Revision' => 'PENDING',
     'Design Approved' => 'APPROVED',
     'Approved' => 'APPROVED',
-    'Pending Verification' => 'PENDING',
-    'Downpayment Submitted' => 'PENDING',
+    'Pending Verification' => 'VERIFY_PAY',
+    'Downpayment Submitted' => 'VERIFY_PAY',
     'To Pay' => 'TO_PAY',
     'Paid – In Process' => 'IN_PRODUCTION',
     'Paid - In Process' => 'IN_PRODUCTION',
@@ -147,10 +149,35 @@ if ($includeAssignments && $linked_job_id) {
     $ink_usage = db_query($ink_sql, $ink_types, $ink_params) ?: [];
 }
 
+$proof = payment_verification_resolve_proof($order_id, $linked_job_id);
+$payment_proof_url = null;
+$payment_submitted_amount = null;
+$payment_proof_status = 'NONE';
+$payment_proof_uploaded_at = null;
+$payment_submission_id = null;
+$ocr_status = null;
+$ocr_error = null;
+$verification_status = null;
+
+if ($proof) {
+    $raw_path = $proof['payment_proof_path'];
+    if ($raw_path !== '') {
+        $payment_proof_url = payment_verification_proof_url($raw_path);
+        $payment_proof_status = in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true) ? 'VERIFIED' : 'SUBMITTED';
+    }
+    $payment_submitted_amount = $proof['payment_submitted_amount'];
+    $payment_proof_uploaded_at = $proof['payment_proof_uploaded_at'];
+    $payment_submission_id = $proof['submission_id'];
+    $ocr_status = $proof['ocr_status'];
+    $ocr_error = $proof['ocr_error'];
+    $verification_status = $proof['verification_status'];
+}
+
 $data = [
     'id' => $o['order_id'],
     'order_id' => $o['order_id'],
     'job_order_id' => $linked_job_id ?: null,
+    'requires_ink' => $linked_job_id ? printflow_job_requires_ink($linked_job_id) : true,
     'order_type' => 'ORDER',
     'customer_full_name' => $o['customer_full_name'] ?? trim(($o['first_name'] ?? '') . ' ' . ($o['last_name'] ?? '')),
     'customer_contact' => $o['customer_contact'] ?? '',
@@ -170,8 +197,16 @@ $data = [
         ? (float)($o['total_amount'] ?? 0)
         : (float)($o['amount_paid'] ?? 0),
     'notes' => $o['notes'] ?? '',
-    'payment_proof_status' => 'PAID',
-    'payment_status' => 'NO',
+    'payment_proof_status' => $payment_proof_status,
+    'payment_proof_path' => $payment_proof_url,
+    'payment_proof_original_url' => $payment_proof_url,
+    'payment_submitted_amount' => $payment_submitted_amount,
+    'payment_proof_uploaded_at' => $payment_proof_uploaded_at,
+    'payment_submission_id' => $payment_submission_id,
+    'ocr_status' => $ocr_status,
+    'ocr_error' => $ocr_error,
+    'verification_status' => $verification_status,
+    'payment_status' => (string)($o['payment_status'] ?? 'Unpaid'),
     'readiness' => 'READY',
     'items' => $items_out,
     'materials' => $materials,

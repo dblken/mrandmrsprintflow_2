@@ -113,6 +113,24 @@ $online_closed_count = 0;
             to { transform: rotate(360deg); }
         }
 
+        @keyframes pfCustomizationSkeleton {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
+        .pf-customization-skeleton {
+            display: block;
+            height: 13px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #eef2f7 25%, #f8fafc 50%, #eef2f7 75%);
+            background-size: 200% 100%;
+            animation: pfCustomizationSkeleton 1.2s ease-in-out infinite;
+        }
+        .pf-customization-skeleton.short { width: 58%; }
+        .pf-customization-skeleton.medium { width: 78%; }
+        @media (prefers-reduced-motion: reduce) {
+            .pf-customization-skeleton { animation: none; }
+        }
+
 
 
         .toolbar-container {
@@ -1023,6 +1041,60 @@ $online_closed_count = 0;
                 width: 100% !important;
             }
         }
+        .production-field-invalid {
+            border-color: #dc2626 !important;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+        }
+        .payment-proof-preview,
+        .payment-proof-preview img {
+            opacity: 1 !important;
+            filter: none !important;
+        }
+        .payment-proof-preview {
+            isolation: isolate;
+            background: #fff;
+        }
+        .payment-proof-preview img {
+            display: block;
+            width: auto;
+            max-width: 100%;
+            height: auto;
+            max-height: 70vh;
+            object-fit: contain;
+            image-rendering: auto;
+            mix-blend-mode: normal;
+        }
+        .ink-set-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .ink-set-option {
+            min-width: 88px;
+            padding: 10px 18px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #fff;
+            color: #475569;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+        }
+        .ink-set-option:hover {
+            border-color: #0f766e;
+            background: #f0fdfa;
+        }
+        .ink-set-option:focus-visible {
+            outline: 3px solid rgba(15, 118, 110, .22);
+            outline-offset: 2px;
+        }
+        .ink-set-option.is-selected {
+            border-color: #0f766e;
+            background: #ccfbf1;
+            color: #115e59;
+        }
     </style>
 </head>
 <body data-base-url="<?php echo htmlspecialchars(BASE_URL); ?>" data-csrf="<?php echo htmlspecialchars(generate_csrf_token()); ?>" data-user-type="<?php echo htmlspecialchars($_SESSION['user_type'] ?? 'Staff'); ?>">
@@ -1035,7 +1107,7 @@ $online_closed_count = 0;
     }
     ?>
     <div class="main-content">
-        <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" x-init="init()" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()">
+        <div id="staffJoCustomizationsPage" x-data="joManager('ALL')" class="pf-staff-customizations-root" @keydown.escape.window="onSvcEscape()">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
             <div>
                 <h1 class="page-title">Customizations</h1>
@@ -1314,18 +1386,24 @@ $online_closed_count = 0;
                                     </td>
                                 </tr>
                             </template>
-                            <tr x-show="loadingOrders">
-                                <td colspan="6" class="px-6 py-24 text-center">
-                                    <div style="display:inline-flex; align-items:center; gap:8px; color:#0d9488; font-weight:600; font-size:14px; text-transform:uppercase; letter-spacing:0.05em;">
-                                        <svg class="animate-spin" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="animation: spin 1s linear infinite;">
-                                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" fill="none"/>
-                                            <path d="M12 2C6.477 2 2 6.477 2 12" stroke="currentColor" fill="none"/>
-                                        </svg>
-                                        <span>Loading customizations...</span>
-                                    </div>
+                            <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 6 : 0)" :key="'skeleton-' + rowIndex">
+                                <tr aria-hidden="true">
+                                    <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
+                                </tr>
+                            </template>
+                            <tr x-show="ordersError && orders.length === 0" x-cloak>
+                                <td colspan="6" class="px-6 py-20 text-center">
+                                    <div style="color:#475569;font-weight:700;font-size:14px;">Unable to load customizations. Please try again.</div>
+                                    <div style="margin-top:8px;color:#64748b;font-size:13px;" x-text="ordersError"></div>
+                                    <button type="button" @click="retryLoadOrders()" :disabled="loadingOrders" :style="loadingOrders ? 'opacity:.6;cursor:not-allowed' : ''" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
                                 </td>
                             </tr>
-                            <tr x-show="!loadingOrders && filteredOrders.length === 0">
+                            <tr x-show="!loadingOrders && !ordersError && filteredOrders.length === 0">
                                 <td colspan="6" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
@@ -1387,7 +1465,7 @@ $online_closed_count = 0;
         <div style="margin-top:16px; text-align:center;">
             <a :href="previewFile" download @click.stop style="background:#06A1A1; color:white; padding:10px 24px; border-radius:8px; text-decoration:none; font-size:14px; font-weight:600; display:inline-flex; align-items:center; gap:8px; transition:all 0.2s;" onmouseover="this.style.background='#047676'" onmouseout="this.style.background='#06A1A1'">
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                Download Artwork
+                Download Image
             </a>
         </div>
     </div>
@@ -1435,7 +1513,7 @@ $online_closed_count = 0;
                 <div style="font-size:15px;font-weight:700;color:#991b1b;">Unable to load job details</div>
                 <p style="font-size:13px;color:#7f1d1d;margin-top:8px;" x-text="detailError"></p>
                 <div class="modal-error-actions">
-                    <button @click="retryLastDetailRequest()" class="table-action-btn" style="background:#06A1A1;color:#fff;border-color:#06A1A1;">Retry</button>
+                    <button @click="retryLastDetailRequest()" :disabled="loadingDetails" class="table-action-btn" style="background:#06A1A1;color:#fff;border-color:#06A1A1;">Retry</button>
                     <button @click="closeDetailsModal()" class="table-action-btn">Close</button>
                 </div>
             </div>
@@ -1661,10 +1739,9 @@ $online_closed_count = 0;
                     <template x-if="staffPaymentProofSrc(currentJo) && !isVerifyStageRow(currentJo)">
                         <div style="margin-bottom:20px; padding:16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
                             <label style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;display:block;margin-bottom:12px;">Payment proof (customer)</label>
-                            <div @click="previewFile = staffPaymentProofSrc(currentJo)"
-                                 style="display:block;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:hidden;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
+                            <div class="payment-proof-preview" @click="previewFile = staffPaymentProofSrc(currentJo)"
+                                 style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
                                 <img :src="staffPaymentProofSrc(currentJo)"
-                                     style="display:block;width:100%;max-height:420px;object-fit:contain;background:#fff;"
                                      alt="Payment proof"
                                      @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment+proof'; $el.style.opacity='0.4'">
                             </div>
@@ -1696,10 +1773,9 @@ $online_closed_count = 0;
                             
                             <div style="display:flex; flex-direction:column; gap:14px;">
                                 <template x-if="staffPaymentProofSrc(currentJo)">
-                                        <div @click="previewFile = staffPaymentProofSrc(currentJo)"
-                                             style="display:block;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:hidden;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
+                                        <div class="payment-proof-preview" @click="previewFile = staffPaymentProofSrc(currentJo)"
+                                             style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
                                             <img :src="staffPaymentProofSrc(currentJo)"
-                                                 style="display:block;width:100%;max-height:460px;object-fit:contain;background:#fff;"
                                                  alt="Payment Proof"
                                                  @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment Proof'; $el.style.opacity='0.4'">
                                         </div>
@@ -1729,14 +1805,14 @@ $online_closed_count = 0;
                                     
                                     <!-- A. Materials Selection -->
                                     <div style="display:flex; flex-direction:column; gap:12px;">
-                                        <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials</label>
+                                        <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials <span style="color:#dc2626;">*</span></label>
                                         
                                         <!-- Searchable Selection -->
                                         <div style="position:relative;">
                                             <input type="text" x-model="materialSearch" placeholder="Search materials (e.g. tarpaulin, vinyl...)" 
                                                    style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
                                             
-                                            <select x-model="newMaterialId" @change="handleMaterialSelection($event.target.value)" 
+                                            <select x-model="newMaterialId" @change="handleMaterialSelection($event.target.value); productionErrors.material = ''"
                                                     style="width:100%; padding:10px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; background:white; cursor:pointer;">
                                                 <option value="">-- Choose Material --</option>
                                                 <template x-for="item in availableMaterialsForCurrentOrder" :key="item.id">
@@ -1776,25 +1852,25 @@ $online_closed_count = 0;
                                                 </div>
                                             </template>
                                         </div>
+                                        <div x-show="productionErrors.material" x-text="productionErrors.material" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                     </div>
 
                                     <!-- B. Ink Options -->
                                     <div style="display:flex; flex-direction:column; gap:12px;">
                                         <div style="display:flex; align-items:center; justify-content:space-between;">
-                                            <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options</label>
-                                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                                                <input type="checkbox" x-model="useInk" style="width:16px; height:16px; cursor:pointer; accent-color:#06A1A1;">
-                                                <span style="font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase;">Use Ink</span>
-                                            </label>
+                                            <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options <span x-show="requiresInk" style="color:#dc2626;">*</span></label>
                                         </div>
 
-                                        <div x-show="useInk" x-transition style="padding:16px; border:1px solid #cbd5e1; border-radius:12px; background:#f9fafb;">
+                                        <div x-show="requiresInk" x-transition
+                                             :style="productionErrors.ink_set ? 'padding:16px;border:1px solid #dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12);border-radius:12px;background:#f9fafb;' : 'padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f9fafb;'">
                                             <label style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:10px; display:block;">Select Ink Set</label>
-                                            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+                                            <div class="ink-set-options" role="radiogroup" aria-label="Ink set">
                                                 <template x-for="type in availableInkOptionsForService" :key="type">
-                                                    <button type="button" @click="inkCategorySelected = type" 
-                                                            :style="inkCategorySelected === type ? 'background:#06A1A1; color:white; border-color:#06A1A1;' : 'background:white; color:#64748b; border-color:#e2e8f0;'"
-                                                            style="padding:8px 16px; border-radius:8px; border:2px solid; font-size:12px; font-weight:700; transition:all 0.2s; cursor:pointer;"
+                                                    <button type="button" @click="inkCategorySelected = type; productionErrors.ink_set = ''"
+                                                            class="ink-set-option"
+                                                            :class="{ 'is-selected': inkCategorySelected === type }"
+                                                            role="radio"
+                                                            :aria-checked="inkCategorySelected === type ? 'true' : 'false'"
                                                             x-text="type"></button>
                                                 </template>
                                             </div>
@@ -1813,7 +1889,7 @@ $online_closed_count = 0;
                                                                     RED
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkRed" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#ef4444'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkRed" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1823,7 +1899,7 @@ $online_closed_count = 0;
                                                                     BLUE
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkBlue" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkBlue" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1833,7 +1909,7 @@ $online_closed_count = 0;
                                                                     BLACK
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkBlack" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#1f2937'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkBlack" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1843,7 +1919,7 @@ $online_closed_count = 0;
                                                                     YELLOW
                                                                 </label>
                                                                 <div style="position:relative;">
-                                                                    <input type="number" x-model.number="inkYellow" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;" onfocus="this.style.borderColor='#eab308'" onblur="this.style.borderColor='#e5e7eb'">
+                                                            <input type="number" x-model.number="inkYellow" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
                                                                     <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
                                                                 </div>
                                                             </div>
@@ -1853,12 +1929,14 @@ $online_closed_count = 0;
                                                                 <div x-text="issue"></div>
                                                             </template>
                                                         </div>
+                                                        <div x-show="productionErrors.ink_consumption" x-text="productionErrors.ink_consumption" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                                     </div>
                                                 </div>
                                             </template>
+                                            <div x-show="productionErrors.ink_set" x-text="productionErrors.ink_set" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                         </div>
-                                        <div x-show="!useInk" style="font-size:12px; color:#94a3b8; font-style:italic; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
-                                            No ink required for this job
+                                        <div x-show="!requiresInk" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
+                                            This service is configured as non-ink production.
                                         </div>
                                     </div>
                                 </div>
@@ -1879,7 +1957,7 @@ $online_closed_count = 0;
                                         <span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); font-weight:800; color:#0f766e; font-size:20px;">₱</span>
                                         <input type="text" 
                                                placeholder="0.00"
-                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { $el.value = Number(jobPriceInput || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }); })"
+                                               x-init="$watch('showDetailsModal', v => { if(v) $nextTick(() => { const raw = String(jobPriceInput !== null && jobPriceInput !== undefined ? jobPriceInput : '').trim(); $el.value = raw !== '' ? Number(raw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''; }); })"
                                                x-on:input="
                                                    let val = $event.target.value.replace(/[^0-9.]/g, '');
                                                    let parts = val.split('.');
@@ -1888,9 +1966,12 @@ $online_closed_count = 0;
                                                    jobPriceInput = $event.target.value.replace(/,/g, '');
                                                "
                                                x-on:blur="
-                                                   if (jobPriceInput) {
+                                                   if (jobPriceInput && String(jobPriceInput).trim() !== '') {
                                                        jobPriceInput = parseFloat(jobPriceInput).toFixed(2);
                                                        $event.target.value = Number(jobPriceInput).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                                                   } else {
+                                                       jobPriceInput = '';
+                                                       $event.target.value = '';
                                                    }
                                                "
                                                style="width:100%; height:42px; padding:0 12px 0 42px; border:1px solid #5eead4; border-radius:10px; font-size:18px; font-weight:700; color:#0f766e; outline:none; background:#ffffff; transition:all 0.2s;"
@@ -2079,7 +2160,7 @@ $online_closed_count = 0;
                                 <button type="button" @click="openRevisionModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Request Additional Details</button>
                             </div>
                             <div x-show="modalWorkflowStatus(currentJo) === 'APPROVED' && (!isPosSimplifiedView || !isPosPricingReturnFlow(currentJo))" style="display:flex; gap:8px;">
-                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
+                                <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Set Price</button>
                             </div>
                             <div x-show="isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
@@ -2302,22 +2383,26 @@ window.pfCustomizationPreloadedOrders = (() => {
 })();
 </script>
 <script>
+    console.info('[Customizations] script loaded');
     (function registerStaffCustomizationManager() {
         let registered = false;
 
-        function boot() {
-            if (registered || typeof Alpine === 'undefined') return;
-            registered = true;
-
-            Alpine.data('joManager', function (defaultStatus) {
+        console.info('[Customizations] reached joManager definition');
+        function createJoManager(defaultStatus) {
+            console.info('[Customizations] joManager created');
             defaultStatus = defaultStatus || 'ALL';
+            let ordersAbortController = null;
             return {
-            ...printflowStaffServiceOrderModalMixin({
+            ...window.printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
             }),
             statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
+            _initialized: false,
             loadingOrders: true,
+            ordersError: '',
+            ordersLastLoadedAt: 0,
+            ordersMinRefreshMs: 8000,
             modalCache: {},
             loadingDetailKey: '',
             detailError: '',
@@ -2355,7 +2440,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             availableRolls: {},
             allInventoryItems: [],
             inventoryPollMs: 20000,
-            ordersPollMs: 10000,
+            ordersPollMs: 30000,
             newMaterialId: '',
             newMaterialQty: 1,
             materialQtyManuallyEdited: false,
@@ -2457,7 +2542,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
-                const uom = String(item?.unit_of_measure || '').trim().toLowerCase();
+                const uom = String(item && item.unit_of_measure ? item.unit_of_measure : '').trim().toLowerCase();
                 return uom === 'pcs' || uom === 'pc' || uom === 'piece' || uom === 'pieces';
             },
             getMaterialEntryUom(itemId) {
@@ -2473,7 +2558,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             getDefaultMaterialQty(itemId) {
                 if (!this.isPcsMaterial(itemId)) return 1;
-                return this.normalizeMaterialQtyValue(this.currentJo?.quantity || 1, 1);
+                return this.normalizeMaterialQtyValue(this.currentJo && this.currentJo.quantity ? this.currentJo.quantity : 1, 1);
             },
             handleMaterialSelection(selectedId) {
                 this.newMaterialId = selectedId;
@@ -2525,7 +2610,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             getQueuedMaterialRequiredStock(itemId) {
                 return this.pendingMaterials
                     .filter(m => String(m.item_id) === String(itemId))
-                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata?.height_ft || 0), 0);
+                    .reduce((sum, m) => sum + this.getMaterialRequiredStock(m.item_id, m.qty, m.metadata && m.metadata.height_ft ? m.metadata.height_ft : 0), 0);
             },
             get selectedMaterialStockError() {
                 if (!this.newMaterialId) return '';
@@ -2632,6 +2717,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             inkBlack: '',
             inkYellow: '',
             useInk: false,
+            productionErrors: { material: '', ink_set: '', ink_consumption: '' },
             materialSearch: '',
             dateFilter: 'ALL',
             serviceFilter: 'ALL',
@@ -2672,6 +2758,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
 
                 return row;
+            },
+            get requiresInk() {
+                const value = this.currentJo ? this.currentJo.requires_ink : true;
+                return value !== false && value !== 0 && value !== '0';
             },
             clearDeepLinkParams() {
                 try {
@@ -2717,7 +2807,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                 );
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
-                this.jobPriceInput = this.currentJo.final_price || 0;
+                this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
+                    ? this.currentJo.final_price
+                    : '';
+                this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
+                this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
             },
             async fetchOrderModalSummary(orderId, options = {}) {
@@ -2746,6 +2840,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
                     merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
                     this.currentJo = merged;
+                    this.restoreSavedInkUsage();
                     this.modalCache[cacheKey] = merged;
                 } catch (e) {
                     console.warn('Deferred modal assignments load failed:', e);
@@ -2805,7 +2900,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
             statusPriority(row) {
-                const raw = String(row?.status || '').trim().toUpperCase().replace(/\s+/g, '_');
+                const raw = String((row && row.status) || '').trim().toUpperCase().replace(/\s+/g, '_');
                 const priorities = {
                     REJECTED: 100,
                     CANCELLED: 95,
@@ -2826,7 +2921,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return priorities[raw] || 0;
             },
             typePriority(row) {
-                const type = String(row?.order_type || 'JOB').toUpperCase();
+                const type = String((row && row.order_type) || 'JOB').toUpperCase();
                 const priorities = {
                     ORDER: 4,
                     CUSTOMIZATION: 3,
@@ -2836,11 +2931,13 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return priorities[type] || 0;
             },
             orderGroupKey(row) {
-                const oid = row?.order_id ?? row?.id ?? null;
+                const oid = row && row.order_id !== null && row.order_id !== undefined
+                    ? row.order_id
+                    : (row && row.id !== null && row.id !== undefined ? row.id : null);
                 if (oid != null && oid !== '') {
                     return `ORDER:${oid}`;
                 }
-                return `${String(row?.order_type || 'JOB').toUpperCase()}:${row?.id ?? ''}`;
+                return `${String((row && row.order_type) || 'JOB').toUpperCase()}:${row && row.id !== null && row.id !== undefined ? row.id : ''}`;
             },
             isGenericServiceLabel(value) {
                 const raw = String(value || '').trim().toUpperCase();
@@ -2856,7 +2953,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 ].includes(raw);
             },
             descriptiveTypePriority(row) {
-                const type = String(row?.order_type || 'JOB').toUpperCase();
+                const type = String((row && row.order_type) || 'JOB').toUpperCase();
                 const priorities = {
                     CUSTOMIZATION: 4,
                     ORDER: 3,
@@ -2866,19 +2963,19 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return priorities[type] || 0;
             },
             mergeGroupedRows(existing, incoming) {
-                const existingTs = existing?._ts || 0;
-                const incomingTs = incoming?._ts || 0;
+                const existingTs = (existing && existing._ts) || 0;
+                const incomingTs = (incoming && incoming._ts) || 0;
                 let winner = existing;
                 let loser = incoming;
-                const existingType = String(existing?.order_type || 'JOB').toUpperCase();
-                const incomingType = String(incoming?.order_type || 'JOB').toUpperCase();
-                const existingSource = String(existing?.order_source || 'customer').toLowerCase();
-                const incomingSource = String(incoming?.order_source || 'customer').toLowerCase();
+                const existingType = String((existing && existing.order_type) || 'JOB').toUpperCase();
+                const incomingType = String((incoming && incoming.order_type) || 'JOB').toUpperCase();
+                const existingSource = String((existing && existing.order_source) || 'customer').toLowerCase();
+                const incomingSource = String((incoming && incoming.order_source) || 'customer').toLowerCase();
                 const existingIsPos = ['pos', 'walk-in'].includes(existingSource);
                 const incomingIsPos = ['pos', 'walk-in'].includes(incomingSource);
                 const sameOnlineStoreOrder =
-                    existing?.order_id &&
-                    incoming?.order_id &&
+                    existing && existing.order_id &&
+                    incoming && incoming.order_id &&
                     String(existing.order_id) === String(incoming.order_id) &&
                     !existingIsPos &&
                     !incomingIsPos &&
@@ -2904,10 +3001,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const merged = { ...winner };
                 const winnerTypePriority = this.descriptiveTypePriority(winner);
                 const loserTypePriority = this.descriptiveTypePriority(loser);
-                const winnerService = String(winner?.service_type || '').trim();
-                const loserService = String(loser?.service_type || '').trim();
-                const winnerTitle = String(winner?.job_title || '').trim();
-                const loserTitle = String(loser?.job_title || '').trim();
+                const winnerService = String((winner && winner.service_type) || '').trim();
+                const loserService = String((loser && loser.service_type) || '').trim();
+                const winnerTitle = String((winner && winner.job_title) || '').trim();
+                const loserTitle = String((loser && loser.job_title) || '').trim();
 
                 const shouldUseLoserService =
                     loserService &&
@@ -2930,25 +3027,25 @@ window.pfCustomizationPreloadedOrders = (() => {
                     merged.job_title = loserTitle;
                 }
 
-                if ((!merged.width_ft || merged.width_ft === '1') && loser?.width_ft && loser.width_ft !== '1') {
+                if ((!merged.width_ft || merged.width_ft === '1') && loser && loser.width_ft && loser.width_ft !== '1') {
                     merged.width_ft = loser.width_ft;
                 }
-                if ((!merged.height_ft || merged.height_ft === '1') && loser?.height_ft && loser.height_ft !== '1') {
+                if ((!merged.height_ft || merged.height_ft === '1') && loser && loser.height_ft && loser.height_ft !== '1') {
                     merged.height_ft = loser.height_ft;
                 }
-                if ((!Number(merged.quantity) || Number(merged.quantity) <= 1) && Number(loser?.quantity) > 1) {
+                if ((!Number(merged.quantity) || Number(merged.quantity) <= 1) && Number(loser && loser.quantity) > 1) {
                     merged.quantity = loser.quantity;
                 }
-                if (!merged.order_code && loser?.order_code) {
+                if (!merged.order_code && loser && loser.order_code) {
                     merged.order_code = loser.order_code;
                 }
-                if ((!merged.order_source || merged.order_source === 'customer') && loser?.order_source) {
+                if ((!merged.order_source || merged.order_source === 'customer') && loser && loser.order_source) {
                     merged.order_source = loser.order_source;
                 }
-                if (!merged.job_order_id && loser?.job_order_id) {
+                if (!merged.job_order_id && loser && loser.job_order_id) {
                     merged.job_order_id = loser.job_order_id;
                 }
-                if ((!merged.items || !merged.items.length) && Array.isArray(loser?.items) && loser.items.length) {
+                if ((!merged.items || !merged.items.length) && loser && Array.isArray(loser.items) && loser.items.length) {
                     merged.items = loser.items;
                 }
 
@@ -3012,13 +3109,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (type === 'SERVICE') {
                     return 'SRV-' + String(row.id || 0).padStart(5, '0');
                 }
-                const orderId = row.order_id ?? row.id ?? 0;
+                const orderId = row.order_id !== null && row.order_id !== undefined
+                    ? row.order_id
+                    : (row.id !== null && row.id !== undefined ? row.id : 0);
                 return 'ORD-' + String(orderId).padStart(5, '0');
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';
-                const width = String(row.width_ft ?? '').trim();
-                const height = String(row.height_ft ?? '').trim();
+                const width = String(row.width_ft !== null && row.width_ft !== undefined ? row.width_ft : '').trim();
+                const height = String(row.height_ft !== null && row.height_ft !== undefined ? row.height_ft : '').trim();
                 const quantity = Number(row.quantity || 0);
                 const parts = [];
 
@@ -3064,8 +3163,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             normalizeOrderRow(row) {
                 const normalized = {
                     ...row,
-                    customer_type: this.normalizeCustomerType(row?.customer_type, row?.transaction_count),
-                    _ts: new Date(row?.updated_at || row?.created_at || row?.order_date || 0).getTime()
+                    customer_type: this.normalizeCustomerType(row && row.customer_type, row && row.transaction_count),
+                    _ts: new Date((row && row.updated_at) || (row && row.created_at) || (row && row.order_date) || 0).getTime()
                 };
                 const override = this.statusOverrides[this.statusOverrideKey(normalized)] || null;
                 const overrideMaxAgeMs = 15000;
@@ -3079,7 +3178,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return normalized;
             },
             verificationStockBlockMessage() {
-                const readiness = String(this.currentJo?.readiness || '').toUpperCase();
+                const readiness = String((this.currentJo && this.currentJo.readiness) || '').toUpperCase();
                 if (readiness === 'MISSING') {
                     return 'Cannot approve payment yet because required materials are missing in inventory.';
                 }
@@ -3155,15 +3254,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Also try raw customization_data for service_type in case processing pipeline stripped it
                 const rawCustom = this.parseSpecsObject(item && item.customization_data);
                 const custom = Object.keys(itemCustom).length > 0 ? itemCustom : (Object.keys(rawCustom).length > 0 ? rawCustom : fallbackCustom);
-                const fromCustomLine = String(custom?.service_type || custom?.product_type || rawCustom?.service_type || '').trim();
+                const fromCustomLine = String((custom && custom.service_type) || (custom && custom.product_type) || (rawCustom && rawCustom.service_type) || '').trim();
                 if (fromCustomLine && !this.isGenericServiceLabel(fromCustomLine)) {
                     return fromCustomLine;
                 }
-                const productName = String(item?.product_name || '').trim();
+                const productName = String((item && item.product_name) || '').trim();
                 if (productName && !this.isGenericServiceLabel(productName)) {
                     return productName;
                 }
-                const explicitService = String(custom?.service_type || custom?.product_type || item?.product_name || rawCustom?.service_type || '').trim();
+                const explicitService = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || (rawCustom && rawCustom.service_type) || '').trim();
                 if (explicitService) {
                     return explicitService;
                 }
@@ -3213,7 +3312,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 if (jo.items && jo.items.length > 0) {
                     for (const item of jo.items) {
-                        const pn = String(item?.product_name || '').trim();
+                        const pn = String((item && item.product_name) || '').trim();
                         if (pn && !this.isGenericServiceLabel(pn)) {
                             return pn;
                         }
@@ -3226,7 +3325,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             ? item.customization
                             : {};
                         const custom = Object.keys(itemCustom).length > 0 ? itemCustom : fallbackCustom;
-                        const explicit = String(custom?.service_type || custom?.product_type || item?.product_name || '').trim();
+                        const explicit = String((custom && custom.service_type) || (custom && custom.product_type) || (item && item.product_name) || '').trim();
                         if (explicit) return explicit;
                         const findKey = (searchKeys) => {
                             for (const [k, v] of Object.entries(custom)) {
@@ -3437,15 +3536,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                     !Array.isArray(fallbackCustom) &&
                     Object.keys(fallbackCustom).length > 0
                 ) {
-                    const targetOrderItemId = Number(this.currentJo?.order_item_id || 0);
-                    const itemOrderItemId = Number(item?.order_item_id || 0);
+                    const targetOrderItemId = Number((this.currentJo && this.currentJo.order_item_id) || 0);
+                    const itemOrderItemId = Number((item && item.order_item_id) || 0);
                     const countDisplayableKeys = (obj) => Object.keys(obj || {}).filter((k) => {
                         const v = obj[k];
                         return v !== '' && v != null && !(typeof v === 'string' && v.length > 2000);
                     }).length;
                     const shouldMergeFallback =
                         (targetOrderItemId > 0 && itemOrderItemId > 0 && targetOrderItemId === itemOrderItemId)
-                        || (targetOrderItemId <= 0 && Array.isArray(this.currentJo?.items) && this.currentJo.items.length === 1)
+                        || (targetOrderItemId <= 0 && Array.isArray(this.currentJo && this.currentJo.items) && this.currentJo.items.length === 1)
                         || countDisplayableKeys(fallbackCustom) > countDisplayableKeys(sourceCustom);
 
                     if (shouldMergeFallback) {
@@ -3460,50 +3559,43 @@ window.pfCustomizationPreloadedOrders = (() => {
                     sourceCustom = { Quantity: item.quantity };
                 }
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
-                
-                // Remove all note-related fields before processing - they're shown in the yellow Order Notes box
-                const noteFields = ['notes', 'Notes', 'NOTES', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'job_notes', 'Job_Notes', 'JobNotes', 'Customer_Notes', 'CustomerNotes'];
+
+                const noteFields = ['notes', 'Notes', 'NOTES', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'Job_Notes', 'JobNotes', 'Customer_Notes', 'CustomerNotes'];
                 for (const noteField of noteFields) {
                     delete sourceCustom[noteField];
                 }
-                
-                // Remove size/dimension fields to avoid redundancy
+
                 const sizeFields = ['width', 'height', 'width_ft', 'height_ft', 'size', 'sizes', 'sizeft', 'sizesft', 'dimensions', 'dimensionsft', 'dimension', 'size_ft'];
                 for (const sizeField of sizeFields) {
                     delete sourceCustom[sizeField];
                 }
-                
-                // Remove design type/template fields to avoid redundancy
+
                 const designFields = ['design_type', 'template', 'design', 'Design', 'DESIGN'];
                 for (const designField of designFields) {
                     delete sourceCustom[designField];
                 }
-                
-                // Remove branch fields - no longer shown in specifications
+
                 const branchFields = ['branch', 'Branch', 'BRANCH', 'branch_name', 'Branch_Name', 'BranchName'];
                 for (const branchField of branchFields) {
                     delete sourceCustom[branchField];
                 }
-                
-                // Remove design upload fields - only show as Uploaded Design
+
                 const uploadFields = ['design_upload', 'design_upload_path', 'design_file', 'reference_upload', 'reference_upload_path', 'reference_file'];
                 for (const uploadField of uploadFields) {
                     delete sourceCustom[uploadField];
                 }
-                
+
                 const isDetail = !!this.showDetailsModal;
                 const skip = isDetail
                     ? [
                         'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
                         'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file',
-                        // Internal / structural keys — never shown as customer specs
                         'source_page', 'source', 'branch_id', 'Branch_ID',
                         'product_id', 'product_type',
-                        // Service/item type already shown as modal title
                         'service_type', 'service_id',
                       ]
                     : this.customFieldSkip;
-                
+
                 return Object.entries(sourceCustom).filter(([k, v]) => {
                     if (v === '' || v == null) return false;
                     if (skip.includes(k)) return false;
@@ -3559,7 +3651,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             staffPaymentProofSrc(jo) {
                 if (!jo) return '';
-                const raw = (jo.payment_proof_path || jo.payment_proof || '').trim();
+                const raw = (jo.payment_proof_original_url || jo.payment_proof_path || jo.payment_proof || '').trim();
                 return raw ? this.staffResolveMediaUrl(raw) : '';
             },
             staffFilenameLooksLikeImage(name) {
@@ -3649,16 +3741,19 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!item) return false;
                 if (item.design_is_image) return true;
                 if (!this.staffItemHasStoredDesign(item)) return false;
-                const mime = String(item.design_image_mime || item.customization?.design_upload_mime || '').toLowerCase();
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                const mime = String(item.design_image_mime || custom.design_upload_mime || '').toLowerCase();
                 if (mime.startsWith('image/')) return true;
                 return this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
                     || this.staffFilenameLooksLikeImage(item.design_file)
-                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_name || item.customization?.design_upload)
-                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_path)
+                    || this.staffFilenameLooksLikeImage(custom.design_upload_name || custom.design_upload)
+                    || this.staffFilenameLooksLikeImage(custom.design_upload_path)
                     || this.staffFilenameLooksLikeImage(item.design_open_url)
                     || this.staffFilenameLooksLikeImage(item.design_url)
-                    || this.staffFilenameLooksLikeImage(item.artwork_path || this.currentJo?.artwork_path);
+                    || this.staffFilenameLooksLikeImage(item.artwork_path || (this.currentJo && this.currentJo.artwork_path));
             },
             staffItemHasStoredDesign(item) {
                 if (!item) return false;
@@ -3702,7 +3797,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.staffFilenameLooksLikeImage(item.design_name)
                     || this.staffFilenameLooksLikeImage(item.design_image_name)
                     || this.staffFilenameLooksLikeImage(item.design_upload_name)
-                    || this.staffFilenameLooksLikeImage(item.customization?.design_upload_name || item.customization?.design_upload)
+                    || this.staffFilenameLooksLikeImage((item.customization && item.customization.design_upload_name) || (item.customization && item.customization.design_upload))
                 )) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
@@ -3712,11 +3807,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (designFile) return this.staffResolveOrderUploadUrl(designFile);
 
                 // Priority 3b: POS-staged upload path stored in customization payload.
-                const customizationDesignPath = (item.customization?.design_upload_path || '').trim();
+                const customizationDesignPath = ((item.customization && item.customization.design_upload_path) || '').trim();
                 if (customizationDesignPath) return this.staffResolveOrderUploadUrl(customizationDesignPath);
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
-                const artworkPath = (item.artwork_path || this.currentJo?.artwork_path || '').trim();
+                const artworkPath = (item.artwork_path || (this.currentJo && this.currentJo.artwork_path) || '').trim();
                 if (artworkPath) return this.staffResolveOrderUploadUrl(artworkPath);
 
                 // Priority 5: Reference file as last real upload fallback before placeholder behavior.
@@ -3861,6 +3956,9 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
 
             async init() {
+                if (this._initialized) return;
+                this._initialized = true;
+                console.info('[Customizations] init started');
                 if (Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                     const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
                     this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
@@ -3872,14 +3970,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (!isOpen) this.clearDeepLinkParams();
                 });
                 await this.loadOrders();
-                await this.loadMachines();
-                await this.loadAllInventoryItems();
+                await Promise.allSettled([
+                    this.loadMachines(),
+                    this.loadAllInventoryItems()
+                ]);
 
                 // Keep stock values in sync with admin-side ledger deductions.
                 // This page otherwise fetches `current_stock` only once on load and would show stale stock.
                 if (!window.pfStaffCustomizationsInventoryPollListenerAttached) {
                     window.pfStaffCustomizationsInventoryPollListenerAttached = true;
-                    document.addEventListener('turbo:before-cache', function () {
+                    document.addEventListener('turbo:before-cache', () => {
                         if (window.pfStaffCustomizationsInventoryPoll) {
                             clearInterval(window.pfStaffCustomizationsInventoryPoll);
                             window.pfStaffCustomizationsInventoryPoll = null;
@@ -3888,12 +3988,17 @@ window.pfCustomizationPreloadedOrders = (() => {
                             clearInterval(window.pfStaffCustomizationsOrdersPoll);
                             window.pfStaffCustomizationsOrdersPoll = null;
                         }
+                        if (ordersAbortController) {
+                            ordersAbortController.abort();
+                            ordersAbortController = null;
+                        }
                     });
                 }
                 if (window.pfStaffCustomizationsInventoryPoll) {
                     clearInterval(window.pfStaffCustomizationsInventoryPoll);
                 }
                 window.pfStaffCustomizationsInventoryPoll = setInterval(() => {
+                    if (document.visibilityState !== 'visible') return;
                     this.loadAllInventoryItems().catch(() => {});
                 }, this.inventoryPollMs);
 
@@ -4015,21 +4120,55 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             async loadOrders(options = {}) {
                 const silent = !!options.silent;
+                const force = !!options.force;
+                const now = Date.now();
+                if (silent && document.visibilityState !== 'visible') return;
+                if (!force && silent && (now - this.ordersLastLoadedAt) < this.ordersMinRefreshMs) return;
+                if (ordersAbortController) {
+                    if (silent) return;
+                    ordersAbortController.abort();
+                }
+
+                const controller = new AbortController();
+                ordersAbortController = controller;
+                const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+                if (!silent && this.orders.length === 0) this.loadingOrders = true;
+                this.ordersError = '';
                 this.modalCache = {};
                 try {
                     // Drop stale optimistic overrides before applying freshly fetched rows.
                     const now = Date.now();
                     Object.keys(this.statusOverrides || {}).forEach((key) => {
-                        const ts = Number(this.statusOverrides[key]?.ts || 0);
+                        const ts = Number((this.statusOverrides[key] && this.statusOverrides[key].ts) || 0);
                         if (!ts || (now - ts) > 15000) {
                             delete this.statusOverrides[key];
                         }
                     });
                     const refreshToken = Date.now();
+                    const sourceFilter = <?php echo json_encode(
+                        $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
+                    ); ?>;
+                    const requestOptions = {
+                        cache: 'no-store',
+                        signal: controller.signal,
+                        headers: { 'Accept': 'application/json' }
+                    };
+                    const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&service_only=1&summary_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=200&_=${refreshToken}`;
+                    const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&service_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=250&_=${refreshToken}`;
                     const [joRes, pendingRes] = await Promise.all([
-                        fetch(`../admin/job_orders_api.php?action=list_orders&service_only=1&per_page=200&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r)),
-                        fetch(`../admin/job_orders_api.php?action=list_pending_orders&service_only=1&per_page=250&_=${refreshToken}`, { cache: 'no-store' }).then(r => this.parseJsonResponse(r)),
+                        fetch(ordersEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Customization orders', ordersEndpoint)),
+                        fetch(pendingEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Pending customization orders', pendingEndpoint)),
                     ]);
+
+                    if (!joRes.success && !pendingRes.success) {
+                        throw new Error(joRes.error || pendingRes.error || 'Customization list requests failed');
+                    }
+                    if (!joRes.success) {
+                        console.error('[Customizations] Primary orders request failed:', joRes.error);
+                    }
+                    if (!pendingRes.success) {
+                        console.error('[Customizations] Pending orders request failed:', pendingRes.error);
+                    }
 
                     const jobOrders = joRes.success ? joRes.data : [];
                     const pendingOrders = pendingRes.success ? pendingRes.data : [];
@@ -4040,23 +4179,38 @@ window.pfCustomizationPreloadedOrders = (() => {
                     const visibleRows = <?php echo $showLatestCustomizationOnly ? 'preparedRows.slice(0, 1)' : 'preparedRows'; ?>;
                     this.orders = visibleRows;
                     this.bumpOrdersVersion();
+                    this.ordersLastLoadedAt = Date.now();
 
                     if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                         const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
                         this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
                         this.bumpOrdersVersion();
                     }
-                    this.loadingOrders = false;
                 } catch(err) {
-                    if (!silent) {
+                    if (err && err.name === 'AbortError' && ordersAbortController !== controller) {
+                        return;
+                    }
+                    if (!silent || !err || err.name !== 'AbortError') {
                         console.error('Error loading orders:', err);
                     }
-                    this.orders = Array.isArray(window.pfCustomizationPreloadedOrders)
-                        ? <?php echo $showLatestCustomizationOnly ? 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders).slice(0, 1)' : 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders)'; ?>
-                        : [];
-                    this.bumpOrdersVersion();
-                    this.loadingOrders = false;
+                    if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders)) {
+                        this.orders = <?php echo $showLatestCustomizationOnly ? 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders).slice(0, 1)' : 'this.prepareOrderRows(window.pfCustomizationPreloadedOrders)'; ?>;
+                        this.bumpOrdersVersion();
+                    }
+                    this.ordersError = this.orders.length === 0
+                        ? ((err && err.message) || 'Unable to load customizations.')
+                        : '';
+                } finally {
+                    window.clearTimeout(timeoutId);
+                    if (ordersAbortController === controller) {
+                        ordersAbortController = null;
+                        this.loadingOrders = false;
+                    }
                 }
+            },
+
+            retryLoadOrders() {
+                return this.loadOrders({ force: true });
             },
 
             async loadMachines() {
@@ -4110,7 +4264,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     return null;
                 }
                 if (j.order_type !== 'ORDER') return null;
-                const oid = j.order_id ?? j.id;
+                const oid = j.order_id !== null && j.order_id !== undefined ? j.order_id : j.id;
                 if (oid == null || oid === '') return null;
                 try {
                     const res = await this.parseJsonResponse(
@@ -4197,7 +4351,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return raw || 'OTHER';
             },
             isPosWalkInSource(jo) {
-                return ['pos', 'walk-in'].includes(String(jo?.order_source || '').toLowerCase());
+                return ['pos', 'walk-in'].includes(String((jo && jo.order_source) || '').toLowerCase());
             },
             isPosPricingReturnFlow(jo) {
                 if (!jo || !this.isPosWalkInSource(jo)) return false;
@@ -4209,7 +4363,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return details.source === 'POS' || this.deepLinkSourceOrderId === String(jo.order_id || '');
             },
             getPosWalkInBucket(jo) {
-                const status = String(jo?.status || '').toUpperCase();
+                const status = String((jo && jo.status) || '').toUpperCase();
                 if (status === 'COMPLETED') return 'COMPLETED';
                 if (status === 'CANCELLED' || status === 'REJECTED') return 'CANCELLED';
                 return 'PENDING';
@@ -4394,7 +4548,7 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             async viewDetails(id, orderType = 'JOB') {
                 let order = this.findOrder(id, orderType);
-                if (orderType === 'SERVICE' || order?.order_type === 'SERVICE') {
+                if (orderType === 'SERVICE' || (order && order.order_type) === 'SERVICE') {
                     await this.openSvcModal(id);
                     return;
                 }
@@ -4403,8 +4557,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const detailKey = this.detailKeyFor(id, orderType);
                 if (this.modalCache && this.modalCache[cacheKey]) {
                     this.currentJo = this.modalCache[cacheKey];
-                    this.jobPriceInput = this.currentJo.final_price || 0;
+                    this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
+                        ? this.currentJo.final_price
+                        : '';
                     this.showDetailsModal = true;
+                    this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
+                    this.restoreSavedInkUsage();
                     this.loadingDetails = false;
                     this.detailError = '';
                     return;
@@ -4426,7 +4584,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 
                 if (orderType === 'CUSTOMIZATION') {
                     try {
-                        const fallbackOrderId = order?.order_id ?? id;
+                        const fallbackOrderId = order && order.order_id !== null && order.order_id !== undefined ? order.order_id : id;
                         let detailRes = null;
 
                         if (fallbackOrderId) {
@@ -4439,11 +4597,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                             );
                         }
 
-                        if (detailRes?.success && detailRes.data && requestToken === this.detailRequestToken) {
+                        if (detailRes && detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             const normalized = this.applyPosSetPriceDeepLinkOverride({
                                 ...detailRes.data,
                                 order_type: detailRes.data.order_type || (fallbackOrderId ? 'ORDER' : 'CUSTOMIZATION'),
-                                status: order?.status || detailRes.data.status
+                                status: (order && order.status) || detailRes.data.status
                             });
                             this.finishDetailLoadWith(normalized, normalized.order_type || 'ORDER', cacheKey);
                             this.loadingDetails = false;
@@ -4452,14 +4610,14 @@ window.pfCustomizationPreloadedOrders = (() => {
                                 this.loadModalAssignments(this.currentJo.order_id, cacheKey, requestToken);
                             }
                         } else {
-                            this.detailError = detailRes?.error || 'Customization details could not be loaded.';
+                            this.detailError = (detailRes && detailRes.error) || 'Customization details could not be loaded.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
                     } catch (e) {
                         console.error('Error fetching customization detail:', e);
                         if (requestToken === this.detailRequestToken) {
-                            this.detailError = e?.message || 'Customization details could not be loaded.';
+                            this.detailError = (e && e.message) || 'Customization details could not be loaded.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
@@ -4468,7 +4626,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 
                 if (orderType === 'ORDER') {
-                    const regularOrderId = order?.order_id ?? order?.id ?? id;
+                    const regularOrderId = order && order.order_id !== null && order.order_id !== undefined
+                        ? order.order_id
+                        : (order && order.id !== null && order.id !== undefined ? order.id : id);
                     try {
                         const detailRes = await this.fetchOrderModalSummary(regularOrderId, {
                             includeAssignments: true,
@@ -4487,7 +4647,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     } catch (e) {
                         console.error('Error fetching order detail:', e);
                         if (requestToken === this.detailRequestToken) {
-                            this.detailError = e?.message || 'Order details could not be loaded for this entry.';
+                            this.detailError = (e && e.message) || 'Order details could not be loaded for this entry.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
@@ -4523,7 +4683,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     } catch (e) {
                         console.error('Error loading job details', e);
                         if (requestToken === this.detailRequestToken) {
-                            this.detailError = e?.message || 'Order details could not be loaded.';
+                            this.detailError = (e && e.message) || 'Order details could not be loaded.';
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         }
@@ -4622,13 +4782,50 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return false;
             },
 
-            async parseJsonResponse(r) {
+            async parseJsonResponse(r, label = 'Request', endpoint = '') {
+                const contentType = r.headers.get('content-type') || '';
                 const text = await r.text();
+                let payload = null;
+                if (contentType.includes('application/json') || /^\s*[\[{]/.test(text)) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (e) {
+                        payload = null;
+                    }
+                }
+                if (!r.ok) {
+                    console.error(`[Customizations] ${label} failed`, {
+                        endpoint,
+                        status: r.status,
+                        body: text.slice(0, 500)
+                    });
+                    const backendMessage = payload && (payload.message || payload.error);
+                    return {
+                        ...(payload || {}),
+                        success: false,
+                        error: backendMessage || `${label} failed: HTTP ${r.status}`
+                    };
+                }
+                if (!contentType.includes('application/json')) {
+                    console.error(`[Customizations] ${label} returned non-JSON`, {
+                        endpoint,
+                        contentType,
+                        body: text.slice(0, 500)
+                    });
+                    return { success: false, error: `${label} returned a non-JSON response.` };
+                }
+                if (payload) {
+                    return payload;
+                }
                 try {
                     return JSON.parse(text);
                 } catch (e) {
-                    console.error('Non-JSON response', text.slice(0, 500));
-                    return { success: false, error: 'Server returned an invalid response. Check console or PHP error log.' };
+                    console.error(`[Customizations] ${label} returned invalid JSON`, {
+                        endpoint,
+                        error: e,
+                        body: text.slice(0, 500)
+                    });
+                    return { success: false, error: `${label} returned invalid JSON.` };
                 }
             },
             async verifyPayment() {
@@ -4641,6 +4838,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const fd = new FormData();
                         fd.append('order_id', oid);
                         fd.append('action', 'Approve');
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         const r = await fetch(this.staffApiUrl('api_verify_payment.php'), { method: 'POST', body: fd });
                         res = await this.parseJsonResponse(r);
                     } else {
@@ -4652,6 +4850,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const fd = new FormData();
                         fd.append('action', 'verify_payment');
                         fd.append('id', jid);
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         if (this.currentJo.order_id) {
                             fd.append('order_id', this.currentJo.order_id);
                         }
@@ -4663,7 +4862,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         await this.loadOrders();
                         await this.loadAllInventoryItems();
                         this.currentJo.status = 'IN_PRODUCTION';
-                        const currentOrderId = this.currentJo.order_id ?? null;
+                        const currentOrderId = this.currentJo.order_id !== null && this.currentJo.order_id !== undefined ? this.currentJo.order_id : null;
                         this.orders = this.orders.map(o => (
                             (
                                 (this.sameId(o.id, this.currentJo.id) && (o.order_type || 'JOB') === (this.currentJo.order_type || 'JOB')) ||
@@ -4724,6 +4923,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('order_id', oid);
                         fd.append('action', 'Reject');
                         fd.append('reason', reason);
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         const r = await fetch(this.staffApiUrl('api_verify_payment.php'), { method: 'POST', body: fd });
                         res = await this.parseJsonResponse(r);
                     } else {
@@ -4735,6 +4935,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         const fd = new FormData();
                         fd.append('action', 'reject_payment');
                         fd.append('id', jid);
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         if (this.currentJo.order_id) {
                             fd.append('order_id', this.currentJo.order_id);
                         }
@@ -4746,7 +4947,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.activeStatus = this.isPosSimplifiedView ? 'REJECTED' : 'CLOSED';
                         await this.loadOrders();
                         this.currentJo.status = 'REJECTED';
-                        const currentOrderId = this.currentJo.order_id ?? null;
+                        const currentOrderId = this.currentJo.order_id !== null && this.currentJo.order_id !== undefined ? this.currentJo.order_id : null;
                         this.orders = this.orders.map(o => (
                             (
                                 (this.sameId(o.id, this.currentJo.id) && (o.order_type || 'JOB') === (this.currentJo.order_type || 'JOB')) ||
@@ -4858,7 +5059,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
             buildInkPayload() {
-                if (!this.useInk || !this.inkCategorySelected || !this.inkTypes[this.inkCategorySelected]) return [];
+                if (!this.requiresInk || !this.inkCategorySelected || !this.inkTypes[this.inkCategorySelected]) return [];
                 const mappedInks = this.inkTypes[this.inkCategorySelected];
                 const inkPayload = [];
                 if (this.inkBlue > 0) inkPayload.push({ item_id: mappedInks['BLUE'], color: 'BLUE', quantity: this.inkBlue });
@@ -4866,6 +5067,51 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (this.inkBlack > 0) inkPayload.push({ item_id: mappedInks['BLACK'], color: 'BLACK', quantity: this.inkBlack });
                 if (this.inkYellow > 0) inkPayload.push({ item_id: mappedInks['YELLOW'], color: 'YELLOW', quantity: this.inkYellow });
                 return inkPayload;
+            },
+            restoreSavedInkUsage() {
+                const saved = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
+                if (!saved.length) return;
+                const category = Object.keys(this.inkTypes).find(type => {
+                    const ids = Object.values(this.inkTypes[type]).map(String);
+                    return saved.some(ink => ids.includes(String(ink.item_id)));
+                });
+                if (category) this.inkCategorySelected = category;
+                const quantityFor = color => {
+                    const row = saved.find(ink => String(ink.ink_color || ink.color || '').toUpperCase() === color);
+                    return row ? Number(row.quantity_used ?? row.quantity ?? 0) : '';
+                };
+                this.inkRed = quantityFor('RED');
+                this.inkBlue = quantityFor('BLUE');
+                this.inkBlack = quantityFor('BLACK');
+                this.inkYellow = quantityFor('YELLOW');
+                this.useInk = this.requiresInk;
+            },
+            validateProductionAssignments(extraMaterials = [], extraInks = []) {
+                const errors = { material: '', ink_set: '', ink_consumption: '' };
+                const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials : [];
+                const savedInks = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
+                if (savedMaterials.length + extraMaterials.length <= 0) {
+                    errors.material = 'Please select and add a material.';
+                }
+                if (this.requiresInk) {
+                    if (!this.inkCategorySelected && savedInks.length === 0) {
+                        errors.ink_set = 'Please select an ink set.';
+                    }
+                    const rawValues = [this.inkRed, this.inkBlue, this.inkBlack, this.inkYellow]
+                        .filter(value => value !== '' && value !== null && value !== undefined)
+                        .map(Number);
+                    if (rawValues.some(value => !Number.isFinite(value) || value < 0)) {
+                        errors.ink_consumption = 'Ink consumption cannot be negative.';
+                    } else {
+                        const savedTotal = savedInks.reduce((sum, ink) => sum + Number(ink.quantity_used || ink.quantity || 0), 0);
+                        const pendingTotal = extraInks.reduce((sum, ink) => sum + Number(ink.quantity || 0), 0);
+                        if (savedTotal + pendingTotal <= 0) {
+                            errors.ink_consumption = 'Please enter the required ink consumption.';
+                        }
+                    }
+                }
+                this.productionErrors = errors;
+                return !Object.values(errors).some(Boolean);
             },
             hasProductionAssignments(extraMaterials = [], extraInks = []) {
                 const savedMaterials = Array.isArray(this.currentJo.materials) ? this.currentJo.materials.length : 0;
@@ -4899,8 +5145,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                         materialsToSave.push(currentMaterial);
                     }
                     const inkPayload = this.buildInkPayload();
-                    if (!this.hasProductionAssignments(materialsToSave, inkPayload)) {
-                        this.setFooterActionError('Please add at least one production material or ink before approving.');
+                    if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
+                        this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                         return;
                     }
                     for (const pm of materialsToSave) {
@@ -5012,6 +5258,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const jid = target.jobId;
                 const userEnteredPrice = parseFloat(this.jobPriceInput);
                 console.log('User entered price (captured early):', userEnteredPrice);
+                if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
+                    this.setFooterActionError('Please enter a valid final price before submitting.');
+                    return;
+                }
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
                 const fromPOS = this.isPosPricingMode()
@@ -5024,8 +5274,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                     materialsToSave.push(currentMaterial);
                 }
                 const inkPayload = this.buildInkPayload();
-                if (!this.hasProductionAssignments(materialsToSave, inkPayload)) {
-                    this.setFooterActionError('Please add at least one production material or ink before submitting.');
+                if (!this.validateProductionAssignments(materialsToSave, inkPayload)) {
+                    this.setFooterActionError(Object.values(this.productionErrors).find(Boolean));
                     return;
                 }
                 for (const pm of materialsToSave) {
@@ -5153,7 +5403,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('order_id', oid);
                         fd.append('status', 'To Pay');
                         fd.append('update_status', '1');
-                        fd.append('csrf_token', document.querySelector('input[name="csrf_token"]')?.value || '');
+                        const csrfInput = document.querySelector('input[name="csrf_token"]');
+                        fd.append('csrf_token', csrfInput && csrfInput.value ? csrfInput.value : '');
                         const res = await (await fetch('orders.php', { 
                             method: 'POST', 
                             body: fd, 
@@ -5373,7 +5624,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             async refreshMaterials() {
                 const jid = await this.resolveEffectiveJobId();
                 if (!jid) return;
-                const isStoreOrderDetail = ['ORDER', 'CUSTOMIZATION'].includes(String(this.currentJo?.order_type || '').toUpperCase()) && this.currentJo?.order_id;
+                const isStoreOrderDetail = ['ORDER', 'CUSTOMIZATION'].includes(String((this.currentJo && this.currentJo.order_type) || '').toUpperCase()) && this.currentJo && this.currentJo.order_id;
                 const res = isStoreOrderDetail
                     ? await this.fetchOrderModalSummary(this.currentJo.order_id, { includeAssignments: true, ensureJob: true })
                     : await (await fetch(`../admin/job_orders_api.php?action=get_order&id=${jid}`)).json();
@@ -5390,10 +5641,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                         merged.status = previousJo.status || merged.status;
                         merged.payment_proof_status = previousJo.payment_proof_status || merged.payment_proof_status;
                         merged.payment_proof_path = previousJo.payment_proof_path || merged.payment_proof_path;
-                        merged.payment_submitted_amount = previousJo.payment_submitted_amount ?? merged.payment_submitted_amount;
-                        merged.final_price = previousJo.final_price ?? merged.final_price;
-                        merged.estimated_total = previousJo.estimated_total ?? merged.estimated_total;
-                        merged.estimated_price = previousJo.estimated_price ?? merged.estimated_price;
+                        merged.payment_submitted_amount = previousJo.payment_submitted_amount !== null && previousJo.payment_submitted_amount !== undefined ? previousJo.payment_submitted_amount : merged.payment_submitted_amount;
+                        merged.final_price = previousJo.final_price !== null && previousJo.final_price !== undefined ? previousJo.final_price : merged.final_price;
+                        merged.estimated_total = previousJo.estimated_total !== null && previousJo.estimated_total !== undefined ? previousJo.estimated_total : merged.estimated_total;
+                        merged.estimated_price = previousJo.estimated_price !== null && previousJo.estimated_price !== undefined ? previousJo.estimated_price : merged.estimated_price;
                     }
                     this.currentJo = merged;
                     for(const m of (this.currentJo.materials || [])) {
@@ -5523,7 +5774,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
             }
         };
-            });
+        }
+
+        window.joManager = createJoManager;
+
+        function boot() {
+            if (registered || typeof Alpine === 'undefined') return;
+            registered = true;
+            console.info('[Customizations] Alpine init received');
+            Alpine.data('joManager', window.joManager);
         }
 
         if (typeof Alpine !== 'undefined') {

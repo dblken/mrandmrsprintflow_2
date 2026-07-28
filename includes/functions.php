@@ -202,11 +202,20 @@ function create_notification($user_id, $user_type, $message, $type = 'System', $
             $col = db_query("SHOW COLUMNS FROM notifications LIKE 'type'");
             if (!empty($col[0]['Type'])) {
                 $t = (string)$col[0]['Type'];
-                if (stripos($t, "'Rating'") === false || stripos($t, "'Review'") === false) {
+                $required_notification_types = ['Order', 'Stock', 'System', 'Message', 'Profile', 'Job Order', 'Payment Issue', 'Design', 'Payment', 'Status', 'Rating', 'Review'];
+                $missing_notification_type = false;
+                foreach ($required_notification_types as $required_notification_type) {
+                    if (stripos($t, "'" . $required_notification_type . "'") === false) {
+                        $missing_notification_type = true;
+                        break;
+                    }
+                }
+                if ($missing_notification_type) {
                     preg_match_all("/'((?:[^'\\\\]|\\\\.)*)'/", $t, $m);
                     $vals = $m[1] ?? [];
-                    if (!in_array('Rating', $vals)) $vals[] = 'Rating';
-                    if (!in_array('Review', $vals)) $vals[] = 'Review';
+                    foreach ($required_notification_types as $required_notification_type) {
+                        if (!in_array($required_notification_type, $vals, true)) $vals[] = $required_notification_type;
+                    }
                     $escaped = array_map(function($v) { return "'" . str_replace("'", "\\'", $v) . "'"; }, $vals);
                     db_execute("ALTER TABLE notifications MODIFY COLUMN type ENUM(" . implode(",", $escaped) . ") DEFAULT 'System'");
                 }
@@ -444,6 +453,16 @@ function printflow_notification_branch_id(array $notification): ?int {
 
     $branchId = null;
 
+    if (strcasecmp($type, 'Payment') === 0) {
+        $paymentContext = printflow_payment_submission_notification_context($dataId);
+        if (!empty($paymentContext)) {
+            $branchId = (int)($paymentContext['branch_id'] ?? 0);
+            if ($branchId > 0) {
+                return $cache[$cacheKey] = $branchId;
+            }
+        }
+    }
+
     $orderRow = db_query('SELECT branch_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$dataId]);
     if (!empty($orderRow)) {
         $branchId = (int)($orderRow[0]['branch_id'] ?? 0);
@@ -507,11 +526,104 @@ function printflow_staff_notification_visible(array $notification, ?int $branchI
     $dataId = (int)($notification['data_id'] ?? 0);
     $sourceScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue', 'Message', 'Status'];
     if ($dataId > 0 && in_array($type, $sourceScopedTypes, true)) {
+        if ($type === 'Payment') {
+            $paymentContext = printflow_payment_submission_notification_context($dataId);
+            if (!empty($paymentContext)) {
+                $orderSource = strtolower(trim((string)($paymentContext['order_source'] ?? 'customer')));
+                return printflow_staff_role_can_access_order_source($staffRole, $orderSource !== '' ? $orderSource : 'customer');
+            }
+        }
         $orderSource = printflow_resolve_order_source_for_staff_scope($dataId, $type);
         return printflow_staff_role_can_access_order_source($staffRole, $orderSource);
     }
 
     return true;
+}
+
+/**
+ * Resolve the linked order/job/customer context for a Payment Verification notification.
+ * These notifications store payment_submissions.id in data_id so Staff can open the
+ * proof review directly; older helpers must not treat that id as an order id.
+ */
+function printflow_payment_submission_notification_context(int $submissionId): array {
+    static $cache = [];
+
+    $submissionId = (int)$submissionId;
+    if ($submissionId <= 0) {
+        return [];
+    }
+    if (array_key_exists($submissionId, $cache)) {
+        return $cache[$submissionId];
+    }
+
+    $tables = db_query("SHOW TABLES LIKE 'payment_submissions'");
+    if (empty($tables)) {
+        return $cache[$submissionId] = [];
+    }
+
+    $rows = db_query(
+        "SELECT ps.id,
+                ps.order_id,
+                ps.job_order_id,
+                ps.customer_id,
+                COALESCE(NULLIF(ps.branch_id, 0), NULLIF(o.branch_id, 0), NULLIF(jo.branch_id, 0), 0) AS branch_id,
+                COALESCE(o.order_source, 'customer') AS order_source,
+                CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) AS customer_name,
+                jo.job_title,
+                jo.service_type,
+                o.order_type
+         FROM payment_submissions ps
+         LEFT JOIN orders o ON o.order_id = ps.order_id
+         LEFT JOIN job_orders jo ON jo.id = ps.job_order_id
+         LEFT JOIN customers c ON c.customer_id = ps.customer_id
+         WHERE ps.id = ?
+         LIMIT 1",
+        'i',
+        [$submissionId]
+    );
+    if (empty($rows[0])) {
+        return $cache[$submissionId] = [];
+    }
+
+    $row = $rows[0];
+    $displayName = '';
+    $imageUrl = '';
+    $itemKind = '';
+    $orderId = (int)($row['order_id'] ?? 0);
+    $jobOrderId = (int)($row['job_order_id'] ?? 0);
+
+    if ($orderId > 0) {
+        $preview = printflow_order_notification_preview($orderId);
+        $displayName = trim((string)($preview['display_name'] ?? ''));
+        $imageUrl = trim((string)($preview['image_url'] ?? ''));
+        $itemKind = trim((string)($preview['item_kind'] ?? ''));
+    }
+    if ($displayName === '' && $jobOrderId > 0) {
+        $preview = printflow_job_notification_preview($jobOrderId);
+        $displayName = trim((string)($preview['display_name'] ?? ''));
+        if ($imageUrl === '') $imageUrl = trim((string)($preview['image_url'] ?? ''));
+        if ($itemKind === '') $itemKind = trim((string)($preview['item_kind'] ?? 'Service'));
+    }
+    if ($displayName === '') {
+        $displayName = trim((string)($row['job_title'] ?? ''));
+    }
+    if ($displayName === '') {
+        $displayName = trim((string)($row['service_type'] ?? ''));
+    }
+    if ($displayName === '') {
+        $displayName = $orderId > 0 ? 'Order #' . $orderId : 'payment proof';
+    }
+    if ($itemKind === '') {
+        $orderType = strtolower(trim((string)($row['order_type'] ?? '')));
+        $itemKind = $orderType === 'product' ? 'Product' : 'Service';
+    }
+
+    $row['display_name'] = $displayName;
+    $row['image_url'] = $imageUrl;
+    $row['item_kind'] = $itemKind;
+    $row['customer_name'] = trim(preg_replace('/\s+/', ' ', (string)($row['customer_name'] ?? '')));
+
+    return $cache[$submissionId] = $row;
 }
 
 /**
@@ -685,6 +797,13 @@ function staff_notification_target_url(array $n): string {
     if ($data_id > 0) {
         if (strpos($type, 'chat') !== false || strpos($type, 'message') !== false) {
             return $base . '/staff/chats.php?order_id=' . $data_id;
+        }
+
+        if (strpos($type, 'payment') !== false) {
+            $paymentContext = printflow_payment_submission_notification_context($data_id);
+            if (!empty($paymentContext)) {
+                return $base . '/staff/payment_verification.php?submission_id=' . $data_id;
+            }
         }
 
         if (strpos($type, 'job order') !== false || strpos($type, 'payment issue') !== false) {
@@ -1213,7 +1332,7 @@ function get_order_status_notification_payload($order_id, $status) {
         'Pending Approval' => "Your order has been received and is pending confirmation.",
         'For Revision' => "Your order needs revision. Please review the request details.",
         'Approved' => "Your order has been approved and will proceed to payment.",
-        'To Pay' => "Your order is now ready for payment.",
+        'To Pay' => "Your order is ready. Please proceed to payment of {amount}.",
         'To Verify' => "Your payment is currently being verified.",
         'Downpayment Submitted' => "Your payment is currently being verified.",
         'Pending Verification' => "Your payment is currently being verified.",
@@ -1228,6 +1347,10 @@ function get_order_status_notification_payload($order_id, $status) {
     ];
 
     $message = $map[$status] ?? "Your order #{$order_id} status has been updated to: {$status}";
+    if ($status === 'To Pay') {
+        $amount = format_currency(printflow_notification_latest_payable_amount($order_id));
+        $message = str_replace('{amount}', $amount, $message);
+    }
     // Removed auto-rate link for completed orders per user request.
 
     return ['type' => $type, 'message' => $message];
@@ -1259,6 +1382,77 @@ function add_order_system_message($order_id, $message) {
  */
 function format_currency($amount, $currency = '₱') {
     return $currency . ' ' . number_format($amount, 2);
+}
+
+function printflow_notification_latest_payable_amount(int $order_id, int $job_order_id = 0): float {
+    static $orderColumns = null;
+
+    $order_id = (int)$order_id;
+    $job_order_id = (int)$job_order_id;
+
+    if ($orderColumns === null) {
+        $orderColumns = array_flip(array_column(db_query("SHOW COLUMNS FROM orders") ?: [], 'Field'));
+    }
+
+    $selects = [];
+    foreach (['final_price', 'approved_price', 'order_total', 'total_amount'] as $column) {
+        if (isset($orderColumns[$column])) {
+            $selects[] = "o.`{$column}`";
+        }
+    }
+
+    if ($selects !== []) {
+        $rows = db_query(
+            'SELECT ' . implode(', ', $selects) . ' FROM orders o WHERE o.order_id = ? LIMIT 1',
+            'i',
+            [$order_id]
+        ) ?: [];
+        if (!empty($rows[0])) {
+            foreach (['final_price', 'approved_price', 'order_total', 'total_amount'] as $column) {
+                if (!isset($orderColumns[$column])) {
+                    continue;
+                }
+                $value = (float)($rows[0][$column] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+    }
+
+    if ($job_order_id > 0) {
+        $jobRows = db_query(
+            'SELECT required_payment, estimated_total FROM job_orders WHERE id = ? LIMIT 1',
+            'i',
+            [$job_order_id]
+        ) ?: [];
+        if (!empty($jobRows[0])) {
+            foreach (['required_payment', 'estimated_total'] as $column) {
+                $value = (float)($jobRows[0][$column] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+    }
+
+    if ($order_id > 0) {
+        $jobRows = db_query(
+            'SELECT required_payment, estimated_total FROM job_orders WHERE order_id = ? ORDER BY id DESC LIMIT 1',
+            'i',
+            [$order_id]
+        ) ?: [];
+        if (!empty($jobRows[0])) {
+            foreach (['required_payment', 'estimated_total'] as $column) {
+                $value = (float)($jobRows[0][$column] ?? 0);
+                if ($value > 0) {
+                    return $value;
+                }
+            }
+        }
+    }
+
+    return 0.0;
 }
 
 /**
@@ -2223,6 +2417,13 @@ function staff_admin_notification_image_url(array $notification, string $fallbac
     if (!in_array($type, ['order', 'design', 'payment', 'payment issue', 'message', 'job order'], true)) {
         return printflow_notification_normalize_media_url($fallback);
     }
+    if ($type === 'payment') {
+        $paymentContext = printflow_payment_submission_notification_context($data_id);
+        $image = trim((string)($paymentContext['image_url'] ?? ''));
+        if ($image !== '') {
+            return printflow_notification_normalize_media_url($image);
+        }
+    }
     if ($type === 'job order') {
         $preview = printflow_job_notification_preview($data_id);
     } else {
@@ -2639,11 +2840,16 @@ function printflow_notification_display_message(array $notification): string {
                 $out = (string)$payload['message'];
             }
         }
-    } elseif ($data_id > 0 && $type === 'payment' && preg_match('/^(.+?\b(?:re)?submitted payment for)\s+.*$/iu', $message, $pay)) {
-        $jobPreview = printflow_job_notification_preview($data_id);
-        $jn = trim((string)($jobPreview['display_name'] ?? ''));
+    } elseif ($data_id > 0 && $type === 'payment' && preg_match('/^(.+?\b(?:re)?submitted payment(?: proof)? for)\s+.*$/iu', $message, $pay)) {
+        $paymentContext = printflow_payment_submission_notification_context($data_id);
+        $jn = trim((string)($paymentContext['display_name'] ?? ''));
+        if ($jn === '') {
+            $jobPreview = printflow_job_notification_preview($data_id);
+            $jn = trim((string)($jobPreview['display_name'] ?? ''));
+        }
         if ($jn !== '') {
-            $out = rtrim($pay[1]) . ' ' . $jn;
+            $suffix = stripos($message, 'needs verification') !== false ? '. Needs verification.' : '';
+            $out = rtrim($pay[1]) . ' ' . $jn . $suffix;
         }
     } elseif ($data_id > 0 && $type === 'order') {
         $preview = printflow_order_notification_preview($data_id);
@@ -2761,6 +2967,13 @@ function printflow_notification_item_kind(array $notification): string {
 
     if ($type === 'job order') {
         return 'Service';
+    }
+    if ($type === 'payment') {
+        $paymentContext = printflow_payment_submission_notification_context($data_id);
+        $kind = trim((string)($paymentContext['item_kind'] ?? ''));
+        if ($kind === 'Product' || $kind === 'Service') {
+            return $kind;
+        }
     }
 
     $preview = printflow_order_notification_preview($data_id);

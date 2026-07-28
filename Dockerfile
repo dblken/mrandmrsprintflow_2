@@ -9,9 +9,13 @@ RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     libonig-dev \
     libzip-dev \
+    libcurl4-openssl-dev \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     zip unzip git curl \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install gd pdo pdo_mysql mbstring zip
+    && docker-php-ext-install curl exif gd pdo pdo_mysql mbstring zip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Enable required Apache modules
 RUN a2enmod rewrite

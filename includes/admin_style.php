@@ -1102,6 +1102,28 @@ endif; ?>
         box-sizing: border-box;
     }
 
+    .staff-sidebar {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    .staff-sidebar .menu-link {
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.4;
+    }
+
+    .staff-sidebar .menu-link.active {
+        font-weight: 600;
+    }
+
+    .staff-sidebar .menu-link,
+    .staff-sidebar .menu-link span,
+    .staff-sidebar .menu-link i,
+    .staff-sidebar .menu-link svg {
+        font-family: inherit;
+    }
+
     .nav-item:hover {
         background: rgba(255, 255, 255, 0.06);
         color: #f0fafc;

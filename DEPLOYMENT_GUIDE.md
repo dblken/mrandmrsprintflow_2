@@ -48,6 +48,50 @@ return [
 ];
 ```
 
+## Step 2A: Configure Payment Receipt OCR
+
+The primary hosted provider is OCR.Space. The application expects the exact
+variable `PAYMENT_OCR_API_KEY`; `OCR_SPACE_API_KEY` is accepted only for legacy
+deployments. Keep the private key in `public_html/.env`, which is ignored by Git
+and blocked by the root `.htaccess`.
+
+```dotenv
+PAYMENT_OCR_PROVIDER=auto
+PAYMENT_OCR_API_KEY=your_private_ocr_space_key
+PAYMENT_OCR_API_URL=https://api.ocr.space/parse/image
+PAYMENT_OCR_LANGUAGE=eng
+PAYMENT_OCR_TIMEOUT_SECONDS=25
+```
+
+A free API key can be requested at `https://ocr.space/ocrapi/freekey`. Paid PRO
+plans are optional. Do not use the public `helloworld` demonstration key in
+production.
+
+`auto` uses OCR.Space when the key is present and falls back to local Tesseract.
+If the hosting account already provides Tesseract, add its absolute path:
+
+```dotenv
+PAYMENT_OCR_TESSERACT_PATH=/absolute/path/to/tesseract
+```
+
+Hostinger shared hosting normally does not permit system package installation.
+When no Tesseract executable is available to PHP, use the OCR.Space key above.
+Docker deployments install `tesseract-ocr`, English language data, PHP cURL,
+GD, and EXIF automatically from the project `Dockerfile`.
+
+After uploading the changed files, clear the Hostinger cache and sign in as an
+Admin or online Staff user. Open this diagnostic before re-scanning submission
+#35:
+
+```text
+https://mrandmrsprintflow.com/staff/api_payment_verification.php?action=ocr_diagnostic&submission_id=35
+```
+
+Confirm `file_readable` is `true` and either `env_api_key_set` or
+`tesseract_available` is `true`. Then open Payment Verification and use
+**Re-scan OCR**. A failed provider leaves the proof visible and the submission
+in **Needs Review**.
+
 ## Step 3: Upload Files
 
 ### Option A: Using File Manager (Recommended)

@@ -156,7 +156,7 @@ if (!function_exists('printflow_get_staff_access_meta')) {
             'theme_class' => 'printflow-staff-online',
             'accent' => '#7c3aed',
             'soft' => '#ddd6fe',
-            'modules' => ['dashboard', 'orders', 'customizations', 'products', 'chats', 'reviews', 'reports', 'notifications', 'profile'],
+            'modules' => ['dashboard', 'orders', 'payment_verification', 'customizations', 'products', 'chats', 'reviews', 'reports', 'notifications', 'profile'],
         ];
     }
 }

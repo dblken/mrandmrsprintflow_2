@@ -4,15 +4,7 @@
  * PrintFlow - Production Ready (Hostinger + Local Safe)
  */
 
-/**
- * Helper: read env from getenv / $_ENV / $_SERVER
- */
-function printflow_env(string $name) {
-    if (($v = getenv($name)) !== false) return $v;
-    if (isset($_ENV[$name])) return (string) $_ENV[$name];
-    if (isset($_SERVER[$name])) return (string) $_SERVER[$name];
-    return false;
-}
+require_once __DIR__ . '/env.php';
 
 /**
  * Heuristic: determine if the current request expects JSON.
@@ -27,27 +19,6 @@ function printflow_expects_json(): bool {
     $xrw = (string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '');
     if ($xrw !== '' && strtolower($xrw) === 'xmlhttprequest') return true;
     return false;
-}
-
-/**
- * Load .env file if exists
- */
-function printflow_load_dotenv(string $path): array {
-    if (!is_readable($path)) return [];
-
-    $lines = file($path, FILE_IGNORE_NEW_LINES);
-    $env = [];
-
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#') continue;
-        if (strpos($line, '=') === false) continue;
-
-        [$key, $value] = explode('=', $line, 2);
-        $env[trim($key)] = trim($value, " \t\"'");
-    }
-
-    return $env;
 }
 
 /**
@@ -115,7 +86,7 @@ if ($is_production) {
 $root = dirname(__DIR__);
 $env_file = $root . '/.env';
 
-$env = printflow_load_dotenv($env_file);
+$env = printflow_import_dotenv($env_file);
 
 $map = [
     'host' => 'PRINTFLOW_DB_HOST',
@@ -235,6 +206,7 @@ function db_query($sql, $types = '', $params = []) {
                     'stage' => 'prepare',
                     'error' => $conn->error,
                     'errno' => $conn->errno,
+                    'sqlstate' => $conn->sqlstate,
                     'sql' => $sql,
                 ]);
                 error_log("DB Prepare Error: " . $conn->error);
@@ -246,6 +218,7 @@ function db_query($sql, $types = '', $params = []) {
                     'stage' => 'execute',
                     'error' => $stmt->error,
                     'errno' => $stmt->errno,
+                    'sqlstate' => $stmt->sqlstate,
                     'sql' => $sql,
                 ]);
                 error_log("DB Execute Error: " . $stmt->error);
@@ -262,6 +235,7 @@ function db_query($sql, $types = '', $params = []) {
                         'stage' => 'get_result',
                         'error' => $stmt->error,
                         'errno' => $stmt->errno,
+                        'sqlstate' => $stmt->sqlstate,
                         'sql' => $sql,
                     ]);
                     error_log("DB get_result Error: " . $stmt->error);
@@ -301,6 +275,8 @@ function db_query($sql, $types = '', $params = []) {
             'stage' => 'exception',
             'error' => $e->getMessage(),
             'class' => get_class($e),
+            'errno' => $stmt instanceof mysqli_stmt ? $stmt->errno : $conn->errno,
+            'sqlstate' => $stmt instanceof mysqli_stmt ? $stmt->sqlstate : $conn->sqlstate,
             'sql' => $sql,
         ]);
         error_log("DB Exception: " . $e->getMessage());
@@ -315,6 +291,7 @@ function db_query($sql, $types = '', $params = []) {
             'stage' => 'query',
             'error' => $conn->error,
             'errno' => $conn->errno,
+            'sqlstate' => $conn->sqlstate,
             'sql' => $sql,
         ]);
         error_log("DB Query Error: " . $conn->error);
@@ -405,6 +382,7 @@ function db_execute($sql, $types = '', $params = []) {
                     'stage' => 'execute_query',
                     'error' => $conn->error,
                     'errno' => $conn->errno,
+                    'sqlstate' => $conn->sqlstate,
                     'sql' => $sql,
                 ]);
                 error_log("DB Execute Error: " . $conn->error);
@@ -419,6 +397,7 @@ function db_execute($sql, $types = '', $params = []) {
                 'stage' => 'prepare',
                 'error' => $conn->error,
                 'errno' => $conn->errno,
+                'sqlstate' => $conn->sqlstate,
                 'sql' => $sql,
             ]);
             error_log("DB Prepare Error: " . $conn->error);
@@ -431,6 +410,7 @@ function db_execute($sql, $types = '', $params = []) {
                 'stage' => 'execute',
                 'error' => $stmt->error,
                 'errno' => $stmt->errno,
+                'sqlstate' => $stmt->sqlstate,
                 'sql' => $sql,
             ]);
             error_log("DB Execute Error: " . $stmt->error);
@@ -446,6 +426,8 @@ function db_execute($sql, $types = '', $params = []) {
             'stage' => 'exception',
             'error' => $e->getMessage(),
             'class' => get_class($e),
+            'errno' => $stmt instanceof mysqli_stmt ? $stmt->errno : $conn->errno,
+            'sqlstate' => $stmt instanceof mysqli_stmt ? $stmt->sqlstate : $conn->sqlstate,
             'sql' => $sql,
         ]);
         error_log("DB Exception: " . $e->getMessage());

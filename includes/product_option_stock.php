@@ -202,6 +202,41 @@ function printflow_product_option_stock_total(int $productId, int $branchId): ?a
     ];
 }
 
+function printflow_get_branch_product_stock(int $productId, int $branchId): array
+{
+    $variantStock = printflow_product_option_stock_total($productId, $branchId);
+    if ($variantStock !== null) {
+        $stockQty = (int)($variantStock['total_stock'] ?? 0);
+        $lowLevel = (int)($variantStock['total_low_stock'] ?? 0);
+        return [
+            'product_id' => $productId,
+            'branch_id' => $branchId,
+            'stock_quantity' => $stockQty,
+            'low_stock_threshold' => $lowLevel,
+            'low_stock_level' => $lowLevel,
+            'stock_status' => $stockQty <= 0 ? 'out_of_stock' : (($lowLevel > 0 && $stockQty <= $lowLevel) ? 'low_stock' : 'in_stock'),
+            'has_variant_stock' => true,
+            'variant_stock_field_key' => $variantStock['field_key'] ?? null,
+            'variant_stock_field_label' => $variantStock['field_label'] ?? null,
+            'variant_stock_options' => $variantStock['options'] ?? [],
+        ];
+    }
+
+    [$stockQty, $lowLevel] = printflow_product_effective_stock($productId, $branchId);
+    return [
+        'product_id' => $productId,
+        'branch_id' => $branchId,
+        'stock_quantity' => (int)$stockQty,
+        'low_stock_threshold' => (int)$lowLevel,
+        'low_stock_level' => (int)$lowLevel,
+        'stock_status' => ((int)$stockQty <= 0) ? 'out_of_stock' : (((int)$stockQty <= (int)$lowLevel) ? 'low_stock' : 'in_stock'),
+        'has_variant_stock' => false,
+        'variant_stock_field_key' => null,
+        'variant_stock_field_label' => null,
+        'variant_stock_options' => [],
+    ];
+}
+
 function printflow_product_option_stock_upsert(
     int $productId,
     int $branchId,
