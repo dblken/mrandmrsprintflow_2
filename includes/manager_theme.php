@@ -62,7 +62,7 @@
 
     html.printflow-manager .sidebar {
 
-        background: linear-gradient(180deg, #061418 0%, #0a2026 28%, #123139 62%, #1b424c 100%);
+        background: #1A2538;
 
         border-right: 1px solid rgba(137, 161, 171, 0.18);
 
