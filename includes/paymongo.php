@@ -207,6 +207,12 @@ if (!function_exists('printflow_paymongo_request')) {
         $id = preg_match('/^link_[A-Za-z0-9_-]+$/', $candidateId)
             ? $candidateId
             : '';
+        $candidateStatus = isset($data['status']) && is_string($data['status'])
+            ? strtolower(trim($data['status']))
+            : '';
+        $status = in_array($candidateStatus, ['active', 'archived'], true)
+            ? $candidateStatus
+            : '';
 
         return [
             'ok' => true,
@@ -219,6 +225,7 @@ if (!function_exists('printflow_paymongo_request')) {
             'currency' => isset($data['currency']) && is_string($data['currency'])
                 ? strtoupper(substr($data['currency'], 0, 3))
                 : '',
+            'status' => $status,
         ];
     }
 }
