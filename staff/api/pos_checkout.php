@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/order_items_persistence.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/runtime_config.php';
+require_once __DIR__ . '/../../includes/provider_payments.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -923,19 +924,50 @@ $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id
 if ($customer_id === null) {
     $customer_id = pos_get_walkin_customer_id();
 }
+if (!verify_csrf_token((string)($data['csrf_token'] ?? ''))) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
+    exit;
+}
 $payment_method = sanitize($data['payment_method'] ?? 'Cash');
 $reference_number = sanitize($data['reference_number'] ?? '');
 $amount_tendered = (float)($data['amount_tendered'] ?? 0);
 $items = $data['items'];
 
 $pm_lc = strtolower(trim($payment_method));
-$reference_required = ($pm_lc !== 'cash' && $pm_lc !== 'gcash');
+$is_paymongo_test = $pm_lc === 'paymongo test';
+$reference_required = ($pm_lc !== 'cash' && $pm_lc !== 'gcash' && !$is_paymongo_test);
 if ($reference_required && $reference_number === '') {
     echo json_encode(['success' => false, 'message' => "Reference number is required for $payment_method."]);
     exit;
 }
 if ($amount_tendered > 1000000) {
     echo json_encode(['success' => false, 'message' => 'Amount paid exceeds maximum limit of ₱1,000,000.']);
+    exit;
+}
+
+$checkoutToken = strtolower(trim((string)($data['checkout_token'] ?? '')));
+if ($is_paymongo_test && !preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'A valid POS checkout token is required.']);
+    exit;
+}
+if ($is_paymongo_test && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) {
+    $existingOrderId = (int)$_SESSION['pos_paymongo_checkouts'][$checkoutToken];
+    $existingResult = printflow_provider_payment_create_link(
+        'order',
+        $existingOrderId,
+        'pos',
+        (int)get_user_id()
+    );
+    http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
+    echo json_encode([
+        'success' => !empty($existingResult['ok']),
+        'order_id' => $existingOrderId,
+        'payment_pending' => true,
+        'payment' => $existingResult['payment'] ?? null,
+        'message' => $existingResult['message'] ?? 'Open the Test Mode checkout to complete payment.',
+    ], JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -1000,14 +1032,15 @@ try {
         }
     }
     $order_type = $has_service ? 'custom' : 'product';
-    $order_status = $has_service ? 'Pending' : 'Completed';
+    $order_status = $is_paymongo_test ? 'Pending' : ($has_service ? 'Pending' : 'Completed');
+    $initial_payment_status = $is_paymongo_test ? 'Awaiting Payment' : 'Paid';
     $reference_id = $items[0]['id'] ?? null;
 
     $order_result = db_execute(
         "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source) 
-         VALUES (?, ?, ?, ?, ?, 'Paid', ?, ?, NOW(), NOW(), ?, 'pos')",
-        'iiidssss',
-        [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $payment_method, $reference_number, $order_type]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos')",
+        'iiidsssss',
+        [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $initial_payment_status, $payment_method, $reference_number, $order_type]
     );
 
     if (!$order_result) {
@@ -1153,12 +1186,13 @@ try {
                     if ($pendingOrderItemId > 0) {
                         pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
                     }
+                    $customizationStatus = $is_paymongo_test ? 'Awaiting Payment' : 'In Production';
                     $customization_result = db_execute(
                         "UPDATE customizations
-                         SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
+                         SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = ?, updated_at = NOW()
                          WHERE customization_id = ?",
-                        'iiissi',
-                        [$order_id, $order_item_id, $customer_id, $name, $details_json, $pendingCustomizationId]
+                        'iiisssi',
+                        [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus, $pendingCustomizationId]
                     );
                     if ($customization_result) {
                         $last_customization_id = $pendingCustomizationId;
@@ -1188,12 +1222,13 @@ try {
                                 pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
                             }
                             $placeholders = implode(',', array_fill(0, count($customizationIds), '?'));
+                            $customizationStatus = $is_paymongo_test ? 'Awaiting Payment' : 'In Production';
                             $customization_result = db_execute(
                                 "UPDATE customizations
-                                 SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = 'In Production', updated_at = NOW()
+                                 SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = ?, updated_at = NOW()
                                  WHERE customization_id IN ($placeholders)",
-                                'iiiss' . str_repeat('i', count($customizationIds)),
-                                array_merge([$order_id, $order_item_id, $customer_id, $name, $details_json], $customizationIds)
+                                'iiisss' . str_repeat('i', count($customizationIds)),
+                                array_merge([$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus], $customizationIds)
                             );
                             $last_customization_id = $customizationIds[0] ?? null;
                         }
@@ -1202,10 +1237,11 @@ try {
             }
 
             if (!$customization_result) {
+                $customizationStatus = $is_paymongo_test ? 'Awaiting Payment' : 'In Production';
                 $customization_result = db_execute(
-                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'In Production', NOW(), NOW())",
-                    'iiiss',
-                    [$order_id, $order_item_id, $customer_id, $name, $details_json]
+                    "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())",
+                    'iiisss',
+                    [$order_id, $order_item_id, $customer_id, $name, $details_json, $customizationStatus]
                 );
                 if ($customization_result) {
                     $last_customization_id = $conn->insert_id;
@@ -1233,15 +1269,15 @@ try {
             if ($pendingOrderId > 0) {
                 db_execute(
                     "UPDATE orders
-                     SET payment_status = 'Paid',
+                     SET payment_status = ?,
                          payment_method = ?,
                          total_amount = ?,
                          status = 'Pending',
                          order_source = 'pos_merged',
                          updated_at = NOW()
                      WHERE order_id = ?",
-                    'sdi',
-                    [$payment_method, $price * $qty, $pendingOrderId]
+                    'ssdi',
+                    [$initial_payment_status, $payment_method, $price * $qty, $pendingOrderId]
                 );
                 // Hide the temporary POS source order after its customization is re-linked.
                 unset($_SESSION['pos_pending_orders'][$product_id]);
@@ -1251,7 +1287,7 @@ try {
         // Product stock is deducted when counter staff marks the walk-in order Completed.
         // Services/custom items continue through the job/material completion flow.
         $current_user_id = (int)($_SESSION['user_id'] ?? 0);
-        if ($order_status === 'Completed' && !$is_service && $is_actual_product) {
+        if (!$is_paymongo_test && $order_status === 'Completed' && !$is_service && $is_actual_product) {
             // Reduce branch/product stock atomically (will fail if insufficient)
             $deducted = printflow_product_deduct_stock_for_branch($product_id, $branch_id, $qty);
             if ($deducted === false) {
@@ -1278,6 +1314,35 @@ try {
 
     $conn->commit();
     $transaction_open = false;
+    if ($is_paymongo_test) {
+        $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = (int)$order_id;
+        $linkResult = printflow_provider_payment_create_link(
+            'order',
+            (int)$order_id,
+            'pos',
+            (int)get_user_id()
+        );
+        if (empty($linkResult['ok'])) {
+            http_response_code((int)($linkResult['http_status'] ?? 502));
+            echo json_encode([
+                'success' => false,
+                'order_id' => (int)$order_id,
+                'payment_pending' => true,
+                'message' => $linkResult['message'] ?? 'The order was saved, but its Payment Link could not be created. Retry checkout to reuse this order.',
+            ]);
+            exit;
+        }
+        echo json_encode([
+            'success' => true,
+            'order_id' => (int)$order_id,
+            'customization_id' => $last_customization_id ?? null,
+            'payment_pending' => true,
+            'message' => 'Order saved. Complete the PayMongo Test payment before issuing a receipt.',
+            'payment' => $linkResult['payment'] ?? null,
+            'receipt' => null,
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     $sync_warning = '';
     foreach ($post_commit_job_sync as $sync_order_id => $syncMeta) {
         $syncOrderId = (int)$sync_order_id;

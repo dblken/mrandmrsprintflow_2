@@ -1456,7 +1456,7 @@ try {
     </style>
 </head>
 
-<body data-turbo="false">
+<body data-turbo="false" data-csrf="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
 
     <div class="dashboard-container">
         <?php
@@ -1675,6 +1675,7 @@ try {
                                     onchange="toggleReferenceField()">
                                     <option value="Cash">Cash</option>
                                     <option value="GCash">GCash</option>
+                                    <option value="PayMongo Test">PayMongo Test</option>
                                 </select>
                             </div>
 
@@ -1721,6 +1722,20 @@ try {
         </div>
     </div>
     <?php endif; ?>
+
+    <div id="paymongo-pos-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10020;align-items:center;justify-content:center;padding:16px;">
+        <div style="background:#fff;width:min(360px,100%);padding:24px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.28);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <strong style="color:#0f172a;">PayMongo Checkout</strong>
+                <span style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+            </div>
+            <img id="paymongo-pos-qr" alt="PayMongo Test checkout QR" style="width:220px;height:220px;object-fit:contain;margin:0 auto 12px;border:1px solid #e2e8f0;">
+            <div id="paymongo-pos-status" style="font-size:13px;color:#475569;margin-bottom:14px;">Waiting for payment confirmation.</div>
+            <a id="paymongo-pos-open" href="#" target="_blank" rel="noopener noreferrer" style="display:block;padding:11px;background:#00232b;color:#fff;text-decoration:none;font-weight:800;margin-bottom:9px;">Open Checkout</a>
+            <button id="paymongo-pos-complete" type="button" onclick="completePayMongoPosTransaction()" disabled style="width:100%;padding:11px;border:0;background:#94a3b8;color:#fff;font-weight:800;margin-bottom:9px;cursor:not-allowed;">Complete Transaction</button>
+            <button type="button" onclick="closePayMongoPosModal()" style="width:100%;padding:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;">Close</button>
+        </div>
+    </div>
 
     <!-- Service Order Modal (DB-driven fields) -->
     <div id="service-modal-overlay"
@@ -1946,6 +1961,9 @@ try {
         let barcodeScanBusy = false;
         let isAddingToOrder = false;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
+        const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+        let paymongoPollTimer = null;
+        let pendingPayMongoReceipt = null;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -3802,13 +3820,16 @@ try {
                 const qrModal = document.getElementById('gcash-qr-modal');
                 if (qrModal) qrModal.style.display = 'flex';
             }
+            const isPayMongo = pm === 'PayMongo Test';
+            document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
+            document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
             updateCheckoutState();
         }
 
         /** Cash and GCash complete without a transaction reference (QR / over-the-counter flow). */
         function posPaymentNeedsRefNumber(pm) {
             const v = (pm || '').trim();
-            return v !== 'Cash' && v !== 'GCash';
+            return v !== 'Cash' && v !== 'GCash' && v !== 'PayMongo Test';
         }
 
         function closeGcashQr() {
@@ -3883,7 +3904,7 @@ try {
 
             // Regular products require payment
             const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
-            if (tendered < currentTotal || tendered > 1000000) {
+            if (pm !== 'PayMongo Test' && (tendered < currentTotal || tendered > 1000000)) {
                 canCheckout = false;
                 if (message === 'Complete Sale') message = 'Enter Valid Amount';
             }
@@ -3919,13 +3940,15 @@ try {
 
             const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
 
-            if (tendered < currentTotal || tendered > 1000000) {
+            if (pm !== 'PayMongo Test' && (tendered < currentTotal || tendered > 1000000)) {
                 await showPOSAlert('Invalid Amount', "Amount paid must be at least " + formatMoney(currentTotal) + " and not exceed ₱1,000,000.", 'warning');
                 return;
             }
 
-            const changeAmount = tendered - currentTotal;
-            const confirmMsg = `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
+            const changeAmount = pm === 'PayMongo Test' ? 0 : tendered - currentTotal;
+            const confirmMsg = pm === 'PayMongo Test'
+                ? `Create a Test Mode Payment Link for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
+                : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
             if (!(await showPOSConfirm('Confirm Transaction', confirmMsg))) {
                 return;
@@ -3942,6 +3965,8 @@ try {
                 payment_method: pm,
                 reference_number: (document.getElementById('pos-payment-ref')?.value || '').trim(),
                 amount_tendered: tendered,
+                csrf_token: POS_CSRF_TOKEN,
+                checkout_token: getPosPayMongoCheckoutToken(),
                 items: cart.map(i => ({
                     id: i.product_id,
                     qty: i.qty,
@@ -3975,6 +4000,11 @@ try {
                     await syncedCartAction('clear');
                     checkoutCompleted = true;
 
+                    if (data.payment_pending && data.payment && data.payment.checkout_url) {
+                        openPayMongoPosModal(data.order_id, data.payment.checkout_url);
+                        return;
+                    }
+
                     document.getElementById('pos-payment-method').value = 'Cash';
                     document.getElementById('pos-tendered').value = '';
                     const refInput = document.getElementById('pos-payment-ref');
@@ -3999,6 +4029,68 @@ try {
                     updateCheckoutState();
                 }
             }
+        }
+
+        function getPosPayMongoCheckoutToken() {
+            let token = sessionStorage.getItem('pos_paymongo_checkout_token');
+            if (!token) {
+                const bytes = new Uint8Array(24);
+                crypto.getRandomValues(bytes);
+                token = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+                sessionStorage.setItem('pos_paymongo_checkout_token', token);
+            }
+            return token;
+        }
+
+        function closePayMongoPosModal() {
+            document.getElementById('paymongo-pos-modal').style.display = 'none';
+        }
+
+        function openPayMongoPosModal(orderId, checkoutUrl) {
+            const modal = document.getElementById('paymongo-pos-modal');
+            document.getElementById('paymongo-pos-open').href = checkoutUrl;
+            document.getElementById('paymongo-pos-qr').src =
+                'https://quickchart.io/qr?size=220&text=' + encodeURIComponent(checkoutUrl);
+            document.getElementById('paymongo-pos-status').textContent = 'Waiting for payment confirmation.';
+            const completeButton = document.getElementById('paymongo-pos-complete');
+            completeButton.disabled = true;
+            completeButton.style.background = '#94a3b8';
+            completeButton.style.cursor = 'not-allowed';
+            pendingPayMongoReceipt = null;
+            modal.style.display = 'flex';
+            sessionStorage.removeItem('pos_paymongo_checkout_token');
+            if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+            const poll = async () => {
+                try {
+                    const url = staffUrl('staff/api/paymongo_payment.php')
+                        + '?subject_type=order&subject_id=' + encodeURIComponent(orderId)
+                        + '&channel=pos&_=' + Date.now();
+                    const response = await fetch(url, {cache: 'no-store'});
+                    const data = await response.json();
+                    if (data.success && data.payment && data.payment.status === 'paid') {
+                        window.clearInterval(paymongoPollTimer);
+                        paymongoPollTimer = null;
+                        document.getElementById('paymongo-pos-status').textContent = 'Payment confirmed. Receipt is ready.';
+                        if (data.receipt_available && data.receipt) {
+                            pendingPayMongoReceipt = data.receipt;
+                            completeButton.disabled = false;
+                            completeButton.style.background = '#059669';
+                            completeButton.style.cursor = 'pointer';
+                        }
+                    }
+                } catch (error) {
+                    // Keep polling; transient network failures do not change payment state.
+                }
+            };
+            poll();
+            paymongoPollTimer = window.setInterval(poll, 4000);
+        }
+
+        function completePayMongoPosTransaction() {
+            if (!pendingPayMongoReceipt) return;
+            closePayMongoPosModal();
+            openReceiptModal(pendingPayMongoReceipt);
+            pendingPayMongoReceipt = null;
         }
 
         function openNewCustomerModal() {
@@ -4117,6 +4209,7 @@ try {
             const payload = {
                 action: 'create_pending_customization',
                 customer_id: customer,
+                csrf_token: POS_CSRF_TOKEN,
                 item: {
                     id: item.product_id,
                     name: item.name,

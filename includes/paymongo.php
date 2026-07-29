@@ -191,6 +191,37 @@ if (!function_exists('printflow_paymongo_request')) {
         $data = isset($decoded['data']) && is_array($decoded['data'])
             ? $decoded['data']
             : [];
+        if (preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+/payments(?:\?.*)?$#', $path)) {
+            $paidPayment = [];
+            foreach ($data as $payment) {
+                if (!is_array($payment)) {
+                    continue;
+                }
+                $attributes = isset($payment['attributes']) && is_array($payment['attributes'])
+                    ? $payment['attributes']
+                    : $payment;
+                if (strtolower(trim((string)($attributes['status'] ?? ''))) === 'paid') {
+                    $paidPayment = $payment;
+                    break;
+                }
+            }
+            $attributes = isset($paidPayment['attributes']) && is_array($paidPayment['attributes'])
+                ? $paidPayment['attributes']
+                : $paidPayment;
+            $paymentId = trim((string)($paidPayment['id'] ?? ''));
+
+            return [
+                'ok' => true,
+                'test_mode' => printflow_paymongo_test_mode(),
+                'http_status' => $httpCode,
+                'livemode' => (bool)($attributes['livemode'] ?? true),
+                'paid' => !empty($paidPayment),
+                'payment_id' => preg_match('/^pay_[A-Za-z0-9_-]+$/', $paymentId) ? $paymentId : '',
+                'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
+                'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
+                'status' => strtolower(trim((string)($attributes['status'] ?? ''))),
+            ];
+        }
         $candidateUrl = isset($data['url']) && is_string($data['url'])
             ? trim($data['url'])
             : '';
@@ -240,6 +271,69 @@ if (!function_exists('printflow_paymongo_test_api_request')) {
             );
         }
         return printflow_paymongo_request('GET', '/v1/payment_links?limit=1');
+    }
+}
+
+if (!function_exists('printflow_paymongo_create_order_payment_link')) {
+    function printflow_paymongo_create_order_payment_link(
+        int $amountCentavos,
+        string $description,
+        string $remarks,
+        array $metadata
+    ): array {
+        if (!printflow_paymongo_test_mode()) {
+            return printflow_paymongo_failure(
+                'PayMongo Test Mode and a test secret key are required.',
+                400,
+                'test_mode_required'
+            );
+        }
+        if ($amountCentavos < 100 || $amountCentavos > 999999999) {
+            return printflow_paymongo_failure(
+                'The payment amount is outside PayMongo limits.',
+                400,
+                'invalid_amount'
+            );
+        }
+
+        $safeMetadata = [];
+        foreach ($metadata as $key => $value) {
+            $safeKey = preg_replace('/[^A-Za-z0-9_.-]/', '_', (string)$key);
+            if ($safeKey === '') {
+                continue;
+            }
+            $safeMetadata[substr($safeKey, 0, 40)] = substr((string)$value, 0, 255);
+        }
+
+        return printflow_paymongo_request('POST', '/v1/payment_links', [
+            'amount' => $amountCentavos,
+            'currency' => 'PHP',
+            'description' => substr(trim($description), 0, 1000),
+            'remarks' => substr(trim($remarks), 0, 1000),
+            'metadata' => $safeMetadata,
+            'restriction' => [
+                'completed_sessions' => [
+                    'limit' => 1,
+                ],
+            ],
+        ]);
+    }
+}
+
+if (!function_exists('printflow_paymongo_get_paid_link_payment')) {
+    function printflow_paymongo_get_paid_link_payment(string $linkId): array {
+        if (!printflow_paymongo_test_mode() || !preg_match('/^link_[A-Za-z0-9_-]+$/', $linkId)) {
+            return printflow_paymongo_failure(
+                'A valid Test Mode Payment Link is required.',
+                400,
+                'invalid_test_link'
+            );
+        }
+
+        return printflow_paymongo_request(
+            'GET',
+            '/v1/payment_links/' . rawurlencode($linkId) . '/payments'
+        );
     }
 }
 

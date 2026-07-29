@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 // Staff, Manager, Admin (same as customizations page)
 if (!in_array($_SESSION['user_type'] ?? '', ['Admin', 'Staff', 'Manager'], true)) {
@@ -104,6 +105,17 @@ if ($submission) {
         } else {
             echo json_encode(['success' => false, 'error' => 'This payment submission has already been finalized.']);
         }
+        exit;
+    }
+}
+if ($action === 'verify_payment') {
+    $providerPayment = printflow_provider_payment_find('job_order', $job_id, 'online');
+    if (empty($providerPayment) && $linkedOrderId > 0) {
+        $providerPayment = printflow_provider_payment_find('order', $linkedOrderId, 'online');
+    }
+    if (($providerPayment['status'] ?? '') === 'paid') {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'This order is already paid through PayMongo.']);
         exit;
     }
 }

@@ -1999,6 +1999,21 @@ $online_closed_count = 0;
                                 <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
                             </div>
                             <div style="font-size:13px; color:#1e40af; line-height:1.5;">Waiting for the customer to upload payment proof. Once uploaded, it will appear in the TO VERIFY section.</div>
+                            <div style="margin-top:14px;padding-top:14px;border-top:1px solid #bfdbfe;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                                    <strong style="font-size:12px;color:#1e40af;">PayMongo Payment Link</strong>
+                                    <span style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                                </div>
+                                <button type="button" @click="generatePayMongoLink()" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" :style="paymongoBusy ? 'opacity:.6;cursor:not-allowed;' : ''">
+                                    <span x-text="paymongoBusy ? 'Generating...' : (paymongoPayment && paymongoPayment.checkout_url ? 'Reuse Payment Link' : 'Generate Payment Link')"></span>
+                                </button>
+                                <div x-show="paymongoPayment" style="margin-top:9px;color:#1e40af;font-size:11px;line-height:1.5;">
+                                    <div>Status: <strong x-text="paymongoPayment ? String(paymongoPayment.status || '').replaceAll('_', ' ') : ''"></strong></div>
+                                    <div x-show="paymongoPayment && paymongoPayment.created_at">Created: <span x-text="paymongoPayment ? paymongoPayment.created_at : ''"></span></div>
+                                    <div x-show="paymongoPayment && paymongoPayment.paid_at">Paid: <span x-text="paymongoPayment ? paymongoPayment.paid_at : ''"></span></div>
+                                </div>
+                                <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open Test Checkout</a>
+                            </div>
                         </div>
                     </template>
 
@@ -2434,6 +2449,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             rejectPaymentModalError: '',
             previewFile: null,
             currentJo: {},
+            paymongoBusy: false,
+            paymongoPayment: null,
             detailContextMode: 'production_view',
             deepLinkExpectedStatus: '',
             deepLinkSourceOrderId: '',
@@ -5121,6 +5138,47 @@ window.pfCustomizationPreloadedOrders = (() => {
             async getProductionAssignmentTarget() {
                 const jid = await this.resolveEffectiveJobId();
                 return { orderId: jid, orderType: 'JOB', jobId: jid };
+            },
+            async generatePayMongoLink() {
+                if (this.paymongoBusy || !this.currentJo) return;
+                const orderId = parseInt(this.currentJo.order_id || 0, 10);
+                const jobId = parseInt(this.currentJo.job_order_id || this.currentJo.id || 0, 10);
+                const subjectType = orderId > 0 ? 'order' : 'job_order';
+                const subjectId = orderId > 0 ? orderId : jobId;
+                if (!subjectId) {
+                    this.showStaffAlert('Payment Link', 'The linked order could not be resolved.');
+                    return;
+                }
+                this.paymongoBusy = true;
+                try {
+                    const response = await fetch(this.staffApiUrl('api/paymongo_payment.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            subject_type: subjectType,
+                            subject_id: subjectId,
+                            channel: 'online',
+                            csrf_token: document.body.getAttribute('data-csrf') || ''
+                        })
+                    });
+                    const data = await this.parseJsonResponse(response);
+                    if (!data.success) {
+                        const title = data.manual_proof_under_review ? 'Manual Proof Under Review' : 'Payment Link';
+                        this.showStaffAlert(title, data.message || 'The Payment Link could not be generated.');
+                        return;
+                    }
+                    this.paymongoPayment = data.payment || null;
+                    this.showStaffAlert(
+                        'Payment Link Ready',
+                        data.reused
+                            ? 'The existing Test Mode Payment Link was reused.'
+                            : 'A Test Mode Payment Link was created and is now available to the customer.'
+                    );
+                } catch (error) {
+                    this.showStaffAlert('Payment Link', 'The Payment Link request could not be completed.');
+                } finally {
+                    this.paymongoBusy = false;
+                }
             },
             async submitToPay() {
                 console.log('submitToPay called');
