@@ -7,9 +7,7 @@
 // Load local .env values without overriding environment variables supplied by
 // Apache, the container runtime, Railway, or the hosting control panel.
 require_once __DIR__ . '/includes/env.php';
-foreach ([__DIR__ . '/public_html/.env', __DIR__ . '/.env'] as $dotenv_path) {
-    printflow_import_dotenv($dotenv_path);
-}
+printflow_load_project_env();
 
 // Detect environment
 $is_production = (

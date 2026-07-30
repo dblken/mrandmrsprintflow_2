@@ -66,3 +66,21 @@ if (!function_exists('printflow_import_dotenv')) {
         return $values;
     }
 }
+
+if (!function_exists('printflow_project_root')) {
+    /**
+     * Resolve the application root independently of the process working directory.
+     */
+    function printflow_project_root(): string {
+        return dirname(__DIR__);
+    }
+}
+
+if (!function_exists('printflow_load_project_env')) {
+    /**
+     * Load the single project-level .env used by HTTP, CLI, cron, and webhooks.
+     */
+    function printflow_load_project_env(): array {
+        return printflow_import_dotenv(printflow_project_root() . '/.env');
+    }
+}

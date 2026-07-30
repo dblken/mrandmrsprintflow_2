@@ -44,73 +44,60 @@ function printflow_db_errors(): array {
 
 /**
  * ==========================
- * DEFAULT CONFIG (ENVIRONMENT DETECTION)
+ * LOAD AND VALIDATE DATABASE CONFIGURATION
  * ==========================
  */
+printflow_load_project_env();
 
-// Detect if running on production
-$is_production = (
-    isset($_SERVER['HTTP_HOST']) && 
-    (strpos($_SERVER['HTTP_HOST'], 'mrandmrsprintflow.com') !== false ||
-     strpos($_SERVER['HTTP_HOST'], 'hostinger') !== false ||
-     strpos($_SERVER['HTTP_HOST'], 'printflow.com') !== false)
-);
-
-if ($is_production) {
-    // Production (Hostinger)
-    $db_config = [
-        'host' => 'localhost',
-        'user' => 'u618446170_user',
-        'pass' => 'Mrandmrsprintflow@123',
-        'name' => 'u618446170_printflow',
-        'port' => 3306,
-        'socket' => '',
-    ];
-} else {
-    // Local Development (XAMPP)
-    $db_config = [
-        'host' => 'localhost',
-        'user' => 'root',
-        'pass' => '',
-        'name' => 'printflow',
-        'port' => 3306,
-        'socket' => '',
-    ];
+function printflow_db_env_value(array $names) {
+    foreach ($names as $name) {
+        $value = printflow_env($name);
+        if ($value !== false && trim((string)$value) !== '') {
+            return (string)$value;
+        }
+    }
+    return '';
 }
 
-/**
- * ==========================
- * LOAD .ENV (IF EXISTS)
- * ==========================
- */
-$root = dirname(__DIR__);
-$env_file = $root . '/.env';
-
-$env = printflow_import_dotenv($env_file);
-
-$map = [
-    'host' => 'PRINTFLOW_DB_HOST',
-    'user' => 'PRINTFLOW_DB_USER',
-    'pass' => 'PRINTFLOW_DB_PASS',
-    'name' => 'PRINTFLOW_DB_NAME',
-    'port' => 'PRINTFLOW_DB_PORT',
-    'socket' => 'PRINTFLOW_DB_SOCKET',
+$db_config = [
+    // Keep the project's existing PRINTFLOW_DB_* names primary, while also
+    // accepting the conventional DB_* aliases used by hosting platforms.
+    'host' => printflow_db_env_value(['PRINTFLOW_DB_HOST', 'DB_HOST']),
+    'user' => printflow_db_env_value(['PRINTFLOW_DB_USER', 'DB_USER']),
+    'pass' => printflow_db_env_value(['PRINTFLOW_DB_PASS', 'PRINTFLOW_DB_PASSWORD', 'DB_PASSWORD']),
+    'name' => printflow_db_env_value(['PRINTFLOW_DB_NAME', 'DB_NAME']),
+    'port' => printflow_db_env_value(['PRINTFLOW_DB_PORT', 'DB_PORT']),
 ];
 
-foreach ($map as $key => $envKey) {
-    // .env overrides (local) + real environment variables (production panels).
-    $fromDotenv = $env[$envKey] ?? '';
-    $fromEnvVar = printflow_env($envKey);
+if ($db_config['port'] === '') {
+    $db_config['port'] = '3306';
+}
 
-    if ($fromEnvVar !== false && $fromEnvVar !== '') {
-        $db_config[$key] = $fromEnvVar;
-        continue;
+$db_config_status = [
+    'db_host_set' => $db_config['host'] !== '',
+    'db_name_set' => $db_config['name'] !== '',
+    'db_user_set' => $db_config['user'] !== '',
+    'db_password_set' => $db_config['pass'] !== '',
+];
+
+if (in_array(false, $db_config_status, true)) {
+    $message = 'Database configuration is incomplete. Required environment variables are missing.';
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, $message . PHP_EOL);
+        fwrite(STDERR, json_encode($db_config_status, JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        exit(1);
     }
 
-    if ($fromDotenv !== '') {
-        $db_config[$key] = $fromDotenv;
-        continue;
+    error_log($message);
+    if (printflow_expects_json()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'error' => $message], JSON_UNESCAPED_SLASHES);
+        exit;
     }
+
+    http_response_code(500);
+    die('Database configuration is unavailable.');
 }
 
 /**
@@ -137,15 +124,16 @@ $conn = @new mysqli(
  * ==========================
  */
 if ($conn->connect_error) {
-    error_log('Database Connection Failed: ' . $conn->connect_error);
+    error_log('Database connection failed (errno ' . (int)$conn->connect_errno . ').');
     printflow_db_record_error([
         'stage' => 'connect',
-        'error' => $conn->connect_error,
         'errno' => $conn->connect_errno,
-        'host' => $db_config['host'],
-        'db' => $db_config['name'],
-        'user' => $db_config['user'],
     ]);
+
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, "Database connection failed. Review the server database configuration.\n");
+        exit(1);
+    }
 
     if (printflow_expects_json()) {
         http_response_code(500);
@@ -159,15 +147,8 @@ if ($conn->connect_error) {
         exit;
     }
 
-    die(
-        '<div style="font-family:sans-serif;padding:20px;">' .
-        '<h2>Database Connection Failed</h2>' .
-        '<p><strong>Error:</strong> ' . htmlspecialchars($conn->connect_error) . '</p>' .
-        '<p><strong>Host:</strong> ' . htmlspecialchars($db_config['host']) . '</p>' .
-        '<p><strong>Database:</strong> ' . htmlspecialchars($db_config['name']) . '</p>' .
-        '<p><strong>User:</strong> ' . htmlspecialchars($db_config['user']) . '</p>' .
-        '</div>'
-    );
+    http_response_code(500);
+    die('Database connection is unavailable.');
 }
 
 /**
