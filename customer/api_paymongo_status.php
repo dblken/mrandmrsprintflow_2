@@ -41,7 +41,9 @@ if ((string)$payment['status'] === 'paid' && !empty($payment['provider_payment_i
         $subjectType,
         $subjectId
     );
-} elseif ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_id'])) {
+} elseif ((string)$payment['status'] === 'awaiting_payment'
+    && !empty($payment['link_id'])
+    && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
     $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
     if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
         $finalized = printflow_provider_payment_mark_paid(

@@ -48,6 +48,48 @@ if ($method === 'POST') {
         echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
         exit;
     }
+    if (($input['action'] ?? '') === 'complete_pos') {
+        if ($channel !== 'pos') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'Invalid POS completion request.']);
+            exit;
+        }
+        $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+        if (empty($payment)) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Payment record not found.']);
+            exit;
+        }
+        if ((string)$payment['status'] === 'awaiting_payment'
+            && !empty($payment['link_id'])
+            && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 3)) {
+            $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
+            if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
+                printflow_provider_payment_mark_paid(
+                    (int)$payment['id'],
+                    (string)$remote['payment_id'],
+                    (string)($remote['payment_method'] ?? '')
+                );
+                $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
+            }
+        }
+        if ((string)($payment['status'] ?? '') !== 'paid') {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'message' => 'PayMongo payment is not yet confirmed.']);
+            exit;
+        }
+        $completed = printflow_provider_payment_complete_pos((int)$payment['id'], (int)get_user_id());
+        http_response_code(!empty($completed['ok']) ? 200 : 409);
+        echo json_encode([
+            'success' => !empty($completed['ok']),
+            'message' => $completed['message'] ?? null,
+            'already_completed' => !empty($completed['already_completed']),
+            'receipt' => !empty($completed['ok'])
+                ? printflow_pos_build_receipt((int)($payment['order_id'] ?? 0))
+                : null,
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     $result = printflow_provider_payment_create_link(
         $subjectType,
         $subjectId,
@@ -78,7 +120,9 @@ if (empty($payment)) {
     exit;
 }
 
-if ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_id'])) {
+if ((string)$payment['status'] === 'awaiting_payment'
+    && !empty($payment['link_id'])
+    && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
     $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
     if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
         printflow_provider_payment_mark_paid(
@@ -98,12 +142,14 @@ if ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_i
 }
 
 $paid = (string)($payment['status'] ?? '') === 'paid';
+$posCompleted = !empty($payment['fulfillment_applied_at']);
 $orderId = (int)($payment['order_id'] ?? 0);
 echo json_encode([
     'success' => true,
     'payment' => printflow_provider_payment_public($payment),
-    'receipt_available' => $paid && $channel === 'pos' && $orderId > 0,
-    'receipt' => $paid && $channel === 'pos' && $orderId > 0
+    'can_complete' => $paid && $channel === 'pos' && !$posCompleted && $orderId > 0,
+    'receipt_available' => $paid && $channel === 'pos' && $posCompleted && $orderId > 0,
+    'receipt' => $paid && $channel === 'pos' && $posCompleted && $orderId > 0
         ? printflow_pos_build_receipt($orderId)
         : null,
 ], JSON_UNESCAPED_SLASHES);
