@@ -135,6 +135,16 @@ if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
     exit;
 }
 
+if (!printflow_env_bool('MANUAL_PAYMENT_ENABLED', false)) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Manual payment proof submission is currently disabled.',
+        'step' => 'payment_method_disabled',
+    ]);
+    exit;
+}
+
 $order_id = (int)($_POST['order_id'] ?? 0);
 $is_job = (string)($_POST['is_job'] ?? '0') === '1';
 $customer_id = get_user_id();
@@ -184,11 +194,11 @@ $providerPayment = printflow_provider_payment_for_customer(
     $is_job ? 'job_order' : 'order',
     $order_id
 );
-if (($providerPayment['status'] ?? '') === 'paid') {
+if (in_array((string)($providerPayment['status'] ?? ''), ['generating', 'awaiting_payment', 'paid'], true)) {
     http_response_code(409);
     echo json_encode([
         'success' => false,
-        'message' => 'This order is already paid through PayMongo.',
+        'message' => 'This order already has an active PayMongo payment.',
         'step' => 'payment_state',
     ]);
     exit;

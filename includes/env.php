@@ -14,6 +14,17 @@ if (!function_exists('printflow_env')) {
     }
 }
 
+if (!function_exists('printflow_env_bool')) {
+    function printflow_env_bool(string $name, bool $default = false): bool {
+        $value = printflow_env($name);
+        if ($value === false || trim((string)$value) === '') {
+            return $default;
+        }
+        $normalized = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return $normalized ?? $default;
+    }
+}
+
 if (!function_exists('printflow_load_dotenv')) {
     function printflow_load_dotenv(string $path): array {
         if (!is_readable($path)) return [];

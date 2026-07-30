@@ -846,9 +846,9 @@ if (!function_exists('pf_payment_qr_url')) {
                         <h3 style="font-weight: 800; color: #059669; margin-bottom: 0.5rem;">✓ Payment Confirmed</h3>
                         <?php if (($paymongo_payment['status'] ?? '') === 'paid'): ?>
                             <?php $paymongo_public = printflow_provider_payment_public($paymongo_payment); ?>
-                            <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;"><?php echo format_currency(((int)$paymongo_public['amount']) / 100); ?></div>
-                            <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Paid securely through PayMongo — <?php echo htmlspecialchars((string)$paymongo_public['payment_method_label']); ?></p>
-                            <p style="color:#9fc4d4;font-size:.875rem;">Your order is awaiting production processing.</p>
+                            <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;"><?php echo format_currency(((int)$paymongo_public['amount']) / 100); ?> paid through PayMongo</div>
+                            <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)$paymongo_public['payment_method_label']); ?></p>
+                            <p style="color:#9fc4d4;font-size:.875rem;">Your order is ready for production processing.</p>
                             <button type="button" disabled class="shopee-btn-primary" style="display:block;width:100%;margin-top:18px;padding:11px;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;">Payment Confirmed</button>
                         <?php else: ?>
                             <p style="color: #64748b; font-size: 0.875rem;">This order has already been fully paid.</p>
@@ -867,7 +867,10 @@ if (!function_exists('pf_payment_qr_url')) {
                         <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="btn-primary w-full mt-6 text-center block" style="text-decoration: none;">Track Order Status</a>
                     </div>
                 <?php else: ?>
-                    <?php $payment_submission_token = bin2hex(random_bytes(24)); ?>
+                    <?php
+                    $payment_submission_token = bin2hex(random_bytes(24));
+                    $manual_payment_enabled = printflow_env_bool('MANUAL_PAYMENT_ENABLED', false);
+                    ?>
                     <?php if (printflow_paymongo_test_mode()): ?>
                         <div id="paymongo-test-payment" style="padding:16px;margin-bottom:20px;border:1px solid #53c5e0;background:#062c38;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
@@ -888,12 +891,15 @@ if (!function_exists('pf_payment_qr_url')) {
                                 </div>
                             <?php endif; ?>
                         </div>
+                        <?php if ($manual_payment_enabled): ?>
                         <div style="display:flex;align-items:center;gap:10px;margin:0 0 20px;color:#9fc4d4;font-size:12px;">
                             <span style="height:1px;background:#31515c;flex:1;"></span>
                             Having trouble with online payment? Use manual payment proof instead.
                             <span style="height:1px;background:#31515c;flex:1;"></span>
                         </div>
+                        <?php endif; ?>
                     <?php endif; ?>
+                    <?php if ($manual_payment_enabled): ?>
                     <form id="paymentForm" enctype="multipart/form-data">
                         <input type="hidden" name="order_id" value="<?php echo $order_id; ?>">
                         <input type="hidden" name="is_job" value="<?php echo $is_job_order ? '1' : '0'; ?>">
@@ -1013,6 +1019,7 @@ if (!function_exists('pf_payment_qr_url')) {
                         </button>
                         <div id="submitError" style="display:none; margin-top:0.6rem; font-size:0.8rem; font-weight:700; color:#b91c1c;">Please upload your reference receipt before submitting.</div>
                     </form>
+                    <?php endif; ?>
                 <?php endif; ?>
                 </div><!-- end payment-card sidebar -->
                 </div><!-- end payment-sidebar -->
@@ -1051,17 +1058,17 @@ if (!function_exists('pf_payment_qr_url')) {
             panel.appendChild(heading);
 
             const amount = document.createElement('div');
-            amount.textContent = '₱ ' + (Number(payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+            amount.textContent = '₱' + (Number(payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' paid through PayMongo';
             amount.style.cssText = 'font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;';
             panel.appendChild(amount);
 
             const method = document.createElement('p');
-            method.textContent = 'Paid securely through PayMongo — ' + (payment.payment_method_label || 'PayMongo');
+            method.textContent = 'Payment method: ' + (payment.payment_method_label || 'QRPh');
             method.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;';
             panel.appendChild(method);
 
             const next = document.createElement('p');
-            next.textContent = 'Your order is awaiting production processing.';
+            next.textContent = 'Your order is ready for production processing.';
             next.style.cssText = 'color:#9fc4d4;font-size:.875rem;';
             panel.appendChild(next);
 

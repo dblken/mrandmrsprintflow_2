@@ -58,7 +58,27 @@ function printflow_provider_payment_public(array $payment): array {
         'checkout_url' => (string)($payment['checkout_url'] ?? ''),
         'created_at' => $payment['created_at'] ?? null,
         'paid_at' => $payment['paid_at'] ?? null,
+        'pos_completed' => !empty($payment['fulfillment_applied_at']),
     ];
+}
+
+function printflow_provider_payment_claim_reconciliation(int $ledgerId, int $minimumSeconds = 5): bool {
+    if ($ledgerId <= 0) {
+        return false;
+    }
+    if (!db_table_has_column('provider_payments', 'last_reconciled_at')) {
+        return true;
+    }
+    $minimumSeconds = max(3, min(60, $minimumSeconds));
+    return db_execute_affected_rows(
+        "UPDATE provider_payments
+         SET last_reconciled_at = NOW()
+         WHERE id = ?
+           AND (last_reconciled_at IS NULL
+                OR last_reconciled_at <= DATE_SUB(NOW(), INTERVAL ? SECOND))",
+        'ii',
+        [$ledgerId, $minimumSeconds]
+    ) === 1;
 }
 
 function printflow_provider_payment_revalidation_errors(array $payment, array $verified): array {
@@ -461,7 +481,7 @@ function printflow_provider_payment_mark_paid(
             $isPos = (string)$payment['channel'] === 'pos';
             $isProduct = strtolower((string)($subject['order_type'] ?? '')) === 'product';
             if ($isProduct) {
-                $nextStatus = $isPos ? 'Completed' : 'Ready for Pickup';
+                $nextStatus = $isPos ? 'Payment Confirmed' : 'Ready for Pickup';
                 if (!db_execute(
                     "UPDATE orders
                      SET payment_status = 'Paid', payment_method = 'PayMongo Test',
@@ -509,42 +529,6 @@ function printflow_provider_payment_mark_paid(
                 )) {
                     throw new RuntimeException('The customization payment status could not be synchronized.');
                 }
-            }
-
-            if ($isPos && $isProduct && empty($payment['fulfillment_applied_at'])) {
-                require_once __DIR__ . '/product_branch_stock.php';
-                $items = db_query(
-                    'SELECT product_id, quantity FROM order_items WHERE order_id = ?',
-                    'i',
-                    [$orderId]
-                ) ?: [];
-                foreach ($items as $item) {
-                    $productId = (int)$item['product_id'];
-                    $quantity = (int)$item['quantity'];
-                    if (!printflow_product_deduct_stock_for_branch(
-                        $productId,
-                        (int)($payment['branch_id'] ?? 0),
-                        $quantity
-                    )) {
-                        throw new RuntimeException('Inventory could not be finalized for the paid POS order.');
-                    }
-                    printflow_record_product_inventory_transaction(
-                        $productId,
-                        'OUT',
-                        $quantity,
-                        'ORDER',
-                        $orderId,
-                        'PayMongo POS sale: Order #' . $orderId,
-                        0,
-                        date('Y-m-d'),
-                        (int)($payment['branch_id'] ?? 0)
-                    );
-                }
-                db_execute(
-                    'UPDATE provider_payments SET fulfillment_applied_at = NOW() WHERE id = ?',
-                    'i',
-                    [$ledgerId]
-                );
             }
 
             if (!$isProduct) {
@@ -685,6 +669,128 @@ function printflow_provider_payment_mark_paid(
         }
         error_log('PayMongo payment finalization failed for ledger #' . $ledgerId);
         return ['ok' => false, 'message' => 'The verified payment could not be finalized.'];
+    }
+}
+
+function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): array {
+    global $conn;
+    $transactionOpen = false;
+    try {
+        $conn->begin_transaction();
+        $transactionOpen = true;
+        $rows = db_query(
+            'SELECT * FROM provider_payments WHERE id = ? FOR UPDATE',
+            'i',
+            [$ledgerId]
+        ) ?: [];
+        if (empty($rows)) {
+            throw new RuntimeException('Payment record not found.');
+        }
+        $payment = $rows[0];
+        if ((string)($payment['channel'] ?? '') !== 'pos'
+            || (string)($payment['provider'] ?? '') !== 'paymongo'
+            || (string)($payment['mode'] ?? '') !== 'test') {
+            throw new RuntimeException('This is not a PayMongo POS payment.');
+        }
+        if ((string)($payment['status'] ?? '') !== 'paid'
+            || empty($payment['provider_payment_id'])
+            || empty($payment['paid_at'])) {
+            throw new RuntimeException('Payment has not been verified.');
+        }
+        if (!empty($payment['fulfillment_applied_at'])) {
+            $conn->commit();
+            return ['ok' => true, 'already_completed' => true, 'payment' => $payment];
+        }
+
+        $subject = printflow_provider_payment_load_subject(
+            (string)$payment['subject_type'],
+            (int)$payment['subject_id']
+        );
+        if (empty($subject) || (int)($subject['order_id'] ?? 0) <= 0) {
+            throw new RuntimeException('The linked POS order no longer exists.');
+        }
+        if ((int)($subject['branch_id'] ?? 0) !== (int)($payment['branch_id'] ?? 0)
+            || printflow_money_to_centavos($subject['total_amount'] ?? '') !== (int)$payment['amount_centavos']) {
+            throw new RuntimeException('The POS order no longer matches the verified payment.');
+        }
+        $normalizedStatus = strtoupper(str_replace(' ', '_', trim((string)($subject['order_status'] ?? ''))));
+        if ($normalizedStatus === 'CANCELLED') {
+            throw new RuntimeException('A cancelled order cannot be completed.');
+        }
+
+        $orderId = (int)$subject['order_id'];
+        $isProduct = strtolower((string)($subject['order_type'] ?? '')) === 'product';
+        if ($isProduct) {
+            require_once __DIR__ . '/product_branch_stock.php';
+            $items = db_query(
+                'SELECT product_id, quantity FROM order_items WHERE order_id = ?',
+                'i',
+                [$orderId]
+            ) ?: [];
+            if (empty($items)) {
+                throw new RuntimeException('The POS order has no items.');
+            }
+            foreach ($items as $item) {
+                $productId = (int)$item['product_id'];
+                $quantity = (int)$item['quantity'];
+                if ($productId <= 0 || $quantity <= 0
+                    || !printflow_product_deduct_stock_for_branch(
+                        $productId,
+                        (int)$payment['branch_id'],
+                        $quantity
+                    )
+                    || !printflow_record_product_inventory_transaction(
+                        $productId,
+                        'OUT',
+                        $quantity,
+                        'ORDER',
+                        $orderId,
+                        'PayMongo POS sale: Order #' . $orderId,
+                        $staffId,
+                        date('Y-m-d'),
+                        (int)$payment['branch_id']
+                    )) {
+                    throw new RuntimeException('Inventory could not be finalized for the paid POS order.');
+                }
+            }
+            if (!db_execute(
+                "UPDATE orders SET status = 'Completed', updated_at = NOW()
+                 WHERE order_id = ? AND status <> 'Cancelled'",
+                'i',
+                [$orderId]
+            )) {
+                throw new RuntimeException('The POS order could not be completed.');
+            }
+        }
+
+        if (db_execute_affected_rows(
+            'UPDATE provider_payments
+             SET fulfillment_applied_at = NOW(), updated_at = NOW()
+             WHERE id = ? AND fulfillment_applied_at IS NULL',
+            'i',
+            [$ledgerId]
+        ) !== 1) {
+            throw new RuntimeException('The POS completion marker could not be stored.');
+        }
+        printflow_provider_payment_record_transition(
+            $ledgerId,
+            $orderId,
+            'pos_transaction_completed',
+            'paid',
+            $isProduct ? 'completed' : 'payment_confirmed',
+            'Staff',
+            $staffId
+        );
+        $conn->commit();
+        $transactionOpen = false;
+        $refreshed = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+        return ['ok' => true, 'already_completed' => false, 'payment' => $refreshed[0] ?? $payment];
+    } catch (Throwable $error) {
+        if ($transactionOpen) {
+            $conn->rollback();
+        }
+        error_log('PayMongo POS completion failed for ledger #' . $ledgerId);
+        return ['ok' => false, 'message' => 'The paid POS transaction could not be completed.'];
     }
 }
 
