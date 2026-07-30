@@ -182,14 +182,13 @@
             }
 
             this.socket = io(url, {
-                transports: ['websocket', 'polling'],
+                transports: ['websocket'],
                 query: { userId: this.userId, userType: this.userType },
                 secure: url.startsWith('https'),
-                reconnection: true,
-                reconnectionAttempts: 1,
-                reconnectionDelay: 2000,
-                reconnectionDelayMax: 5000,
-                timeout: 10000
+                reconnection: false,
+                timeout: 5000,
+                forceNew: false,
+                multiplex: true
             });
 
             this.socket.on('connect', () => {
@@ -228,6 +227,9 @@
                 // first failure instead of flooding unrelated pages with 404s.
                 if (this.socket && this.socket.io && this.socket.io.opts) {
                     this.socket.io.opts.reconnection = false;
+                }
+                if (this.socket) {
+                    this.socket.disconnect();
                 }
                 if (!window.__PFCallFallbackWarned) {
                     window.__PFCallFallbackWarned = true;

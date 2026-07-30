@@ -3,35 +3,30 @@
  * push/subscribe.php — Save or refresh a Web Push subscription.
  * POST JSON: { endpoint, keys: { p256dh, auth }, action: 'subscribe'|'unsubscribe' }
  */
+require_once __DIR__ . '/../../../includes/json_endpoint.php';
+printflow_json_endpoint_bootstrap();
 require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/push_debug_helper.php';
 
-header('Content-Type: application/json');
-
-db_execute("CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    user_type VARCHAR(32) NOT NULL,
-    endpoint TEXT NOT NULL,
-    p256dh TEXT NOT NULL,
-    auth_key TEXT NOT NULL,
-    user_agent VARCHAR(255) DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uniq_endpoint (endpoint(255)),
-    KEY idx_user (user_id, user_type)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
 if (!is_logged_in()) {
     printflow_push_debug_log('subscribe_rejected_unauthenticated', []);
+    http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Unauthenticated']);
     exit;
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     printflow_push_debug_log('subscribe_rejected_method', ['method' => (string)($_SERVER['REQUEST_METHOD'] ?? '')]);
+    http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+    exit;
+}
+
+$subscriptionTable = db_query("SHOW TABLES LIKE 'push_subscriptions'");
+if (empty($subscriptionTable)) {
+    http_response_code(503);
+    echo json_encode(['success' => false, 'error' => 'Push subscription storage is unavailable.']);
     exit;
 }
 
@@ -40,6 +35,7 @@ $data = json_decode($raw, true);
 
 if (empty($data)) {
     printflow_push_debug_log('subscribe_rejected_invalid_json', []);
+    http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Invalid JSON body']);
     exit;
 }
@@ -70,6 +66,7 @@ if (!$endpoint || !$p256dh || !$auth) {
         'has_p256dh' => $p256dh !== '',
         'has_auth' => $auth !== '',
     ], $user_id, (string)$user_type, $endpoint);
+    http_response_code(422);
     echo json_encode(['success' => false, 'error' => 'Missing subscription fields']);
     exit;
 }

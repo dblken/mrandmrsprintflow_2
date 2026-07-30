@@ -1,26 +1,8 @@
 <?php
+require_once __DIR__ . '/../../includes/json_endpoint.php';
+printflow_json_endpoint_bootstrap();
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
-
-header('Content-Type: application/json');
-
-set_exception_handler(function ($e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Server error', 'error' => $e->getMessage()]);
-    exit;
-});
-set_error_handler(function ($errno, $errstr, $errfile, $errline) {
-    if (!(error_reporting() & $errno)) return false;
-    throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
-});
-register_shutdown_function(function () {
-    $error = error_get_last();
-    if ($error !== null && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Fatal server error', 'error' => $error['message']]);
-        exit;
-    }
-});
 
 function pf_support_chat_has_column(string $table, string $column): bool {
     static $cache = [];
@@ -99,14 +81,22 @@ $userType = function_exists('is_logged_in') && is_logged_in() && function_exists
     ? (string)get_user_type()
     : '';
 
+$dbErrorBaseline = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
 if ($userId > 0 && $userType !== '') {
     pf_support_chat_touch_user($userId, $userType);
 }
 
 $conversationId = isset($_REQUEST['conversation_id']) ? (int)$_REQUEST['conversation_id'] : 0;
+$supportOnline = pf_support_staff_online();
+$customerOnline = pf_support_customer_online($conversationId);
+if (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $dbErrorBaseline) {
+    http_response_code(503);
+    echo json_encode(['success' => false, 'error' => 'Support presence is temporarily unavailable.']);
+    exit;
+}
 
 echo json_encode([
     'success' => true,
-    'support_online' => pf_support_staff_online(),
-    'customer_online' => pf_support_customer_online($conversationId),
+    'support_online' => $supportOnline,
+    'customer_online' => $customerOnline,
 ]);
