@@ -93,8 +93,13 @@ function printflow_db_error_reference(): string {
 function printflow_db_abort(string $stage, ?Throwable $exception = null): void {
     $reference = printflow_db_error_reference();
     $log = '[database][' . $reference . '] ' . $stage;
+    $requestPath = parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+    if (is_string($requestPath) && $requestPath !== '') {
+        $log .= ' request_path=' . preg_replace('/[^a-zA-Z0-9_\/.\-]/', '', $requestPath);
+    }
     if ($exception !== null) {
         $log .= ' class=' . get_class($exception) . ' code=' . (string)$exception->getCode();
+        $log .= ' source=' . basename($exception->getFile()) . ':' . (int)$exception->getLine();
     }
     error_log($log);
 
@@ -151,53 +156,19 @@ if (in_array(false, $required_config_status, true)) {
  * ==========================
  * CONNECT DATABASE
  * ==========================
+ *
+ * The application query helpers use mysqli. PDO is initialized later as an
+ * optional compatibility handle and must not prevent mysqli-backed pages from
+ * loading on hosts where pdo_mysql is unavailable.
  */
-$pdo = null;
-$db = null;
-$pdoException = null;
-try {
-    $dsn = 'mysql:host=' . $db_config['host']
-        . ';port=' . (int)$db_config['port']
-        . ';dbname=' . $db_config['name']
-        . ';charset=utf8mb4';
-    $pdo = new PDO($dsn, $db_config['user'], $db_config['pass'], [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
-    $db = $pdo;
-    $pdo->exec("SET time_zone = '+08:00'");
-} catch (Throwable $e) {
-    $pdoException = $e;
-    $pdo = null;
-    $db = null;
-}
-
-$databaseSelected = false;
-$serverVersion = '';
-if ($pdo instanceof PDO) {
-    try {
-        $databaseSelected = hash_equals($db_config['name'], (string)$pdo->query('SELECT DATABASE()')->fetchColumn());
-        $serverVersion = (string)$pdo->getAttribute(PDO::ATTR_SERVER_VERSION);
-    } catch (Throwable $e) {
-        $databaseSelected = false;
-    }
-}
-
 $GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
-    'pdo_connected' => $pdo instanceof PDO,
-    'database_selected' => $databaseSelected,
+    'pdo_connected' => false,
+    'mysqli_connected' => false,
+    'database_selected' => false,
     'resolved_env_path' => printflow_project_env_path(),
-    'connection_driver' => $pdo instanceof PDO ? (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME) : '',
-    'database_server_version' => $serverVersion,
+    'connection_driver' => '',
+    'database_server_version' => '',
 ]);
-
-if (!$pdo instanceof PDO || !$databaseSelected) {
-    if (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE) {
-        return;
-    }
-    printflow_db_abort($pdo instanceof PDO ? 'database_not_selected' : 'pdo_connect_failed', $pdoException);
-}
 
 if (function_exists('mysqli_report')) {
     // Some hosts enable STRICT reporting (SQL errors become exceptions -> 500).
@@ -236,7 +207,6 @@ if (!$conn instanceof mysqli || $conn->connect_error) {
     }
     printflow_db_abort('mysqli_compatibility_connect_failed', $mysqliException);
 }
-$GLOBALS['printflow_db_diagnostics']['mysqli_connected'] = true;
 
 /**
  * ==========================
@@ -251,6 +221,65 @@ $conn->set_charset("utf8mb4");
  * notifications look about 8 hours old when PHP formats them in Manila time.
  */
 $conn->query("SET time_zone = '+08:00'");
+
+$databaseSelected = false;
+$selectedResult = $conn->query('SELECT DATABASE() AS selected_database');
+if ($selectedResult instanceof mysqli_result) {
+    $selectedRow = $selectedResult->fetch_assoc();
+    $selectedResult->free();
+    $databaseSelected = hash_equals(
+        $db_config['name'],
+        (string)($selectedRow['selected_database'] ?? '')
+    );
+}
+if (!$databaseSelected) {
+    if (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE) {
+        $GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
+            'pdo_connected' => false,
+            'mysqli_connected' => true,
+            'database_selected' => false,
+            'resolved_env_path' => printflow_project_env_path(),
+            'connection_driver' => 'mysqli',
+            'database_server_version' => (string)$conn->server_info,
+        ]);
+        return;
+    }
+    printflow_db_abort('database_not_selected');
+}
+
+$pdo = null;
+$db = null;
+$shouldInitializePdo = PHP_SAPI === 'cli'
+    || (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE);
+if ($shouldInitializePdo && extension_loaded('pdo_mysql')) {
+    try {
+        $dsn = 'mysql:host=' . $db_config['host']
+            . ';port=' . (int)$db_config['port']
+            . ';dbname=' . $db_config['name']
+            . ';charset=utf8mb4';
+        $pdo = new PDO($dsn, $db_config['user'], $db_config['pass'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+        $pdo->exec("SET time_zone = '+08:00'");
+        $db = $pdo;
+    } catch (Throwable $e) {
+        $pdo = null;
+        $db = null;
+        error_log('[database] optional_pdo_connect_failed class=' . get_class($e)
+            . ' code=' . (string)$e->getCode());
+    }
+}
+
+$GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
+    'pdo_connected' => $pdo instanceof PDO,
+    'mysqli_connected' => true,
+    'database_selected' => true,
+    'resolved_env_path' => printflow_project_env_path(),
+    'connection_driver' => $pdo instanceof PDO ? 'mysqli+pdo_mysql' : 'mysqli',
+    'database_server_version' => (string)$conn->server_info,
+]);
 
 /**
  * ==========================

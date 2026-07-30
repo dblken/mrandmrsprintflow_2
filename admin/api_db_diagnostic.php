@@ -42,7 +42,6 @@ $response['success'] = !in_array(false, [
     (bool)($response['db_name_set'] ?? false),
     (bool)($response['db_user_set'] ?? false),
     (bool)($response['db_password_set'] ?? false),
-    (bool)($response['pdo_connected'] ?? false),
     (bool)($response['database_selected'] ?? false),
     (bool)($diagnostic['mysqli_connected'] ?? false),
 ], true);
