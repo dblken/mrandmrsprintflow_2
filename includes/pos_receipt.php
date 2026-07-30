@@ -29,6 +29,19 @@ function printflow_pos_build_receipt(int $orderId): array {
         return [];
     }
     $order = $orders[0];
+    $providerRows = db_query(
+        "SELECT provider_payment_id, paid_at, amount_centavos, payment_method
+         FROM provider_payments
+         WHERE order_id = ? AND channel = 'pos' AND provider = 'paymongo'
+           AND mode = 'test' AND status = 'paid' AND fulfillment_applied_at IS NOT NULL
+         ORDER BY id DESC LIMIT 1",
+        'i',
+        [$orderId]
+    ) ?: [];
+    if (empty($providerRows)) {
+        return [];
+    }
+    $providerPayment = $providerRows[0];
     $rows = db_query(
         "SELECT oi.quantity, oi.unit_price, oi.customization_data, p.name AS product_name
          FROM order_items oi
@@ -63,7 +76,7 @@ function printflow_pos_build_receipt(int $orderId): array {
     return [
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
-        'date_time' => (string)$order['order_date'],
+        'date_time' => (string)($providerPayment['paid_at'] ?? $order['order_date']),
         'company' => [
             'name' => trim((string)($shop['name'] ?? 'Mr. and Mrs. Print')),
             'logo_url' => '',
@@ -86,9 +99,10 @@ function printflow_pos_build_receipt(int $orderId): array {
         ],
         'total' => round($total, 2),
         'payment' => [
-            'method' => 'PayMongo Test',
-            'reference' => (string)($order['payment_reference'] ?? ''),
-            'amount_paid' => round($total, 2),
+            'method' => 'PayMongo — QRPh',
+            'reference' => (string)($providerPayment['provider_payment_id'] ?? $order['payment_reference'] ?? ''),
+            'amount_paid' => round(((int)$providerPayment['amount_centavos']) / 100, 2),
+            'paid_at' => (string)($providerPayment['paid_at'] ?? ''),
             'change' => 0,
             'status' => 'Paid',
         ],

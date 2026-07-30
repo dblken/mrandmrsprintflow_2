@@ -1964,6 +1964,7 @@ try {
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
         let paymongoPollTimer = null;
         let pendingPayMongoReceipt = null;
+        let pendingPayMongoOrderId = 0;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -2161,7 +2162,8 @@ try {
                     <div class="receipt-payment-breakdown">
                         <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || 0)}</strong></div>
                         <div class="receipt-total-line"><span>Change</span><strong style="color:#0f766e;">${formatMoney(payment.change || 0)}</strong></div>
-                        ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${escapeHtml(payment.reference)}</span></div>` : ''}
+                        ${payment.reference ? `<div class="receipt-total-line"><span>Provider Reference</span><span>${escapeHtml(payment.reference)}</span></div>` : ''}
+                        ${payment.paid_at ? `<div class="receipt-total-line"><span>Paid Date</span><span>${escapeHtml(formatReceiptDateTime(payment.paid_at))}</span></div>` : ''}
                     </div>
                 </div>
 
@@ -2248,6 +2250,17 @@ try {
         document.addEventListener('DOMContentLoaded', async () => {
             fetchProducts();
             refreshCart(); // Initialize cart from session
+            const pendingPayMongo = sessionStorage.getItem('pos_paymongo_pending');
+            if (pendingPayMongo) {
+                try {
+                    const savedPayment = JSON.parse(pendingPayMongo);
+                    if (Number(savedPayment.order_id) > 0 && savedPayment.checkout_url) {
+                        openPayMongoPosModal(Number(savedPayment.order_id), String(savedPayment.checkout_url));
+                    }
+                } catch (error) {
+                    sessionStorage.removeItem('pos_paymongo_pending');
+                }
+            }
             const barcodeInputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
             const searchEl = document.getElementById('pos-search');
             const catEl = document.getElementById('pos-category');
@@ -4057,8 +4070,12 @@ try {
             completeButton.style.background = '#94a3b8';
             completeButton.style.cursor = 'not-allowed';
             pendingPayMongoReceipt = null;
+            pendingPayMongoOrderId = Number(orderId);
+            sessionStorage.setItem('pos_paymongo_pending', JSON.stringify({
+                order_id: pendingPayMongoOrderId,
+                checkout_url: checkoutUrl
+            }));
             modal.style.display = 'flex';
-            sessionStorage.removeItem('pos_paymongo_checkout_token');
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             const poll = async () => {
                 try {
@@ -4070,9 +4087,16 @@ try {
                     if (data.success && data.payment && data.payment.status === 'paid') {
                         window.clearInterval(paymongoPollTimer);
                         paymongoPollTimer = null;
-                        document.getElementById('paymongo-pos-status').textContent = 'Payment confirmed. Receipt is ready.';
+                        document.getElementById('paymongo-pos-status').textContent =
+                            data.receipt_available
+                                ? 'Transaction completed. Receipt is ready.'
+                                : 'Payment confirmed. Complete transaction to issue receipt.';
                         if (data.receipt_available && data.receipt) {
                             pendingPayMongoReceipt = data.receipt;
+                            completeButton.disabled = false;
+                            completeButton.style.background = '#059669';
+                            completeButton.style.cursor = 'pointer';
+                        } else if (data.can_complete) {
                             completeButton.disabled = false;
                             completeButton.style.background = '#059669';
                             completeButton.style.cursor = 'pointer';
@@ -4086,11 +4110,47 @@ try {
             paymongoPollTimer = window.setInterval(poll, 4000);
         }
 
-        function completePayMongoPosTransaction() {
-            if (!pendingPayMongoReceipt) return;
-            closePayMongoPosModal();
-            openReceiptModal(pendingPayMongoReceipt);
-            pendingPayMongoReceipt = null;
+        async function completePayMongoPosTransaction() {
+            if (pendingPayMongoReceipt) {
+                sessionStorage.removeItem('pos_paymongo_pending');
+                sessionStorage.removeItem('pos_paymongo_checkout_token');
+                closePayMongoPosModal();
+                openReceiptModal(pendingPayMongoReceipt);
+                pendingPayMongoOrderId = 0;
+                return;
+            }
+            if (pendingPayMongoOrderId <= 0) return;
+            const completeButton = document.getElementById('paymongo-pos-complete');
+            completeButton.disabled = true;
+            document.getElementById('paymongo-pos-status').textContent = 'Completing transaction…';
+            try {
+                const response = await fetch(staffUrl('staff/api/paymongo_payment.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'complete_pos',
+                        subject_type: 'order',
+                        subject_id: pendingPayMongoOrderId,
+                        channel: 'pos',
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success || !data.receipt) {
+                    throw new Error(data.message || 'The transaction could not be completed.');
+                }
+                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+                paymongoPollTimer = null;
+                pendingPayMongoReceipt = data.receipt;
+                sessionStorage.removeItem('pos_paymongo_pending');
+                sessionStorage.removeItem('pos_paymongo_checkout_token');
+                closePayMongoPosModal();
+                openReceiptModal(data.receipt);
+                pendingPayMongoOrderId = 0;
+            } catch (error) {
+                completeButton.disabled = false;
+                document.getElementById('paymongo-pos-status').textContent = error.message;
+            }
         }
 
         function openNewCustomerModal() {
