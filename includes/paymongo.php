@@ -209,6 +209,23 @@ if (!function_exists('printflow_paymongo_request')) {
                 ? $paidPayment['attributes']
                 : $paidPayment;
             $paymentId = trim((string)($paidPayment['id'] ?? ''));
+            $source = isset($attributes['source']) && is_array($attributes['source'])
+                ? $attributes['source']
+                : [];
+            $sourceAttributes = isset($source['attributes']) && is_array($source['attributes'])
+                ? $source['attributes']
+                : (isset($source['data']['attributes']) && is_array($source['data']['attributes'])
+                    ? $source['data']['attributes']
+                    : $source);
+            $paymentMethod = strtolower(trim((string)(
+                $attributes['payment_method_used']
+                ?? $sourceAttributes['type']
+                ?? $source['type']
+                ?? ''
+            )));
+            if (!preg_match('/^[a-z0-9_-]{2,30}$/', $paymentMethod)) {
+                $paymentMethod = '';
+            }
 
             return [
                 'ok' => true,
@@ -220,6 +237,7 @@ if (!function_exists('printflow_paymongo_request')) {
                 'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
                 'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
                 'status' => strtolower(trim((string)($attributes['status'] ?? ''))),
+                'payment_method' => $paymentMethod,
             ];
         }
         $candidateUrl = isset($data['url']) && is_string($data['url'])

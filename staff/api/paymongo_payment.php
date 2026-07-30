@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../includes/pos_receipt.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
-if (!has_role(['Admin', 'Staff'])) {
+if (!has_role(['Admin', 'Staff', 'Manager'])) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Staff access is required.']);
     exit;
@@ -80,13 +80,21 @@ if (empty($payment)) {
 
 if ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_id'])) {
     $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
-    if (!empty($remote['ok']) && !empty($remote['paid']) && empty($remote['livemode'])
-        && (int)($remote['amount'] ?? 0) === (int)$payment['amount_centavos']
-        && strtoupper((string)($remote['currency'] ?? '')) === 'PHP'
-        && !empty($remote['payment_id'])) {
-        printflow_provider_payment_mark_paid((int)$payment['id'], (string)$remote['payment_id']);
+    if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
+        printflow_provider_payment_mark_paid(
+            (int)$payment['id'],
+            (string)$remote['payment_id'],
+            (string)($remote['payment_method'] ?? '')
+        );
         $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
     }
+} elseif ((string)$payment['status'] === 'paid' && !empty($payment['provider_payment_id'])) {
+    printflow_provider_payment_mark_paid(
+        (int)$payment['id'],
+        (string)$payment['provider_payment_id'],
+        (string)($payment['payment_method'] ?? '')
+    );
+    $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
 }
 
 $paid = (string)($payment['status'] ?? '') === 'paid';

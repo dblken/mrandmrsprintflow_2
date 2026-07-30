@@ -83,10 +83,8 @@ if (empty($paymentRows)) {
 
 $payment = $paymentRows[0];
 $verified = printflow_paymongo_get_paid_link_payment($linkId);
-if (empty($verified['ok']) || empty($verified['paid']) || !empty($verified['livemode'])
-    || (int)($verified['amount'] ?? 0) !== (int)$payment['amount_centavos']
-    || strtoupper((string)($verified['currency'] ?? '')) !== 'PHP'
-    || empty($verified['payment_id'])) {
+$verificationErrors = printflow_provider_payment_revalidation_errors($payment, $verified);
+if (!empty($verificationErrors)) {
     db_execute(
         "UPDATE provider_webhook_events
          SET status = 'failed', provider_payment_id = ?, processed_at = NOW()
@@ -99,7 +97,11 @@ if (empty($verified['ok']) || empty($verified['paid']) || !empty($verified['live
     exit;
 }
 
-$result = printflow_provider_payment_mark_paid((int)$payment['id'], (string)$verified['payment_id']);
+$result = printflow_provider_payment_mark_paid(
+    (int)$payment['id'],
+    (string)$verified['payment_id'],
+    (string)($verified['payment_method'] ?? '')
+);
 db_execute(
     "UPDATE provider_webhook_events
      SET status = ?, provider_payment_id = ?, processed_at = NOW()

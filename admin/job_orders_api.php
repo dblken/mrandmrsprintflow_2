@@ -71,6 +71,7 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 if (!is_logged_in()) {
     jo_api_json_response(['success' => false, 'error' => 'Unauthorized'], 401);
@@ -152,6 +153,95 @@ function jo_api_require_staff_branch(?int $staffBranch, int $jobId): void {
             [$staffBranch, $jobId]
         );
     }
+}
+
+/**
+ * Attach the latest PayMongo Test ledger row without exposing provider secrets.
+ * Paid customization rows stay in the Payment bucket until staff starts production.
+ */
+function jo_api_attach_provider_payments(array &$rows): void {
+    if (empty($rows) || !printflow_provider_payments_ready()) {
+        return;
+    }
+
+    $orderIds = [];
+    $jobIds = [];
+    foreach ($rows as $row) {
+        $orderId = (int)($row['order_id'] ?? 0);
+        if ($orderId > 0) {
+            $orderIds[$orderId] = $orderId;
+        }
+        if (strtoupper((string)($row['order_type'] ?? 'JOB')) === 'JOB') {
+            $jobId = (int)($row['id'] ?? 0);
+            if ($jobId > 0) {
+                $jobIds[$jobId] = $jobId;
+            }
+        }
+    }
+
+    $conditions = [];
+    if (!empty($orderIds)) {
+        $conditions[] = 'order_id IN (' . implode(',', $orderIds) . ')';
+    }
+    if (!empty($jobIds)) {
+        $conditions[] = "(subject_type = 'job_order' AND subject_id IN (" . implode(',', $jobIds) . '))';
+    }
+    if (empty($conditions)) {
+        return;
+    }
+
+    $payments = db_query(
+        "SELECT * FROM provider_payments
+         WHERE provider = 'paymongo' AND mode = 'test'
+           AND (" . implode(' OR ', $conditions) . ')
+         ORDER BY id DESC'
+    ) ?: [];
+    $byOrder = [];
+    $byJob = [];
+    foreach ($payments as $payment) {
+        $orderId = (int)($payment['order_id'] ?? 0);
+        if ($orderId > 0 && !isset($byOrder[$orderId])) {
+            $byOrder[$orderId] = $payment;
+        }
+        if (($payment['subject_type'] ?? '') === 'job_order') {
+            $jobId = (int)($payment['subject_id'] ?? 0);
+            if ($jobId > 0 && !isset($byJob[$jobId])) {
+                $byJob[$jobId] = $payment;
+            }
+        }
+    }
+
+    foreach ($rows as &$row) {
+        $orderId = (int)($row['order_id'] ?? 0);
+        $jobId = strtoupper((string)($row['order_type'] ?? 'JOB')) === 'JOB'
+            ? (int)($row['id'] ?? 0)
+            : 0;
+        $payment = $orderId > 0
+            ? ($byOrder[$orderId] ?? [])
+            : ($byJob[$jobId] ?? []);
+        if (empty($payment)) {
+            $row['provider_payment'] = null;
+            $row['provider_payment_status'] = '';
+            continue;
+        }
+
+        $public = printflow_provider_payment_public($payment);
+        $row['provider_payment'] = $public;
+        $row['provider_payment_status'] = (string)($public['status'] ?? '');
+        if (($public['status'] ?? '') === 'paid') {
+            $row['payment_status'] = 'PAID';
+            $row['amount_paid'] = ((int)($public['amount'] ?? 0)) / 100;
+            $normalizedStatus = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
+            if (in_array($normalizedStatus, [
+                'PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                'TO_PAY', 'VERIFY_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED',
+            ], true)) {
+                $row['status'] = 'PAYMENT_CONFIRMED';
+            }
+        }
+    }
+    unset($row);
 }
 
 function jo_api_debug_staff_order_items(array $row, array $items = []): void {
@@ -764,6 +854,7 @@ try {
                 }
                 $orders = $visibleOrders;
             }
+            jo_api_attach_provider_payments($orders);
             
             $response = ['success' => true, 'data' => $orders];
             if ($includePagination) {
@@ -824,6 +915,7 @@ try {
                             WHEN o.status IN ('Design Approved', 'Approved') THEN 'APPROVED'
                             WHEN o.status IN ('Pending Verification', 'Downpayment Submitted', 'To Verify') THEN 'VERIFY_PAY'
                             WHEN o.status IN ('To Pay') THEN 'TO_PAY'
+                            WHEN o.status = 'Payment Confirmed' THEN 'PAYMENT_CONFIRMED'
                             WHEN o.status IN ('Paid – In Process', 'Paid - In Process', 'Processing', 'In Production', 'Printing') THEN 'IN_PRODUCTION'
                             WHEN o.status = 'Ready for Pickup' THEN 'TO_RECEIVE'
                             WHEN o.status = 'Completed' THEN 'COMPLETED'
@@ -857,7 +949,7 @@ try {
                     AND o.status IN (
                         'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
                         'Approved', 'Design Approved',
-                        'To Pay', 'Downpayment Submitted', 'Pending Verification', 'To Verify',
+                        'To Pay', 'Payment Confirmed', 'Downpayment Submitted', 'Pending Verification', 'To Verify',
                         'Processing', 'In Production', 'Printing', 'Paid – In Process', 'Paid - In Process', 'Ready for Pickup',
                         'Completed', 'Rejected', 'Cancelled'
                     )"
@@ -940,6 +1032,7 @@ try {
                         WHEN cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision') THEN 'PENDING'
                         WHEN cust.status = 'Approved' THEN 'APPROVED'
                         WHEN cust.status = 'To Pay' THEN 'TO_PAY'
+                        WHEN cust.status = 'Payment Confirmed' THEN 'PAYMENT_CONFIRMED'
                         WHEN cust.status IN ('Pending Verification', 'Downpayment Submitted', 'To Verify') THEN 'VERIFY_PAY'
                         WHEN cust.status IN ('Processing', 'In Production') THEN 'IN_PRODUCTION'
                         WHEN cust.status IN ('Ready for Pickup', 'Ready For Pickup') THEN 'TO_RECEIVE'
@@ -961,7 +1054,7 @@ try {
                 FROM customizations cust
                 LEFT JOIN customers c ON cust.customer_id = c.customer_id
                 LEFT JOIN orders o ON cust.order_id = o.order_id
-                WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
+                WHERE cust.status IN ('Pending Review', 'Pending', 'Pending Approval', 'For Revision', 'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification', 'Downpayment Submitted', 'To Verify', 'Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')
                 AND cust.order_id IS NOT NULL
                 AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
                 AND (
@@ -1054,6 +1147,7 @@ try {
             unset($so);
 
             $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
+            jo_api_attach_provider_payments($merged);
             usort($merged, function ($a, $b) {
                 $ta = strtotime($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? 'now');
                 $tb = strtotime($b['updated_at'] ?? $b['created_at'] ?? $b['order_date'] ?? 'now');
@@ -1079,6 +1173,9 @@ try {
             if (is_array($order['items'] ?? null)) {
                 jo_api_hydrate_items_raw((int)($order['order_id'] ?? 0), $order['items']);
             }
+            $detailRows = [$order];
+            jo_api_attach_provider_payments($detailRows);
+            $order = $detailRows[0];
             jo_api_debug_staff_order_items($order, is_array($order['items'] ?? null) ? $order['items'] : []);
             jo_api_json_response(['success' => true, 'data' => $order]);
             break;
@@ -1141,6 +1238,7 @@ try {
             $job_status_sync = [
                 'Approved'              => 'APPROVED',
                 'To Pay'                => 'TO_PAY',
+                'Payment Confirmed'      => 'PAYMENT_CONFIRMED',
                 'Pending Verification'  => 'VERIFY_PAY',
                 'Processing'            => 'IN_PRODUCTION',
                 'Ready for Pickup'      => 'TO_RECEIVE',
@@ -1303,6 +1401,7 @@ try {
                 'For Revision'          => 'PENDING',
                 'Approved'              => 'APPROVED',
                 'To Pay'                => 'TO_PAY',
+                'Payment Confirmed'      => 'PAYMENT_CONFIRMED',
                 'Pending Verification'  => 'VERIFY_PAY',
                 'Downpayment Submitted' => 'VERIFY_PAY',
                 'To Verify'             => 'VERIFY_PAY',
@@ -1776,6 +1875,7 @@ try {
                 'For Revision' => 'PENDING', 'Design Approved' => 'APPROVED', 'Approved' => 'APPROVED',
                 'Pending Verification' => 'VERIFY_PAY', 'Downpayment Submitted' => 'VERIFY_PAY', 'To Verify' => 'VERIFY_PAY',
                 'To Pay' => 'TO_PAY',
+                'Payment Confirmed' => 'PAYMENT_CONFIRMED',
                 'Paid – In Process' => 'IN_PRODUCTION',
                 'Paid - In Process' => 'IN_PRODUCTION',
                 'Processing' => 'IN_PRODUCTION', 'In Production' => 'IN_PRODUCTION', 'Printing' => 'IN_PRODUCTION',

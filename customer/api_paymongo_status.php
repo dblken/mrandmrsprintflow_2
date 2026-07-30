@@ -30,13 +30,26 @@ if (empty($payment)) {
     exit;
 }
 
-if ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_id'])) {
+if ((string)$payment['status'] === 'paid' && !empty($payment['provider_payment_id'])) {
+    printflow_provider_payment_mark_paid(
+        (int)$payment['id'],
+        (string)$payment['provider_payment_id'],
+        (string)($payment['payment_method'] ?? '')
+    );
+    $payment = printflow_provider_payment_for_customer(
+        (int)get_user_id(),
+        $subjectType,
+        $subjectId
+    );
+} elseif ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_id'])) {
     $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
-    if (!empty($remote['ok']) && !empty($remote['paid']) && empty($remote['livemode'])
-        && (int)($remote['amount'] ?? 0) === (int)$payment['amount_centavos']
-        && strtoupper((string)($remote['currency'] ?? '')) === 'PHP'
-        && !empty($remote['payment_id'])) {
-        printflow_provider_payment_mark_paid((int)$payment['id'], (string)$remote['payment_id']);
+    if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
+        $finalized = printflow_provider_payment_mark_paid(
+            (int)$payment['id'],
+            (string)$remote['payment_id'],
+            (string)($remote['payment_method'] ?? '')
+        );
+        $confirming = empty($finalized['ok']);
         $payment = printflow_provider_payment_for_customer(
             (int)get_user_id(),
             $subjectType,
@@ -47,5 +60,6 @@ if ((string)$payment['status'] === 'awaiting_payment' && !empty($payment['link_i
 
 echo json_encode([
     'success' => true,
+    'confirming' => !empty($confirming),
     'payment' => printflow_provider_payment_public($payment),
 ], JSON_UNESCAPED_SLASHES);

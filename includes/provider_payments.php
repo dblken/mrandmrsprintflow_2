@@ -33,13 +33,25 @@ function printflow_money_to_centavos($amount): int {
 }
 
 function printflow_provider_payment_public(array $payment): array {
+    $status = (string)($payment['status'] ?? '');
+    $paymentStatus = (string)($payment['payment_status'] ?? $status);
+    $providerStatus = (string)($payment['provider_status'] ?? $status);
+    $method = strtolower(trim((string)($payment['payment_method'] ?? '')));
+    $methodLabel = $method === 'qrph'
+        ? 'QRPh'
+        : ($method !== '' ? strtoupper($method) : 'PayMongo');
+
     return [
         'payment_id' => (int)($payment['id'] ?? 0),
         'order_id' => (int)($payment['order_id'] ?? 0),
         'channel' => (string)($payment['channel'] ?? ''),
         'mode' => (string)($payment['mode'] ?? ''),
         'test_mode' => (string)($payment['mode'] ?? '') === 'test',
-        'status' => (string)($payment['status'] ?? ''),
+        'status' => $status,
+        'payment_status' => $paymentStatus,
+        'provider_status' => $providerStatus,
+        'payment_method' => $method,
+        'payment_method_label' => $methodLabel,
         'amount' => (int)($payment['amount_centavos'] ?? 0),
         'currency' => (string)($payment['currency'] ?? 'PHP'),
         'payment_link_id' => (string)($payment['link_id'] ?? ''),
@@ -47,6 +59,87 @@ function printflow_provider_payment_public(array $payment): array {
         'created_at' => $payment['created_at'] ?? null,
         'paid_at' => $payment['paid_at'] ?? null,
     ];
+}
+
+function printflow_provider_payment_revalidation_errors(array $payment, array $verified): array {
+    $errors = [];
+    if (($payment['provider'] ?? '') !== 'paymongo' || ($payment['mode'] ?? '') !== 'test') {
+        $errors[] = 'mode';
+    }
+    if (($verified['test_mode'] ?? false) !== true || !empty($verified['livemode'])) {
+        $errors[] = 'livemode';
+    }
+    if (empty($verified['ok']) || empty($verified['paid'])
+        || strtolower((string)($verified['status'] ?? '')) !== 'paid') {
+        $errors[] = 'provider_status';
+    }
+    if ((int)($verified['amount'] ?? 0) !== (int)($payment['amount_centavos'] ?? 0)) {
+        $errors[] = 'amount';
+    }
+    if (strtoupper((string)($verified['currency'] ?? '')) !== 'PHP') {
+        $errors[] = 'currency';
+    }
+    if (!preg_match('/^pay_[A-Za-z0-9_-]+$/', (string)($verified['payment_id'] ?? ''))) {
+        $errors[] = 'payment_id';
+    }
+
+    $subject = printflow_provider_payment_load_subject(
+        (string)($payment['subject_type'] ?? ''),
+        (int)($payment['subject_id'] ?? 0)
+    );
+    if (empty($subject)) {
+        $errors[] = 'subject';
+        return array_values(array_unique($errors));
+    }
+    if ((int)($subject['customer_id'] ?? 0) !== (int)($payment['customer_id'] ?? 0)) {
+        $errors[] = 'customer';
+    }
+    if ((int)($payment['order_id'] ?? 0) > 0
+        && (int)($subject['order_id'] ?? 0) !== (int)$payment['order_id']) {
+        $errors[] = 'order';
+    }
+    $currentAmount = printflow_money_to_centavos($subject['total_amount'] ?? '');
+    if ($currentAmount <= 0 || $currentAmount !== (int)($payment['amount_centavos'] ?? 0)) {
+        $errors[] = 'subject_amount';
+    }
+    return array_values(array_unique($errors));
+}
+
+function printflow_provider_payment_record_transition(
+    int $ledgerId,
+    int $orderId,
+    string $eventKey,
+    string $oldStatus,
+    string $newStatus,
+    string $actorType,
+    int $actorId = 0
+): bool {
+    if (!db_table_has_column('provider_payment_status_history', 'event_key')) {
+        return false;
+    }
+    return db_execute_affected_rows(
+        "INSERT IGNORE INTO provider_payment_status_history
+            (provider_payment_id, order_id, event_key, old_status, new_status, actor_type, actor_id)
+         VALUES (?, NULLIF(?, 0), ?, ?, ?, ?, NULLIF(?, 0))",
+        'iissssi',
+        [$ledgerId, $orderId, $eventKey, $oldStatus, $newStatus, $actorType, $actorId]
+    ) === 1;
+}
+
+function printflow_order_status_supports(string $status): bool {
+    $columns = db_query("SHOW COLUMNS FROM orders LIKE 'status'") ?: [];
+    $type = (string)($columns[0]['Type'] ?? '');
+    if ($type === '' || stripos($type, 'enum(') !== 0) {
+        return $type !== '';
+    }
+    if (stripos($type, "'" . $status . "'") !== false) {
+        return true;
+    }
+    if (!ensure_order_status_values([$status])) {
+        return false;
+    }
+    $columns = db_query("SHOW COLUMNS FROM orders LIKE 'status'") ?: [];
+    return stripos((string)($columns[0]['Type'] ?? ''), "'" . $status . "'") !== false;
 }
 
 function printflow_provider_payment_find(string $subjectType, int $subjectId, string $channel): array {
@@ -284,10 +377,16 @@ function printflow_provider_payment_create_link(
 
 function printflow_provider_payment_mark_paid(
     int $ledgerId,
-    string $providerPaymentId
+    string $providerPaymentId,
+    string $paymentMethod = ''
 ): array {
     global $conn;
+    if (!printflow_order_status_supports('Payment Confirmed')) {
+        return ['ok' => false, 'message' => 'The payment-confirmed workflow status is unavailable.'];
+    }
     $transactionOpen = false;
+    $shouldNotify = false;
+    $payment = [];
     try {
         $conn->begin_transaction();
         $transactionOpen = true;
@@ -300,9 +399,11 @@ function printflow_provider_payment_mark_paid(
             throw new RuntimeException('Payment record not found.');
         }
         $payment = $rows[0];
-        if ((string)$payment['status'] === 'paid') {
-            $conn->commit();
-            return ['ok' => true, 'already_processed' => true, 'payment' => $payment];
+        if (($payment['provider'] ?? '') !== 'paymongo' || ($payment['mode'] ?? '') !== 'test') {
+            throw new RuntimeException('Only PayMongo Test Mode payments can be finalized.');
+        }
+        if (!preg_match('/^pay_[A-Za-z0-9_-]+$/', $providerPaymentId)) {
+            throw new RuntimeException('The provider payment identifier is invalid.');
         }
 
         $subject = printflow_provider_payment_load_subject(
@@ -312,32 +413,103 @@ function printflow_provider_payment_mark_paid(
         if (empty($subject)) {
             throw new RuntimeException('The linked order no longer exists.');
         }
+        if ((int)($subject['customer_id'] ?? 0) !== (int)($payment['customer_id'] ?? 0)
+            || ((int)($payment['order_id'] ?? 0) > 0
+                && (int)($subject['order_id'] ?? 0) !== (int)$payment['order_id'])) {
+            throw new RuntimeException('The linked order does not match the payment record.');
+        }
+        if (printflow_money_to_centavos($subject['total_amount'] ?? '') !== (int)$payment['amount_centavos']) {
+            throw new RuntimeException('The linked order amount does not match the verified payment.');
+        }
 
-        db_execute(
-            "UPDATE provider_payments
-             SET status = 'paid', provider_payment_id = ?, paid_at = NOW(), updated_at = NOW()
-             WHERE id = ?",
-            'si',
-            [$providerPaymentId, $ledgerId]
-        );
+        $alreadyPaid = (string)($payment['status'] ?? '') === 'paid';
+        $normalizedMethod = strtolower(trim($paymentMethod));
+        if (!preg_match('/^[a-z0-9_-]{2,30}$/', $normalizedMethod)) {
+            $normalizedMethod = strtolower(trim((string)($payment['payment_method'] ?? '')));
+        }
+        $setParts = [
+            "status = 'paid'",
+            'provider_payment_id = ?',
+            'paid_at = COALESCE(paid_at, NOW())',
+            'updated_at = NOW()',
+        ];
+        $types = 's';
+        $params = [$providerPaymentId];
+        if (db_table_has_column('provider_payments', 'payment_status')) {
+            $setParts[] = "payment_status = 'paid'";
+        }
+        if (db_table_has_column('provider_payments', 'provider_status')) {
+            $setParts[] = "provider_status = 'paid'";
+        }
+        if (db_table_has_column('provider_payments', 'payment_method') && $normalizedMethod !== '') {
+            $setParts[] = 'payment_method = ?';
+            $types .= 's';
+            $params[] = $normalizedMethod;
+        }
+        $params[] = $ledgerId;
+        $types .= 'i';
+        if (!db_execute(
+            'UPDATE provider_payments SET ' . implode(', ', $setParts) . ' WHERE id = ?',
+            $types,
+            $params
+        )) {
+            throw new RuntimeException('The payment ledger could not be updated.');
+        }
 
         $orderId = (int)($payment['order_id'] ?? 0);
         if ($orderId > 0) {
             $isPos = (string)$payment['channel'] === 'pos';
             $isProduct = strtolower((string)($subject['order_type'] ?? '')) === 'product';
-            if ($isPos) {
-                $nextStatus = $isProduct ? 'Completed' : 'Pending';
+            if ($isProduct) {
+                $nextStatus = $isPos ? 'Completed' : 'Ready for Pickup';
+                if (!db_execute(
+                    "UPDATE orders
+                     SET payment_status = 'Paid', payment_method = 'PayMongo Test',
+                         payment_reference = ?, status = ?, updated_at = NOW()
+                     WHERE order_id = ? AND status <> 'Cancelled'",
+                    'ssi',
+                    [$providerPaymentId, $nextStatus, $orderId]
+                )) {
+                    throw new RuntimeException('The paid product order could not be synchronized.');
+                }
             } else {
-                $nextStatus = $isProduct ? 'Ready for Pickup' : 'Processing';
+                if (!db_execute(
+                    "UPDATE orders
+                     SET payment_status = 'Paid', payment_method = 'PayMongo Test',
+                         payment_reference = ?,
+                         status = CASE
+                             WHEN UPPER(REPLACE(TRIM(status), ' ', '_')) IN
+                                  ('PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                                   'DESIGN_APPROVED', 'TO_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                                   'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED')
+                             THEN 'Payment Confirmed'
+                             ELSE status
+                         END,
+                         updated_at = NOW()
+                     WHERE order_id = ?",
+                    'si',
+                    [$providerPaymentId, $orderId]
+                )) {
+                    throw new RuntimeException('The paid customization order could not be synchronized.');
+                }
+                if (!db_execute(
+                    "UPDATE customizations
+                     SET status = CASE
+                         WHEN UPPER(REPLACE(TRIM(status), ' ', '_')) IN
+                              ('PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                               'TO_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                               'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED')
+                         THEN 'Payment Confirmed'
+                         ELSE status
+                     END,
+                     updated_at = NOW()
+                     WHERE order_id = ?",
+                    'i',
+                    [$orderId]
+                )) {
+                    throw new RuntimeException('The customization payment status could not be synchronized.');
+                }
             }
-            db_execute(
-                "UPDATE orders
-                 SET payment_status = 'Paid', payment_method = 'PayMongo Test',
-                     payment_reference = ?, status = ?, updated_at = NOW()
-                 WHERE order_id = ?",
-                'ssi',
-                [$providerPaymentId, $nextStatus, $orderId]
-            );
 
             if ($isPos && $isProduct && empty($payment['fulfillment_applied_at'])) {
                 require_once __DIR__ . '/product_branch_stock.php';
@@ -376,33 +548,47 @@ function printflow_provider_payment_mark_paid(
             }
 
             if (!$isProduct) {
-                $customizationStatus = $isPos ? 'Pending' : 'In Production';
-                $jobStatus = $isPos ? 'PENDING' : 'IN_PRODUCTION';
-                db_execute(
-                    'UPDATE customizations SET status = ?, updated_at = NOW() WHERE order_id = ?',
-                    'si',
-                    [$customizationStatus, $orderId]
-                );
+                $jobStatus = 'PAYMENT_CONFIRMED';
                 if (db_table_has_column('job_orders', 'payment_method')
                     && db_table_has_column('job_orders', 'payment_reference')) {
-                    db_execute(
+                    if (!db_execute(
                         "UPDATE job_orders
                          SET payment_status = 'PAID', amount_paid = estimated_total,
                              payment_method = 'PayMongo Test', payment_reference = ?,
-                             status = ?, updated_at = NOW()
+                             status = CASE
+                                 WHEN UPPER(REPLACE(TRIM(status), ' ', '_')) IN
+                                      ('PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                                       'TO_PAY', 'VERIFY_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                                       'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED')
+                                 THEN ?
+                                 ELSE status
+                             END,
+                             updated_at = NOW()
                          WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
                         'ssi',
                         [$providerPaymentId, $jobStatus, $orderId]
-                    );
+                    )) {
+                        throw new RuntimeException('The linked production job could not be synchronized.');
+                    }
                 } else {
-                    db_execute(
+                    if (!db_execute(
                         "UPDATE job_orders
                          SET payment_status = 'PAID', amount_paid = estimated_total,
-                             status = ?, updated_at = NOW()
+                             status = CASE
+                                 WHEN UPPER(REPLACE(TRIM(status), ' ', '_')) IN
+                                      ('PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                                       'TO_PAY', 'VERIFY_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                                       'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED')
+                                 THEN ?
+                                 ELSE status
+                             END,
+                             updated_at = NOW()
                          WHERE order_id = ? AND status NOT IN ('COMPLETED', 'CANCELLED')",
                         'si',
                         [$jobStatus, $orderId]
-                    );
+                    )) {
+                        throw new RuntimeException('The linked production job could not be synchronized.');
+                    }
                 }
             }
         }
@@ -410,47 +596,89 @@ function printflow_provider_payment_mark_paid(
         if ((string)$payment['subject_type'] === 'job_order') {
             if (db_table_has_column('job_orders', 'payment_method')
                 && db_table_has_column('job_orders', 'payment_reference')) {
-                db_execute(
+                if (!db_execute(
                     "UPDATE job_orders
                      SET payment_status = 'PAID', amount_paid = estimated_total,
                          payment_method = 'PayMongo Test', payment_reference = ?,
+                         status = CASE
+                             WHEN UPPER(REPLACE(TRIM(status), ' ', '_')) IN
+                                  ('PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                                   'TO_PAY', 'VERIFY_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                                   'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED')
+                             THEN 'PAYMENT_CONFIRMED'
+                             ELSE status
+                         END,
                          updated_at = NOW()
                      WHERE id = ?",
                     'si',
                     [$providerPaymentId, (int)$payment['subject_id']]
-                );
+                )) {
+                    throw new RuntimeException('The paid job order could not be synchronized.');
+                }
             } else {
-                db_execute(
+                if (!db_execute(
                     "UPDATE job_orders
-                     SET payment_status = 'PAID', amount_paid = estimated_total, updated_at = NOW()
+                     SET payment_status = 'PAID', amount_paid = estimated_total,
+                         status = CASE
+                             WHEN UPPER(REPLACE(TRIM(status), ' ', '_')) IN
+                                  ('PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
+                                   'TO_PAY', 'VERIFY_PAY', 'TO_VERIFY', 'PENDING_VERIFICATION',
+                                   'DOWNPAYMENT_SUBMITTED', 'PAYMENT_CONFIRMED')
+                             THEN 'PAYMENT_CONFIRMED'
+                             ELSE status
+                         END,
+                         updated_at = NOW()
                      WHERE id = ?",
                     'i',
                     [(int)$payment['subject_id']]
-                );
+                )) {
+                    throw new RuntimeException('The paid job order could not be synchronized.');
+                }
             }
         }
 
+        $transitionInserted = printflow_provider_payment_record_transition(
+            $ledgerId,
+            $orderId,
+            'payment_confirmed',
+            $alreadyPaid ? 'paid' : (string)($payment['status'] ?? 'awaiting_payment'),
+            'paid',
+            'PayMongo',
+            0
+        );
+        $shouldNotify = !$alreadyPaid || $transitionInserted;
         $conn->commit();
         $transactionOpen = false;
 
-        create_notification(
-            (int)$payment['customer_id'],
-            'Customer',
-            'PayMongo Test payment confirmed for order #' . ((int)($payment['order_id'] ?? 0) ?: (int)$payment['subject_id']) . '.',
-            'Payment',
-            false,
-            false,
-            (int)($payment['order_id'] ?? 0)
-        );
-        notify_shop_users(
-            'PayMongo Test payment confirmed for order #' . ((int)($payment['order_id'] ?? 0) ?: (int)$payment['subject_id']) . '.',
-            'Payment',
-            false,
-            false,
-            (int)($payment['order_id'] ?? 0)
-        );
+        if ($shouldNotify) {
+            $displayCode = $orderId > 0
+                ? printflow_format_order_code($orderId, '')
+                : printflow_format_job_code((int)$payment['subject_id']);
+            $amountLabel = "\xE2\x82\xB1" . number_format(((int)$payment['amount_centavos']) / 100, 2);
+            create_notification(
+                (int)$payment['customer_id'],
+                'Customer',
+                "Your payment of {$amountLabel} for order {$displayCode} has been confirmed.",
+                'Payment',
+                false,
+                false,
+                $orderId
+            );
+            notify_shop_users(
+                "PayMongo payment confirmed for {$displayCode}. The order is ready to start production.",
+                'Payment',
+                false,
+                false,
+                $orderId
+            );
+        }
 
-        return ['ok' => true, 'already_processed' => false, 'payment' => $payment];
+        $refreshed = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+        return [
+            'ok' => true,
+            'already_processed' => $alreadyPaid,
+            'payment' => $refreshed[0] ?? $payment,
+        ];
     } catch (Throwable $error) {
         if ($transactionOpen) {
             $conn->rollback();
