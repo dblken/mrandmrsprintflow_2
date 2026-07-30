@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 header('Content-Type: application/json');
 
@@ -66,6 +67,7 @@ $status_map = [
     'Pending Verification' => 'VERIFY_PAY',
     'Downpayment Submitted' => 'VERIFY_PAY',
     'To Pay' => 'TO_PAY',
+    'Payment Confirmed' => 'PAYMENT_CONFIRMED',
     'Paid – In Process' => 'IN_PRODUCTION',
     'Paid - In Process' => 'IN_PRODUCTION',
     'Processing' => 'IN_PRODUCTION',
@@ -150,6 +152,28 @@ if ($includeAssignments && $linked_job_id) {
 }
 
 $proof = payment_verification_resolve_proof($order_id, $linked_job_id);
+$provider_payment = printflow_provider_payment_find('order', $order_id, 'online');
+if (($provider_payment['status'] ?? '') === 'paid' && !empty($provider_payment['provider_payment_id'])) {
+    printflow_provider_payment_mark_paid(
+        (int)$provider_payment['id'],
+        (string)$provider_payment['provider_payment_id'],
+        (string)($provider_payment['payment_method'] ?? '')
+    );
+    $provider_payment = printflow_provider_payment_find('order', $order_id, 'online');
+    $syncedOrder = db_query(
+        'SELECT status, payment_status, payment_method FROM orders WHERE order_id = ? LIMIT 1',
+        'i',
+        [$order_id]
+    ) ?: [];
+    if (!empty($syncedOrder[0])) {
+        $o = array_merge($o, $syncedOrder[0]);
+        $db_status = (string)($o['status'] ?? '');
+        $mapped_status = $status_map[$db_status] ?? $db_status;
+    }
+}
+$provider_payment_public = !empty($provider_payment)
+    ? printflow_provider_payment_public($provider_payment)
+    : null;
 $payment_proof_url = null;
 $payment_submitted_amount = null;
 $payment_proof_status = 'NONE';
@@ -207,6 +231,9 @@ $data = [
     'ocr_error' => $ocr_error,
     'verification_status' => $verification_status,
     'payment_status' => (string)($o['payment_status'] ?? 'Unpaid'),
+    'payment_method' => (string)($o['payment_method'] ?? ''),
+    'provider_payment' => $provider_payment_public,
+    'provider_payment_status' => (string)($provider_payment_public['status'] ?? ''),
     'readiness' => 'READY',
     'items' => $items_out,
     'materials' => $materials,

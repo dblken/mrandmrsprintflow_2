@@ -1999,6 +1999,42 @@ $online_closed_count = 0;
                                 <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
                             </div>
                             <div style="font-size:13px; color:#1e40af; line-height:1.5;">Waiting for the customer to upload payment proof. Once uploaded, it will appear in the TO VERIFY section.</div>
+                            <div style="margin-top:14px;padding-top:14px;border-top:1px solid #bfdbfe;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+                                    <strong style="font-size:12px;color:#1e40af;">PayMongo Payment Link</strong>
+                                    <span style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                                </div>
+                                <button type="button" @click="generatePayMongoLink()" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" :style="paymongoBusy ? 'opacity:.6;cursor:not-allowed;' : ''">
+                                    <span x-text="paymongoBusy ? 'Generating...' : (paymongoPayment && paymongoPayment.checkout_url ? 'Reuse Payment Link' : 'Generate Payment Link')"></span>
+                                </button>
+                                <div x-show="paymongoPayment" style="margin-top:9px;color:#1e40af;font-size:11px;line-height:1.5;">
+                                    <div>Status: <strong x-text="paymongoPayment ? String(paymongoPayment.status || '').replaceAll('_', ' ') : ''"></strong></div>
+                                    <div x-show="paymongoPayment && paymongoPayment.created_at">Created: <span x-text="paymongoPayment ? paymongoPayment.created_at : ''"></span></div>
+                                    <div x-show="paymongoPayment && paymongoPayment.paid_at">Paid: <span x-text="paymongoPayment ? paymongoPayment.paid_at : ''"></span></div>
+                                </div>
+                                <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open Test Checkout</a>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- 4. PAYMENT_CONFIRMED (staff-controlled production gate) -->
+                    <template x-if="modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED'">
+                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #86efac; background:#f0fdf4;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
+                                <label style="font-size:12px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.05em;">Payment Confirmed</label>
+                                <span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                            </div>
+                            <div style="display:grid;gap:8px;color:#166534;font-size:13px;">
+                                <div>Status: <strong>PAID</strong></div>
+                                <div><strong>Paid via PayMongo — <span x-text="(providerPaymentFor(currentJo) || {}).payment_method_label || 'PayMongo'"></span></strong></div>
+                                <div>Amount: <strong x-text="'₱' + (Number((providerPaymentFor(currentJo) || {}).amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
+                                <div x-show="(providerPaymentFor(currentJo) || {}).paid_at">Paid date: <strong x-text="(providerPaymentFor(currentJo) || {}).paid_at || ''"></strong></div>
+                            </div>
+                            <div x-show="!canStartProduction(currentJo)" style="margin-top:14px;padding:10px 12px;border:1px solid #fecaca;background:#fff1f2;color:#b91c1c;font-size:12px;font-weight:700;line-height:1.5;">
+                                <template x-for="(message, key) in startProductionErrors(currentJo)" :key="key">
+                                    <div x-text="message"></div>
+                                </template>
+                            </div>
                         </div>
                     </template>
 
@@ -2164,6 +2200,9 @@ $online_closed_count = 0;
                             </div>
                             <div x-show="isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'APPROVED' && isPosPricingReturnFlow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
+                            </div>
+                            <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
+                                <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Start Production</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
@@ -2434,6 +2473,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             rejectPaymentModalError: '',
             previewFile: null,
             currentJo: {},
+            paymongoBusy: false,
+            paymongoPayment: null,
             detailContextMode: 'production_view',
             deepLinkExpectedStatus: '',
             deepLinkSourceOrderId: '',
@@ -2777,7 +2818,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
-                const raw = String(jo.status || '').toUpperCase();
+                const raw = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (this.isPosPricingMode()) {
                     if (raw === 'PENDING' || raw === 'PENDING_REVIEW' || raw === 'PENDING_APPROVAL' || raw === 'FOR_REVISION') {
                         return 'APPROVED';
@@ -2800,6 +2841,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
+                this.paymongoPayment = this.currentJo.provider_payment || null;
             },
             finishDetailLoadWith(data, orderType, cacheKey) {
                 this.currentJo = this.applyPosSetPriceDeepLinkOverride(
@@ -2807,6 +2849,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 );
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
+                this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
                     ? this.currentJo.final_price
                     : '';
@@ -2840,6 +2883,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     merged.customer_type = this.normalizeCustomerType(merged.customer_type, merged.transaction_count);
                     merged.customer_profile_picture = merged.customer_profile_picture || merged.profile_picture || merged.customer_picture || '';
                     this.currentJo = merged;
+                    this.paymongoPayment = merged.provider_payment || this.paymongoPayment || null;
                     this.restoreSavedInkUsage();
                     this.modalCache[cacheKey] = merged;
                 } catch (e) {
@@ -4039,6 +4083,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             'PENDING_REVIEW': 'PENDING',
                             'APPROVED': 'PENDING',
                             'TO_PAY': 'PENDING',
+                            'PAYMENT_CONFIRMED': 'PENDING',
                             'TO_VERIFY': 'PENDING',
                             'PENDING_VERIFICATION': 'PENDING',
                             'DOWNPAYMENT_SUBMITTED': 'PENDING',
@@ -4059,6 +4104,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             'FOR_REVISION': 'INQUIRY',
                             'APPROVED': 'INQUIRY',
                             'TO_PAY': 'PAYMENT',
+                            'PAYMENT_CONFIRMED': 'PAYMENT',
                             'TO_VERIFY': 'PAYMENT',
                             'PENDING_VERIFICATION': 'PAYMENT',
                             'DOWNPAYMENT_SUBMITTED': 'PAYMENT',
@@ -4378,10 +4424,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return jo.status === 'COMPLETED' ? 'Completed' :
                     (jo.status === 'APPROVED' ? 'Approved' :
                     (jo.status === 'TO_PAY' ? 'To Pay' :
+                    (jo.status === 'PAYMENT_CONFIRMED' ? 'Payment Confirmed' :
                     (jo.status === 'VERIFY_PAY' ? 'To Verify' :
                     (jo.status === 'REJECTED' ? 'Rejected' :
                     (jo.status === 'IN_PRODUCTION' ? 'In Production' :
-                    (jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT' ? 'To Pickup' : jo.status))))));
+                    (jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT' ? 'To Pickup' : jo.status)))))));
             },
             getStatusBadgeClass(jo) {
                 if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
@@ -4393,7 +4440,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     };
                 }
                 return {
-                    'badge-fulfilled':  jo.status === 'COMPLETED',
+                    'badge-fulfilled':  jo.status === 'COMPLETED' || jo.status === 'PAYMENT_CONFIRMED',
                     'badge-approved':   jo.status === 'APPROVED',
                     'badge-topay':      jo.status === 'TO_PAY',
                     'badge-verify':     jo.status === 'VERIFY_PAY',
@@ -4413,7 +4460,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
                 if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
                 if (s === 'COMPLETED') return 'COMPLETED';
-                if (['TO_PAY', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
+                if (['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
             },
             matchesStatusTab(jo, status) {
@@ -5121,6 +5168,138 @@ window.pfCustomizationPreloadedOrders = (() => {
             async getProductionAssignmentTarget() {
                 const jid = await this.resolveEffectiveJobId();
                 return { orderId: jid, orderType: 'JOB', jobId: jid };
+            },
+            providerPaymentFor(row = null) {
+                const target = row || this.currentJo || {};
+                return target.provider_payment || (target === this.currentJo ? this.paymongoPayment : null) || null;
+            },
+            isPaymentConfirmed(row = null) {
+                const target = row || this.currentJo || {};
+                const payment = this.providerPaymentFor(target);
+                return !!payment
+                    && String(payment.status || payment.payment_status || '').toLowerCase() === 'paid'
+                    && String(target.payment_status || '').toUpperCase() === 'PAID';
+            },
+            startProductionErrors(row = null) {
+                const target = row || this.currentJo || {};
+                const errors = {};
+                if (!this.isPaymentConfirmed(target)) {
+                    errors.payment = 'A verified PayMongo payment is required.';
+                }
+                const price = Number(target.final_price || target.estimated_total || 0);
+                if (!Number.isFinite(price) || price <= 0) {
+                    errors.final_price = 'A valid final price is required.';
+                }
+                const materials = Array.isArray(target.materials) ? target.materials : [];
+                if (!materials.some(material => Number(material.quantity || material.computed_required_length_ft || 0) > 0)) {
+                    errors.material = 'Please select and add a material.';
+                }
+                const requiresInk = target.requires_ink !== false
+                    && target.requires_ink !== 0
+                    && target.requires_ink !== '0';
+                const inks = Array.isArray(target.ink_usage) ? target.ink_usage : [];
+                if (requiresInk && !inks.some(ink => Number(ink.quantity_used || ink.quantity || 0) > 0)) {
+                    errors.ink_consumption = 'Please select an ink set and enter the required ink consumption.';
+                }
+                const status = String(target.status || '').toUpperCase().replace(/\s+/g, '_');
+                if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(status)) {
+                    errors.status = 'This order can no longer enter production.';
+                }
+                if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(status)) {
+                    errors.status = 'Production has already started.';
+                }
+                return errors;
+            },
+            canStartProduction(row = null) {
+                return Object.keys(this.startProductionErrors(row)).length === 0;
+            },
+            async startProduction() {
+                if (!this.currentJo || !this.beginModalAction()) return;
+                this.footerActionError = '';
+                try {
+                    const orderId = parseInt(this.currentJo.order_id || 0, 10);
+                    if (!orderId) {
+                        this.footerActionError = 'The linked order could not be resolved.';
+                        return;
+                    }
+                    const localErrors = this.startProductionErrors(this.currentJo);
+                    if (Object.keys(localErrors).length > 0) {
+                        this.productionErrors = { ...this.productionErrors, ...localErrors };
+                        this.footerActionError = Object.values(localErrors)[0];
+                        return;
+                    }
+                    const response = await fetch(this.staffApiUrl('api/start_paymongo_production.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                        body: JSON.stringify({
+                            order_id: orderId,
+                            csrf_token: document.body.getAttribute('data-csrf') || ''
+                        })
+                    });
+                    const data = await this.parseJsonResponse(response);
+                    if (!data.success) {
+                        if (data.missing_fields && typeof data.missing_fields === 'object') {
+                            this.productionErrors = { ...this.productionErrors, ...data.missing_fields };
+                        }
+                        this.footerActionError = data.message || 'Production could not be started.';
+                        return;
+                    }
+
+                    this.currentJo.status = 'IN_PRODUCTION';
+                    this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'PRODUCTION';
+                    this.modalCache = {};
+                    await this.loadOrders({ force: true });
+                    this.showDetailsModal = false;
+                    this.showStaffAlert(
+                        data.already_started ? 'Production' : 'Production Started',
+                        data.message || 'The order is now in production.'
+                    );
+                } catch (error) {
+                    this.footerActionError = 'Production could not be started. Please try again.';
+                } finally {
+                    this.endModalAction();
+                }
+            },
+            async generatePayMongoLink() {
+                if (this.paymongoBusy || !this.currentJo) return;
+                const orderId = parseInt(this.currentJo.order_id || 0, 10);
+                const jobId = parseInt(this.currentJo.job_order_id || this.currentJo.id || 0, 10);
+                const subjectType = orderId > 0 ? 'order' : 'job_order';
+                const subjectId = orderId > 0 ? orderId : jobId;
+                if (!subjectId) {
+                    this.showStaffAlert('Payment Link', 'The linked order could not be resolved.');
+                    return;
+                }
+                this.paymongoBusy = true;
+                try {
+                    const response = await fetch(this.staffApiUrl('api/paymongo_payment.php'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            subject_type: subjectType,
+                            subject_id: subjectId,
+                            channel: 'online',
+                            csrf_token: document.body.getAttribute('data-csrf') || ''
+                        })
+                    });
+                    const data = await this.parseJsonResponse(response);
+                    if (!data.success) {
+                        const title = data.manual_proof_under_review ? 'Manual Proof Under Review' : 'Payment Link';
+                        this.showStaffAlert(title, data.message || 'The Payment Link could not be generated.');
+                        return;
+                    }
+                    this.paymongoPayment = data.payment || null;
+                    this.showStaffAlert(
+                        'Payment Link Ready',
+                        data.reused
+                            ? 'The existing Test Mode Payment Link was reused.'
+                            : 'A Test Mode Payment Link was created and is now available to the customer.'
+                    );
+                } catch (error) {
+                    this.showStaffAlert('Payment Link', 'The Payment Link request could not be completed.');
+                } finally {
+                    this.paymongoBusy = false;
+                }
             },
             async submitToPay() {
                 console.log('submitToPay called');

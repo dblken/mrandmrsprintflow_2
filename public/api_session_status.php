@@ -1,7 +1,8 @@
 <?php
+require_once __DIR__ . '/../includes/json_endpoint.php';
+printflow_json_endpoint_bootstrap();
 require_once __DIR__ . '/../includes/auth.php';
 
-header('Content-Type: application/json; charset=utf-8');
 SessionManager::setNoCacheHeaders();
 
 if (!is_logged_in()) {

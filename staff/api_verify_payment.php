@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/ensure_orders_status_schema.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role(['Admin', 'Staff', 'Manager']);
 
@@ -139,6 +140,14 @@ if ($submission && in_array((string)$submission['verification_status'], ['Approv
         echo json_encode(['success' => false, 'error' => 'This payment submission has already been finalized.']);
     }
     exit;
+}
+if ($action === 'Approve') {
+    $providerPayment = printflow_provider_payment_find('order', $order_id, 'online');
+    if (($providerPayment['status'] ?? '') === 'paid') {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'This order is already paid through PayMongo.']);
+        exit;
+    }
 }
 
 $staff_id = get_user_id();

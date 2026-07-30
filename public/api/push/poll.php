@@ -6,34 +6,15 @@
  * Used as fallback when the tab is open (in-tab toasts); the service worker
  * handles background push when the tab is closed.
  */
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+require_once __DIR__ . '/../../../includes/json_endpoint.php';
+printflow_json_endpoint_bootstrap();
 
 require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/branch_context.php';
 
-header('Content-Type: application/json');
-
-set_exception_handler(function ($e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Server error', 'error' => $e->getMessage()]);
-    exit;
-});
-set_error_handler(function ($errno, $errstr, $errfile, $errline) {
-    if (!(error_reporting() & $errno)) return false;
-    throw new ErrorException($errstr, 0, $errno, $errfile, $errline);
-});
-register_shutdown_function(function () {
-    $error = error_get_last();
-    if ($error !== null && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Fatal server error', 'error' => $error['message']]);
-        exit;
-    }
-});
-
 if (!is_logged_in()) {
+    http_response_code(401);
     echo json_encode(['success' => false, 'notifications' => []]);
     exit;
 }
@@ -42,6 +23,7 @@ $user_id   = (int) get_user_id();
 $user_type = get_user_type() ?? 'Customer';
 $since     = isset($_GET['since']) ? (int) $_GET['since'] : (time() - 30);
 
+$dbErrorBaseline = function_exists('printflow_db_errors') ? count(printflow_db_errors()) : 0;
 // Pull notifications newer than the timestamp
 if ($user_type === 'Customer') {
     $rows = db_query(
@@ -72,6 +54,11 @@ if ($user_type === 'Customer') {
 }
 
 $rows = $rows ?: [];
+if (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $dbErrorBaseline) {
+    http_response_code(503);
+    echo json_encode(['success' => false, 'error' => 'Notification polling is temporarily unavailable.']);
+    exit;
+}
 
 if ($user_type === 'Customer') {
     $rows = printflow_collapse_duplicate_notifications_latest($rows);

@@ -22,6 +22,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 $failure_step = 'authentication';
 if (!is_logged_in()) {
@@ -176,6 +177,30 @@ if (!$is_job) {
     }
     $order = $order_result[0];
     $total_to_pay = (float)$order['estimated_total'];
+}
+
+$providerPayment = printflow_provider_payment_for_customer(
+    $customer_id,
+    $is_job ? 'job_order' : 'order',
+    $order_id
+);
+if (($providerPayment['status'] ?? '') === 'paid') {
+    http_response_code(409);
+    echo json_encode([
+        'success' => false,
+        'message' => 'This order is already paid through PayMongo.',
+        'step' => 'payment_state',
+    ]);
+    exit;
+}
+if (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0) {
+    http_response_code(409);
+    echo json_encode([
+        'success' => false,
+        'message' => 'This order has already been paid.',
+        'step' => 'payment_state',
+    ]);
+    exit;
 }
 
 $failure_step = 'payment_verification_schema';

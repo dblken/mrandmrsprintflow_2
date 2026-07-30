@@ -87,158 +87,39 @@ if (!function_exists('payment_verification_ensure_schema')) {
             return $ready;
         }
 
-        $sql = "CREATE TABLE IF NOT EXISTS payment_submissions (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            order_id INT DEFAULT NULL,
-            job_order_id BIGINT DEFAULT NULL,
-            customer_id INT NOT NULL,
-            branch_id INT DEFAULT NULL,
-            receipt_file VARCHAR(500) NOT NULL,
-            receipt_storage_path VARCHAR(500) DEFAULT NULL,
-            receipt_url VARCHAR(700) DEFAULT NULL,
-            receipt_thumbnail VARCHAR(500) DEFAULT NULL,
-            receipt_original_name VARCHAR(255) DEFAULT NULL,
-            receipt_mime VARCHAR(100) DEFAULT NULL,
-            receipt_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
-            receipt_sha256 CHAR(64) DEFAULT NULL,
-            selected_payment_method VARCHAR(80) DEFAULT NULL,
-            submission_token CHAR(64) DEFAULT NULL,
-            expected_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-            submitted_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-            ocr_sender_name VARCHAR(190) DEFAULT NULL,
-            sender_name VARCHAR(190) DEFAULT NULL,
-            ocr_sender_mobile VARCHAR(40) DEFAULT NULL,
-            sender_mobile VARCHAR(40) DEFAULT NULL,
-            ocr_reference_number VARCHAR(190) DEFAULT NULL,
-            reference_number VARCHAR(190) DEFAULT NULL,
-            reference_normalized VARCHAR(190) DEFAULT NULL,
-            ocr_amount_sent DECIMAL(12,2) DEFAULT NULL,
-            amount_sent DECIMAL(12,2) DEFAULT NULL,
-            ocr_total_amount_sent DECIMAL(12,2) DEFAULT NULL,
-            total_amount_sent DECIMAL(12,2) DEFAULT NULL,
-            ocr_detected_payment_method VARCHAR(80) DEFAULT NULL,
-            detected_payment_method VARCHAR(80) DEFAULT NULL,
-            ocr_transaction_date DATE DEFAULT NULL,
-            transaction_date DATE DEFAULT NULL,
-            ocr_transaction_time TIME DEFAULT NULL,
-            transaction_time TIME DEFAULT NULL,
-            ocr_transaction_status VARCHAR(80) DEFAULT NULL,
-            transaction_status VARCHAR(80) DEFAULT NULL,
-            ocr_receiver_name VARCHAR(190) DEFAULT NULL,
-            receiver_name VARCHAR(190) DEFAULT NULL,
-            ocr_receiver_account VARCHAR(190) DEFAULT NULL,
-            receiver_account VARCHAR(190) DEFAULT NULL,
-            raw_ocr_text MEDIUMTEXT,
-            ocr_normalized_text MEDIUMTEXT,
-            overall_confidence DECIMAL(5,2) DEFAULT NULL,
-            sender_confidence DECIMAL(5,2) DEFAULT NULL,
-            sender_mobile_confidence DECIMAL(5,2) DEFAULT NULL,
-            reference_confidence DECIMAL(5,2) DEFAULT NULL,
-            amount_confidence DECIMAL(5,2) DEFAULT NULL,
-            total_amount_confidence DECIMAL(5,2) DEFAULT NULL,
-            method_confidence DECIMAL(5,2) DEFAULT NULL,
-            date_confidence DECIMAL(5,2) DEFAULT NULL,
-            receiver_confidence DECIMAL(5,2) DEFAULT NULL,
-            status_confidence DECIMAL(5,2) DEFAULT NULL,
-            ocr_status VARCHAR(30) NOT NULL DEFAULT 'Pending',
-            ocr_provider VARCHAR(50) DEFAULT NULL,
-            ocr_error VARCHAR(500) DEFAULT NULL,
-            ocr_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-            ocr_duration_ms INT UNSIGNED DEFAULT NULL,
-            ocr_processed_at DATETIME DEFAULT NULL,
-            amount_match_status VARCHAR(20) NOT NULL DEFAULT 'Unknown',
-            method_match_status VARCHAR(20) NOT NULL DEFAULT 'Unknown',
-            duplicate_submission_id BIGINT UNSIGNED DEFAULT NULL,
-            verification_status VARCHAR(40) NOT NULL DEFAULT 'Pending Review',
-            staff_notes TEXT,
-            rejection_reason TEXT,
-            corrected_by INT DEFAULT NULL,
-            corrected_at DATETIME DEFAULT NULL,
-            verified_by INT DEFAULT NULL,
-            verified_at DATETIME DEFAULT NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id),
-            KEY idx_payment_submissions_order (order_id, created_at),
-            KEY idx_payment_submissions_job (job_order_id, created_at),
-            KEY idx_payment_submissions_customer (customer_id, created_at),
-            KEY idx_payment_submissions_branch (branch_id, created_at),
-            KEY idx_payment_submissions_queue (ocr_status, created_at),
-            KEY idx_payment_submissions_review (verification_status, created_at),
-            KEY idx_payment_submissions_reference (reference_normalized),
-            KEY idx_payment_submissions_hash (receipt_sha256),
-            UNIQUE KEY uq_payment_submissions_token (customer_id, submission_token)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-
-        $ready = (bool)db_execute($sql);
-        if ($ready) {
-            $ready = !empty(db_query("SHOW TABLES LIKE 'payment_submissions'"));
-        }
-        if (!$ready) {
-            return false;
+        // Runtime requests only validate schema. DDL belongs in the idempotent
+        // CLI migration so a least-privilege web user can still load the queue.
+        if (empty(db_query("SHOW TABLES LIKE 'payment_submissions'"))) {
+            payment_verification_log('schema_missing', ['table' => 'payment_submissions']);
+            return $ready = false;
         }
 
-        // CREATE TABLE IF NOT EXISTS does not upgrade an existing installation.
-        // Keep this additive and idempotent so deployments cannot lose old decisions.
-        $columns = [
-            'branch_id' => 'INT DEFAULT NULL AFTER customer_id',
-            'receipt_storage_path' => 'VARCHAR(500) DEFAULT NULL AFTER receipt_file',
-            'receipt_url' => 'VARCHAR(700) DEFAULT NULL AFTER receipt_storage_path',
-            'submission_token' => 'CHAR(64) DEFAULT NULL AFTER selected_payment_method',
-            'ocr_duration_ms' => 'INT UNSIGNED DEFAULT NULL AFTER ocr_attempts',
+        $requiredColumns = [
+            'id',
+            'order_id',
+            'job_order_id',
+            'customer_id',
+            'branch_id',
+            'receipt_file',
+            'receipt_storage_path',
+            'receipt_url',
+            'selected_payment_method',
+            'submission_token',
+            'expected_amount',
+            'submitted_amount',
+            'ocr_status',
+            'verification_status',
+            'created_at',
+            'updated_at',
         ];
-        $optionalColumns = [
-            'ocr_normalized_text' => 'MEDIUMTEXT DEFAULT NULL AFTER raw_ocr_text',
-            'ocr_sender_mobile' => 'VARCHAR(40) DEFAULT NULL AFTER sender_name',
-            'sender_mobile' => 'VARCHAR(40) DEFAULT NULL AFTER ocr_sender_mobile',
-            'ocr_transaction_status' => 'VARCHAR(80) DEFAULT NULL AFTER transaction_time',
-            'transaction_status' => 'VARCHAR(80) DEFAULT NULL AFTER ocr_transaction_status',
-            'sender_mobile_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER sender_confidence',
-            'status_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER receiver_confidence',
-            'ocr_total_amount_sent' => 'DECIMAL(12,2) DEFAULT NULL AFTER amount_sent',
-            'total_amount_sent' => 'DECIMAL(12,2) DEFAULT NULL AFTER ocr_total_amount_sent',
-            'total_amount_confidence' => 'DECIMAL(5,2) DEFAULT NULL AFTER amount_confidence',
-        ];
-        foreach ($columns as $column => $definition) {
+        foreach ($requiredColumns as $column) {
             if (!db_table_has_column('payment_submissions', $column)) {
-                $altered = db_execute("ALTER TABLE payment_submissions ADD COLUMN `{$column}` {$definition}");
-                db_table_has_column('payment_submissions', $column, true);
-                if (!$altered || !db_table_has_column('payment_submissions', $column)) {
-                    payment_verification_log('schema_upgrade_failed', ['column' => $column]);
-                    $ready = false;
-                    return false;
-                }
-            }
-        }
-        foreach ($optionalColumns as $column => $definition) {
-            if (db_table_has_column('payment_submissions', $column)) continue;
-            $altered = db_execute("ALTER TABLE payment_submissions ADD COLUMN `{$column}` {$definition}");
-            db_table_has_column('payment_submissions', $column, true);
-            if (!$altered || !db_table_has_column('payment_submissions', $column)) {
-                // Optional OCR metadata must never prevent the core proof and
-                // queue record from being persisted for manual review.
-                payment_verification_log('optional_schema_upgrade_failed', ['column' => $column]);
+                payment_verification_log('schema_column_missing', ['column' => $column]);
+                return $ready = false;
             }
         }
 
-        $indexes = db_query("SHOW INDEX FROM payment_submissions") ?: [];
-        $indexNames = array_map(static fn(array $row): string => (string)($row['Key_name'] ?? ''), $indexes);
-        if (!in_array('idx_payment_submissions_branch', $indexNames, true)) {
-            if (!db_execute('ALTER TABLE payment_submissions ADD KEY idx_payment_submissions_branch (branch_id, created_at)')) {
-                payment_verification_log('schema_upgrade_failed', ['index' => 'idx_payment_submissions_branch']);
-                $ready = false;
-                return false;
-            }
-        }
-        if (!in_array('uq_payment_submissions_token', $indexNames, true)) {
-            // NULL tokens remain allowed for all legacy rows.
-            if (!db_execute('ALTER TABLE payment_submissions ADD UNIQUE KEY uq_payment_submissions_token (customer_id, submission_token)')) {
-                payment_verification_log('schema_upgrade_failed', ['index' => 'uq_payment_submissions_token']);
-                $ready = false;
-                return false;
-            }
-        }
-        return $ready;
+        return $ready = true;
     }
 }
 

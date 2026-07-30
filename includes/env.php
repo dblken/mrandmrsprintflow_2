@@ -66,3 +66,36 @@ if (!function_exists('printflow_import_dotenv')) {
         return $values;
     }
 }
+
+if (!function_exists('printflow_project_root')) {
+    /**
+     * Resolve the application root independently of the process working directory.
+     */
+    function printflow_project_root(): string {
+        return dirname(__DIR__);
+    }
+}
+
+if (!function_exists('printflow_project_env_path')) {
+    function printflow_project_env_path(): string {
+        return printflow_project_root() . '/.env';
+    }
+}
+
+if (!function_exists('printflow_load_project_env')) {
+    /**
+     * Load the single project-level .env used by HTTP, CLI, cron, and webhooks.
+     */
+    function printflow_load_project_env(): array {
+        static $loaded = null;
+        if ($loaded !== null) {
+            return $loaded;
+        }
+
+        $envPath = printflow_project_env_path();
+        $GLOBALS['printflow_env_path'] = $envPath;
+        $GLOBALS['printflow_env_loaded'] = is_readable($envPath);
+        $loaded = printflow_import_dotenv($envPath);
+        return $loaded;
+    }
+}

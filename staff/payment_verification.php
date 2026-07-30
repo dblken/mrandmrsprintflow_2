@@ -453,7 +453,7 @@ $csrfToken = generate_csrf_token();
                 </div>
             </div>
         <?php elseif (!$schemaReady): ?>
-            <div class="pv-panel pv-empty">Payment verification storage could not be initialized. Apply <strong>database/payment_verification_ocr_20260711.sql</strong> and refresh this page.</div>
+            <div class="pv-panel pv-empty">Payment verification storage is temporarily unavailable. Ask an administrator to run the payment verification storage migration, then refresh this page.</div>
         <?php else: ?>
         <section class="pv-kpi-row" aria-label="Payment verification totals">
             <div class="kpi-card blue" onclick="window.location.href='<?php echo pv_h($basePath); ?>/staff/payment_verification.php?<?php echo http_build_query(array_merge($filterState, ['status' => 'Pending Review'])); ?>'" style="cursor:pointer;">

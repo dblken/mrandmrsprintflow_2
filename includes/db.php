@@ -14,6 +14,7 @@ function printflow_expects_json(): bool {
     $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
     if ($uri !== '' && preg_match('~/(api_[^/]+\\.php)$~i', $uri)) return true;
     if (stripos($uri, '/api/') !== false) return true;
+    if (stripos($uri, '/webhooks/') !== false) return true;
     $accept = (string)($_SERVER['HTTP_ACCEPT'] ?? '');
     if ($accept !== '' && stripos($accept, 'application/json') !== false) return true;
     $xrw = (string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '');
@@ -44,73 +45,106 @@ function printflow_db_errors(): array {
 
 /**
  * ==========================
- * DEFAULT CONFIG (ENVIRONMENT DETECTION)
+ * LOAD AND VALIDATE DATABASE CONFIGURATION
  * ==========================
  */
+printflow_load_project_env();
 
-// Detect if running on production
-$is_production = (
-    isset($_SERVER['HTTP_HOST']) && 
-    (strpos($_SERVER['HTTP_HOST'], 'mrandmrsprintflow.com') !== false ||
-     strpos($_SERVER['HTTP_HOST'], 'hostinger') !== false ||
-     strpos($_SERVER['HTTP_HOST'], 'printflow.com') !== false)
-);
-
-if ($is_production) {
-    // Production (Hostinger)
-    $db_config = [
-        'host' => 'localhost',
-        'user' => 'u618446170_user',
-        'pass' => 'Mrandmrsprintflow@123',
-        'name' => 'u618446170_printflow',
-        'port' => 3306,
-        'socket' => '',
-    ];
-} else {
-    // Local Development (XAMPP)
-    $db_config = [
-        'host' => 'localhost',
-        'user' => 'root',
-        'pass' => '',
-        'name' => 'printflow',
-        'port' => 3306,
-        'socket' => '',
-    ];
+function printflow_db_env_value(array $names) {
+    foreach ($names as $name) {
+        $value = printflow_env($name);
+        if ($value !== false && trim((string)$value) !== '') {
+            return (string)$value;
+        }
+    }
+    return '';
 }
 
-/**
- * ==========================
- * LOAD .ENV (IF EXISTS)
- * ==========================
- */
-$root = dirname(__DIR__);
-$env_file = $root . '/.env';
-
-$env = printflow_import_dotenv($env_file);
-
-$map = [
-    'host' => 'PRINTFLOW_DB_HOST',
-    'user' => 'PRINTFLOW_DB_USER',
-    'pass' => 'PRINTFLOW_DB_PASS',
-    'name' => 'PRINTFLOW_DB_NAME',
-    'port' => 'PRINTFLOW_DB_PORT',
-    'socket' => 'PRINTFLOW_DB_SOCKET',
+$db_config = [
+    // DB_* is canonical. PRINTFLOW_DB_* remains supported for existing hosts.
+    'host' => printflow_db_env_value(['DB_HOST', 'PRINTFLOW_DB_HOST']),
+    'user' => printflow_db_env_value(['DB_USER', 'PRINTFLOW_DB_USER']),
+    'pass' => printflow_db_env_value(['DB_PASSWORD', 'PRINTFLOW_DB_PASSWORD', 'PRINTFLOW_DB_PASS']),
+    'name' => printflow_db_env_value(['DB_NAME', 'PRINTFLOW_DB_NAME']),
+    'port' => printflow_db_env_value(['DB_PORT', 'PRINTFLOW_DB_PORT']),
 ];
 
-foreach ($map as $key => $envKey) {
-    // .env overrides (local) + real environment variables (production panels).
-    $fromDotenv = $env[$envKey] ?? '';
-    $fromEnvVar = printflow_env($envKey);
+if ($db_config['port'] === '') {
+    $db_config['port'] = '3306';
+}
 
-    if ($fromEnvVar !== false && $fromEnvVar !== '') {
-        $db_config[$key] = $fromEnvVar;
-        continue;
+$db_config_status = [
+    'env_loaded' => (bool)($GLOBALS['printflow_env_loaded'] ?? false),
+    'db_host_set' => $db_config['host'] !== '',
+    'db_port_set' => $db_config['port'] !== '',
+    'db_name_set' => $db_config['name'] !== '',
+    'db_user_set' => $db_config['user'] !== '',
+    'db_password_set' => $db_config['pass'] !== '',
+];
+
+function printflow_db_error_reference(): string {
+    try {
+        return strtoupper(bin2hex(random_bytes(6)));
+    } catch (Throwable $e) {
+        return strtoupper(substr(hash('sha256', uniqid('', true)), 0, 12));
+    }
+}
+
+function printflow_db_abort(string $stage, ?Throwable $exception = null): void {
+    $reference = printflow_db_error_reference();
+    $log = '[database][' . $reference . '] ' . $stage;
+    if ($exception !== null) {
+        $log .= ' class=' . get_class($exception) . ' code=' . (string)$exception->getCode();
+    }
+    error_log($log);
+
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, "Database connection failed. Review the server database configuration.\n");
+        exit(1);
     }
 
-    if ($fromDotenv !== '') {
-        $db_config[$key] = $fromDotenv;
-        continue;
+    if (printflow_expects_json()) {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => false,
+            'error' => 'Database service is temporarily unavailable.',
+            'error_reference' => $reference,
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
     }
+
+    http_response_code(503);
+    header('Content-Type: text/html; charset=utf-8');
+    $safeReference = htmlspecialchars($reference, ENT_QUOTES, 'UTF-8');
+    echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<title>Service temporarily unavailable</title></head><body style="font-family:system-ui,sans-serif;margin:3rem;line-height:1.5">'
+        . '<main><h1>We cannot load this page right now.</h1><p>Please try again shortly. If the problem continues, contact support and provide reference '
+        . '<code>' . $safeReference . '</code>.</p></main></body></html>';
+    exit;
+}
+
+$required_config_status = $db_config_status;
+unset($required_config_status['env_loaded']);
+if (in_array(false, $required_config_status, true)) {
+    $message = 'Database configuration is incomplete. Required environment variables are missing.';
+    if (PHP_SAPI === 'cli') {
+        fwrite(STDERR, $message . PHP_EOL);
+        fwrite(STDERR, json_encode($db_config_status, JSON_UNESCAPED_SLASHES) . PHP_EOL);
+        exit(1);
+    }
+
+    $GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
+        'pdo_connected' => false,
+        'database_selected' => false,
+        'resolved_env_path' => printflow_project_env_path(),
+        'connection_driver' => extension_loaded('pdo_mysql') ? 'mysql' : '',
+        'database_server_version' => '',
+    ]);
+    if (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE) {
+        return;
+    }
+    printflow_db_abort('configuration_incomplete');
 }
 
 /**
@@ -118,57 +152,91 @@ foreach ($map as $key => $envKey) {
  * CONNECT DATABASE
  * ==========================
  */
+$pdo = null;
+$db = null;
+$pdoException = null;
+try {
+    $dsn = 'mysql:host=' . $db_config['host']
+        . ';port=' . (int)$db_config['port']
+        . ';dbname=' . $db_config['name']
+        . ';charset=utf8mb4';
+    $pdo = new PDO($dsn, $db_config['user'], $db_config['pass'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+    $db = $pdo;
+    $pdo->exec("SET time_zone = '+08:00'");
+} catch (Throwable $e) {
+    $pdoException = $e;
+    $pdo = null;
+    $db = null;
+}
+
+$databaseSelected = false;
+$serverVersion = '';
+if ($pdo instanceof PDO) {
+    try {
+        $databaseSelected = hash_equals($db_config['name'], (string)$pdo->query('SELECT DATABASE()')->fetchColumn());
+        $serverVersion = (string)$pdo->getAttribute(PDO::ATTR_SERVER_VERSION);
+    } catch (Throwable $e) {
+        $databaseSelected = false;
+    }
+}
+
+$GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
+    'pdo_connected' => $pdo instanceof PDO,
+    'database_selected' => $databaseSelected,
+    'resolved_env_path' => printflow_project_env_path(),
+    'connection_driver' => $pdo instanceof PDO ? (string)$pdo->getAttribute(PDO::ATTR_DRIVER_NAME) : '',
+    'database_server_version' => $serverVersion,
+]);
+
+if (!$pdo instanceof PDO || !$databaseSelected) {
+    if (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE) {
+        return;
+    }
+    printflow_db_abort($pdo instanceof PDO ? 'database_not_selected' : 'pdo_connect_failed', $pdoException);
+}
+
 if (function_exists('mysqli_report')) {
     // Some hosts enable STRICT reporting (SQL errors become exceptions -> 500).
     // Keep the app resilient and rely on error_log + printflow_db_errors() instead.
     mysqli_report(MYSQLI_REPORT_OFF);
 }
-$conn = @new mysqli(
-    $db_config['host'],
-    $db_config['user'],
-    $db_config['pass'],
-    $db_config['name'],
-    (int)$db_config['port']
-);
+$mysqliException = null;
+try {
+    $conn = @new mysqli(
+        $db_config['host'],
+        $db_config['user'],
+        $db_config['pass'],
+        $db_config['name'],
+        (int)$db_config['port']
+    );
+} catch (Throwable $e) {
+    $mysqliException = $e;
+    $conn = null;
+}
+$mysqli = $conn;
 
 /**
  * ==========================
  * ERROR HANDLING
  * ==========================
  */
-if ($conn->connect_error) {
-    error_log('Database Connection Failed: ' . $conn->connect_error);
+if (!$conn instanceof mysqli || $conn->connect_error) {
     printflow_db_record_error([
         'stage' => 'connect',
-        'error' => $conn->connect_error,
-        'errno' => $conn->connect_errno,
-        'host' => $db_config['host'],
-        'db' => $db_config['name'],
-        'user' => $db_config['user'],
+        'errno' => $conn instanceof mysqli ? $conn->connect_errno : 0,
     ]);
 
-    if (printflow_expects_json()) {
-        http_response_code(500);
-        header('Content-Type: application/json; charset=utf-8');
-        $flags = JSON_UNESCAPED_SLASHES;
-        if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
-        echo json_encode([
-            'success' => false,
-            'error' => 'Database connection failed',
-        ], $flags);
-        exit;
+    if (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE) {
+        $GLOBALS['printflow_db_diagnostics']['mysqli_connected'] = false;
+        return;
     }
-
-    die(
-        '<div style="font-family:sans-serif;padding:20px;">' .
-        '<h2>Database Connection Failed</h2>' .
-        '<p><strong>Error:</strong> ' . htmlspecialchars($conn->connect_error) . '</p>' .
-        '<p><strong>Host:</strong> ' . htmlspecialchars($db_config['host']) . '</p>' .
-        '<p><strong>Database:</strong> ' . htmlspecialchars($db_config['name']) . '</p>' .
-        '<p><strong>User:</strong> ' . htmlspecialchars($db_config['user']) . '</p>' .
-        '</div>'
-    );
+    printflow_db_abort('mysqli_compatibility_connect_failed', $mysqliException);
 }
+$GLOBALS['printflow_db_diagnostics']['mysqli_connected'] = true;
 
 /**
  * ==========================

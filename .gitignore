@@ -68,6 +68,10 @@ TROUBLESHOOTING*.md
 # ===========================================
 # Backup & Archive Files
 # ===========================================
+backups*/
+*.bak
+*.backup
+*.dump
 *.zip
 *.tar.gz
 *.rar
@@ -86,8 +90,8 @@ TROUBLESHOOTING*.md
 # Environment & Configuration
 # ===========================================
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 config.local.php
 includes/db.local.php
 
