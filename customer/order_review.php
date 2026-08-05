@@ -1413,305 +1413,143 @@ require_once __DIR__ . '/../includes/header.php';
         .order-review-page-title { font-size: 1.15rem !important; }
     }
 
-    /* Order review page only: flatten the shared order item renderer. */
-    .order-review-page .order-container {
-        max-width: 820px;
-    }
-    .order-review-page .review-card {
-        background: #0b2a36 !important;
-        border: 1px solid rgba(83, 197, 224, 0.18) !important;
-        border-radius: 14px !important;
-        box-shadow: 0 14px 36px rgba(8, 31, 40, 0.14);
-        color: #eaf6fb;
-    }
-    .order-review-page .review-heading {
-        color: #eaf6fb !important;
-        border-color: rgba(159, 196, 212, 0.2) !important;
-    }
-    .order-review-page .review-order-entry {
-        margin-bottom: 1.5rem !important;
-        padding-bottom: 0 !important;
-    }
-    .order-review-page .review-order-entry > div {
-        width: 100% !important;
-        max-width: none !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: visible !important;
-        background: transparent !important;
-        border: 0 !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-    }
-    .order-review-page .review-order-entry .order-item-header {
-        display: grid !important;
-        grid-template-columns: 96px minmax(0, 1fr) !important;
-        align-items: center !important;
-        gap: 1.25rem !important;
-        min-height: 120px !important;
-        padding: 1.1rem 0 1.35rem !important;
-        background: transparent !important;
-        border: 0 !important;
-        border-bottom: 1px solid rgba(159, 196, 212, 0.18) !important;
-        box-sizing: border-box !important;
-    }
-    .order-review-page .review-order-entry .order-item-image {
-        width: 96px !important;
-        height: 96px !important;
-        aspect-ratio: 1 / 1 !important;
-        margin: 0 !important;
-        border: 0 !important;
-        border-radius: 10px !important;
-        box-shadow: none !important;
-        background: rgba(2, 18, 24, 0.35) !important;
-    }
+    /* Order review page only: preserve the original card and flatten specification tiles. */
     .order-review-page .review-order-entry .order-item-content {
-        width: 100% !important;
-        min-width: 0 !important;
         display: grid !important;
-        grid-template-columns: minmax(110px, 1.25fr) auto minmax(235px, 1fr) !important;
+        grid-template-columns: minmax(100px, 1fr) auto minmax(210px, 1.35fr) !important;
         align-items: center !important;
-        gap: 1rem 1.25rem !important;
-        padding: 0 !important;
-        text-align: left !important;
+        gap: 1rem !important;
     }
     .order-review-page .review-order-entry .order-item-content h3 {
-        width: auto !important;
         margin: 0 !important;
-        font-size: 1.05rem !important;
-        line-height: 1.35 !important;
-        text-align: left !important;
+        color: #ffffff !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge {
         align-self: center !important;
-        justify-self: start !important;
         margin: 0 !important;
         padding: 0 !important;
         background: transparent !important;
         border: 0 !important;
-        border-radius: 0 !important;
-        color: #70d2e8 !important;
-        font-size: 0.72rem !important;
+        color: #53c5e0 !important;
     }
     .order-review-page .review-order-entry .order-item-details {
         display: flex !important;
         align-items: center !important;
         justify-content: flex-end !important;
-        gap: 1.75rem !important;
-        width: 100% !important;
+        gap: 1.5rem !important;
         margin: 0 !important;
         flex-wrap: nowrap !important;
     }
     .order-review-page .review-order-entry .review-detail-row,
     .order-review-page .review-order-entry .review-total-row {
-        flex: 0 1 auto !important;
-        min-width: 72px !important;
-        width: auto !important;
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
         padding: 0 !important;
         background: transparent !important;
         border: 0 !important;
         border-radius: 0 !important;
-        text-align: left !important;
     }
     .order-review-page .review-order-entry .review-detail-label,
     .order-review-page .review-order-entry .review-total-label {
-        margin-bottom: 0.25rem !important;
         color: #9fc4d4 !important;
-        font-size: 0.67rem !important;
-        line-height: 1.2 !important;
-        letter-spacing: 0.04em !important;
         white-space: nowrap;
+    }
+    .order-review-page .review-order-entry .review-detail-value {
+        color: #eaf6fb !important;
     }
     .order-review-page .review-order-entry .review-total-value {
-        color: #62d0e8 !important;
-        font-size: 1.15rem !important;
-        line-height: 1.25 !important;
+        color: #53c5e0 !important;
+        font-size: 1.1rem !important;
         white-space: nowrap;
     }
-    .order-review-page .review-order-entry .order-item-specs {
-        display: block !important;
-        width: 100% !important;
-        padding: 1.35rem 0 0 !important;
-        background: transparent !important;
-    }
-    .order-review-page .review-order-entry .order-item-specs > h4 {
-        margin: 0 0 0.9rem !important;
-        padding: 0 0 0.7rem !important;
-        border-bottom: 1px solid rgba(159, 196, 212, 0.18) !important;
-        color: #eaf6fb !important;
-        font-size: 0.88rem !important;
-    }
-    .order-review-page .review-order-entry .order-item-specs > h4 svg {
-        display: none;
-    }
     .order-review-page .review-order-entry .order-item-spec-grid {
-        display: grid !important;
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-        gap: 0 1.5rem !important;
-        width: 100% !important;
+        gap: 1rem 1.25rem !important;
     }
     .order-review-page .review-order-entry .order-item-spec-tile {
-        display: block !important;
-        width: 100% !important;
         min-width: 0 !important;
-        min-height: 0 !important;
         height: auto !important;
-        padding: 0.85rem 0 !important;
+        padding: 0 !important;
         background: transparent !important;
         border: 0 !important;
-        border-bottom: 1px solid rgba(159, 196, 212, 0.14) !important;
         border-radius: 0 !important;
     }
     .order-review-page .review-order-entry .order-item-spec-tile .pf-spec-label {
-        margin: 0 0 0.35rem !important;
+        margin-bottom: 0.35rem !important;
         color: #9fc4d4 !important;
-        font-size: 0.66rem !important;
-        line-height: 1.25 !important;
-        letter-spacing: 0.045em !important;
     }
     .order-review-page .review-order-entry .order-item-spec-tile .pf-spec-value {
         color: #eaf6fb !important;
-        font-size: 0.94rem !important;
-        line-height: 1.4 !important;
-        text-align: left !important;
     }
     .order-review-page .review-order-entry .order-item-upload-design {
         grid-column: 1 / -1 !important;
-        padding: 1rem 0 0 !important;
-        border-bottom: 0 !important;
+        padding-top: 0.25rem !important;
     }
     .order-review-page .review-order-entry .order-item-upload-design img {
         display: block !important;
-        width: auto !important;
-        max-width: min(100%, 360px) !important;
-        max-height: 300px !important;
+        width: 100% !important;
+        max-width: 320px !important;
+        max-height: 280px !important;
         margin: 0 !important;
-        border: 0 !important;
+        border: 1px solid rgba(83, 197, 224, 0.22) !important;
         border-radius: 8px !important;
-        background: transparent !important;
-        box-shadow: none !important;
-    }
-    .order-review-page .review-order-entry .order-item-specs > div[style*="margin-top: 1.5rem"] {
-        padding: 1rem 0 0 1rem !important;
-        background: transparent !important;
-        border: 0 !important;
-        border-left: 2px solid #53c5e0 !important;
-        border-radius: 0 !important;
-    }
-    .order-review-page .review-order-entry > div > div[style*="border-top"] {
-        padding: 1.25rem 0 0 !important;
-        background: transparent !important;
-        border-color: rgba(159, 196, 212, 0.18) !important;
-    }
-    .order-review-page .review-total-banner {
-        padding: 1rem 0 !important;
-        background: transparent !important;
-        border: 0 !important;
-        border-top: 1px solid rgba(159, 196, 212, 0.18) !important;
-        border-bottom: 1px solid rgba(159, 196, 212, 0.18) !important;
-        border-radius: 0 !important;
-    }
-    .order-review-page .review-total-banner span {
-        color: #eaf6fb !important;
-    }
-    .order-review-page .review-total-banner span:last-child {
-        color: #62d0e8 !important;
-    }
-    .order-review-page .review-info-note {
-        background: rgba(83, 197, 224, 0.06) !important;
-        border: 0 !important;
-        border-left: 2px solid rgba(83, 197, 224, 0.75) !important;
-        border-radius: 0 !important;
-    }
-    .order-review-page .review-info-note-title,
-    .order-review-page .review-policy-title {
-        color: #dff6fb !important;
-    }
-    .order-review-page .review-info-note-text,
-    .order-review-page .review-policy-text {
-        color: #b8d7e2 !important;
-    }
-    .order-review-page .review-input-label {
-        color: #9fc4d4 !important;
-    }
-    .order-review-page .review-actions-bar {
-        border-color: rgba(159, 196, 212, 0.18) !important;
-    }
-
-    @media (max-width: 780px) {
-        .order-review-page .review-order-entry .order-item-content {
-            grid-template-columns: minmax(0, 1fr) auto !important;
-            gap: 0.65rem 1rem !important;
-        }
-        .order-review-page .review-order-entry .order-item-details {
-            grid-column: 1 / -1 !important;
-            justify-content: flex-start !important;
-            padding-top: 0.65rem !important;
-            border-top: 1px solid rgba(159, 196, 212, 0.14) !important;
-        }
-        .order-review-page .review-order-entry .order-item-spec-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        }
+        background: rgba(0, 0, 0, 0.25) !important;
     }
 
     @media (max-width: 640px) {
-        .order-review-page {
-            padding-top: 1.25rem !important;
-            padding-bottom: 1.25rem !important;
-        }
-        .order-review-page .order-review-page-header {
-            margin-bottom: 1.25rem;
-        }
-        .order-review-page .compact-card {
-            padding: 1.1rem !important;
-        }
         .order-review-page .review-order-entry {
             display: block !important;
-            margin-bottom: 1.25rem !important;
+            padding: 0 !important;
             overflow: visible !important;
         }
         .order-review-page .review-order-entry .order-item-header {
-            grid-template-columns: 72px minmax(0, 1fr) !important;
+            display: grid !important;
+            grid-template-columns: 84px minmax(0, 1fr) !important;
             align-items: center !important;
-            gap: 0.9rem !important;
-            padding: 0.75rem 0 1.1rem !important;
+            gap: 1rem !important;
+            padding: 1rem !important;
         }
         .order-review-page .review-order-entry .order-item-image {
             display: flex !important;
-            width: 72px !important;
-            height: 72px !important;
+            width: 84px !important;
+            height: 84px !important;
+            aspect-ratio: 1 / 1 !important;
             margin: 0 !important;
-            border-radius: 8px !important;
+            border-radius: 10px !important;
         }
         .order-review-page .review-order-entry .order-item-content {
-            align-items: center !important;
+            width: 100% !important;
+            display: grid !important;
             grid-template-columns: minmax(0, 1fr) auto !important;
-            gap: 0.55rem 0.75rem !important;
+            align-items: center !important;
+            gap: 0.65rem 0.75rem !important;
+            padding: 0 !important;
             text-align: left !important;
         }
         .order-review-page .review-order-entry .order-item-content h3 {
             width: auto !important;
             margin: 0 !important;
-            font-size: 0.98rem !important;
             text-align: left !important;
         }
         .order-review-page .review-order-entry .order-item-category-badge {
             justify-self: end !important;
         }
         .order-review-page .review-order-entry .order-item-details {
+            grid-column: 1 / -1 !important;
+            width: 100% !important;
             display: flex !important;
             flex-direction: row !important;
             justify-content: flex-start !important;
             gap: 1.25rem !important;
             margin: 0 !important;
-            padding-top: 0.55rem !important;
+            padding-top: 0.65rem !important;
+            border-top: 1px solid rgba(83, 197, 224, 0.12) !important;
             flex-wrap: wrap !important;
         }
         .order-review-page .review-order-entry .review-detail-row,
         .order-review-page .review-order-entry .review-total-row {
             display: block !important;
             width: auto !important;
-            min-width: 0 !important;
             padding: 0 !important;
             background: transparent !important;
             border: 0 !important;
@@ -1719,44 +1557,41 @@ require_once __DIR__ . '/../includes/header.php';
         }
         .order-review-page .review-order-entry .order-item-specs {
             display: block !important;
-            padding: 1.1rem 0 0 !important;
+            width: 100% !important;
+            padding: 1.25rem 1rem !important;
         }
         .order-review-page .review-order-entry .order-item-spec-grid {
             display: grid !important;
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            gap: 0 1rem !important;
+            gap: 1rem !important;
         }
         .order-review-page .review-order-entry .order-item-spec-tile {
             display: block !important;
-            padding: 0.75rem 0 !important;
+            width: 100% !important;
+            padding: 0 !important;
             background: transparent !important;
             border: 0 !important;
-            border-bottom: 1px solid rgba(159, 196, 212, 0.14) !important;
             border-radius: 0 !important;
         }
         .order-review-page .review-order-entry .order-item-spec-tile > div:last-child {
             text-align: left !important;
         }
         .order-review-page .review-order-entry .order-item-upload-design {
-            display: block !important;
             grid-column: 1 / -1 !important;
-            border-bottom: 0 !important;
         }
     }
 
     @media (max-width: 430px) {
         .order-review-page .review-order-entry .order-item-header {
-            grid-template-columns: 64px minmax(0, 1fr) !important;
+            grid-template-columns: 72px minmax(0, 1fr) !important;
+            gap: 0.8rem !important;
         }
         .order-review-page .review-order-entry .order-item-image {
-            width: 64px !important;
-            height: 64px !important;
+            width: 72px !important;
+            height: 72px !important;
         }
         .order-review-page .review-order-entry .order-item-spec-grid {
             grid-template-columns: 1fr !important;
-        }
-        .order-review-page .review-order-entry .review-total-value {
-            font-size: 1.05rem !important;
         }
     }
 </style>
@@ -1831,7 +1666,7 @@ require_once __DIR__ . '/../includes/header.php';
                     $review_snapshot = pf_order_ui_normalize_review_customization(review_item_customization($item), $item, true);
                     $review_snapshot_json = printflow_encode_customization_payload($review_snapshot);
                 ?>
-                <div class="review-order-item review-order-entry <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid rgba(159, 196, 212, 0.18);' : ''; ?>">
+                <div class="review-order-item review-order-entry <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
                     <input type="hidden" name="spec_snapshot[<?php echo htmlspecialchars((string)$key, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($review_snapshot_json, ENT_QUOTES, 'UTF-8'); ?>">
                     <?php
                     try {
