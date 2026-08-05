@@ -2145,6 +2145,39 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
+                    <!-- Revision audit comparison -->
+                    <template x-if="currentJo.revision_review && ['Resubmitted for Review', 'Staff Reviewing'].includes(currentJo.revision_review.status)">
+                        <div style="margin-bottom:20px;padding:14px;background:#f0f9ff;border:1px solid #7dd3fc;border-radius:10px;">
+                            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px;">
+                                <div>
+                                    <div style="font-size:13px;font-weight:800;color:#075985;">Revision Comparison</div>
+                                    <div style="font-size:11px;color:#0369a1;margin-top:3px;" x-text="currentJo.revision_review.reason + ' • ' + currentJo.revision_review.status"></div>
+                                </div>
+                                <div style="font-size:11px;color:#475569;" x-text="currentJo.revision_review.resubmitted_at ? 'Submitted: ' + currentJo.revision_review.resubmitted_at : ''"></div>
+                            </div>
+                            <div style="font-size:12px;color:#334155;margin-bottom:10px;" x-text="currentJo.revision_review.instruction"></div>
+                            <div x-show="currentJo.revision_review.revised?._revision?.price_review_required" style="margin-bottom:10px;padding:8px 10px;border-radius:7px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:11px;font-weight:700;">Pricing review required: a quantity, layout, type, or specification value changed. Do not reuse the previous approved price or payment request.</div>
+                            <div x-show="currentJo.revision_review.changes && currentJo.revision_review.changes.length" style="display:grid;gap:7px;">
+                                <template x-for="change in (currentJo.revision_review.changes || [])" :key="change.path">
+                                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;padding:8px;background:#fff;border:1px solid #bae6fd;border-radius:7px;align-items:start;">
+                                        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#0369a1;overflow-wrap:anywhere;" x-text="change.label"></div>
+                                        <div style="font-size:11px;color:#991b1b;overflow-wrap:anywhere;"><strong>Previous:</strong> <span x-text="formatRevisionAuditValue(change.previous)"></span></div>
+                                        <div style="font-size:11px;color:#166534;overflow-wrap:anywhere;"><strong>Revised:</strong> <span x-text="formatRevisionAuditValue(change.revised)"></span></div>
+                                    </div>
+                                </template>
+                            </div>
+                            <div x-show="!currentJo.revision_review.changes || !currentJo.revision_review.changes.length" style="font-size:11px;color:#64748b;">No text or quantity differences were recorded. Review the design comparison below.</div>
+                            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
+                                <template x-if="revisionPreviousDesignUrl()">
+                                    <a :href="revisionPreviousDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#991b1b;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #fecaca;border-radius:7px;">View Previous Design</a>
+                                </template>
+                                <template x-if="revisionReplacementDesignUrl()">
+                                    <a :href="revisionReplacementDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#166534;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:7px;">View Replacement Design</a>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
                     <!-- Design Status / Revision Alert -->
                     <template x-if="currentJo.design_status === 'Revision Submitted'">
                         <div style="margin-bottom:20px; padding:12px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:10px; display:flex; flex-wrap:wrap; align-items:flex-start; gap:12px;">
@@ -2153,7 +2186,7 @@ $online_closed_count = 0;
                              </div>
                             <div style="flex:1; min-width:0;">
                                 <div style="font-size:13px; font-weight:700; color:#0369a1;">Revision Re-submitted</div>
-                                <div style="font-size:12px; color:#075985;">The customer has uploaded a new design file. Please review and approve.</div>
+                                <div style="font-size:12px; color:#075985;">The customer submitted the requested updates. Compare the previous and revised values before continuing.</div>
                             </div>
                             <template x-for="(revItem, revIdx) in (currentJo.items || [])" :key="revItem.order_item_id || revIdx">
                                 <div x-show="(staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)) || (revItem.revision_design_url && staffFilenameLooksLikeImage(revItem.revision_design_name))"
@@ -3686,6 +3719,21 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             getCustomLabel(k) {
                 return this.customFieldLabels[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            },
+            formatRevisionAuditValue(value) {
+                if (value === null || value === undefined || value === '') return '—';
+                if (typeof value === 'object') {
+                    try { return JSON.stringify(value); } catch (e) { return String(value); }
+                }
+                return String(value);
+            },
+            revisionPreviousDesignUrl() {
+                const items = this.currentJo?.revision_review?.previous?.items;
+                return Array.isArray(items) ? String(items[0]?.design?.history_url || '') : '';
+            },
+            revisionReplacementDesignUrl() {
+                const items = this.currentJo?.revision_review?.revised?.items;
+                return Array.isArray(items) ? String(items[0]?.design?.serve_url || '') : '';
             },
             formatCustomValuePlain(v) {
                 if (v == null) return '';
@@ -5729,9 +5777,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                 (this.currentJo.items || []).forEach((item) => {
                     const itemId = Number(item.order_item_id || 0);
                     if (!itemId) return;
-                    this.getDisplayableCustom(item.customization || {}, item).forEach(([key]) => {
+                    const revisionSpecs = {
+                        ...this.parseSpecsObject(item.customization || {}),
+                        ...this.parseSpecsObject(item.customization_data || {}),
+                        ...this.parseSpecsObject(item.specifications_raw || {}),
+                        ...this.parseSpecsObject(item.specifications || {})
+                    };
+                    Object.entries(revisionSpecs).forEach(([key, fieldValue]) => {
                         const normalized = String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
                         if (!normalized || protectedKeys.test(normalized)) return;
+                        if (typeof fieldValue === 'string' && fieldValue.length > 10000) return;
                         if (['quantity', 'qty'].includes(normalized)) return;
                         if (['needed_date', 'need_date', 'date_needed', 'required_date', 'due_date'].includes(normalized)) return;
                         if (normalized.includes('layout')) return;

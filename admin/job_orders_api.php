@@ -117,6 +117,31 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
     exit;
 }
 
+function jo_api_revision_review(int $orderId): ?array {
+    if ($orderId <= 0) return null;
+    $revision = printflow_revision_get_latest($orderId);
+    if ($revision === null) return null;
+    if ((string)($revision['request_status'] ?? '') === 'Resubmitted for Review') {
+        printflow_revision_mark_staff_reviewing((int)$revision['revision_request_id'], $orderId);
+        $revision['request_status'] = 'Staff Reviewing';
+    }
+    $previous = $revision['previous_values_array'] ?? [];
+    $revised = $revision['revised_values_array'] ?? [];
+    return [
+        'id' => (int)$revision['revision_request_id'],
+        'reason' => (string)$revision['revision_reason'],
+        'instruction' => (string)$revision['staff_instruction'],
+        'status' => (string)$revision['request_status'],
+        'requested_at' => (string)$revision['requested_at'],
+        'resubmitted_at' => (string)($revision['resubmitted_at'] ?? ''),
+        'permitted_fields' => $revision['permitted_fields_array'] ?? [],
+        'permitted_field_labels' => $revision['permitted_field_labels'] ?? [],
+        'changes' => !empty($revised) ? printflow_revision_changes($previous, $revised) : [],
+        'previous' => $previous,
+        'revised' => $revised,
+    ];
+}
+
 /** Staff / Manager only see/manage job orders for their assigned branch. */
 $joStaffBranch = null;
 if (is_staff() || get_user_type() === 'Manager') {
@@ -1173,6 +1198,7 @@ try {
             if (is_array($order['items'] ?? null)) {
                 jo_api_hydrate_items_raw((int)($order['order_id'] ?? 0), $order['items']);
             }
+            $order['revision_review'] = jo_api_revision_review((int)($order['order_id'] ?? 0));
             $detailRows = [$order];
             jo_api_attach_provider_payments($detailRows);
             $order = $detailRows[0];
@@ -1337,6 +1363,9 @@ try {
                     $additional_meta = [];
                     if ($new_status === 'For Revision' && !empty($rejection_reason)) {
                         $additional_meta['reason'] = $rejection_reason;
+                        if (!empty($revision_request['permitted_fields']) && is_array($revision_request['permitted_fields'])) {
+                            $additional_meta['button_label'] = printflow_revision_action_label($revision_request['permitted_fields']);
+                        }
                     }
                     printflow_send_order_update($linked_order_id, $chat_step_map[$new_status], 'view_status', '', '', $additional_meta);
                 }
@@ -1850,6 +1879,7 @@ try {
                 'materials'                => $linked_job_materials,
                 'ink_usage'                => $linked_job_ink_usage,
                 'customization_details'    => printflow_normalize_customization_for_modal($details),
+                'revision_review'          => jo_api_revision_review((int)($cust['order_id'] ?? 0)),
             ];
             if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
                 $data['_debug'] = [
@@ -2077,6 +2107,7 @@ try {
                 'payment_status'       => 'NO',
                 'readiness'            => $linked_job['readiness'] ?? 'READY',
                 'order_source'         => jo_api_resolve_order_source($order_id, $o['order_source'] ?? null),
+                'revision_review'      => jo_api_revision_review($order_id),
                 'items'                => $items_out,
                 'customization_details'=> printflow_normalize_customization_for_modal($order_level_customization),
                 'materials'            => $linked_job_materials,

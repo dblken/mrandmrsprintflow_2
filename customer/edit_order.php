@@ -26,11 +26,14 @@ if (empty($orderRows)) {
 }
 $order = $orderRows[0];
 $revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
-if (($order['status'] ?? '') !== 'For Revision' || $revision === null) {
+if ($revision === null) {
     $_SESSION['error'] = 'This order does not have an active revision request.';
     redirect('orders.php');
 }
 $permissions = $revision['permitted_fields_array'];
+printflow_revision_mark_customer_updating((int)$revision['revision_request_id'], $order_id, $customer_id);
+$permissionLabels = printflow_revision_permission_labels($permissions, $revision['previous_values_array']);
+$revisionActionLabel = printflow_revision_action_label($permissions);
 
 $editSpecSelect = printflow_revision_column_exists('order_items', 'specifications')
     ? 'oi.specifications'
@@ -114,10 +117,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
             $customerName = trim((string)($customerRows[0]['first_name'] ?? '') . ' ' . (string)($customerRows[0]['last_name'] ?? ''));
             if ($customerName === '') $customerName = 'Customer';
             $staffId = (int)($result['requesting_staff_id'] ?? 0);
+            $staffNotified = false;
             if ($staffId > 0) {
                 $staffRows = db_query('SELECT role FROM users WHERE user_id = ? LIMIT 1', 'i', [$staffId]) ?: [];
                 $staffRole = (string)($staffRows[0]['role'] ?? 'Staff');
-                create_notification(
+                $staffNotified = (bool)create_notification(
                     $staffId,
                     $staffRole,
                     "{$customerName} submitted revised details for Order #{$order_id}. Review is required.",
@@ -125,6 +129,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
                     false,
                     false,
                     $order_id
+                );
+            }
+            if (!$staffNotified) {
+                notify_shop_users(
+                    "{$customerName} submitted revised details for Order #{$order_id}. Review is required.",
+                    'Order', false, false, $order_id, ['Staff', 'Admin', 'Manager']
                 );
             }
             $_SESSION['success'] = "Order #{$order_id} was resubmitted for staff review.";
@@ -141,7 +151,7 @@ require_once __DIR__ . '/../includes/header.php';
 ?>
 
 <style>
-.revision-page{max-width:920px;margin:0 auto;padding:2rem 1rem 3rem}.revision-head{margin-bottom:1.5rem}.revision-title{font-size:1.55rem;font-weight:800;color:#102a36;margin:0 0 .35rem}.revision-sub{color:#64748b;font-size:.92rem}.revision-feedback{background:#fff8e6;border:1px solid #f5d88b;border-left:4px solid #e8a317;border-radius:12px;padding:1rem 1.1rem;margin-bottom:1.25rem}.revision-feedback h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;color:#92400e;margin:0 0 .45rem}.revision-feedback p{margin:.25rem 0;color:#78350f;line-height:1.55}.revision-card{background:#fff;border:1px solid #dce5ea;border-radius:14px;padding:1.25rem;margin-bottom:1rem;box-shadow:0 6px 20px rgba(15,42,54,.06)}.revision-card-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding-bottom:.9rem;margin-bottom:1rem;border-bottom:1px solid #e7edf0}.revision-card-head h2{margin:0;color:#102a36;font-size:1.05rem}.revision-readonly{font-size:.78rem;color:#64748b}.revision-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.9rem}.revision-field{padding:.8rem;border:1px solid #e5eaed;border-radius:10px;background:#f8fafb;min-width:0}.revision-field.required{background:#f0fbfd;border-color:#53c5e0;box-shadow:0 0 0 2px rgba(83,197,224,.08)}.revision-label{display:block;font-size:.69rem;font-weight:800;text-transform:uppercase;letter-spacing:.035em;color:#648897;margin-bottom:.4rem}.revision-value{color:#243c47;font-size:.9rem;font-weight:600;overflow-wrap:anywhere}.revision-input{width:100%;box-sizing:border-box;border:1px solid #9dcbd6;border-radius:8px;background:#fff;color:#18333e;padding:.68rem .75rem;font:inherit}.revision-help{display:block;color:#0e7490;font-size:.72rem;margin-top:.4rem}.revision-design{display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap}.revision-design img{width:180px;max-height:180px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}.revision-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem}.revision-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 1.15rem;border-radius:9px;font-weight:700;text-decoration:none;cursor:pointer}.revision-btn.secondary{border:1px solid #cbd5e1;color:#475569;background:#fff}.revision-btn.primary{border:1px solid #0e94a8;color:#fff;background:#0e94a8}.revision-alert{padding:.9rem 1rem;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;margin-bottom:1rem}.revision-meta{display:flex;gap:1.25rem;flex-wrap:wrap;color:#526b77;font-size:.82rem;margin-top:.55rem}
+.revision-page{max-width:920px;margin:0 auto;padding:2rem 1rem 3rem}.revision-head{margin-bottom:1.5rem}.revision-title{font-size:1.55rem;font-weight:800;color:#102a36;margin:0 0 .35rem}.revision-sub{color:#64748b;font-size:.92rem}.revision-feedback{background:#fff8e6;border:1px solid #f5d88b;border-left:4px solid #e8a317;border-radius:12px;padding:1rem 1.1rem;margin-bottom:1.25rem}.revision-feedback h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;color:#92400e;margin:0 0 .45rem}.revision-feedback p{margin:.25rem 0;color:#78350f;line-height:1.55}.revision-permissions{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.75rem}.revision-permission{padding:.35rem .6rem;border-radius:999px;background:#fff;border:1px solid #f5d88b;color:#78350f;font-size:.72rem;font-weight:700}.revision-card{background:#fff;border:1px solid #dce5ea;border-radius:14px;padding:1.25rem;margin-bottom:1rem;box-shadow:0 6px 20px rgba(15,42,54,.06)}.revision-card-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding-bottom:.9rem;margin-bottom:1rem;border-bottom:1px solid #e7edf0}.revision-card-head h2{margin:0;color:#102a36;font-size:1.05rem}.revision-readonly{font-size:.78rem;color:#64748b}.revision-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.9rem}.revision-field{padding:.8rem;border:1px solid #e5eaed;border-radius:10px;background:#f8fafb;min-width:0}.revision-field.required{background:#f0fbfd;border-color:#53c5e0;box-shadow:0 0 0 2px rgba(83,197,224,.08)}.revision-label{display:block;font-size:.69rem;font-weight:800;text-transform:uppercase;letter-spacing:.035em;color:#648897;margin-bottom:.4rem}.revision-value{color:#243c47;font-size:.9rem;font-weight:600;overflow-wrap:anywhere}.revision-input{width:100%;box-sizing:border-box;border:1px solid #9dcbd6;border-radius:8px;background:#fff;color:#18333e;padding:.68rem .75rem;font:inherit}.revision-help{display:block;color:#0e7490;font-size:.72rem;margin-top:.4rem}.revision-design{display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap}.revision-design img{width:180px;max-height:180px;object-fit:contain;border:1px solid #cbd5e1;border-radius:10px;background:#f8fafc}.revision-new-preview{display:none;margin-top:.8rem;padding:.75rem;border:1px solid #bae6fd;border-radius:10px;background:#f0f9ff}.revision-new-preview.open{display:block}.revision-new-preview img{display:block;width:180px;max-height:180px;object-fit:contain;margin-bottom:.65rem}.revision-file-actions{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap}.revision-remove-file{border:1px solid #fca5a5;background:#fff;color:#b91c1c;border-radius:7px;padding:.45rem .65rem;font-weight:700;cursor:pointer}.revision-file-error{display:none;color:#b91c1c;font-size:.75rem;font-weight:700;margin-top:.5rem}.revision-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem}.revision-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 1.15rem;border-radius:9px;font-weight:700;text-decoration:none;cursor:pointer}.revision-btn.secondary{border:1px solid #cbd5e1;color:#475569;background:#fff}.revision-btn.primary{border:1px solid #0e94a8;color:#fff;background:#0e94a8}.revision-btn:disabled{opacity:.6;cursor:wait}.revision-alert{padding:.9rem 1rem;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;margin-bottom:1rem}.revision-meta{display:flex;gap:1.25rem;flex-wrap:wrap;color:#526b77;font-size:.82rem;margin-top:.55rem}
 @media(max-width:640px){.revision-page{padding-top:1.1rem}.revision-grid{grid-template-columns:1fr}.revision-card{padding:1rem}.revision-card-head{align-items:flex-start;flex-direction:column}.revision-actions{flex-direction:column-reverse}.revision-btn{width:100%;box-sizing:border-box}.revision-design img{width:100%;max-width:260px}}
 </style>
 
@@ -152,7 +162,8 @@ require_once __DIR__ . '/../includes/header.php';
         <p class="revision-sub">Only fields authorized by staff can be changed. All other order information remains read-only.</p>
         <div class="revision-meta">
             <span>Branch: <strong><?php echo htmlspecialchars((string)($order['branch_name'] ?? 'Not specified')); ?></strong></span>
-            <span>Status: <strong>Revision Requested</strong></span>
+            <span>Status: <strong>Customer Updating Details</strong></span>
+            <span>Requested: <strong><?php echo htmlspecialchars(format_datetime((string)$revision['requested_at'])); ?></strong></span>
         </div>
     </div>
 
@@ -160,6 +171,13 @@ require_once __DIR__ . '/../includes/header.php';
         <h2>Reason for Revision</h2>
         <p><strong><?php echo htmlspecialchars((string)$revision['revision_reason']); ?></strong></p>
         <p><?php echo nl2br(htmlspecialchars((string)$revision['staff_instruction'])); ?></p>
+        <?php if (!empty($permissionLabels)): ?>
+            <div class="revision-permissions" aria-label="Fields permitted for editing">
+                <?php foreach ($permissionLabels as $permissionLabel): ?>
+                    <span class="revision-permission"><?php echo htmlspecialchars($permissionLabel); ?></span>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </section>
 
     <?php if (!empty($error)): ?><div class="revision-alert"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
@@ -175,14 +193,31 @@ require_once __DIR__ . '/../includes/header.php';
                 <span class="revision-readonly"><?php echo $designEditable ? 'Correction required' : 'Read-only'; ?></span>
             </div>
             <div class="revision-design">
-                <?php if (!empty($items)): ?>
-                    <img src="<?php echo htmlspecialchars((function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/public/serve_design.php?type=order_item&id=' . (int)$items[0]['order_item_id']); ?>" alt="Current uploaded design">
+                <?php if (!empty($items)):
+                    $currentDesignUrl = (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/public/serve_design.php?type=order_item&id=' . (int)$items[0]['order_item_id'];
+                    $currentDesignMime = strtolower((string)($items[0]['design_image_mime'] ?? ''));
+                ?>
+                    <?php if (str_starts_with($currentDesignMime, 'image/')): ?>
+                        <img src="<?php echo htmlspecialchars($currentDesignUrl); ?>" alt="Current uploaded design">
+                    <?php else: ?>
+                        <a class="revision-btn secondary" href="<?php echo htmlspecialchars($currentDesignUrl); ?>" target="_blank" rel="noopener noreferrer">View Current Design</a>
+                    <?php endif; ?>
                 <?php endif; ?>
                 <div style="flex:1;min-width:220px;">
                     <?php if ($designEditable): ?>
-                        <label class="revision-label" for="design_file">Upload corrected design</label>
-                        <input class="revision-input" type="file" id="design_file" name="design_file" accept="image/*,application/pdf" required>
-                        <span class="revision-help">The existing design remains stored until this revised order is saved successfully.</span>
+                        <label class="revision-label" for="design_file">Upload Replacement Design</label>
+                        <input class="revision-input" type="file" id="design_file" name="design_file" accept="image/jpeg,image/png,image/gif,application/pdf" required>
+                        <span class="revision-help">JPG, PNG, GIF, or PDF, up to 10 MB. The existing design remains stored until submission succeeds.</span>
+                        <div id="design_file_error" class="revision-file-error" role="alert"></div>
+                        <div id="design_new_preview" class="revision-new-preview" aria-live="polite">
+                            <span class="revision-label">Selected replacement</span>
+                            <img id="design_new_preview_image" alt="Replacement design preview">
+                            <div id="design_new_preview_pdf" class="revision-value" style="display:none;margin-bottom:.65rem;">PDF document selected</div>
+                            <div class="revision-file-actions">
+                                <span id="design_new_preview_name" class="revision-value"></span>
+                                <button type="button" id="design_remove_file" class="revision-remove-file">Remove selected file</button>
+                            </div>
+                        </div>
                     <?php else: ?>
                         <span class="revision-label">Current file</span>
                         <div class="revision-value"><?php echo htmlspecialchars((string)($items[0]['design_image_name'] ?? 'Uploaded design')); ?></div>
@@ -215,12 +250,13 @@ require_once __DIR__ . '/../includes/header.php';
 
                     <?php foreach ($custom as $key => $value):
                         $key = (string)$key;
-                        if (printflow_revision_is_protected_spec($key)) continue;
+                        if (printflow_revision_is_protected_spec($key) || printflow_revision_key_group($key) === 'order_notes') continue;
                         $config = customer_revision_field_config($item, $custom, $key);
                         $label = customer_revision_field_label($key, $config);
                         $editable = printflow_revision_permission_allows($permissions, $itemId, $key);
                         $fieldType = strtolower((string)($config['type'] ?? 'text'));
                         $options = is_array($config['options'] ?? null) ? $config['options'] : [];
+                        $isRequired = !empty($config['required']);
                         $name = 'spec[' . $itemId . '][' . printflow_revision_form_key($key) . ']';
                         $textValue = customer_revision_scalar_text($value);
                     ?>
@@ -228,8 +264,21 @@ require_once __DIR__ . '/../includes/header.php';
                             <label class="revision-label"><?php echo htmlspecialchars($label); ?></label>
                             <?php if (!$editable): ?>
                                 <div class="revision-value"><?php echo htmlspecialchars($textValue); ?></div>
-                            <?php elseif (in_array($fieldType, ['select', 'radio'], true) && !empty($options)): ?>
-                                <select class="revision-input" name="<?php echo htmlspecialchars($name); ?>">
+                            <?php elseif ($fieldType === 'radio' && !empty($options)): ?>
+                                <div style="display:flex;gap:.55rem;flex-wrap:wrap;">
+                                    <?php foreach ($options as $option):
+                                        $optionValue = is_array($option) ? (string)($option['value'] ?? $option['label'] ?? '') : (string)$option;
+                                        if ($optionValue === '') continue;
+                                    ?>
+                                        <label style="display:inline-flex;align-items:center;gap:.35rem;padding:.5rem .6rem;background:#fff;border:1px solid #bae6fd;border-radius:7px;color:#334155;font-size:.82rem;">
+                                            <input type="radio" name="<?php echo htmlspecialchars($name); ?>" value="<?php echo htmlspecialchars($optionValue); ?>" <?php echo $optionValue === $textValue ? 'checked' : ''; ?> <?php echo $isRequired ? 'required' : ''; ?>>
+                                            <?php echo htmlspecialchars($optionValue); ?>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php elseif (in_array($fieldType, ['select', 'dimension'], true) && !empty($options)): ?>
+                                <select class="revision-input" name="<?php echo htmlspecialchars($name); ?>" <?php echo $isRequired ? 'required' : ''; ?>>
+                                    <option value="">Select an option</option>
                                     <?php foreach ($options as $option):
                                         $optionValue = is_array($option) ? (string)($option['value'] ?? $option['label'] ?? '') : (string)$option;
                                         if ($optionValue === '') continue;
@@ -238,9 +287,9 @@ require_once __DIR__ . '/../includes/header.php';
                                     <?php endforeach; ?>
                                 </select>
                             <?php elseif ($fieldType === 'textarea' || is_array($value)): ?>
-                                <textarea class="revision-input" name="<?php echo htmlspecialchars($name); ?>" rows="3"><?php echo htmlspecialchars($textValue); ?></textarea>
+                                <textarea class="revision-input" name="<?php echo htmlspecialchars($name); ?>" rows="3" <?php echo $isRequired ? 'required' : ''; ?>><?php echo htmlspecialchars($textValue); ?></textarea>
                             <?php else: ?>
-                                <input class="revision-input" type="<?php echo $fieldType === 'date' || printflow_revision_key_group($key) === 'needed_date' ? 'date' : ($fieldType === 'number' || $fieldType === 'quantity' ? 'number' : 'text'); ?>" name="<?php echo htmlspecialchars($name); ?>" value="<?php echo htmlspecialchars($textValue); ?>">
+                                <input class="revision-input" type="<?php echo $fieldType === 'date' || printflow_revision_key_group($key) === 'needed_date' ? 'date' : ($fieldType === 'number' || $fieldType === 'quantity' ? 'number' : 'text'); ?>" name="<?php echo htmlspecialchars($name); ?>" value="<?php echo htmlspecialchars($textValue); ?>" <?php echo $fieldType === 'number' || $fieldType === 'quantity' ? 'min="1"' : ''; ?> <?php echo $isRequired ? 'required' : ''; ?>>
                             <?php endif; ?>
                             <?php if ($editable): ?><span class="revision-help">Staff requested a correction.</span><?php endif; ?>
                         </div>
@@ -264,9 +313,94 @@ require_once __DIR__ . '/../includes/header.php';
 
         <div class="revision-actions">
             <a href="orders.php" class="revision-btn secondary">Cancel</a>
-            <button type="submit" name="resubmit_order" value="1" class="revision-btn primary">Submit Revised Order</button>
+            <button type="submit" name="resubmit_order" value="1" id="revision_submit_button" class="revision-btn primary">Submit Updates</button>
         </div>
     </form>
 </main>
+
+<script>
+(function () {
+    const form = document.querySelector('.revision-page form');
+    const fileInput = document.getElementById('design_file');
+    const preview = document.getElementById('design_new_preview');
+    const previewImage = document.getElementById('design_new_preview_image');
+    const previewPdf = document.getElementById('design_new_preview_pdf');
+    const previewName = document.getElementById('design_new_preview_name');
+    const removeButton = document.getElementById('design_remove_file');
+    const fileError = document.getElementById('design_file_error');
+    const submitButton = document.getElementById('revision_submit_button');
+    let objectUrl = '';
+
+    function clearSelectedFile() {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = '';
+        if (fileInput) fileInput.value = '';
+        if (preview) preview.classList.remove('open');
+        if (previewImage) { previewImage.removeAttribute('src'); previewImage.style.display = 'none'; }
+        if (previewPdf) previewPdf.style.display = 'none';
+        if (previewName) previewName.textContent = '';
+    }
+
+    function showFileError(message) {
+        if (!fileError) return;
+        fileError.textContent = message || '';
+        fileError.style.display = message ? 'block' : 'none';
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', function () {
+            showFileError('');
+            const file = fileInput.files && fileInput.files[0];
+            if (!file) { clearSelectedFile(); return; }
+            const allowed = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+            if (!allowed.includes(file.type)) {
+                clearSelectedFile();
+                showFileError('Choose a JPG, PNG, GIF, or PDF file.');
+                return;
+            }
+            if (file.size > 10 * 1024 * 1024) {
+                clearSelectedFile();
+                showFileError('The replacement design must not exceed 10 MB.');
+                return;
+            }
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+            objectUrl = URL.createObjectURL(file);
+            preview.classList.add('open');
+            previewName.textContent = file.name;
+            if (file.type === 'application/pdf') {
+                previewImage.style.display = 'none';
+                previewPdf.style.display = 'block';
+            } else {
+                previewPdf.style.display = 'none';
+                previewImage.src = objectUrl;
+                previewImage.style.display = 'block';
+            }
+        });
+        if (removeButton) removeButton.addEventListener('click', function () {
+            clearSelectedFile();
+            showFileError('Select a replacement design before submitting.');
+            fileInput.focus();
+        });
+    }
+
+    if (form) form.addEventListener('submit', function (event) {
+        if (fileInput && (!fileInput.files || !fileInput.files.length)) {
+            event.preventDefault();
+            showFileError('Select a replacement design before submitting.');
+            fileInput.focus();
+            return;
+        }
+        if (!form.checkValidity()) {
+            event.preventDefault();
+            form.reportValidity();
+            return;
+        }
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Submitting Updates…';
+        }
+    });
+})();
+</script>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>

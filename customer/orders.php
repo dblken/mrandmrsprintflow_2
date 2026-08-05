@@ -1050,6 +1050,16 @@ require_once __DIR__ . '/../includes/header.php';
     justify-content: center;
     padding: 20px;
 }
+.im-revision-fields {
+    margin-top: 0.65rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 7px;
+    background: #ffffff;
+    color: #7f1d1d;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    border: 1px solid #f3d1d1;
+}
 
 #receiptModal.open {
     display: flex;
@@ -2140,6 +2150,11 @@ function openItemsModal(orderId, event) {
         }).join('');
 
         const estimatedCompLabel = data.estimated_comp_label || 'Estimated completion';
+        const revisionActionUrl = data.revision_request?.revise_url || (CUSTOMER_BASE_URL + '/customer/edit_order.php?order_id=' + data.order_id);
+        const revisionActionLabel = data.revision_request?.action_label || 'Update Requested Details';
+        const revisionFieldLabels = Array.isArray(data.revision_request?.permitted_field_labels)
+            ? data.revision_request.permitted_field_labels
+            : [];
 
         document.getElementById('imBody').innerHTML = `
             <div class="im-dashboard">
@@ -2214,10 +2229,12 @@ function openItemsModal(orderId, event) {
                         ${data.design_status === 'Revision Requested' ? `
                             <div class="im-reject-card">
                                 <div class="im-reject-title">Revision Requested</div>
-                                <p class="im-reject-copy"><strong>${escIM(data.revision_request?.reason || 'Additional details required')}</strong></p>
-                                <p class="im-reject-copy" style="margin-top:0.5rem;">${escIM(data.revision_request?.instruction || data.revision_reason || 'Please review and correct the fields requested by staff.')}</p>
+                                <p class="im-reject-copy"><strong>Reason:</strong> ${escIM(data.revision_request?.reason || 'Additional details required')}</p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Staff instruction:</strong> ${escIM(data.revision_request?.instruction || data.revision_reason || 'Please review and correct the fields requested by staff.')}</p>
+                                ${data.revision_request?.requested_at ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Requested:</strong> ${escIM(formatRevisionRequestedAt(data.revision_request.requested_at))}</p>` : ''}
+                                ${revisionFieldLabels.length ? `<div class="im-revision-fields"><strong>Fields to update:</strong> ${revisionFieldLabels.map(escIM).join(', ')}</div>` : ''}
                                 <div style="display:flex; flex-direction:column; gap:0.85rem; margin-top:1rem;">
-                                    <a href="${escIM(data.revision_request?.revise_url || (CUSTOMER_BASE_URL + '/customer/edit_order.php?order_id=' + data.order_id))}" class="im-primary-action" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">Revise Order</a>
+                                    <button type="button" data-revision-url="${escIM(revisionActionUrl)}" onclick="openRevisionForm(this.dataset.revisionUrl, this)" class="im-primary-action">${escIM(revisionActionLabel)}</button>
                                 </div>
                             </div>
                         ` : ''}
@@ -2452,6 +2469,25 @@ function closeLightbox() {
 
 function escIM(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatRevisionRequestedAt(value) {
+    const date = new Date(String(value || '').replace(' ', 'T'));
+    return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString();
+}
+
+function openRevisionForm(url, button) {
+    const target = String(url || '').trim();
+    if (!target) {
+        notifyCancelResult('The revision form URL is unavailable. Please refresh and try again.', true);
+        return;
+    }
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Opening…';
+    }
+    closeItemsModal();
+    window.setTimeout(() => window.location.assign(target), 40);
 }
 
 function renderOrderSuccessBanner(message) {

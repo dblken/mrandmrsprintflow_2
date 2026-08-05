@@ -527,6 +527,36 @@ if (!$id) {
 $user_id = get_user_id();
 $is_staff = is_staff() || is_admin() || is_manager();
 
+if ($type === 'revision_history') {
+    $revisionRows = db_query(
+        "SELECT r.design_image, r.design_image_mime, r.design_image_name, r.design_file, o.customer_id
+         FROM order_item_revisions r
+         INNER JOIN orders o ON o.order_id = r.order_id
+         WHERE r.revision_id = ? LIMIT 1",
+        'i',
+        [$id]
+    ) ?: [];
+    if (empty($revisionRows[0])) {
+        pf_serve_design_emit_fallback('Revision file not found');
+    }
+    $revisionFile = $revisionRows[0];
+    if (!$is_staff && (int)($revisionFile['customer_id'] ?? 0) !== (int)$user_id) {
+        http_response_code(403);
+        die('Unauthorized access to this revision file.');
+    }
+    if (!empty($revisionFile['design_image'])) {
+        pf_serve_design_emit_blob(
+            (string)$revisionFile['design_image'],
+            (string)($revisionFile['design_image_mime'] ?: 'application/octet-stream'),
+            (string)($revisionFile['design_image_name'] ?: 'previous-design')
+        );
+    }
+    if (pf_serve_design_read_file((string)($revisionFile['design_file'] ?? ''))) {
+        exit;
+    }
+    pf_serve_design_emit_fallback('Revision file unavailable');
+}
+
 if ($type === 'job_order') {
     $jobRows = db_query(
         "SELECT jo.order_id, jo.order_item_id, jo.artwork_path, o.customer_id

@@ -19,3 +19,19 @@ CREATE TABLE IF NOT EXISTS order_revision_requests (
     KEY idx_revision_staff (staff_id, request_status),
     KEY idx_revision_requested (requested_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS order_item_revisions (
+    revision_id INT NOT NULL AUTO_INCREMENT,
+    order_id INT NOT NULL,
+    order_item_id INT NOT NULL,
+    staff_id INT DEFAULT NULL,
+    revision_reason TEXT,
+    design_image LONGBLOB,
+    design_image_name VARCHAR(255) DEFAULT NULL,
+    design_image_mime VARCHAR(100) DEFAULT NULL,
+    design_file VARCHAR(255) DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (revision_id),
+    KEY idx_item_revision_order (order_id),
+    KEY idx_item_revision_item (order_item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

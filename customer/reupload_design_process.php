@@ -43,9 +43,10 @@ try {
     $result = printflow_revision_submit($orderId, $customerId, $_POST, $_FILES);
     log_activity($customerId, 'Order Resubmitted', "Customer resubmitted a revised design for Order #{$orderId}.");
     $staffId = (int)($result['requesting_staff_id'] ?? 0);
+    $staffNotified = false;
     if ($staffId > 0) {
         $staffRows = db_query('SELECT role FROM users WHERE user_id = ? LIMIT 1', 'i', [$staffId]) ?: [];
-        create_notification(
+        $staffNotified = (bool)create_notification(
             $staffId,
             (string)($staffRows[0]['role'] ?? 'Staff'),
             "Customer submitted a revised design for Order #{$orderId}. Review is required.",
@@ -53,6 +54,12 @@ try {
             false,
             false,
             $orderId
+        );
+    }
+    if (!$staffNotified) {
+        notify_shop_users(
+            "Customer submitted a revised design for Order #{$orderId}. Review is required.",
+            'Order', false, false, $orderId, ['Staff', 'Admin', 'Manager']
         );
     }
     revision_upload_json(['success' => true, 'message' => 'Revised design submitted for review.']);

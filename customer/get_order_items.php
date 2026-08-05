@@ -1250,6 +1250,8 @@ customer_order_items_json([
         'reason' => (string) $active_revision['revision_reason'],
         'instruction' => (string) $active_revision['staff_instruction'],
         'permitted_fields' => $active_revision['permitted_fields_array'],
+        'permitted_field_labels' => printflow_revision_permission_labels($active_revision['permitted_fields_array'], $active_revision['previous_values_array']),
+        'action_label' => printflow_revision_action_label($active_revision['permitted_fields_array']),
         'requested_at' => (string) $active_revision['requested_at'],
         'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
     ] : null,

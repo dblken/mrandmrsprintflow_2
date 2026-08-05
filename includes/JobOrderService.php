@@ -1174,6 +1174,9 @@ class JobOrderService {
                 $chat_meta = [];
                 if ($notif_step === 'for_revision' && !empty($reason)) {
                     $chat_meta['reason'] = $reason;
+                    if (!empty($revisionRequest['permitted_fields']) && is_array($revisionRequest['permitted_fields'])) {
+                        $chat_meta['button_label'] = printflow_revision_action_label($revisionRequest['permitted_fields']);
+                    }
                 }
                 // Signature: printflow_send_order_update($order_id, $message, $action_type, $thumbnail, $action_url, $meta)
                 printflow_send_order_update((int)$order['order_id'], $notif_step, 'view_status', '', '', $chat_meta);
