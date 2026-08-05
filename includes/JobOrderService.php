@@ -1046,7 +1046,7 @@ class JobOrderService {
         $order = $order[0];
 
         $normalizedNewStatus = self::normalizeWorkflowStatus((string)$newStatus);
-        if ($normalizedNewStatus === 'FOR REVISION' && !printflow_revision_ensure_schema()) {
+        if ($normalizedNewStatus === 'FOR_REVISION' && !printflow_revision_ensure_schema()) {
             throw new Exception('Revision request storage is unavailable.');
         }
 
@@ -1055,7 +1055,7 @@ class JobOrderService {
             $conn->begin_transaction();
         }
         try {
-            if ($normalizedNewStatus === 'FOR REVISION' && !empty($order['order_id'])) {
+            if ($normalizedNewStatus === 'FOR_REVISION' && !empty($order['order_id'])) {
                 $revisionRequest = printflow_revision_create_request(
                     (int) $order['order_id'],
                     function_exists('get_user_id') ? (int) get_user_id() : 0,
@@ -1117,7 +1117,7 @@ class JobOrderService {
                     'TO_RECEIVE'    => 'Ready for Pickup',
                     'COMPLETED'     => 'Completed',
                     'CANCELLED'     => 'Cancelled',
-                    'FOR REVISION'  => 'For Revision',
+                    'FOR_REVISION'  => 'For Revision',
                 ];
                 $storeStatus = $order_status_map[$normalizedNewStatus] ?? $newStatus;
 
@@ -1131,7 +1131,7 @@ class JobOrderService {
                 }
 
                 // When revision is requested, store the reason on the order record
-                if (strtoupper($newStatus) === 'FOR REVISION' && !empty($reason)) {
+                if ($normalizedNewStatus === 'FOR_REVISION' && !empty($reason)) {
                     $sql_parts[] = "design_status = 'Revision Requested'";
                     $sql_parts[] = "revision_reason = ?";
                     $params[] = $reason;
@@ -1187,7 +1187,7 @@ class JobOrderService {
             }
             return true;
         } catch (Throwable $e) {
-            if (!$wasInTransaction && ($conn->in_transaction ?? false)) {
+            if (!$wasInTransaction) {
                 $conn->rollback();
             }
             throw $e;

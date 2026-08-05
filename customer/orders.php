@@ -2226,7 +2226,7 @@ function openItemsModal(orderId, event) {
 
                     <!-- Actions Area -->
                     <div class="mt-auto pt-4 space-y-3">
-                        ${data.design_status === 'Revision Requested' ? `
+                        ${data.design_status === 'Revision Requested' && data.revision_request ? `
                             <div class="im-reject-card">
                                 <div class="im-reject-title">Revision Requested</div>
                                 <p class="im-reject-copy"><strong>Reason:</strong> ${escIM(data.revision_request?.reason || 'Additional details required')}</p>
@@ -2234,8 +2234,13 @@ function openItemsModal(orderId, event) {
                                 ${data.revision_request?.requested_at ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Requested:</strong> ${escIM(formatRevisionRequestedAt(data.revision_request.requested_at))}</p>` : ''}
                                 ${revisionFieldLabels.length ? `<div class="im-revision-fields"><strong>Fields to update:</strong> ${revisionFieldLabels.map(escIM).join(', ')}</div>` : ''}
                                 <div style="display:flex; flex-direction:column; gap:0.85rem; margin-top:1rem;">
-                                    <button type="button" data-revision-url="${escIM(revisionActionUrl)}" onclick="openRevisionForm(this.dataset.revisionUrl, this)" class="im-primary-action">${escIM(revisionActionLabel)}</button>
+                                    <button type="button" data-revision-action="1" data-revision-url="${escIM(revisionActionUrl)}" class="im-primary-action">${escIM(revisionActionLabel)}</button>
                                 </div>
+                            </div>
+                        ` : data.design_status === 'Revision Requested' ? `
+                            <div class="im-reject-card">
+                                <div class="im-reject-title">Revision Request Unavailable</div>
+                                <p class="im-reject-copy">${escIM(data.revision_request_error || 'We could not load the requested updates. Please refresh the order or contact the shop.')}</p>
                             </div>
                         ` : ''}
 
@@ -2476,7 +2481,11 @@ function formatRevisionRequestedAt(value) {
     return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString();
 }
 
-function openRevisionForm(url, button) {
+function openRevisionForm(event, url, button) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
     const target = String(url || '').trim();
     if (!target) {
         notifyCancelResult('The revision form URL is unavailable. Please refresh and try again.', true);
@@ -2489,6 +2498,12 @@ function openRevisionForm(url, button) {
     closeItemsModal();
     window.setTimeout(() => window.location.assign(target), 40);
 }
+
+document.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-revision-action="1"]');
+    if (!button) return;
+    openRevisionForm(event, button.dataset.revisionUrl, button);
+});
 
 function renderOrderSuccessBanner(message) {
     const host = document.getElementById('orderSuccessBannerHost');

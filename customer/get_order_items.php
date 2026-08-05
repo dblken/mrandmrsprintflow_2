@@ -1170,8 +1170,13 @@ if ($order['status'] === 'Cancelled') {
 
 $can_cancel = can_customer_cancel_order($order);
 $active_revision = null;
+$revision_request_error = '';
 if (($order['status'] ?? '') === 'For Revision' || ($order['design_status'] ?? '') === 'Revision Requested') {
     $active_revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
+    if ($active_revision === null) {
+        $revision_request_error = 'We could not load the requested updates. Please refresh the order or contact the shop.';
+        error_log("Revision request missing for customer Order #{$order_id} while the order is marked Revision Requested.");
+    }
 }
 $restriction_msg = '';
 if (!$can_cancel && !in_array($order['status'], ['Cancelled', 'Completed'])) {
@@ -1247,14 +1252,22 @@ customer_order_items_json([
     'revision_reason'  => $order['revision_reason'] ?? '',
     'revision_request' => $active_revision ? [
         'id' => (int) $active_revision['revision_request_id'],
+        'order_id' => $order_id,
+        'order_item_ids' => array_values(array_filter(array_map(
+            static fn(array $item): int => (int)($item['order_item_id'] ?? 0),
+            is_array($active_revision['previous_values_array']['items'] ?? null) ? $active_revision['previous_values_array']['items'] : []
+        ))),
+        'customer_id' => (int) $active_revision['customer_id'],
         'reason' => (string) $active_revision['revision_reason'],
         'instruction' => (string) $active_revision['staff_instruction'],
+        'status' => (string) $active_revision['request_status'],
         'permitted_fields' => $active_revision['permitted_fields_array'],
         'permitted_field_labels' => printflow_revision_permission_labels($active_revision['permitted_fields_array'], $active_revision['previous_values_array']),
         'action_label' => printflow_revision_action_label($active_revision['permitted_fields_array']),
         'requested_at' => (string) $active_revision['requested_at'],
         'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
     ] : null,
+    'revision_request_error' => $revision_request_error,
     'payment_rejection_reason' => $order['payment_rejection_reason'] ?? '',
     'items'            => $items_out,
     'can_cancel'       => $can_cancel,

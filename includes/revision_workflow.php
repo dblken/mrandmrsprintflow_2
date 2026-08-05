@@ -524,11 +524,21 @@ function printflow_revision_get_active_or_legacy(int $orderId, int $customerId):
     if ($legacyReason === '') {
         $legacyReason = 'Please upload the corrected design requested by staff.';
     }
+    $legacyReasonLower = strtolower($legacyReason);
+    $legacyCode = str_starts_with($legacyReasonLower, 'low image quality')
+        ? 'low_image_quality'
+        : (str_starts_with($legacyReasonLower, 'wrong design uploaded')
+            ? 'wrong_design'
+            : (str_starts_with($legacyReasonLower, 'not printable / invalid format') ? 'invalid_format' : ''));
+    if ($legacyCode === '') {
+        error_log("Legacy revision for Order #{$orderId} has no persisted field authorization and cannot be safely inferred.");
+        return null;
+    }
     try {
         printflow_revision_create_request(
             $orderId,
             (int)($order['reviewed_by'] ?? 0),
-            $legacyReason,
+            $legacyCode,
             $legacyReason,
             ['uploaded_design'],
             $legacyReason

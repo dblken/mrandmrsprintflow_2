@@ -27,10 +27,16 @@ if (empty($orderRows)) {
 $order = $orderRows[0];
 $revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
 if ($revision === null) {
-    $_SESSION['error'] = 'This order does not have an active revision request.';
-    redirect('orders.php');
+    error_log("Customer revision form could not load an active request for Order #{$order_id}.");
+    $_SESSION['error'] = 'We could not load the requested updates. Please refresh the order or contact the shop.';
+    redirect('orders.php?highlight=' . $order_id . '&revision_error=1');
 }
 $permissions = $revision['permitted_fields_array'];
+if (empty($permissions)) {
+    error_log("Customer revision form found no permitted fields for Order #{$order_id}, Request #" . (int)$revision['revision_request_id']);
+    $_SESSION['error'] = 'We could not load the requested updates. Please refresh the order or contact the shop.';
+    redirect('orders.php?highlight=' . $order_id . '&revision_error=1');
+}
 printflow_revision_mark_customer_updating((int)$revision['revision_request_id'], $order_id, $customer_id);
 $permissionLabels = printflow_revision_permission_labels($permissions, $revision['previous_values_array']);
 $revisionActionLabel = printflow_revision_action_label($permissions);
@@ -313,7 +319,7 @@ require_once __DIR__ . '/../includes/header.php';
 
         <div class="revision-actions">
             <a href="orders.php" class="revision-btn secondary">Cancel</a>
-            <button type="submit" name="resubmit_order" value="1" id="revision_submit_button" class="revision-btn primary">Submit Updates</button>
+            <button type="submit" name="resubmit_order" value="1" id="revision_submit_button" class="revision-btn primary">Submit Updated Details</button>
         </div>
     </form>
 </main>
