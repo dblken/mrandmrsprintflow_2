@@ -2213,13 +2213,11 @@ function openItemsModal(orderId, event) {
                     <div class="mt-auto pt-4 space-y-3">
                         ${data.design_status === 'Revision Requested' ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Awaiting Customer Response</div>
-                                <p class="im-reject-copy">${escIM(data.revision_reason || 'Please provide the requested information, updated specifications, or revised files to continue processing your order.')}</p>
+                                <div class="im-reject-title">Revision Requested</div>
+                                <p class="im-reject-copy"><strong>${escIM(data.revision_request?.reason || 'Additional details required')}</strong></p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;">${escIM(data.revision_request?.instruction || data.revision_reason || 'Please review and correct the fields requested by staff.')}</p>
                                 <div style="display:flex; flex-direction:column; gap:0.85rem; margin-top:1rem;">
-                                    <label for="designReuploadInput-${data.order_id}" class="im-upload-picker">Choose updated design</label>
-                                    <input type="file" id="designReuploadInput-${data.order_id}" style="display:none;" onchange="handleDesignFilePick(this, ${data.order_id})" accept="image/*,application/pdf">
-                                    <div class="im-upload-filename" id="designReuploadFileName-${data.order_id}">No file selected</div>
-                                    <button type="button" id="designReuploadSubmit-${data.order_id}" onclick="submitDesignReupload(${data.order_id}, '${data.csrf_token}')" class="im-primary-action" disabled>Submit Updated Design</button>
+                                    <a href="${escIM(data.revision_request?.revise_url || (CUSTOMER_BASE_URL + '/customer/edit_order.php?order_id=' + data.order_id))}" class="im-primary-action" style="display:flex;align-items:center;justify-content:center;text-decoration:none;">Revise Order</a>
                                 </div>
                             </div>
                         ` : ''}

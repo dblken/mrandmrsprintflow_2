@@ -24,6 +24,7 @@
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/order_ui_helper.php';
 require_once __DIR__ . '/CustomizationRepository.php';
+require_once __DIR__ . '/revision_workflow.php';
 
 class CustomizationService
 {
@@ -2169,6 +2170,7 @@ class CustomizationService
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'Approved');
+        printflow_revision_close_active($orderId, 'Closed - Approved');
         $this->repo->updateOrderStatus($orderId, 'Approved');
         $this->syncJobs($orderId, 'APPROVED');
         $this->sendChat($orderId, 'approved');
@@ -2181,7 +2183,7 @@ class CustomizationService
      *
      * @return array{success:bool,message:string}
      */
-    public function requestRevision(int $orderId, string $reason): array
+    public function requestRevision(int $orderId, string $reason, array $revisionMeta = []): array
     {
         $reason = trim($reason);
         if ($reason === '') {
@@ -2191,6 +2193,20 @@ class CustomizationService
         $order = $this->repo->getOrder($orderId);
         if ($order === null) {
             return ['success' => false, 'message' => 'Order not found.'];
+        }
+
+        try {
+            $revisionRequest = printflow_revision_create_request(
+                $orderId,
+                function_exists('get_user_id') ? (int) get_user_id() : 0,
+                trim((string)($revisionMeta['reason_code'] ?? '')) !== '' ? (string)$revisionMeta['reason_code'] : $reason,
+                trim((string)($revisionMeta['instruction'] ?? '')) !== '' ? (string)$revisionMeta['instruction'] : $reason,
+                is_array($revisionMeta['permitted_fields'] ?? null) ? $revisionMeta['permitted_fields'] : ['uploaded_design'],
+                trim((string)($revisionMeta['reason_label'] ?? '')) !== '' ? (string)$revisionMeta['reason_label'] : $reason
+            );
+            $reason = (string) $revisionRequest['legacy_reason'];
+        } catch (Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'For Revision', $reason);
@@ -2213,6 +2229,7 @@ class CustomizationService
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'Rejected');
+        printflow_revision_close_active($orderId, 'Closed - Rejected');
         $this->repo->updateOrderStatus($orderId, 'Rejected', 'Rejected');
         $this->syncJobs($orderId, 'REJECTED');
         $this->sendChat($orderId, 'cancelled');
@@ -2233,6 +2250,7 @@ class CustomizationService
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'Completed');
+        printflow_revision_close_active($orderId, 'Closed - Completed');
         $this->repo->updateOrderStatus($orderId, 'Completed');
         $this->syncJobs($orderId, 'COMPLETED');
         $this->sendChat($orderId, 'completed');

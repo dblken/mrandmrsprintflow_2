@@ -1205,6 +1205,13 @@ try {
             ];
             $new_status = $status_to_db[$raw_status] ?? $raw_status;
             $rejection_reason = sanitize($_POST['reason'] ?? '');
+            $revision_reason_code = sanitize($_POST['revision_reason_code'] ?? '');
+            $revision_reason_label = sanitize($_POST['revision_reason_label'] ?? '');
+            $revision_instruction = trim((string)($_POST['revision_instruction'] ?? ''));
+            $revision_permitted_fields = $_POST['revision_permitted_fields'] ?? [];
+            if (!is_array($revision_permitted_fields)) {
+                $revision_permitted_fields = [$revision_permitted_fields];
+            }
 
             // Check if payment proof already exists for this customization's order
             $order_check = db_query(
@@ -1218,6 +1225,20 @@ try {
             $has_payment_proof = !empty($order_check) && !empty($order_check[0]['payment_proof_path']);
             $payment_amount    = !empty($order_check) ? (float)($order_check[0]['downpayment_amount'] ?? 0) : 0;
             $linked_order_id   = !empty($order_check) ? (int)$order_check[0]['order_id'] : null;
+
+            if ($new_status === 'For Revision' && $linked_order_id) {
+                $revision_request = printflow_revision_create_request(
+                    $linked_order_id,
+                    (int) get_user_id(),
+                    $revision_reason_code !== '' ? $revision_reason_code : $rejection_reason,
+                    $revision_instruction !== '' ? $revision_instruction : $rejection_reason,
+                    $revision_permitted_fields ?: ['uploaded_design'],
+                    $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason
+                );
+                $rejection_reason = (string) $revision_request['legacy_reason'];
+            } elseif ($linked_order_id) {
+                printflow_revision_close_active($linked_order_id, 'Closed - ' . $new_status);
+            }
 
             // If TO_PAY but proof already uploaded, skip straight to verification
             if ($new_status === 'To Pay' && $has_payment_proof && $payment_amount > 0) {
@@ -2076,6 +2097,16 @@ try {
             $status = sanitize($_POST['status'] ?? '');
             $machineId = isset($_POST['machine_id']) ? (int)$_POST['machine_id'] : null;
             $reason = sanitize($_POST['reason'] ?? '');
+            $revisionReasonCode = sanitize($_POST['revision_reason_code'] ?? '');
+            $revisionReasonLabel = sanitize($_POST['revision_reason_label'] ?? '');
+            $revisionInstruction = trim((string)($_POST['revision_instruction'] ?? ''));
+            $revisionPermittedFields = $_POST['revision_permitted_fields'] ?? [];
+            if (!is_array($revisionPermittedFields)) {
+                $revisionPermittedFields = [$revisionPermittedFields];
+            }
+            if ($status === 'For Revision' && $revisionInstruction !== '') {
+                $reason = trim($reason . ': ' . $revisionInstruction, ': ');
+            }
             if (!$id || !$status) throw new Exception("ID and status required.");
             jo_api_require_staff_branch($joStaffBranch, $id);
             
@@ -2084,7 +2115,16 @@ try {
             }
 
             
-            $res = JobOrderService::updateStatus($id, $status, $machineId, $reason);
+            $revisionMeta = [];
+            if ($status === 'For Revision') {
+                $revisionMeta = [
+                    'reason_code' => $revisionReasonCode !== '' ? $revisionReasonCode : $reason,
+                    'reason_label' => $revisionReasonLabel !== '' ? $revisionReasonLabel : $reason,
+                    'instruction' => $revisionInstruction !== '' ? $revisionInstruction : $reason,
+                    'permitted_fields' => $revisionPermittedFields ?: ['uploaded_design'],
+                ];
+            }
+            $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);
             jo_api_json_response(['success' => $res]);
             break;
 

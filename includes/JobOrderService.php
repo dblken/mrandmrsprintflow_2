@@ -10,6 +10,7 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
+require_once __DIR__ . '/revision_workflow.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -1037,19 +1038,38 @@ class JobOrderService {
     /**
      * Set job order status and trigger logic.
      */
-    public static function updateStatus($orderId, $newStatus, $machineId = null, $reason = '', $silent = false) {
+    public static function updateStatus($orderId, $newStatus, $machineId = null, $reason = '', $silent = false, array $revisionMeta = []) {
         global $conn;
         
         $order = db_query("SELECT * FROM job_orders WHERE id = ?", 'i', [$orderId]);
         if (!$order) throw new Exception("Order not found.");
         $order = $order[0];
 
+        $normalizedNewStatus = self::normalizeWorkflowStatus((string)$newStatus);
+        if ($normalizedNewStatus === 'FOR REVISION' && !printflow_revision_ensure_schema()) {
+            throw new Exception('Revision request storage is unavailable.');
+        }
+
         $wasInTransaction = $conn->in_transaction ?? false;
         if (!$wasInTransaction) {
             $conn->begin_transaction();
         }
         try {
-            $normalizedNewStatus = self::normalizeWorkflowStatus((string)$newStatus);
+            if ($normalizedNewStatus === 'FOR REVISION' && !empty($order['order_id'])) {
+                $revisionRequest = printflow_revision_create_request(
+                    (int) $order['order_id'],
+                    function_exists('get_user_id') ? (int) get_user_id() : 0,
+                    (string) ($revisionMeta['reason_code'] ?? $reason),
+                    (string) ($revisionMeta['instruction'] ?? $reason),
+                    is_array($revisionMeta['permitted_fields'] ?? null)
+                        ? $revisionMeta['permitted_fields']
+                        : ['uploaded_design'],
+                    (string)($revisionMeta['reason_label'] ?? $reason)
+                );
+                $reason = (string) $revisionRequest['legacy_reason'];
+            } elseif (!empty($order['order_id'])) {
+                printflow_revision_close_active((int)$order['order_id'], 'Closed - ' . (string)$newStatus);
+            }
             // Materials are now handled once the job is live in production.
             if (in_array($normalizedNewStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
                 // Deduct materials when moving to production

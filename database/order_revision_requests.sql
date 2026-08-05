@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS order_revision_requests (
+    revision_request_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    order_id INT NOT NULL,
+    staff_id INT NOT NULL,
+    customer_id INT NOT NULL,
+    reason_code VARCHAR(64) NOT NULL,
+    revision_reason VARCHAR(255) NOT NULL,
+    staff_instruction TEXT NOT NULL,
+    permitted_fields LONGTEXT NOT NULL,
+    previous_values LONGTEXT NOT NULL,
+    revised_values LONGTEXT DEFAULT NULL,
+    request_status VARCHAR(40) NOT NULL DEFAULT 'Requested',
+    active_flag TINYINT NULL DEFAULT 1,
+    requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resubmitted_at DATETIME DEFAULT NULL,
+    PRIMARY KEY (revision_request_id),
+    UNIQUE KEY uq_order_active_revision (order_id, active_flag),
+    KEY idx_revision_customer (customer_id, request_status),
+    KEY idx_revision_staff (staff_id, request_status),
+    KEY idx_revision_requested (requested_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

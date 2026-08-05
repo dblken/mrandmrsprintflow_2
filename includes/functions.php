@@ -6698,8 +6698,9 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
         'for_revision' => [
             'message'      => "The staff has requested additional details regarding your customization request. Please review the request and submit the required information. Details: {reason}",
             'message_type' => 'order_card',
+            'button_label' => 'Revise Order',
             'action_type' => 'view_details',
-            'action_url'  => '',
+            'action_url'  => "{$base}/customer/edit_order.php?order_id={$order_id}",
         ],
 
         'ready_to_pickup' => [

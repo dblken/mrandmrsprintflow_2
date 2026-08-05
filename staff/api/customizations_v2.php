@@ -180,7 +180,16 @@ try {
             } elseif ($action === 'close') {
                 $result = $service->close($orderId);
             } else {
-                $result = $service->requestRevision($orderId, (string)($_POST['reason'] ?? ''));
+                $revisionFields = $_POST['revision_permitted_fields'] ?? [];
+                if (!is_array($revisionFields)) {
+                    $revisionFields = [$revisionFields];
+                }
+                $result = $service->requestRevision($orderId, (string)($_POST['reason'] ?? ''), [
+                    'reason_code' => (string)($_POST['revision_reason_code'] ?? ''),
+                    'reason_label' => (string)($_POST['revision_reason_label'] ?? ''),
+                    'instruction' => (string)($_POST['revision_instruction'] ?? ''),
+                    'permitted_fields' => $revisionFields ?: ['uploaded_design'],
+                ]);
             }
 
             cv2_json($result, $result['success'] ? 200 : 400);

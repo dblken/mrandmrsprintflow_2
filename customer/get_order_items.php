@@ -84,6 +84,7 @@ require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/revision_workflow.php';
 
 require_role('Customer');
 
@@ -1168,6 +1169,10 @@ if ($order['status'] === 'Cancelled') {
 }
 
 $can_cancel = can_customer_cancel_order($order);
+$active_revision = null;
+if (($order['status'] ?? '') === 'For Revision' || ($order['design_status'] ?? '') === 'Revision Requested') {
+    $active_revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
+}
 $restriction_msg = '';
 if (!$can_cancel && !in_array($order['status'], ['Cancelled', 'Completed'])) {
     switch ($order['status']) {
@@ -1240,6 +1245,14 @@ customer_order_items_json([
     'cancelled_at'     => !empty($order['cancelled_at']) ? format_datetime($order['cancelled_at']) : '',
     'design_status'    => $order['design_status'] ?? 'Pending',
     'revision_reason'  => $order['revision_reason'] ?? '',
+    'revision_request' => $active_revision ? [
+        'id' => (int) $active_revision['revision_request_id'],
+        'reason' => (string) $active_revision['revision_reason'],
+        'instruction' => (string) $active_revision['staff_instruction'],
+        'permitted_fields' => $active_revision['permitted_fields_array'],
+        'requested_at' => (string) $active_revision['requested_at'],
+        'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
+    ] : null,
     'payment_rejection_reason' => $order['payment_rejection_reason'] ?? '',
     'items'            => $items_out,
     'can_cancel'       => $can_cancel,

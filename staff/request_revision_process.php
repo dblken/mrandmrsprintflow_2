@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/revision_workflow.php';
 
 require_role('Staff');
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
@@ -25,11 +26,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect($_SERVER['HTTP_REFERER'] ?? 'orders.php');
     }
 
-    // Snapshot current designs into revision history
-    $insert_sql = "INSERT INTO order_item_revisions (order_id, order_item_id, staff_id, revision_reason, design_image, design_image_name, design_image_mime, design_file)
-                   SELECT order_id, order_item_id, ?, ?, design_image, design_image_name, design_image_mime, design_file
-                   FROM order_items WHERE order_id = ?";
-    db_execute($insert_sql, 'isi', [get_user_id(), $revision_reason, $order_id]);
+    try {
+        $revisionRequest = printflow_revision_create_request(
+            $order_id,
+            (int) get_user_id(),
+            $revision_reason,
+            $revision_reason,
+            ['uploaded_design'],
+            $revision_reason
+        );
+        $revision_reason = (string) $revisionRequest['legacy_reason'];
+    } catch (Throwable $e) {
+        $_SESSION['error'] = $e->getMessage();
+        redirect($_SERVER['HTTP_REFERER'] ?? 'orders.php');
+    }
 
     // Update order status to 'Revision Requested' and 'For Revision'
 

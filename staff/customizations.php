@@ -2285,10 +2285,10 @@ $online_closed_count = 0;
             <!-- Modal Panel — true viewport center via transform -->
             <div x-show="showRevisionModal" x-cloak
                  style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002;
-                        width:calc(100% - 32px); max-width:420px;
+                        width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-y:auto;
                         background:white; border-radius:16px;
                         box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);
-                        border:1px solid #fee2e2; overflow:hidden;">
+                         border:1px solid #fee2e2; overflow:auto;">
                 <!-- Header -->
                 <div style="padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Additional Details</h3>
@@ -2299,24 +2299,46 @@ $online_closed_count = 0;
                 <!-- Body -->
                 <div style="padding:20px;">
                     <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Reason for Revision</label>
-                    <select x-model="revisionReasonSelect" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; margin-bottom:16px; outline:none;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'">
+                    <select x-model="revisionReasonSelect" @change="applyRevisionReasonDefaults()" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; margin-bottom:16px; outline:none;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'">
                         <option value="">-- Select a reason --</option>
-                        <option value="Low image quality">Low image quality</option>
-                        <option value="Wrong design uploaded">Wrong design uploaded</option>
-                        <option value="Incorrect details provided">Incorrect details provided</option>
-                        <option value="Not printable / invalid format">Not printable / invalid format</option>
-                        <option value="Others">Others</option>
+                        <option value="low_image_quality">Low image quality</option>
+                        <option value="wrong_design">Wrong design uploaded</option>
+                        <option value="incorrect_details">Incorrect details provided</option>
+                        <option value="invalid_format">Not printable / invalid format</option>
+                        <option value="others">Others</option>
                     </select>
-                    <div x-show="revisionReasonSelect === 'Others'" style="transition:all 0.2s;">
+                    <div x-show="revisionReasonSelect === 'others'" style="transition:all 0.2s; margin-bottom:16px;">
                         <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Please specify</label>
-                        <textarea x-model="revisionReasonText" rows="3" placeholder="Enter custom reason..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'"></textarea>
+                        <input x-model="revisionReasonText" type="text" placeholder="Enter custom reason..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;">
+                    </div>
+
+                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:16px; padding:12px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
+                        <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:9px;">Allow customer to edit</div>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px 12px;">
+                            <template x-for="option in revisionFieldOptions" :key="option.value">
+                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; cursor:pointer; line-height:1.35;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;' : ''">
+                                    <input type="checkbox" :value="option.value" x-model="revisionEditableFields" :disabled="revisionFieldLocked(option.value)" style="margin-top:2px; accent-color:#0f766e; flex:0 0 auto;">
+                                    <span x-text="option.label"></span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div x-show="revisionReasonSelect" x-cloak>
+                        <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Instructions for Customer <span style="color:#dc2626;">*</span></label>
+                        <textarea x-model="revisionInstruction" rows="4" placeholder="Clearly explain what the customer must correct..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;"></textarea>
+                    </div>
+
+                    <div style="margin-top:16px; padding-top:12px; border-top:1px solid #e5e7eb;">
+                        <div style="font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:8px;">Product/service and branch cannot be revised here because they affect inventory, pricing, and routing.</div>
+                        <button type="button" @click="cancelAndRequestNewOrder()" style="border:0; background:none; padding:0; color:#b91c1c; font-size:12px; font-weight:700; cursor:pointer;">Cancel and Request New Order</button>
                     </div>
                 </div>
                 <!-- Footer -->
                 <div style="padding:16px 20px; border-top:1px solid #f3f4f6; background:#f9fafb; display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
                     <div style="display:flex; justify-content:flex-end; gap:8px;">
                         <button @click="closeRevisionModal()" class="btn-secondary">Cancel</button>
-                        <button @click="submitRevision()" class="btn-action red">Submit Revision</button>
+                        <button @click="submitRevision()" class="btn-action red">Send Revision Request</button>
                     </div>
                     <div x-show="revisionModalError" x-cloak style="width:100%; font-size:12px; font-weight:600; color:#dc2626; text-align:left;" x-text="revisionModalError"></div>
                 </div>
@@ -2466,6 +2488,9 @@ window.pfCustomizationPreloadedOrders = (() => {
             showRevisionModal: false,
             revisionReasonSelect: '',
             revisionReasonText: '',
+            revisionInstruction: '',
+            revisionEditableFields: [],
+            revisionFieldOptions: [],
             revisionModalError: '',
             showRejectPaymentModal: false,
             rejectPaymentReasonSelect: '',
@@ -4796,7 +4821,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (ok) this.showDetailsModal = false;
             },
 
-            async updateStatus(id, status, machineId = null, reason = '') {
+            async updateStatus(id, status, machineId = null, reason = '', revisionMeta = null, forceJob = false) {
                 if (id == null || id === '' || Number(id) <= 0) {
                     this.showStaffAlert('Error', 'Invalid job order id.');
                     return false;
@@ -4804,7 +4829,7 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 const fd = new FormData();
                 
-                if (this.currentJo.order_type === 'CUSTOMIZATION') {
+                if (this.currentJo.order_type === 'CUSTOMIZATION' && !revisionMeta && !forceJob) {
                     fd.append('action', 'update_customization');
                     fd.append('id', id);
                     fd.append('status', status);
@@ -4815,6 +4840,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                     fd.append('status', status);
                     if(machineId) fd.append('machine_id', machineId);
                     if(reason) fd.append('reason', reason);
+                }
+                if (revisionMeta) {
+                    fd.append('revision_reason_code', revisionMeta.reasonCode || 'others');
+                    fd.append('revision_reason_label', revisionMeta.reasonLabel || revisionMeta.reasonCode || 'Others');
+                    fd.append('revision_instruction', revisionMeta.instruction || '');
+                    (revisionMeta.permittedFields || []).forEach((field) => fd.append('revision_permitted_fields[]', field));
                 }
                 
                 const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
@@ -5677,8 +5708,58 @@ window.pfCustomizationPreloadedOrders = (() => {
             openRevisionModal() {
                 this.revisionReasonSelect = '';
                 this.revisionReasonText = '';
+                this.revisionInstruction = '';
+                this.revisionEditableFields = [];
+                this.revisionFieldOptions = this.buildRevisionFieldOptions();
                 this.revisionModalError = '';
                 this.showRevisionModal = true;
+            },
+
+            buildRevisionFieldOptions() {
+                const options = [
+                    { value: 'uploaded_design', label: 'Uploaded Design' },
+                    { value: 'needed_date', label: 'Needed Date' },
+                    { value: 'type_specifications', label: 'Type / Order Specifications' },
+                    { value: 'layout', label: 'Layout' },
+                    { value: 'quantity', label: 'Quantity' },
+                    { value: 'order_notes', label: 'Order Notes' }
+                ];
+                const seen = new Set(options.map(option => option.value));
+                const protectedKeys = /(^_|branch|price|payment|service_id|product_id|order_id|item_id|design|upload|reference|status)/i;
+                (this.currentJo.items || []).forEach((item) => {
+                    const itemId = Number(item.order_item_id || 0);
+                    if (!itemId) return;
+                    this.getDisplayableCustom(item.customization || {}, item).forEach(([key]) => {
+                        const normalized = String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                        if (!normalized || protectedKeys.test(normalized)) return;
+                        if (['quantity', 'qty'].includes(normalized)) return;
+                        if (['needed_date', 'need_date', 'date_needed', 'required_date', 'due_date'].includes(normalized)) return;
+                        if (normalized.includes('layout')) return;
+                        if (['notes', 'order_notes', 'customer_notes', 'additional_notes', 'special_instructions', 'job_notes'].includes(normalized)) return;
+                        const value = `spec:${itemId}:${encodeURIComponent(String(key))}`;
+                        if (seen.has(value)) return;
+                        seen.add(value);
+                        options.push({ value, label: `Other: ${this.getCustomLabel(key)}` });
+                    });
+                });
+                return options;
+            },
+
+            applyRevisionReasonDefaults() {
+                const designReasons = ['low_image_quality', 'wrong_design', 'invalid_format'];
+                if (designReasons.includes(this.revisionReasonSelect)) {
+                    this.revisionEditableFields = ['uploaded_design'];
+                } else if (this.revisionReasonSelect === 'incorrect_details') {
+                    this.revisionEditableFields = ['needed_date', 'type_specifications', 'layout', 'quantity', 'order_notes'];
+                } else {
+                    this.revisionEditableFields = [];
+                }
+                this.revisionModalError = '';
+            },
+
+            revisionFieldLocked(field) {
+                return ['low_image_quality', 'wrong_design', 'invalid_format'].includes(this.revisionReasonSelect)
+                    && field !== 'uploaded_design';
             },
 
             closeRevisionModal() {
@@ -5686,24 +5767,58 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.showRevisionModal = false;
             },
             async submitRevision() {
-                const oid = this.effectiveJobId();
+                const oid = await this.resolveEffectiveJobId();
                 if (!oid) return;
-                let finalReason = this.revisionReasonSelect;
-                if (finalReason === 'Others' || !finalReason) {
-                    finalReason = this.revisionReasonText.trim();
-                }
-                if (!finalReason) {
-                    this.revisionModalError = 'Please select or specify the details you need from the customer.';
+                if (!this.revisionReasonSelect) {
+                    this.revisionModalError = 'Please select a revision reason.';
                     return;
                 }
+                if (this.revisionReasonSelect === 'others' && !this.revisionReasonText.trim()) {
+                    this.revisionModalError = 'Please specify the revision reason.';
+                    return;
+                }
+                if (!this.revisionEditableFields.length) {
+                    this.revisionModalError = 'Select at least one field the customer may edit.';
+                    return;
+                }
+                if (!this.revisionInstruction.trim()) {
+                    this.revisionModalError = 'Instructions for the customer are required.';
+                    return;
+                }
+                const legacyReason = this.revisionReasonSelect === 'others'
+                    ? this.revisionReasonText.trim()
+                    : ({
+                        low_image_quality: 'Low image quality',
+                        wrong_design: 'Wrong design uploaded',
+                        incorrect_details: 'Incorrect details provided',
+                        invalid_format: 'Not printable / invalid format'
+                    }[this.revisionReasonSelect] || this.revisionReasonSelect);
                 this.revisionModalError = '';
                 if (!this.beginModalAction()) return;
                 this.showRevisionModal = false;
                 try {
-                    const ok = await this.updateStatus(oid, 'For Revision', null, finalReason);
+                    const ok = await this.updateStatus(oid, 'For Revision', null, legacyReason, {
+                        reasonCode: this.revisionReasonSelect,
+                        reasonLabel: legacyReason,
+                        instruction: this.revisionInstruction.trim(),
+                        permittedFields: [...this.revisionEditableFields]
+                    });
                     if (ok) {
                         this.showStaffAlert('Success', 'Additional details request sent successfully.');
                     }
+                } finally {
+                    this.endModalAction();
+                }
+            },
+
+            async cancelAndRequestNewOrder() {
+                const oid = await this.resolveEffectiveJobId();
+                if (!oid || !window.confirm('Cancel this order and ask the customer to place a corrected replacement order? The original order history will be preserved.')) return;
+                this.closeRevisionModal();
+                if (!this.beginModalAction()) return;
+                try {
+                    const ok = await this.updateStatus(oid, 'CANCELLED', null, 'Product/service or branch must be corrected. Please place a new order.', null, true);
+                    if (ok) this.showStaffAlert('Order Cancelled', 'The original order was preserved as cancelled. Ask the customer to create a corrected replacement order.');
                 } finally {
                     this.endModalAction();
                 }
