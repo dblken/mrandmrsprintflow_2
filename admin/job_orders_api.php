@@ -1252,13 +1252,22 @@ try {
             $payment_amount    = !empty($order_check) ? (float)($order_check[0]['downpayment_amount'] ?? 0) : 0;
             $linked_order_id   = !empty($order_check) ? (int)$order_check[0]['order_id'] : null;
 
+            if ($new_status === 'For Revision' && !printflow_revision_ensure_schema()) {
+                throw new Exception('Revision request storage is unavailable.');
+            }
+
+            $customizationTransactionStarted = !($conn->in_transaction ?? false);
+            if ($customizationTransactionStarted && !$conn->begin_transaction()) {
+                throw new Exception('Unable to start the customization update transaction.');
+            }
+
             if ($new_status === 'For Revision' && $linked_order_id) {
                 $revision_request = printflow_revision_create_request(
                     $linked_order_id,
                     (int) get_user_id(),
                     $revision_reason_code !== '' ? $revision_reason_code : $rejection_reason,
                     $revision_instruction !== '' ? $revision_instruction : $rejection_reason,
-                    $revision_permitted_fields ?: ['uploaded_design'],
+                    $revision_permitted_fields,
                     $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason
                 );
                 $rejection_reason = (string) $revision_request['legacy_reason'];
@@ -1369,6 +1378,10 @@ try {
                     }
                     printflow_send_order_update($linked_order_id, $chat_step_map[$new_status], 'view_status', '', '', $additional_meta);
                 }
+            }
+
+            if ($customizationTransactionStarted && !$conn->commit()) {
+                throw new Exception('Unable to commit the customization update.');
             }
 
             jo_api_json_response(['success' => true]);
@@ -2141,21 +2154,19 @@ try {
             if (!$id || !$status) throw new Exception("ID and status required.");
             jo_api_require_staff_branch($joStaffBranch, $id);
             
-            if ($status === 'For Revision' && $reason !== '') {
-                db_execute("UPDATE job_orders SET notes = CONCAT(IFNULL(notes, ''), '\n[REVISION REQUEST] ', ?) WHERE id = ?", 'si', [$reason, $id]);
-            }
-
-            
             $revisionMeta = [];
             if ($status === 'For Revision') {
                 $revisionMeta = [
                     'reason_code' => $revisionReasonCode !== '' ? $revisionReasonCode : $reason,
                     'reason_label' => $revisionReasonLabel !== '' ? $revisionReasonLabel : $reason,
                     'instruction' => $revisionInstruction !== '' ? $revisionInstruction : $reason,
-                    'permitted_fields' => $revisionPermittedFields ?: ['uploaded_design'],
+                    'permitted_fields' => $revisionPermittedFields,
                 ];
             }
             $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);
+            if ($res && $status === 'For Revision' && $reason !== '') {
+                db_execute("UPDATE job_orders SET notes = CONCAT(IFNULL(notes, ''), '\n[REVISION REQUEST] ', ?) WHERE id = ?", 'si', [$reason, $id]);
+            }
             jo_api_json_response(['success' => $res]);
             break;
 
@@ -2376,6 +2387,9 @@ try {
             throw new Exception("Unknown action: $action");
     }
 } catch (Throwable $e) {
+    if (isset($conn) && $conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+        $conn->rollback();
+    }
     ob_clean(); // Clear any partial output
     $message = trim($e->getMessage());
     if (strcasecmp($message, 'Unauthorized') === 0) {

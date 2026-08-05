@@ -923,6 +923,23 @@ class CustomizationService
             $designUploadName = basename(trim((string)$item['design_file']));
         }
 
+        $revisionFields = [];
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        foreach ($custom as $fieldKey => $fieldValue) {
+            $fieldKey = (string)$fieldKey;
+            if ($orderItemId <= 0 || $fieldValue === '' || $fieldValue === null
+                || printflow_revision_is_protected_spec($fieldKey)) {
+                continue;
+            }
+            if (in_array(printflow_revision_key_group($fieldKey), ['needed_date', 'layout', 'order_notes'], true)) {
+                continue;
+            }
+            $revisionFields[] = [
+                'value' => printflow_revision_spec_token($orderItemId, $fieldKey),
+                'label' => self::FIELD_LABELS[$fieldKey] ?? ucwords(str_replace(['_', '-'], ' ', $fieldKey)),
+            ];
+        }
+
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
             'name'              => $name,
@@ -948,6 +965,7 @@ class CustomizationService
             'design_source'     => $images['design_source'] ?? null,
             'design_serve_url'  => $images['design_serve_url'] ?? null,
             'design_upload_requested' => (bool)($images['design_upload_requested'] ?? false),
+            'revision_fields'   => $revisionFields,
         ];
     }
 
@@ -2185,6 +2203,7 @@ class CustomizationService
      */
     public function requestRevision(int $orderId, string $reason, array $revisionMeta = []): array
     {
+        global $conn;
         $reason = trim($reason);
         if ($reason === '') {
             return ['success' => false, 'message' => 'Please provide details for the customer.'];
@@ -2194,24 +2213,36 @@ class CustomizationService
         if ($order === null) {
             return ['success' => false, 'message' => 'Order not found.'];
         }
+        if (!printflow_revision_ensure_schema()) {
+            return ['success' => false, 'message' => 'Revision request storage is unavailable.'];
+        }
 
+        $transactionStarted = $conn instanceof mysqli && !($conn->in_transaction ?? false);
         try {
+            if ($transactionStarted && !$conn->begin_transaction()) {
+                throw new RuntimeException('Unable to start the revision request transaction.');
+            }
             $revisionRequest = printflow_revision_create_request(
                 $orderId,
                 function_exists('get_user_id') ? (int) get_user_id() : 0,
                 trim((string)($revisionMeta['reason_code'] ?? '')) !== '' ? (string)$revisionMeta['reason_code'] : $reason,
                 trim((string)($revisionMeta['instruction'] ?? '')) !== '' ? (string)$revisionMeta['instruction'] : $reason,
-                is_array($revisionMeta['permitted_fields'] ?? null) ? $revisionMeta['permitted_fields'] : ['uploaded_design'],
+                is_array($revisionMeta['permitted_fields'] ?? null) ? $revisionMeta['permitted_fields'] : [],
                 trim((string)($revisionMeta['reason_label'] ?? '')) !== '' ? (string)$revisionMeta['reason_label'] : $reason
             );
             $reason = (string) $revisionRequest['legacy_reason'];
+            $this->repo->updateCustomizationStatus($orderId, 'For Revision', $reason);
+            $this->repo->updateOrderStatus($orderId, 'For Revision', 'Revision Requested', $reason);
+            $this->sendChat($orderId, 'for_revision', ['reason' => $reason]);
+            if ($transactionStarted && !$conn->commit()) {
+                throw new RuntimeException('Unable to commit the revision request.');
+            }
         } catch (Throwable $e) {
+            if ($transactionStarted && $conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+                $conn->rollback();
+            }
             return ['success' => false, 'message' => $e->getMessage()];
         }
-
-        $this->repo->updateCustomizationStatus($orderId, 'For Revision', $reason);
-        $this->repo->updateOrderStatus($orderId, 'For Revision', 'Revision Requested', $reason);
-        $this->sendChat($orderId, 'for_revision', ['reason' => $reason]);
 
         return ['success' => true, 'message' => 'Additional details request sent successfully.'];
     }

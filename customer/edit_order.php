@@ -26,16 +26,33 @@ if (empty($orderRows)) {
 }
 $order = $orderRows[0];
 $revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
+$revisionLoadError = '';
+$revisionReference = 'REV-' . $order_id . '-' . strtoupper(substr(hash('sha256', $order_id . '|' . $customer_id . '|' . date('Y-m-d-H')), 0, 8));
 if ($revision === null) {
-    error_log("Customer revision form could not load an active request for Order #{$order_id}.");
-    $_SESSION['error'] = 'We could not load the requested updates. Please refresh the order or contact the shop.';
-    redirect('orders.php?highlight=' . $order_id . '&revision_error=1');
+    error_log("[{$revisionReference}] Customer revision form could not load an active request for Order #{$order_id}.");
+    $revisionLoadError = 'This revision request is missing editable fields. The shop has been notified.';
 }
-$permissions = $revision['permitted_fields_array'];
-if (empty($permissions)) {
-    error_log("Customer revision form found no permitted fields for Order #{$order_id}, Request #" . (int)$revision['revision_request_id']);
-    $_SESSION['error'] = 'We could not load the requested updates. Please refresh the order or contact the shop.';
-    redirect('orders.php?highlight=' . $order_id . '&revision_error=1');
+$permissions = is_array($revision['permitted_fields_array'] ?? null) ? $revision['permitted_fields_array'] : [];
+if ($revision !== null && empty($permissions)) {
+    error_log("[{$revisionReference}] Customer revision form found no permitted fields for Order #{$order_id}, Request #" . (int)$revision['revision_request_id']);
+    $revisionLoadError = 'This revision request is missing editable fields. The shop has been notified.';
+}
+if ($revisionLoadError !== '') {
+    $page_title = "Revision Request Error";
+    $use_customer_css = true;
+    require_once __DIR__ . '/../includes/header.php';
+    ?>
+    <main style="max-width:720px;margin:0 auto;padding:3rem 1rem;">
+        <section style="background:#fff;border:1px solid #fecaca;border-left:5px solid #dc2626;border-radius:14px;padding:1.4rem;box-shadow:0 8px 24px rgba(15,42,54,.08);">
+            <h1 style="margin:0 0 .65rem;color:#991b1b;font-size:1.35rem;">Revision Request Unavailable</h1>
+            <p style="margin:0 0 .8rem;color:#7f1d1d;line-height:1.55;"><?php echo htmlspecialchars($revisionLoadError); ?></p>
+            <p style="margin:0 0 1.2rem;color:#64748b;font-size:.85rem;">Reference ID: <strong><?php echo htmlspecialchars($revisionReference); ?></strong></p>
+            <a href="orders.php?highlight=<?php echo $order_id; ?>" style="display:inline-flex;min-height:42px;align-items:center;padding:0 1rem;border-radius:8px;background:#0b3441;color:#fff;text-decoration:none;font-weight:700;">Back to My Orders</a>
+        </section>
+    </main>
+    <?php
+    require_once __DIR__ . '/../includes/footer.php';
+    exit;
 }
 printflow_revision_mark_customer_updating((int)$revision['revision_request_id'], $order_id, $customer_id);
 $permissionLabels = printflow_revision_permission_labels($permissions, $revision['previous_values_array']);

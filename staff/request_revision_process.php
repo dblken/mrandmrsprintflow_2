@@ -15,6 +15,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $order_id = (int)($_POST['order_id'] ?? 0);
     $revision_reason = sanitize($_POST['revision_reason'] ?? '');
+    $revision_reason_code = sanitize($_POST['revision_reason_code'] ?? $revision_reason);
+    $revision_reason_label = sanitize($_POST['revision_reason_label'] ?? $revision_reason);
+    $revision_instruction = trim((string)($_POST['revision_instruction'] ?? $revision_reason));
+    $revision_fields = $_POST['revision_permitted_fields'] ?? [];
+    if (!is_array($revision_fields)) {
+        $revision_fields = [$revision_fields];
+    }
 
     if (!$order_id || !$revision_reason) {
         $_SESSION['error'] = "Order ID and revision reason are required.";
@@ -26,32 +33,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect($_SERVER['HTTP_REFERER'] ?? 'orders.php');
     }
 
-    try {
-        $revisionRequest = printflow_revision_create_request(
-            $order_id,
-            (int) get_user_id(),
-            $revision_reason,
-            $revision_reason,
-            ['uploaded_design'],
-            $revision_reason
-        );
-        $revision_reason = (string) $revisionRequest['legacy_reason'];
-    } catch (Throwable $e) {
-        $_SESSION['error'] = $e->getMessage();
+    if (!printflow_revision_ensure_schema()) {
+        $_SESSION['error'] = 'Revision request storage is unavailable.';
         redirect($_SERVER['HTTP_REFERER'] ?? 'orders.php');
     }
 
-    // Update order status to 'Revision Requested' and 'For Revision'
-
-
-    $sql = "UPDATE orders SET 
-            status = 'For Revision', 
-            design_status = 'Revision Requested', 
-            revision_reason = ?, 
-            reviewed_by = ?, 
-            reviewed_at = NOW() 
+    $transactionStarted = !($conn->in_transaction ?? false);
+    try {
+        if ($transactionStarted && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start the revision request transaction.');
+        }
+        $revisionRequest = printflow_revision_create_request(
+            $order_id,
+            (int) get_user_id(),
+            $revision_reason_code,
+            $revision_instruction,
+            $revision_fields,
+            $revision_reason_label
+        );
+        $revision_reason = (string) $revisionRequest['legacy_reason'];
+        $sql = "UPDATE orders SET
+            status = 'For Revision',
+            design_status = 'Revision Requested',
+            revision_reason = ?,
+            reviewed_by = ?,
+            reviewed_at = NOW()
             WHERE order_id = ? AND branch_id = ?";
-    $success = db_execute($sql, 'siii', [$revision_reason, get_user_id(), $order_id, $staffBranchId]);
+        $success = db_execute($sql, 'siii', [$revision_reason, get_user_id(), $order_id, $staffBranchId]);
+        if (!$success) {
+            throw new RuntimeException('Failed to update order status.');
+        }
+        if ($transactionStarted && !$conn->commit()) {
+            throw new RuntimeException('Unable to commit the revision request.');
+        }
+    } catch (Throwable $e) {
+        if ($transactionStarted && ($conn->in_transaction ?? false)) {
+            $conn->rollback();
+        }
+        $_SESSION['error'] = $e->getMessage();
+        redirect($_SERVER['HTTP_REFERER'] ?? 'orders.php');
+    }
 
     if ($success) {
         // Log Activity

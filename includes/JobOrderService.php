@@ -1063,7 +1063,7 @@ class JobOrderService {
                     (string) ($revisionMeta['instruction'] ?? $reason),
                     is_array($revisionMeta['permitted_fields'] ?? null)
                         ? $revisionMeta['permitted_fields']
-                        : ['uploaded_design'],
+                        : [],
                     (string)($revisionMeta['reason_label'] ?? $reason)
                 );
                 $reason = (string) $revisionRequest['legacy_reason'];

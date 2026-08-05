@@ -15,6 +15,10 @@ $workflow = file_get_contents($root . '/includes/revision_workflow.php');
 $orders = file_get_contents($root . '/customer/orders.php');
 $orderApi = file_get_contents($root . '/customer/get_order_items.php');
 $editOrder = file_get_contents($root . '/customer/edit_order.php');
+$adminApi = file_get_contents($root . '/admin/job_orders_api.php');
+$v2Api = file_get_contents($root . '/staff/api/customizations_v2.php');
+$customizationService = file_get_contents($root . '/includes/CustomizationService.php');
+$repairMigration = file_get_contents($root . '/database/repair_revision_permissions_20260805.sql');
 
 $normalize = static function (string $status): string {
     $normalized = strtoupper(trim($status));
@@ -35,5 +39,11 @@ revision_test_assert(strpos($workflow, 'An unauthorized specification change was
 revision_test_assert(strpos($workflow, "request_status = 'Resubmitted for Review'") !== false, 'successful submission records Resubmitted for Review');
 revision_test_assert(strpos($editOrder, 'Submit Updated Details') !== false || strpos($editOrder, 'Submit Updates') !== false, 'revision form exposes an explicit update submission action');
 revision_test_assert(strpos($editOrder, "'date'") !== false && strpos($editOrder, 'needed_date') !== false, 'Needed Date uses a date control');
+revision_test_assert(strpos($workflow, "if (empty(\$permissions)) return '';") !== false, 'empty permissions never receive a generic revision action label');
+revision_test_assert(strpos($workflow, 'incorrect_details_explicit_needed_date') !== false, 'legacy Needed Date repair is explicitly scoped and audited');
+revision_test_assert(strpos($workflow, 'customization detail mirror could not be synchronized') !== false, 'revised specifications synchronize the customization mirror transactionally');
+revision_test_assert(strpos($editOrder, 'Revision Request Unavailable') !== false && strpos($editOrder, 'Reference ID:') !== false, 'invalid revision requests show a visible reference instead of redirecting');
+revision_test_assert(strpos($adminApi, "?: ['uploaded_design']") === false && strpos($v2Api, "?: ['uploaded_design']") === false && strpos($customizationService, ": ['uploaded_design']") === false, 'staff endpoints do not silently default detail revisions to design upload');
+revision_test_assert(strpos($repairMigration, "JSON_ARRAY('needed_date')") !== false && strpos($repairMigration, 'order_revision_permission_repairs') !== false, 'idempotent repair migration preserves before/after authorization audit');
 
 echo "Revision request workflow regression test passed.\n";

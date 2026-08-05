@@ -188,7 +188,7 @@ try {
                     'reason_code' => (string)($_POST['revision_reason_code'] ?? ''),
                     'reason_label' => (string)($_POST['revision_reason_label'] ?? ''),
                     'instruction' => (string)($_POST['revision_instruction'] ?? ''),
-                    'permitted_fields' => $revisionFields ?: ['uploaded_design'],
+                    'permitted_fields' => $revisionFields,
                 ]);
             }
 

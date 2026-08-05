@@ -299,13 +299,34 @@ $page_title = "Order #{$order_id} - Staff";
                         <div class="modal-backdrop" onclick="closeRevisionModal()"></div>
                         <div class="modal-content-panel">
                             <h2 style="font-size:1.5rem; font-weight:800; margin-bottom:8px; color:#1e293b;">Request Revision #<?php echo $order_id; ?></h2>
-                            <p style="color:#64748b; font-size:0.95rem; margin-bottom:24px;">Specify what changes the customer needs to make to their design.</p>
-                            <form action="request_revision_process.php" method="POST">
+                            <p style="color:#64748b; font-size:0.95rem; margin-bottom:24px;">Specify which customer-provided details may be corrected.</p>
+                            <form action="request_revision_process.php" method="POST" onsubmit="return legacyDetailRevisionValidate(this)">
                                 <?php echo csrf_field(); ?>
                                 <input type="hidden" name="order_id" value="<?php echo $order_id; ?>">
                                 <div style="margin-bottom:24px;">
                                     <label style="display:block; font-size:0.8rem; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">Reason for Revision *</label>
-                                    <textarea name="revision_reason" class="input-field" style="width:100%; min-height:120px; font-size:1rem; border-radius:12px;" required placeholder="e.g. Please upload a higher resolution PNG with transparent background..."></textarea>
+                                    <select name="revision_reason_code" class="input-field" required onchange="legacyDetailRevisionReasonChanged(this)">
+                                        <option value="">Select a reason...</option>
+                                        <option value="low_image_quality">Low image quality</option>
+                                        <option value="wrong_design">Wrong design uploaded</option>
+                                        <option value="incorrect_details">Incorrect details provided</option>
+                                        <option value="invalid_format">Not printable / invalid format</option>
+                                        <option value="others">Others</option>
+                                    </select>
+                                    <input type="hidden" name="revision_reason" value="Revision requested">
+                                    <input type="hidden" name="revision_reason_label" value="Revision requested">
+                                </div>
+                                <div id="legacyDetailRevisionFields" style="display:none;margin-bottom:20px;grid-template-columns:1fr 1fr;gap:8px;font-size:.85rem;">
+                                    <label><input type="checkbox" name="revision_permitted_fields[]" value="uploaded_design"> Uploaded Design</label>
+                                    <label><input type="checkbox" name="revision_permitted_fields[]" value="needed_date"> Needed Date</label>
+                                    <label><input type="checkbox" name="revision_permitted_fields[]" value="type_specifications"> Type / Specifications</label>
+                                    <label><input type="checkbox" name="revision_permitted_fields[]" value="layout"> Layout</label>
+                                    <label><input type="checkbox" name="revision_permitted_fields[]" value="quantity"> Quantity</label>
+                                    <label><input type="checkbox" name="revision_permitted_fields[]" value="order_notes"> Order Notes</label>
+                                </div>
+                                <div style="margin-bottom:24px;">
+                                    <label style="display:block;font-size:.8rem;font-weight:800;color:#475569;margin-bottom:8px;">Instructions for Customer *</label>
+                                    <textarea name="revision_instruction" class="input-field" style="width:100%;min-height:100px;font-size:1rem;border-radius:12px;" required placeholder="Explain what must be corrected."></textarea>
                                 </div>
                                 <div style="display:flex; justify-content:flex-end; gap:12px;">
                                     <button type="button" onclick="closeRevisionModal()" class="btn-secondary" style="border:none; background:#f1f5f9; color:#475569;">Cancel</button>
@@ -314,6 +335,31 @@ $page_title = "Order #{$order_id} - Staff";
                             </form>
                         </div>
                     </div>
+                    <script>
+                    function legacyDetailRevisionReasonChanged(select) {
+                        var fields = document.getElementById('legacyDetailRevisionFields');
+                        var boxes = Array.from(fields.querySelectorAll('input[type="checkbox"]'));
+                        fields.style.display = select.value ? 'grid' : 'none';
+                        boxes.forEach(function(box) { box.checked = false; box.disabled = false; });
+                        if (['low_image_quality', 'wrong_design', 'invalid_format'].includes(select.value)) {
+                            var design = boxes.find(function(box) { return box.value === 'uploaded_design'; });
+                            if (design) { design.checked = true; design.disabled = true; }
+                        } else if (select.value === 'incorrect_details') {
+                            boxes.filter(function(box) { return box.value !== 'uploaded_design'; }).forEach(function(box) { box.checked = true; });
+                        }
+                        var label = select.options[select.selectedIndex].text;
+                        var form = select.form;
+                        form.querySelector('input[name="revision_reason"]').value = label;
+                        form.querySelector('input[name="revision_reason_label"]').value = label;
+                    }
+                    function legacyDetailRevisionValidate(form) {
+                        if (!form.querySelectorAll('input[name="revision_permitted_fields[]"]:checked').length) {
+                            alert('Select at least one field the customer may edit.');
+                            return false;
+                        }
+                        return true;
+                    }
+                    </script>
 
                     <!-- Cancel Modal -->
                     <div id="staffCancelModal" class="staff-manage-modal">

@@ -1173,9 +1173,11 @@ $active_revision = null;
 $revision_request_error = '';
 if (($order['status'] ?? '') === 'For Revision' || ($order['design_status'] ?? '') === 'Revision Requested') {
     $active_revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
-    if ($active_revision === null) {
-        $revision_request_error = 'We could not load the requested updates. Please refresh the order or contact the shop.';
-        error_log("Revision request missing for customer Order #{$order_id} while the order is marked Revision Requested.");
+    if ($active_revision === null || empty($active_revision['permitted_fields_array'])) {
+        $requestId = (int)($active_revision['revision_request_id'] ?? 0);
+        $revision_request_error = 'This revision request is missing editable fields. The shop has been notified.';
+        error_log("Revision authorization invalid for customer Order #{$order_id}, Request #{$requestId}, while the order is marked Revision Requested.");
+        $active_revision = null;
     }
 }
 $restriction_msg = '';

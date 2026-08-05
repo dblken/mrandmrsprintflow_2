@@ -42,7 +42,7 @@ function printflow_revision_ensure_schema(): bool
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
-    db_execute(
+    $historyReady = (bool)db_execute(
         "CREATE TABLE IF NOT EXISTS order_item_revisions (
             revision_id INT AUTO_INCREMENT PRIMARY KEY,
             order_id INT NOT NULL,
@@ -59,6 +59,22 @@ function printflow_revision_ensure_schema(): bool
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    $repairAuditReady = (bool)db_execute(
+        "CREATE TABLE IF NOT EXISTS order_revision_permission_repairs (
+            repair_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            revision_request_id BIGINT UNSIGNED NOT NULL,
+            order_id INT NOT NULL,
+            previous_permitted_fields LONGTEXT NULL,
+            repaired_permitted_fields LONGTEXT NOT NULL,
+            repair_rule VARCHAR(100) NOT NULL,
+            repaired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (repair_id),
+            UNIQUE KEY uq_revision_permission_repair (revision_request_id),
+            KEY idx_permission_repair_order (order_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+    );
+
+    $ready = $ready && $historyReady && $repairAuditReady;
     return $ready;
 }
 
@@ -106,6 +122,7 @@ function printflow_revision_has_detail_permission(array $permissions): bool
 
 function printflow_revision_action_label(array $permissions): string
 {
+    if (empty($permissions)) return '';
     $hasDesign = printflow_revision_has_design_permission($permissions);
     $hasDetails = printflow_revision_has_detail_permission($permissions);
     if ($hasDesign && !$hasDetails) return 'Upload New Design';
@@ -502,10 +519,70 @@ function printflow_revision_changes(array $previous, array $revised): array
     return $changes;
 }
 
+/**
+ * Returns permissions only where a legacy request is unambiguous enough to
+ * repair without granting broader edit access than staff intended.
+ */
+function printflow_revision_safe_legacy_permissions(string $reasonCode, string $instruction): array
+{
+    $reasonCode = printflow_revision_reason_code($reasonCode);
+    if (in_array($reasonCode, ['low_image_quality', 'wrong_design', 'invalid_format'], true)) {
+        return ['uploaded_design'];
+    }
+    if ($reasonCode === 'incorrect_details'
+        && preg_match('/\b(?:neede*d\s+date|date\s+neede*d)\b/i', $instruction)) {
+        return ['needed_date'];
+    }
+    return [];
+}
+
+function printflow_revision_record_permission_repair(
+    int $requestId,
+    int $orderId,
+    string $before,
+    array $after,
+    string $rule
+): bool {
+    if ($requestId <= 0 || $orderId <= 0) return false;
+    return (bool)db_execute(
+        'INSERT IGNORE INTO order_revision_permission_repairs
+         (revision_request_id, order_id, previous_permitted_fields, repaired_permitted_fields, repair_rule)
+         VALUES (?, ?, ?, ?, ?)',
+        'iisss',
+        [$requestId, $orderId, $before, printflow_revision_encode_json($after), $rule]
+    );
+}
+
 function printflow_revision_get_active_or_legacy(int $orderId, int $customerId): ?array
 {
     $active = printflow_revision_get_active($orderId, $customerId);
     if ($active !== null) {
+        if (empty($active['permitted_fields_array'])) {
+            $safeFields = printflow_revision_safe_legacy_permissions(
+                (string)($active['reason_code'] ?? ''),
+                (string)($active['staff_instruction'] ?? '')
+            );
+            if (!empty($safeFields)) {
+                $before = (string)($active['permitted_fields'] ?? '');
+                $auditSaved = printflow_revision_record_permission_repair(
+                    (int)$active['revision_request_id'],
+                    $orderId,
+                    $before,
+                    $safeFields,
+                    $safeFields === ['needed_date'] ? 'incorrect_details_explicit_needed_date' : 'image_reason'
+                );
+                $updated = $auditSaved && db_execute(
+                    "UPDATE order_revision_requests SET permitted_fields = ?
+                     WHERE revision_request_id = ? AND active_flag = 1
+                       AND COALESCE(permitted_fields, '') = ?",
+                    'sis',
+                    [printflow_revision_encode_json($safeFields), (int)$active['revision_request_id'], $before]
+                );
+                if ($updated) {
+                    $active = printflow_revision_get_active($orderId, $customerId);
+                }
+            }
+        }
         return $active;
     }
     $rows = db_query(
@@ -521,29 +598,64 @@ function printflow_revision_get_active_or_legacy(int $orderId, int $customerId):
         return null;
     }
     $legacyReason = trim((string)($order['revision_reason'] ?? ''));
-    if ($legacyReason === '') {
-        $legacyReason = 'Please upload the corrected design requested by staff.';
-    }
+    if ($legacyReason === '') return null;
     $legacyReasonLower = strtolower($legacyReason);
-    $legacyCode = str_starts_with($legacyReasonLower, 'low image quality')
-        ? 'low_image_quality'
-        : (str_starts_with($legacyReasonLower, 'wrong design uploaded')
-            ? 'wrong_design'
-            : (str_starts_with($legacyReasonLower, 'not printable / invalid format') ? 'invalid_format' : ''));
-    if ($legacyCode === '') {
+    $legacyCode = '';
+    $legacyReasonPhrasePosition = false;
+    foreach ([
+        'low image quality' => 'low_image_quality',
+        'wrong design uploaded' => 'wrong_design',
+        'not printable / invalid format' => 'invalid_format',
+        'incorrect details provided' => 'incorrect_details',
+    ] as $phrase => $code) {
+        if (str_contains($legacyReasonLower, $phrase)) {
+            $legacyCode = $code;
+            $legacyReasonPhrasePosition = strpos($legacyReasonLower, $phrase);
+            break;
+        }
+    }
+    $instruction = trim($legacyReason);
+    $separator = $legacyReasonPhrasePosition !== false
+        ? strpos($legacyReason, ':', (int)$legacyReasonPhrasePosition)
+        : strpos($legacyReason, ':');
+    if ($separator !== false) {
+        $instruction = trim(substr($legacyReason, $separator + 1));
+    }
+    $safeFields = printflow_revision_safe_legacy_permissions($legacyCode, $instruction);
+    if ($legacyCode === '' || empty($safeFields)) {
         error_log("Legacy revision for Order #{$orderId} has no persisted field authorization and cannot be safely inferred.");
         return null;
     }
+    global $conn;
+    $repairTransactionStarted = $conn instanceof mysqli && !($conn->in_transaction ?? false);
     try {
-        printflow_revision_create_request(
+        if ($repairTransactionStarted && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start the legacy revision repair transaction.');
+        }
+        $created = printflow_revision_create_request(
             $orderId,
             (int)($order['reviewed_by'] ?? 0),
             $legacyCode,
-            $legacyReason,
-            ['uploaded_design'],
-            $legacyReason
+            $instruction,
+            $safeFields,
+            printflow_revision_reason_labels()[$legacyCode] ?? 'Revision requested'
         );
+        if (!printflow_revision_record_permission_repair(
+            (int)($created['revision_request_id'] ?? 0),
+            $orderId,
+            'missing_active_request',
+            $safeFields,
+            $safeFields === ['needed_date'] ? 'legacy_create_explicit_needed_date' : 'legacy_create_image_reason'
+        )) {
+            throw new RuntimeException('Unable to preserve the legacy revision repair audit.');
+        }
+        if ($repairTransactionStarted && !$conn->commit()) {
+            throw new RuntimeException('Unable to commit the legacy revision repair.');
+        }
     } catch (Throwable $e) {
+        if ($repairTransactionStarted && $conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+            $conn->rollback();
+        }
         error_log('Legacy revision backfill failed for Order #' . $orderId . ': ' . $e->getMessage());
     }
     return printflow_revision_get_active($orderId, $customerId);
@@ -587,12 +699,12 @@ function printflow_revision_create_request(
     if ($reasonLabel === '') {
         $reasonLabel = $labels[$reasonCode] ?? $labels['others'];
     }
+    if (in_array($reasonCode, ['low_image_quality', 'wrong_design', 'invalid_format'], true)) {
+        $permittedFields = ['uploaded_design'];
+    }
     $permittedFields = printflow_revision_normalize_permissions($permittedFields, $orderId);
     if (empty($permittedFields)) {
         throw new InvalidArgumentException('Select at least one field the customer may edit.');
-    }
-    if (in_array($reasonCode, ['low_image_quality', 'wrong_design', 'invalid_format'], true)) {
-        $permittedFields = ['uploaded_design'];
     }
 
     $orderRows = db_query('SELECT customer_id, payment_status FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', 'i', [$orderId]) ?: [];
@@ -755,6 +867,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             $item = $itemMap[$itemId];
             $custom = printflow_revision_decode_json($item['customization_data'] ?? '');
             $specs = printflow_revision_decode_json($item['specifications'] ?? '');
+            $changedSpecs = [];
             $existingKeys = array_fill_keys(array_keys(array_merge($custom, $specs)), true);
             foreach ($changes as $keyToken => $value) {
                 $key = printflow_revision_decode_form_key((string) $keyToken);
@@ -762,6 +875,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
                     throw new RuntimeException('An unauthorized specification change was rejected.');
                 }
                 $value = printflow_revision_validate_spec_value($item, $custom, $key, $value);
+                $changedSpecs[$key] = $value;
                 if (array_key_exists($key, $custom) || !array_key_exists($key, $specs)) {
                     $custom[$key] = $value;
                 }
@@ -780,6 +894,34 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
                     'sii',
                     [printflow_revision_encode_json($specs), $itemId, $orderId]
                 )) throw new RuntimeException('A revised specification could not be saved.');
+            }
+            // Customer and staff order views may overlay this legacy mirror on
+            // top of order_items, so keep it synchronized inside this same
+            // transaction instead of allowing the old value to reappear.
+            if (printflow_revision_column_exists('customizations', 'customization_details')) {
+                $mirrorSql = 'SELECT customization_id, customization_details FROM customizations
+                              WHERE order_id = ? AND order_item_id = ?';
+                $mirrorRows = db_query($mirrorSql, 'ii', [$orderId, $itemId]) ?: [];
+                if (count($itemMap) === 1) {
+                    $orphanRows = db_query(
+                        'SELECT customization_id, customization_details FROM customizations
+                         WHERE order_id = ? AND (order_item_id IS NULL OR order_item_id = 0)',
+                        'i',
+                        [$orderId]
+                    ) ?: [];
+                    $mirrorRows = array_merge($mirrorRows, $orphanRows);
+                }
+                foreach ($mirrorRows as $mirrorRow) {
+                    $mirror = printflow_revision_decode_json($mirrorRow['customization_details'] ?? '');
+                    foreach ($changedSpecs as $changedKey => $changedValue) {
+                        $mirror[$changedKey] = $changedValue;
+                    }
+                    if (!db_execute(
+                        'UPDATE customizations SET customization_details = ?, updated_at = NOW() WHERE customization_id = ?',
+                        'si',
+                        [printflow_revision_encode_json($mirror), (int)$mirrorRow['customization_id']]
+                    )) throw new RuntimeException('The customization detail mirror could not be synchronized.');
+                }
             }
         }
 

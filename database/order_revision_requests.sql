@@ -35,3 +35,16 @@ CREATE TABLE IF NOT EXISTS order_item_revisions (
     KEY idx_item_revision_order (order_id),
     KEY idx_item_revision_item (order_item_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS order_revision_permission_repairs (
+    repair_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    revision_request_id BIGINT UNSIGNED NOT NULL,
+    order_id INT NOT NULL,
+    previous_permitted_fields LONGTEXT NULL,
+    repaired_permitted_fields LONGTEXT NOT NULL,
+    repair_rule VARCHAR(100) NOT NULL,
+    repaired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (repair_id),
+    UNIQUE KEY uq_revision_permission_repair (revision_request_id),
+    KEY idx_permission_repair_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

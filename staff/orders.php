@@ -1785,16 +1785,27 @@ $page_title = 'Orders - Staff';
         document.getElementById('revisionModal').classList.remove('open');
         document.getElementById('revForm').reset();
         document.getElementById('revOtherWrapper').style.display = 'none';
+        document.getElementById('revFieldWrapper').style.display = 'none';
     }
     function handleReasonChange(select) {
         var wrap  = document.getElementById('revOtherWrapper');
         var input = document.getElementById('revOtherInput');
-        if (select.value === 'Other') {
+        var fieldWrap = document.getElementById('revFieldWrapper');
+        var boxes = Array.from(document.querySelectorAll('#revFieldWrapper input[type="checkbox"]'));
+        fieldWrap.style.display = select.value ? 'block' : 'none';
+        boxes.forEach(function(box) { box.checked = false; box.disabled = false; });
+        if (select.value === 'others') {
             wrap.style.display = 'block';
             input.required = true;
         } else {
             wrap.style.display = 'none';
             input.required = false;
+        }
+        if (['low_image_quality', 'wrong_design', 'invalid_format'].includes(select.value)) {
+            var design = boxes.find(function(box) { return box.value === 'uploaded_design'; });
+            if (design) { design.checked = true; design.disabled = true; }
+        } else if (select.value === 'incorrect_details') {
+            boxes.filter(function(box) { return box.value !== 'uploaded_design'; }).forEach(function(box) { box.checked = true; });
         }
     }
 
@@ -2175,6 +2186,15 @@ $page_title = 'Orders - Staff';
         var revForm = document.getElementById('revForm');
         if (revForm) {
             revForm.addEventListener('submit', function(e) {
+                var sel = this.querySelector('select[name="revision_reason_code"]');
+                var oth = this.querySelector('textarea[name="revision_reason_other"]');
+                var instruction = this.querySelector('textarea[name="revision_instruction"]');
+                var selectedFields = this.querySelectorAll('input[name="revision_permitted_fields[]"]:checked');
+                if (!sel || !sel.value || !instruction || !instruction.value.trim() || !selectedFields.length || (sel.value === 'others' && !oth.value.trim())) {
+                    e.preventDefault();
+                    alert(!selectedFields.length ? 'Select at least one field the customer may edit.' : 'Complete the revision reason and customer instructions.');
+                    return false;
+                }
                 var submitBtn = this.querySelector('button[type="submit"]');
                 if (submitBtn) {
                     if (submitBtn.disabled) { e.preventDefault(); return false; }
@@ -2182,10 +2202,8 @@ $page_title = 'Orders - Staff';
                     submitBtn.textContent = 'Sending...';
                     submitBtn.style.opacity = '0.7';
                 }
-                var sel = this.querySelector('select[name="revision_reason_select"]');
-                var oth = this.querySelector('textarea[name="revision_reason_other"]');
-                var finalReason = sel ? sel.value : '';
-                if (finalReason === 'Other' && oth) finalReason = oth.value;
+                var finalReason = sel.options[sel.selectedIndex].text;
+                if (sel.value === 'others' && oth) finalReason = oth.value.trim();
                 var hidden = this.querySelector('input[name="revision_reason"]');
                 if (!hidden) {
                     hidden = document.createElement('input');
@@ -2194,6 +2212,7 @@ $page_title = 'Orders - Staff';
                     this.appendChild(hidden);
                 }
                 hidden.value = finalReason;
+                this.querySelector('input[name="revision_reason_label"]').value = finalReason;
             });
         }
 
@@ -2553,30 +2572,46 @@ $page_title = 'Orders - Staff';
 <div id="revisionModal" role="dialog" aria-modal="true">
     <div class="rev-backdrop" onclick="closeRevisionModal()"></div>
     <div class="rev-panel">
-        <div class="rev-title">Request Design Revision</div>
-        <p class="rev-sub">Please select a reason for the revision request. This will be sent to the customer.</p>
+        <div class="rev-title">Request Additional Details</div>
+        <p class="rev-sub">Select exactly which fields the customer may correct.</p>
         
         <form id="revForm" action="request_revision_process.php" method="POST">
             <input type="hidden" name="order_id" id="revOrderId">
             <input type="hidden" name="csrf_token" id="revCsrfToken">
+            <input type="hidden" name="revision_reason_label" value="">
             
             <div style="margin-bottom: 20px;">
                 <label style="display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:8px;">Reason for Revision</label>
-                <select name="revision_reason_select" class="input-field" required onchange="handleReasonChange(this)">
+                <select name="revision_reason_code" class="input-field" required onchange="handleReasonChange(this)">
                     <option value="" disabled selected>Select a reason...</option>
-                    <option value="Low image quality / Blurry file">Low image quality / Blurry file</option>
-                    <option value="Incorrect dimensions / Size issue">Incorrect dimensions / Size issue</option>
-                    <option value="Wrong file format">Wrong file format</option>
-                    <option value="Design not print-ready">Design not print-ready</option>
-                    <option value="Incomplete details">Incomplete details</option>
-                    <option value="Copyright or restricted content">Copyright or restricted content</option>
-                    <option value="Other">Other (Please specify)</option>
+                    <option value="low_image_quality">Low image quality</option>
+                    <option value="wrong_design">Wrong design uploaded</option>
+                    <option value="incorrect_details">Incorrect details provided</option>
+                    <option value="invalid_format">Not printable / invalid format</option>
+                    <option value="others">Others</option>
                 </select>
             </div>
 
             <div id="revOtherWrapper" style="display:none; margin-bottom:20px;">
                 <label style="display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:8px;">Specify Other Reason</label>
                 <textarea name="revision_reason_other" id="revOtherInput" class="input-field" style="height:80px;"></textarea>
+            </div>
+
+            <div id="revFieldWrapper" style="display:none; margin-bottom:20px;">
+                <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;">Allow customer to edit</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="uploaded_design"> Uploaded Design</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="needed_date"> Needed Date</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="type_specifications"> Type / Specifications</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="layout"> Layout</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="quantity"> Quantity</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="order_notes"> Order Notes</label>
+                </div>
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;">Instructions for Customer</label>
+                <textarea name="revision_instruction" class="input-field" style="height:90px;" required placeholder="Explain what must be corrected."></textarea>
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
