@@ -2014,6 +2014,7 @@ $page_title = 'Orders - Staff';
         fd.append('order_id', orderId);
         fd.append('price', price);
         fd.append('action', 'update_order_price');
+        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
         fetch(staffUrl('admin/job_orders_api.php'), {
             method: 'POST', body: fd,

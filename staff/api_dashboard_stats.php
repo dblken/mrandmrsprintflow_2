@@ -307,6 +307,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 }
 
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
+$hasOrderItemType = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'item_type') : false;
+$hasOrderItemServiceId = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'service_id') : false;
+$productJoinSql = $hasOrderItemType
+    ? "JOIN products p ON oi.product_id = p.product_id AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'"
+    : "JOIN products p ON oi.product_id = p.product_id";
+$serviceJoinSql = $hasOrderItemServiceId
+    ? 'LEFT JOIN services s ON oi.service_id = s.service_id'
+    : 'LEFT JOIN services s ON oi.product_id = s.service_id';
 
 $page = max(1, (int)($_GET['page'] ?? 1));
 $limit = 15;
@@ -336,7 +344,7 @@ $productOrders = db_query(
     "SELECT COUNT(DISTINCT o.order_id) AS count
      FROM orders o
      JOIN order_items oi ON o.order_id = oi.order_id
-     JOIN products p ON oi.product_id = p.product_id
+     {$productJoinSql}
      WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']}{$productTypeSql}",
     'i' . $timeMeta['types'] . $statusMeta['types'],
     array_merge([$staffBranchId], $timeMeta['params'], $statusMeta['params'])
@@ -348,7 +356,7 @@ $customOrders = db_query(
      FROM orders o
      JOIN order_items oi ON o.order_id = oi.order_id
      LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
-     LEFT JOIN services s ON oi.product_id = s.service_id
+     {$serviceJoinSql}
      WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']}{$customTypeSql}",
     'i' . $timeMeta['types'] . $statusMeta['types'],
     array_merge([$staffBranchId], $timeMeta['params'], $statusMeta['params'])
@@ -476,8 +484,8 @@ $topServices = db_query(
      FROM order_items oi
      JOIN orders o ON oi.order_id = o.order_id
      LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
-     LEFT JOIN products p ON oi.product_id = p.product_id
-     LEFT JOIN services s ON oi.product_id = s.service_id
+     LEFT JOIN products p ON oi.product_id = p.product_id" . ($hasOrderItemType ? " AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'" : "") . "
+     {$serviceJoinSql}
      WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND {$timeMeta['sql']} AND {$statusMeta['sql']}
      GROUP BY name
      ORDER BY order_count DESC, name ASC
@@ -515,8 +523,8 @@ $orders = db_query(
             o.status,
             (SELECT COALESCE(p.name, s.name, 'General')
              FROM order_items oi
-             LEFT JOIN products p ON oi.product_id = p.product_id
-             LEFT JOIN services s ON oi.product_id = s.service_id
+             LEFT JOIN products p ON oi.product_id = p.product_id" . ($hasOrderItemType ? " AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'" : "") . "
+             {$serviceJoinSql}
              WHERE oi.order_id = o.order_id
              LIMIT 1) AS service_type
      FROM orders o

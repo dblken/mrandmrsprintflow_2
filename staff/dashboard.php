@@ -23,6 +23,17 @@ $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
 // Some production databases may not have `orders.order_type` (older schema).
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
+$hasOrderItemType = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'item_type') : false;
+$hasOrderItemServiceId = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'service_id') : false;
+$dashboardProductJoinSql = $hasOrderItemType
+    ? "LEFT JOIN products p ON oi.product_id = p.product_id AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'"
+    : "LEFT JOIN products p ON oi.product_id = p.product_id";
+$dashboardProductInnerJoinSql = $hasOrderItemType
+    ? "JOIN products p ON oi.product_id = p.product_id AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'"
+    : "JOIN products p ON oi.product_id = p.product_id";
+$dashboardServiceJoinSql = $hasOrderItemServiceId
+    ? 'LEFT JOIN services s ON oi.service_id = s.service_id'
+    : 'LEFT JOIN services s ON oi.product_id = s.service_id';
 
 // --- 1. SET DATE RANGE & FILTERS ---
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -157,13 +168,13 @@ $completed_products_sql = $hasOrderType
         SELECT COUNT(DISTINCT o.order_id) as count 
         FROM orders o 
         JOIN order_items oi ON o.order_id = oi.order_id
-        JOIN products p ON oi.product_id = p.product_id
+        {$dashboardProductInnerJoinSql}
         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND o.order_type = 'product'"
     : "
         SELECT COUNT(DISTINCT o.order_id) as count 
         FROM orders o 
         JOIN order_items oi ON o.order_id = oi.order_id
-        JOIN products p ON oi.product_id = p.product_id
+        {$dashboardProductInnerJoinSql}
         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql}";
 $completed_products_types = 'i';
 $completed_products_params = [$staffBranchId];
@@ -181,7 +192,7 @@ $completed_custom_sql = "
     FROM orders o 
     JOIN order_items oi ON o.order_id = oi.order_id
     LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
-    LEFT JOIN services s ON oi.product_id = s.service_id";
+    {$dashboardServiceJoinSql}";
 $completed_custom_types = 'i';
 $completed_custom_params = [$staffBranchId];
 $completed_custom_sql .= "
@@ -217,8 +228,8 @@ $top_services_sql = "
     SELECT COALESCE(p.name, s.name, 'Custom Product') as name, COUNT(*) as order_count
     FROM order_items oi
     JOIN orders o ON oi.order_id = o.order_id
-    LEFT JOIN products p ON oi.product_id = p.product_id
-    LEFT JOIN services s ON oi.product_id = s.service_id
+    {$dashboardProductJoinSql}
+    {$dashboardServiceJoinSql}
     WHERE o.branch_id = ?
       AND {$staffOrderScopeSql}
       AND (
@@ -270,7 +281,7 @@ $total_pages = ceil($total_rows / $limit);
 
 $recent_orders = db_query("
     SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-    (SELECT COALESCE(p.name, 'Custom Service') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) as service_type
+    (SELECT COALESCE(p.name, s.name, 'Custom Service') FROM order_items oi {$dashboardProductJoinSql} {$dashboardServiceJoinSql} WHERE oi.order_id = o.order_id LIMIT 1) as service_type
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
     $sql_cond

@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role('Customer');
 ensure_ratings_table_exists();
@@ -57,6 +58,8 @@ $tab_status_map = [
 $tab_status_map['production'] = ['In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process'];
 $tab_status_map['pickup'] = ['Ready for Pickup', 'Approved Design'];
 
+$provider_payments_ready = printflow_provider_payments_ready();
+
 function customer_orders_display_status(string $status, string $order_type = ''): string {
     $status = trim($status);
     $order_type = strtolower(trim($order_type));
@@ -86,9 +89,6 @@ function customer_orders_display_status(string $status, string $order_type = '')
     }
     return $status;
 }
-
-// Statuses where price is hidden from customer
-$HIDDEN_PRICE_STATUSES = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
 
 $has_product_image = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_image'"));
 $has_photo_path = !empty(db_query("SHOW COLUMNS FROM products LIKE 'photo_path'"));
@@ -132,6 +132,26 @@ foreach ($tab_status_map as $tab_key => $statuses) {
     }
 }
 
+// A paid provider ledger is authoritative even if an older order mirror still
+// says "To Pay". Keep those orders out of the payable count/list immediately.
+$paid_to_pay_sql = "SELECT COUNT(*) AS total
+    FROM orders o
+    WHERE o.customer_id = ? AND o.status = 'To Pay'
+      AND (UPPER(TRIM(COALESCE(o.payment_status, ''))) = 'PAID'";
+if ($provider_payments_ready) {
+    $paid_to_pay_sql .= " OR EXISTS (
+        SELECT 1 FROM provider_payments pp
+        WHERE pp.customer_id = o.customer_id
+          AND pp.subject_type = 'order'
+          AND pp.subject_id = o.order_id
+          AND pp.provider = 'paymongo'
+          AND pp.status = 'paid'
+    )";
+}
+$paid_to_pay_sql .= ')';
+$paid_to_pay_result = db_query($paid_to_pay_sql, 'i', [$customer_id]) ?: [];
+$tab_counts['topay'] = max(0, $tab_counts['topay'] - (int)($paid_to_pay_result[0]['total'] ?? 0));
+
 // Build query
 $sql = "SELECT o.*, 
         (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
@@ -169,6 +189,12 @@ $sql = "SELECT o.*,
            AND jo.payment_rejection_reason != ''
          ORDER BY jo.payment_verified_at DESC, jo.id DESC
          LIMIT 1) as payment_rejection_reason,
+        (SELECT jo.payment_verified_at
+         FROM job_orders jo
+         WHERE jo.order_id = o.order_id
+           AND UPPER(TRIM(COALESCE(jo.payment_status, ''))) = 'PAID'
+         ORDER BY jo.payment_verified_at DESC, jo.id DESC
+         LIMIT 1) as latest_payment_verified_at,
         (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_title,
         (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_service_type
         FROM orders o WHERE o.customer_id = ?";
@@ -190,6 +216,22 @@ if ($active_tab !== 'all' && isset($tab_status_map[$active_tab])) {
         $count_params[] = $s; // Also add to count params
         $types .= 's';
         $count_types .= 's'; // Also add to count types
+    }
+
+    if ($active_tab === 'topay') {
+        $paidGuard = " AND UPPER(TRIM(COALESCE(o.payment_status, ''))) <> 'PAID'";
+        if ($provider_payments_ready) {
+            $paidGuard .= " AND NOT EXISTS (
+                SELECT 1 FROM provider_payments pp
+                WHERE pp.customer_id = o.customer_id
+                  AND pp.subject_type = 'order'
+                  AND pp.subject_id = o.order_id
+                  AND pp.provider = 'paymongo'
+                  AND pp.status = 'paid'
+            )";
+        }
+        $sql .= $paidGuard;
+        $count_sql .= $paidGuard;
     }
 }
 
@@ -224,10 +266,88 @@ $sql .= " ORDER BY {$display_sort_expr} DESC, o.order_id DESC LIMIT {$limit} OFF
 
 $orders_raw = db_query($sql, $types, $params);
 $orders = is_array($orders_raw) ? $orders_raw : [];
+$provider_payments_by_order = [];
+if ($provider_payments_ready && $orders !== []) {
+    $order_ids = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int)($row['order_id'] ?? 0),
+        $orders
+    ))));
+    if ($order_ids !== []) {
+        $providerPlaceholders = implode(',', array_fill(0, count($order_ids), '?'));
+        $providerParams = array_merge([$customer_id], $order_ids);
+        $providerTypes = 'i' . str_repeat('i', count($order_ids));
+        $providerRows = db_query(
+            "SELECT * FROM provider_payments
+             WHERE customer_id = ? AND subject_type = 'order'
+               AND subject_id IN ({$providerPlaceholders})
+               AND provider = 'paymongo'
+             ORDER BY subject_id ASC,
+                      CASE WHEN status = 'paid' THEN 0 WHEN status = 'awaiting_payment' THEN 1 ELSE 2 END,
+                      id DESC",
+            $providerTypes,
+            $providerParams
+        ) ?: [];
+        foreach ($providerRows as $providerRow) {
+            $providerOrderId = (int)($providerRow['subject_id'] ?? $providerRow['order_id'] ?? 0);
+            if ($providerOrderId > 0 && !isset($provider_payments_by_order[$providerOrderId])) {
+                $provider_payments_by_order[$providerOrderId] = $providerRow;
+            }
+        }
+    }
+}
 foreach ($orders as &$order) {
+    $orderId = (int)($order['order_id'] ?? 0);
+    $providerPayment = $provider_payments_by_order[$orderId] ?? [];
+    $providerPublic = $providerPayment !== [] ? printflow_provider_payment_public($providerPayment) : [];
+    $financial = printflow_order_financial_snapshot($order, $providerPayment);
+    $providerPaid = strtolower((string)($providerPayment['status'] ?? '')) === 'paid';
+    $paymentReceived = $providerPaid
+        || strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0
+        || ((int)($financial['paid_amount_centavos'] ?? 0) > 0
+            && (int)($financial['remaining_balance_centavos'] ?? 0) === 0);
+    $statusText = strtolower(trim((string)($order['status'] ?? '')));
+    $hasDownstreamStatus = (bool)preg_match(
+        '/production|processing|printing|ready|pickup|completed|rated|to rate|cancelled|rejected/',
+        $statusText
+    );
+
     $order['order_code'] = printflow_format_order_code($order['order_id'] ?? 0, $order['order_sku'] ?? '');
     $order['_first_item_customization_resolved'] = customer_orders_primary_customization($order);
-    $order['_first_item_display_name'] = customer_orders_primary_item_name($order);
+    $identityItem = [
+        'product_id' => (int)($order['first_product_id'] ?? 0),
+        'product_name' => (string)($order['first_product_name'] ?? ''),
+        'service_id' => (int)($order['_first_item_customization_resolved']['service_id'] ?? 0),
+        'item_type' => (string)($order['_first_item_customization_resolved']['item_type'] ?? ''),
+        'source_page' => (string)($order['_first_item_customization_resolved']['source_page'] ?? ''),
+    ];
+    $identity = printflow_resolve_order_line_identity(
+        $order,
+        $identityItem,
+        $order['_first_item_customization_resolved']
+    );
+    $order['_first_item_identity'] = $identity;
+    $order['_first_item_display_name'] = (string)($identity['display_name'] ?? 'Order Item');
+    $order['_provider_payment'] = $providerPayment;
+    $order['_provider_payment_public'] = $providerPublic;
+    $order['_financial_snapshot'] = $financial;
+    $order['_price_is_final'] = !empty($financial['price_is_final']);
+    $order['_payment_received'] = $paymentReceived;
+    $order['_awaiting_production'] = $paymentReceived && !$hasDownstreamStatus;
+    $order['_payment_method_display'] = trim((string)(
+        ($providerPublic['payment_method_label'] ?? '')
+        ?: ($order['payment_method'] ?? '')
+        ?: ($paymentReceived ? 'Payment method not recorded' : '')
+    ));
+    $order['_payment_reference_display'] = trim((string)(
+        ($providerPublic['reference_number'] ?? '')
+        ?: ($providerPublic['provider_payment_id'] ?? '')
+        ?: ($order['payment_reference'] ?? '')
+    ));
+    $order['_payment_paid_at_raw'] = trim((string)(
+        ($providerPublic['provider_paid_at'] ?? '')
+        ?: ($providerPublic['paid_at'] ?? '')
+        ?: ($order['latest_payment_verified_at'] ?? '')
+    ));
     $order['_display_timestamp_meta'] = printflow_customer_order_timestamp_meta($order);
     $order['_display_ts'] = !empty($order['_display_timestamp_meta']['datetime'])
         ? (strtotime((string)$order['_display_timestamp_meta']['datetime']) ?: 0)
@@ -514,8 +634,24 @@ require_once __DIR__ . '/../includes/header.php';
     .orders-theme-page .final-price { font-size: 1.4rem; }
 }
 .orders-theme-page .hidden-price-msg { font-size: 0.72rem; color: #64748b; font-style: italic; line-height: 1.4; margin-bottom: 0.25rem; }
+.orders-theme-page .payment-received-summary {
+    margin-top: 0.65rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, auto));
+    justify-content: end;
+    gap: 0.2rem 1rem;
+    color: #475569;
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+.orders-theme-page .payment-received-summary strong { color: #0f766e; font-weight: 800; }
 @media (max-width: 640px) {
     .orders-theme-page .hidden-price-msg { font-size: 0.78rem; }
+    .orders-theme-page .payment-received-summary {
+        grid-template-columns: 1fr;
+        justify-content: start;
+        font-size: 0.75rem;
+    }
 }
 .orders-theme-page .card-actions-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 @media (max-width: 640px) {
@@ -1498,6 +1634,9 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php 
                             // ... (logic remains same)
                             $display_status = customer_orders_display_status((string)$order['status'], (string)($order['order_type'] ?? ''));
+                            if (!empty($order['_awaiting_production'])) {
+                                $display_status = 'Payment Received / Awaiting Production';
+                            }
                             $s = strtolower($display_status);
                             $st_cls = 'st-pending';
                             if (strpos($s, 'approved') !== false) $st_cls = 'st-approved';
@@ -1508,12 +1647,17 @@ require_once __DIR__ . '/../includes/header.php';
                             elseif (strpos($s, 'cancelled') !== false) $st_cls = 'st-cancelled';
                             
                             $c_json = (array)($order['_first_item_customization_resolved'] ?? customer_orders_primary_customization($order));
-                            $d_name = (string)($order['_first_item_display_name'] ?? customer_orders_primary_item_name($order));
+                            $d_name = (string)($order['_first_item_display_name'] ?? 'Order Item');
                             $preview_url = printflow_order_list_thumbnail_url($order, $d_name);
                             $catalog_fallback_url = rtrim((string)pf_app_base_path(), '/') . '/public/assets/images/services/default.png';
                             $timestamp_meta = $order['_display_timestamp_meta'] ?? printflow_customer_order_timestamp_meta($order);
+                            $financial = (array)($order['_financial_snapshot'] ?? []);
+                            $amount_due = ((int)($financial['amount_due_centavos'] ?? 0)) / 100;
+                            $paid_amount = ((int)($financial['paid_amount_centavos'] ?? 0)) / 100;
+                            $remaining_balance = ((int)($financial['remaining_balance_centavos'] ?? 0)) / 100;
+                            $payment_paid_at = trim((string)($order['_payment_paid_at_raw'] ?? ''));
                         ?>
-                        <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
+                        <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" data-payment-received="<?php echo !empty($order['_payment_received']) ? '1' : '0'; ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
                             <div class="card-top-row">
                                 <span class="order-id-chip"><?php echo htmlspecialchars($order['order_code']); ?></span>
                                 <div class="status-pill <?php echo $st_cls; ?>"><?php echo htmlspecialchars($display_status); ?></div>
@@ -1531,10 +1675,19 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                                 <div class="pricing-column">
                                     <div class="mb-1">
-                                        <?php if (in_array($order['status'], $HIDDEN_PRICE_STATUSES)): ?>
+                                        <?php if (empty($order['_price_is_final']) || $amount_due <= 0): ?>
                                             <p class="hidden-price-msg">Quote is being finalized by our production team</p>
                                         <?php else: ?>
-                                            <p class="final-price"><?php echo format_currency($order['total_amount']); ?></p>
+                                            <p class="final-price"><?php echo format_currency($amount_due); ?></p>
+                                        <?php endif; ?>
+                                        <?php if (!empty($order['_payment_received'])): ?>
+                                            <div class="payment-received-summary">
+                                                <span><strong>Paid:</strong> <?php echo htmlspecialchars(format_currency($paid_amount)); ?></span>
+                                                <span><strong>Balance:</strong> <?php echo htmlspecialchars(format_currency($remaining_balance)); ?></span>
+                                                <span><strong>Method:</strong> <?php echo htmlspecialchars((string)$order['_payment_method_display']); ?></span>
+                                                <span><strong>Reference:</strong> <?php echo htmlspecialchars((string)($order['_payment_reference_display'] ?: 'Not recorded')); ?></span>
+                                                <span><strong>Paid on:</strong> <?php echo htmlspecialchars($payment_paid_at !== '' ? format_datetime($payment_paid_at) : 'Not recorded'); ?></span>
+                                            </div>
                                         <?php endif; ?>
                                     </div>
                                     <div class="card-actions-inline" onclick="event.stopPropagation()">
@@ -1542,7 +1695,7 @@ require_once __DIR__ . '/../includes/header.php';
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                                             Message
                                         </a>
-                                        <?php if (strtolower(trim($order['status'])) === 'to pay'): ?>
+                                        <?php if (strtolower(trim($order['status'])) === 'to pay' && empty($order['_payment_received'])): ?>
                                         <a href="<?php echo BASE_URL; ?>/customer/payment.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-main" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); padding: 0.45rem 0.85rem; font-size: 0.68rem; position: relative; z-index: 10; white-space: nowrap;">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                                             Pay Now
@@ -2143,7 +2296,7 @@ function openItemsModal(orderId, event) {
                     </td>
                 ` : `
                     <td data-label="Total Price" style="text-align: right; vertical-align: middle; white-space: nowrap;">
-                        <div class="im-total-value">${escIM(item.subtotal)}</div>
+                        <div class="im-total-value">${escIM(data.price_is_final ? (item.final_price || data.total_amount) : item.subtotal)}</div>
                     </td>
                 `}
             </tr>`;
@@ -2155,6 +2308,12 @@ function openItemsModal(orderId, event) {
         const revisionFieldLabels = Array.isArray(data.revision_request?.permitted_field_labels)
             ? data.revision_request.permitted_field_labels
             : [];
+        const payment = data.payment && typeof data.payment === 'object' ? data.payment : {};
+        const paymentReceived = Boolean(data.payment_received || payment.received || String(data.payment_status || '').toLowerCase() === 'paid');
+        const currentStatusLabel = data.display_status || data.status;
+        const paymentMethod = payment.method || data.payment_method || 'Payment method not recorded';
+        const paymentPaidAt = payment.paid_at || data.payment_paid_at || '';
+        const paymentReference = payment.reference || data.payment_reference || '';
 
         document.getElementById('imBody').innerHTML = `
             <div class="im-dashboard">
@@ -2196,10 +2355,10 @@ function openItemsModal(orderId, event) {
                             <div>
                                 <div class="im-label">Current status</div>
                                 ${data.status === 'Rejected'
-                                    ? `<div style="margin-top: 0.5rem;">${imBadge(data.display_status || data.status)}</div>`
-                                    : `<div class="im-val">${data.status}</div>`}
+                                    ? `<div style="margin-top: 0.5rem;">${imBadge(currentStatusLabel)}</div>`
+                                    : `<div class="im-val">${escIM(currentStatusLabel)}</div>`}
                             </div>
-                            ${data.status === 'Rejected' ? '' : `<div style="transform: scale(0.9); transform-origin: top right;">${imBadge(data.display_status || data.status)}</div>`}
+                            ${data.status === 'Rejected' ? '' : `<div style="transform: scale(0.9); transform-origin: top right;">${imBadge(currentStatusLabel)}</div>`}
                         </div>
                         <div class="im-label" style="margin-top: 16px;">Branch processing</div>
                         <div class="im-val">${escIM(data.branch_name)}</div>
@@ -2208,7 +2367,8 @@ function openItemsModal(orderId, event) {
                     <div class="im-sec-card accent">
                         <div class="im-label" style="margin-bottom: 12px;">Payment information</div>
                         <div class="space-y-4">
-                            <div><div class="im-label" style="margin-bottom: 4px;">Method</div><div class="im-val">${escIM(data.payment_method)}</div></div>
+                            ${paymentReceived ? `<div style="padding:0.65rem 0.75rem;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;font-size:0.78rem;font-weight:800;">${escIM(data.awaiting_production ? 'Payment Received / Awaiting Production' : 'Payment Received')}</div>` : ''}
+                            <div><div class="im-label" style="margin-bottom: 4px;">Method</div><div class="im-val">${escIM(paymentMethod)}</div></div>
                             <div><div class="im-label" style="margin-bottom: 4px;">Status</div><div>${imBadge(data.payment_status)}</div></div>
                             ${data.is_service_order ? `
                                 <div><div class="im-label" style="margin-bottom: 4px;">Estimated price</div><div class="im-val">${escIM(data.estimated_price || 'Pending')}</div></div>
@@ -2216,6 +2376,12 @@ function openItemsModal(orderId, event) {
                             ` : `
                                 <div><div class="im-label" style="margin-bottom: 4px;">Total price</div><div class="im-val">${escIM(data.total_amount)}</div></div>
                             `}
+                            ${paymentReceived ? `
+                                <div><div class="im-label" style="margin-bottom: 4px;">Paid amount</div><div class="im-val">${escIM(payment.paid_amount || data.financial?.paid_amount || data.total_amount)}</div></div>
+                                <div><div class="im-label" style="margin-bottom: 4px;">Remaining balance</div><div class="im-val">${escIM(payment.remaining_balance || data.financial?.remaining_balance || '₱0.00')}</div></div>
+                                <div><div class="im-label" style="margin-bottom: 4px;">Payment reference</div><div class="im-val" style="overflow-wrap:anywhere;">${escIM(paymentReference || 'Not recorded')}</div></div>
+                                <div><div class="im-label" style="margin-bottom: 4px;">Payment date</div><div class="im-val">${escIM(paymentPaidAt || 'Not recorded')}</div></div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -2244,7 +2410,7 @@ function openItemsModal(orderId, event) {
                             </div>
                         ` : ''}
 
-                        ${data.status === 'Rejected' ? `
+                        ${data.status === 'Rejected' && !paymentReceived ? `
                             <div class="im-reject-card">
                                 <div class="im-reject-title">Payment rejected</div>
                                 <p class="im-reject-copy">${escIM(data.payment_rejection_reason || 'Your payment proof was rejected. Please review the reason and submit your payment proof again.')}</p>
@@ -2724,7 +2890,11 @@ async function refreshOrdersList() {
                 const pill = card.querySelector('.status-pill');
                 if (pill) {
                     const orderType = card.dataset.orderType || order.order_type || '';
-                    const displayStatus = normalizeDisplayStatus(order.status, orderType);
+                    const isPaidAwaitingProduction = card.dataset.paymentReceived === '1'
+                        && !/production|processing|printing|ready|pickup|completed|rated|to rate|cancelled|rejected/i.test(String(order.status || ''));
+                    const displayStatus = isPaidAwaitingProduction
+                        ? 'Payment Received / Awaiting Production'
+                        : normalizeDisplayStatus(order.status, orderType);
                     pill.textContent = displayStatus;
                     pill.className = 'status-pill ' + statusClassFor(displayStatus);
                 }

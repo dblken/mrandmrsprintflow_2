@@ -394,12 +394,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     : (review_item_unit_price($item) * review_item_quantity($item));
                 $grand_total += $subtotal;
                 
-                if ($reference_id === null && !empty($item['product_id'])) {
+                if ($reference_id === null && review_item_is_product($item) && !empty($item['product_id'])) {
                     $reference_id = $item['product_id'];
                 }
-                
+
                 if (review_item_is_service($item)) {
                     $order_type = 'custom';
+                    if ($reference_id === null) {
+                        $serviceReferenceId = printflow_resolve_service_catalog_service_id_from_cart_line($item);
+                        if ($serviceReferenceId > 0) {
+                            $reference_id = $serviceReferenceId;
+                        }
+                    }
                 }
 
                 if (!empty($custom)) {

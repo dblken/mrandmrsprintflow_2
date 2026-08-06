@@ -1998,13 +1998,13 @@ $online_closed_count = 0;
                                 <div style="font-size:14px; font-weight:500; color:#1e40af;">Total Outstanding:</div>
                                 <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
                             </div>
-                            <div style="font-size:13px; color:#1e40af; line-height:1.5;">Waiting for the customer to upload payment proof. Once uploaded, it will appear in the TO VERIFY section.</div>
+                            <div style="font-size:13px; color:#1e40af; line-height:1.5;" x-text="paymongoPayment && paymongoPayment.status === 'awaiting_payment' ? 'Waiting for PayMongo to confirm the customer payment.' : 'Waiting for the customer to pay. Manual proof is required only when the manual payment option is used.'"></div>
                             <div style="margin-top:14px;padding-top:14px;border-top:1px solid #bfdbfe;">
                                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
                                     <strong style="font-size:12px;color:#1e40af;">PayMongo Payment Link</strong>
-                                    <span style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                                    <span x-show="paymongoPayment && paymongoPayment.test_mode" style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
                                 </div>
-                                <button type="button" @click="generatePayMongoLink()" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" :style="paymongoBusy ? 'opacity:.6;cursor:not-allowed;' : ''">
+                                <button x-show="!paymongoPayment || paymongoPayment.status !== 'paid'" type="button" @click="generatePayMongoLink()" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" :style="paymongoBusy ? 'opacity:.6;cursor:not-allowed;' : ''">
                                     <span x-text="paymongoBusy ? 'Generating...' : (paymongoPayment && paymongoPayment.checkout_url ? 'Reuse Payment Link' : 'Generate Payment Link')"></span>
                                 </button>
                                 <div x-show="paymongoPayment" style="margin-top:9px;color:#1e40af;font-size:11px;line-height:1.5;">
@@ -2012,7 +2012,7 @@ $online_closed_count = 0;
                                     <div x-show="paymongoPayment && paymongoPayment.created_at">Created: <span x-text="paymongoPayment ? paymongoPayment.created_at : ''"></span></div>
                                     <div x-show="paymongoPayment && paymongoPayment.paid_at">Paid: <span x-text="paymongoPayment ? paymongoPayment.paid_at : ''"></span></div>
                                 </div>
-                                <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open Test Checkout</a>
+                                <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open PayMongo Checkout</a>
                             </div>
                         </div>
                     </template>
@@ -2021,14 +2021,21 @@ $online_closed_count = 0;
                     <template x-if="modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #86efac; background:#f0fdf4;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-                                <label style="font-size:12px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.05em;">Payment Confirmed</label>
-                                <span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                                <label style="font-size:12px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.05em;">Payment Received / Awaiting Production</label>
+                                <span x-show="(providerPaymentFor(currentJo) || {}).test_mode" style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
                             </div>
-                            <div style="display:grid;gap:8px;color:#166534;font-size:13px;">
+                            <style>#paymongo-paid-details > div:nth-child(-n+4){display:none}</style>
+                            <div id="paymongo-paid-details" style="display:grid;gap:8px;color:#166534;font-size:13px;">
                                 <div>Status: <strong>PAID</strong></div>
                                 <div><strong>Paid via PayMongo — <span x-text="(providerPaymentFor(currentJo) || {}).payment_method_label || 'PayMongo'"></span></strong></div>
                                 <div>Amount: <strong x-text="'₱' + (Number((providerPaymentFor(currentJo) || {}).amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
                                 <div x-show="(providerPaymentFor(currentJo) || {}).paid_at">Paid date: <strong x-text="(providerPaymentFor(currentJo) || {}).paid_at || ''"></strong></div>
+                                <div>Status: <strong>PAID / AWAITING PRODUCTION</strong></div>
+                                <div>Payment Method: <strong x-text="(providerPaymentFor(currentJo) || {}).payment_method_label || currentJo.payment_method || 'PayMongo'"></strong></div>
+                                <div>Amount Paid: <strong x-text="'PHP ' + (Number((providerPaymentFor(currentJo) || {}).paid_amount_centavos || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
+                                <div>Remaining Balance: <strong x-text="'PHP ' + (Number((providerPaymentFor(currentJo) || {}).remaining_balance_centavos || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
+                                <div x-show="currentJo.payment_reference">Payment Reference: <strong x-text="currentJo.payment_reference || ''"></strong></div>
+                                <div x-show="currentJo.payment_paid_at">Payment Date: <strong x-text="currentJo.payment_paid_at || ''"></strong></div>
                             </div>
                             <div x-show="!canStartProduction(currentJo)" style="margin-top:14px;padding:10px 12px;border:1px solid #fecaca;background:#fff1f2;color:#b91c1c;font-size:12px;font-weight:700;line-height:1.5;">
                                 <template x-for="(message, key) in startProductionErrors(currentJo)" :key="key">
@@ -2242,7 +2249,7 @@ $online_closed_count = 0;
                                 <button type="button" @click="submitToPay()" :disabled="actionBusy || approvalStockErrors.length > 0" class="pf-entry-btn pf-entry-in" :style="(actionBusy || approvalStockErrors.length > 0) ? 'opacity:.6;cursor:not-allowed;' : ''">Continue to POS Payment</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED' && canStartProduction(currentJo)" style="display:flex; gap:8px;">
-                                <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Start Production</button>
+                                <button type="button" @click="startProduction()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Proceed to Production</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && isVerifyStageRow(currentJo)" style="display:flex; gap:8px;">
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
@@ -4857,6 +4864,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (this.currentJo.order_type === 'CUSTOMIZATION') {
                     const fd = new FormData();
                     fd.append('action', 'update_customization');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                     fd.append('id', this.currentJo.id);
                     fd.append('status', status === 'APPROVED' ? 'Approved' : status);
                     const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
@@ -4880,6 +4888,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
 
                 const fd = new FormData();
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 
                 if (this.currentJo.order_type === 'CUSTOMIZATION' && !revisionMeta && !forceJob) {
                     fd.append('action', 'update_customization');
@@ -5105,6 +5114,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 const fd = new FormData();
                 fd.append('action', 'set_price');
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
                 fd.append('price', this.jobPriceInput);
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
@@ -5490,6 +5500,7 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                         const fd = new FormData();
                         fd.append('action', 'update_customization');
+                        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                         fd.append('id', this.currentJo.id);
                         fd.append('status', 'TO_PAY');
                         fd.append('price', this.jobPriceInput);
@@ -5701,6 +5712,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (this.currentJo.order_type === 'ORDER') {
                    const fd = new FormData();
                    fd.append('action', 'update_order_price');
+                   fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                    fd.append('order_id', oid);
                    fd.append('price', price);
                    const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
@@ -5715,6 +5727,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 } else if (this.currentJo.order_type === 'CUSTOMIZATION') {
                    const fd = new FormData();
                    fd.append('action', 'update_customization');
+                   fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                    fd.append('id', oid);
                    fd.append('status', 'APPROVED');
                    fd.append('price', price);
@@ -5744,6 +5757,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 
                 const fd = new FormData();
                 fd.append('action', 'set_price');
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
                 fd.append('price', price);
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();

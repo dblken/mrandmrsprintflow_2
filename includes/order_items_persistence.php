@@ -511,12 +511,23 @@ if (!function_exists('printflow_resolve_order_item_product_id')) {
     {
         static $firstProductId = null;
 
+        $sourcePage = strtolower(trim((string)($custom['source_page'] ?? $item['source_page'] ?? '')));
+        $explicitType = strtolower(trim((string)($item['item_type'] ?? $item['type'] ?? '')));
+        $catalogProduct = function_exists('customer_orders_custom_order_is_catalog_product')
+            && customer_orders_custom_order_is_catalog_product($custom);
+        $serviceLine = !$catalogProduct && (
+            in_array($explicitType, ['service', 'custom_service'], true)
+            || in_array($sourcePage, ['service', 'services'], true)
+            || strtolower(trim((string)($custom['source'] ?? ''))) === 'service'
+            || (int)($item['service_id'] ?? 0) > 0
+            || (int)($custom['service_id'] ?? 0) > 0
+            || trim((string)($custom['service_type'] ?? '')) !== ''
+        );
         $candidates = [];
-        foreach ([
-            (int)($item['product_id'] ?? 0),
-            (int)($item['service_id'] ?? 0),
-            (int)($custom['service_id'] ?? 0),
-        ] as $pid) {
+        // service_id and product_id occupy different PK spaces. A service ID
+        // must never be interpreted as a product ID merely to satisfy the
+        // legacy FK; service rows select a neutral placeholder below.
+        foreach ($serviceLine ? [] : [(int)($item['product_id'] ?? 0)] as $pid) {
             if ($pid > 0) {
                 $candidates[$pid] = true;
             }
@@ -562,6 +573,53 @@ if (!function_exists('printflow_resolve_order_item_product_id')) {
         }
 
         return 3;
+    }
+}
+
+if (!function_exists('printflow_tag_order_item_identity')) {
+    /** Add explicit identity metadata after a backward-compatible insert. */
+    function printflow_tag_order_item_identity(int $orderItemId, int $productId, string $customizationJson): void
+    {
+        if ($orderItemId <= 0 || !function_exists('db_table_has_column')
+            || !db_table_has_column('order_items', 'item_type')) {
+            return;
+        }
+        $custom = function_exists('printflow_decode_modal_customization_payload')
+            ? printflow_decode_modal_customization_payload($customizationJson)
+            : (json_decode($customizationJson, true) ?: []);
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+        $catalogProduct = function_exists('customer_orders_custom_order_is_catalog_product')
+            && customer_orders_custom_order_is_catalog_product($custom);
+        $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
+        $isService = !$catalogProduct && (
+            in_array($sourcePage, ['service', 'services'], true)
+            || strtolower(trim((string)($custom['source'] ?? ''))) === 'service'
+            || (int)($custom['service_id'] ?? 0) > 0
+            || trim((string)($custom['service_type'] ?? '')) !== ''
+        );
+        if (!$isService) {
+            $sql = db_table_has_column('order_items', 'service_id')
+                ? "UPDATE order_items SET item_type = 'product', service_id = NULL WHERE order_item_id = ?"
+                : "UPDATE order_items SET item_type = 'product' WHERE order_item_id = ?";
+            db_execute($sql, 'i', [$orderItemId]);
+            return;
+        }
+
+        $serviceId = (int)($custom['service_id'] ?? 0);
+        if ($serviceId <= 0 && function_exists('printflow_resolve_service_catalog_service_id')) {
+            $serviceId = printflow_resolve_service_catalog_service_id((string)($custom['service_type'] ?? ''));
+        }
+        if (db_table_has_column('order_items', 'service_id')) {
+            db_execute(
+                "UPDATE order_items SET item_type = 'service', service_id = NULLIF(?, 0) WHERE order_item_id = ?",
+                'ii',
+                [$serviceId, $orderItemId]
+            );
+        } else {
+            db_execute("UPDATE order_items SET item_type = 'service' WHERE order_item_id = ?", 'i', [$orderItemId]);
+        }
     }
 }
 
@@ -647,6 +705,7 @@ if (!function_exists('printflow_order_items_insert_line')) {
                     $id = (int)$conn->insert_id;
                     $stmt->close();
                     if ($id > 0) {
+                        printflow_tag_order_item_identity($id, $productId, $customizationJson);
                         if ($designFilePath !== null && trim((string)$designFilePath) !== ''
                             && printflow_resolve_order_upload_disk_path((string)$designFilePath) === null
                             && $designBinary !== null && $designBinary !== '') {
@@ -692,6 +751,10 @@ if (!function_exists('printflow_order_items_insert_line')) {
                 $designName,
                 null
             );
+        }
+
+        if ($id > 0) {
+            printflow_tag_order_item_identity($id, $productId, $customizationJson);
         }
 
         return $id > 0 ? $id : 0;

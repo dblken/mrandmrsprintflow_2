@@ -63,15 +63,8 @@ if ($method === 'POST') {
         if ((string)$payment['status'] === 'awaiting_payment'
             && !empty($payment['link_id'])
             && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 3)) {
-            $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
-            if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
-                printflow_provider_payment_mark_paid(
-                    (int)$payment['id'],
-                    (string)$remote['payment_id'],
-                    (string)($remote['payment_method'] ?? '')
-                );
-                $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
-            }
+            printflow_provider_payment_reconcile($payment);
+            $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
         }
         if ((string)($payment['status'] ?? '') !== 'paid') {
             http_response_code(409);
@@ -99,7 +92,8 @@ if ($method === 'POST') {
     http_response_code(!empty($result['ok']) ? 200 : (int)($result['http_status'] ?? 400));
     echo json_encode([
         'success' => !empty($result['ok']),
-        'test_mode' => true,
+        'mode' => (string)($result['payment']['mode'] ?? printflow_paymongo_mode()),
+        'test_mode' => !empty($result['payment']['test_mode']),
         'order_id' => (int)($subject['order_id'] ?? 0),
         'payment_link_id' => (string)($result['payment']['payment_link_id'] ?? ''),
         'payment_url' => (string)($result['payment']['checkout_url'] ?? ''),
@@ -123,21 +117,10 @@ if (empty($payment)) {
 if ((string)$payment['status'] === 'awaiting_payment'
     && !empty($payment['link_id'])
     && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
-    $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
-    if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
-        printflow_provider_payment_mark_paid(
-            (int)$payment['id'],
-            (string)$remote['payment_id'],
-            (string)($remote['payment_method'] ?? '')
-        );
-        $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
-    }
+    printflow_provider_payment_reconcile($payment);
+    $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
 } elseif ((string)$payment['status'] === 'paid' && !empty($payment['provider_payment_id'])) {
-    printflow_provider_payment_mark_paid(
-        (int)$payment['id'],
-        (string)$payment['provider_payment_id'],
-        (string)($payment['payment_method'] ?? '')
-    );
+    printflow_provider_payment_reconcile($payment);
     $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
 }
 

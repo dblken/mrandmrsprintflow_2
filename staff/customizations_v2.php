@@ -699,6 +699,7 @@ const CV2 = (function () {
         try {
             const fd = new FormData();
             fd.append('action', 'update_customization');
+            fd.append('csrf_token', CSRF);
             fd.append('id', customizationId);
             fd.append('status', 'APPROVED');
             fd.append('price', price);

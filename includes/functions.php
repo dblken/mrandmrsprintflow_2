@@ -3860,12 +3860,17 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
         return !empty($hit) ? $sid : 0;
     };
 
-    $try = $validateServicePk((int)($custom_data['service_id'] ?? 0));
+    $explicitType = strtolower(trim((string)($item['item_type'] ?? $item['type'] ?? '')));
+    if (in_array($explicitType, ['product', 'catalog_product'], true)
+        || customer_orders_custom_order_is_catalog_product($custom_data)) {
+        return 0;
+    }
+
+    $try = $validateServicePk((int)($item['service_id'] ?? 0));
     if ($try > 0) {
         return $try;
     }
-
-    $try = $validateServicePk((int)($order['reference_id'] ?? 0));
+    $try = $validateServicePk((int)($custom_data['service_id'] ?? 0));
     if ($try > 0) {
         return $try;
     }
@@ -3878,10 +3883,6 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
     $hints[] = trim((string)($custom_data['service_type'] ?? ''));
     $hints[] = trim((string)($order['first_job_title'] ?? ''));
     $hints[] = trim((string)($order['first_job_service_type'] ?? ''));
-    if (!$souvenirLine) {
-        $hints[] = trim((string)($item['product_name'] ?? ''));
-    }
-
     foreach ($hints as $hint) {
         if ($hint === '') {
             continue;
@@ -3905,6 +3906,15 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
         return printflow_resolve_service_catalog_service_id('Souvenirs');
     }
 
+    // reference_id is a last-resort legacy service reference. Never test the
+    // order line's product_id against services: the PK spaces overlap.
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+        $try = $validateServicePk((int)($order['reference_id'] ?? 0));
+        if ($try > 0) {
+            return $try;
+        }
+    }
+
     return 0;
 }
 
@@ -3918,13 +3928,16 @@ function printflow_resolve_service_catalog_service_id_from_cart_line(array $item
         $custom = is_array($decoded) ? $decoded : [];
     }
 
+    if (customer_orders_custom_order_is_catalog_product($custom)
+        || strtolower(trim((string)($item['source_page'] ?? ''))) === 'products'
+        || strtolower(trim((string)($item['type'] ?? ''))) === 'product') {
+        return 0;
+    }
+
     $candidates = [
         (int)($custom['service_id'] ?? 0),
         (int)($item['service_id'] ?? 0),
     ];
-    if (!printflow_custom_order_line_looks_like_souvenir_cart($custom)) {
-        $candidates[] = (int)($item['product_id'] ?? 0);
-    }
     foreach ($candidates as $cand) {
         if ($cand > 0) {
             return $cand;
@@ -3976,6 +3989,165 @@ function customer_orders_custom_order_is_catalog_product(array $custom): bool {
         return true;
     }
     return false;
+}
+
+/**
+ * Resolve the immutable source of an order line without probing an overlapping
+ * products.product_id as a services.service_id. New rows use item_type and
+ * service_id; legacy rows are classified from their stored checkout metadata.
+ *
+ * @return array{item_type:string,product_id:int,service_id:int,display_name:string}
+ */
+function printflow_resolve_order_line_identity(array $order, array $item, array $custom = []): array {
+    if ($custom === []) {
+        $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+    }
+    if (!is_array($custom)) {
+        $custom = [];
+    }
+
+    $explicitType = strtolower(trim((string)($item['item_type'] ?? $item['type'] ?? '')));
+    $sourcePage = strtolower(trim((string)($custom['source_page'] ?? $item['source_page'] ?? '')));
+    $source = strtolower(trim((string)($custom['source'] ?? '')));
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    $catalogProduct = customer_orders_custom_order_is_catalog_product($custom);
+
+    $isService = in_array($explicitType, ['service', 'custom_service'], true)
+        || (int)($item['service_id'] ?? 0) > 0
+        || in_array($sourcePage, ['service', 'services'], true)
+        || $source === 'service'
+        || ($orderType === 'custom' && !$catalogProduct);
+    if (in_array($explicitType, ['product', 'catalog_product'], true) || $catalogProduct) {
+        $isService = false;
+    }
+
+    if (!$isService) {
+        $productName = trim((string)($item['product_name'] ?? $item['name'] ?? ''));
+        return [
+            'item_type' => 'product',
+            'product_id' => max(0, (int)($item['product_id'] ?? 0)),
+            'service_id' => 0,
+            'display_name' => $productName !== '' ? $productName : 'Order Item',
+        ];
+    }
+
+    $validateService = static function (int $serviceId): array {
+        if ($serviceId <= 0 || !function_exists('db_query')) {
+            return [];
+        }
+        $rows = db_query(
+            "SELECT service_id, name FROM services
+             WHERE service_id = ? AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived'
+             LIMIT 1",
+            'i',
+            [$serviceId]
+        ) ?: [];
+        return $rows[0] ?? [];
+    };
+
+    $service = [];
+    foreach ([(int)($item['service_id'] ?? 0), (int)($custom['service_id'] ?? 0)] as $candidate) {
+        $service = $validateService($candidate);
+        if ($service !== []) {
+            break;
+        }
+    }
+
+    // Names are authoritative for legacy service rows. This prevents a
+    // placeholder product_id (for example 3) from selecting service_id 3 or a
+    // same-numbered catalog product by accident.
+    if ($service === []) {
+        $nameHints = array_values(array_unique(array_filter([
+            trim((string)($custom['service_type'] ?? '')),
+            trim((string)($custom['product_type'] ?? '')),
+            trim((string)($order['first_job_service_type'] ?? '')),
+            trim((string)($order['first_job_title'] ?? '')),
+        ], static fn($value): bool => $value !== '')));
+        foreach ($nameHints as $hint) {
+            $candidate = function_exists('printflow_resolve_service_catalog_service_id')
+                ? printflow_resolve_service_catalog_service_id($hint)
+                : 0;
+            $service = $validateService($candidate);
+            if ($service !== []) {
+                break;
+            }
+        }
+    }
+
+    if ($service === [] && $orderType === 'custom') {
+        $service = $validateService((int)($order['reference_id'] ?? 0));
+    }
+
+    $fallbackName = trim((string)(
+        $custom['service_type']
+        ?? $custom['product_type']
+        ?? $order['first_job_service_type']
+        ?? $order['first_job_title']
+        ?? ''
+    ));
+    return [
+        'item_type' => 'service',
+        'product_id' => 0,
+        'service_id' => (int)($service['service_id'] ?? 0),
+        'display_name' => trim((string)($service['name'] ?? '')) ?: ($fallbackName ?: 'Service Order'),
+    ];
+}
+
+/** A positive order total is final only after an explicit or legacy pricing milestone. */
+function printflow_order_price_is_final(array $order, array $providerPayment = []): bool {
+    $total = (float)($order['total_amount'] ?? $order['estimated_total'] ?? 0);
+    if ($total <= 0) {
+        return false;
+    }
+    if (!empty($order['price_finalized_at'])) {
+        return true;
+    }
+    $providerStatus = strtolower(trim((string)($providerPayment['status'] ?? '')));
+    if (in_array($providerStatus, ['generating', 'awaiting_payment', 'paid'], true)) {
+        $providerAmount = (int)($providerPayment['amount_centavos'] ?? 0);
+        if ($providerAmount === (int)round($total * 100)) {
+            return true;
+        }
+    }
+    if (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0) {
+        return true;
+    }
+    $status = strtoupper(str_replace(' ', '_', trim((string)($order['order_status'] ?? $order['status'] ?? ''))));
+    return in_array($status, [
+        'TO_PAY', 'DOWNPAYMENT_SUBMITTED', 'TO_VERIFY', 'PENDING_VERIFICATION',
+        'PAYMENT_CONFIRMED', 'PROCESSING', 'IN_PRODUCTION', 'PRINTING',
+        'READY', 'READY_FOR_PICKUP', 'READY_FOR_DELIVERY', 'COMPLETED',
+    ], true);
+}
+
+/**
+ * One synchronized financial view for customer/staff rendering. Provider
+ * centavos win for paid metadata; orders.total_amount remains amount due.
+ */
+function printflow_order_financial_snapshot(array $order, array $providerPayment = []): array {
+    $due = max(0, (int)round((float)($order['total_amount'] ?? $order['estimated_total'] ?? 0) * 100));
+    $providerDue = max(0, (int)($providerPayment['amount_centavos'] ?? 0));
+    if ($providerDue > 0 && $due === 0) {
+        $due = $providerDue;
+    }
+    $paid = 0;
+    if (strtolower((string)($providerPayment['status'] ?? '')) === 'paid') {
+        $paid = (int)($providerPayment['paid_amount_centavos'] ?? 0);
+        if ($paid <= 0) {
+            $paid = $providerDue;
+        }
+    } elseif (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0) {
+        $paid = $due;
+    } elseif (isset($order['amount_paid'])) {
+        $paid = max(0, (int)round((float)$order['amount_paid'] * 100));
+    }
+    return [
+        'price_is_final' => printflow_order_price_is_final($order, $providerPayment),
+        'amount_due_centavos' => $due,
+        'paid_amount_centavos' => min($due, max(0, $paid)),
+        'remaining_balance_centavos' => max(0, $due - $paid),
+        'provider_amount_matches' => $providerDue === 0 || $providerDue === $due,
+    ];
 }
 
 function customer_orders_primary_item_name(array $order): string {

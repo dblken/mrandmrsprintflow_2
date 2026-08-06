@@ -30,38 +30,20 @@ if (empty($payment)) {
     exit;
 }
 
-if ((string)$payment['status'] === 'paid' && !empty($payment['provider_payment_id'])) {
-    printflow_provider_payment_mark_paid(
-        (int)$payment['id'],
-        (string)$payment['provider_payment_id'],
-        (string)($payment['payment_method'] ?? '')
-    );
+if (in_array((string)$payment['status'], ['paid', 'awaiting_payment'], true)
+    && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
+    $reconciled = printflow_provider_payment_reconcile($payment);
+    $confirming = !empty($reconciled['paid']) && empty($reconciled['ok']);
     $payment = printflow_provider_payment_for_customer(
         (int)get_user_id(),
         $subjectType,
         $subjectId
     );
-} elseif ((string)$payment['status'] === 'awaiting_payment'
-    && !empty($payment['link_id'])
-    && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
-    $remote = printflow_paymongo_get_paid_link_payment((string)$payment['link_id']);
-    if (empty(printflow_provider_payment_revalidation_errors($payment, $remote))) {
-        $finalized = printflow_provider_payment_mark_paid(
-            (int)$payment['id'],
-            (string)$remote['payment_id'],
-            (string)($remote['payment_method'] ?? '')
-        );
-        $confirming = empty($finalized['ok']);
-        $payment = printflow_provider_payment_for_customer(
-            (int)get_user_id(),
-            $subjectType,
-            $subjectId
-        );
-    }
 }
 
 echo json_encode([
     'success' => true,
     'confirming' => !empty($confirming),
+    'reconciliation_pending' => !empty($payment['reconciliation_error_code']),
     'payment' => printflow_provider_payment_public($payment),
 ], JSON_UNESCAPED_SLASHES);

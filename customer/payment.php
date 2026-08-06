@@ -239,27 +239,9 @@ if (!empty($order_result)) {
             $custom = [];
         }
 
-        $looksServiceLike = strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom'
-            || strtolower(trim((string)($custom['source_page'] ?? ''))) === 'services'
-            || strtolower(trim((string)($custom['source'] ?? ''))) === 'service'
-            || strtolower(trim((string)($item['type'] ?? ''))) === 'service'
-            || (int)($custom['service_id'] ?? 0) > 0
-            || trim((string)($custom['service_type'] ?? '')) !== '';
-
-        $resolvedServiceId = function_exists('printflow_resolve_service_catalog_service_id_for_order_line')
-            ? printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item)
-            : 0;
-        if ($resolvedServiceId <= 0 && $looksServiceLike && (int)($item['product_id'] ?? 0) > 0) {
-            $candidate = (int)$item['product_id'];
-            $hit = db_query(
-                "SELECT service_id FROM services WHERE service_id = ? AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived' LIMIT 1",
-                'i',
-                [$candidate]
-            ) ?: [];
-            if (!empty($hit[0]['service_id'])) {
-                $resolvedServiceId = $candidate;
-            }
-        }
+        $identity = printflow_resolve_order_line_identity($order, $item, $custom);
+        $looksServiceLike = $identity['item_type'] === 'service';
+        $resolvedServiceId = (int)$identity['service_id'];
 
         if ($resolvedServiceId > 0 && $looksServiceLike) {
             $serviceMedia = pf_payment_service_image_payload($resolvedServiceId, $order_id);
@@ -274,15 +256,13 @@ if (!empty($order_result)) {
                 $custom['source_page'] = 'services';
             }
 
-            if (trim((string)($custom['service_type'] ?? '')) === '') {
-                $resolvedServiceName = trim((string)($serviceMedia['name'] ?? ''));
-                if ($resolvedServiceName === '' && function_exists('customer_orders_resolve_service_name_by_id')) {
-                    $resolvedServiceName = trim((string)customer_orders_resolve_service_name_by_id($resolvedServiceId));
-                }
-                if ($resolvedServiceName !== '') {
-                    $custom['service_type'] = $resolvedServiceName;
-                    $item['product_name'] = $resolvedServiceName;
-                }
+            $resolvedServiceName = trim((string)($serviceMedia['name'] ?? $identity['display_name'] ?? ''));
+            if ($resolvedServiceName === '' && function_exists('customer_orders_resolve_service_name_by_id')) {
+                $resolvedServiceName = trim((string)customer_orders_resolve_service_name_by_id($resolvedServiceId));
+            }
+            if ($resolvedServiceName !== '') {
+                $custom['service_type'] = $resolvedServiceName;
+                $item['product_name'] = $resolvedServiceName;
             }
 
             if (!empty($serviceMedia['category'])) {
@@ -303,6 +283,10 @@ if (!empty($order_result)) {
         } elseif ($looksServiceLike) {
             $item['type'] = 'Service';
             $item['source_page'] = 'services';
+            $item['product_name'] = (string)$identity['display_name'];
+            if (trim((string)($custom['service_type'] ?? '')) === '') {
+                $custom['service_type'] = (string)$identity['display_name'];
+            }
             $servicePreviewImage = pf_payment_resolve_service_preview_image($order, $item, $custom, 0);
             if ($servicePreviewImage !== '') {
                 $item['service_image'] = $servicePreviewImage;
@@ -314,18 +298,23 @@ if (!empty($order_result)) {
     }
     unset($item);
     
-    // Dynamically calculate total from items to ensure accuracy
+    // The staff-approved order total is the payment authority. Item prices are
+    // display mirrors only and must not override the immutable amount charged.
     $calculated_total = 0;
     foreach ($items as $item) {
         $calculated_total += (float)$item['unit_price'] * (int)$item['quantity'];
     }
 
-    $total_amount = ($calculated_total > 0) ? $calculated_total : (float)$order['total_amount'];
+    $total_amount = (float)($order['total_amount'] ?? 0);
+    if ($total_amount <= 0) {
+        $total_amount = $calculated_total;
+    }
 
     // If items have zero unit_price but the order has a staff-set total_amount,
     // distribute that total across items in-memory so the item cards display correctly.
     // This handles existing orders where price was set before the order_items sync fix.
-    if ($calculated_total <= 0 && $total_amount > 0 && !empty($items)) {
+    if ($total_amount > 0 && !empty($items)
+        && ($calculated_total <= 0 || abs($calculated_total - $total_amount) > 0.009)) {
         $_total_qty = array_sum(array_column($items, 'quantity'));
         if ($_total_qty > 0) {
             $_remaining = $total_amount;
@@ -334,6 +323,8 @@ if (!empty($order_result)) {
                 $_is_last   = ($_idx === $_count - 1);
                 $_item_tot  = $_is_last ? $_remaining : round($total_amount * $_item['quantity'] / $_total_qty, 2);
                 $_item['unit_price'] = ($_item['quantity'] > 0) ? round($_item_tot / $_item['quantity'], 4) : 0;
+                $_item['approved_total'] = $_item_tot;
+                $_item['price_is_final'] = true;
                 $_remaining -= $_item_tot;
             }
             unset($_item);
@@ -404,21 +395,74 @@ $paymongo_payment = printflow_provider_payment_for_customer(
     $paymongo_subject_type,
     $order_id
 );
+if (!empty($paymongo_payment['id'])
+    && in_array((string)($paymongo_payment['status'] ?? ''), ['awaiting_payment', 'paid'], true)
+    && printflow_provider_payment_claim_reconciliation((int)$paymongo_payment['id'], 5)) {
+    // Provider GET verification is the return-page fallback. No browser
+    // parameter can mark the payment paid.
+    printflow_provider_payment_reconcile($paymongo_payment);
+    $paymongo_payment = printflow_provider_payment_for_customer(
+        $customer_id,
+        $paymongo_subject_type,
+        $order_id
+    );
+}
+
 if (($paymongo_payment['status'] ?? '') === 'paid') {
-    if (!empty($paymongo_payment['provider_payment_id'])) {
-        printflow_provider_payment_mark_paid(
-            (int)$paymongo_payment['id'],
-            (string)$paymongo_payment['provider_payment_id'],
-            (string)($paymongo_payment['payment_method'] ?? '')
-        );
-        $paymongo_payment = printflow_provider_payment_for_customer(
-            $customer_id,
-            $paymongo_subject_type,
-            $order_id
-        );
-    }
     $is_paid_ui = true;
     $show_payment_form = false;
+}
+
+// Re-read state after reconciliation so the first returned page already shows
+// Paid / Awaiting Production, without waiting for a webhook or another refresh.
+if (!$is_job_order) {
+    $freshOrder = db_query(
+        'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1',
+        'ii',
+        [$order_id, $customer_id]
+    ) ?: [];
+    if (!empty($freshOrder)) {
+        $order = $freshOrder[0];
+        $payment_status = (string)($order['payment_status'] ?? $payment_status);
+        $order_status = (string)($order['status'] ?? $order_status);
+        $total_amount = (float)($order['total_amount'] ?? $total_amount);
+    }
+} else {
+    $freshOrder = db_query(
+        'SELECT * FROM job_orders WHERE id = ? AND customer_id = ? LIMIT 1',
+        'ii',
+        [$order_id, $customer_id]
+    ) ?: [];
+    if (!empty($freshOrder)) {
+        $order = $freshOrder[0];
+        $payment_status = strcasecmp((string)($order['payment_status'] ?? ''), 'PAID') === 0 ? 'Paid' : 'Unpaid';
+        $order_status = (string)($order['status'] ?? $order_status);
+        $total_amount = (float)($order['estimated_total'] ?? $total_amount);
+    }
+}
+
+$financial_snapshot = printflow_order_financial_snapshot($order, $paymongo_payment);
+$paymongo_public = !empty($paymongo_payment)
+    ? printflow_provider_payment_public($paymongo_payment)
+    : [];
+$paymongo_mode = in_array((string)($paymongo_payment['mode'] ?? ''), ['test', 'live'], true)
+    ? (string)$paymongo_payment['mode']
+    : printflow_paymongo_mode();
+$paymongo_available = in_array($paymongo_mode, ['test', 'live'], true);
+if (!$is_job_order && !empty($items) && !empty($financial_snapshot['price_is_final'])) {
+    $remainingDisplayAmount = $financial_snapshot['amount_due_centavos'] / 100;
+    $totalQty = max(1, array_sum(array_map(static fn($line): int => max(1, (int)($line['quantity'] ?? 1)), $items)));
+    $lastIndex = array_key_last($items);
+    foreach ($items as $index => &$line) {
+        $lineTotal = $index === $lastIndex
+            ? $remainingDisplayAmount
+            : round(($financial_snapshot['amount_due_centavos'] / 100) * max(1, (int)$line['quantity']) / $totalQty, 2);
+        $line['approved_total'] = max(0, $lineTotal);
+        $line['price_is_final'] = true;
+        $line['unit_price'] = max(0, $lineTotal) / max(1, (int)$line['quantity']);
+        $remainingDisplayAmount -= $lineTotal;
+    }
+    unset($line);
 }
 
 if ($restore_cart_requested) {
@@ -835,7 +879,7 @@ if (!function_exists('pf_payment_qr_url')) {
                 <!-- Payment Section -->
                 <?php if ($is_paid_ui): ?>
                     <div style="text-align: center; padding: 2rem;">
-                        <?php if (($paymongo_payment['status'] ?? '') === 'paid'): ?>
+                        <?php if (($paymongo_payment['status'] ?? '') === 'paid' && ($paymongo_payment['mode'] ?? '') === 'test'): ?>
                             <div style="display:inline-flex;align-items:center;padding:4px 9px;margin-bottom:12px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:800;text-transform:uppercase;">PayMongo Test Mode</div>
                         <?php endif; ?>
                         <div style="width: 80px; height: 80px; margin: 0 auto 1.5rem; background: linear-gradient(135deg, #059669, #047857); display: flex; align-items: center; justify-content: center; position: relative;">
@@ -845,11 +889,17 @@ if (!function_exists('pf_payment_qr_url')) {
                         </div>
                         <h3 style="font-weight: 800; color: #059669; margin-bottom: 0.5rem;">✓ Payment Confirmed</h3>
                         <?php if (($paymongo_payment['status'] ?? '') === 'paid'): ?>
-                            <?php $paymongo_public = printflow_provider_payment_public($paymongo_payment); ?>
-                            <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;"><?php echo format_currency(((int)$paymongo_public['amount']) / 100); ?> paid through PayMongo</div>
+                            <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency(((int)$paymongo_public['paid_amount_centavos']) / 100); ?></div>
+                            <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Remaining Balance: <?php echo format_currency(((int)$paymongo_public['remaining_balance_centavos']) / 100); ?></p>
                             <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)$paymongo_public['payment_method_label']); ?></p>
-                            <p style="color:#9fc4d4;font-size:.875rem;">Your order is ready for production processing.</p>
-                            <button type="button" disabled class="shopee-btn-primary" style="display:block;width:100%;margin-top:18px;padding:11px;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;">Payment Confirmed</button>
+                            <?php if (!empty($paymongo_public['reference_number']) || !empty($paymongo_public['payment_reference'])): ?>
+                                <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Reference: <?php echo htmlspecialchars((string)($paymongo_public['reference_number'] ?: $paymongo_public['payment_reference'])); ?></p>
+                            <?php endif; ?>
+                            <?php if (!empty($paymongo_public['provider_paid_at'])): ?>
+                                <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Paid on: <?php echo htmlspecialchars((string)$paymongo_public['provider_paid_at']); ?></p>
+                            <?php endif; ?>
+                            <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Awaiting Production.</strong><br>Your payment has been received. The shop will begin production after staff confirmation.</p>
+                            <button type="button" disabled class="shopee-btn-primary" style="display:block;width:100%;margin-top:18px;padding:11px;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;">Awaiting Production</button>
                         <?php else: ?>
                             <p style="color: #64748b; font-size: 0.875rem;">This order has already been fully paid.</p>
                         <?php endif; ?>
@@ -871,11 +921,11 @@ if (!function_exists('pf_payment_qr_url')) {
                     $payment_submission_token = bin2hex(random_bytes(24));
                     $manual_payment_enabled = printflow_env_bool('MANUAL_PAYMENT_ENABLED', false);
                     ?>
-                    <?php if (printflow_paymongo_test_mode()): ?>
+                    <?php if ($paymongo_available): ?>
                         <div id="paymongo-test-payment" style="padding:16px;margin-bottom:20px;border:1px solid #53c5e0;background:#062c38;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
                                 <strong style="color:#eaf6fb;font-size:15px;">Pay securely with PayMongo</strong>
-                                <span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                                <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
                             </div>
                             <div style="color:#9fc4d4;font-size:13px;margin-bottom:12px;">
                                 Amount: <strong style="color:#eaf6fb;"><?php echo format_currency($total_amount); ?></strong>
@@ -887,7 +937,7 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <div id="paymongo-payment-state" style="margin-top:9px;color:#9fc4d4;font-size:12px;text-align:center;">Waiting for payment confirmation.</div>
                             <?php else: ?>
                                 <div id="paymongo-payment-state" style="padding:10px;background:#0a2530;color:#9fc4d4;font-size:12px;text-align:center;">
-                                    Waiting for staff to generate your PayMongo Test Payment Link.
+                                    Waiting for staff to generate your PayMongo Payment Link.
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -1034,7 +1084,7 @@ if (!function_exists('pf_payment_qr_url')) {
     const paymongoState = document.getElementById('paymongo-payment-state');
     const paymongoPayNow = document.getElementById('paymongo-pay-now');
     const paymentSidebarCard = document.getElementById('payment-sidebar-card');
-    if (paymongoState && paymongoPayNow) {
+    if (paymongoState) {
         let paymongoPollTimer = null;
         const renderPayMongoConfirmed = (payment) => {
             if (!paymentSidebarCard) return;
@@ -1042,10 +1092,12 @@ if (!function_exists('pf_payment_qr_url')) {
             const panel = document.createElement('div');
             panel.style.cssText = 'text-align:center;padding:2rem;';
 
-            const badge = document.createElement('div');
-            badge.textContent = 'PayMongo Test Mode';
-            badge.style.cssText = 'display:inline-flex;align-items:center;padding:4px 9px;margin-bottom:12px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:800;text-transform:uppercase;';
-            panel.appendChild(badge);
+            if (payment.test_mode) {
+                const badge = document.createElement('div');
+                badge.textContent = 'PayMongo Test Mode';
+                badge.style.cssText = 'display:inline-flex;align-items:center;padding:4px 9px;margin-bottom:12px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:800;text-transform:uppercase;';
+                panel.appendChild(badge);
+            }
 
             const icon = document.createElement('div');
             icon.textContent = '✓';
@@ -1053,12 +1105,13 @@ if (!function_exists('pf_payment_qr_url')) {
             panel.appendChild(icon);
 
             const heading = document.createElement('h3');
-            heading.textContent = 'Payment Confirmed';
+            heading.textContent = 'Payment Received';
             heading.style.cssText = 'font-weight:800;color:#059669;margin-bottom:.5rem;';
             panel.appendChild(heading);
 
             const amount = document.createElement('div');
             amount.textContent = '₱' + (Number(payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' paid through PayMongo';
+            amount.textContent = 'Amount Paid: PHP ' + (Number(payment.paid_amount_centavos || payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
             amount.style.cssText = 'font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;';
             panel.appendChild(amount);
 
@@ -1067,15 +1120,28 @@ if (!function_exists('pf_payment_qr_url')) {
             method.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;';
             panel.appendChild(method);
 
+            const balance = document.createElement('p');
+            balance.textContent = 'Remaining Balance: PHP ' + (Number(payment.remaining_balance_centavos || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+            balance.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;';
+            panel.appendChild(balance);
+
+            const reference = payment.reference_number || payment.payment_reference || '';
+            if (reference) {
+                const referenceLine = document.createElement('p');
+                referenceLine.textContent = 'Reference: ' + reference;
+                referenceLine.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;overflow-wrap:anywhere;';
+                panel.appendChild(referenceLine);
+            }
+
             const next = document.createElement('p');
-            next.textContent = 'Your order is ready for production processing.';
+            next.textContent = 'Status: Awaiting Production. Your payment has been received. The shop will begin production after staff confirmation.';
             next.style.cssText = 'color:#9fc4d4;font-size:.875rem;';
             panel.appendChild(next);
 
             const confirmedButton = document.createElement('button');
             confirmedButton.type = 'button';
             confirmedButton.disabled = true;
-            confirmedButton.textContent = 'Payment Confirmed';
+            confirmedButton.textContent = 'Awaiting Production';
             confirmedButton.style.cssText = 'display:block;width:100%;margin-top:18px;padding:11px;border:0;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;';
             panel.appendChild(confirmedButton);
 

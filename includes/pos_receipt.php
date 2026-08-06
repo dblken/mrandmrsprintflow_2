@@ -33,7 +33,7 @@ function printflow_pos_build_receipt(int $orderId): array {
         "SELECT provider_payment_id, paid_at, amount_centavos, payment_method
          FROM provider_payments
          WHERE order_id = ? AND channel = 'pos' AND provider = 'paymongo'
-           AND mode = 'test' AND status = 'paid' AND fulfillment_applied_at IS NOT NULL
+           AND mode IN ('test', 'live') AND status = 'paid' AND fulfillment_applied_at IS NOT NULL
          ORDER BY id DESC LIMIT 1",
         'i',
         [$orderId]

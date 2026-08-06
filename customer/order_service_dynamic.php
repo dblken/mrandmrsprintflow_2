@@ -590,9 +590,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             
             $_SESSION['cart'][$item_key] = [
                 'type' => 'Service',
+                'item_type' => 'service',
                 'source_page' => 'services',
                 'service_id' => $service_id,
-                'product_id' => $service_id,
+                'product_id' => 0,
                 'name' => $service['name'],
                 'price' => $unit_price,  // FIXED: Store unit price per item, not total
                 'estimated_price' => $estimated_price,

@@ -69,7 +69,7 @@ if ($response['success'] && isset($_GET['order_id'])) {
     $order = $orders[0];
     $payments = db_query(
         "SELECT * FROM provider_payments
-         WHERE order_id = ? AND provider = 'paymongo' AND mode = 'test'
+         WHERE order_id = ? AND provider = 'paymongo' AND mode IN ('test', 'live')
          ORDER BY id DESC LIMIT 1",
         'i',
         [$orderId]
