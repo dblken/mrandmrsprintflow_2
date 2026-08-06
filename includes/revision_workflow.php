@@ -59,6 +59,47 @@ function printflow_revision_ensure_schema(): bool
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    // CREATE TABLE IF NOT EXISTS does not upgrade older production tables.
+    // Add only missing columns; no existing revision row or media is rewritten.
+    $ensureColumns = static function (string $table, array $columns): bool {
+        foreach ($columns as $column => $definition) {
+            if (db_table_has_column($table, $column)) continue;
+            $safeTable = preg_replace('/[^a-zA-Z0-9_]/', '', $table);
+            $safeColumn = preg_replace('/[^a-zA-Z0-9_]/', '', (string)$column);
+            if ($safeTable === '' || $safeColumn === ''
+                || !db_execute("ALTER TABLE `{$safeTable}` ADD COLUMN `{$safeColumn}` {$definition}")) {
+                error_log("Revision schema upgrade failed for {$safeTable}.{$safeColumn}.");
+                return false;
+            }
+            if (!db_table_has_column($safeTable, $safeColumn, true)) {
+                error_log("Revision schema verification failed for {$safeTable}.{$safeColumn}.");
+                return false;
+            }
+        }
+        return true;
+    };
+
+    $requestColumnsReady = $ensureColumns('order_revision_requests', [
+        'staff_id' => 'INT NULL',
+        'customer_id' => 'INT NULL',
+        'reason_code' => "VARCHAR(64) NOT NULL DEFAULT 'others'",
+        'revision_reason' => "VARCHAR(255) NOT NULL DEFAULT 'Revision requested'",
+        'staff_instruction' => 'TEXT NULL',
+        'permitted_fields' => 'LONGTEXT NULL',
+        'previous_values' => 'LONGTEXT NULL',
+        'revised_values' => 'LONGTEXT NULL',
+        'request_status' => "VARCHAR(40) NOT NULL DEFAULT 'Requested'",
+        'active_flag' => 'TINYINT NULL DEFAULT 1',
+        'requested_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        'resubmitted_at' => 'DATETIME NULL',
+    ]);
+    $historyColumnsReady = $ensureColumns('order_item_revisions', [
+        'design_image' => 'LONGBLOB NULL',
+        'design_image_name' => 'VARCHAR(255) NULL',
+        'design_image_mime' => 'VARCHAR(100) NULL',
+        'design_file' => 'VARCHAR(512) NULL',
+    ]);
+
     $repairAuditReady = (bool)db_execute(
         "CREATE TABLE IF NOT EXISTS order_revision_permission_repairs (
             repair_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -74,7 +115,7 @@ function printflow_revision_ensure_schema(): bool
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
-    $ready = $ready && $historyReady && $repairAuditReady;
+    $ready = $ready && $historyReady && $requestColumnsReady && $historyColumnsReady && $repairAuditReady;
     return $ready;
 }
 
@@ -167,17 +208,35 @@ function printflow_revision_permission_labels(array $permissions, array $snapsho
     return array_values(array_unique($labels));
 }
 
-function printflow_revision_validate_spec_value(array $item, array $custom, string $key, $value)
+function printflow_revision_find_field_config(array $configs, string $key): array
+{
+    if (is_array($configs[$key] ?? null)) {
+        return $configs[$key];
+    }
+    $normalized = printflow_revision_normalize_key($key);
+    foreach ($configs as $configKey => $config) {
+        if (!is_array($config)) continue;
+        $label = (string)($config['label'] ?? '');
+        if (printflow_revision_normalize_key((string)$configKey) === $normalized
+            || ($label !== '' && printflow_revision_normalize_key($label) === $normalized)) {
+            return $config;
+        }
+    }
+    return [];
+}
+
+function printflow_revision_validate_spec_value(array $item, array $custom, string $key, $value, int $serviceIdFallback = 0)
 {
     $config = [];
-    $serviceId = (int)($custom['service_id'] ?? 0);
+    $serviceId = (int)($custom['service_id'] ?? $serviceIdFallback);
+    if ($serviceId <= 0) $serviceId = $serviceIdFallback;
     if ($serviceId > 0) {
         $configs = get_service_field_config($serviceId);
-        $config = is_array($configs[$key] ?? null) ? $configs[$key] : [];
+        $config = printflow_revision_find_field_config($configs, $key);
     }
     if (empty($config) && (int)($item['product_id'] ?? 0) > 0) {
         $configs = get_product_field_config((int)$item['product_id']);
-        $config = is_array($configs[$key] ?? null) ? $configs[$key] : [];
+        $config = printflow_revision_find_field_config($configs, $key);
     }
     if (is_array($value)) {
         $value = array_map(static fn($entry) => sanitize((string)$entry), $value);
@@ -212,6 +271,48 @@ function printflow_revision_validate_spec_value(array $item, array $custom, stri
         throw new RuntimeException('A revised specification is too long.');
     }
     return $value;
+}
+
+/**
+ * Treat two persisted keys as aliases only when the catalog explicitly maps
+ * a field key to its display label, or when they are the conservative
+ * canonical_key / "Canonical Key" storage pair used by legacy checkout.
+ */
+function printflow_revision_keys_are_verified_aliases(
+    array $item,
+    array $custom,
+    string $leftKey,
+    string $rightKey,
+    int $serviceIdFallback = 0
+): bool {
+    if (hash_equals($leftKey, $rightKey)) return true;
+    $normalized = printflow_revision_normalize_key($leftKey);
+    if ($normalized === '' || $normalized !== printflow_revision_normalize_key($rightKey)) return false;
+
+    $configSets = [];
+    $serviceId = (int)($custom['service_id'] ?? 0);
+    if ($serviceId <= 0) $serviceId = $serviceIdFallback;
+    if ($serviceId > 0) $configSets[] = get_service_field_config($serviceId);
+    $productId = (int)($item['product_id'] ?? 0);
+    if ($productId > 0) $configSets[] = get_product_field_config($productId);
+    foreach ($configSets as $configs) {
+        foreach ($configs as $configKey => $config) {
+            if (!is_array($config)) continue;
+            $label = trim((string)($config['label'] ?? ''));
+            if ($label === '') continue;
+            $leftIsKey = strcasecmp(trim($leftKey), trim((string)$configKey)) === 0;
+            $rightIsKey = strcasecmp(trim($rightKey), trim((string)$configKey)) === 0;
+            $leftIsLabel = strcasecmp(trim($leftKey), $label) === 0;
+            $rightIsLabel = strcasecmp(trim($rightKey), $label) === 0;
+            if (($leftIsKey && $rightIsLabel) || ($rightIsKey && $leftIsLabel)) return true;
+        }
+    }
+
+    $isCanonical = static fn(string $key): bool => strtolower(trim($key)) === $normalized;
+    $display = str_replace('_', ' ', $normalized);
+    $isDisplay = static fn(string $key): bool => strtolower(trim((string)preg_replace('/\s+/', ' ', $key))) === $display;
+    return ($isCanonical($leftKey) && $isDisplay($rightKey))
+        || ($isCanonical($rightKey) && $isDisplay($leftKey));
 }
 
 function printflow_revision_decode_json($value): array
@@ -522,7 +623,8 @@ function printflow_revision_changes(array $previous, array $revised): array
         $new = $after[$path] ?? null;
         if ((string)$old === (string)$new) continue;
         if (($old === null || $old === '') && ($new === null || $new === '')) continue;
-        $dedupeKey = strtolower($label) . '|' . printflow_revision_encode_json([$old, $new]);
+        preg_match('/^items\.(\d+)\./', $path, $itemMatch);
+        $dedupeKey = (string)($itemMatch[1] ?? 'order') . '|' . printflow_revision_normalize_key($label);
         if (isset($seen[$dedupeKey])) continue;
         $seen[$dedupeKey] = true;
         $changes[] = [
@@ -574,10 +676,10 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         $design = is_array($item['design'] ?? null) ? $item['design'] : [];
         $historyId = (int)($design['history_revision_id'] ?? 0);
         if ($historyId > 0) {
+            $previousMime = strtolower((string)($design['mime'] ?? ''));
             $previousDesign = [
                 'url' => $base . '/public/serve_design.php?type=revision_history&id=' . $historyId,
-                'name' => basename((string)($design['name'] ?? 'previous-design')),
-                'mime' => (string)($design['mime'] ?? ''),
+                'media_type' => $previousMime === 'application/pdf' ? 'pdf' : (str_starts_with($previousMime, 'image/') ? 'image' : 'file'),
             ];
             break;
         }
@@ -587,10 +689,10 @@ function printflow_revision_review_payload(int $orderId, bool $markReviewing = f
         if ($designItemId > 0 && $itemId !== $designItemId) continue;
         if ($itemId <= 0 || !isset($orderItemIds[$itemId])) continue;
         $design = is_array($item['design'] ?? null) ? $item['design'] : [];
+        $replacementMime = strtolower((string)($design['mime'] ?? ''));
         $replacementDesign = [
-            'url' => $base . '/public/serve_design.php?type=order_item&id=' . $itemId,
-            'name' => basename((string)($design['name'] ?? 'revised-design')),
-            'mime' => (string)($design['mime'] ?? ''),
+            'url' => $base . '/public/serve_design.php?type=revision_submission&id=' . (int)$revision['revision_request_id'] . '&item_id=' . $itemId,
+            'media_type' => $replacementMime === 'application/pdf' ? 'pdf' : (str_starts_with($replacementMime, 'image/') ? 'image' : 'file'),
         ];
         break;
     }
@@ -873,7 +975,14 @@ function printflow_revision_create_request(
     ];
 }
 
-function printflow_revision_permission_allows(array $permissions, int $itemId, string $key): bool
+function printflow_revision_permission_allows(
+    array $permissions,
+    int $itemId,
+    string $key,
+    array $item = [],
+    array $custom = [],
+    int $serviceIdFallback = 0
+): bool
 {
     if (printflow_revision_is_protected_spec($key)) {
         return false;
@@ -881,7 +990,129 @@ function printflow_revision_permission_allows(array $permissions, int $itemId, s
     if (in_array(printflow_revision_spec_token($itemId, $key), $permissions, true)) {
         return true;
     }
+    foreach ($permissions as $permission) {
+        $parsed = printflow_revision_parse_spec_token((string)$permission);
+        if ($parsed !== null
+            && (int)$parsed['item_id'] === $itemId
+            && printflow_revision_keys_are_verified_aliases(
+                $item,
+                $custom,
+                (string)$parsed['key'],
+                $key,
+                $serviceIdFallback
+            )) {
+            return true;
+        }
+    }
     return in_array(printflow_revision_key_group($key), $permissions, true);
+}
+
+/**
+ * Persist a customer revision upload to the canonical order-upload directory.
+ * The returned database path is always /uploads/orders/<generated-name>;
+ * absolute server paths never leave this function.
+ *
+ * @return array{path:string,mime:string,name:string,size:int,disk_path:string}
+ */
+function printflow_revision_store_uploaded_design(
+    array $file,
+    int $orderId,
+    int $revisionRequestId,
+    int $orderItemId
+): array {
+    $reference = 'REV-UP-' . $orderId . '-' . $revisionRequestId . '-' . $orderItemId;
+    $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($uploadError !== UPLOAD_ERR_OK) {
+        error_log("[{$reference}] PHP upload error code {$uploadError}.");
+        throw new RuntimeException('The replacement design upload did not complete. Please select the file again.');
+    }
+
+    $tmpName = (string)($file['tmp_name'] ?? '');
+    if ($tmpName === '' || !is_uploaded_file($tmpName)) {
+        error_log("[{$reference}] The submitted temporary file was not recognized as an HTTP upload.");
+        throw new RuntimeException('The replacement design upload could not be verified. Please select the file again.');
+    }
+
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+    $validation = validate_file_upload($file, $allowedMimes, 10485760);
+    if (empty($validation['valid'])) {
+        error_log("[{$reference}] Upload validation failed: " . (string)($validation['message'] ?? 'unknown'));
+        throw new RuntimeException((string)($validation['message'] ?? 'The revised design is invalid.'));
+    }
+
+    $mime = strtolower(trim((string)($validation['file_info']['type'] ?? '')));
+    $extensionMap = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/gif' => 'gif',
+        'application/pdf' => 'pdf',
+    ];
+    $allowedOriginalExtensions = [
+        'image/jpeg' => ['jpg', 'jpeg'],
+        'image/png' => ['png'],
+        'image/gif' => ['gif'],
+        'application/pdf' => ['pdf'],
+    ];
+    $originalName = basename(str_replace('\\', '/', (string)($file['name'] ?? 'replacement')));
+    $originalExtension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    if (!isset($extensionMap[$mime]) || !in_array($originalExtension, $allowedOriginalExtensions[$mime], true)) {
+        error_log("[{$reference}] File extension did not match the detected MIME type.");
+        throw new RuntimeException('The replacement design extension does not match its file type.');
+    }
+    $safeStem = preg_replace('/[\x00-\x1F\x7F"\\\\]+/u', '_', pathinfo($originalName, PATHINFO_FILENAME));
+    $safeStem = trim((string)$safeStem, " ._-");
+    if ($safeStem === '') $safeStem = 'replacement';
+    $safeStem = function_exists('mb_strcut') ? mb_strcut($safeStem, 0, 180, 'UTF-8') : substr($safeStem, 0, 180);
+    $originalName = $safeStem . '.' . $originalExtension;
+
+    $uploadDir = function_exists('printflow_order_uploads_dir')
+        ? printflow_order_uploads_dir()
+        : dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'orders';
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
+        error_log("[{$reference}] Canonical uploads/orders directory could not be created.");
+        throw new RuntimeException('The shop upload directory is unavailable. Please try again or contact the shop.');
+    }
+    if (!is_writable($uploadDir)) {
+        error_log("[{$reference}] Canonical uploads/orders directory is not writable.");
+        throw new RuntimeException('The shop upload directory is unavailable. Please try again or contact the shop.');
+    }
+
+    try {
+        $nonce = bin2hex(random_bytes(12));
+    } catch (Throwable $e) {
+        $nonce = substr(hash('sha256', uniqid((string)$orderItemId, true)), 0, 24);
+    }
+    $storedName = sprintf(
+        'revision_%d_%d_%d_%s.%s',
+        $orderId,
+        $revisionRequestId,
+        $orderItemId,
+        $nonce,
+        $extensionMap[$mime]
+    );
+    $targetPath = rtrim($uploadDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $storedName;
+    if (!move_uploaded_file($tmpName, $targetPath)) {
+        error_log("[{$reference}] move_uploaded_file failed for the canonical uploads/orders destination.");
+        throw new RuntimeException('The replacement design could not be saved. No order details were changed.');
+    }
+    clearstatcache(true, $targetPath);
+    $storedSize = is_file($targetPath) ? (int)filesize($targetPath) : 0;
+    if ($storedSize <= 0 || !is_readable($targetPath)) {
+        error_log("[{$reference}] The upload move reported success but the stored file was missing or empty.");
+        if (is_file($targetPath) && !@unlink($targetPath)) {
+            error_log("[{$reference}] Failed to remove an invalid replacement upload after post-move verification.");
+        }
+        throw new RuntimeException('The replacement design could not be verified after saving. No order details were changed.');
+    }
+    @chmod($targetPath, 0640);
+
+    return [
+        'path' => '/uploads/orders/' . $storedName,
+        'mime' => $mime,
+        'name' => $originalName !== '' ? $originalName : ('replacement.' . $extensionMap[$mime]),
+        'size' => $storedSize,
+        'disk_path' => $targetPath,
+    ];
 }
 
 function printflow_revision_submit(int $orderId, int $customerId, array $post, array $files): array
@@ -899,6 +1130,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
         throw new RuntimeException('Unable to start the revision transaction.');
     }
 
+    $newRevisionUploadDiskPath = null;
     try {
         $orderRows = db_query(
             'SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE',
@@ -961,18 +1193,44 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             $specs = printflow_revision_decode_json($item['specifications'] ?? '');
             $changedSpecs = [];
             $existingKeys = array_fill_keys(array_keys(array_merge($custom, $specs)), true);
+            $serviceIdFallback = function_exists('printflow_resolve_service_catalog_service_id_for_order_line')
+                ? printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item)
+                : 0;
             foreach ($changes as $keyToken => $value) {
                 $key = printflow_revision_decode_form_key((string) $keyToken);
-                if (!isset($existingKeys[$key]) || !printflow_revision_permission_allows($permissions, $itemId, $key)) {
+                if (!isset($existingKeys[$key]) || !printflow_revision_permission_allows(
+                    $permissions,
+                    $itemId,
+                    $key,
+                    $item,
+                    $custom,
+                    $serviceIdFallback
+                )) {
                     throw new RuntimeException('An unauthorized specification change was rejected.');
                 }
-                $value = printflow_revision_validate_spec_value($item, $custom, $key, $value);
-                $changedSpecs[$key] = $value;
-                if (array_key_exists($key, $custom) || !array_key_exists($key, $specs)) {
-                    $custom[$key] = $value;
+                $value = printflow_revision_validate_spec_value($item, $custom, $key, $value, $serviceIdFallback);
+                $normalizedKey = printflow_revision_normalize_key($key);
+                $equivalentKeys = [];
+                foreach (array_unique(array_merge(array_keys($custom), array_keys($specs), [$key])) as $candidateKey) {
+                    if (printflow_revision_normalize_key((string)$candidateKey) === $normalizedKey
+                        && printflow_revision_keys_are_verified_aliases(
+                            $item,
+                            $custom,
+                            $key,
+                            (string)$candidateKey,
+                            $serviceIdFallback
+                        )) {
+                        $equivalentKeys[] = (string)$candidateKey;
+                    }
                 }
-                if (array_key_exists($key, $specs)) {
-                    $specs[$key] = $value;
+                foreach ($equivalentKeys as $equivalentKey) {
+                    $changedSpecs[$equivalentKey] = $value;
+                    if (array_key_exists($equivalentKey, $custom) || !array_key_exists($equivalentKey, $specs)) {
+                        $custom[$equivalentKey] = $value;
+                    }
+                    if (array_key_exists($equivalentKey, $specs)) {
+                        $specs[$equivalentKey] = $value;
+                    }
                 }
             }
             if (!db_execute(
@@ -1048,21 +1306,6 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             if (!is_array($designFile) || (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
                 throw new RuntimeException('Please upload the revised design requested by staff.');
             }
-            $validation = validate_file_upload(
-                $designFile,
-                ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'],
-                10485760
-            );
-            if (empty($validation['valid'])) {
-                throw new RuntimeException((string) ($validation['message'] ?? 'The revised design is invalid.'));
-            }
-            $fileData = file_get_contents((string) $designFile['tmp_name']);
-            if ($fileData === false) {
-                throw new RuntimeException('The revised design could not be read.');
-            }
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mime = (string) $finfo->file((string) $designFile['tmp_name']);
-            $name = basename((string) $designFile['name']);
             $designTargetItemId = (int)($post['design_order_item_id'] ?? 0);
             if ($designTargetItemId <= 0 && count($itemMap) === 1) {
                 $designTargetItemId = (int)array_key_first($itemMap);
@@ -1070,18 +1313,43 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             if ($designTargetItemId <= 0 || !isset($itemMap[$designTargetItemId])) {
                 throw new RuntimeException('The replacement design was not linked to a valid order item. No design was changed.');
             }
+            $storedDesign = printflow_revision_store_uploaded_design(
+                $designFile,
+                $orderId,
+                (int)$request['revision_request_id'],
+                $designTargetItemId
+            );
+            $newRevisionUploadDiskPath = (string)$storedDesign['disk_path'];
+            $storedBinary = file_get_contents((string)$storedDesign['disk_path']);
+            if ($storedBinary === false || strlen($storedBinary) !== (int)$storedDesign['size']) {
+                throw new RuntimeException('The revised design could not be verified before database storage.');
+            }
             $designStmt = $conn->prepare(
-                'UPDATE order_items SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = NULL WHERE order_item_id = ? AND order_id = ?'
+                'UPDATE order_items
+                 SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = ?
+                 WHERE order_item_id = ? AND order_id = ?'
             );
             if (!$designStmt) {
-                throw new RuntimeException('The revised design could not be saved.');
+                throw new RuntimeException('The revised design could not be prepared for database storage.');
             }
             $blobPlaceholder = null;
-            $designStmt->bind_param('bssii', $blobPlaceholder, $mime, $name, $designTargetItemId, $orderId);
-            $designStmt->send_long_data(0, $fileData);
+            $storedMime = (string)$storedDesign['mime'];
+            $storedOriginalName = (string)$storedDesign['name'];
+            $storedWebPath = (string)$storedDesign['path'];
+            $designStmt->bind_param(
+                'bsssii',
+                $blobPlaceholder,
+                $storedMime,
+                $storedOriginalName,
+                $storedWebPath,
+                $designTargetItemId,
+                $orderId
+            );
+            $designStmt->send_long_data(0, $storedBinary);
             $designSaved = $designStmt->execute();
             $designStmt->close();
             if (!$designSaved) {
+                error_log('[REV-UP-' . $orderId . '-' . (int)$request['revision_request_id'] . '-' . $designTargetItemId . '] Order-item media metadata update failed after upload storage.');
                 throw new RuntimeException('The revised design could not be saved.');
             }
         } elseif (isset($designFile) && is_array($designFile) && (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
@@ -1132,6 +1400,11 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
     } catch (Throwable $e) {
         if ($started) {
             $conn->rollback();
+        }
+        if (is_string($newRevisionUploadDiskPath) && $newRevisionUploadDiskPath !== '' && is_file($newRevisionUploadDiskPath)) {
+            if (!@unlink($newRevisionUploadDiskPath)) {
+                error_log('[REV-UP-' . $orderId . '] Failed to remove an uncommitted replacement upload after transaction rollback.');
+            }
         }
         throw $e;
     }

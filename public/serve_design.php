@@ -24,8 +24,10 @@ function pf_serve_design_no_cache_headers(): void {
 
 function pf_serve_design_emit_blob(string $blob, string $mime = 'application/octet-stream', string $filename = 'design'): void {
     pf_serve_design_no_cache_headers();
+    $filename = preg_replace('/[\x00-\x1F\x7F"\\\\]+/u', '_', basename($filename));
+    if (!is_string($filename) || trim($filename) === '') $filename = 'design';
     header('Content-Type: ' . ($mime !== '' ? $mime : 'application/octet-stream'));
-    header('Content-Disposition: inline; filename="' . basename($filename) . '"');
+    header('Content-Disposition: inline; filename="' . $filename . '"');
     echo $blob;
     exit;
 }
@@ -33,10 +35,48 @@ function pf_serve_design_emit_blob(string $blob, string $mime = 'application/oct
 function pf_serve_design_emit_file(string $path, string $mime = '', string $filename = ''): void {
     pf_serve_design_no_cache_headers();
     $resolvedMime = $mime !== '' ? $mime : (mime_content_type($path) ?: 'application/octet-stream');
+    $filename = preg_replace('/[\x00-\x1F\x7F"\\\\]+/u', '_', basename($filename !== '' ? $filename : $path));
+    if (!is_string($filename) || trim($filename) === '') $filename = 'design';
     header('Content-Type: ' . $resolvedMime);
-    header('Content-Disposition: inline; filename="' . basename($filename !== '' ? $filename : $path) . '"');
+    header('Content-Disposition: inline; filename="' . $filename . '"');
     readfile($path);
     exit;
+}
+
+/**
+ * Resolve a revision snapshot path only inside a recognized order-upload root.
+ * Compatibility with the older public/uploads location is read-only.
+ */
+function pf_serve_design_resolve_revision_upload(string $storedPath): ?string {
+    $webPath = function_exists('printflow_normalize_order_upload_web_path')
+        ? printflow_normalize_order_upload_web_path($storedPath)
+        : trim(str_replace('\\', '/', $storedPath));
+    $basename = basename(str_replace('\\', '/', $webPath));
+    if ($basename === '' || $basename === '.' || $basename === '..'
+        || $webPath !== '/uploads/orders/' . $basename
+        || preg_match('/[\x00-\x1F\x7F]/u', $basename)) {
+        return null;
+    }
+
+    $root = dirname(__DIR__);
+    $allowedDirectories = [
+        function_exists('printflow_order_uploads_dir')
+            ? printflow_order_uploads_dir()
+            : $root . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'orders',
+        $root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'orders',
+    ];
+    foreach (array_unique($allowedDirectories) as $allowedDirectory) {
+        $realDirectory = realpath($allowedDirectory);
+        if ($realDirectory === false) continue;
+        $realFile = realpath($realDirectory . DIRECTORY_SEPARATOR . $basename);
+        if ($realFile !== false
+            && str_starts_with($realFile, rtrim($realDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)
+            && is_file($realFile)
+            && is_readable($realFile)) {
+            return $realFile;
+        }
+    }
+    return null;
 }
 
 function pf_serve_design_emit_fallback(string $reason = '', bool $allowDefaultImage = false): void {
@@ -527,6 +567,184 @@ if (!$id) {
 
 $user_id = get_user_id();
 $is_staff = is_staff() || is_admin() || is_manager();
+$legacyRevisionNameSelect = function_exists('db_table_has_column') && db_table_has_column('order_items', 'revision_design_name')
+    ? 'revision_design_name'
+    : "'' AS revision_design_name";
+$legacyRevisionPathSelect = function_exists('db_table_has_column') && db_table_has_column('order_items', 'revision_design_path')
+    ? 'revision_design_path'
+    : "'' AS revision_design_path";
+
+if ($type === 'revision_submission') {
+    $orderItemId = (int)($_GET['item_id'] ?? 0);
+    $reference = 'REV-FILE-' . $id . '-' . $orderItemId;
+    $revisionRows = db_query(
+        "SELECT rr.order_id, rr.customer_id, rr.request_status, rr.permitted_fields,
+                rr.previous_values, rr.revised_values
+         FROM order_revision_requests rr
+         WHERE rr.revision_request_id = ?
+         LIMIT 1",
+        'i',
+        [$id]
+    ) ?: [];
+    if (empty($revisionRows[0])) {
+        error_log("[{$reference}] Submitted revision record was not found.");
+        pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+    }
+
+    $submittedRevision = $revisionRows[0];
+    $orderId = (int)($submittedRevision['order_id'] ?? 0);
+    if (!$is_staff && (int)($submittedRevision['customer_id'] ?? 0) !== (int)$user_id) {
+        http_response_code(403);
+        die('Unauthorized access to this replacement design.');
+    }
+    if ($is_staff) {
+        printflow_assert_order_branch_access($orderId);
+    }
+
+    $requestStatus = (string)($submittedRevision['request_status'] ?? '');
+    if (!in_array($requestStatus, ['Resubmitted for Review', 'Staff Reviewing'], true)) {
+        error_log("[{$reference}] Revision is not in a submitted review state.");
+        pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+    }
+    $permittedFields = json_decode((string)($submittedRevision['permitted_fields'] ?? ''), true);
+    if (!is_array($permittedFields) || !in_array('uploaded_design', $permittedFields, true)) {
+        error_log("[{$reference}] Revision did not authorize a replacement design.");
+        pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+    }
+
+    $revisedSnapshot = json_decode((string)($submittedRevision['revised_values'] ?? ''), true);
+    if (!is_array($revisedSnapshot) || empty($revisedSnapshot['items']) || !is_array($revisedSnapshot['items'])) {
+        error_log("[{$reference}] Submitted revision did not contain a revised item snapshot.");
+        pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+    }
+    $recordedDesignItemId = (int)($revisedSnapshot['_revision']['design_order_item_id'] ?? 0);
+    if ($recordedDesignItemId <= 0) {
+        // Legacy submitted revisions did not record the target item explicitly.
+        // Derive it only when exactly one item's design metadata changed.
+        $previousSnapshot = json_decode((string)($submittedRevision['previous_values'] ?? ''), true);
+        $previousByItem = [];
+        foreach (is_array($previousSnapshot['items'] ?? null) ? $previousSnapshot['items'] : [] as $previousItem) {
+            $previousByItem[(int)($previousItem['order_item_id'] ?? 0)] = is_array($previousItem['design'] ?? null)
+                ? $previousItem['design']
+                : [];
+        }
+        $changedDesignItems = [];
+        foreach ($revisedSnapshot['items'] as $candidateItem) {
+            $candidateId = (int)($candidateItem['order_item_id'] ?? 0);
+            if ($candidateId <= 0) continue;
+            $beforeDesign = $previousByItem[$candidateId] ?? [];
+            $afterDesign = is_array($candidateItem['design'] ?? null) ? $candidateItem['design'] : [];
+            foreach (['name', 'mime', 'file', 'blob_size'] as $comparisonKey) {
+                if ((string)($beforeDesign[$comparisonKey] ?? '') !== (string)($afterDesign[$comparisonKey] ?? '')) {
+                    $changedDesignItems[$candidateId] = true;
+                    break;
+                }
+            }
+        }
+        if (count($changedDesignItems) === 1) {
+            $recordedDesignItemId = (int)array_key_first($changedDesignItems);
+        }
+    }
+    if ($orderItemId <= 0) {
+        $orderItemId = $recordedDesignItemId;
+        $reference = 'REV-FILE-' . $id . '-' . $orderItemId;
+    }
+    if ($recordedDesignItemId <= 0 || $orderItemId !== $recordedDesignItemId) {
+        error_log("[{$reference}] Requested item did not match the submitted revision's design target.");
+        pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+    }
+
+    $snapshotDesign = null;
+    foreach ($revisedSnapshot['items'] as $snapshotItem) {
+        if ((int)($snapshotItem['order_item_id'] ?? 0) !== $orderItemId) continue;
+        $candidateDesign = $snapshotItem['design'] ?? null;
+        if (is_array($candidateDesign)) {
+            $snapshotDesign = $candidateDesign;
+        }
+        break;
+    }
+    if ($orderItemId <= 0 || $snapshotDesign === null) {
+        error_log("[{$reference}] Requested order item was not linked to the submitted revision.");
+        pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+    }
+
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+    $snapshotMime = strtolower(trim((string)($snapshotDesign['mime'] ?? '')));
+    $snapshotName = basename(str_replace('\\', '/', (string)($snapshotDesign['name'] ?? 'replacement')));
+    $snapshotPath = (string)($snapshotDesign['file'] ?? '');
+    $resolvedPath = pf_serve_design_resolve_revision_upload($snapshotPath);
+    if ($resolvedPath !== null && is_file($resolvedPath)) {
+        $resolvedMime = strtolower((string)(mime_content_type($resolvedPath) ?: ''));
+        if (in_array($resolvedMime, $allowedMimes, true)
+            && ($snapshotMime === '' || hash_equals($snapshotMime, $resolvedMime))) {
+            pf_serve_design_emit_file($resolvedPath, $resolvedMime, $snapshotName !== '' ? $snapshotName : basename($resolvedPath));
+        }
+        error_log("[{$reference}] Stored replacement file MIME did not match the submitted revision snapshot.");
+    }
+
+    // Compatibility for revisions submitted before filesystem-backed storage:
+    // only use current item media when its metadata matches the revised snapshot.
+    $currentRows = db_query(
+        "SELECT design_image, IFNULL(LENGTH(design_image), 0) AS blob_len,
+                design_image_mime, design_image_name, design_file,
+                {$legacyRevisionNameSelect}, {$legacyRevisionPathSelect}
+         FROM order_items
+         WHERE order_item_id = ? AND order_id = ?
+         LIMIT 1",
+        'ii',
+        [$orderItemId, $orderId]
+    ) ?: [];
+    $current = $currentRows[0] ?? [];
+    $currentName = basename(str_replace('\\', '/', (string)($current['design_image_name'] ?? '')));
+    $currentMime = strtolower((string)($current['design_image_mime'] ?? ''));
+    $snapshotBlobSize = (int)($snapshotDesign['blob_size'] ?? 0);
+    $normalizedSnapshotPath = function_exists('printflow_normalize_order_upload_web_path')
+        ? printflow_normalize_order_upload_web_path($snapshotPath)
+        : $snapshotPath;
+    $normalizedCurrentPath = function_exists('printflow_normalize_order_upload_web_path')
+        ? printflow_normalize_order_upload_web_path((string)($current['design_file'] ?? ''))
+        : (string)($current['design_file'] ?? '');
+    $pathIdentifiesRevision = $normalizedSnapshotPath !== ''
+        ? hash_equals($normalizedSnapshotPath, $normalizedCurrentPath)
+        : true;
+    $metadataMatches = $pathIdentifiesRevision
+        && $snapshotName !== ''
+        && $currentName !== ''
+        && hash_equals($snapshotName, $currentName)
+        && $snapshotMime !== ''
+        && hash_equals($snapshotMime, $currentMime)
+        && $snapshotBlobSize > 0
+        && $snapshotBlobSize === (int)($current['blob_len'] ?? 0);
+    if ($metadataMatches) {
+        if (!empty($current['design_image'])) {
+            if (in_array($currentMime, $allowedMimes, true)) {
+                pf_serve_design_emit_blob((string)$current['design_image'], $currentMime, $currentName);
+            }
+        }
+        foreach (['design_file', 'revision_design_path'] as $legacyPathField) {
+            $legacyPath = (string)($current[$legacyPathField] ?? '');
+            $legacyResolved = pf_serve_design_resolve_revision_upload($legacyPath);
+            if ($legacyResolved !== null && is_file($legacyResolved)) {
+                $legacyMime = strtolower((string)(mime_content_type($legacyResolved) ?: ''));
+                if (in_array($legacyMime, $allowedMimes, true)) {
+                    pf_serve_design_emit_file($legacyResolved, $legacyMime, $snapshotName);
+                }
+            }
+        }
+    }
+
+    error_log(sprintf(
+        '[%s] Replacement media missing. order_id=%d status=%s snapshot_path_set=%d snapshot_blob_size=%d current_blob_size=%d metadata_match=%d',
+        $reference,
+        $orderId,
+        preg_replace('/[^A-Za-z0-9 _-]/', '', (string)($submittedRevision['request_status'] ?? '')),
+        $snapshotPath !== '' ? 1 : 0,
+        (int)($snapshotDesign['blob_size'] ?? 0),
+        (int)($current['blob_len'] ?? 0),
+        $metadataMatches ? 1 : 0
+    ));
+    pf_serve_design_emit_fallback("Replacement design is unavailable. Reference: {$reference}");
+}
 
 if ($type === 'revision_history') {
     $revisionRows = db_query(
@@ -616,7 +834,7 @@ if ($type === 'order_item') {
     // 2. Get data
     $item = db_query(
         "SELECT order_item_id, design_image, design_image_mime, design_image_name, design_file,
-                reference_image_file, revision_design_name, revision_design_path
+                reference_image_file, {$legacyRevisionNameSelect}, {$legacyRevisionPathSelect}
          FROM order_items
          WHERE order_item_id = ?",
         'i',
@@ -647,7 +865,7 @@ if ($type === 'order_item') {
             }
             $item = db_query(
                 "SELECT order_item_id, design_image, design_image_mime, design_image_name, design_file,
-                        reference_image_file, revision_design_name, revision_design_path
+                        reference_image_file, {$legacyRevisionNameSelect}, {$legacyRevisionPathSelect}
                  FROM order_items
                  WHERE order_item_id = ?",
                 'i',

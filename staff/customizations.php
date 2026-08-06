@@ -3742,14 +3742,12 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             revisionReplacementIsImage() {
                 const design = this.currentJo?.revision_review?.replacement_design || {};
-                const mime = String(design.mime || '').toLowerCase();
-                return mime.startsWith('image/') || (!mime && this.staffFilenameLooksLikeImage(design.name || ''));
+                return String(design.media_type || '').toLowerCase() === 'image';
             },
             revisionDesignLinkLabel(kind) {
                 const key = kind === 'previous' ? 'previous_design' : 'replacement_design';
                 const design = this.currentJo?.revision_review?.[key] || {};
-                const isPdf = String(design.mime || '').toLowerCase() === 'application/pdf'
-                    || String(design.name || '').toLowerCase().endsWith('.pdf');
+                const isPdf = String(design.media_type || '').toLowerCase() === 'pdf';
                 return kind === 'previous'
                     ? (isPdf ? 'View Previous PDF' : 'View Previous Design')
                     : (isPdf ? 'View Replacement PDF' : 'View Replacement Design');
@@ -5779,15 +5777,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                     { value: 'order_notes', label: 'Order Notes' }
                 ];
                 const seen = new Set(options.map(option => option.value));
+                const seenLogicalSpecs = new Set();
                 const protectedKeys = /(^_|branch|price|payment|service_id|product_id|order_id|item_id|design|upload|reference|status)/i;
                 (this.currentJo.items || []).forEach((item) => {
                     const itemId = Number(item.order_item_id || 0);
                     if (!itemId) return;
+                    // Permission tokens must use keys physically persisted on
+                    // the order item; enriched display labels are not writable.
                     const revisionSpecs = {
-                        ...this.parseSpecsObject(item.customization || {}),
                         ...this.parseSpecsObject(item.customization_data || {}),
-                        ...this.parseSpecsObject(item.specifications_raw || {}),
-                        ...this.parseSpecsObject(item.specifications || {})
+                        ...this.parseSpecsObject(item.specifications_raw || {})
                     };
                     Object.entries(revisionSpecs).forEach(([key, fieldValue]) => {
                         const normalized = String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -5797,6 +5796,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                         if (['needed_date', 'need_date', 'date_needed', 'required_date', 'due_date'].includes(normalized)) return;
                         if (normalized.includes('layout')) return;
                         if (['notes', 'order_notes', 'customer_notes', 'additional_notes', 'special_instructions', 'job_notes'].includes(normalized)) return;
+                        const logicalSpec = `${itemId}:${normalized}`;
+                        if (seenLogicalSpecs.has(logicalSpec)) return;
+                        seenLogicalSpecs.add(logicalSpec);
                         const value = `spec:${itemId}:${encodeURIComponent(String(key))}`;
                         if (seen.has(value)) return;
                         seen.add(value);

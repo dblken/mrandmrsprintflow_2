@@ -1542,7 +1542,9 @@ try {
             ]];
 
             // Check for revision design
-            if (!empty($cust['order_item_id'])) {
+            if (!empty($cust['order_item_id'])
+                && db_table_has_column('order_items', 'revision_design_name')
+                && db_table_has_column('order_items', 'revision_design_path')) {
                 $revisionDesignRow = db_query(
                     "SELECT revision_design_name, revision_design_path FROM order_items WHERE order_item_id = ? LIMIT 1",
                     'i',

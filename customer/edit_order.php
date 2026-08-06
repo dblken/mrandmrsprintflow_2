@@ -9,28 +9,57 @@ require_role('Customer');
 
 $order_id = (int)($_GET['order_id'] ?? $_POST['order_id'] ?? 0);
 $customer_id = (int)get_user_id();
+$revisionReference = 'REV-' . max(0, $order_id) . '-' . strtoupper(substr(hash('sha256', $order_id . '|' . $customer_id . '|' . date('Y-m-d-H')), 0, 8));
+
+function customer_revision_stop(string $message, string $reference, int $orderId): never
+{
+    $page_title = 'Revision Request Error';
+    $use_customer_css = true;
+    require __DIR__ . '/../includes/header.php';
+    ?>
+    <main style="max-width:720px;margin:0 auto;padding:3rem 1rem;">
+        <section style="background:#fff;border:1px solid #fecaca;border-left:5px solid #dc2626;border-radius:14px;padding:1.4rem;box-shadow:0 8px 24px rgba(15,42,54,.08);">
+            <h1 style="margin:0 0 .65rem;color:#991b1b;font-size:1.35rem;">Revision Request Unavailable</h1>
+            <p style="margin:0 0 .8rem;color:#7f1d1d;line-height:1.55;"><?php echo htmlspecialchars($message); ?></p>
+            <p style="margin:0 0 1.2rem;color:#64748b;font-size:.85rem;">Reference ID: <strong><?php echo htmlspecialchars($reference); ?></strong></p>
+            <a href="orders.php<?php echo $orderId > 0 ? '?highlight=' . $orderId : ''; ?>" style="display:inline-flex;min-height:42px;align-items:center;padding:0 1rem;border-radius:8px;background:#0b3441;color:#fff;text-decoration:none;font-weight:700;">Back to My Orders</a>
+        </section>
+    </main>
+    <?php
+    require __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
 if ($order_id <= 0) {
-    redirect('orders.php');
+    customer_revision_stop('No valid internal order ID was provided for this revision.', $revisionReference, 0);
 }
 
 $orderRows = db_query(
     "SELECT o.*, b.branch_name
      FROM orders o
-     LEFT JOIN branches b ON b.branch_id = o.branch_id
+     LEFT JOIN branches b ON b.id = o.branch_id
      WHERE o.order_id = ? AND o.customer_id = ? LIMIT 1",
     'ii',
     [$order_id, $customer_id]
 ) ?: [];
 if (empty($orderRows)) {
-    redirect('orders.php');
+    $orderExists = db_query('SELECT customer_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+    $message = empty($orderExists)
+        ? 'This order does not exist.'
+        : 'This order does not belong to the logged-in customer.';
+    error_log("[{$revisionReference}] Customer revision ownership check failed for Order #{$order_id}.");
+    customer_revision_stop($message, $revisionReference, $order_id);
 }
 $order = $orderRows[0];
 $revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
 $revisionLoadError = '';
-$revisionReference = 'REV-' . $order_id . '-' . strtoupper(substr(hash('sha256', $order_id . '|' . $customer_id . '|' . date('Y-m-d-H')), 0, 8));
 if ($revision === null) {
     error_log("[{$revisionReference}] Customer revision form could not load an active request for Order #{$order_id}.");
-    $revisionLoadError = 'This revision request is missing editable fields. The shop has been notified.';
+    $latestRevision = printflow_revision_get_latest($order_id);
+    $latestStatus = (string)($latestRevision['request_status'] ?? '');
+    $revisionLoadError = in_array($latestStatus, ['Resubmitted for Review', 'Staff Reviewing', 'Approved to Set Price'], true)
+        ? 'This revision was already submitted and is no longer open for customer editing.'
+        : 'No active revision request exists for this order.';
 } elseif (!in_array((string)($revision['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)) {
     error_log("[{$revisionReference}] Customer attempted to open a closed revision state for Order #{$order_id}.");
     $revisionLoadError = 'This revision request is no longer open for editing. Refresh My Orders to see its current status.';
@@ -38,26 +67,14 @@ if ($revision === null) {
 $permissions = is_array($revision['permitted_fields_array'] ?? null) ? $revision['permitted_fields_array'] : [];
 if ($revision !== null && empty($permissions)) {
     error_log("[{$revisionReference}] Customer revision form found no permitted fields for Order #{$order_id}, Request #" . (int)$revision['revision_request_id']);
-    $revisionLoadError = 'This revision request is missing editable fields. The shop has been notified.';
+    $revisionLoadError = 'The requested editable field is unavailable. Please ask the shop to issue a new revision request.';
+}
+if ($revision !== null && (string)($order['status'] ?? '') !== 'For Revision') {
+    $revisionLoadError = 'This order is no longer in a customer-editable revision status.';
 }
 if ($revisionLoadError !== '') {
-    $page_title = "Revision Request Error";
-    $use_customer_css = true;
-    require_once __DIR__ . '/../includes/header.php';
-    ?>
-    <main style="max-width:720px;margin:0 auto;padding:3rem 1rem;">
-        <section style="background:#fff;border:1px solid #fecaca;border-left:5px solid #dc2626;border-radius:14px;padding:1.4rem;box-shadow:0 8px 24px rgba(15,42,54,.08);">
-            <h1 style="margin:0 0 .65rem;color:#991b1b;font-size:1.35rem;">Revision Request Unavailable</h1>
-            <p style="margin:0 0 .8rem;color:#7f1d1d;line-height:1.55;"><?php echo htmlspecialchars($revisionLoadError); ?></p>
-            <p style="margin:0 0 1.2rem;color:#64748b;font-size:.85rem;">Reference ID: <strong><?php echo htmlspecialchars($revisionReference); ?></strong></p>
-            <a href="orders.php?highlight=<?php echo $order_id; ?>" style="display:inline-flex;min-height:42px;align-items:center;padding:0 1rem;border-radius:8px;background:#0b3441;color:#fff;text-decoration:none;font-weight:700;">Back to My Orders</a>
-        </section>
-    </main>
-    <?php
-    require_once __DIR__ . '/../includes/footer.php';
-    exit;
+    customer_revision_stop($revisionLoadError, $revisionReference, $order_id);
 }
-printflow_revision_mark_customer_updating((int)$revision['revision_request_id'], $order_id, $customer_id);
 $permissionLabels = printflow_revision_permission_labels($permissions, $revision['previous_values_array']);
 $revisionActionLabel = printflow_revision_action_label($permissions);
 
@@ -74,6 +91,11 @@ $items = db_query(
     'i',
     [$order_id]
 ) ?: [];
+if (empty($items)) {
+    error_log("[{$revisionReference}] Customer revision form found no order items for Order #{$order_id}.");
+    customer_revision_stop('The requested field is unavailable because this order has no editable item record.', $revisionReference, $order_id);
+}
+printflow_revision_mark_customer_updating((int)$revision['revision_request_id'], $order_id, $customer_id);
 
 function customer_revision_item_custom(array $item): array
 {
@@ -99,23 +121,53 @@ function customer_revision_field_label(string $key, array $config = []): string
     return $configured !== '' ? $configured : ucwords(str_replace(['_', '-'], ' ', $key));
 }
 
-function customer_revision_field_config(array $item, array $custom, string $key): array
+function customer_revision_field_config(array $item, array $custom, string $key, int $serviceIdFallback = 0): array
 {
+    global $order;
     $serviceId = (int)($custom['service_id'] ?? 0);
+    if ($serviceId <= 0) $serviceId = $serviceIdFallback;
+    if ($serviceId <= 0 && function_exists('printflow_resolve_service_catalog_service_id_for_order_line')) {
+        $serviceId = printflow_resolve_service_catalog_service_id_for_order_line($custom, $order, $item);
+    }
     if ($serviceId > 0) {
         $configs = get_service_field_config($serviceId);
-        if (isset($configs[$key]) && is_array($configs[$key])) {
-            return $configs[$key];
-        }
+        $config = printflow_revision_find_field_config($configs, $key);
+        if ($config !== []) return $config;
     }
     $productId = (int)($item['product_id'] ?? 0);
     if ($productId > 0) {
         $configs = get_product_field_config($productId);
-        if (isset($configs[$key]) && is_array($configs[$key])) {
-            return $configs[$key];
-        }
+        $config = printflow_revision_find_field_config($configs, $key);
+        if ($config !== []) return $config;
     }
     return [];
+}
+
+/** Collapse canonical keys and human-label aliases into one logical control. */
+function customer_revision_dedupe_specs(array $item, array $custom, int $serviceIdFallback = 0): array
+{
+    $selected = [];
+    $scores = [];
+    foreach ($custom as $key => $value) {
+        $key = (string)$key;
+        $normalized = printflow_revision_normalize_key($key);
+        if ($normalized === '') continue;
+        $config = customer_revision_field_config($item, $custom, $key, $serviceIdFallback);
+        $score = (customer_revision_scalar_text($value) !== '' ? 16 : 0)
+            + ($config !== [] ? 8 : 0)
+            + ($key === $normalized ? 4 : 0)
+            + (strtolower($key) === $key ? 2 : 0)
+            + (!str_contains($key, ' ') ? 1 : 0);
+        if (!isset($selected[$normalized]) || $score > $scores[$normalized]) {
+            $selected[$normalized] = [$key, $value];
+            $scores[$normalized] = $score;
+        }
+    }
+    $result = [];
+    foreach ($selected as [$key, $value]) {
+        $result[$key] = $value;
+    }
+    return $result;
 }
 
 function customer_revision_scalar_text($value): string
@@ -211,6 +263,7 @@ require_once __DIR__ . '/../includes/header.php';
     <form method="POST" enctype="multipart/form-data" novalidate>
         <?php echo csrf_field(); ?>
         <input type="hidden" name="order_id" value="<?php echo $order_id; ?>">
+        <input type="hidden" name="resubmit_order" value="1">
 
         <?php $designEditable = in_array('uploaded_design', $permissions, true); ?>
         <section class="revision-card">
@@ -255,8 +308,12 @@ require_once __DIR__ . '/../includes/header.php';
 
         <?php foreach ($items as $item):
             $itemId = (int)$item['order_item_id'];
-            $custom = customer_revision_item_custom($item);
-            $itemName = customer_revision_item_name($item, $custom);
+            $rawCustom = customer_revision_item_custom($item);
+            $itemName = customer_revision_item_name($item, $rawCustom);
+            $itemServiceId = function_exists('printflow_resolve_service_catalog_service_id_for_order_line')
+                ? printflow_resolve_service_catalog_service_id_for_order_line($rawCustom, $order, $item)
+                : 0;
+            $custom = customer_revision_dedupe_specs($item, $rawCustom, $itemServiceId);
         ?>
             <section class="revision-card">
                 <div class="revision-card-head">
@@ -278,9 +335,16 @@ require_once __DIR__ . '/../includes/header.php';
                     <?php foreach ($custom as $key => $value):
                         $key = (string)$key;
                         if (printflow_revision_is_protected_spec($key) || printflow_revision_key_group($key) === 'order_notes') continue;
-                        $config = customer_revision_field_config($item, $custom, $key);
+                        $config = customer_revision_field_config($item, $custom, $key, $itemServiceId);
                         $label = customer_revision_field_label($key, $config);
-                        $editable = printflow_revision_permission_allows($permissions, $itemId, $key);
+                        $editable = printflow_revision_permission_allows(
+                            $permissions,
+                            $itemId,
+                            $key,
+                            $item,
+                            $rawCustom,
+                            $itemServiceId
+                        );
                         $fieldType = strtolower((string)($config['type'] ?? 'text'));
                         $options = is_array($config['options'] ?? null) ? $config['options'] : [];
                         $isRequired = !empty($config['required']);
@@ -340,7 +404,7 @@ require_once __DIR__ . '/../includes/header.php';
 
         <div class="revision-actions">
             <a href="orders.php" class="revision-btn secondary">Cancel</a>
-            <button type="submit" name="resubmit_order" value="1" id="revision_submit_button" class="revision-btn primary">Submit Updated Details</button>
+            <button type="submit" id="revision_submit_button" class="revision-btn primary">Submit Updated Details</button>
         </div>
     </form>
 </main>

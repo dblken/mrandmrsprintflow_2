@@ -2481,24 +2481,6 @@ function formatRevisionRequestedAt(value) {
     return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString();
 }
 
-function openRevisionForm(event, url, button) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-    const target = String(url || '').trim();
-    if (!target) {
-        notifyCancelResult('The revision form URL is unavailable. Please refresh and try again.', true);
-        return;
-    }
-    if (button) {
-        button.disabled = true;
-        button.textContent = 'Opening…';
-    }
-    closeItemsModal();
-    window.setTimeout(() => window.location.assign(target), 40);
-}
-
 document.addEventListener('click', function (event) {
     const link = event.target.closest('a[data-revision-action="1"]');
     if (!link) return;
