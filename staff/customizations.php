@@ -2192,6 +2192,7 @@ $online_closed_count = 0;
                                 <div x-show="(staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)) || (revItem.revision_design_url && staffFilenameLooksLikeImage(revItem.revision_design_name))"
                                      @click="previewFile = revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
                                      style="flex-shrink:0; cursor:zoom-in;">
+                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;max-width:220px;">Customer's Revised Design — Awaiting Staff Review</div>
                                     <img :src="revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
                                          alt="Revised design preview"
                                          style="display:block; max-width:min(100%, 220px); max-height:140px; object-fit:contain; border-radius:10px; border:1px solid #bae6fd; background:#fff; box-shadow:0 2px 8px rgba(2,132,199,0.12);"

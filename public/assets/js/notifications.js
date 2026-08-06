@@ -1100,11 +1100,24 @@
         var msg = (message || '').toLowerCase();
         var did = (dataId != null && dataId !== '') ? parseInt(dataId, 10) : 0;
         var url = base + '/';
+        var isRevisionSubmission = did > 0 && (
+            msg.indexOf('submitted revised details') !== -1 ||
+            msg.indexOf('submitted the requested updates') !== -1 ||
+            msg.indexOf('resubmitted revised details') !== -1 ||
+            msg.indexOf('resubmitted a revised design') !== -1 ||
+            msg.indexOf('re-uploaded design') !== -1 ||
+            msg.indexOf('design re-upload') !== -1 ||
+            msg.indexOf('revision submitted') !== -1 ||
+            msg.indexOf('resubmitted for review') !== -1
+        );
 
         if (isStaff && t === 'system' && did > 0 && (msg.indexOf('ready for admin review') !== -1 || msg.indexOf('completed their profile') !== -1)) {
             url = base + '/admin/user_staff_management.php?open_user=' + did;
         } else if (isStaff) {
-            if (t.indexOf('inventory') !== -1) url = base + '/admin/inv_items_management.php';
+            if (isRevisionSubmission && USER_TYPE.toLowerCase() === 'staff') {
+                url = base + '/staff/customizations.php?order_id=' + did + '&status=PENDING';
+            }
+            else if (t.indexOf('inventory') !== -1) url = base + '/admin/inv_items_management.php';
             else if (t.indexOf('message') !== -1 || t.indexOf('chat') !== -1) {
                 url = did ? base + '/staff/chats.php?order_id=' + did : base + '/staff/chats.php';
             }

@@ -769,6 +769,31 @@ function printflow_notify_chat_message(int $order_id, string $senderRole, string
 /**
  * Target URL when a staff user opens a notification (dashboard, list, etc.).
  */
+function printflow_notification_is_revision_submission(array $notification): bool {
+    $dataId = (int)($notification['data_id'] ?? 0);
+    if ($dataId <= 0) {
+        return false;
+    }
+
+    $message = strtolower(trim((string)($notification['message'] ?? '')));
+    $revisionMarkers = [
+        'submitted revised details',
+        'submitted the requested updates',
+        'resubmitted revised details',
+        'resubmitted a revised design',
+        're-uploaded design',
+        'design re-upload',
+        'revision submitted',
+        'resubmitted for review',
+    ];
+    foreach ($revisionMarkers as $marker) {
+        if (str_contains($message, $marker)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function staff_notification_target_url(array $n): string {
     $base = printflow_notification_base_path();
     $msg = isset($n['message']) ? (string)$n['message'] : '';
@@ -777,6 +802,13 @@ function staff_notification_target_url(array $n): string {
     $data_id = isset($n['data_id']) && $n['data_id'] !== null && $n['data_id'] !== ''
         ? (int)$n['data_id']
         : 0;
+
+    // Revision messages often end in "Review is required". They are order
+    // review work, not customer product ratings, and must win this routing
+    // decision before the broad legacy "review" keyword check below.
+    if (printflow_notification_is_revision_submission($n)) {
+        return printflow_staff_order_management_url($data_id, true);
+    }
 
     $is_rating = (
         ((string)($n['type'] ?? '') === 'Rating') ||

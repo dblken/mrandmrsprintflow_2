@@ -148,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
                     $staffId,
                     $staffRole,
                     "{$customerName} submitted revised details for Order #{$order_id}. Review is required.",
-                    'Order',
+                    'Design',
                     false,
                     false,
                     $order_id
@@ -157,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resubmit_order'])) {
             if (!$staffNotified) {
                 notify_shop_users(
                     "{$customerName} submitted revised details for Order #{$order_id}. Review is required.",
-                    'Order', false, false, $order_id, ['Staff', 'Admin', 'Manager']
+                    'Design', false, false, $order_id, ['Staff', 'Admin', 'Manager']
                 );
             }
             $_SESSION['success'] = "Order #{$order_id} was resubmitted for staff review.";
