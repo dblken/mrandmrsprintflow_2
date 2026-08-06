@@ -19,7 +19,7 @@ if (in_array($_SESSION['user_type'] ?? '', ['Staff', 'Manager'], true)) {
 
 $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
 $deepLinkJobType = strtoupper(trim((string)($_GET['job_type'] ?? '')));
-if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION'], true)) {
+if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION', 'ORDER'], true)) {
     $deepLinkOrder = db_query(
         "SELECT order_type FROM orders WHERE order_id = ? LIMIT 1",
         'i',
@@ -50,7 +50,7 @@ if ($deepLinkOrderId > 0 && !in_array($deepLinkJobType, ['JOB', 'CUSTOMIZATION']
     // Stay on customizations.php — the page will show the order from the orders table.
     // Do NOT redirect to orders.php; that page only shows product orders.
     // Fall through to render customizations.php normally with the order_id context.
-    unset($deepLinkOrderId, $deepLinkJobType, $deepLinkOrder, $deepLinkOrderType, $linkedJob, $linkedJobId);
+    redirect((defined('BASE_PATH') ? BASE_PATH : '') . '/staff/customizations.php?order_id=' . $deepLinkOrderId . '&job_type=ORDER');
 }
 
 $page_title = 'Customizations - PrintFlow';
@@ -2156,7 +2156,7 @@ $online_closed_count = 0;
                                 <div style="font-size:11px;color:#475569;" x-text="currentJo.revision_review.resubmitted_at ? 'Submitted: ' + currentJo.revision_review.resubmitted_at : ''"></div>
                             </div>
                             <div style="font-size:12px;color:#334155;margin-bottom:10px;" x-text="currentJo.revision_review.instruction"></div>
-                            <div x-show="currentJo.revision_review.revised?._revision?.price_review_required" style="margin-bottom:10px;padding:8px 10px;border-radius:7px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:11px;font-weight:700;">Pricing review required: a quantity, layout, type, or specification value changed. Do not reuse the previous approved price or payment request.</div>
+                            <div x-show="currentJo.revision_review.price_review_required" style="margin-bottom:10px;padding:8px 10px;border-radius:7px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:11px;font-weight:700;">Pricing review required: a quantity, layout, type, or specification value changed. Do not reuse the previous approved price or payment request.</div>
                             <div x-show="currentJo.revision_review.changes && currentJo.revision_review.changes.length" style="display:grid;gap:7px;">
                                 <template x-for="change in (currentJo.revision_review.changes || [])" :key="change.path">
                                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;padding:8px;background:#fff;border:1px solid #bae6fd;border-radius:7px;align-items:start;">
@@ -2169,17 +2169,23 @@ $online_closed_count = 0;
                             <div x-show="!currentJo.revision_review.changes || !currentJo.revision_review.changes.length" style="font-size:11px;color:#64748b;">No text or quantity differences were recorded. Review the design comparison below.</div>
                             <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
                                 <template x-if="revisionPreviousDesignUrl()">
-                                    <a :href="revisionPreviousDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#991b1b;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #fecaca;border-radius:7px;">View Previous Design</a>
+                                    <a :href="revisionPreviousDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#991b1b;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #fecaca;border-radius:7px;" x-text="revisionDesignLinkLabel('previous')"></a>
                                 </template>
                                 <template x-if="revisionReplacementDesignUrl()">
-                                    <a :href="revisionReplacementDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#166534;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:7px;">View Replacement Design</a>
+                                    <a :href="revisionReplacementDesignUrl()" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:700;color:#166534;text-decoration:none;padding:7px 10px;background:#fff;border:1px solid #bbf7d0;border-radius:7px;" x-text="revisionDesignLinkLabel('replacement')"></a>
                                 </template>
                             </div>
+                            <template x-if="revisionReplacementIsImage()">
+                                <div style="margin-top:12px;">
+                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Revised Design — Awaiting Staff Review</div>
+                                    <img :src="revisionReplacementDesignUrl()" alt="Customer revised design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
+                                </div>
+                            </template>
                         </div>
                     </template>
 
                     <!-- Design Status / Revision Alert -->
-                    <template x-if="currentJo.design_status === 'Revision Submitted'">
+                    <template x-if="currentJo.design_status === 'Revision Submitted' && !currentJo.revision_review">
                         <div style="margin-bottom:20px; padding:12px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:10px; display:flex; flex-wrap:wrap; align-items:flex-start; gap:12px;">
                              <div style="background:#0284c7; color:#fff; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 4px 6px -1px rgba(2, 132, 199, 0.4);">
                                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 11l5 5m0 0l-5 5m5-5H6"/></svg>
@@ -3729,12 +3735,24 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return String(value);
             },
             revisionPreviousDesignUrl() {
-                const items = this.currentJo?.revision_review?.previous?.items;
-                return Array.isArray(items) ? String(items[0]?.design?.history_url || '') : '';
+                return String(this.currentJo?.revision_review?.previous_design?.url || '');
             },
             revisionReplacementDesignUrl() {
-                const items = this.currentJo?.revision_review?.revised?.items;
-                return Array.isArray(items) ? String(items[0]?.design?.serve_url || '') : '';
+                return String(this.currentJo?.revision_review?.replacement_design?.url || '');
+            },
+            revisionReplacementIsImage() {
+                const design = this.currentJo?.revision_review?.replacement_design || {};
+                const mime = String(design.mime || '').toLowerCase();
+                return mime.startsWith('image/') || (!mime && this.staffFilenameLooksLikeImage(design.name || ''));
+            },
+            revisionDesignLinkLabel(kind) {
+                const key = kind === 'previous' ? 'previous_design' : 'replacement_design';
+                const design = this.currentJo?.revision_review?.[key] || {};
+                const isPdf = String(design.mime || '').toLowerCase() === 'application/pdf'
+                    || String(design.name || '').toLowerCase().endsWith('.pdf');
+                return kind === 'previous'
+                    ? (isPdf ? 'View Previous PDF' : 'View Previous Design')
+                    : (isPdf ? 'View Replacement PDF' : 'View Replacement Design');
             },
             formatCustomValuePlain(v) {
                 if (v == null) return '';
@@ -4676,19 +4694,6 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 const cacheKey = orderType + '-' + id;
                 const detailKey = this.detailKeyFor(id, orderType);
-                if (this.modalCache && this.modalCache[cacheKey]) {
-                    this.currentJo = this.modalCache[cacheKey];
-                    this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
-                        ? this.currentJo.final_price
-                        : '';
-                    this.showDetailsModal = true;
-                    this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
-                    this.restoreSavedInkUsage();
-                    this.loadingDetails = false;
-                    this.detailError = '';
-                    return;
-                }
-
                 if (this.loadingDetailKey === detailKey) {
                     return;
                 }

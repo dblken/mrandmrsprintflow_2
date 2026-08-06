@@ -31,6 +31,9 @@ $revisionReference = 'REV-' . $order_id . '-' . strtoupper(substr(hash('sha256',
 if ($revision === null) {
     error_log("[{$revisionReference}] Customer revision form could not load an active request for Order #{$order_id}.");
     $revisionLoadError = 'This revision request is missing editable fields. The shop has been notified.';
+} elseif (!in_array((string)($revision['request_status'] ?? ''), ['Requested', 'Customer Updating Details'], true)) {
+    error_log("[{$revisionReference}] Customer attempted to open a closed revision state for Order #{$order_id}.");
+    $revisionLoadError = 'This revision request is no longer open for editing. Refresh My Orders to see its current status.';
 }
 $permissions = is_array($revision['permitted_fields_array'] ?? null) ? $revision['permitted_fields_array'] : [];
 if ($revision !== null && empty($permissions)) {
@@ -229,6 +232,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <div style="flex:1;min-width:220px;">
                     <?php if ($designEditable): ?>
                         <label class="revision-label" for="design_file">Upload Replacement Design</label>
+                        <input type="hidden" name="design_order_item_id" value="<?php echo (int)($items[0]['order_item_id'] ?? 0); ?>">
                         <input class="revision-input" type="file" id="design_file" name="design_file" accept="image/jpeg,image/png,image/gif,application/pdf" required>
                         <span class="revision-help">JPG, PNG, GIF, or PDF, up to 10 MB. The existing design remains stored until submission succeeds.</span>
                         <div id="design_file_error" class="revision-file-error" role="alert"></div>

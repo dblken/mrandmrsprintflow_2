@@ -500,23 +500,115 @@ function printflow_revision_changes(array $previous, array $revised): array
     $before = printflow_revision_flatten_snapshot($previous);
     $after = printflow_revision_flatten_snapshot($revised);
     $changes = [];
+    $seen = [];
     foreach (array_unique(array_merge(array_keys($before), array_keys($after))) as $path) {
-        if (str_starts_with($path, '_revision.')
-            || str_contains($path, '.history_')
-            || str_ends_with($path, '.serve_url')
-            || str_ends_with($path, '.blob_size')
-            || in_array($path, ['order.status', 'order.design_status'], true)) continue;
+        $label = '';
+        if ($path === 'order.notes') {
+            $label = 'Order Notes';
+        } elseif (preg_match('/^items\.\d+\.quantity$/', $path)) {
+            $label = 'Quantity';
+        } elseif (preg_match('/^items\.\d+\.(?:customization_data|specifications)\.(.+)$/', $path, $matches)) {
+            $key = rawurldecode((string)$matches[1]);
+            if (preg_match('/(?:^|_)(?:path|file|filename|mime|blob|url|id|status)(?:_|$)/i', $key)) {
+                continue;
+            }
+            $label = ucwords(trim(str_replace(['_', '-'], ' ', $key)));
+        } else {
+            // Product IDs, branch IDs, upload internals, generated filenames,
+            // MIME values and status bookkeeping are not customer-facing edits.
+            continue;
+        }
         $old = $before[$path] ?? null;
         $new = $after[$path] ?? null;
         if ((string)$old === (string)$new) continue;
+        if (($old === null || $old === '') && ($new === null || $new === '')) continue;
+        $dedupeKey = strtolower($label) . '|' . printflow_revision_encode_json([$old, $new]);
+        if (isset($seen[$dedupeKey])) continue;
+        $seen[$dedupeKey] = true;
         $changes[] = [
             'path' => $path,
-            'label' => ucwords(str_replace(['.', '_', '-'], ' ', preg_replace('/^items\.\d+\./', '', $path))),
+            'label' => $label,
             'previous' => $old,
             'revised' => $new,
         ];
     }
     return $changes;
+}
+
+/**
+ * Staff-facing revision state shared by every order-details endpoint.
+ * Raw filesystem paths and snapshot internals are deliberately not exposed.
+ */
+function printflow_revision_review_payload(int $orderId, bool $markReviewing = false): ?array
+{
+    if ($orderId <= 0) return null;
+    $revision = printflow_revision_get_latest($orderId);
+    if ($revision === null) return null;
+
+    if ($markReviewing && (string)($revision['request_status'] ?? '') === 'Resubmitted for Review') {
+        printflow_revision_mark_staff_reviewing((int)$revision['revision_request_id'], $orderId);
+        $revision['request_status'] = 'Staff Reviewing';
+    }
+
+    $previous = is_array($revision['previous_values_array'] ?? null)
+        ? $revision['previous_values_array']
+        : [];
+    $revised = is_array($revision['revised_values_array'] ?? null)
+        ? $revision['revised_values_array']
+        : [];
+    $base = function_exists('pf_app_base_path') ? pf_app_base_path() : '';
+    $previousDesign = null;
+    $replacementDesign = null;
+    $designWasRequested = in_array('uploaded_design', $revision['permitted_fields_array'] ?? [], true);
+    $orderItemRows = $designWasRequested
+        ? (db_query('SELECT order_item_id FROM order_items WHERE order_id = ?', 'i', [$orderId]) ?: [])
+        : [];
+    $orderItemIds = array_fill_keys(array_map(
+        static fn(array $row): int => (int)($row['order_item_id'] ?? 0),
+        $orderItemRows
+    ), true);
+
+    $designItemId = (int)($revised['_revision']['design_order_item_id'] ?? 0);
+    foreach ($designWasRequested ? ($previous['items'] ?? []) : [] as $item) {
+        if ($designItemId > 0 && (int)($item['order_item_id'] ?? 0) !== $designItemId) continue;
+        $design = is_array($item['design'] ?? null) ? $item['design'] : [];
+        $historyId = (int)($design['history_revision_id'] ?? 0);
+        if ($historyId > 0) {
+            $previousDesign = [
+                'url' => $base . '/public/serve_design.php?type=revision_history&id=' . $historyId,
+                'name' => basename((string)($design['name'] ?? 'previous-design')),
+                'mime' => (string)($design['mime'] ?? ''),
+            ];
+            break;
+        }
+    }
+    foreach ($designWasRequested ? ($revised['items'] ?? []) : [] as $item) {
+        $itemId = (int)($item['order_item_id'] ?? 0);
+        if ($designItemId > 0 && $itemId !== $designItemId) continue;
+        if ($itemId <= 0 || !isset($orderItemIds[$itemId])) continue;
+        $design = is_array($item['design'] ?? null) ? $item['design'] : [];
+        $replacementDesign = [
+            'url' => $base . '/public/serve_design.php?type=order_item&id=' . $itemId,
+            'name' => basename((string)($design['name'] ?? 'revised-design')),
+            'mime' => (string)($design['mime'] ?? ''),
+        ];
+        break;
+    }
+
+    return [
+        'id' => (int)$revision['revision_request_id'],
+        'reason' => (string)$revision['revision_reason'],
+        'instruction' => (string)$revision['staff_instruction'],
+        'status' => (string)$revision['request_status'],
+        'requested_at' => (string)$revision['requested_at'],
+        'resubmitted_at' => (string)($revision['resubmitted_at'] ?? ''),
+        'permitted_fields' => $revision['permitted_fields_array'] ?? [],
+        'permitted_field_labels' => $revision['permitted_field_labels'] ?? [],
+        'changes' => !empty($revised) ? printflow_revision_changes($previous, $revised) : [],
+        'previous_design' => $previousDesign,
+        'replacement_design' => $replacementDesign,
+        'price_review_required' => !empty($revised['_revision']['price_review_required']),
+    ];
 }
 
 /**
@@ -832,7 +924,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             && printflow_revision_price_impacting($permissions)) {
             throw new RuntimeException('This paid order contains price-impacting changes and must be handled by staff. No order values were changed.');
         }
-        $allowedPostKeys = ['csrf_token', 'order_id', 'resubmit_order', 'spec', 'quantity', 'order_notes'];
+        $allowedPostKeys = ['csrf_token', 'order_id', 'resubmit_order', 'spec', 'quantity', 'order_notes', 'design_order_item_id'];
         foreach (array_keys($post) as $postKey) {
             if (!in_array((string)$postKey, $allowedPostKeys, true)) {
                 throw new RuntimeException('An unauthorized order field change was rejected.');
@@ -950,6 +1042,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
         }
 
         $designRequired = in_array('uploaded_design', $permissions, true);
+        $designTargetItemId = 0;
         $designFile = $files['design_file'] ?? null;
         if ($designRequired) {
             if (!is_array($designFile) || (int) ($designFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -970,14 +1063,21 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
             $finfo = new finfo(FILEINFO_MIME_TYPE);
             $mime = (string) $finfo->file((string) $designFile['tmp_name']);
             $name = basename((string) $designFile['name']);
+            $designTargetItemId = (int)($post['design_order_item_id'] ?? 0);
+            if ($designTargetItemId <= 0 && count($itemMap) === 1) {
+                $designTargetItemId = (int)array_key_first($itemMap);
+            }
+            if ($designTargetItemId <= 0 || !isset($itemMap[$designTargetItemId])) {
+                throw new RuntimeException('The replacement design was not linked to a valid order item. No design was changed.');
+            }
             $designStmt = $conn->prepare(
-                'UPDATE order_items SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = NULL WHERE order_id = ?'
+                'UPDATE order_items SET design_image = ?, design_image_mime = ?, design_image_name = ?, design_file = NULL WHERE order_item_id = ? AND order_id = ?'
             );
             if (!$designStmt) {
                 throw new RuntimeException('The revised design could not be saved.');
             }
             $blobPlaceholder = null;
-            $designStmt->bind_param('bssi', $blobPlaceholder, $mime, $name, $orderId);
+            $designStmt->bind_param('bssii', $blobPlaceholder, $mime, $name, $designTargetItemId, $orderId);
             $designStmt->send_long_data(0, $fileData);
             $designSaved = $designStmt->execute();
             $designStmt->close();
@@ -992,6 +1092,7 @@ function printflow_revision_submit(int $orderId, int $customerId, array $post, a
         $after['_revision'] = [
             'price_review_required' => printflow_revision_price_impacting($permissions),
             'submitted_permissions' => $permissions,
+            'design_order_item_id' => $designTargetItemId,
         ];
         if (!db_execute(
             "UPDATE order_revision_requests

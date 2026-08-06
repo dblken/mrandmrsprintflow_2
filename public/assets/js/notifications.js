@@ -1114,8 +1114,8 @@
         if (isStaff && t === 'system' && did > 0 && (msg.indexOf('ready for admin review') !== -1 || msg.indexOf('completed their profile') !== -1)) {
             url = base + '/admin/user_staff_management.php?open_user=' + did;
         } else if (isStaff) {
-            if (isRevisionSubmission && USER_TYPE.toLowerCase() === 'staff') {
-                url = base + '/staff/customizations.php?order_id=' + did + '&status=PENDING';
+            if (isRevisionSubmission) {
+                url = base + '/staff/customizations.php?order_id=' + did + '&job_type=ORDER&status=PENDING';
             }
             else if (t.indexOf('inventory') !== -1) url = base + '/admin/inv_items_management.php';
             else if (t.indexOf('message') !== -1 || t.indexOf('chat') !== -1) {

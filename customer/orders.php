@@ -2234,7 +2234,7 @@ function openItemsModal(orderId, event) {
                                 ${data.revision_request?.requested_at ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Requested:</strong> ${escIM(formatRevisionRequestedAt(data.revision_request.requested_at))}</p>` : ''}
                                 ${revisionFieldLabels.length ? `<div class="im-revision-fields"><strong>Fields to update:</strong> ${revisionFieldLabels.map(escIM).join(', ')}</div>` : ''}
                                 <div style="display:flex; flex-direction:column; gap:0.85rem; margin-top:1rem;">
-                                    <button type="button" data-revision-action="1" data-revision-url="${escIM(revisionActionUrl)}" class="im-primary-action">${escIM(revisionActionLabel)}</button>
+                                    <a href="${escIM(revisionActionUrl)}" data-revision-action="1" class="im-primary-action">${escIM(revisionActionLabel)}</a>
                                 </div>
                             </div>
                         ` : data.design_status === 'Revision Requested' ? `
@@ -2500,9 +2500,9 @@ function openRevisionForm(event, url, button) {
 }
 
 document.addEventListener('click', function (event) {
-    const button = event.target.closest('[data-revision-action="1"]');
-    if (!button) return;
-    openRevisionForm(event, button.dataset.revisionUrl, button);
+    const link = event.target.closest('a[data-revision-action="1"]');
+    if (!link) return;
+    event.stopPropagation();
 });
 
 function renderOrderSuccessBanner(message) {

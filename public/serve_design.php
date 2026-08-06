@@ -8,6 +8,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
+require_once __DIR__ . '/../includes/branch_context.php';
 
 // Base directories used by older and newer upload code.
 $htdocs_root = realpath(__DIR__ . '/../../');
@@ -529,7 +530,7 @@ $is_staff = is_staff() || is_admin() || is_manager();
 
 if ($type === 'revision_history') {
     $revisionRows = db_query(
-        "SELECT r.design_image, r.design_image_mime, r.design_image_name, r.design_file, o.customer_id
+        "SELECT r.order_id, r.design_image, r.design_image_mime, r.design_image_name, r.design_file, o.customer_id
          FROM order_item_revisions r
          INNER JOIN orders o ON o.order_id = r.order_id
          WHERE r.revision_id = ? LIMIT 1",
@@ -543,6 +544,9 @@ if ($type === 'revision_history') {
     if (!$is_staff && (int)($revisionFile['customer_id'] ?? 0) !== (int)$user_id) {
         http_response_code(403);
         die('Unauthorized access to this revision file.');
+    }
+    if ($is_staff) {
+        printflow_assert_order_branch_access((int)($revisionFile['order_id'] ?? 0));
     }
     if (!empty($revisionFile['design_image'])) {
         pf_serve_design_emit_blob(
@@ -605,6 +609,9 @@ if ($type === 'order_item') {
         }
     }
     $orderId = (int)($check[0]['order_id'] ?? 0);
+    if ($is_staff) {
+        printflow_assert_order_branch_access($orderId);
+    }
 
     // 2. Get data
     $item = db_query(
@@ -635,6 +642,9 @@ if ($type === 'order_item') {
                 }
             }
             $orderId = (int)($check[0]['order_id'] ?? 0);
+            if ($is_staff) {
+                printflow_assert_order_branch_access($orderId);
+            }
             $item = db_query(
                 "SELECT order_item_id, design_image, design_image_mime, design_image_name, design_file,
                         reference_image_file, revision_design_name, revision_design_path
@@ -656,8 +666,15 @@ if ($type === 'order_item') {
     }
 
     if ($field === 'revision_design') {
-        // Serve revision design if it exists
+        // Legacy revisions used a path column. Field-authorized revisions save
+        // the replacement atomically into the current order-item BLOB.
         if (pf_serve_design_read_file($item['revision_design_path'] ?? '')) {
+            exit;
+        }
+        if (pf_serve_design_try_order_item_blob($id)) {
+            exit;
+        }
+        if (pf_serve_design_read_file($item['design_file'] ?? '')) {
             exit;
         }
         pf_serve_design_emit_fallback('Revision not found', false);

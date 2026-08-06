@@ -214,6 +214,8 @@ $data = [
     'height_ft' => $height_ft,
     'quantity' => $total_qty,
     'status' => $mapped_status,
+    'design_status' => (string)($o['design_status'] ?? ''),
+    'revision_reason' => (string)($o['revision_reason'] ?? ''),
     'estimated_total' => (float)($o['estimated_price'] ?? 0),
     'estimated_price' => (float)($o['estimated_price'] ?? 0),
     'final_price' => (float)($o['total_amount'] ?? 0),
@@ -238,6 +240,7 @@ $data = [
     'items' => $items_out,
     'materials' => $materials,
     'ink_usage' => $ink_usage,
+    'revision_review' => printflow_revision_review_payload($order_id, true),
 ];
 
 echo json_encode(['success' => true, 'data' => $data]);

@@ -118,28 +118,7 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
 }
 
 function jo_api_revision_review(int $orderId): ?array {
-    if ($orderId <= 0) return null;
-    $revision = printflow_revision_get_latest($orderId);
-    if ($revision === null) return null;
-    if ((string)($revision['request_status'] ?? '') === 'Resubmitted for Review') {
-        printflow_revision_mark_staff_reviewing((int)$revision['revision_request_id'], $orderId);
-        $revision['request_status'] = 'Staff Reviewing';
-    }
-    $previous = $revision['previous_values_array'] ?? [];
-    $revised = $revision['revised_values_array'] ?? [];
-    return [
-        'id' => (int)$revision['revision_request_id'],
-        'reason' => (string)$revision['revision_reason'],
-        'instruction' => (string)$revision['staff_instruction'],
-        'status' => (string)$revision['request_status'],
-        'requested_at' => (string)$revision['requested_at'],
-        'resubmitted_at' => (string)($revision['resubmitted_at'] ?? ''),
-        'permitted_fields' => $revision['permitted_fields_array'] ?? [],
-        'permitted_field_labels' => $revision['permitted_field_labels'] ?? [],
-        'changes' => !empty($revised) ? printflow_revision_changes($previous, $revised) : [],
-        'previous' => $previous,
-        'revised' => $revised,
-    ];
+    return printflow_revision_review_payload($orderId, true);
 }
 
 /** Staff / Manager only see/manage job orders for their assigned branch. */

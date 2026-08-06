@@ -807,7 +807,7 @@ function staff_notification_target_url(array $n): string {
     // review work, not customer product ratings, and must win this routing
     // decision before the broad legacy "review" keyword check below.
     if (printflow_notification_is_revision_submission($n)) {
-        return printflow_staff_order_management_url($data_id, true);
+        return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=ORDER&status=PENDING';
     }
 
     $is_rating = (
