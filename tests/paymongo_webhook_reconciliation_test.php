@@ -76,6 +76,13 @@ paymongo_webhook_assert(
         && strpos($providerPayments, '?int $paidAmountCentavos = null') !== false,
     'the webhook and shared payment helpers expose the same mode and paid-metadata contracts'
 );
+paymongo_webhook_assert(
+    strpos($paymongo, "isset(\$payment['data']) && is_array(\$payment['data'])") !== false
+        && strpos($paymongo, "isset(\$paymentData['attributes']) && is_array(\$paymentData['attributes'])") !== false
+        && strpos($paymongo, "\$paymentData['id'] ?? \$paidPayment['id'] ?? ''") !== false
+        && strpos($paymongo, "\$attributes['livemode'] ?? (\$mode === 'live')") !== false,
+    'payment-link reconciliation accepts PayMongo data.attributes payment objects in test mode'
+);
 
 foreach ([
     "ENUM('test','live')",

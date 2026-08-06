@@ -285,22 +285,36 @@ if (!function_exists('printflow_paymongo_request')) {
             : [];
         if (preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+/payments(?:\?.*)?$#', $path)) {
             $paidPayment = [];
+            $paidPaymentData = [];
             foreach ($data as $payment) {
                 if (!is_array($payment)) {
                     continue;
                 }
-                $attributes = isset($payment['attributes']) && is_array($payment['attributes'])
-                    ? $payment['attributes']
+                $paymentData = isset($payment['data']) && is_array($payment['data'])
+                    ? $payment['data']
                     : $payment;
+                $attributes = isset($paymentData['attributes']) && is_array($paymentData['attributes'])
+                    ? $paymentData['attributes']
+                    : (isset($payment['attributes']) && is_array($payment['attributes'])
+                        ? $payment['attributes']
+                        : $paymentData);
                 if (strtolower(trim((string)($attributes['status'] ?? ''))) === 'paid') {
                     $paidPayment = $payment;
+                    $paidPaymentData = $paymentData;
                     break;
                 }
             }
-            $attributes = isset($paidPayment['attributes']) && is_array($paidPayment['attributes'])
-                ? $paidPayment['attributes']
-                : $paidPayment;
-            $paymentId = trim((string)($paidPayment['id'] ?? ''));
+            $paymentData = $paidPaymentData !== []
+                ? $paidPaymentData
+                : (isset($paidPayment['data']) && is_array($paidPayment['data'])
+                    ? $paidPayment['data']
+                    : $paidPayment);
+            $attributes = isset($paymentData['attributes']) && is_array($paymentData['attributes'])
+                ? $paymentData['attributes']
+                : (isset($paidPayment['attributes']) && is_array($paidPayment['attributes'])
+                    ? $paidPayment['attributes']
+                    : $paymentData);
+            $paymentId = trim((string)($paymentData['id'] ?? $paidPayment['id'] ?? ''));
             $source = isset($attributes['source']) && is_array($attributes['source'])
                 ? $attributes['source']
                 : [];
@@ -324,7 +338,7 @@ if (!function_exists('printflow_paymongo_request')) {
                 'mode' => $mode,
                 'test_mode' => $mode === 'test',
                 'http_status' => $httpCode,
-                'livemode' => (bool)($attributes['livemode'] ?? true),
+                'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
                 'paid' => !empty($paidPayment),
                 'payment_id' => preg_match('/^pay_[A-Za-z0-9_-]+$/', $paymentId) ? $paymentId : '',
                 'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
@@ -338,7 +352,9 @@ if (!function_exists('printflow_paymongo_request')) {
                 )), 0, 100),
                 'provider_paid_at' => isset($attributes['paid_at']) && is_numeric($attributes['paid_at'])
                     ? gmdate('Y-m-d H:i:s', (int)$attributes['paid_at'])
-                    : null,
+                    : (isset($attributes['paid_at']) && is_string($attributes['paid_at'])
+                        ? substr(str_replace('T', ' ', preg_replace('/(?:\.\d+)?Z$/', '', $attributes['paid_at'])), 0, 19)
+                        : null),
             ];
         }
         $candidateUrl = isset($data['url']) && is_string($data['url'])
