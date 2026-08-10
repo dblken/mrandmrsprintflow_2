@@ -72,6 +72,13 @@ if ($method === 'POST') {
             exit;
         }
         $completed = printflow_provider_payment_complete_pos((int)$payment['id'], (int)get_user_id());
+        if (!empty($completed['ok']) && !empty($payment['order_id'])) {
+            foreach ($_SESSION['pos_paymongo_checkouts'] ?? [] as $token => $mappedOrderId) {
+                if ((int)$mappedOrderId === (int)$payment['order_id']) {
+                    unset($_SESSION['pos_paymongo_checkouts'][$token]);
+                }
+            }
+        }
         http_response_code(!empty($completed['ok']) ? 200 : 409);
         echo json_encode([
             'success' => !empty($completed['ok']),

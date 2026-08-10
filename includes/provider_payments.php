@@ -564,7 +564,7 @@ function printflow_provider_payment_create_link(
         }
         $ledgerId = (int)$conn->insert_id;
     }
-    $idempotencyKey = 'printflow-link-' . $mode . '-' . $ledgerId;
+    $idempotencyKey = 'printflow-link-' . $mode . '-' . $subjectType . '-' . $subjectId . '-ledger-' . $ledgerId;
     if (db_table_has_column('provider_payments', 'idempotency_key')) {
         if (!db_execute(
             'UPDATE provider_payments SET idempotency_key = ? WHERE id = ?',

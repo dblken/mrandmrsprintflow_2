@@ -1731,6 +1731,7 @@ try {
             </div>
             <img id="paymongo-pos-qr" alt="PayMongo Test checkout QR" style="width:220px;height:220px;object-fit:contain;margin:0 auto 12px;border:1px solid #e2e8f0;">
             <div id="paymongo-pos-status" style="font-size:13px;color:#475569;margin-bottom:14px;">Waiting for payment confirmation.</div>
+            <div id="paymongo-pos-reference" style="font-size:12px;color:#0f766e;font-weight:700;margin-bottom:14px;min-height:16px;"></div>
             <a id="paymongo-pos-open" href="#" target="_blank" rel="noopener noreferrer" style="display:block;padding:11px;background:#00232b;color:#fff;text-decoration:none;font-weight:800;margin-bottom:9px;">Open Checkout</a>
             <button id="paymongo-pos-complete" type="button" onclick="completePayMongoPosTransaction()" disabled style="width:100%;padding:11px;border:0;background:#94a3b8;color:#fff;font-weight:800;margin-bottom:9px;cursor:not-allowed;">Complete Transaction</button>
             <button type="button" onclick="closePayMongoPosModal()" style="width:100%;padding:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;">Close</button>
@@ -1966,6 +1967,8 @@ try {
         let pendingPayMongoReceipt = null;
         let pendingPayMongoOrderId = 0;
         let posCheckoutRequestInFlight = false;
+        let posPayMongoCheckoutPending = false;
+        let posPayMongoCheckoutAttemptToken = null;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -3975,6 +3978,9 @@ try {
 
             posCheckoutRequestInFlight = true;
 
+            resetPayMongoPosCheckoutState();
+            const checkoutToken = getPosPayMongoCheckoutToken(true);
+            posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
                 customer_id: $('#pos-customer').val(),
@@ -3982,7 +3988,7 @@ try {
                 reference_number: (document.getElementById('pos-payment-ref')?.value || '').trim(),
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
-                checkout_token: getPosPayMongoCheckoutToken(),
+                checkout_token: checkoutToken,
                 items: cart.map(i => ({
                     id: i.product_id,
                     qty: i.qty,
@@ -4017,11 +4023,16 @@ try {
                     checkoutCompleted = true;
 
                     if (data.payment_pending && data.payment && data.payment.checkout_url) {
-                        openPayMongoPosModal(data.order_id, data.payment.checkout_url);
+                        openPayMongoPosModal(
+                            data.order_id,
+                            data.payment.checkout_url,
+                            data.payment.reference_number || ''
+                        );
                         updateCheckoutState();
                         return;
                     }
 
+                    posPayMongoCheckoutPending = false;
                     document.getElementById('pos-payment-method').value = 'Cash';
                     document.getElementById('pos-tendered').value = '';
                     const refInput = document.getElementById('pos-payment-ref');
@@ -4050,26 +4061,55 @@ try {
         }
 
         function getPosPayMongoCheckoutToken(forceNew = false) {
-            let token = forceNew ? '' : sessionStorage.getItem('pos_paymongo_checkout_token');
-            if (!token || forceNew) {
+            if (forceNew) {
                 const bytes = new Uint8Array(24);
                 crypto.getRandomValues(bytes);
-                token = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-                sessionStorage.setItem('pos_paymongo_checkout_token', token);
+                posPayMongoCheckoutAttemptToken = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+                sessionStorage.setItem('pos_paymongo_checkout_token', posPayMongoCheckoutAttemptToken);
+                return posPayMongoCheckoutAttemptToken;
             }
-            return token;
+            if (posPayMongoCheckoutAttemptToken) {
+                return posPayMongoCheckoutAttemptToken;
+            }
+            const stored = sessionStorage.getItem('pos_paymongo_checkout_token');
+            if (stored) {
+                posPayMongoCheckoutAttemptToken = stored;
+                return stored;
+            }
+            const bytes = new Uint8Array(24);
+            crypto.getRandomValues(bytes);
+            posPayMongoCheckoutAttemptToken = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+            sessionStorage.setItem('pos_paymongo_checkout_token', posPayMongoCheckoutAttemptToken);
+            return posPayMongoCheckoutAttemptToken;
+        }
+
+        function resetPayMongoPosCheckoutState() {
+            if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+            paymongoPollTimer = null;
+            pendingPayMongoReceipt = null;
+            pendingPayMongoOrderId = 0;
+            posPayMongoCheckoutPending = false;
+            posPayMongoCheckoutAttemptToken = null;
+            sessionStorage.removeItem('pos_paymongo_pending');
+            sessionStorage.removeItem('pos_paymongo_checkout_token');
         }
 
         function closePayMongoPosModal() {
             document.getElementById('paymongo-pos-modal').style.display = 'none';
+            document.getElementById('paymongo-pos-reference').textContent = '';
+            resetPayMongoPosCheckoutState();
         }
 
-        function openPayMongoPosModal(orderId, checkoutUrl) {
+        function openPayMongoPosModal(orderId, checkoutUrl, referenceNumber = '') {
             const modal = document.getElementById('paymongo-pos-modal');
             document.getElementById('paymongo-pos-open').href = checkoutUrl;
             document.getElementById('paymongo-pos-qr').src =
                 'https://quickchart.io/qr?size=220&text=' + encodeURIComponent(checkoutUrl);
             document.getElementById('paymongo-pos-status').textContent = 'Waiting for payment confirmation.';
+            const referenceLabel = document.getElementById('paymongo-pos-reference');
+            if (referenceLabel) {
+                referenceLabel.textContent = referenceNumber ? 'Reference Number: ' + referenceNumber : '';
+            }
             const completeButton = document.getElementById('paymongo-pos-complete');
             completeButton.disabled = true;
             completeButton.style.background = '#94a3b8';
@@ -4087,8 +4127,6 @@ try {
                 paymongoPollTimer = null;
                 if (data?.receipt_available && data?.receipt) {
                     pendingPayMongoReceipt = data.receipt;
-                    sessionStorage.removeItem('pos_paymongo_pending');
-                    sessionStorage.removeItem('pos_paymongo_checkout_token');
                     closePayMongoPosModal();
                     openReceiptModal(data.receipt);
                     pendingPayMongoOrderId = 0;
@@ -4111,8 +4149,6 @@ try {
                         const completion = await response.json();
                         if (response.ok && completion?.success && completion?.receipt) {
                             pendingPayMongoReceipt = completion.receipt;
-                            sessionStorage.removeItem('pos_paymongo_pending');
-                            sessionStorage.removeItem('pos_paymongo_checkout_token');
                             closePayMongoPosModal();
                             openReceiptModal(completion.receipt);
                             pendingPayMongoOrderId = 0;

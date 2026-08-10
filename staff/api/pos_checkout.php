@@ -1437,6 +1437,7 @@ try {
     $conn->commit();
     $transaction_open = false;
     if ($is_paymongo_test) {
+        $_SESSION['pos_paymongo_checkouts'] = [];
         $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = (int)$order_id;
         $linkResult = printflow_provider_payment_create_link(
             'order',
