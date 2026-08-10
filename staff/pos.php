@@ -4082,6 +4082,53 @@ try {
             }));
             modal.style.display = 'flex';
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+            const finishPaidPosTransaction = async (data) => {
+                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+                paymongoPollTimer = null;
+                if (data?.receipt_available && data?.receipt) {
+                    pendingPayMongoReceipt = data.receipt;
+                    sessionStorage.removeItem('pos_paymongo_pending');
+                    sessionStorage.removeItem('pos_paymongo_checkout_token');
+                    closePayMongoPosModal();
+                    openReceiptModal(data.receipt);
+                    pendingPayMongoOrderId = 0;
+                    return true;
+                }
+                if (data?.can_complete) {
+                    document.getElementById('paymongo-pos-status').textContent = 'Finalizing payment...';
+                    try {
+                        const response = await fetch(staffUrl('staff/api/paymongo_payment.php'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: 'complete_pos',
+                                subject_type: 'order',
+                                subject_id: pendingPayMongoOrderId,
+                                channel: 'pos',
+                                csrf_token: POS_CSRF_TOKEN
+                            })
+                        });
+                        const completion = await response.json();
+                        if (response.ok && completion?.success && completion?.receipt) {
+                            pendingPayMongoReceipt = completion.receipt;
+                            sessionStorage.removeItem('pos_paymongo_pending');
+                            sessionStorage.removeItem('pos_paymongo_checkout_token');
+                            closePayMongoPosModal();
+                            openReceiptModal(completion.receipt);
+                            pendingPayMongoOrderId = 0;
+                            return true;
+                        }
+                        throw new Error(completion?.message || 'The transaction could not be completed.');
+                    } catch (error) {
+                        document.getElementById('paymongo-pos-status').textContent = error.message || 'The transaction could not be completed.';
+                        completeButton.disabled = false;
+                        completeButton.style.background = '#059669';
+                        completeButton.style.cursor = 'pointer';
+                        return false;
+                    }
+                }
+                return false;
+            };
             const poll = async () => {
                 try {
                     const url = staffUrl('staff/api/paymongo_payment.php')
@@ -4090,21 +4137,9 @@ try {
                     const response = await fetch(url, {cache: 'no-store'});
                     const data = await response.json();
                     if (data.success && data.payment && data.payment.status === 'paid') {
-                        window.clearInterval(paymongoPollTimer);
-                        paymongoPollTimer = null;
-                        document.getElementById('paymongo-pos-status').textContent =
-                            data.receipt_available
-                                ? 'Transaction completed. Receipt is ready.'
-                                : 'Payment confirmed. Complete transaction to issue receipt.';
-                        if (data.receipt_available && data.receipt) {
-                            pendingPayMongoReceipt = data.receipt;
-                            completeButton.disabled = false;
-                            completeButton.style.background = '#059669';
-                            completeButton.style.cursor = 'pointer';
-                        } else if (data.can_complete) {
-                            completeButton.disabled = false;
-                            completeButton.style.background = '#059669';
-                            completeButton.style.cursor = 'pointer';
+                        const completed = await finishPaidPosTransaction(data);
+                        if (completed) {
+                            return;
                         }
                     }
                 } catch (error) {
