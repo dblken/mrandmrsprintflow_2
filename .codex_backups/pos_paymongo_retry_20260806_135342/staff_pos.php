@@ -1965,7 +1965,6 @@ try {
         let paymongoPollTimer = null;
         let pendingPayMongoReceipt = null;
         let pendingPayMongoOrderId = 0;
-        let posCheckoutRequestInFlight = false;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -3929,7 +3928,7 @@ try {
         }
 
         async function processCheckout() {
-            if (cart.length === 0 || posCheckoutRequestInFlight) return;
+            if (cart.length === 0) return;
 
             // Validate customer selection
             const customer = $('#pos-customer').val();
@@ -3972,8 +3971,6 @@ try {
             btn.disabled = true;
             document.getElementById('checkout-icon').className = 'fas fa-spinner fa-spin';
             document.getElementById('checkout-text').textContent = 'Processing...';
-
-            posCheckoutRequestInFlight = true;
 
             const payload = {
                 action: 'walkin_checkout',
@@ -4018,7 +4015,6 @@ try {
 
                     if (data.payment_pending && data.payment && data.payment.checkout_url) {
                         openPayMongoPosModal(data.order_id, data.payment.checkout_url);
-                        updateCheckoutState();
                         return;
                     }
 
@@ -4042,16 +4038,15 @@ try {
                 await showPOSAlert('Network Error', message, 'error');
                 updateCheckoutState();
             } finally {
-                posCheckoutRequestInFlight = false;
                 if (!checkoutCompleted) {
                     updateCheckoutState();
                 }
             }
         }
 
-        function getPosPayMongoCheckoutToken(forceNew = false) {
-            let token = forceNew ? '' : sessionStorage.getItem('pos_paymongo_checkout_token');
-            if (!token || forceNew) {
+        function getPosPayMongoCheckoutToken() {
+            let token = sessionStorage.getItem('pos_paymongo_checkout_token');
+            if (!token) {
                 const bytes = new Uint8Array(24);
                 crypto.getRandomValues(bytes);
                 token = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');

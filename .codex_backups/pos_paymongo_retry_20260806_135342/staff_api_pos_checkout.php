@@ -75,86 +75,6 @@ function pos_get_walkin_customer_id(): int {
     return (int)$conn->insert_id;
 }
 
-function pos_prepare_order_for_paymongo_checkout(
-    int $orderId,
-    int $staffId,
-    string $paymentMethod,
-    string $paymentStatus = 'Awaiting Payment',
-    string $orderStatus = 'Pending'
-): array {
-    if ($orderId <= 0) {
-        return ['ok' => false, 'message' => 'The POS order was not found.'];
-    }
-
-    $rows = db_query(
-        "SELECT order_id, total_amount, status, payment_status
-         FROM orders
-         WHERE order_id = ?
-         LIMIT 1",
-        'i',
-        [$orderId]
-    ) ?: [];
-    if (empty($rows)) {
-        return ['ok' => false, 'message' => 'The POS order was not found.'];
-    }
-
-    $order = $rows[0];
-    $totalAmount = (float)($order['total_amount'] ?? 0);
-    if ($totalAmount <= 0) {
-        return ['ok' => false, 'message' => 'The POS order total must be greater than zero.'];
-    }
-
-    $normalizedStatus = strtoupper(str_replace(' ', '_', trim((string)($order['status'] ?? ''))));
-    if (in_array($normalizedStatus, ['CANCELLED', 'REJECTED', 'COMPLETED'], true)) {
-        return ['ok' => false, 'message' => 'This POS order can no longer be paid.'];
-    }
-
-    $setParts = [];
-    $types = '';
-    $params = [];
-
-    if (db_table_has_column('orders', 'payment_status')) {
-        $setParts[] = 'payment_status = ?';
-        $types .= 's';
-        $params[] = $paymentStatus;
-    }
-
-    if (db_table_has_column('orders', 'payment_method')) {
-        $setParts[] = 'payment_method = ?';
-        $types .= 's';
-        $params[] = $paymentMethod;
-    }
-
-    if (db_table_has_column('orders', 'status')) {
-        $setParts[] = 'status = ?';
-        $types .= 's';
-        $params[] = $orderStatus;
-    }
-
-    if (db_table_has_column('orders', 'price_finalized_at')) {
-        $setParts[] = 'price_finalized_at = COALESCE(price_finalized_at, NOW())';
-    }
-
-    if (db_table_has_column('orders', 'price_finalized_by')) {
-        $setParts[] = 'price_finalized_by = COALESCE(price_finalized_by, ?)';
-        $types .= 'i';
-        $params[] = $staffId;
-    }
-
-    if ($setParts !== []) {
-        $setParts[] = 'updated_at = NOW()';
-        if (!db_execute(
-            'UPDATE orders SET ' . implode(', ', $setParts) . ' WHERE order_id = ?',
-            $types . 'i',
-            array_merge($params, [$orderId])
-        )) {
-            return ['ok' => false, 'message' => 'The POS order could not be prepared for PayMongo checkout.'];
-        }
-    }
-
-    return ['ok' => true];
-}
-
 function pos_order_uses_walkin_placeholder(array $order): bool {
     return strtolower(trim((string)($order['email'] ?? ''))) === 'walkin@pos.local';
 }
@@ -1034,32 +954,21 @@ if ($is_paymongo_test && !preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
 }
 if ($is_paymongo_test && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) {
     $existingOrderId = (int)$_SESSION['pos_paymongo_checkouts'][$checkoutToken];
-    $preparedOrder = pos_prepare_order_for_paymongo_checkout(
+    $existingResult = printflow_provider_payment_create_link(
+        'order',
         $existingOrderId,
-        (int)get_user_id(),
-        $payment_method,
-        'Awaiting Payment',
-        'Pending'
+        'pos',
+        (int)get_user_id()
     );
-    if (!$preparedOrder['ok']) {
-        unset($_SESSION['pos_paymongo_checkouts'][$checkoutToken]);
-    } else {
-        $existingResult = printflow_provider_payment_create_link(
-            'order',
-            $existingOrderId,
-            'pos',
-            (int)get_user_id()
-        );
-        http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
-        echo json_encode([
-            'success' => !empty($existingResult['ok']),
-            'order_id' => $existingOrderId,
-            'payment_pending' => true,
-            'payment' => $existingResult['payment'] ?? null,
-            'message' => $existingResult['message'] ?? 'Open the Test Mode checkout to complete payment.',
-        ], JSON_UNESCAPED_SLASHES);
-        exit;
-    }
+    http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
+    echo json_encode([
+        'success' => !empty($existingResult['ok']),
+        'order_id' => $existingOrderId,
+        'payment_pending' => true,
+        'payment' => $existingResult['payment'] ?? null,
+        'message' => $existingResult['message'] ?? 'Open the Test Mode checkout to complete payment.',
+    ], JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
 printflow_ensure_product_branch_stock_table();
