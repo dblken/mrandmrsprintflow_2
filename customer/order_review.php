@@ -1438,16 +1438,29 @@ require_once __DIR__ . '/../includes/header.php';
         color: #ffffff !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        justify-content: center !important;
         align-self: center !important;
         margin: 0 !important;
         padding: 0 !important;
         background: transparent !important;
         border: 0 !important;
         color: #53c5e0 !important;
-        text-transform: none !important;
+        text-transform: uppercase !important;
+        line-height: 1.15 !important;
+        white-space: nowrap !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge::before {
-        content: "Category: ";
+        content: "Category:";
+        display: block !important;
+        margin-bottom: 0.18rem !important;
+        color: #9fc4d4 !important;
+        font-size: 0.68rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.04em !important;
+        text-transform: uppercase !important;
     }
     .order-review-page .review-order-entry .order-item-details {
         display: flex !important;
