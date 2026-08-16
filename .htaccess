@@ -56,6 +56,13 @@ AddType text/css .css
     RewriteCond %{REQUEST_URI} ^/logout/?$
     RewriteRule ^(.*)$ public/logout.php [L]
 
+    # PushPrinter v3.1.0 protocol endpoints. Route extensionless requests
+    # directly so POST bodies are not lost to Apache directory redirects.
+    RewriteRule ^printing/pushy/register-device/?$ printing/pushy/register-device/index.php [L,QSA]
+    RewriteRule ^printing/client/order-to-escpos/?$ printing/client/order-to-escpos/index.php [L,QSA]
+    RewriteRule ^printing/jobs/update/status/?$ printing/jobs/update/status/index.php [L,QSA]
+    RewriteRule ^printing/jobs/update/error/?$ printing/jobs/update/error/index.php [L,QSA]
+
     # Admin and Staff directories - serve directly (not through public)
     RewriteCond %{REQUEST_URI} ^/(admin|staff|customer)/
     RewriteCond %{REQUEST_FILENAME} -f [OR]

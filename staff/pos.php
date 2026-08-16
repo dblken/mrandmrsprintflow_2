@@ -2073,8 +2073,7 @@ try {
         let pendingPayMongoOrderId = 0;
         let posCheckoutRequestInFlight = false;
         let posCheckoutConfirmOpen = false;
-        let posAutoReceiptPrintInFlight = false;
-        const posAutoPrintedReceiptKeys = new Set();
+        let pendingPayMongoPrintJob = null;
         let posPayMongoCheckoutPending = false;
         let posPayMongoCheckoutAttemptToken = null;
         function staffUrl(path) {
@@ -2308,54 +2307,35 @@ try {
             window.print();
         }
 
-        function receiptAutoPrintKey(receipt) {
-            const receiptNo = String(receipt?.receipt_number || '').trim();
-            if (receiptNo) return receiptNo;
-            const orderId = String(receipt?.order_id || '').trim();
-            return orderId ? 'order-' + orderId : '';
-        }
-
-        function waitForReceiptRender() {
-            return new Promise(resolve => {
-                requestAnimationFrame(() => requestAnimationFrame(resolve));
-            });
-        }
-
-        function renderReceiptForPrint(receipt) {
-            const overlay = document.getElementById('receipt-modal-overlay');
-            const printArea = document.getElementById('receipt-print-area');
-            if (!printArea) return false;
-            printArea.innerHTML = buildReceiptHtml(receipt || {});
-            if (overlay) overlay.style.display = 'none';
-            document.body.style.overflow = '';
-            return true;
-        }
-
-        async function autoPrintReceiptAfterTransaction(receipt) {
-            const key = receiptAutoPrintKey(receipt);
-            if (!key || posAutoPrintedReceiptKeys.has(key) || posAutoReceiptPrintInFlight) {
-                return;
-            }
-            if (!renderReceiptForPrint(receipt || {})) {
+        async function monitorReceiptPrintJob(printJob) {
+            if (!printJob?.ok || !printJob?.job_id) {
                 showPosScanToast('error', 'Receipt print failed', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
                 return;
             }
 
-            posAutoReceiptPrintInFlight = true;
-            posAutoPrintedReceiptKeys.add(key);
             showPosScanToast('success', 'Transaction completed', 'Printing receipt...');
-
-            try {
-                await waitForReceiptRender();
-                printReceipt();
-                showPosScanToast('success', 'Transaction completed', 'Receipt sent to printer.');
-            } catch (error) {
-                console.error('Receipt auto-print failed:', error);
-                posAutoPrintedReceiptKeys.delete(key);
-                showPosScanToast('error', 'Receipt print failed', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
-            } finally {
-                posAutoReceiptPrintInFlight = false;
+            for (let attempt = 0; attempt < 15; attempt += 1) {
+                await new Promise(resolve => window.setTimeout(resolve, 1500));
+                try {
+                    const response = await fetch(
+                        staffUrl('staff/api/pos_receipt_print_status.php') + '?job_id=' + encodeURIComponent(printJob.job_id) + '&_=' + Date.now(),
+                        {cache: 'no-store'}
+                    );
+                    const result = await response.json();
+                    const status = result?.job?.status;
+                    if (response.ok && status === 'printed') {
+                        showPosScanToast('success', 'Transaction completed', 'Receipt printed.');
+                        return;
+                    }
+                    if (response.ok && status === 'failed') {
+                        showPosScanToast('error', 'Receipt print failed', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('Receipt print status check failed:', error);
+                }
             }
+            showPosScanToast('error', 'Receipt still pending', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
         }
 
         async function downloadReceiptPdf() {
@@ -4201,7 +4181,7 @@ try {
                     toggleReferenceField();
                     calculateChange();
                     updateCheckoutState();
-                    autoPrintReceiptAfterTransaction(data.receipt || {});
+                    monitorReceiptPrintJob(data.print_job);
                 } else {
                     await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
                     updateCheckoutState();
@@ -4249,6 +4229,7 @@ try {
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             paymongoPollTimer = null;
             pendingPayMongoReceipt = null;
+            pendingPayMongoPrintJob = null;
             pendingPayMongoOrderId = 0;
             posPayMongoCheckoutPending = false;
             posPayMongoCheckoutAttemptToken = null;
@@ -4277,6 +4258,7 @@ try {
             completeButton.style.background = '#94a3b8';
             completeButton.style.cursor = 'not-allowed';
             pendingPayMongoReceipt = null;
+            pendingPayMongoPrintJob = null;
             pendingPayMongoOrderId = Number(orderId);
             sessionStorage.setItem('pos_paymongo_pending', JSON.stringify({
                 order_id: pendingPayMongoOrderId,
@@ -4289,8 +4271,9 @@ try {
                 paymongoPollTimer = null;
                 if (data?.receipt_available && data?.receipt) {
                     pendingPayMongoReceipt = data.receipt;
+                    pendingPayMongoPrintJob = data.print_job || null;
                     closePayMongoPosModal();
-                    autoPrintReceiptAfterTransaction(data.receipt);
+                    monitorReceiptPrintJob(data.print_job);
                     pendingPayMongoOrderId = 0;
                     return true;
                 }
@@ -4311,8 +4294,9 @@ try {
                         const completion = await response.json();
                         if (response.ok && completion?.success && completion?.receipt) {
                             pendingPayMongoReceipt = completion.receipt;
+                            pendingPayMongoPrintJob = completion.print_job || null;
                             closePayMongoPosModal();
-                            autoPrintReceiptAfterTransaction(completion.receipt);
+                            monitorReceiptPrintJob(completion.print_job);
                             pendingPayMongoOrderId = 0;
                             return true;
                         }
@@ -4350,10 +4334,11 @@ try {
 
         async function completePayMongoPosTransaction() {
             if (pendingPayMongoReceipt) {
+                const printJob = pendingPayMongoPrintJob;
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
                 closePayMongoPosModal();
-                autoPrintReceiptAfterTransaction(pendingPayMongoReceipt);
+                monitorReceiptPrintJob(printJob);
                 pendingPayMongoOrderId = 0;
                 return;
             }
@@ -4380,10 +4365,11 @@ try {
                 if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
                 paymongoPollTimer = null;
                 pendingPayMongoReceipt = data.receipt;
+                pendingPayMongoPrintJob = data.print_job || null;
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
                 closePayMongoPosModal();
-                autoPrintReceiptAfterTransaction(data.receipt);
+                monitorReceiptPrintJob(data.print_job);
                 pendingPayMongoOrderId = 0;
             } catch (error) {
                 completeButton.disabled = false;

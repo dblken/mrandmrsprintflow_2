@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../includes/order_items_persistence.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/runtime_config.php';
 require_once __DIR__ . '/../../includes/provider_payments.php';
+require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -1503,13 +1504,16 @@ try {
         }
     }
 
+    $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+    $print_job = printflow_receipt_enqueue_order_print_safe((int)$order_id, $receipt, (int)$branch_id);
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
         'customization_id' => $last_customization_id ?? null,
         'message' => 'Sale completed successfully.',
         'warning' => $sync_warning,
-        'receipt' => pos_build_receipt_payload((int)$order_id, (float)$amount_tendered)
+        'receipt' => $receipt,
+        'print_job' => $print_job
     ]);
 
 } catch (Exception $e) {
@@ -1518,13 +1522,16 @@ try {
     }
     if (!empty($order_id) && !$transaction_open) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
+        $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+        $print_job = printflow_receipt_enqueue_order_print_safe((int)$order_id, $receipt, isset($branch_id) ? (int)$branch_id : null);
         echo json_encode([
             'success' => true,
             'order_id' => (int)$order_id,
             'customization_id' => $last_customization_id ?? null,
             'message' => 'Sale completed successfully.',
             'warning' => 'Production sync needs follow-up.',
-            'receipt' => pos_build_receipt_payload((int)$order_id, (float)$amount_tendered)
+            'receipt' => $receipt,
+            'print_job' => $print_job
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);

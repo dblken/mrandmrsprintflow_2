@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
 require_once __DIR__ . '/../includes/team_photo_helper.php';
+require_once __DIR__ . '/../includes/pos_receipt_printer.php';
 
 require_role('Admin');
 // Ensure $base_path is defined
@@ -33,6 +34,10 @@ $saved_messages = [
     'general' => 'General settings saved!',
     'footer' => 'Footer info saved!',
     'about' => 'About page content saved!',
+    'receipt_printer' => 'Receipt printer settings saved!',
+    'receipt_printer_key' => 'Printer API key regenerated. Copy the new key below.',
+    'receipt_test' => '58mm test receipt queued.',
+    'receipt_retry' => 'Receipt print job queued for retry.',
 ];
 if (isset($_GET['saved']) && isset($saved_messages[$_GET['saved']])) {
     $success = $saved_messages[$_GET['saved']];
@@ -64,6 +69,39 @@ function settings_redirect_after_save($savedKey) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_token'] ?? '')) {
+
+    if (isset($_POST['save_receipt_printer'])) {
+        $result = printflow_receipt_printer_create_or_update($_POST, (int)get_user_id());
+        if (!empty($result['ok'])) {
+            if (!empty($result['api_key'])) {
+                $_SESSION['receipt_printer_api_key'] = (string)$result['api_key'];
+            }
+            settings_redirect_after_save('receipt_printer');
+        }
+        $error = 'Receipt printer settings could not be saved.';
+    }
+
+    if (isset($_POST['regenerate_receipt_printer_key'])) {
+        $apiKey = printflow_receipt_printer_regenerate_key((int)($_POST['printer_id'] ?? 0));
+        if ($apiKey !== null) {
+            $_SESSION['receipt_printer_api_key'] = $apiKey;
+            settings_redirect_after_save('receipt_printer_key');
+        }
+        $error = 'The printer API key could not be regenerated.';
+    }
+
+    if (isset($_POST['queue_receipt_test'])) {
+        $result = printflow_receipt_enqueue_test_print((int)($_POST['printer_id'] ?? 0), (int)get_user_id());
+        if (!empty($result['ok'])) settings_redirect_after_save('receipt_test');
+        $error = (string)($result['message'] ?? 'The test receipt could not be queued.');
+    }
+
+    if (isset($_POST['retry_receipt_job'])) {
+        if (printflow_receipt_retry_job((int)($_POST['job_id'] ?? 0))) {
+            settings_redirect_after_save('receipt_retry');
+        }
+        $error = 'The selected print job could not be retried.';
+    }
 
     // Save Payment Methods
     if (isset($_POST['save_payment_methods'])) {
@@ -226,6 +264,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
     }
 }
 
+$receipt_printers = printflow_receipt_printer_list();
+$recent_receipt_jobs = db_query(
+    "SELECT j.id, j.receipt_number, j.status, j.attempts, j.max_attempts, j.error_message,
+            j.created_at, j.printed_at, p.name AS printer_name
+     FROM receipt_print_jobs j
+     INNER JOIN receipt_printers p ON p.id = j.printer_id
+     ORDER BY j.id DESC LIMIT 15"
+) ?: [];
+$generated_printer_api_key = (string)($_SESSION['receipt_printer_api_key'] ?? '');
+unset($_SESSION['receipt_printer_api_key']);
+$request_scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$request_host = trim((string)($_SERVER['HTTP_HOST'] ?? ''));
+$printer_poll_url = ($request_host !== '' ? $request_scheme . '://' . $request_host : '')
+    . rtrim((string)$base_path, '/') . '/public/api/printer/jobs.php';
+$pushprinter_api_base_url = ($request_host !== '' ? $request_scheme . '://' . $request_host : '')
+    . rtrim((string)$base_path, '/');
+$pushy_configured = printflow_receipt_pushy_secret() !== '';
+
 $page_title = 'Settings - Admin';
 ?>
 <!DOCTYPE html>
@@ -315,6 +371,15 @@ $page_title = 'Settings - Admin';
         .btn-save-sm:hover { background:#003a47; }
         .logo-preview { max-height:60px; max-width:180px; object-fit:contain; border:1px solid #e5e7eb; border-radius:8px; padding:6px; background:#fafafa; margin-bottom:10px; display:block; }
         .f-group textarea { resize:vertical; min-height:70px; font-family:inherit; font-size:14px; line-height:1.5; }
+        .printer-api-key { padding:12px; border:1px solid #86efac; background:#f0fdf4; border-radius:8px; margin-bottom:16px; }
+        .printer-api-key code { display:block; margin-top:6px; padding:9px; background:#fff; border:1px solid #bbf7d0; border-radius:6px; overflow-wrap:anywhere; user-select:all; }
+        .printer-table-wrap { overflow-x:auto; border:1px solid #e5e7eb; border-radius:8px; }
+        .printer-table { width:100%; border-collapse:collapse; font-size:12px; }
+        .printer-table th, .printer-table td { padding:9px 10px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:middle; }
+        .printer-table th { color:#6b7280; background:#f8fafc; font-size:10px; text-transform:uppercase; }
+        .printer-table tr:last-child td { border-bottom:0; }
+        .printer-actions { display:flex; gap:6px; flex-wrap:wrap; }
+        .btn-printer-secondary { padding:6px 10px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; font-size:12px; cursor:pointer; }
         
         /* Cropper Modal */
         .cropper-modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:9999; }
@@ -425,6 +490,133 @@ $page_title = 'Settings - Admin';
                             <button type="submit" name="save_general" class="btn-save-sm">Save Settings</button>
                         </div>
                     </form>
+                </div>
+
+                <!-- 58mm Receipt Printer -->
+                <div class="settings-card" style="grid-column:1/-1;">
+                    <div class="settings-card-title">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2m-12-4h12v8H6v-8z"/></svg>
+                        XP-58H Receipt Printing
+                    </div>
+
+                    <?php if ($generated_printer_api_key !== ''): ?>
+                        <div class="printer-api-key">
+                            <strong>Printer API key (shown once)</strong>
+                            <div style="font-size:12px;color:#166534;margin-top:3px;">Enter this in the Windows PushPrinter agent. Regenerating it immediately invalidates the old key.</div>
+                            <code id="generated-printer-api-key"><?php echo htmlspecialchars($generated_printer_api_key); ?></code>
+                            <button type="button" class="btn-printer-secondary" style="margin-top:8px;" onclick="navigator.clipboard.writeText(document.getElementById('generated-printer-api-key').textContent);this.textContent='Copied';">Copy API Key</button>
+                        </div>
+                    <?php endif; ?>
+
+                    <div style="display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,1.35fr);gap:22px;align-items:start;">
+                        <form method="POST" id="receipt-printer-form">
+                            <?php echo csrf_field(); ?>
+                            <div class="f-group">
+                                <label>Configuration</label>
+                                <select name="printer_id" id="receipt-printer-select">
+                                    <option value="0">Create new printer</option>
+                                    <?php foreach ($receipt_printers as $printer): ?>
+                                        <option value="<?php echo (int)$printer['id']; ?>"><?php echo htmlspecialchars((string)$printer['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="f-group">
+                                <label>Printer Name</label>
+                                <input type="text" name="name" id="receipt-printer-name" value="XP-58H Receipt Printer" maxlength="120" required>
+                            </div>
+                            <div class="f-group">
+                                <label>Branch</label>
+                                <select name="branch_id" id="receipt-printer-branch">
+                                    <option value="0">All branches / fallback</option>
+                                    <?php foreach ($branches as $branch): ?>
+                                        <option value="<?php echo (int)$branch['id']; ?>"><?php echo htmlspecialchars((string)$branch['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="f-group">
+                                <label>Windows Printer / Driver Name</label>
+                                <input type="text" name="printer_driver_name" id="receipt-printer-driver" value="XP-58H" maxlength="190" required>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div class="f-group">
+                                    <label>Characters Per Line</label>
+                                    <select name="columns_count" id="receipt-printer-columns">
+                                        <option value="32">32 (recommended)</option>
+                                        <option value="42">42 (condensed)</option>
+                                    </select>
+                                </div>
+                                <div class="f-group">
+                                    <label>Copies</label>
+                                    <input type="number" name="copies" id="receipt-printer-copies" value="1" min="1" max="5">
+                                </div>
+                            </div>
+                            <div class="toggle-row">
+                                <div><div class="toggle-label">Automatic printing</div><div class="toggle-sub">Queue after a successful POS transaction</div></div>
+                                <label class="toggle-switch"><input type="checkbox" name="auto_print" id="receipt-printer-auto" value="1" checked><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="toggle-row">
+                                <div><div class="toggle-label">Default printer</div><div class="toggle-sub">Fallback when a branch printer is unavailable</div></div>
+                                <label class="toggle-switch"><input type="checkbox" name="is_default" id="receipt-printer-default" value="1"><span class="toggle-slider"></span></label>
+                            </div>
+                            <div class="f-group">
+                                <label>Status</label>
+                                <select name="status" id="receipt-printer-status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+                            </div>
+                            <div class="section-save"><button type="submit" name="save_receipt_printer" class="btn-save-sm">Save Printer</button></div>
+                        </form>
+
+                        <div>
+                            <div class="f-group">
+                                <label>PushPrinter API Base URL</label>
+                                <input type="text" readonly value="<?php echo htmlspecialchars($pushprinter_api_base_url); ?>" onclick="this.select()">
+                                <p style="font-size:11px;color:#6b7280;margin-top:5px;">Set this as <code>appApiUrl</code> in PushPrinter's Windows config. Push notifications: <strong style="color:<?php echo $pushy_configured ? '#166534' : '#b91c1c'; ?>;"><?php echo $pushy_configured ? 'configured' : 'PUSHY_API_SECRET missing'; ?></strong>.</p>
+                            </div>
+                            <div class="f-group">
+                                <label>Polling Fallback URL</label>
+                                <input type="text" readonly value="<?php echo htmlspecialchars($printer_poll_url); ?>" onclick="this.select()">
+                            </div>
+                            <div class="printer-table-wrap" style="margin-bottom:16px;">
+                                <table class="printer-table">
+                                    <thead><tr><th>Printer</th><th>Branch</th><th>Layout</th><th>Agent</th><th>Actions</th></tr></thead>
+                                    <tbody>
+                                    <?php if (empty($receipt_printers)): ?>
+                                        <tr><td colspan="5">No receipt printer configured yet.</td></tr>
+                                    <?php else: foreach ($receipt_printers as $printer): ?>
+                                        <tr>
+                                            <td><strong><?php echo htmlspecialchars((string)$printer['name']); ?></strong><br><span style="color:#6b7280;"><?php echo htmlspecialchars((string)$printer['printer_driver_name']); ?></span></td>
+                                            <td><?php echo htmlspecialchars((string)($printer['branch_name'] ?: 'Fallback')); ?></td>
+                                            <td>58mm / <?php echo (int)$printer['columns_count']; ?> cols</td>
+                                            <td><?php echo $printer['last_seen_at'] ? htmlspecialchars((string)$printer['last_seen_at']) : 'Not connected'; ?><br><span style="color:#6b7280;">Key <?php echo htmlspecialchars((string)$printer['api_key_prefix']); ?>...<?php echo htmlspecialchars((string)$printer['api_key_last4']); ?></span></td>
+                                            <td><div class="printer-actions">
+                                                <form method="POST"><?php echo csrf_field(); ?><input type="hidden" name="printer_id" value="<?php echo (int)$printer['id']; ?>"><button class="btn-printer-secondary" name="queue_receipt_test" type="submit">Test Print</button></form>
+                                                <form method="POST" onsubmit="return confirm('Regenerate this printer API key? The old key will stop working.');"><?php echo csrf_field(); ?><input type="hidden" name="printer_id" value="<?php echo (int)$printer['id']; ?>"><button class="btn-printer-secondary" name="regenerate_receipt_printer_key" type="submit">New API Key</button></form>
+                                            </div></td>
+                                        </tr>
+                                    <?php endforeach; endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="printer-table-wrap">
+                                <table class="printer-table">
+                                    <thead><tr><th>Recent Job</th><th>Printer</th><th>Status</th><th>Attempts</th><th></th></tr></thead>
+                                    <tbody>
+                                    <?php if (empty($recent_receipt_jobs)): ?>
+                                        <tr><td colspan="5">No receipt print jobs yet.</td></tr>
+                                    <?php else: foreach ($recent_receipt_jobs as $job): ?>
+                                        <tr>
+                                            <td>#<?php echo (int)$job['id']; ?> <?php echo htmlspecialchars((string)$job['receipt_number']); ?><br><span style="color:#6b7280;"><?php echo htmlspecialchars((string)$job['created_at']); ?></span></td>
+                                            <td><?php echo htmlspecialchars((string)$job['printer_name']); ?></td>
+                                            <td><strong><?php echo htmlspecialchars(ucfirst((string)$job['status'])); ?></strong><?php if (!empty($job['error_message'])): ?><br><span style="color:#b91c1c;"><?php echo htmlspecialchars((string)$job['error_message']); ?></span><?php endif; ?></td>
+                                            <td><?php echo (int)$job['attempts']; ?>/<?php echo (int)$job['max_attempts']; ?></td>
+                                            <td><?php if (in_array((string)$job['status'], ['failed', 'claimed'], true)): ?><form method="POST"><?php echo csrf_field(); ?><input type="hidden" name="job_id" value="<?php echo (int)$job['id']; ?>"><button class="btn-printer-secondary" name="retry_receipt_job" type="submit">Retry</button></form><?php endif; ?></td>
+                                        </tr>
+                                    <?php endforeach; endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Payment Methods (Dynamic) -->
@@ -731,6 +923,29 @@ Stickers &amp; Decals"><?php
 
 <script>
 function printflowInitSettingsPage() {
+    const receiptPrinterData = <?php echo json_encode($receipt_printers, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
+    const receiptPrinterSelect = document.getElementById('receipt-printer-select');
+    if (receiptPrinterSelect && receiptPrinterSelect.dataset.pfBound !== '1') {
+        receiptPrinterSelect.dataset.pfBound = '1';
+        receiptPrinterSelect.addEventListener('change', function() {
+            const selected = receiptPrinterData.find(function(printer) {
+                return Number(printer.id) === Number(receiptPrinterSelect.value);
+            });
+            const values = selected || {
+                name: 'XP-58H Receipt Printer', branch_id: 0, printer_driver_name: 'XP-58H',
+                columns_count: 32, copies: 1, auto_print: 1, is_default: 0, status: 'active'
+            };
+            document.getElementById('receipt-printer-name').value = values.name || '';
+            document.getElementById('receipt-printer-branch').value = Number(values.branch_id || 0);
+            document.getElementById('receipt-printer-driver').value = values.printer_driver_name || 'XP-58H';
+            document.getElementById('receipt-printer-columns').value = Number(values.columns_count || 32);
+            document.getElementById('receipt-printer-copies').value = Number(values.copies || 1);
+            document.getElementById('receipt-printer-auto').checked = Number(values.auto_print) === 1;
+            document.getElementById('receipt-printer-default').checked = Number(values.is_default) === 1;
+            document.getElementById('receipt-printer-status').value = values.status || 'active';
+        });
+    }
+
     // Block non-letters in name fields
     function blockNonLetters(event) {
         if ([8, 9, 27, 13, 46, 37, 38, 39, 40].indexOf(event.keyCode) !== -1 ||

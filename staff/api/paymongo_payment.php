@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/provider_payments.php';
 require_once __DIR__ . '/../../includes/pos_receipt.php';
+require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -79,14 +80,23 @@ if ($method === 'POST') {
                 }
             }
         }
+        $receipt = !empty($completed['ok'])
+            ? printflow_pos_build_receipt((int)($payment['order_id'] ?? 0))
+            : [];
+        $printJob = !empty($completed['ok'])
+            ? printflow_receipt_enqueue_order_print_safe(
+                (int)($payment['order_id'] ?? 0),
+                $receipt,
+                (int)($subject['branch_id'] ?? 0) ?: null
+            )
+            : null;
         http_response_code(!empty($completed['ok']) ? 200 : 409);
         echo json_encode([
             'success' => !empty($completed['ok']),
             'message' => $completed['message'] ?? null,
             'already_completed' => !empty($completed['already_completed']),
-            'receipt' => !empty($completed['ok'])
-                ? printflow_pos_build_receipt((int)($payment['order_id'] ?? 0))
-                : null,
+            'receipt' => !empty($receipt) ? $receipt : null,
+            'print_job' => $printJob,
         ], JSON_UNESCAPED_SLASHES);
         exit;
     }
@@ -134,12 +144,17 @@ if ((string)$payment['status'] === 'awaiting_payment'
 $paid = (string)($payment['status'] ?? '') === 'paid';
 $posCompleted = !empty($payment['fulfillment_applied_at']);
 $orderId = (int)($payment['order_id'] ?? 0);
+$receipt = $paid && $channel === 'pos' && $posCompleted && $orderId > 0
+    ? printflow_pos_build_receipt($orderId)
+    : [];
+$printJob = !empty($receipt)
+    ? printflow_receipt_enqueue_order_print_safe($orderId, $receipt, (int)($subject['branch_id'] ?? 0) ?: null)
+    : null;
 echo json_encode([
     'success' => true,
     'payment' => printflow_provider_payment_public($payment),
     'can_complete' => $paid && $channel === 'pos' && !$posCompleted && $orderId > 0,
     'receipt_available' => $paid && $channel === 'pos' && $posCompleted && $orderId > 0,
-    'receipt' => $paid && $channel === 'pos' && $posCompleted && $orderId > 0
-        ? printflow_pos_build_receipt($orderId)
-        : null,
+    'receipt' => !empty($receipt) ? $receipt : null,
+    'print_job' => $printJob,
 ], JSON_UNESCAPED_SLASHES);
