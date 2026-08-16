@@ -36,6 +36,8 @@ $assert(str_contains($pos, "'Retry Print'"), 'failed receipt printing offers a R
 $assert(str_contains($pos, 'pos_receipt_print_retry.php'), 'Retry Print requeues the existing receipt job');
 $assert(!str_contains($pos, "showPosScanToast("), 'receipt monitoring uses an existing defined notification function');
 $assert(str_contains($printerApi, "\$action === 'diagnostics'"), 'printer API exposes authenticated receipt diagnostics');
+$assert(str_contains($printerApi, "\$action === 'adopt-retry'"), 'printer API can safely adopt and retry an existing receipt job');
+$assert(str_contains($printerApi, "WHERE id = ? AND status IN ('pending', 'failed')"), 'printer job adoption cannot recreate or alter an active completed sale');
 
 foreach ([
     'printing/pushy/register-device/index.php',
