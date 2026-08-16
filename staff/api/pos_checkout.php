@@ -786,12 +786,15 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
         $quantity = (int)($itemRow['quantity'] ?? 0);
         $unitPrice = (float)($itemRow['unit_price'] ?? 0);
         $lineTotal = $quantity * $unitPrice;
+        $customization = json_decode((string)($itemRow['customization_data'] ?? ''), true);
+        $customization = is_array($customization) ? $customization : [];
         $subtotal += $lineTotal;
         $receiptItems[] = [
             'name' => pos_extract_order_item_display_name($itemRow),
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $lineTotal,
+            'customization' => $customization,
         ];
     }
 
@@ -849,6 +852,7 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
             'reference' => (string)($order['payment_reference'] ?? ''),
             'amount_paid' => round($amountTendered > 0 ? $amountTendered : $total, 2),
             'change' => round($changeAmount, 2),
+            'balance' => round(max(0, $total - ($amountTendered > 0 ? $amountTendered : $total)), 2),
             'status' => (string)($order['payment_status'] ?? ''),
         ],
     ];

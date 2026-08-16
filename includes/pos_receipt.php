@@ -57,12 +57,15 @@ function printflow_pos_build_receipt(int $orderId): array {
         $quantity = (int)$row['quantity'];
         $unitPrice = (float)$row['unit_price'];
         $lineTotal = $quantity * $unitPrice;
+        $customization = json_decode((string)($row['customization_data'] ?? ''), true);
+        $customization = is_array($customization) ? $customization : [];
         $subtotal += $lineTotal;
         $items[] = [
             'name' => printflow_pos_receipt_item_name($row),
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $lineTotal,
+            'customization' => $customization,
         ];
     }
     $total = (float)$order['total_amount'];
@@ -104,6 +107,7 @@ function printflow_pos_build_receipt(int $orderId): array {
             'amount_paid' => round(((int)$providerPayment['amount_centavos']) / 100, 2),
             'paid_at' => (string)($providerPayment['paid_at'] ?? ''),
             'change' => 0,
+            'balance' => 0,
             'status' => 'Paid',
         ],
     ];
