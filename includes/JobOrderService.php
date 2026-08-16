@@ -2035,7 +2035,15 @@ class JobOrderService {
             $mergedCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
             $serviceLike = trim((string)($mergedCustomization['service_type'] ?? '')) !== ''
                 || (int)($mergedCustomization['service_id'] ?? 0) > 0
-                || strtolower(trim((string)($mergedCustomization['source'] ?? ''))) === 'pos';
+                || strtolower(trim((string)($mergedCustomization['source'] ?? ''))) === 'pos'
+                || !empty($item['service_id'])
+                || !empty($resolved['service_id']);
+            $mergedCustomization = self::buildStaffCustomizationPayload(
+                $mergedCustomization,
+                max(1, (int)($item['quantity'] ?? 1))
+            );
+            $item['customization'] = $mergedCustomization;
+            $item['specifications'] = $mergedCustomization;
             if ($serviceLike) {
                 $resolvedName = trim((string)($resolved['product_name'] ?? ''));
                 if ($resolvedName !== '' && !customer_orders_is_generic_item_name($resolvedName)) {
@@ -2652,7 +2660,6 @@ class JobOrderService {
             // (Brochure, Stickers, Mugs, Poster, Raffle, Reflectorized, T-shirt) show
             // the same specs as the customer side. Only strip truly internal/temp keys.
             $customForPayload = self::buildStaffCustomizationPayload($custom, $quantity);
-            $customForPayload = printflow_overlay_nonempty_assoc($customForPayload, $orderItemCustomization);
 
             $serviceIdForImage = (int)($custom['service_id'] ?? 0);
             if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
@@ -3334,20 +3341,13 @@ class JobOrderService {
             return $quantity > 0 ? ['Quantity' => (string)$quantity] : [];
         }
 
-        $customerModalShape = function_exists('printflow_flatten_customization_for_customer_order_modal')
-            ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity, true)
-            : [];
-        $staffFallbackShape = function_exists('printflow_modal_customization_fallback_flatten_for_staff')
-            ? printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity)
-            : [];
-        if (is_array($customerModalShape) && is_array($staffFallbackShape) && $customerModalShape !== []) {
-            $mergedShape = printflow_overlay_nonempty_assoc($customerModalShape, $staffFallbackShape);
-            if ($mergedShape !== []) {
-                return $mergedShape;
-            }
-        }
-        if (is_array($staffFallbackShape) && $staffFallbackShape !== []) {
-            return $staffFallbackShape;
+        if (function_exists('printflow_customization_display_specs')) {
+            return printflow_customization_display_specs($custom, [
+                'include_service' => true,
+                'include_design' => false,
+                'include_notes' => false,
+                'include_quantity' => true,
+            ]);
         }
 
         // Keys that are purely internal/temp and must never be shown to staff.

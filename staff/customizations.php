@@ -3531,39 +3531,45 @@ window.pfCustomizationPreloadedOrders = (() => {
             normalizeSpecAliases(obj) {
                 if (!obj || typeof obj !== 'object') return obj;
 
-                // Returns canonical key for a given raw key, or null if no alias match.
+                const token = (k) => String(k || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
                 const alias = (k) => {
-                    const kl = k.toLowerCase().replace(/[\s_()\-]+/g, '');
-                    if (kl === 'neededdate' || kl === 'duedate' || kl === 'needed_date') return 'Needed Date';
+                    const kl = token(k);
+                    if (['neededdate', 'duedate', 'dateneeded', 'needdate'].includes(kl)) return 'Needed Date';
+                    if (['layout', 'layoutoption', 'selectedlayout', 'layoutselected'].includes(kl)) return 'Layout';
+                    if (['quantity', 'qty'].includes(kl)) return 'Quantity';
+                    if (['width', 'widthft'].includes(kl)) return 'Width';
+                    if (['height', 'heightft'].includes(kl)) return 'Height';
+                    if (['totalsqft', 'totalsquarefeet', 'totalarea', 'areasqft'].includes(kl)) return 'Total Area';
+                    if (['size', 'sizes', 'dimension', 'dimensions', 'dimensionft', 'dimensionsft', 'tarpsize'].includes(kl)) return 'Size';
                     if (kl === 'branchname' || kl === 'pickupbranch') return 'Branch';
                     return null;
                 };
 
                 // Internal-only keys that should never appear in the specs grid
                 const INTERNAL = new Set([
-                    'branch_id', 'Branch_ID', 'source_page', 'source',
-                    'product_id', 'product_type',
+                    'branchid', 'sourcepage', 'source', 'productid', 'producttype', 'serviceid',
                     // Note fields - handled separately in yellow Order Notes box
-                    'notes', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes',
+                    'notes', 'additionalnotes', 'jobnotes', 'customernotes',
                     // Design fields - only show as Uploaded Design, not as specs
-                    'design_upload', 'design_upload_path', 'design_file', 'design_tmp_path',
-                    'reference_upload', 'reference_upload_path', 'reference_file', 'reference_tmp_path',
-                    'design_mime', 'reference_mime',
-                    // Size/Dimension fields - removed to avoid redundancy
-                    'width', 'height', 'width_ft', 'height_ft', 'size', 'sizes', 'sizeft', 'sizesft',
-                    'dimensions', 'dimensionsft', 'dimension', 'size_ft',
+                    'designupload', 'designuploadpath', 'designfile', 'designtmppath',
+                    'referenceupload', 'referenceuploadpath', 'referencefile', 'referencetmppath',
+                    'designmime', 'referencemime',
                     // Design type/template fields - removed to avoid redundancy
-                    'design_type', 'template', 'design',
+                    'designtype', 'template', 'design',
                 ]);
 
                 const out = {};
                 const seenCanonical = {};
+                const sourceTokens = new Set(Object.keys(obj).filter(k => obj[k] !== null && obj[k] !== undefined && obj[k] !== '').map(token));
+                const hasSeparateDimensions = (sourceTokens.has('width') || sourceTokens.has('widthft'))
+                    && (sourceTokens.has('height') || sourceTokens.has('heightft'));
 
                 for (const [k, v] of Object.entries(obj)) {
                     if (v === null || v === undefined || v === '') continue;
-                    if (INTERNAL.has(k)) continue;
+                    if (INTERNAL.has(token(k))) continue;
 
                     const canonical = alias(k) || k;
+                    if (canonical === 'Size' && hasSeparateDimensions) continue;
 
                     if (!seenCanonical[canonical]) {
                         out[canonical] = v;
@@ -3581,17 +3587,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                 normalized.items = normalized.items.map((item) => {
                     if (!item || typeof item !== 'object') return item;
 
-                    // Raw customization_data from the DB is the authoritative source.
-                    // Merge it over the processed item.customization so every field is visible.
+                    // Prefer the server-canonical customization set. Raw JSON remains
+                    // available only as a fallback for older/incomplete responses.
                     const rawDecoded = this.parseSpecsObject(item.customization_data);
                     const existingCustomization = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
                         ? item.customization
                         : {};
 
-                    // rawDecoded wins for overlapping keys (it is the verbatim DB payload).
-                    const merged = Object.keys(rawDecoded).length > 0
-                        ? { ...existingCustomization, ...rawDecoded }
-                        : existingCustomization;
+                    const merged = Object.keys(existingCustomization).length > 0
+                        ? existingCustomization
+                        : rawDecoded;
 
                     // Collapse aliased keys into their canonical display form.
                     const customization = this.normalizeSpecAliases(merged);
@@ -3629,15 +3634,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (Object.keys(sourceCustom).length === 0 && custom && typeof custom === 'object' && !Array.isArray(custom)) {
                     sourceCustom = custom;
                 }
-                const itemSpecs = item ? {
-                    ...this.parseSpecsObject(item.customization_data),
-                    ...this.parseSpecsObject(item.specifications_raw),
-                    ...this.parseSpecsObject(item.specifications)
-                } : {};
-                if (Object.keys(itemSpecs).length > 0) {
-                    sourceCustom = sourceCustom && typeof sourceCustom === 'object' && !Array.isArray(sourceCustom)
-                        ? { ...sourceCustom, ...itemSpecs }
-                        : itemSpecs;
+                const canonicalItemSpecs = item ? this.parseSpecsObject(item.specifications) : {};
+                if (Object.keys(sourceCustom).length === 0 && Object.keys(canonicalItemSpecs).length > 0) {
+                    sourceCustom = canonicalItemSpecs;
                 }
                 const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
                     ? this.currentJo.customization_details
@@ -3646,25 +3645,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0) {
                     if (fallbackCustom && !Array.isArray(fallbackCustom) && Object.keys(fallbackCustom).length > 0) {
                         sourceCustom = fallbackCustom;
-                    }
-                } else if (
-                    fallbackCustom &&
-                    !Array.isArray(fallbackCustom) &&
-                    Object.keys(fallbackCustom).length > 0
-                ) {
-                    const targetOrderItemId = Number((this.currentJo && this.currentJo.order_item_id) || 0);
-                    const itemOrderItemId = Number((item && item.order_item_id) || 0);
-                    const countDisplayableKeys = (obj) => Object.keys(obj || {}).filter((k) => {
-                        const v = obj[k];
-                        return v !== '' && v != null && !(typeof v === 'string' && v.length > 2000);
-                    }).length;
-                    const shouldMergeFallback =
-                        (targetOrderItemId > 0 && itemOrderItemId > 0 && targetOrderItemId === itemOrderItemId)
-                        || (targetOrderItemId <= 0 && Array.isArray(this.currentJo && this.currentJo.items) && this.currentJo.items.length === 1)
-                        || countDisplayableKeys(fallbackCustom) > countDisplayableKeys(sourceCustom);
-
-                    if (shouldMergeFallback) {
-                        sourceCustom = { ...fallbackCustom, ...sourceCustom };
                     }
                 }
                 if (

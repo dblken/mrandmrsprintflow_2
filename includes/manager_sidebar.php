@@ -70,13 +70,6 @@ if (isset($_SESSION['user_id'])) {
                 </svg>
                 Orders
             </a>
-            <a href="<?php echo $base_path; ?>/staff/order_lookup.php" class="nav-item <?php echo $current_page === 'order_lookup.php' ? 'active' : ''; ?>">
-                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3M3 19a2 2 0 002 2h3M21 5a2 2 0 00-2-2h-3m5 16a2 2 0 01-2 2h-3M7 7h3v3H7V7zm7 0h3v3h-3V7zM7 14h3v3H7v-3zm7 0h1m2 0v3h-3"/>
-                </svg>
-                Receipt Lookup
-            </a>
-
             <a href="<?php echo $base_path; ?>/manager/payment.php" class="nav-item <?php echo $current_page === 'payment.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
