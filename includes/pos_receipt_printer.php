@@ -425,25 +425,30 @@ function printflow_receipt_pushy_secret(): string {
     return $secret === false ? '' : trim((string)$secret);
 }
 
-function printflow_receipt_pushprinter_notify(array $printer, array $job): bool {
+function printflow_receipt_pushprinter_notify(array $printer, array $job, ?string &$failureReason = null): bool {
+    $failureReason = null;
     $secret = printflow_receipt_pushy_secret();
     $deviceToken = trim((string)($printer['pushy_device_token'] ?? ''));
     $jobUuid = trim((string)($job['job_uuid'] ?? ''));
     $orderNumber = trim((string)($job['receipt_number'] ?? ''));
     if ($secret === '') {
-        error_log('[receipt-pushy] Notification skipped: PUSHY_API_SECRET is not configured.');
+        $failureReason = 'PUSHY_API_SECRET is not configured.';
+        error_log('[receipt-pushy] Notification skipped: ' . $failureReason);
         return false;
     }
     if ($deviceToken === '') {
-        error_log('[receipt-pushy] Notification skipped for printer #' . (int)($printer['id'] ?? 0) . ': no registered PushPrinter device token.');
+        $failureReason = 'No registered PushPrinter device token for printer #' . (int)($printer['id'] ?? 0) . '.';
+        error_log('[receipt-pushy] Notification skipped: ' . $failureReason);
         return false;
     }
     if (!function_exists('curl_init')) {
-        error_log('[receipt-pushy] Notification skipped: PHP cURL is unavailable.');
+        $failureReason = 'PHP cURL is unavailable.';
+        error_log('[receipt-pushy] Notification skipped: ' . $failureReason);
         return false;
     }
     if ($jobUuid === '' || $orderNumber === '') {
-        error_log('[receipt-pushy] Notification skipped: the print job UUID or receipt number is missing.');
+        $failureReason = 'The print job UUID or order_number is missing.';
+        error_log('[receipt-pushy] Notification skipped: ' . $failureReason);
         return false;
     }
 
@@ -478,7 +483,16 @@ function printflow_receipt_pushprinter_notify(array $printer, array $job): bool 
     $error = curl_error($curl);
     curl_close($curl);
     if ($response === false || $httpCode < 200 || $httpCode >= 300) {
-        error_log('[receipt-pushy] Notification failed: HTTP ' . $httpCode . ($error !== '' ? ' ' . $error : ''));
+        $providerMessage = '';
+        if (is_string($response) && $response !== '') {
+            $decoded = json_decode($response, true);
+            if (is_array($decoded)) {
+                $providerMessage = trim((string)($decoded['error'] ?? $decoded['message'] ?? ''));
+            }
+        }
+        $failureReason = 'Pushy notification failed with HTTP ' . $httpCode
+            . ($error !== '' ? ': ' . $error : ($providerMessage !== '' ? ': ' . $providerMessage : '.'));
+        error_log('[receipt-pushy] ' . $failureReason);
         return false;
     }
     return true;
@@ -558,12 +572,19 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
         'job_uuid' => $uuid,
         'receipt_number' => (string)($receipt['receipt_number'] ?? ''),
     ];
-    $notified = printflow_receipt_pushprinter_notify($printer, $job);
+    $notificationError = null;
+    $notified = printflow_receipt_pushprinter_notify($printer, $job, $notificationError);
     if (!$notified) {
         db_execute(
             'INSERT INTO receipt_print_job_events (job_id, status, message) VALUES (?, ?, ?)',
             'iss',
-            [(int)$jobId, 'pending', 'Push notification unavailable; job remains available to the polling fallback.']
+            [(int)$jobId, 'pending', 'Push notification unavailable: ' . ($notificationError ?: 'unknown provider error') . ' The job remains available to the polling fallback.']
+        );
+    } else {
+        db_execute(
+            'INSERT INTO receipt_print_job_events (job_id, status, message) VALUES (?, ?, ?)',
+            'iss',
+            [(int)$jobId, 'notified', 'Pushy accepted the PushPrinter notification.']
         );
     }
     return ['ok' => true, 'queued' => true, 'job_id' => (int)$jobId, 'job_uuid' => $uuid, 'status' => 'pending'];

@@ -2334,12 +2334,28 @@ try {
             }
         }
 
-        async function showReceiptPrintFailure(printJob, detail) {
+        async function showReceiptPrintFailure(printJob, detail, statusResult = null) {
             const message = String(detail || 'The printer did not confirm the receipt.');
-            console.error('Receipt printing failed:', {
+            const job = statusResult?.job || {};
+            const failure = {
+                success: statusResult?.success ?? false,
+                status: statusResult?.status ?? job.status ?? printJob?.status ?? 'unknown',
+                message: statusResult?.message ?? message,
+                error: statusResult?.error ?? job.error_message ?? null,
                 job_id: Number(printJob?.job_id || 0),
-                message
-            });
+                print_job_id: Number(statusResult?.print_job_id || job.print_job_id || printJob?.job_id || 0),
+                printer_id: Number(statusResult?.printer_id || job.printer_id || 0),
+                attempts: Number(statusResult?.attempts ?? job.attempts ?? 0),
+                provider: statusResult?.provider ?? job.provider ?? 'pushy',
+                delivery_status: statusResult?.delivery_status ?? job.delivery_status ?? 'unknown',
+                order_number: job.order_number ?? null,
+                pushy_secret_configured: job.pushy_secret_configured ?? null,
+                pushy_device_registered: job.pushy_device_registered ?? null,
+                printer_last_seen_at: job.printer_last_seen_at ?? null,
+                events: Array.isArray(job.events) ? job.events : [],
+                http_status: statusResult?._http_status ?? null
+            };
+            console.error('Receipt printing failed:', failure);
             if (!printJob?.job_id) {
                 await showPOSAlert('Receipt printing failed', 'The sale is complete. ' + message, 'error');
                 return;
@@ -2361,6 +2377,7 @@ try {
             }
 
             showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
+            let lastStatusResult = null;
             for (let attempt = 0; attempt < 15; attempt += 1) {
                 await new Promise(resolve => window.setTimeout(resolve, 1500));
                 try {
@@ -2369,6 +2386,7 @@ try {
                         {cache: 'no-store'}
                     );
                     const result = await response.json();
+                    lastStatusResult = {...result, _http_status: response.status};
                     const status = result?.job?.status;
                     if (response.ok && status === 'printed') {
                         showPOSScanNotice('Transaction completed', 'Receipt printed.', 'success');
@@ -2377,15 +2395,30 @@ try {
                     if (response.ok && status === 'failed') {
                         await showReceiptPrintFailure(
                             printJob,
-                            result?.job?.error_message || 'PushPrinter reported that the receipt could not be printed.'
+                            result?.job?.error_message || 'PushPrinter reported that the receipt could not be printed.',
+                            lastStatusResult
                         );
                         return;
                     }
                 } catch (error) {
+                    lastStatusResult = {
+                        success: false,
+                        status: 'status_request_failed',
+                        message: error?.message || 'Receipt print status request failed.',
+                        error: error?.message || String(error),
+                        job_id: Number(printJob.job_id || 0),
+                        print_job_id: Number(printJob.job_id || 0),
+                        provider: 'pushy',
+                        delivery_status: 'unknown'
+                    };
                     console.warn('Receipt print status check failed:', error);
                 }
             }
-            await showReceiptPrintFailure(printJob, 'PushPrinter did not confirm the receipt in time.');
+            await showReceiptPrintFailure(
+                printJob,
+                'PushPrinter did not confirm the receipt in time.',
+                lastStatusResult
+            );
         }
 
         async function downloadReceiptPdf() {
