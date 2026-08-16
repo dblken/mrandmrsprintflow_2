@@ -15,6 +15,7 @@ $printer = $read('includes/pos_receipt_printer.php');
 $checkout = $read('staff/api/pos_checkout.php');
 $paymongo = $read('staff/api/paymongo_payment.php');
 $pos = $read('staff/pos.php');
+$printerApi = $read('public/api/printer/jobs.php');
 $migration = $read('database/receipt_printers_pushprinter_20260816.sql');
 
 $assert(str_contains($migration, 'UNIQUE KEY uq_receipt_print_jobs_idempotency'), 'print jobs have database-level idempotency');
@@ -34,6 +35,7 @@ $assert(str_contains($pos, 'monitorReceiptPrintJob(data.print_job)'), 'POS monit
 $assert(str_contains($pos, "'Retry Print'"), 'failed receipt printing offers a Retry Print action');
 $assert(str_contains($pos, 'pos_receipt_print_retry.php'), 'Retry Print requeues the existing receipt job');
 $assert(!str_contains($pos, "showPosScanToast("), 'receipt monitoring uses an existing defined notification function');
+$assert(str_contains($printerApi, "\$action === 'diagnostics'"), 'printer API exposes authenticated receipt diagnostics');
 
 foreach ([
     'printing/pushy/register-device/index.php',

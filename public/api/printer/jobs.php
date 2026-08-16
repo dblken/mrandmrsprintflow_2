@@ -78,6 +78,41 @@ try {
         ]);
     }
 
+    if ($action === 'diagnostics') {
+        $jobs = db_query(
+            "SELECT id, job_uuid, order_id, receipt_number, status, attempts, max_attempts,
+                    error_message, claimed_at, printed_at, failed_at, created_at, updated_at
+             FROM receipt_print_jobs
+             WHERE printer_id = ?
+             ORDER BY id DESC
+             LIMIT 10",
+            'i',
+            [(int)$printer['id']]
+        ) ?: [];
+        foreach ($jobs as &$diagnosticJob) {
+            $diagnosticJob['id'] = (int)$diagnosticJob['id'];
+            $diagnosticJob['order_id'] = (int)$diagnosticJob['order_id'];
+            $diagnosticJob['attempts'] = (int)$diagnosticJob['attempts'];
+            $diagnosticJob['max_attempts'] = (int)$diagnosticJob['max_attempts'];
+            $diagnosticJob['events'] = db_query(
+                'SELECT status, message, created_at FROM receipt_print_job_events WHERE job_id = ? ORDER BY id DESC LIMIT 12',
+                'i',
+                [(int)$diagnosticJob['id']]
+            ) ?: [];
+        }
+        unset($diagnosticJob);
+        printer_api_respond(200, [
+            'ok' => true,
+            'printer_id' => (int)$printer['id'],
+            'printer_name' => (string)$printer['name'],
+            'pushy_secret_configured' => printflow_receipt_pushy_secret() !== '',
+            'pushy_device_registered' => trim((string)($printer['pushy_device_token'] ?? '')) !== '',
+            'pushy_registered_at' => $printer['pushy_registered_at'] ?? null,
+            'printer_last_seen_at' => $printer['last_seen_at'] ?? null,
+            'jobs' => $jobs,
+        ]);
+    }
+
     if (!in_array($action, ['poll', 'next', ''], true)) {
         printer_api_respond(400, ['ok' => false, 'error' => 'unknown_action']);
     }
@@ -101,4 +136,3 @@ try {
     error_log('[printer-api] ' . $e->getMessage());
     printer_api_respond(500, ['ok' => false, 'error' => 'printer_api_error']);
 }
-
