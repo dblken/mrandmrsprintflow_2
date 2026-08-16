@@ -18,6 +18,7 @@ if (empty($rows)) {
 }
 
 $jobId = (int)$rows[0]['id'];
+error_log('[receipt-pushprinter] Job ' . $jobUuid . ' failed: ' . substr($error, 0, 1000));
 db_execute(
     "UPDATE receipt_print_jobs SET status = 'failed', failed_at = NOW(), error_message = ? WHERE id = ? AND status != 'printed'",
     'si',
@@ -29,4 +30,3 @@ db_execute(
     [$jobId, 'failed', substr($error, 0, 1000)]
 );
 echo json_encode(['success' => true]);
-

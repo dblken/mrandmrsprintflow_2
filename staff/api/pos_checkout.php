@@ -827,6 +827,7 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
         'date_time' => (string)($order['order_date'] ?? date('Y-m-d H:i:s')),
+        'cashier' => trim((string)($_SESSION['user_name'] ?? 'Staff')) ?: 'Staff',
         'company' => [
             'name' => $shopName,
             'logo_url' => $logoUrl,

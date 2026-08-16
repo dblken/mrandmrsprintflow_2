@@ -23,10 +23,17 @@ $assert(str_contains($printer, 'max(32, min(42, $columns))'), '58mm formatter co
 $assert(str_contains($printer, 'wordwrap('), 'long receipt text is wrapped');
 $assert(str_contains($printer, 'escpos_base64'), 'queue stores ESC/POS output');
 $assert(str_contains($printer, "'printer_type' => 'escpos'"), 'PushPrinter notification requests ESC/POS');
+$assert(str_contains($printer, "'order_number' => \$orderNumber"), 'PushPrinter notification includes its required order_number field');
+$assert(str_contains($printer, "status IN ('pending', 'failed')"), 'pending or failed receipt jobs can be retried without recreating a sale');
+$assert(str_contains($printer, 'SET job_uuid = ?'), 'retry rotates the delivery UUID so PushPrinter does not reject a cached job');
 $assert(str_contains($checkout, 'printflow_receipt_enqueue_order_print_safe'), 'cash checkout queues only after successful completion');
+$assert(str_contains($checkout, "'cashier' =>"), 'cash receipt includes the cashier');
 $assert(str_contains($paymongo, 'printflow_receipt_enqueue_order_print_safe'), 'PayMongo completion uses the same print queue');
 $assert(!str_contains($pos, 'autoPrintReceiptAfterTransaction'), 'POS no longer auto-invokes browser printing');
 $assert(str_contains($pos, 'monitorReceiptPrintJob(data.print_job)'), 'POS monitors the server print job without opening a receipt modal');
+$assert(str_contains($pos, "'Retry Print'"), 'failed receipt printing offers a Retry Print action');
+$assert(str_contains($pos, 'pos_receipt_print_retry.php'), 'Retry Print requeues the existing receipt job');
+$assert(!str_contains($pos, "showPosScanToast("), 'receipt monitoring uses an existing defined notification function');
 
 foreach ([
     'printing/pushy/register-device/index.php',

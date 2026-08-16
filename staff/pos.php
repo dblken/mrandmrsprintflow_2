@@ -2307,13 +2307,60 @@ try {
             window.print();
         }
 
+        async function retryReceiptPrintJob(printJob) {
+            const jobId = Number(printJob?.job_id || 0);
+            if (jobId <= 0) {
+                await showPOSAlert(
+                    'Receipt printing failed',
+                    'The sale is complete, but no printable receipt job is available. Please contact an administrator.',
+                    'error'
+                );
+                return;
+            }
+            try {
+                const response = await fetch(staffUrl('staff/api/pos_receipt_print_retry.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: jobId, csrf_token: POS_CSRF_TOKEN})
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Receipt print job could not be retried.');
+                }
+                await monitorReceiptPrintJob(result.print_job || {ok: true, job_id: jobId});
+            } catch (error) {
+                console.error('Receipt print retry failed:', error);
+                await showPOSAlert('Receipt printing failed', error.message || 'Receipt print job could not be retried.', 'error');
+            }
+        }
+
+        async function showReceiptPrintFailure(printJob, detail) {
+            const message = String(detail || 'The printer did not confirm the receipt.');
+            console.error('Receipt printing failed:', {
+                job_id: Number(printJob?.job_id || 0),
+                message
+            });
+            if (!printJob?.job_id) {
+                await showPOSAlert('Receipt printing failed', 'The sale is complete. ' + message, 'error');
+                return;
+            }
+            const shouldRetry = await showPOSConfirm(
+                'Receipt printing failed',
+                'The sale is complete and was not duplicated.\n' + message + '\n\nRetry this existing receipt now?',
+                'Retry Print'
+            );
+            if (shouldRetry) {
+                await retryReceiptPrintJob(printJob);
+            }
+        }
+
         async function monitorReceiptPrintJob(printJob) {
             if (!printJob?.ok || !printJob?.job_id) {
-                showPosScanToast('error', 'Receipt print failed', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
+                await showReceiptPrintFailure(printJob, printJob?.message || 'The receipt could not be queued for the configured printer.');
                 return;
             }
 
-            showPosScanToast('success', 'Transaction completed', 'Printing receipt...');
+            showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
             for (let attempt = 0; attempt < 15; attempt += 1) {
                 await new Promise(resolve => window.setTimeout(resolve, 1500));
                 try {
@@ -2324,18 +2371,21 @@ try {
                     const result = await response.json();
                     const status = result?.job?.status;
                     if (response.ok && status === 'printed') {
-                        showPosScanToast('success', 'Transaction completed', 'Receipt printed.');
+                        showPOSScanNotice('Transaction completed', 'Receipt printed.', 'success');
                         return;
                     }
                     if (response.ok && status === 'failed') {
-                        showPosScanToast('error', 'Receipt print failed', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
+                        await showReceiptPrintFailure(
+                            printJob,
+                            result?.job?.error_message || 'PushPrinter reported that the receipt could not be printed.'
+                        );
                         return;
                     }
                 } catch (error) {
                     console.warn('Receipt print status check failed:', error);
                 }
             }
-            showPosScanToast('error', 'Receipt still pending', 'Transaction completed, but receipt printing failed. Please check the printer connection.');
+            await showReceiptPrintFailure(printJob, 'PushPrinter did not confirm the receipt in time.');
         }
 
         async function downloadReceiptPdf() {
@@ -4592,7 +4642,7 @@ try {
             });
         }
 
-        async function showPOSConfirm(title, message) {
+        async function showPOSConfirm(title, message, confirmLabel = 'Confirm') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
@@ -4608,7 +4658,7 @@ try {
                 cancelBtn.style.display = 'block';
                 cancelBtn.disabled = false;
                 confirmBtn.disabled = false;
-                confirmBtn.textContent = 'Confirm';
+                confirmBtn.textContent = confirmLabel;
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
                 iconCont.style.background = '#eef2ff';

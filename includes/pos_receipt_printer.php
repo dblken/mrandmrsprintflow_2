@@ -411,6 +411,15 @@ function printflow_receipt_escpos_base64(string $text): string {
     return base64_encode($raw);
 }
 
+function printflow_receipt_job_uuid(): string {
+    return sprintf(
+        '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+        random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff),
+        random_int(0, 0x0fff) | 0x4000, random_int(0, 0x3fff) | 0x8000,
+        random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff)
+    );
+}
+
 function printflow_receipt_pushy_secret(): string {
     $secret = printflow_env('PUSHY_API_SECRET');
     return $secret === false ? '' : trim((string)$secret);
@@ -419,15 +428,34 @@ function printflow_receipt_pushy_secret(): string {
 function printflow_receipt_pushprinter_notify(array $printer, array $job): bool {
     $secret = printflow_receipt_pushy_secret();
     $deviceToken = trim((string)($printer['pushy_device_token'] ?? ''));
-    if ($secret === '' || $deviceToken === '' || !function_exists('curl_init')) return false;
+    $jobUuid = trim((string)($job['job_uuid'] ?? ''));
+    $orderNumber = trim((string)($job['receipt_number'] ?? ''));
+    if ($secret === '') {
+        error_log('[receipt-pushy] Notification skipped: PUSHY_API_SECRET is not configured.');
+        return false;
+    }
+    if ($deviceToken === '') {
+        error_log('[receipt-pushy] Notification skipped for printer #' . (int)($printer['id'] ?? 0) . ': no registered PushPrinter device token.');
+        return false;
+    }
+    if (!function_exists('curl_init')) {
+        error_log('[receipt-pushy] Notification skipped: PHP cURL is unavailable.');
+        return false;
+    }
+    if ($jobUuid === '' || $orderNumber === '') {
+        error_log('[receipt-pushy] Notification skipped: the print job UUID or receipt number is missing.');
+        return false;
+    }
 
     $payload = json_encode([
         'to' => $deviceToken,
         'data' => [
             'printer_id' => (string)$printer['id'],
             'printer_type' => 'escpos',
-            'job_id' => (string)$job['job_uuid'],
-            'order_id' => (string)$job['job_uuid'],
+            'job_id' => $jobUuid,
+            'order_id' => $jobUuid,
+            // PushPrinter v3.1.0 rejects the entire notification when this is absent.
+            'order_number' => $orderNumber,
         ],
         'notification' => [
             'title' => 'PrintFlow receipt',
@@ -494,12 +522,7 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
 
     $columns = (int)($printer['columns_count'] ?? 32);
     $text = printflow_receipt_format_text($receipt, $columns);
-    $uuid = sprintf(
-        '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-        random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff),
-        random_int(0, 0x0fff) | 0x4000, random_int(0, 0x3fff) | 0x8000,
-        random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff)
-    );
+    $uuid = printflow_receipt_job_uuid();
     $payloadJson = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     $jobId = db_execute(
         "INSERT INTO receipt_print_jobs
@@ -531,7 +554,10 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
         'iss',
         [(int)$jobId, 'pending', 'Receipt print job queued.']
     );
-    $job = ['job_uuid' => $uuid];
+    $job = [
+        'job_uuid' => $uuid,
+        'receipt_number' => (string)($receipt['receipt_number'] ?? ''),
+    ];
     $notified = printflow_receipt_pushprinter_notify($printer, $job);
     if (!$notified) {
         db_execute(
@@ -586,12 +612,7 @@ function printflow_receipt_enqueue_test_print(int $printerId, int $userId): arra
     ];
     $columns = (int)($printer['columns_count'] ?? 32);
     $text = printflow_receipt_format_text($receipt, $columns);
-    $uuid = sprintf(
-        '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-        random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff),
-        random_int(0, 0x0fff) | 0x4000, random_int(0, 0x3fff) | 0x8000,
-        random_int(0, 0xffff), random_int(0, 0xffff), random_int(0, 0xffff)
-    );
+    $uuid = printflow_receipt_job_uuid();
     $jobId = db_execute(
         "INSERT INTO receipt_print_jobs
             (job_uuid, idempotency_key, printer_id, branch_id, order_id, job_type, receipt_number,
@@ -617,7 +638,10 @@ function printflow_receipt_enqueue_test_print(int $printerId, int $userId): arra
         'iss',
         [(int)$jobId, 'pending', '58mm test receipt queued.']
     );
-    printflow_receipt_pushprinter_notify($printer, ['job_uuid' => $uuid]);
+    printflow_receipt_pushprinter_notify($printer, [
+        'job_uuid' => $uuid,
+        'receipt_number' => (string)$receipt['receipt_number'],
+    ]);
     return ['ok' => true, 'job_id' => (int)$jobId, 'job_uuid' => $uuid];
 }
 
@@ -738,12 +762,17 @@ function printflow_receipt_ack_job(array $printer, int $jobId, string $status, s
 
 function printflow_receipt_retry_job(int $jobId): bool {
     printflow_receipt_printer_ensure_schema();
+    $newUuid = printflow_receipt_job_uuid();
     $affected = db_execute_affected_rows(
         "UPDATE receipt_print_jobs
-         SET status = 'pending', claimed_at = NULL, failed_at = NULL, error_message = NULL
-         WHERE id = ? AND status IN ('failed', 'claimed')",
-        'i',
-        [$jobId]
+         SET job_uuid = ?, status = 'pending', claimed_at = NULL, failed_at = NULL,
+             error_message = NULL, attempts = 0
+         WHERE id = ? AND (
+             status IN ('pending', 'failed')
+             OR (status = 'claimed' AND claimed_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE))
+         )",
+        'si',
+        [$newUuid, $jobId]
     );
     if ($affected === 1) {
         db_execute(
@@ -752,7 +781,7 @@ function printflow_receipt_retry_job(int $jobId): bool {
             [$jobId, 'pending', 'Receipt print job manually retried.']
         );
         $rows = db_query(
-            'SELECT j.job_uuid, p.* FROM receipt_print_jobs j INNER JOIN receipt_printers p ON p.id = j.printer_id WHERE j.id = ? LIMIT 1',
+            'SELECT j.job_uuid, j.receipt_number, p.* FROM receipt_print_jobs j INNER JOIN receipt_printers p ON p.id = j.printer_id WHERE j.id = ? LIMIT 1',
             'i',
             [$jobId]
         ) ?: [];

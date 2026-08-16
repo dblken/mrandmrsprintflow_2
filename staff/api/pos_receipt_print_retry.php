@@ -25,8 +25,22 @@ if (!is_array($input) || !verify_csrf_token((string)($input['csrf_token'] ?? '')
 }
 
 $jobId = (int)($input['job_id'] ?? 0);
-$ok = $jobId > 0 && printflow_receipt_retry_job($jobId);
+$rows = $jobId > 0 ? (db_query(
+    'SELECT id, branch_id FROM receipt_print_jobs WHERE id = ? LIMIT 1',
+    'i',
+    [$jobId]
+) ?: []) : [];
+$staffBranch = (int)($_SESSION['branch_id'] ?? 0);
+$allowed = !empty($rows) && (
+    get_user_type() === 'Admin'
+    || $staffBranch <= 0
+    || (int)$rows[0]['branch_id'] === $staffBranch
+);
+$ok = $allowed && printflow_receipt_retry_job($jobId);
 echo json_encode([
     'success' => $ok,
-    'message' => $ok ? 'Receipt print job queued for retry.' : 'Receipt print job could not be retried.',
+    'message' => $ok
+        ? 'Receipt print job queued for retry.'
+        : 'Receipt print job could not be retried. It may still be printing or may belong to another branch.',
+    'print_job' => $ok ? ['ok' => true, 'job_id' => $jobId, 'status' => 'pending'] : null,
 ]);

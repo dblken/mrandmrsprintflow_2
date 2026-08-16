@@ -80,6 +80,7 @@ function printflow_pos_build_receipt(int $orderId): array {
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
         'date_time' => (string)($providerPayment['paid_at'] ?? $order['order_date']),
+        'cashier' => trim((string)($_SESSION['user_name'] ?? 'Staff')) ?: 'Staff',
         'company' => [
             'name' => trim((string)($shop['name'] ?? 'Mr. and Mrs. Print')),
             'logo_url' => '',
