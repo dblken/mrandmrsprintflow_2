@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/pos_receipt_format.php';
 
 function printflow_receipt_printer_ensure_schema(): void {
     static $ready = false;
@@ -362,7 +363,9 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     $out[] = $eq;
     $out[] = printflow_receipt_center('RECEIPT INFO', $columns);
     $out[] = printflow_receipt_pair('Receipt No.', (string)($receipt['receipt_number'] ?? ''), $columns);
-    $out[] = printflow_receipt_pair('Date/Time', date('M j, Y g:i A', strtotime((string)($receipt['date_time'] ?? 'now'))), $columns);
+    foreach (printflow_receipt_labeled_value_lines('Date/Time', printflow_receipt_format_datetime($receipt['date_time'] ?? ''), $columns) as $dateLine) {
+        $out[] = $dateLine;
+    }
     if (!empty($receipt['cashier'])) $out[] = printflow_receipt_pair('Cashier', (string)$receipt['cashier'], $columns);
     $out[] = $line;
     $out[] = printflow_receipt_center('CUSTOMER', $columns);
@@ -404,11 +407,6 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     $out[] = '';
 
     return implode("\n", $out) . "\n";
-}
-
-function printflow_receipt_escpos_base64(string $text): string {
-    $raw = "\x1B@" . "\x1Ba\x00" . $text . "\n\n" . "\x1DV\x00";
-    return base64_encode($raw);
 }
 
 function printflow_receipt_job_uuid(): string {
@@ -510,6 +508,9 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
     if ($orderId <= 0 || empty($receipt)) {
         return ['ok' => false, 'code' => 'missing_receipt', 'message' => 'Receipt data is unavailable.'];
     }
+    if (empty($receipt['qr_payload'])) {
+        $receipt['qr_payload'] = printflow_receipt_qr_payload($orderId);
+    }
     if ($branchId === null) $branchId = printflow_receipt_order_branch_id($orderId);
     $printer = printflow_receipt_printer_find_for_branch($branchId);
     if (empty($printer)) {
@@ -556,7 +557,7 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
             $columns,
             (string)$payloadJson,
             $text,
-            printflow_receipt_escpos_base64($text)
+            printflow_receipt_escpos_base64($text, (string)($receipt['qr_payload'] ?? ''))
         ]
     );
 

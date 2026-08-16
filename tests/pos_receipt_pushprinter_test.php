@@ -12,6 +12,7 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $printer = $read('includes/pos_receipt_printer.php');
+$format = $read('includes/pos_receipt_format.php');
 $checkout = $read('staff/api/pos_checkout.php');
 $paymongo = $read('staff/api/paymongo_payment.php');
 $pos = $read('staff/pos.php');
@@ -23,6 +24,8 @@ $assert(str_contains($printer, "\$jobType . ':order:' . \$orderId . ':printer:'"
 $assert(str_contains($printer, 'max(32, min(42, $columns))'), '58mm formatter constrains output to 32-42 columns');
 $assert(str_contains($printer, 'wordwrap('), 'long receipt text is wrapped');
 $assert(str_contains($printer, 'escpos_base64'), 'queue stores ESC/POS output');
+$assert(str_contains($format, 'printflow_receipt_escpos_qr_commands'), 'receipt output supports native ESC/POS QR commands');
+$assert(str_contains($format, "'PF1:ORDER:' . \$orderId"), 'receipt QR uses the canonical unique orders primary key payload');
 $assert(str_contains($printer, "'printer_type' => 'escpos'"), 'PushPrinter notification requests ESC/POS');
 $assert(str_contains($printer, "'order_number' => \$orderNumber"), 'PushPrinter notification includes its required order_number field');
 $assert(str_contains($printer, "status IN ('pending', 'failed')"), 'pending or failed receipt jobs can be retried without recreating a sale');

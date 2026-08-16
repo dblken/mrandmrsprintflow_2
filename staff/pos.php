@@ -3424,6 +3424,28 @@ try {
             barcodeScanBusy = true;
             document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = true; });
             try {
+                // Printed PrintFlow receipts use this canonical payload. Reuse the
+                // existing focused scanner input without adding a competing global
+                // keyboard listener or treating the receipt as a product SKU.
+                if (/^PF1:ORDER:[1-9][0-9]{0,9}$/i.test(sku)) {
+                    try {
+                        const lookupResponse = await fetch(
+                            staffUrl('staff/api/order_receipt_lookup.php?identifier=') + encodeURIComponent(sku) + '&_=' + Date.now(),
+                            { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } }
+                        );
+                        const lookupData = await lookupResponse.json().catch(function() { return {}; });
+                        if (!lookupResponse.ok || !lookupData.success || !lookupData.route) {
+                            showPOSScanNotice('Receipt Lookup', lookupData.message || 'Order lookup failed. Please scan the receipt again.', 'error');
+                            return;
+                        }
+                        showPOSScanNotice('Order Found', lookupData.warning || ('Opening ' + lookupData.identifier + '…'), 'success');
+                        window.setTimeout(function() { window.location.assign(lookupData.route); }, lookupData.warning ? 900 : 150);
+                    } catch (e) {
+                        showPOSScanNotice('Network Error', 'Network error while looking up the receipt.', 'error');
+                    }
+                    return;
+                }
+
                 let product = null;
                 let availability = null;
                 try {

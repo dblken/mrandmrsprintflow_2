@@ -826,6 +826,7 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
     return [
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
+        'qr_payload' => printflow_receipt_qr_payload($orderId),
         'date_time' => (string)($order['order_date'] ?? date('Y-m-d H:i:s')),
         'cashier' => trim((string)($_SESSION['user_name'] ?? 'Staff')) ?: 'Staff',
         'company' => [
