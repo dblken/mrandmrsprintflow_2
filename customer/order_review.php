@@ -1420,10 +1420,17 @@ require_once __DIR__ . '/../includes/header.php';
     }
 
     /* Order review page only: preserve the original card and flatten specification tiles. */
+    .order-review-page .review-order-entry .order-item-header {
+        align-items: center !important;
+    }
+    .order-review-page .review-order-entry .order-item-image {
+        align-self: center !important;
+    }
     .order-review-page .review-order-entry .order-item-content {
         display: grid !important;
         grid-template-columns: minmax(100px, 1fr) auto minmax(210px, 1.35fr) !important;
         align-items: center !important;
+        align-self: center !important;
         gap: 1rem !important;
     }
     .order-review-page .review-order-entry .order-item-content h3 {
@@ -1437,6 +1444,10 @@ require_once __DIR__ . '/../includes/header.php';
         background: transparent !important;
         border: 0 !important;
         color: #53c5e0 !important;
+        text-transform: none !important;
+    }
+    .order-review-page .review-order-entry .order-item-category-badge::before {
+        content: "Category: ";
     }
     .order-review-page .review-order-entry .order-item-details {
         display: flex !important;
@@ -1454,6 +1465,7 @@ require_once __DIR__ . '/../includes/header.php';
         background: transparent !important;
         border: 0 !important;
         border-radius: 0 !important;
+        align-self: center !important;
     }
     .order-review-page .review-order-entry .review-detail-label,
     .order-review-page .review-order-entry .review-total-label {
