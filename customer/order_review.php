@@ -1428,10 +1428,11 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .order-review-page .review-order-entry .order-item-content {
         display: grid !important;
-        grid-template-columns: minmax(100px, 1fr) auto minmax(210px, 1.35fr) !important;
+        grid-template-columns: minmax(80px, 0.9fr) minmax(86px, auto) minmax(185px, 1.15fr) !important;
         align-items: center !important;
         align-self: center !important;
-        gap: 1rem !important;
+        gap: 0.75rem !important;
+        overflow: visible !important;
     }
     .order-review-page .review-order-entry .order-item-content h3 {
         margin: 0 !important;
@@ -1466,9 +1467,11 @@ require_once __DIR__ . '/../includes/header.php';
         display: flex !important;
         align-items: center !important;
         justify-content: flex-end !important;
-        gap: 1.5rem !important;
+        gap: 0.9rem !important;
         margin: 0 !important;
         flex-wrap: nowrap !important;
+        min-width: 0 !important;
+        overflow: visible !important;
     }
     .order-review-page .review-order-entry .review-detail-row,
     .order-review-page .review-order-entry .review-total-row {
@@ -1480,10 +1483,17 @@ require_once __DIR__ . '/../includes/header.php';
         border-radius: 0 !important;
         align-self: center !important;
     }
+    .order-review-page .review-order-entry .review-detail-row {
+        min-width: 52px !important;
+    }
+    .order-review-page .review-order-entry .review-total-row {
+        min-width: 112px !important;
+    }
     .order-review-page .review-order-entry .review-detail-label,
     .order-review-page .review-order-entry .review-total-label {
         color: #9fc4d4 !important;
         white-space: nowrap;
+        font-size: 0.64rem !important;
     }
     .order-review-page .review-order-entry .review-detail-value {
         color: #eaf6fb !important;
