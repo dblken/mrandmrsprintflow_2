@@ -2928,6 +2928,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
+                if (window.PrintFlowReceiptScanner && this.currentJo.order_id) {
+                    window.PrintFlowReceiptScanner.markOrderOpened(this.currentJo.order_id, 'staff-customizations');
+                }
             },
             async fetchOrderModalSummary(orderId, options = {}) {
                 const params = new URLSearchParams({ id: String(orderId) });

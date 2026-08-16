@@ -2943,7 +2943,7 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
     // POS / walk-in orders must always stay on the walk-in orders side.
     // This prevents POS custom transactions from being routed into the
     // online/customizations page just because they carry service data.
-    if (in_array($orderSource, ['pos', 'walk-in'], true)) {
+    if (in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
         return $base . '/staff/orders.php?order_id=' . $orderId;
     }
 

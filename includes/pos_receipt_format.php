@@ -37,7 +37,7 @@ function printflow_receipt_labeled_value_lines(string $label, string $value, int
     ];
 }
 
-function printflow_receipt_escpos_qr_commands(string $payload, int $moduleSize = 5): string {
+function printflow_receipt_escpos_qr_commands(string $payload, int $moduleSize = 6): string {
     $payload = trim($payload);
     if ($payload === '') return '';
     $moduleSize = max(3, min(6, $moduleSize));
@@ -45,11 +45,16 @@ function printflow_receipt_escpos_qr_commands(string $payload, int $moduleSize =
     $pL = chr($storeLength & 0xff);
     $pH = chr(($storeLength >> 8) & 0xff);
 
+    // Centering leaves far more than four modules of horizontal white space on
+    // 58mm paper. At the default line spacing, the blank line before and two
+    // after the symbol provide at least the required four-module vertical zone.
     return "\x1Ba\x01"
         . "\n"
         . "\x1D(k\x04\x00\x31\x41\x32\x00"
         . "\x1D(k\x03\x00\x31\x43" . chr($moduleSize)
-        . "\x1D(k\x03\x00\x31\x45\x31"
+        // Error correction Q (25%) tolerates missing thermal dots and light
+        // smearing while this short payload remains a compact QR symbol.
+        . "\x1D(k\x03\x00\x31\x45\x32"
         . "\x1D(k" . $pL . $pH . "\x31\x50\x30" . $payload
         . "\x1D(k\x03\x00\x31\x51\x30"
         . "\n\n"

@@ -34,7 +34,7 @@ function printflow_order_lookup_is_qr_payload(string $identifier): bool {
 }
 
 function printflow_order_lookup_is_pos_source(?string $source): bool {
-    return in_array(strtolower(trim((string)$source)), ['pos', 'walk-in'], true);
+    return in_array(strtolower(trim((string)$source)), ['pos', 'walk-in', 'pos_merged'], true);
 }
 
 function printflow_order_lookup_visible_identifier_matches(

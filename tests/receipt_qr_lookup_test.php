@@ -8,6 +8,7 @@ $assert = static function (bool $condition, string $message): void {
 
 require_once $root . '/includes/order_receipt_lookup.php';
 require_once $root . '/includes/pos_receipt_format.php';
+require_once $root . '/includes/staff_access.php';
 
 $assert(printflow_receipt_format_datetime('2026-08-16 00:05:00') === 'Aug 16, 2026 12:05 AM', 'midnight time is formatted correctly');
 $assert(printflow_receipt_format_datetime('2026-08-16 09:05:00') === 'Aug 16, 2026 09:05 AM', 'single-digit hour and minute are zero-padded');
@@ -22,6 +23,9 @@ $text = "        RECEIPT INFO        \nReceipt No.          POS-011280\nDate/Tim
 $raw = base64_decode(printflow_receipt_escpos_base64($text, 'PF1:ORDER:11280'), true);
 $assert(is_string($raw), 'ESC/POS output is valid base64');
 $assert(str_contains($raw, "\x1D(k\x04\x00\x31\x41\x32\x00"), 'native ESC/POS QR model command is present');
+$assert(str_contains($raw, "\x1D(k\x03\x00\x31\x43\x06"), 'native ESC/POS QR uses six-dot modules for 58mm thermal reliability');
+$assert(str_contains($raw, "\x1D(k\x03\x00\x31\x45\x32"), 'native ESC/POS QR uses Q-level error correction');
+$assert(str_contains($raw, "\x1Ba\x01\n\x1D(k") && str_contains($raw, "\x31\x51\x30\n\n\x1Ba\x00"), 'native QR has centered horizontal space and blank vertical quiet zones');
 $assert(str_contains($raw, "\x1D(k\x03\x00\x31\x51\x30"), 'native ESC/POS QR print command is present');
 $assert(str_contains($raw, 'PF1:ORDER:11280'), 'QR payload is stored in the ESC/POS command stream');
 $assert(strpos($raw, 'RECEIPT INFO') < strpos($raw, 'PF1:ORDER:11280'), 'QR follows the RECEIPT INFO heading');
@@ -36,6 +40,10 @@ $assert(printflow_order_lookup_candidate_order_id('SNB-0005-11280') === 11280, '
 $assert(printflow_order_lookup_candidate_order_id('RANDOM VALUE') === 0, 'random identifier is rejected');
 $assert(printflow_order_lookup_candidate_order_id('PF1:ORDER:1 OR 1=1') === 0, 'malformed/injection input is rejected');
 $assert(printflow_order_lookup_visible_identifier_matches('POS-011280', 11280, 'pos', 'SNB-0005-11280'), 'POS receipt matches only its POS source record');
+$assert(printflow_order_lookup_is_pos_source('pos_merged'), 'merged POS drafts remain classified as walk-in sales after checkout');
+$assert(printflow_staff_role_can_access_order_source('pos', 'pos_merged'), 'POS staff authorization accepts finalized merged walk-in orders');
+$assert(!printflow_staff_role_can_access_order_source('online', 'pos_merged'), 'online staff authorization does not claim merged walk-in orders');
+$assert(printflow_order_lookup_visible_identifier_matches('POS-011280', 11280, 'pos_merged', 'SNB-0005-11280'), 'merged POS receipt identifiers match their walk-in order');
 $assert(!printflow_order_lookup_visible_identifier_matches('POS-011280', 11280, 'customer', 'SNB-0005-11280'), 'POS identifier cannot pretend an online record is POS');
 $assert(printflow_order_lookup_visible_identifier_matches('SNB-0005-11280', 11280, 'customer', 'SNB-0005-11280'), 'online visible code matches its exact database-derived code');
 $assert(!printflow_order_lookup_visible_identifier_matches('FAKE-11280', 11280, 'customer', 'SNB-0005-11280'), 'wrong SKU with a real numeric suffix is rejected');
@@ -54,10 +62,14 @@ $assert(str_contains($api, 'get_user_allowed_branches'), 'lookup API enforces br
 $assert(str_contains($api, 'This order belongs to another branch.'), 'unauthorized branches fail with a staff-safe message');
 $assert(str_contains($api, 'printflow_staff_role_can_access_order_source'), 'lookup API enforces staff operation scope');
 $assert(str_contains($api, 'WHERE o.order_id = ?'), 'lookup API uses a prepared order-id query');
+$assert(str_contains($api, "'code' => 'LOOKUP_ERROR'") && str_contains($api, "'request_id'"), 'lookup API returns structured failure codes and a safe diagnostic request id');
 $assert(str_contains($pos, '/^PF1:ORDER:'), 'POS scanner reuses its existing input for receipt QR payloads');
-$assert(str_contains($scanner, 'isEditingTarget(event.target)'), 'global receipt scanner ignores editable and product-barcode fields');
-$assert(str_contains($scanner, '/^PF1:ORDER:'), 'global scanner accepts only the canonical receipt payload');
+$assert(str_contains($scanner, 'isProductBarcodeTarget(target)'), 'global receipt scanner distinguishes the dedicated POS product barcode input');
+$assert(str_contains($scanner, 'PF1:ORDER:[1-9][0-9]{0,9}'), 'global scanner accepts only the canonical receipt payload');
 $assert(str_contains($scanner, 'MAX_GAP_MS') && str_contains($scanner, 'DUPLICATE_MS'), 'global scanner enforces scanner speed and duplicate-scan protection');
+$assert(str_contains($scanner, "event.key === 'Tab'") && str_contains($scanner, "event.key === 'Shift'"), 'global scanner accepts Tab termination and does not discard shifted colon input');
+$assert(str_contains($scanner, 'transient lookup failure; retrying once'), 'global scanner retries one transient lookup failure');
+$assert(str_contains($scanner, 'markOrderOpened'), 'destination pages can confirm that the exact scanned order opened');
 $assert(str_contains($scanner, '/staff/api/order_receipt_lookup.php'), 'global scanner uses the authenticated server lookup');
 $assert(str_contains($scanner, 'window.location.assign(String(data.route))'), 'global scanner follows only the backend-computed route');
 $assert(!str_contains($scanner, 'pos_checkout.php'), 'receipt scanning cannot create a checkout or sale');

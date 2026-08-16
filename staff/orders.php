@@ -1731,6 +1731,9 @@ $page_title = 'Orders - Staff';
                         '<div class="om-alert om-alert-error">Rendering Error: ' + err.message + '</div>';
                 }
             }
+            if (window.PrintFlowReceiptScanner) {
+                window.PrintFlowReceiptScanner.markOrderOpened(orderId, 'staff-orders');
+            }
         })
         .catch(function(err) {
             console.error('Fetch Error:', err);
