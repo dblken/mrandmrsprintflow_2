@@ -16,6 +16,8 @@ ob_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
+require_once __DIR__ . '/../includes/receipt_access.php';
+
 function customer_order_items_json_flags(): int {
     $flags = JSON_UNESCAPED_SLASHES;
     if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
@@ -389,7 +391,10 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
             'quantity' => $quantity,
             'unit_price' => round($unitPriceRaw, 2),
             'line_total' => round($lineTotalRaw, 2),
-            'customization' => is_array($item['customization'] ?? null) ? $item['customization'] : [],
+            'customization' => printflow_customization_display_specs(
+                is_array($item['customization'] ?? null) ? $item['customization'] : [],
+                ['include_service' => false, 'include_design' => false, 'include_notes' => true, 'include_quantity' => false]
+            ),
         ];
     }
 
@@ -409,10 +414,16 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
         $customerName = 'Customer';
     }
 
+    $receiptDateTime = trim((string)($order['_receipt_paid_at'] ?? ''));
+    if ($receiptDateTime === '') {
+        $receiptDateTime = (string)($order['updated_at'] ?? $order['order_date'] ?? date('Y-m-d H:i:s'));
+    }
     return [
         'receipt_number' => 'WEB-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_number' => printflow_format_order_code($orderId, $order['order_sku'] ?? ''),
-        'date_time' => (string)($order['updated_at'] ?? $order['order_date'] ?? date('Y-m-d H:i:s')),
+        'qr_payload' => 'PF1:ORDER:' . $orderId,
+        'date_time' => $receiptDateTime,
+        'date_time_display' => date('M j, Y h:i A', strtotime($receiptDateTime) ?: time()),
         'company' => [
             'name' => $shopName,
             'logo_url' => $logoUrl,
@@ -1318,8 +1329,11 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
     }
 }
 
-$receipt_available = in_array((string)($order['status'] ?? ''), ['Completed', 'To Rate', 'Rated'], true)
-    && strcasecmp($payment_status, 'Paid') === 0;
+$order['_receipt_paid_at'] = $payment_paid_at_raw;
+$receipt_available = printflow_customer_receipt_is_available(
+    (string)($order['status'] ?? ''),
+    $payment_status
+);
 $receipt_payload = $receipt_available
     ? customer_receipt_build_payload($order, $items_out, $payment_status)
     : null;

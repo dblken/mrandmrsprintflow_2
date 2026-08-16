@@ -464,6 +464,7 @@ function pos_sync_order_item_customization_json(int $orderItemId, int $orderId, 
         return;
     }
 
+    $customization = printflow_customization_normalize_storage($customization);
     $json = json_encode($customization ?: new stdClass());
     db_execute(
         'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
@@ -788,7 +789,9 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
         $unitPrice = (float)($itemRow['unit_price'] ?? 0);
         $lineTotal = $quantity * $unitPrice;
         $customization = json_decode((string)($itemRow['customization_data'] ?? ''), true);
-        $customization = is_array($customization) ? $customization : [];
+        $customization = printflow_customization_display_specs(is_array($customization) ? $customization : [], [
+            'include_service' => false, 'include_design' => true, 'include_notes' => true, 'include_quantity' => false
+        ]);
         $subtotal += $lineTotal;
         $receiptItems[] = [
             'name' => pos_extract_order_item_display_name($itemRow),
@@ -823,11 +826,13 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
     $customerEmail = $isWalkinPlaceholder ? '' : (string)($order['email'] ?? '');
     $customerPhone = $isWalkinPlaceholder ? '' : (string)($order['contact_number'] ?? '');
 
+    $receiptDateTime = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
     return [
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
         'qr_payload' => printflow_receipt_qr_payload($orderId),
-        'date_time' => (string)($order['order_date'] ?? date('Y-m-d H:i:s')),
+        'date_time' => $receiptDateTime,
+        'date_time_display' => date('M j, Y h:i A', strtotime($receiptDateTime) ?: time()),
         'cashier' => trim((string)($_SESSION['user_name'] ?? 'Staff')) ?: 'Staff',
         'company' => [
             'name' => $shopName,
@@ -1212,6 +1217,7 @@ try {
         if ($is_service && $name) {
             $custom_details['service_type'] = $name;
         }
+        $custom_details = printflow_customization_normalize_storage($custom_details);
         
         $customization_json = json_encode($custom_details ?: new stdClass());
 
@@ -1238,6 +1244,7 @@ try {
                 (string)($designPayload['name'] ?? 'design_upload')
             );
         }
+        $custom_details = printflow_customization_normalize_storage($custom_details);
         printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
         error_log('ORDER ITEM ID: ' . $order_item_id);
         error_log('DESIGN FILE: ' . (string)($storedMedia['design_path'] ?? ''));

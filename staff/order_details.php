@@ -429,11 +429,14 @@ $page_title = "Order #{$order_id} - Staff";
                                                         </div>
                                                         <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:1rem;">
                                                             <?php 
-                                                            $custom_data = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+                                                            $custom_data = printflow_customization_display_specs(
+                                                                printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? '')),
+                                                                ['include_service' => true, 'include_design' => false, 'include_notes' => true, 'include_quantity' => false]
+                                                            );
                                                             $description = '';
                                                             if ($custom_data):
                                                                 foreach ($custom_data as $key => $val):
-                                                                    if (!empty($val) && $key !== 'design_upload' && $key !== 'reference_upload' && $key !== 'branch_id'):
+                                                                    if (!empty($val)):
                                                                         if (strpos(strtolower($key), 'description') !== false):
                                                                             $description = $val;
                                                                             continue;

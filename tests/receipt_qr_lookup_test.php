@@ -46,6 +46,7 @@ $assert(printflow_order_lookup_management_route('Staff', 11280, 2, 0, false, '/p
 $api = file_get_contents($root . '/staff/api/order_receipt_lookup.php');
 $pos = file_get_contents($root . '/staff/pos.php');
 $printer = file_get_contents($root . '/includes/pos_receipt_printer.php');
+$scanner = file_get_contents($root . '/public/assets/js/receipt-scanner.js');
 $assert(str_contains($api, "require_once __DIR__ . '/../../includes/auth.php'"), 'lookup API requires application authentication');
 $assert(str_contains($api, 'if (!is_logged_in())'), 'missing sessions fail with a JSON authentication response');
 $assert(str_contains($api, "['Staff', 'Manager', 'Admin']"), 'only authorized operational roles can use receipt lookup');
@@ -54,6 +55,12 @@ $assert(str_contains($api, 'This order belongs to another branch.'), 'unauthoriz
 $assert(str_contains($api, 'printflow_staff_role_can_access_order_source'), 'lookup API enforces staff operation scope');
 $assert(str_contains($api, 'WHERE o.order_id = ?'), 'lookup API uses a prepared order-id query');
 $assert(str_contains($pos, '/^PF1:ORDER:'), 'POS scanner reuses its existing input for receipt QR payloads');
+$assert(str_contains($scanner, 'isEditingTarget(event.target)'), 'global receipt scanner ignores editable and product-barcode fields');
+$assert(str_contains($scanner, '/^PF1:ORDER:'), 'global scanner accepts only the canonical receipt payload');
+$assert(str_contains($scanner, 'MAX_GAP_MS') && str_contains($scanner, 'DUPLICATE_MS'), 'global scanner enforces scanner speed and duplicate-scan protection');
+$assert(str_contains($scanner, '/staff/api/order_receipt_lookup.php'), 'global scanner uses the authenticated server lookup');
+$assert(str_contains($scanner, 'window.location.assign(String(data.route))'), 'global scanner follows only the backend-computed route');
+$assert(!str_contains($scanner, 'pos_checkout.php'), 'receipt scanning cannot create a checkout or sale');
 $assert(strpos($printer, "printflow_receipt_center('RECEIPT INFO'") < strpos($printer, "printflow_receipt_pair('Receipt No.'"), 'receipt formatter keeps QR insertion heading above visible receipt details');
 
 echo "Receipt QR and secure order lookup tests passed.\n";

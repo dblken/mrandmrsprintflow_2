@@ -353,4 +353,6 @@ window.PFConfig = { userId: <?php echo json_encode($_pf_uid); ?>, userType: <?ph
 <?php $notif_js_ver = @filemtime(__DIR__ . '/../public/assets/js/notifications.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
 <script src="<?php echo $base_path; ?>/public/assets/js/inactivity_logout.js" defer></script>
+<?php $receipt_scanner_ver = @filemtime(__DIR__ . '/../public/assets/js/receipt-scanner.js') ?: time(); ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/receipt-scanner.js?v=<?php echo $receipt_scanner_ver; ?>" data-base-path="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" defer></script>
 </div>

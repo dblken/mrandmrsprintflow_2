@@ -1175,6 +1175,11 @@ try {
             display: block;
         }
 
+        .receipt-qr-wrap { text-align:center; margin:0 auto 12px; }
+        .receipt-qr-wrap > div { display:inline-block; padding:6px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; }
+        .receipt-qr-wrap canvas, .receipt-qr-wrap img { display:block; width:116px !important; height:116px !important; }
+        .receipt-qr-caption { margin-top:4px; color:#64748b; font-size:9px; }
+
         .receipt-info-card {
             display: flex;
             justify-content: space-between;
@@ -2055,6 +2060,7 @@ try {
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         window.POS_BRANCHES = <?php echo json_encode(array_map(function ($b) {
             return ['id' => (int) $b['id'], 'name' => $b['branch_name']];
@@ -2116,7 +2122,8 @@ try {
                 month: 'short',
                 day: 'numeric',
                 hour: 'numeric',
-                minute: '2-digit'
+                minute: '2-digit',
+                hour12: true
             });
         }
 
@@ -2154,33 +2161,12 @@ try {
                 details.push(`${label}: ${text}`);
             };
 
-            pushDetail('Material', custom.material || custom.material_type || custom.temp_plate_material || custom['Material Selection'] || custom['Material Brand']);
-
-            ['dimensions', 'size', 'layout', 'finish', 'lamination', 'laminate_option', 'needed_date'].forEach((key) => {
-                const label = compactReceiptSpecLabel(key);
-                if (!label) return;
-                pushDetail(label, custom[key]);
+            Object.entries(custom).forEach(([key, value]) => {
+                if (details.length >= 4 || value == null || value === '' || typeof value === 'object') return;
+                pushDetail(String(key), value);
             });
 
-            if (details.length === 0) {
-                Object.entries(custom).forEach(([key, value]) => {
-                    if (details.length >= 3) return;
-                    if (value == null || value === '' || typeof value === 'object') return;
-                    const normalizedKey = String(key).toLowerCase();
-                    if ([
-                        'service_type', 'source', 'branch_id', 'quantity', 'notes', 'additional_notes',
-                        'design_upload', 'design_upload_path', 'reference_upload', 'reference_upload_path'
-                    ].includes(normalizedKey)) {
-                        return;
-                    }
-                    const cleanValue = String(value).trim();
-                    if (!cleanValue) return;
-                    const label = String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                    details.push(`${label}: ${cleanValue}`);
-                });
-            }
-
-            return details.slice(0, 3);
+            return details.slice(0, 4);
         }
 
         function buildReceiptHtml(receipt) {
@@ -2220,6 +2206,7 @@ try {
 
                 <div class="receipt-section">
                     <div class="receipt-section-title">Receipt Info</div>
+                    ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="pos-receipt-qr"></div><div class="receipt-qr-caption">Scan for staff order lookup</div></div>` : ''}
                     <div class="receipt-info-grid">
                         <div class="receipt-info-card">
                             <div class="receipt-label">Receipt No.</div>
@@ -2227,7 +2214,7 @@ try {
                         </div>
                         <div class="receipt-info-card">
                             <div class="receipt-label">Date & Time</div>
-                            <div class="receipt-value">${escapeHtml(formatReceiptDateTime(receipt.date_time))}</div>
+                            <div class="receipt-value">${escapeHtml(receipt.date_time_display || formatReceiptDateTime(receipt.date_time))}</div>
                         </div>
                         <div class="receipt-info-card">
                             <div class="receipt-label">Cashier</div>
@@ -2292,8 +2279,16 @@ try {
             const printArea = document.getElementById('receipt-print-area');
             if (!overlay || !printArea) return;
             printArea.innerHTML = buildReceiptHtml(receipt || {});
+            renderPosReceiptQr(receipt?.qr_payload);
             overlay.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+        }
+
+        function renderPosReceiptQr(payload) {
+            const target = document.getElementById('pos-receipt-qr');
+            if (!target || !payload || typeof QRCode === 'undefined') return;
+            target.innerHTML = '';
+            new QRCode(target, { text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
         }
 
         function closeReceiptModal() {
@@ -3023,10 +3018,8 @@ try {
         }
 
         function setCustomizationValue(customization, row, input, value) {
-            const label = serviceFieldLabel(row);
             const key = serviceFieldKey(row, input ? input.name : '');
             if (key) customization[key] = value;
-            if (label && label !== key) customization[label] = value;
         }
 
         async function confirmServiceModal() {
@@ -3058,7 +3051,6 @@ try {
                 return;
             }
             customization.branch_id = branchVal;
-            customization.branch = branchVal;
             customization.service_id = serviceId;
             customization.service_type = serviceName;
 

@@ -7,6 +7,7 @@
 // Set Timezone – adjust this based on your location
 date_default_timezone_set('Asia/Manila');
 
+require_once __DIR__ . '/customization_normalizer.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -4606,7 +4607,13 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
 
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
-    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, $is_staff);
+    $out = printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, $is_staff);
+    return printflow_customization_display_specs($out, [
+        'include_service' => $is_staff,
+        'include_design' => false,
+        'include_notes' => $is_staff,
+        'include_quantity' => false,
+    ]);
 }
 
 /**
@@ -4683,7 +4690,10 @@ function printflow_modal_customization_fallback_flatten_for_staff(array $custom,
 
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
-    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, true);
+    return printflow_customization_display_specs(
+        printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, true),
+        ['include_service' => true, 'include_design' => false, 'include_notes' => true, 'include_quantity' => false]
+    );
 }
 
 /**

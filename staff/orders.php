@@ -2153,6 +2153,16 @@ $page_title = 'Orders - Staff';
                 });
                 if (grid) specHTML = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; margin-top:12px;">' + grid + '</div>';
             }
+            if (item.has_design && item.design_url) {
+                specHTML += '<div style="margin-top:10px;font-size:12px;"><strong>Uploaded Design:</strong> ' +
+                    '<a href="' + esc(item.design_url) + '" target="_blank" rel="noopener" style="color:#2563eb;">' +
+                    esc(item.design_name || 'View uploaded design') + '</a></div>';
+            }
+            if (item.has_reference && item.reference_url) {
+                specHTML += '<div style="margin-top:8px;font-size:12px;"><strong>Reference File:</strong> ' +
+                    '<a href="' + esc(item.reference_url) + '" target="_blank" rel="noopener" style="color:#2563eb;">' +
+                    esc(item.reference_name || 'View reference file') + '</a></div>';
+            }
 
             itemsHTML += '<div style="padding:16px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:12px;">' +
                 '<div style="display:flex; gap:16px; align-items:flex-start;">' +

@@ -1228,6 +1228,11 @@ require_once __DIR__ . '/../includes/header.php';
     font-weight: 800;
 }
 
+.receipt-qr-wrap { text-align:center; margin:0 auto 16px; }
+.receipt-qr-wrap > div { display:inline-block; padding:8px; background:#fff; border:1px solid #e2e8f0; border-radius:10px; }
+.receipt-qr-wrap canvas, .receipt-qr-wrap img { display:block; width:116px !important; height:116px !important; }
+.receipt-qr-caption { margin-top:6px; color:#64748b; font-size:11px; }
+
 .receipt-modal-subtitle {
     color: #64748b;
     font-size: 0.85rem;
@@ -1746,6 +1751,7 @@ function get_preview_image_for_order_ui($order, $display_name) {
 ?>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <script>
 document.body.classList.add('orders-page');
@@ -1932,7 +1938,8 @@ function formatReceiptDateTime(value) {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: true
     });
 }
 
@@ -1954,8 +1961,6 @@ function receiptDetailLines(item) {
         details.push(`${label}: ${text}`);
     };
 
-    pushLine('Material', custom.material || custom.material_type || custom.temp_plate_material || custom['Material Selection']);
-
     Object.entries(custom).forEach(([key, value]) => {
         if (details.length >= 4) {
             return;
@@ -1963,19 +1968,7 @@ function receiptDetailLines(item) {
         if (value == null || value === '' || typeof value === 'object') {
             return;
         }
-        const normalizedKey = String(key).toLowerCase();
-        if ([
-            'service_type', 'source', 'source_page', 'branch_id', 'quantity', 'design_upload', 'design_upload_name',
-            'design_upload_data', 'upload_design_data', 'design_data', 'design_upload_path', 'reference_upload',
-            'reference_upload_path'
-        ].includes(normalizedKey)) {
-            return;
-        }
-        if (normalizedKey === 'material' || normalizedKey === 'material_type' || normalizedKey === 'temp_plate_material') {
-            return;
-        }
-        const label = String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        pushLine(label, value);
+        pushLine(String(key), value);
     });
 
     return details;
@@ -2017,6 +2010,7 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-section">
             <div class="receipt-section-title">Receipt Info</div>
+            ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="customer-receipt-qr"></div><div class="receipt-qr-caption">Scan for staff order lookup</div></div>` : ''}
             <div class="receipt-info-grid">
                 <div class="receipt-info-card">
                     <div class="receipt-label">Receipt No.</div>
@@ -2027,8 +2021,8 @@ function buildReceiptHtml(receipt) {
                     <div class="receipt-value">${receiptEscape(receipt.order_number || '')}</div>
                 </div>
                 <div class="receipt-info-card">
-                    <div class="receipt-label">Date Completed</div>
-                    <div class="receipt-value">${receiptEscape(formatReceiptDateTime(receipt.date_time))}</div>
+                    <div class="receipt-label">Receipt Date</div>
+                    <div class="receipt-value">${receiptEscape(receipt.date_time_display || formatReceiptDateTime(receipt.date_time))}</div>
                 </div>
             </div>
         </div>
@@ -2089,8 +2083,16 @@ function openReceiptModal(receipt) {
     }
     activeReceiptData = receipt;
     printArea.innerHTML = buildReceiptHtml(receipt);
+    renderCustomerReceiptQr(receipt.qr_payload);
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
+}
+
+function renderCustomerReceiptQr(payload) {
+    const target = document.getElementById('customer-receipt-qr');
+    if (!target || !payload || typeof QRCode === 'undefined') return;
+    target.innerHTML = '';
+    new QRCode(target, { text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
 }
 
 function closeReceiptModal() {

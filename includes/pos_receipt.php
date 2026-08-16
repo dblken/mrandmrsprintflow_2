@@ -58,7 +58,9 @@ function printflow_pos_build_receipt(int $orderId): array {
         $unitPrice = (float)$row['unit_price'];
         $lineTotal = $quantity * $unitPrice;
         $customization = json_decode((string)($row['customization_data'] ?? ''), true);
-        $customization = is_array($customization) ? $customization : [];
+        $customization = printflow_customization_display_specs(is_array($customization) ? $customization : [], [
+            'include_service' => false, 'include_design' => true, 'include_notes' => true, 'include_quantity' => false
+        ]);
         $subtotal += $lineTotal;
         $items[] = [
             'name' => printflow_pos_receipt_item_name($row),
@@ -76,13 +78,15 @@ function printflow_pos_build_receipt(int $orderId): array {
     );
     $isGuest = strtolower(trim((string)($order['email'] ?? ''))) === 'walkin@pos.local';
 
+    $receiptDateTime = (string)($providerPayment['paid_at'] ?? $order['order_date']);
     return [
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
         'qr_payload' => function_exists('printflow_receipt_qr_payload')
             ? printflow_receipt_qr_payload($orderId)
             : 'PF1:ORDER:' . $orderId,
-        'date_time' => (string)($providerPayment['paid_at'] ?? $order['order_date']),
+        'date_time' => $receiptDateTime,
+        'date_time_display' => date('M j, Y h:i A', strtotime($receiptDateTime) ?: time()),
         'cashier' => trim((string)($_SESSION['user_name'] ?? 'Staff')) ?: 'Staff',
         'company' => [
             'name' => trim((string)($shop['name'] ?? 'Mr. and Mrs. Print')),

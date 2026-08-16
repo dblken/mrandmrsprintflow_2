@@ -320,24 +320,14 @@ function printflow_receipt_pair(string $left, string $right, int $width): string
 }
 
 function printflow_receipt_flatten_customization(array $customization): array {
-    $skip = [
-        'source', 'service_id', 'customization_id', 'order_id', 'order_item_id',
-        'design_upload', 'reference_upload', 'design_data', 'reference_data',
-        'design_blob', 'reference_blob', 'design_upload_data', 'reference_upload_data',
-        'design_upload_mime', 'reference_upload_mime'
-    ];
+    $specs = printflow_customization_display_specs($customization, [
+        'include_service' => false,
+        'include_design' => true,
+        'include_notes' => true,
+        'include_quantity' => false,
+    ]);
     $lines = [];
-    foreach ($customization as $key => $value) {
-        if (in_array((string)$key, $skip, true)) continue;
-        if (is_array($value)) {
-            $value = implode(', ', array_filter(array_map(static function ($v) {
-                return is_scalar($v) ? (string)$v : '';
-            }, $value)));
-        }
-        if (!is_scalar($value)) continue;
-        $text = trim((string)$value);
-        if ($text === '' || stripos($text, 'data:') === 0) continue;
-        $label = ucwords(str_replace('_', ' ', (string)$key));
+    foreach ($specs as $label => $text) {
         $lines[] = $label . ': ' . $text;
         if (count($lines) >= 8) break;
     }
