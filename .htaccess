@@ -5,6 +5,10 @@
 AddType application/javascript .js
 AddType text/css .css
 
+# Preserve bearer tokens for PHP on hosts that do not expose Authorization
+# as HTTP_AUTHORIZATION by default.
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
 # Allow PHP to process manifest.json
 <Files "manifest.json">
     <IfModule mod_php.c>
@@ -16,6 +20,7 @@ AddType text/css .css
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
     # Redirect legacy /printflow/ paths to root (fixes 500/404 on moved assets)
     # EXCEPTION: Do not redirect service worker to prevent "script resource is behind a redirect"

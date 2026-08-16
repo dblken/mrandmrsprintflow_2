@@ -5,8 +5,7 @@ require_once __DIR__ . '/../../../includes/pos_receipt_printer.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-$authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
-$apiKey = preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches) ? trim($matches[1]) : '';
+$apiKey = printflow_receipt_printer_request_api_key();
 $printer = printflow_receipt_printer_authenticate($apiKey);
 $deviceToken = trim((string)($_GET['deviceToken'] ?? ''));
 
@@ -23,4 +22,3 @@ if (!printflow_receipt_printer_register_device($printer, $deviceToken)) {
 }
 
 echo json_encode(['success' => true, 'printer_id' => (string)$printer['id']]);
-

@@ -105,6 +105,45 @@ function printflow_receipt_printer_hash_key(string $apiKey): string {
     return hash('sha256', trim($apiKey));
 }
 
+function printflow_receipt_printer_request_api_key(): string {
+    $headers = [];
+    if (function_exists('getallheaders')) {
+        $rawHeaders = getallheaders();
+        if (is_array($rawHeaders)) {
+            foreach ($rawHeaders as $name => $value) {
+                $headers[strtolower((string)$name)] = trim((string)$value);
+            }
+        }
+    }
+
+    $authorization = trim((string)(
+        $_SERVER['HTTP_AUTHORIZATION']
+        ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+        ?? $_SERVER['Authorization']
+        ?? $headers['authorization']
+        ?? ''
+    ));
+    if ($authorization !== '' && preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+        return trim($matches[1]);
+    }
+
+    $headerKey = trim((string)(
+        $_SERVER['HTTP_X_API_KEY']
+        ?? $_SERVER['HTTP_X_PRINTFLOW_API_KEY']
+        ?? $headers['x-api-key']
+        ?? $headers['x-printflow-api-key']
+        ?? ''
+    ));
+    if ($headerKey !== '') return $headerKey;
+
+    foreach (['api_key', 'apiKey', 'key', 'token'] as $param) {
+        $value = trim((string)($_GET[$param] ?? $_POST[$param] ?? ''));
+        if ($value !== '') return $value;
+    }
+
+    return '';
+}
+
 function printflow_receipt_printer_key_last4(string $apiKey): string {
     return substr((string)(explode('|', $apiKey, 2)[0] ?? ''), -4);
 }
