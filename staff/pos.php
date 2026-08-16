@@ -2072,6 +2072,9 @@ try {
         let pendingPayMongoReceipt = null;
         let pendingPayMongoOrderId = 0;
         let posCheckoutRequestInFlight = false;
+        let posCheckoutConfirmOpen = false;
+        let posAutoReceiptPrintInFlight = false;
+        const posAutoPrintedReceiptKeys = new Set();
         let posPayMongoCheckoutPending = false;
         let posPayMongoCheckoutAttemptToken = null;
         function staffUrl(path) {
@@ -2303,6 +2306,42 @@ try {
 
         function printReceipt() {
             window.print();
+        }
+
+        function receiptAutoPrintKey(receipt) {
+            const receiptNo = String(receipt?.receipt_number || '').trim();
+            if (receiptNo) return receiptNo;
+            const orderId = String(receipt?.order_id || '').trim();
+            return orderId ? 'order-' + orderId : '';
+        }
+
+        function waitForReceiptRender() {
+            return new Promise(resolve => {
+                requestAnimationFrame(() => requestAnimationFrame(resolve));
+            });
+        }
+
+        async function openReceiptModalAndAutoPrint(receipt) {
+            const key = receiptAutoPrintKey(receipt);
+            openReceiptModal(receipt || {});
+            if (!key || posAutoPrintedReceiptKeys.has(key) || posAutoReceiptPrintInFlight) {
+                return;
+            }
+
+            posAutoReceiptPrintInFlight = true;
+            posAutoPrintedReceiptKeys.add(key);
+            showPosScanToast('success', 'Transaction completed', 'Printing receipt...');
+
+            try {
+                await waitForReceiptRender();
+                printReceipt();
+            } catch (error) {
+                console.error('Receipt auto-print failed:', error);
+                posAutoPrintedReceiptKeys.delete(key);
+                showPosScanToast('error', 'Receipt print failed', 'Transaction completed, but receipt printing failed. Please check the printer.');
+            } finally {
+                posAutoReceiptPrintInFlight = false;
+            }
         }
 
         async function downloadReceiptPdf() {
@@ -4039,7 +4078,7 @@ try {
         }
 
         async function processCheckout() {
-            if (cart.length === 0 || posCheckoutRequestInFlight) return;
+            if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
 
             // Validate customer selection
             const customer = $('#pos-customer').val();
@@ -4074,9 +4113,10 @@ try {
                 ? `Create a Test Mode Payment Link for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
                 : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
-            if (!(await showPOSConfirm('Confirm Transaction', confirmMsg))) {
-                return;
-            }
+            posCheckoutConfirmOpen = true;
+            const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg);
+            posCheckoutConfirmOpen = false;
+            if (!confirmed) return;
 
             const btn = document.getElementById('pos-checkout-btn');
             btn.disabled = true;
@@ -4147,7 +4187,7 @@ try {
                     toggleReferenceField();
                     calculateChange();
                     updateCheckoutState();
-                    openReceiptModal(data.receipt || {});
+                    openReceiptModalAndAutoPrint(data.receipt || {});
                 } else {
                     await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
                     updateCheckoutState();
@@ -4160,6 +4200,7 @@ try {
                 await showPOSAlert('Network Error', message, 'error');
                 updateCheckoutState();
             } finally {
+                posCheckoutConfirmOpen = false;
                 posCheckoutRequestInFlight = false;
                 if (!checkoutCompleted) {
                     updateCheckoutState();
@@ -4235,7 +4276,7 @@ try {
                 if (data?.receipt_available && data?.receipt) {
                     pendingPayMongoReceipt = data.receipt;
                     closePayMongoPosModal();
-                    openReceiptModal(data.receipt);
+                    openReceiptModalAndAutoPrint(data.receipt);
                     pendingPayMongoOrderId = 0;
                     return true;
                 }
@@ -4257,7 +4298,7 @@ try {
                         if (response.ok && completion?.success && completion?.receipt) {
                             pendingPayMongoReceipt = completion.receipt;
                             closePayMongoPosModal();
-                            openReceiptModal(completion.receipt);
+                            openReceiptModalAndAutoPrint(completion.receipt);
                             pendingPayMongoOrderId = 0;
                             return true;
                         }
@@ -4298,7 +4339,7 @@ try {
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
                 closePayMongoPosModal();
-                openReceiptModal(pendingPayMongoReceipt);
+                openReceiptModalAndAutoPrint(pendingPayMongoReceipt);
                 pendingPayMongoOrderId = 0;
                 return;
             }
@@ -4328,7 +4369,7 @@ try {
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
                 closePayMongoPosModal();
-                openReceiptModal(data.receipt);
+                openReceiptModalAndAutoPrint(data.receipt);
                 pendingPayMongoOrderId = 0;
             } catch (error) {
                 completeButton.disabled = false;
@@ -4515,6 +4556,8 @@ try {
                 titleEl.textContent = title;
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'none';
+                cancelBtn.disabled = false;
+                confirmBtn.disabled = false;
                 confirmBtn.textContent = 'OK';
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
@@ -4563,6 +4606,8 @@ try {
                 titleEl.textContent = title;
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'block';
+                cancelBtn.disabled = false;
+                confirmBtn.disabled = false;
                 confirmBtn.textContent = 'Confirm';
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
@@ -4577,10 +4622,14 @@ try {
                 }, 10);
 
                 cancelBtn.onclick = () => {
+                    cancelBtn.disabled = true;
+                    confirmBtn.disabled = true;
                     closePOSAlert();
                     resolve(false);
                 };
                 confirmBtn.onclick = () => {
+                    confirmBtn.disabled = true;
+                    cancelBtn.disabled = true;
                     closePOSAlert();
                     resolve(true);
                 };
