@@ -56,7 +56,14 @@ if ($user_type === 'Customer') {
 $rows = $rows ?: [];
 if (function_exists('printflow_db_errors') && count(printflow_db_errors()) > $dbErrorBaseline) {
     http_response_code(503);
-    echo json_encode(['success' => false, 'error' => 'Notification polling is temporarily unavailable.']);
+    header('Retry-After: 60');
+    echo json_encode([
+        'success' => false,
+        'available' => false,
+        'notifications' => [],
+        'error' => 'Notification polling is temporarily unavailable.',
+        'retry_after' => 60,
+    ]);
     exit;
 }
 

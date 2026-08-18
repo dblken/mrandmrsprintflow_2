@@ -551,8 +551,13 @@ class JobOrderService {
      */
     public static function createOrder($orderData, $materials = []) {
         global $conn;
-        
-        $conn->begin_transaction();
+
+        $wasInTransaction = function_exists('printflow_db_in_transaction')
+            ? printflow_db_in_transaction($conn)
+            : false;
+        if (!$wasInTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start job order transaction.');
+        }
         try {
             $branchId = self::resolveBranchIdForOrderData((array)$orderData) ?? (int)($_SESSION['branch_id'] ?? 0);
             $linkedOrderId = (int)($orderData['order_id'] ?? 0);
@@ -635,10 +640,14 @@ class JobOrderService {
                 $mStmt->close();
             }
 
-            $conn->commit();
+            if (!$wasInTransaction) {
+                $conn->commit();
+            }
             return $orderId;
         } catch (Throwable $e) {
-            $conn->rollback();
+            if (!$wasInTransaction && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
             throw $e;
         }
     }
@@ -1050,11 +1059,28 @@ class JobOrderService {
             throw new Exception('Revision request storage is unavailable.');
         }
 
-        $wasInTransaction = $conn->in_transaction ?? false;
+        $wasInTransaction = function_exists('printflow_db_in_transaction')
+            ? printflow_db_in_transaction($conn)
+            : false;
         if (!$wasInTransaction) {
             $conn->begin_transaction();
         }
         try {
+            // Serialize status transitions and make repeated completion calls a
+            // no-op before deductions, notifications, or chat events run.
+            $lockedRows = db_query("SELECT * FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE", 'i', [$orderId]);
+            if (!$lockedRows) {
+                throw new Exception("Order not found.");
+            }
+            $order = $lockedRows[0];
+            $currentNormalizedStatus = self::normalizeWorkflowStatus((string)($order['status'] ?? ''));
+            if ($currentNormalizedStatus === $normalizedNewStatus) {
+                if (!$wasInTransaction) {
+                    $conn->commit();
+                }
+                return true;
+            }
+
             if ($normalizedNewStatus === 'FOR_REVISION' && !empty($order['order_id'])) {
                 $revisionRequest = printflow_revision_create_request(
                     (int) $order['order_id'],
@@ -1077,17 +1103,22 @@ class JobOrderService {
             }
 
             if ($normalizedNewStatus === 'COMPLETED') {
-                // For POS orders (walk-in) or orders already in TO_RECEIVE status, skip payment check
-                $currentStatus = self::normalizeWorkflowStatus((string)($order['status'] ?? ''));
-                $isPOSOrder = !empty($order['order_id']) && db_query(
-                    "SELECT 1 FROM orders WHERE order_id = ? AND order_type = 'custom' AND payment_method IN ('Cash', 'GCash', 'Maya') LIMIT 1",
-                    'i',
-                    [$order['order_id']]
-                );
-                
-                // Allow completion if: already in TO_RECEIVE (Ready for Pickup), or is a POS order, or payment is PAID
-                $payment = strtoupper((string)($order['payment_status'] ?? ''));
-                $canComplete = ($currentStatus === 'TO_RECEIVE') || !empty($isPOSOrder) || ($payment === 'PAID');
+                // Completion always requires a canonical paid state. Manual
+                // GCash verification writes Paid/PAID and is accepted here;
+                // pending, submitted, partial, rejected, and unpaid are blocked.
+                $payment = strtoupper(trim((string)($order['payment_status'] ?? '')));
+                $storePayment = '';
+                if (!empty($order['order_id'])) {
+                    $storeRows = db_query(
+                        'SELECT payment_status FROM orders WHERE order_id = ? LIMIT 1',
+                        'i',
+                        [(int)$order['order_id']]
+                    ) ?: [];
+                    $storePayment = strtoupper(trim((string)($storeRows[0]['payment_status'] ?? '')));
+                }
+                $paidStates = ['PAID', 'FULLY PAID'];
+                $canComplete = in_array($payment, $paidStates, true)
+                    || in_array($storePayment, $paidStates, true);
                 
                 if (!$canComplete) {
                     throw new Exception('Cannot mark as Completed: payment must be Paid. Current payment status: ' . ($order['payment_status'] ?? 'Unpaid'));
@@ -1101,7 +1132,9 @@ class JobOrderService {
             }
 
             $sql = "UPDATE job_orders SET status = ?, machine_id = ? WHERE id = ?";
-            db_execute($sql, 'sii', [$newStatus, $machineId ?: $order['machine_id'], $orderId]);
+            if (!db_execute($sql, 'sii', [$newStatus, $machineId ?: $order['machine_id'], $orderId])) {
+                throw new RuntimeException('Failed to persist job order status.');
+            }
 
             // Sync status back to standard orders table
             if (!empty($order['order_id'])) {

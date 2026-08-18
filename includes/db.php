@@ -360,6 +360,21 @@ $GLOBALS['printflow_db_diagnostics'] = array_merge($db_config_status, [
  * ==========================
  */
 
+if (!function_exists('printflow_db_in_transaction')) {
+    /** mysqli has no portable inTransaction() API; ask the active SQL session. */
+    function printflow_db_in_transaction($connection = null): bool {
+        global $conn;
+        $connection = $connection instanceof mysqli ? $connection : $conn;
+        if (!($connection instanceof mysqli)) return false;
+
+        $result = @$connection->query('SELECT @@session.in_transaction AS active_transaction');
+        if (!($result instanceof mysqli_result)) return false;
+        $row = $result->fetch_assoc();
+        $result->free();
+        return (int)($row['active_transaction'] ?? 0) === 1;
+    }
+}
+
 function db_query($sql, $types = '', $params = []) {
     global $conn;
 

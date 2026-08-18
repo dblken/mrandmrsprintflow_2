@@ -202,13 +202,18 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
     <!-- PrintFlow Call & Signaling System (Global) -->
     <?php if ($is_logged_in): ?>
     <?php
+        require_once __DIR__ . '/realtime.php';
+        $__pf_realtime_enabled = printflow_realtime_available();
+        $__pf_realtime_url = printflow_realtime_url();
         $__pf_call_css_file = __DIR__ . '/../public/assets/css/printflow_call.css';
         $__pf_call_css_ver = is_file($__pf_call_css_file) ? (string) filemtime($__pf_call_css_file) : $ver;
         $__pf_call_js_file = __DIR__ . '/../public/assets/js/printflow_call.js';
         $__pf_call_js_ver = is_file($__pf_call_js_file) ? (string) filemtime($__pf_call_js_file) : $ver;
     ?>
     <script src="<?php echo htmlspecialchars(rtrim($asset_base, '/') . '/assets/js/pf-utils.js', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $ver; ?>" defer></script>
+    <?php if ($__pf_realtime_enabled): ?>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" defer></script>
+    <?php endif; ?>
     <link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim($asset_base, '/') . '/assets/css/printflow_call.css', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_css_ver; ?>">
     <script src="<?php echo htmlspecialchars(rtrim($asset_base, '/') . '/assets/js/printflow_call.js', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_js_ver; ?>" defer></script>
         <script>
@@ -229,7 +234,9 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
                         userType: <?php echo json_encode($call_utype); ?>,
                         userName: <?php echo json_encode($uname); ?>,
                         userAvatar: <?php echo json_encode(function_exists('get_profile_image') ? get_profile_image($uavatar) : $uavatar); ?>,
-                        basePath: <?php echo json_encode($base_path); ?>
+                        basePath: <?php echo json_encode($base_path); ?>,
+                        realtimeEnabled: <?php echo $__pf_realtime_enabled ? 'true' : 'false'; ?>,
+                        realtimeUrl: <?php echo json_encode($__pf_realtime_url); ?>
                     });
                     document.dispatchEvent(new CustomEvent('PFCallGlobalReady'));
                 } else {

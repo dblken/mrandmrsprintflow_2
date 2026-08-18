@@ -4915,9 +4915,18 @@ window.pfCustomizationPreloadedOrders = (() => {
                     (revisionMeta.permittedFields || []).forEach((field) => fd.append('revision_permitted_fields[]', field));
                 }
                 
-                const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                const endpoint = this.adminApiUrl('job_orders_api.php');
+                const res = await this.parseJsonResponse(
+                    await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json' },
+                        body: fd
+                    }),
+                    'Job status update',
+                    endpoint
+                );
                 if(res.success) {
-                    await this.loadOrders();
+                    await this.loadOrders({ force: true });
                     if (this.showDetailsModal && (this.sameId(this.effectiveJobId(), id) || this.sameId(this.currentJo.id, id))) {
                         await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'JOB');
                     }
@@ -4951,6 +4960,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                         error: backendMessage || `${label} failed: HTTP ${r.status}`
                     };
                 }
+                if (payload) {
+                    if (!contentType.includes('application/json')) {
+                        console.warn(`[Customizations] ${label} returned JSON with an incorrect Content-Type`, {
+                            endpoint,
+                            contentType
+                        });
+                    }
+                    return payload;
+                }
                 if (!contentType.includes('application/json')) {
                     console.error(`[Customizations] ${label} returned non-JSON`, {
                         endpoint,
@@ -4958,9 +4976,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                         body: text.slice(0, 500)
                     });
                     return { success: false, error: `${label} returned a non-JSON response.` };
-                }
-                if (payload) {
-                    return payload;
                 }
                 try {
                     return JSON.parse(text);
@@ -6118,19 +6133,28 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('status', 'Completed');
                         fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
+                        const endpoint = this.staffApiUrl('update_order_status_process.php');
                         const res = await this.parseJsonResponse(
-                            await fetch(this.staffApiUrl('update_order_status_process.php'), {
+                            await fetch(endpoint, {
                                 method: 'POST',
+                                headers: { 'Accept': 'application/json' },
                                 body: fd
-                            })
+                            }),
+                            'Complete order',
+                            endpoint
                         );
 
                         if (res.success) {
                             if (this.currentJo) {
                                 this.currentJo.status = 'COMPLETED';
                             }
-                            await this.loadOrders();
-                            this.showStaffAlert('Success', 'Order marked as completed.');
+                            this.activeStatus = 'COMPLETED';
+                            this.modalCache = {};
+                            await this.loadOrders({ force: true });
+                            this.showStaffAlert(
+                                res.already_completed ? 'Completed' : 'Success',
+                                res.message || 'Order marked as completed.'
+                            );
                         } else {
                             this.showStaffAlert('Error', res.error || 'Failed to mark order as completed.');
                         }
@@ -6144,6 +6168,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                     }
                     const ok = await this.updateStatus(jid, 'COMPLETED', machineId);
                     if (ok) {
+                        this.activeStatus = 'COMPLETED';
+                        this.modalCache = {};
+                        await this.loadOrders({ force: true });
                         this.showStaffAlert('Success', 'Order marked as completed.');
                     }
                 } finally {

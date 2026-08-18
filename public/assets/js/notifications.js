@@ -64,6 +64,8 @@
     var USER_TYPE = (window.PFConfig && window.PFConfig.userType) ? window.PFConfig.userType : 'Customer';
 
     var pollTimer   = null;
+    var pollFailureCount = 0;
+    var pollSuspended = false;
     var recentToastMap = {};
     var lastPollTs  = Math.floor(Date.now() / 1000) - 30;
 
@@ -1159,10 +1161,19 @@
     /* -- Polling ----------------------------------------------------------- */
 
     function poll() {
-        fetch(API_POLL + '?since=' + lastPollTs, { credentials: 'include' })
-            .then(function(res) { return res.ok ? res.json() : null; })
+        if (pollSuspended) return Promise.resolve(null);
+        return fetch(API_POLL + '?since=' + lastPollTs, { credentials: 'include' })
+            .then(function(res) {
+                if (res.status === 401 || res.status === 403) {
+                    pollSuspended = true;
+                    return null;
+                }
+                if (!res.ok) throw new Error('Notification poll unavailable');
+                return res.json();
+            })
             .then(function(data) {
                 if (!data || !data.success) return;
+                pollFailureCount = 0;
                 updateBadge(data.unread_count || 0);
                 if (data.server_time) {
                     lastPollTs = parseInt(data.server_time, 10) || lastPollTs;
@@ -1190,13 +1201,22 @@
 
                 setLastToastNotificationId(highestId);
             })
-            .catch(function(){});
+            .catch(function() {
+                // Polling is an optional enhancement. Back off silently on
+                // server/network failures so it cannot spam or block workflows.
+                pollFailureCount = Math.min(pollFailureCount + 1, 6);
+                return null;
+            });
     }
 
     function schedulePoll() {
         clearTimeout(pollTimer);
-        var delay = document.hidden ? POLL_INTERVAL_HIDDEN : POLL_INTERVAL_MS;
-        pollTimer = setTimeout(function() { poll(); schedulePoll(); }, delay);
+        if (pollSuspended) return;
+        var baseDelay = document.hidden ? POLL_INTERVAL_HIDDEN : POLL_INTERVAL_MS;
+        var delay = Math.min(baseDelay * Math.pow(2, pollFailureCount), 300000);
+        pollTimer = setTimeout(function() {
+            poll().finally(schedulePoll);
+        }, delay);
     }
 
     function showToast(title, body, url, imageUrl, fallbackImage) {
@@ -1306,13 +1326,13 @@
         initPushToggle();
         autoRestorePushSubscription();
         showPermissionPrompt();
-        poll();
-        schedulePoll();
+        poll().finally(schedulePoll);
     }
 
     function reinit() {
         clearTimeout(pollTimer);
         pollTimer = null;
+        pollSuspended = false;
         initStarted = false;
         init();
     }
@@ -1323,14 +1343,12 @@
 
     document.addEventListener('visibilitychange', function() {
         if (!document.hidden) {
-            poll();
-            schedulePoll();
+            poll().finally(schedulePoll);
         }
     });
 
     window.addEventListener('focus', function() {
-        poll();
-        schedulePoll();
+        poll().finally(schedulePoll);
     });
 
 })();
