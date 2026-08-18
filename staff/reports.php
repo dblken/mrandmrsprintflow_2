@@ -553,7 +553,9 @@ var statusChartInstance = null;
 
 function renderReportsCharts() {
     // ⚙️ Global Chart.js Defaults
-    Chart.defaults.font.family = "'Inter', 'Segoe UI', sans-serif";
+    Chart.defaults.font.family = "'Inter', system-ui, -apple-system, sans-serif";
+    Chart.defaults.font.size = 11;
+    Chart.defaults.font.weight = '600';
     Chart.defaults.color = "#64748b";
 
     // --- 1. REVENUE LINE CHART ---
@@ -600,8 +602,8 @@ function renderReportsCharts() {
                     tooltip: {
                         backgroundColor: chartTooltipBg,
                         padding: 12,
-                        titleFont: { size: 13 },
-                        bodyFont: { size: 14, weight: 'bold' },
+                        titleFont: { size: 12, weight: '700' },
+                        bodyFont: { size: 12, weight: '600' },
                         displayColors: false,
                         callbacks: {
                             label: function(context) {
@@ -680,7 +682,7 @@ function renderReportsCharts() {
                         labels: {
                             boxWidth: 12,
                             padding: 16,
-                            font: { size: 12, weight: '600' }
+                            font: { size: 11, weight: '600' }
                         }
                     },
                     tooltip: {

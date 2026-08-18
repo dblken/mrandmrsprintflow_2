@@ -386,7 +386,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
         }
     </style>
 </head>
-<body>
+<body class="staff-dashboard-page">
 
 <div class="dashboard-container">
     <?php include __DIR__ . '/../includes/staff_sidebar.php'; ?>
@@ -455,7 +455,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <input type="hidden" id="filter-timeframe" :value="activeTimeframe">
 
                 <?php if (($staffAccessMeta['key'] ?? '') === 'pos'): ?>
-                <a href="pos.php" class="toolbar-btn" style="background: var(--staff-pos-button-bg); border: none; color:#fff; box-shadow: 0 4px 12px var(--staff-pos-button-shadow); font-weight: 700; height: 38px;">
+                <a href="pos.php" class="toolbar-btn toolbar-btn--primary" style="background: var(--staff-pos-button-bg); border: none; color:#fff; box-shadow: 0 4px 12px var(--staff-pos-button-shadow); font-weight: 700; height: 38px;">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                     POS
                 </a>
@@ -517,7 +517,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <div class="card">
                     <div class="loading-progress"></div>
                     <div class="content-transition">
-                        <div id="chart-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;"><?php echo htmlspecialchars(staff_dashboard_chart_title($timeframe)); ?></div>
+                        <div id="chart-title" class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;"><?php echo htmlspecialchars(staff_dashboard_chart_title($timeframe)); ?></div>
                         <div class="chart-wrap" id="chart-pulse-wrap">
                             <canvas id="salesChart"></canvas>
                         </div>
@@ -526,7 +526,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <div class="card">
                     <div class="loading-progress"></div>
                     <div class="content-transition">
-                        <div id="top-sales-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Top Sales (<?php echo $short_label; ?>)</div>
+                        <div id="top-sales-title" class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Top Sales (<?php echo $short_label; ?>)</div>
                         <div style="margin-top: 10px;" id="top-services-list">
                             <?php if (!empty($top_services)): ?>
                                 <?php foreach ($top_services as $service): ?>
@@ -547,7 +547,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
             <div class="card">
                 <div class="loading-progress"></div>
                 <div class="content-transition">
-                    <div style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Recent Orders Activity</div>
+                    <div class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Recent Orders Activity</div>
                     
                     <div class="table-responsive">
                         <table style="width: 100%;">
@@ -745,6 +745,13 @@ function updateSalesChart(labels, values) {
     const canvas = document.getElementById('salesChart');
     if (!canvas) return;
 
+    if (typeof Chart !== 'undefined' && Chart.defaults) {
+        Chart.defaults.font.family = "'Inter', system-ui, -apple-system, sans-serif";
+        Chart.defaults.font.size = 11;
+        Chart.defaults.font.weight = '600';
+        Chart.defaults.color = '#64748b';
+    }
+
     if (salesChartInstance) {
         // Fluid transition: update data instead of destroy
         salesChartInstance.data.labels = labels;
@@ -796,10 +803,10 @@ function updateSalesChart(labels, values) {
                     grid: { color: 'rgba(0,0,0,0.04)', borderDash: [4, 4] },
                     ticks: {
                         callback: (v) => '₱' + v.toLocaleString(),
-                        font: { size: 10, weight: '600' }
+                        font: { family: "'Inter', system-ui, -apple-system, sans-serif", size: 11, weight: '600' }
                     }
                 },
-                x: { grid: { display: false }, ticks: { font: { size: 10, weight: '600' } } }
+                x: { grid: { display: false }, ticks: { font: { family: "'Inter', system-ui, -apple-system, sans-serif", size: 11, weight: '600' } } }
             }
         }
     });

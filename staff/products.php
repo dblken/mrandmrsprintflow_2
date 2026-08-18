@@ -200,11 +200,9 @@ $page_title = 'Products & Inventory - Staff';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $page_title; ?></title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        .page-title, h1, h2, h3, .kpi-value, .kpi-label { font-family: 'Outfit', sans-serif; }
         .staff-products-table-card {
             margin-top: 20px;
         }

@@ -122,6 +122,226 @@
         --staff-content-label-grad: linear-gradient(90deg, #023d3d, #06A1A1);
     }
 
+    /*
+     * Admin-aligned Staff design system
+     * ---------------------------------
+     * Page-local Staff CSS is intentionally kept for feature-specific layouts.
+     * These scoped rules normalize only the shared typography, spacing and
+     * component geometry. Values come from the Admin shell/dashboard.
+     */
+    html.printflow-staff body,
+    html.printflow-staff .main-content,
+    html.printflow-staff .staff-sidebar {
+        font-family: var(--pf-ui-font-sans);
+    }
+
+    html.printflow-staff button,
+    html.printflow-staff input,
+    html.printflow-staff select,
+    html.printflow-staff textarea {
+        font-family: inherit;
+    }
+
+    html.printflow-staff .page-title,
+    html.printflow-staff .pv-title {
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: var(--pf-ui-page-title-size) !important;
+        font-weight: var(--pf-ui-page-title-weight) !important;
+        line-height: var(--pf-ui-page-title-line-height) !important;
+        color: var(--text-main) !important;
+        margin-bottom: 0;
+    }
+
+    html.printflow-staff .page-subtitle,
+    html.printflow-staff .pv-subtitle,
+    html.printflow-staff .pf-page-subtitle {
+        margin-top: 4px !important;
+        font-size: var(--pf-ui-page-subtitle-size) !important;
+        font-weight: var(--pf-ui-page-subtitle-weight) !important;
+        line-height: var(--pf-ui-page-subtitle-line-height) !important;
+        color: #64748b !important;
+    }
+
+    @media (min-width: 769px) {
+        html.printflow-staff .main-content > header:not(.mobile-chat-header),
+        html.printflow-staff main.main-content > header:not(.mobile-chat-header) {
+            padding: 24px var(--pf-ui-page-padding-x) !important;
+            margin-bottom: 8px !important;
+        }
+    }
+
+    html.printflow-staff .card,
+    html.printflow-staff .stat-card,
+    html.printflow-staff .chart-card {
+        border: 1px solid var(--border-color) !important;
+        border-radius: var(--pf-ui-card-radius) !important;
+        padding: var(--pf-ui-card-padding) !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02) !important;
+        margin-bottom: 24px;
+    }
+
+    html.printflow-staff .kpi-row,
+    html.printflow-staff .pv-kpi-row,
+    html.printflow-staff .cv2-kpis {
+        gap: var(--pf-ui-dashboard-gap) !important;
+        margin-bottom: 24px !important;
+        align-items: stretch;
+    }
+
+    html.printflow-staff .kpi-card,
+    html.printflow-staff .cv2-kpi {
+        border: 1px solid #e5e7eb !important;
+        border-radius: var(--pf-ui-dashboard-card-radius) !important;
+        padding: 18px 20px 16px !important;
+        min-height: 0 !important;
+        box-shadow: 0 1px 3px rgba(0, 35, 43, 0.06) !important;
+    }
+
+    html.printflow-staff .kpi-card::before {
+        height: 3px !important;
+    }
+
+    html.printflow-staff .cv2-kpi {
+        position: relative;
+        overflow: hidden;
+    }
+
+    html.printflow-staff .cv2-kpi::before {
+        content: '';
+        position: absolute;
+        inset: 0 0 auto;
+        height: 3px;
+        background: var(--staff-content-accent-grad);
+        pointer-events: none;
+    }
+
+    html.printflow-staff .kpi-label,
+    html.printflow-staff .kpi-lbl,
+    html.printflow-staff .cv2-kpi-title {
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: var(--pf-ui-kpi-label-size) !important;
+        font-weight: var(--pf-ui-kpi-label-weight) !important;
+        line-height: 1.25 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        margin-bottom: 6px !important;
+    }
+
+    html.printflow-staff .kpi-value,
+    html.printflow-staff .cv2-kpi-num {
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: var(--pf-ui-kpi-value-size) !important;
+        font-weight: var(--pf-ui-kpi-value-weight) !important;
+        line-height: 1.15 !important;
+        margin: 0 !important;
+        font-variant-numeric: tabular-nums;
+    }
+
+    html.printflow-staff .kpi-sub,
+    html.printflow-staff .cv2-kpi-sub {
+        font-size: var(--pf-ui-kpi-sub-size) !important;
+        font-weight: var(--pf-ui-kpi-sub-weight) !important;
+        line-height: 1.35 !important;
+        color: #6b7280 !important;
+    }
+
+    html.printflow-staff .kpi-card-cta {
+        font-size: var(--pf-ui-kpi-cta-size) !important;
+        font-weight: var(--pf-ui-kpi-cta-weight) !important;
+        line-height: 1.2 !important;
+        letter-spacing: 0.02em;
+    }
+
+    html.printflow-staff .section-title,
+    html.printflow-staff .card-title,
+    html.printflow-staff .chart-title,
+    html.printflow-staff .dash-card-title,
+    html.printflow-staff .staff-section-title,
+    html.printflow-staff .cv2-listhead h2 {
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: var(--pf-ui-section-title-size) !important;
+        font-weight: var(--pf-ui-section-title-weight) !important;
+        line-height: 1.35 !important;
+        color: var(--text-main) !important;
+    }
+
+    html.printflow-staff .notif-card-head h3,
+    html.printflow-staff #chart-title,
+    html.printflow-staff #top-sales-title,
+    html.printflow-staff .staff-dashboard-section-title,
+    html.printflow-staff .toolbar-group--title h3 {
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: var(--pf-ui-section-title-size) !important;
+        font-weight: var(--pf-ui-section-title-weight) !important;
+        line-height: 1.35 !important;
+        color: var(--text-main) !important;
+    }
+
+    @media (min-width: 769px) {
+        html.printflow-staff table:not(.receipt-items) th {
+            padding: 12px 16px !important;
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            line-height: 1.35;
+        }
+
+        html.printflow-staff table:not(.receipt-items) td {
+            padding: 16px !important;
+            font-size: 14px !important;
+            line-height: 1.45;
+        }
+    }
+
+    html.printflow-staff .modal-panel,
+    html.printflow-staff .modal-content,
+    html.printflow-staff .modal-box,
+    html.printflow-staff .cv2-modal,
+    html.printflow-staff .pv-drawer,
+    html.printflow-staff #view-product-modal {
+        border-radius: 12px !important;
+    }
+
+    html.printflow-staff .modal-title,
+    html.printflow-staff .modal-header h2,
+    html.printflow-staff .cv2-modal-head h2,
+    html.printflow-staff .products-view-modal-header h2 {
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        line-height: 1.4 !important;
+    }
+
+    html.printflow-staff .modal-header,
+    html.printflow-staff .cv2-modal-head,
+    html.printflow-staff .products-view-modal-header,
+    html.printflow-staff .pv-drawer-head {
+        padding: 20px 24px !important;
+    }
+
+    html.printflow-staff .modal-body,
+    html.printflow-staff .cv2-modal-body,
+    html.printflow-staff .products-view-modal-body {
+        padding: 20px 24px 24px !important;
+    }
+
+    html.printflow-staff .modal-footer,
+    html.printflow-staff .cv2-modal-foot {
+        padding: 16px 24px !important;
+    }
+
+    html.printflow-staff .btn-primary,
+    html.printflow-staff .btn-secondary,
+    html.printflow-staff .cv2-btn,
+    html.printflow-staff .pv-button {
+        min-height: 40px;
+        padding: 10px 20px !important;
+        border-radius: 8px !important;
+        font-family: var(--pf-ui-font-sans) !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        line-height: 1.2;
+    }
+
     /* Main area: focus rings & links */
     html.printflow-staff .input-field:focus,
     html.printflow-staff select:focus,
@@ -327,18 +547,25 @@
     }
 
     /* Unified Table Action Buttons */
-    html.printflow-staff .btn-action {
+    html.printflow-staff .btn-action,
+    html.printflow-staff .table-action-btn,
+    html.printflow-staff .btn-staff-action,
+    html.printflow-staff .cv2-view-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 4px 12px;
-        min-height: 28px;
-        font-size: 12px;
-        font-weight: 700;
-        border-radius: 6px;
+        box-sizing: border-box;
+        height: 30px;
+        min-height: 30px;
+        padding: 0 12px !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        line-height: 1 !important;
+        text-transform: none;
+        letter-spacing: normal;
+        border-radius: 6px !important;
         transition: all 0.2s;
         text-decoration: none;
-        border: none;
         cursor: pointer;
     }
 
@@ -393,26 +620,39 @@
     html.printflow-staff .toolbar-btn {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        height: 38px;
-        padding: 0 14px;
+        justify-content: center;
+        gap: 6px;
+        height: var(--pf-ui-control-height) !important;
+        min-height: var(--pf-ui-control-height);
+        padding: 0 14px !important;
         background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        color: #475569;
-        font-size: 14px;
-        font-weight: 600;
+        border: 1px solid #e5e7eb !important;
+        border-radius: var(--pf-ui-control-radius) !important;
+        color: #374151;
+        font-size: var(--pf-ui-control-font-size) !important;
+        font-weight: var(--pf-ui-control-font-weight) !important;
+        line-height: 1.2;
         cursor: pointer;
         transition: all 0.2s;
         white-space: nowrap;
     }
+
+    html.printflow-staff .toolbar-btn--primary {
+        font-weight: 700 !important;
+    }
+
+    html.printflow-staff .toolbar-btn svg {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 15px;
+    }
     html.printflow-staff .toolbar-btn:hover {
-        border-color: var(--staff-primary);
+        border-color: var(--staff-primary) !important;
         color: var(--staff-primary);
         background: var(--staff-toolbar-hover-bg);
     }
     html.printflow-staff .toolbar-btn.active {
-        border-color: var(--staff-primary);
+        border-color: var(--staff-primary) !important;
         background: var(--staff-toolbar-active-bg);
         color: var(--staff-primary);
     }
@@ -442,9 +682,9 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 14px;
-        font-size: 14px;
-        font-weight: 500;
+        padding: 9px 14px;
+        font-size: 13px !important;
+        font-weight: 500 !important;
         color: #475569;
         cursor: pointer;
         border-radius: 8px;
@@ -463,6 +703,8 @@
     html.printflow-staff .filter-panel {
         width: 320px;
         padding: 0;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
     }
     html.printflow-staff .filter-header {
         padding: 14px 18px;
@@ -497,11 +739,18 @@
         margin-bottom: 8px;
     }
     html.printflow-staff .filter-label {
-        font-size: 12px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.025em;
-        color: #64748b;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        text-transform: none;
+        letter-spacing: normal;
+        color: #374151;
+    }
+
+    html.printflow-staff .filter-section-label {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        line-height: 1.35;
+        color: #374151 !important;
     }
     html.printflow-staff .filter-reset-link {
         font-size: 12px;
@@ -515,18 +764,34 @@
     html.printflow-staff .filter-select, 
     html.printflow-staff .filter-input {
         width: 100%;
-        height: 38px;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 0 12px;
-        font-size: 14px;
-        color: #1e293b;
+        height: var(--pf-ui-filter-height) !important;
+        min-height: var(--pf-ui-filter-height);
+        background: #fff;
+        border: 1px solid #e5e7eb !important;
+        border-radius: var(--pf-ui-filter-radius) !important;
+        padding: 0 10px !important;
+        font-size: 13px !important;
+        font-weight: 400;
+        color: #1f2937;
+        transition: all 0.2s;
+    }
+
+    html.printflow-staff .filter-search-input {
+        width: 100%;
+        height: var(--pf-ui-filter-height) !important;
+        min-height: var(--pf-ui-filter-height);
+        background: #fff;
+        border: 1px solid #e5e7eb !important;
+        border-radius: var(--pf-ui-filter-radius) !important;
+        font-size: 13px !important;
+        font-weight: 400;
+        color: #1f2937;
         transition: all 0.2s;
     }
     html.printflow-staff .filter-select:focus,
-    html.printflow-staff .filter-input:focus {
-        border-color: var(--staff-primary);
+    html.printflow-staff .filter-input:focus,
+    html.printflow-staff .filter-search-input:focus {
+        border-color: var(--staff-primary) !important;
         background: #fff;
         outline: none;
         box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.1);
@@ -537,13 +802,13 @@
     }
     html.printflow-staff .filter-btn-reset {
         width: 100%;
-        height: 38px;
+        height: 36px !important;
         background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        font-size: 13px;
-        font-weight: 700;
-        color: #64748b;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 8px !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        color: #374151;
         cursor: pointer;
         transition: all 0.2s;
         display: flex;
@@ -742,6 +1007,54 @@
         border-color: var(--staff-primary) !important;
     }
 
+    /* Staff dashboard follows the tighter Admin dashboard card composition. */
+    html.printflow-staff body.staff-dashboard-page .card {
+        border-color: #e5e7eb !important;
+        border-radius: var(--pf-ui-dashboard-card-radius) !important;
+        padding: var(--pf-ui-dashboard-card-padding) !important;
+        margin-bottom: 0 !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .grid-cols-3 {
+        gap: var(--pf-ui-dashboard-gap) !important;
+        margin-bottom: 24px !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .chart-wrap {
+        height: 250px !important;
+        margin-top: 0 !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .service-item {
+        padding: 8px 0 !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .service-info {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .service-count {
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        padding: 4px 10px !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .table-responsive {
+        margin: 0 -20px;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .table-responsive table th:first-child,
+    html.printflow-staff body.staff-dashboard-page .table-responsive table td:first-child {
+        padding-left: 20px !important;
+    }
+
+    html.printflow-staff body.staff-dashboard-page .table-responsive table th:last-child,
+    html.printflow-staff body.staff-dashboard-page .table-responsive table td:last-child {
+        padding-right: 20px !important;
+    }
+
     /* Staff-wide mobile hardening (parallel to admin shell behavior). */
     html.printflow-staff .truncate-ellipsis {
         white-space: nowrap;
@@ -769,6 +1082,13 @@
         html.printflow-staff h2 {
             font-size: 20px !important;
             line-height: 1.25 !important;
+        }
+
+        html.printflow-staff .page-subtitle,
+        html.printflow-staff .pv-subtitle,
+        html.printflow-staff .pf-page-subtitle {
+            font-size: 13px !important;
+            line-height: 1.45 !important;
         }
 
         html.printflow-staff .toolbar-container,
@@ -800,22 +1120,63 @@
             padding: 14px !important;
         }
 
+        html.printflow-staff body.staff-dashboard-page .card {
+            padding: 18px !important;
+            border-radius: 10px !important;
+        }
+
+        html.printflow-staff .modal-header,
+        html.printflow-staff .cv2-modal-head,
+        html.printflow-staff .products-view-modal-header,
+        html.printflow-staff .pv-drawer-head,
+        html.printflow-staff .modal-body,
+        html.printflow-staff .cv2-modal-body,
+        html.printflow-staff .products-view-modal-body,
+        html.printflow-staff .modal-footer,
+        html.printflow-staff .cv2-modal-foot {
+            padding: 18px !important;
+        }
+
         html.printflow-staff .kpi-row {
             grid-template-columns: repeat(2, 1fr) !important;
+            gap: 12px !important;
+        }
+
+        html.printflow-staff .pv-kpi-row,
+        html.printflow-staff .cv2-kpis {
+            gap: 12px !important;
         }
 
         html.printflow-staff .kpi-card,
         html.printflow-staff .kpi-card-v2,
-        html.printflow-staff .stat-card {
+        html.printflow-staff .stat-card,
+        html.printflow-staff .cv2-kpi {
             min-width: 0 !important;
             width: 100% !important;
         }
 
+        html.printflow-staff .kpi-card,
+        html.printflow-staff .cv2-kpi {
+            padding: 14px 12px !important;
+            border-radius: 10px !important;
+        }
+
+        html.printflow-staff .kpi-label,
+        html.printflow-staff .cv2-kpi-title {
+            font-size: 10px !important;
+        }
+
         html.printflow-staff .kpi-value,
-        html.printflow-staff .stat-value {
+        html.printflow-staff .stat-value,
+        html.printflow-staff .cv2-kpi-num {
             font-size: 20px !important;
             overflow-wrap: anywhere !important;
             word-break: break-word !important;
+        }
+
+        html.printflow-staff .kpi-sub,
+        html.printflow-staff .cv2-kpi-sub {
+            font-size: 11px !important;
         }
 
         html.printflow-staff .overflow-x-auto,
@@ -828,12 +1189,17 @@
             max-width: 100% !important;
         }
 
-        html.printflow-staff table {
+        html.printflow-staff table:not(.receipt-items):not(.orders-table):not(.products-table) {
             min-width: max(700px, 100%) !important;
         }
 
-        html.printflow-staff table th,
-        html.printflow-staff table td {
+        html.printflow-staff .products-table {
+            width: 100% !important;
+            min-width: 0 !important;
+        }
+
+        html.printflow-staff table:not(.receipt-items):not(.orders-table):not(.products-table) th,
+        html.printflow-staff table:not(.receipt-items):not(.orders-table):not(.products-table) td {
             white-space: nowrap !important;
         }
 

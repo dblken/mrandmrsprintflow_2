@@ -71,7 +71,6 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($page_title); ?> - PrintFlow</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
@@ -431,7 +430,7 @@ try {
         }
 
         .pos-card-product-name {
-            font-family: 'Outfit', sans-serif;
+            font-family: var(--pf-ui-font-sans);
             font-size: 14px;
             font-weight: 700;
             color: white;
@@ -796,7 +795,7 @@ try {
             border-radius: 10px;
             font-size: 13px;
             font-weight: 700;
-            font-family: 'Outfit', sans-serif;
+            font-family: var(--pf-ui-font-sans);
             text-transform: uppercase;
             letter-spacing: 0.02em;
             text-align: center;

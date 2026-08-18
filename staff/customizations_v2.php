@@ -261,7 +261,7 @@ function cv2_display_status(string $status): string
     <div class="main-content">
         <header>
             <h1 class="page-title">Customizations <span style="font-size:12px; background:#53c5e0; color:#fff; padding:3px 9px; border-radius:999px; vertical-align:middle; margin-left:6px;">V2</span></h1>
-            <p style="color:#64748b; font-size:14px; margin-top:4px;">Track and manage all custom jobs — shows exactly what the customer submitted (online &amp; POS).</p>
+            <p class="pf-page-subtitle" style="color:#64748b; font-size:14px; margin-top:4px;">Track and manage all custom jobs — shows exactly what the customer submitted (online &amp; POS).</p>
         </header>
 
         <main>
