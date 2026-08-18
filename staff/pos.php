@@ -1504,25 +1504,55 @@ try {
 
         /* Mobile & Tablet Responsive Layout */
         @media (max-width: 1024px) {
+            /* The POS wrapper is the single mobile scroll container. */
+            .main-content {
+                overflow-y: hidden !important;
+            }
+
             .pos-wrapper {
                 flex-direction: column !important;
                 overflow-y: auto !important;
+                overflow-x: hidden !important;
                 display: flex !important;
+                height: auto !important;
+                min-height: 0 !important;
+                overscroll-behavior-y: contain;
+                -webkit-overflow-scrolling: touch;
             }
+
             .pos-products-area {
                 flex: none !important;
-                height: 55vh;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
                 border-right: none;
                 border-bottom: 4px solid #e2e8f0;
             }
+
+            #selection-view,
+            #products-view,
+            #services-view {
+                height: auto !important;
+                min-height: 0 !important;
+            }
+
+            .pos-products-grid,
+            .pos-services-grid {
+                flex: none !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+            }
+
             .pos-cart-area {
                 width: 100%;
                 border-left: none;
                 flex: none !important;
                 height: auto;
+                min-height: 0 !important;
             }
             .pos-cart-list {
                 min-height: 350px;
+                overflow: visible !important;
             }
             
             /* Fix squished headers */

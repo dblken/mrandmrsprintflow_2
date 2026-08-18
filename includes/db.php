@@ -6,6 +6,13 @@
 
 require_once __DIR__ . '/env.php';
 
+// Host-level PHP logging may be disabled. Keep server-side diagnostics enabled
+// for web requests; display_errors remains controlled separately and stays off
+// in production, so these details are never rendered to staff users.
+if (PHP_SAPI !== 'cli') {
+    @ini_set('log_errors', '1');
+}
+
 /**
  * Heuristic: determine if the current request expects JSON.
  * Used to avoid emitting HTML in API responses on DB failures.
@@ -90,18 +97,48 @@ function printflow_db_error_reference(): string {
     }
 }
 
-function printflow_db_abort(string $stage, ?Throwable $exception = null): void {
+function printflow_db_abort(string $stage, ?Throwable $exception = null, array $details = []): void {
     $reference = printflow_db_error_reference();
-    $log = '[database][' . $reference . '] ' . $stage;
     $requestPath = parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
-    if (is_string($requestPath) && $requestPath !== '') {
-        $log .= ' request_path=' . preg_replace('/[^a-zA-Z0-9_\/.\-]/', '', $requestPath);
-    }
+    $safePath = is_string($requestPath)
+        ? (string)preg_replace('/[^a-zA-Z0-9_\/.\-]/', '', $requestPath)
+        : '';
+
+    $context = [
+        'timestamp' => date(DATE_ATOM),
+        'reference' => $reference,
+        'stage' => preg_replace('/[^a-zA-Z0-9_\-]/', '', $stage),
+        'request_path' => $safePath,
+        'request_method' => preg_replace('/[^A-Z]/', '', strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? ''))),
+        'role' => preg_replace('/[^a-zA-Z0-9_\-]/', '', (string)($_SESSION['user_type'] ?? 'guest')),
+        'user_id' => max(0, (int)($_SESSION['user_id'] ?? 0)),
+        'branch_id' => max(0, (int)($_SESSION['selected_branch_id'] ?? $_SESSION['branch_id'] ?? 0)),
+        'error_class' => $exception !== null ? get_class($exception) : (string)($details['error_class'] ?? 'database_bootstrap_error'),
+    ];
     if ($exception !== null) {
-        $log .= ' class=' . get_class($exception) . ' code=' . (string)$exception->getCode();
-        $log .= ' source=' . basename($exception->getFile()) . ':' . (int)$exception->getLine();
+        $context['error_code'] = (int)$exception->getCode();
     }
-    error_log($log);
+
+    foreach (['db_errno', 'retry_attempts'] as $integerKey) {
+        if (array_key_exists($integerKey, $details)) {
+            $context[$integerKey] = max(0, (int)$details[$integerKey]);
+        }
+    }
+    if (!empty($details['db_sqlstate'])) {
+        $context['db_sqlstate'] = substr(
+            (string)preg_replace('/[^a-zA-Z0-9]/', '', (string)$details['db_sqlstate']),
+            0,
+            5
+        );
+    }
+    if (!empty($details['missing_config']) && is_array($details['missing_config'])) {
+        $context['missing_config'] = array_values(array_filter(array_map(
+            static fn($key) => preg_replace('/[^a-zA-Z0-9_]/', '', (string)$key),
+            $details['missing_config']
+        )));
+    }
+
+    error_log('[printflow_database_failure] ' . json_encode($context, JSON_UNESCAPED_SLASHES));
 
     if (PHP_SAPI === 'cli') {
         fwrite(STDERR, "Database connection failed. Review the server database configuration.\n");
@@ -149,7 +186,14 @@ if (in_array(false, $required_config_status, true)) {
     if (defined('PRINTFLOW_DB_DIAGNOSTIC_MODE') && PRINTFLOW_DB_DIAGNOSTIC_MODE) {
         return;
     }
-    printflow_db_abort('configuration_incomplete');
+    $missingConfig = [];
+    foreach ($required_config_status as $configKey => $isSet) {
+        if (!$isSet) $missingConfig[] = $configKey;
+    }
+    printflow_db_abort('configuration_incomplete', null, [
+        'error_class' => 'database_configuration_error',
+        'missing_config' => $missingConfig,
+    ]);
 }
 
 /**
@@ -176,18 +220,42 @@ if (function_exists('mysqli_report')) {
     mysqli_report(MYSQLI_REPORT_OFF);
 }
 $mysqliException = null;
-try {
-    $conn = @new mysqli(
-        $db_config['host'],
-        $db_config['user'],
-        $db_config['pass'],
-        $db_config['name'],
-        (int)$db_config['port']
-    );
-} catch (Throwable $e) {
-    $mysqliException = $e;
+$conn = null;
+$connectAttempts = 0;
+$connectErrno = 0;
+$connectSqlstate = '';
+$transientConnectErrors = [1040, 1203, 2002, 2003, 2006, 2013];
+
+do {
+    $connectAttempts++;
+    $mysqliException = null;
+    try {
+        $conn = @new mysqli(
+            $db_config['host'],
+            $db_config['user'],
+            $db_config['pass'],
+            $db_config['name'],
+            (int)$db_config['port']
+        );
+    } catch (Throwable $e) {
+        $mysqliException = $e;
+        $conn = null;
+    }
+
+    $connectErrno = $conn instanceof mysqli
+        ? (int)$conn->connect_errno
+        : (int)($mysqliException?->getCode() ?? 0);
+    $connectSqlstate = $mysqliException !== null && method_exists($mysqliException, 'getSqlState')
+        ? (string)$mysqliException->getSqlState()
+        : '';
+    $connectionFailed = !$conn instanceof mysqli || $connectErrno !== 0;
+    if (!$connectionFailed || $connectAttempts >= 2 || !in_array($connectErrno, $transientConnectErrors, true)) {
+        break;
+    }
+
     $conn = null;
-}
+    usleep(150000);
+} while (true);
 $mysqli = $conn;
 
 /**
@@ -195,7 +263,7 @@ $mysqli = $conn;
  * ERROR HANDLING
  * ==========================
  */
-if (!$conn instanceof mysqli || $conn->connect_error) {
+if (!$conn instanceof mysqli || $connectErrno !== 0) {
     printflow_db_record_error([
         'stage' => 'connect',
         'errno' => $conn instanceof mysqli ? $conn->connect_errno : 0,
@@ -205,7 +273,12 @@ if (!$conn instanceof mysqli || $conn->connect_error) {
         $GLOBALS['printflow_db_diagnostics']['mysqli_connected'] = false;
         return;
     }
-    printflow_db_abort('mysqli_compatibility_connect_failed', $mysqliException);
+    printflow_db_abort('mysqli_compatibility_connect_failed', $mysqliException, [
+        'error_class' => $mysqliException !== null ? get_class($mysqliException) : 'mysqli_connect_error',
+        'db_errno' => $connectErrno,
+        'db_sqlstate' => $connectSqlstate,
+        'retry_attempts' => $connectAttempts,
+    ]);
 }
 
 /**
