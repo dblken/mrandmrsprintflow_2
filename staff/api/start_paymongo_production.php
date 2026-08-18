@@ -33,6 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 if (!is_logged_in() || !in_array(get_user_type(), ['Admin', 'Staff', 'Manager'], true)) {
     $respond(403, 'Staff access is required.');
 }
+if (!printflow_paymongo_online_payment_enabled()) {
+    $respond(409, 'Manual GCash verification is active. Approve the payment from Payment Verification to start production.');
+}
 
 $input = json_decode((string)file_get_contents('php://input'), true);
 $input = is_array($input) ? $input : $_POST;

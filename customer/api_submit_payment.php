@@ -135,7 +135,7 @@ if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
     exit;
 }
 
-if (!printflow_env_bool('MANUAL_PAYMENT_ENABLED', false)) {
+if (!printflow_manual_online_payment_enabled()) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
@@ -148,17 +148,11 @@ if (!printflow_env_bool('MANUAL_PAYMENT_ENABLED', false)) {
 $order_id = (int)($_POST['order_id'] ?? 0);
 $is_job = (string)($_POST['is_job'] ?? '0') === '1';
 $customer_id = get_user_id();
-$payment_choice = $_POST['payment_choice'] ?? 'full';
-$selected_payment_method = payment_verification_normalize_method((string)($_POST['selected_payment_method'] ?? 'GCash'));
+$payment_choice = 'full';
+$selected_payment_method = 'GCash';
 $submission_token = strtolower(trim((string)($_POST['submission_token'] ?? '')));
 if (!preg_match('/^[a-f0-9]{32,64}$/', $submission_token)) {
     $submission_token = '';
-}
-if ($selected_payment_method === '') {
-    $selected_payment_method = 'GCash';
-}
-if (!in_array($payment_choice, ['full', 'half'], true)) {
-    $payment_choice = 'full';
 }
 payment_verification_log('submission_request_received', [
     'order_id' => $order_id,
@@ -194,11 +188,11 @@ $providerPayment = printflow_provider_payment_for_customer(
     $is_job ? 'job_order' : 'order',
     $order_id
 );
-if (in_array((string)($providerPayment['status'] ?? ''), ['generating', 'awaiting_payment', 'paid'], true)) {
+if ((string)($providerPayment['status'] ?? '') === 'paid') {
     http_response_code(409);
     echo json_encode([
         'success' => false,
-        'message' => 'This order already has an active PayMongo payment.',
+        'message' => 'This order has already been paid through PayMongo.',
         'step' => 'payment_state',
     ]);
     exit;
@@ -209,6 +203,19 @@ if (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0) {
         'success' => false,
         'message' => 'This order has already been paid.',
         'step' => 'payment_state',
+    ]);
+    exit;
+}
+$order_type = strtolower(trim((string)($order['order_type'] ?? '')));
+$requires_staff_final_price = !$is_job && in_array($order_type, ['custom', 'service', 'customization'], true);
+if ($total_to_pay <= 0 || ($requires_staff_final_price
+        && function_exists('printflow_order_price_is_final')
+        && !printflow_order_price_is_final($order))) {
+    http_response_code(409);
+    echo json_encode([
+        'success' => false,
+        'message' => 'The shop must set the final order price before payment proof can be submitted.',
+        'step' => 'price_not_final',
     ]);
     exit;
 }
@@ -272,19 +279,9 @@ if ($submission_token !== '') {
     }
 }
 
-// Validate amount and proof
-$amount = (float)($_POST['amount'] ?? 0);
-$min_required = ($payment_choice === 'half') ? $total_to_pay * 0.5 : $total_to_pay;
-
-if ($amount < $min_required - 0.01) {
-    http_response_code(422);
-    echo json_encode([
-        'success' => false,
-        'message' => 'Amount must be at least ' . ($payment_choice === 'half' ? '50%' : '100%') . ' of the total (' . format_currency($min_required) . ')',
-        'step' => 'amount_validation',
-    ]);
-    exit;
-}
+// The current customer UI is full-payment only. Never trust its hidden amount
+// or payment_choice fields; the authoritative amount is the saved server price.
+$amount = $total_to_pay;
 
 if (!isset($_FILES['payment_proof'])) {
     http_response_code(422);
@@ -326,6 +323,44 @@ if (!$conn->begin_transaction()) {
     throw new RuntimeException('Could not start payment submission transaction.');
 }
 $transaction_started = true;
+
+// Serialize submissions for this order and re-check all mutable payment facts.
+// This prevents two tabs with different form tokens from creating two pending
+// proof rows, and closes the price/payment race between the initial lookup and
+// the transactional status update below.
+$failure_step = 'submission_state_lock';
+$locked_rows = !$is_job
+    ? db_query('SELECT * FROM orders WHERE order_id = ? AND customer_id = ? LIMIT 1 FOR UPDATE', 'ii', [$order_id, $customer_id])
+    : db_query('SELECT * FROM job_orders WHERE id = ? AND customer_id = ? LIMIT 1 FOR UPDATE', 'ii', [$order_id, $customer_id]);
+if (empty($locked_rows)) {
+    throw new RuntimeException('The payment order is unavailable or no longer belongs to this customer.');
+}
+$order = $locked_rows[0];
+$total_to_pay = (float)($is_job ? ($order['estimated_total'] ?? 0) : ($order['total_amount'] ?? 0));
+$amount = $total_to_pay;
+
+$locked_payment_status = strtolower(trim((string)($order['payment_status'] ?? '')));
+$locked_order_status = strtoupper(trim((string)($order['status'] ?? '')));
+$locked_proof_status = strtoupper(trim((string)($order['payment_proof_status'] ?? '')));
+if ($locked_payment_status === 'paid') {
+    $failure_step = 'payment_state_conflict';
+    throw new RuntimeException('This order has already been paid.');
+}
+if ($total_to_pay <= 0 || (!$is_job
+        && in_array(strtolower(trim((string)($order['order_type'] ?? ''))), ['custom', 'service', 'customization'], true)
+        && function_exists('printflow_order_price_is_final')
+        && !printflow_order_price_is_final($order))) {
+    $failure_step = 'price_state_conflict';
+    throw new RuntimeException('The final order price is not available.');
+}
+
+$already_under_review = !$is_job
+    ? ($locked_payment_status === 'payment proof submitted' || $locked_order_status === 'TO VERIFY')
+    : ($locked_payment_status === 'under verification' || $locked_order_status === 'VERIFY_PAY' || $locked_proof_status === 'SUBMITTED');
+if ($already_under_review) {
+    $failure_step = 'duplicate_submission_conflict';
+    throw new RuntimeException('A payment proof is already waiting for staff verification.');
+}
 
 if (!$is_job) {
     // 3. Update regular order
@@ -596,8 +631,16 @@ if ($update_success) {
     ];
     payment_verification_log('submission_failed', $failureContext);
     error_log('[PAYMENT SUBMISSION ERROR] ' . json_encode($failureContext, JSON_UNESCAPED_SLASHES));
-    http_response_code(500);
+    $isConflict = in_array($failure_step, [
+        'duplicate_submission_conflict',
+        'payment_state_conflict',
+        'price_state_conflict',
+    ], true);
+    http_response_code($isConflict ? 409 : 500);
     $stepMessages = [
+        'duplicate_submission_conflict' => 'A payment proof is already waiting for staff verification.',
+        'payment_state_conflict' => 'This order has already been paid.',
+        'price_state_conflict' => 'The shop must set the final order price before payment proof can be submitted.',
         'order_status_update' => 'The order payment status could not be updated. No payment submission was saved.',
         'payment_verification_insert' => 'Payment proof was uploaded, but the verification record could not be created.',
         'transaction_commit' => 'The payment submission could not be committed. Please try again.',

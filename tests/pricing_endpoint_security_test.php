@@ -59,9 +59,11 @@ pricing_security_assert(
     'final prices are parsed as exact centavos instead of permissive floats'
 );
 pricing_security_assert(
-    strpos($api, "status IN ('generating', 'awaiting_payment', 'paid')") !== false
+    strpos($api, 'printflow_paymongo_online_payment_enabled()') !== false
+        && strpos($api, "\"'generating', 'awaiting_payment', 'paid'\"") !== false
+        && strpos($api, ": \"'paid'\"") !== false
         && strpos($api, 'FOR UPDATE') !== false,
-    'price updates lock records and reject active or paid provider sessions'
+    'price updates lock records, ignore stale unpaid PayMongo sessions in manual mode, and always reject paid sessions'
 );
 pricing_security_assert(
     strpos($api, "'PROCESSING', 'IN_PRODUCTION', 'PRINTING'") !== false

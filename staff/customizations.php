@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 if (!defined('BASE_URL')) {
     define('BASE_URL', defined('BASE_PATH') ? BASE_PATH : (function_exists('pf_app_base_path') ? pf_app_base_path() : ''));
@@ -16,6 +17,7 @@ printflow_require_staff_module('customizations');
 if (in_array($_SESSION['user_type'] ?? '', ['Staff', 'Manager'], true)) {
     require_once __DIR__ . '/../includes/staff_pending_check.php';
 }
+$paymongoOnlineEnabled = printflow_paymongo_online_payment_enabled();
 
 $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
 $deepLinkJobType = strtoupper(trim((string)($_GET['job_type'] ?? '')));
@@ -1998,7 +2000,10 @@ $online_closed_count = 0;
                                 <div style="font-size:14px; font-weight:500; color:#1e40af;">Total Outstanding:</div>
                                 <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
                             </div>
-                            <div style="font-size:13px; color:#1e40af; line-height:1.5;" x-text="paymongoPayment && paymongoPayment.status === 'awaiting_payment' ? 'Waiting for PayMongo to confirm the customer payment.' : 'Waiting for the customer to pay. Manual proof is required only when the manual payment option is used.'"></div>
+                            <div style="font-size:13px; color:#1e40af; line-height:1.5;"><?php echo $paymongoOnlineEnabled
+                                ? 'Waiting for PayMongo to confirm the customer payment.'
+                                : 'Waiting for the customer to pay via GCash and upload payment proof. Review the submission in Payment Verification.'; ?></div>
+                            <?php if ($paymongoOnlineEnabled): ?>
                             <div style="margin-top:14px;padding-top:14px;border-top:1px solid #bfdbfe;">
                                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
                                     <strong style="font-size:12px;color:#1e40af;">PayMongo Payment Link</strong>
@@ -2014,6 +2019,11 @@ $online_closed_count = 0;
                                 </div>
                                 <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open PayMongo Checkout</a>
                             </div>
+                            <?php else: ?>
+                            <div style="margin-top:14px;padding:12px 14px;border:1px solid #bfdbfe;background:#ffffff;color:#1e40af;font-size:12px;line-height:1.55;">
+                                Manual GCash is active. No PayMongo link is required. The customer sees the configured GCash QR and amount due on their payment page.
+                            </div>
+                            <?php endif; ?>
                         </div>
                     </template>
 

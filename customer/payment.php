@@ -389,6 +389,8 @@ $payment_verification_summary = payment_verification_customer_summary(
     $is_job_order ? (int)($order['order_id'] ?? 0) : $order_id,
     $is_job_order ? $order_id : 0
 );
+$manual_payment_enabled = printflow_manual_online_payment_enabled();
+$paymongo_online_enabled = printflow_paymongo_online_payment_enabled();
 $paymongo_subject_type = $is_job_order ? 'job_order' : 'order';
 $paymongo_payment = printflow_provider_payment_for_customer(
     $customer_id,
@@ -396,7 +398,8 @@ $paymongo_payment = printflow_provider_payment_for_customer(
     $order_id
 );
 if (!empty($paymongo_payment['id'])
-    && in_array((string)($paymongo_payment['status'] ?? ''), ['awaiting_payment', 'paid'], true)
+    && (($paymongo_payment['status'] ?? '') === 'paid'
+        || ($paymongo_online_enabled && ($paymongo_payment['status'] ?? '') === 'awaiting_payment'))
     && printflow_provider_payment_claim_reconciliation((int)$paymongo_payment['id'], 5)) {
     // Provider GET verification is the return-page fallback. No browser
     // parameter can mark the payment paid.
@@ -441,14 +444,17 @@ if (!$is_job_order) {
     }
 }
 
-$financial_snapshot = printflow_order_financial_snapshot($order, $paymongo_payment);
+$financial_snapshot = printflow_order_financial_snapshot(
+    $order,
+    (($paymongo_payment['status'] ?? '') === 'paid' || $paymongo_online_enabled) ? $paymongo_payment : []
+);
 $paymongo_public = !empty($paymongo_payment)
     ? printflow_provider_payment_public($paymongo_payment)
     : [];
 $paymongo_mode = in_array((string)($paymongo_payment['mode'] ?? ''), ['test', 'live'], true)
     ? (string)$paymongo_payment['mode']
     : printflow_paymongo_mode();
-$paymongo_available = in_array($paymongo_mode, ['test', 'live'], true);
+$paymongo_available = $paymongo_online_enabled && in_array($paymongo_mode, ['test', 'live'], true);
 if (!$is_job_order && !empty($items) && !empty($financial_snapshot['price_is_final'])) {
     $remainingDisplayAmount = $financial_snapshot['amount_due_centavos'] / 100;
     $totalQty = max(1, array_sum(array_map(static fn($line): int => max(1, (int)($line['quantity'] ?? 1)), $items)));
@@ -901,7 +907,9 @@ if (!function_exists('pf_payment_qr_url')) {
                             <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Awaiting Production.</strong><br>Your payment has been received. The shop will begin production after staff confirmation.</p>
                             <button type="button" disabled class="shopee-btn-primary" style="display:block;width:100%;margin-top:18px;padding:11px;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;">Awaiting Production</button>
                         <?php else: ?>
-                            <p style="color: #64748b; font-size: 0.875rem;">This order has already been fully paid.</p>
+                            <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency($total_amount); ?></div>
+                            <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)($order['payment_method'] ?? 'GCash')); ?></p>
+                            <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Payment Approved.</strong><br>Your order is proceeding through production.</p>
                         <?php endif; ?>
                         <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="btn-primary w-full mt-6 text-center block" style="text-decoration: none;">View Order Details</a>
                     </div>
@@ -919,7 +927,6 @@ if (!function_exists('pf_payment_qr_url')) {
                 <?php else: ?>
                     <?php
                     $payment_submission_token = bin2hex(random_bytes(24));
-                    $manual_payment_enabled = printflow_env_bool('MANUAL_PAYMENT_ENABLED', false);
                     ?>
                     <?php if ($paymongo_available): ?>
                         <div id="paymongo-test-payment" style="padding:16px;margin-bottom:20px;border:1px solid #53c5e0;background:#062c38;">
@@ -967,6 +974,12 @@ if (!function_exists('pf_payment_qr_url')) {
 
                         <h2 class="payment-section-title" style="margin-bottom: 1rem; font-size: 1rem;">1. Payment Method — GCash</h2>
                         
+                        <div style="background:rgba(83,197,224,.12);border-left:4px solid #53c5e0;padding:1rem 1.25rem;margin-bottom:1.25rem;">
+                            <div style="font-size:.72rem;font-weight:800;color:#9fc4d4;text-transform:uppercase;letter-spacing:.06em;">Amount Due</div>
+                            <div style="font-size:1.6rem;font-weight:900;color:#eaf6fb;margin-top:.2rem;"><?php echo format_currency($total_amount); ?></div>
+                            <div style="font-size:.8rem;color:#9fc4d4;margin-top:.35rem;">Pay this exact amount using the GCash account below, then upload a screenshot of the completed transaction.</div>
+                        </div>
+
                         <!-- Important Note - Moved above QR code -->
                         <div style="background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.08)); border-left: 4px solid #fbbf24; padding: 1rem 1.25rem; margin-bottom: 1.5rem; border-radius: 0;">
                             <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
@@ -991,14 +1004,6 @@ if (!function_exists('pf_payment_qr_url')) {
                             $prov = strval($m['provider'] ?? '');
                             return stripos($prov, 'gcash') !== false;
                         }));
-
-                        // Fallback: if no GCash entry is found, keep the first enabled method
-                        if (empty($enabled_methods)) {
-                            $enabled_methods = array_values($all_enabled);
-                            if (!empty($enabled_methods)) {
-                                $enabled_methods = [ $enabled_methods[0] ];
-                            }
-                        }
 
                         // Determine if this is a product order (no customization) or service order
                         $is_product_order = true;
@@ -1050,12 +1055,12 @@ if (!function_exists('pf_payment_qr_url')) {
                         <h2 class="payment-section-title" style="margin-bottom: 1rem; font-size: 1rem; color: #eaf6fb;">2. Upload Reference Receipt</h2>
                         
                         <div class="input-group">
-                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/jpeg,image/png,image/webp,application/pdf" required>
+                            <input type="file" name="payment_proof" id="proofInput" style="display: none;" accept="image/jpeg,image/png,image/webp" required>
                             <div id="dropzone" class="dropzone" onclick="document.getElementById('proofInput').click()">
                                 <div id="placeholder" style="display: block;">
                                     <div style="font-size: 2rem; margin-bottom: 0.5rem;">📸</div>
                                     <div class="dz-title">Click to upload receipt</div>
-                                    <div class="dz-sub">JPG, PNG, WEBP or PDF, up to 10 MB</div>
+                                    <div class="dz-sub">JPG, PNG or WEBP image, up to 10 MB</div>
                                 </div>
                                 <div id="preview" style="display: none; align-items: center; justify-content: center; flex-direction: column; width: 100%; overflow: hidden;">
                                     <img id="previewImg" src="" style="max-height: 120px; border-radius: 8px; margin-bottom: 10px; max-width: 100%; object-fit: contain;">
@@ -1064,7 +1069,7 @@ if (!function_exists('pf_payment_qr_url')) {
                             </div>
                         </div>
 
-                        <button type="submit" id="submitBtn" class="shopee-btn-primary" data-methods-disabled="<?php echo empty($enabled_methods) ? '1' : '0'; ?>" style="width: 100%; padding: 0.75rem; white-space: nowrap; text-decoration: none; text-align: center; display: block; font-weight: 700; font-size: 0.9rem; border-radius: 0; border: none; background: #53c5e0 !important; color: #ffffff !important; text-transform: uppercase; letter-spacing: 0.02em; cursor: pointer; box-shadow: 0 4px 12px rgba(83, 197, 224, 0.3); transition: all 0.2s;" <?php echo empty($enabled_methods) ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''; ?> onmouseover="this.style.background='#32a1c4'; this.style.color='#ffffff'" onmouseout="this.style.background='#53c5e0'; this.style.color='#ffffff'">
+                        <button type="submit" id="submitBtn" class="shopee-btn-primary" data-methods-disabled="<?php echo empty($enabled_methods) ? '1' : '0'; ?>" style="width: 100%; padding: 0.75rem; white-space: nowrap; text-decoration: none; text-align: center; display: block; font-weight: 700; font-size: 0.9rem; border-radius: 0; border: none; background: #53c5e0 !important; color: #ffffff !important; text-transform: uppercase; letter-spacing: 0.02em; cursor: pointer; box-shadow: 0 4px 12px rgba(83, 197,224,0.3); transition: all 0.2s;" <?php echo empty($enabled_methods) ? 'disabled aria-disabled="true"' : ''; ?> onmouseover="this.style.background='#32a1c4'; this.style.color='#ffffff'" onmouseout="this.style.background='#53c5e0'; this.style.color='#ffffff'">
                             Submit Payment Proof
                         </button>
                         <div id="submitError" style="display:none; margin-top:0.6rem; font-size:0.8rem; font-weight:700; color:#b91c1c;">Please upload your reference receipt before submitting.</div>
@@ -1268,28 +1273,23 @@ if (!function_exists('pf_payment_qr_url')) {
         proofInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+                const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
                 if (!validTypes.includes(file.type) || file.size > 10 * 1024 * 1024) {
                     e.target.value = '';
-                    showPaymentFeedback('Please choose a JPG, PNG, WEBP, or PDF receipt up to 10 MB.', 'error');
+                    showPaymentFeedback('Please choose a JPG, PNG, or WEBP receipt image up to 10 MB.', 'error');
                     updateSubmitState();
                     return;
                 }
                 fileName.textContent = file.name;
                 placeholder.style.display = 'none';
                 preview.style.display = 'flex';
-                if (file.type === 'application/pdf') {
-                    previewImg.removeAttribute('src');
-                    previewImg.style.display = 'none';
-                } else {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                        previewImg.src = event.target.result;
-                        previewImg.style.display = 'block';
-                        previewImg.style.borderRadius = '0';
-                    };
-                    reader.readAsDataURL(file);
-                }
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    previewImg.src = event.target.result;
+                    previewImg.style.display = 'block';
+                    previewImg.style.borderRadius = '0';
+                };
+                reader.readAsDataURL(file);
             }
             updateSubmitState();
         });

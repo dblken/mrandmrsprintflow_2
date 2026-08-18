@@ -389,6 +389,9 @@ function jo_api_lock_editable_order_price(int $orderId, int $jobOrderId = 0): ar
     // Payment confirmation locks its provider ledger before touching the order.
     // Use the same ordering here to avoid a provider<->order deadlock.
     if (jo_api_provider_payment_table_ready()) {
+        $providerBlockingStatuses = printflow_paymongo_online_payment_enabled()
+            ? "'generating', 'awaiting_payment', 'paid'"
+            : "'paid'";
         $conditions = ['order_id = ?', "(subject_type = 'order' AND subject_id = ?)"];
         $params = [$orderId, $orderId];
         $types = 'ii';
@@ -403,7 +406,7 @@ function jo_api_lock_editable_order_price(int $orderId, int $jobOrderId = 0): ar
             "SELECT id, status FROM provider_payments
              WHERE provider = 'paymongo'
                AND (" . implode(' OR ', $conditions) . ")
-               AND status IN ('generating', 'awaiting_payment', 'paid')
+               AND status IN ({$providerBlockingStatuses})
              ORDER BY id DESC LIMIT 1 FOR UPDATE",
             $types,
             $params
@@ -488,11 +491,14 @@ function jo_api_lock_editable_job_price(int $jobId): array {
         jo_api_lock_editable_order_price($linkedOrderId, $jobId);
     } elseif (jo_api_provider_payment_table_ready()) {
         // Keep the same provider-before-subject lock order for standalone jobs.
+        $providerBlockingStatuses = printflow_paymongo_online_payment_enabled()
+            ? "'generating', 'awaiting_payment', 'paid'"
+            : "'paid'";
         $providerRows = db_query(
             "SELECT id, status FROM provider_payments
              WHERE provider = 'paymongo'
                AND (job_order_id = ? OR (subject_type = 'job_order' AND subject_id = ?))
-               AND status IN ('generating', 'awaiting_payment', 'paid')
+               AND status IN ({$providerBlockingStatuses})
              ORDER BY id DESC LIMIT 1 FOR UPDATE",
             'ii',
             [$jobId, $jobId]

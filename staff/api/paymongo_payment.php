@@ -49,6 +49,15 @@ if ($method === 'POST') {
         echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
         exit;
     }
+    if ($channel === 'online' && !printflow_paymongo_online_payment_enabled()) {
+        http_response_code(409);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Manual GCash payment proof is the active online payment method. PayMongo link creation is disabled.',
+            'online_payment_mode' => printflow_online_payment_mode(),
+        ]);
+        exit;
+    }
     if (($input['action'] ?? '') === 'complete_pos') {
         if ($channel !== 'pos') {
             http_response_code(400);
