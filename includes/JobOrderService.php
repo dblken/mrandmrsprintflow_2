@@ -3009,7 +3009,12 @@ class JobOrderService {
                 require_once __DIR__ . '/payment_verification.php';
                 $proof = payment_verification_resolve_proof($storeOid, (int)$id);
                 if ($proof) {
-                    $order['payment_proof_path'] = $proof['payment_proof_path'];
+                    $order['payment_proof_path'] = payment_verification_staff_proof_url(
+                        (int)($proof['submission_id'] ?? 0),
+                        $storeOid,
+                        (int)$id
+                    );
+                    $order['payment_proof_original_url'] = $order['payment_proof_path'];
                     $order['payment_submitted_amount'] = $proof['payment_submitted_amount'];
                     $order['payment_proof_uploaded_at'] = $proof['payment_proof_uploaded_at'];
                     $order['payment_submission_id'] = $proof['submission_id'];
@@ -3019,7 +3024,8 @@ class JobOrderService {
                 } else {
                     $proofRaw = $row['payment_proof_path'] ?? $row['payment_proof'] ?? '';
                     if ($proofRaw !== '' && $proofRaw !== null) {
-                        $order['payment_proof_path'] = $proofRaw;
+                        $order['payment_proof_path'] = payment_verification_staff_proof_url(0, $storeOid, (int)$id);
+                        $order['payment_proof_original_url'] = $order['payment_proof_path'];
                     }
                     $order['payment_submitted_amount'] = (float)($row['downpayment_amount'] ?? 0);
                     $order['payment_proof_uploaded_at'] = $row['payment_submitted_at'] ?? null;

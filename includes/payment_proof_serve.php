@@ -1,11 +1,127 @@
 <?php
 /**
- * Authorized payment-proof file streaming (staff or owning customer).
+ * Authorized payment-proof file streaming.
  *
- * Canonical implementation used by api_view_proof.php (root) and staff/api_view_proof.php.
+ * Staff pages use an ID-based endpoint. The legacy filename endpoint remains
+ * only for owning customers and never grants staff access by filename.
  */
 
+function printflow_payment_proof_resolve_file(string $storedPath): ?string {
+    if (str_contains($storedPath, "\0")) return null;
+    $normalized = str_replace('\\', '/', trim($storedPath));
+    if ($normalized === '' || preg_match('#(?:^|/)\.\.(?:/|$)#', $normalized)) return null;
+
+    $basename = basename($normalized);
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/', $basename)) return null;
+
+    $projectRoot = dirname(__DIR__);
+    $roots = [
+        $projectRoot . '/uploads/secure_payments',
+        $projectRoot . '/uploads/payments',
+        $projectRoot . '/public/uploads/secure_payments',
+        $projectRoot . '/public/uploads/payments',
+        $projectRoot . '/public/assets/uploads/secure_payments',
+        $projectRoot . '/public/assets/uploads/payments',
+    ];
+
+    foreach ($roots as $root) {
+        $realRoot = realpath($root);
+        if ($realRoot === false) continue;
+        $candidate = $realRoot . DIRECTORY_SEPARATOR . $basename;
+        $realFile = realpath($candidate);
+        if ($realFile === false || !is_file($realFile)) continue;
+
+        $rootPrefix = rtrim(strtolower(str_replace('\\', '/', $realRoot)), '/') . '/';
+        $normalizedRealFile = strtolower(str_replace('\\', '/', $realFile));
+        if (str_starts_with($normalizedRealFile, $rootPrefix)) {
+            return $realFile;
+        }
+    }
+    return null;
+}
+
+function printflow_payment_proof_stream_file(string $storedPath, string $downloadName = ''): void {
+    $filepath = printflow_payment_proof_resolve_file($storedPath);
+    if ($filepath === null) {
+        http_response_code(404);
+        echo 'File not found';
+        exit;
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mime = (string)($finfo->file($filepath) ?: '');
+    $allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!in_array($mime, $allowed, true)) {
+        http_response_code(404);
+        echo 'File not found';
+        exit;
+    }
+    if (str_starts_with($mime, 'image/') && @getimagesize($filepath) === false) {
+        http_response_code(404);
+        echo 'File not found';
+        exit;
+    }
+
+    $extensionByMime = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'application/pdf' => 'pdf',
+    ];
+    $safeName = $downloadName !== ''
+        ? basename($downloadName)
+        : 'payment-proof.' . $extensionByMime[$mime];
+    if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/', $safeName)) {
+        $safeName = 'payment-proof';
+    }
+
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . (string)filesize($filepath));
+    header('Content-Disposition: inline; filename="' . addcslashes($safeName, '"\\') . '"');
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    if ($mime === 'application/pdf') {
+        header("Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'");
+    }
+
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') {
+        readfile($filepath);
+    }
+    exit;
+}
+
+function printflow_payment_proof_staff_can_access(array $record): bool {
+    $role = (string)($_SESSION['user_type'] ?? '');
+    if ($role === 'Admin') return true;
+    if (!in_array($role, ['Staff', 'Manager'], true)) return false;
+    if (!function_exists('printflow_branch_filter_for_user')) return false;
+
+    $staffBranch = (int)(printflow_branch_filter_for_user() ?? 0);
+    if ($staffBranch <= 0) return false;
+    // Prefer the current owning order/job branch over the denormalized
+    // submission snapshot so moved or repaired records cannot widen access.
+    $recordBranch = (int)($record['order_branch_id'] ?? 0);
+    if ($recordBranch <= 0) $recordBranch = (int)($record['job_branch_id'] ?? 0);
+    if ($recordBranch <= 0) $recordBranch = (int)($record['branch_id'] ?? 0);
+    return $recordBranch > 0 && $recordBranch === $staffBranch;
+}
+
 function printflow_serve_payment_proof(): void {
+    if (empty($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo 'Unauthorized';
+        exit;
+    }
+
+    // Staff must use the record-ID endpoint so filenames and storage paths are
+    // never authorization credentials or exposed in staff-facing URLs.
+    if (in_array((string)($_SESSION['user_type'] ?? ''), ['Admin', 'Staff', 'Manager'], true)) {
+        http_response_code(403);
+        echo 'Forbidden';
+        exit;
+    }
+
     $file = rawurldecode((string)($_GET['file'] ?? ''));
     $normalized_file = str_replace('\\', '/', $file);
     $basename = basename($normalized_file);
@@ -16,76 +132,14 @@ function printflow_serve_payment_proof(): void {
         exit;
     }
 
-    $projectRoot = dirname(__DIR__);
-
-    $candidates = [
-        $projectRoot . '/uploads/secure_payments/' . $basename,
-        $projectRoot . '/uploads/payments/' . $basename,
-        $projectRoot . '/public/uploads/payments/' . $basename,
-        $projectRoot . '/public/uploads/secure_payments/' . $basename,
-        $projectRoot . '/public/assets/uploads/payments/' . $basename,
-        $projectRoot . '/public/assets/uploads/secure_payments/' . $basename,
-    ];
-
-    if (strpos($normalized_file, '/printflow/') === 0) {
-        $sub = substr($normalized_file, strlen('/printflow'));
-        $sub = '/' . ltrim((string)$sub, '/');
-        $candidates[] = $projectRoot . $sub;
-        $candidates[] = $projectRoot . '/public/assets' . $sub;
-        $candidates[] = $projectRoot . '/public' . $sub;
-    }
-
-    if (preg_match('#^/?uploads/#i', $normalized_file)) {
-        $rel = '/' . ltrim($normalized_file, '/');
-        $candidates[] = $projectRoot . $rel;
-        $candidates[] = $projectRoot . '/public' . $rel;
-        $candidates[] = $projectRoot . '/public/assets' . $rel;
-    }
-
-    $uploads_pos = stripos($normalized_file, '/uploads/');
-    if ($uploads_pos !== false) {
-        $sub = substr($normalized_file, $uploads_pos);
-        $candidates[] = $projectRoot . $sub;
-        $candidates[] = $projectRoot . '/public/assets' . $sub;
-        $candidates[] = $projectRoot . '/public' . $sub;
-    }
-
-    $filepath = '';
-    foreach ($candidates as $candidate) {
-        if (!is_string($candidate) || $candidate === '' || !is_file($candidate)) {
-            continue;
-        }
-
-        $real = realpath($candidate);
-        if ($real === false) {
-            continue;
-        }
-
-        $real_n = str_replace('\\', '/', strtolower((string)$real));
-
-        if (strpos($real_n, '/uploads/') !== false) {
-            $filepath = $real;
-            break;
-        }
-    }
-
-    if ($filepath === '') {
+    if (printflow_payment_proof_resolve_file($normalized_file) === null) {
         http_response_code(404);
         echo 'File not found';
         exit;
     }
 
-    if (empty($_SESSION['user_id'])) {
-        http_response_code(401);
-        echo 'Unauthorized';
-        exit;
-    }
-
-    // 1. Staff-facing roles (orders / modal)
-    $is_staff = isset($_SESSION['user_type']) && in_array($_SESSION['user_type'], ['Admin', 'Staff', 'Manager'], true);
-
     $is_owner = false;
-    if (!$is_staff && isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'Customer') {
+    if (isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'Customer') {
         $customer_id = (int)$_SESSION['user_id'];
         $has_needs_reset = false;
         if (function_exists('db_table_has_column')) {
@@ -164,24 +218,10 @@ function printflow_serve_payment_proof(): void {
         }
     }
 
-    if (!$is_staff && !$is_owner) {
+    if (!$is_owner) {
         http_response_code(403);
         echo 'Forbidden';
         exit;
     }
-
-    $mime = @mime_content_type($filepath) ?: 'application/octet-stream';
-
-    header('Content-Type: ' . $mime);
-    header('Content-Length: ' . (string)filesize($filepath));
-    header('Content-Disposition: inline; filename="' . addcslashes($basename, '"\\') . '"');
-    header('X-Content-Type-Options: nosniff');
-    if ($mime === 'application/pdf') {
-        header("Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'");
-    }
-    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-    header('Pragma: no-cache');
-
-    readfile($filepath);
-    exit;
+    printflow_payment_proof_stream_file($normalized_file, $basename);
 }

@@ -91,7 +91,7 @@ manual_gcash_assert(
 manual_gcash_assert(
     strpos($staffQueue, 'selected_payment_method') !== false
         && strpos($staffQueue, 'expected_amount') !== false
-        && strpos($staffQueue, 'payment_verification_proof_url') !== false
+        && strpos($staffQueue, 'payment_verification_staff_proof_url') !== false
         && strpos($staffQueue, 'created_at') !== false,
     'staff queue exposes payment method, amount, proof, and submission time'
 );

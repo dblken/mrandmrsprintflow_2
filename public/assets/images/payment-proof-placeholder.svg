@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420" role="img" aria-labelledby="title description">
+  <title id="title">Payment proof unavailable</title>
+  <desc id="description">The payment proof image could not be displayed.</desc>
+  <rect width="640" height="420" fill="#f8fafc"/>
+  <rect x="1" y="1" width="638" height="418" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+  <g fill="none" stroke="#64748b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="228" y="98" width="184" height="146" rx="14"/>
+    <circle cx="280" cy="146" r="17"/>
+    <path d="m246 218 52-49 42 39 27-25 27 25"/>
+    <path d="m276 283 88 0"/>
+  </g>
+  <text x="320" y="335" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#334155">Payment proof unavailable</text>
+  <text x="320" y="368" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#64748b">The order can still be reviewed.</text>
+</svg>

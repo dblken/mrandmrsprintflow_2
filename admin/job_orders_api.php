@@ -1756,14 +1756,10 @@ try {
                 $payment_proof_status = in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'])
                     ? 'VERIFIED' : 'SUBMITTED';
 
-                // Resolve path to URL
-                $raw_path = $cust['payment_proof_path'];
-                if (!preg_match('#^https?://#i', $raw_path)) {
-                    $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_path);
-                } else {
-                    $payment_proof_url = $raw_path;
-                }
+                $payment_proof_url = payment_verification_staff_proof_url(
+                    0,
+                    (int)($cust['order_id'] ?? 0)
+                );
             }
 
             // Use order total if set (price was already approved)
@@ -2232,12 +2228,7 @@ try {
                     $payment_proof_status = 'VERIFIED';
                 }
 
-                if (!preg_match('#^https?://#i', $raw_pp)) {
-                    $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_pp);
-                } else {
-                    $payment_proof_url = $raw_pp;
-                }
+                $payment_proof_url = payment_verification_staff_proof_url(0, $order_id);
             }
 
             $payload = JobOrderService::getStoreOrderItemsPayload($order_id, $serviceOnly, true);

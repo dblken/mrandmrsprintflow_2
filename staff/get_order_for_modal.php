@@ -244,7 +244,11 @@ $verification_status = null;
 if ($proof) {
     $raw_path = $proof['payment_proof_path'];
     if ($raw_path !== '') {
-        $payment_proof_url = payment_verification_proof_url($raw_path);
+        $payment_proof_url = payment_verification_staff_proof_url(
+            (int)($proof['submission_id'] ?? 0),
+            $order_id,
+            (int)$linked_job_id
+        );
         $payment_proof_status = in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true) ? 'VERIFIED' : 'SUBMITTED';
     }
     $payment_submitted_amount = $proof['payment_submitted_amount'];

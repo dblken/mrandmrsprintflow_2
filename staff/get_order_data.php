@@ -65,6 +65,7 @@ register_shutdown_function(function() {
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 function staff_order_data_columns($table) {
     static $cache = [];
@@ -147,12 +148,9 @@ function staff_order_data_payment_proof_url(array $order): ?string {
         return null;
     }
 
-    if (preg_match('#^https?://#i', $proof)) {
-        return $proof;
-    }
-
-    $base = defined('BASE_PATH') ? BASE_PATH : '/printflow';
-    return rtrim($base, '/') . '/staff/api_view_proof.php?file=' . rawurlencode($proof);
+    $orderId = (int)($order['order_id'] ?? 0);
+    $jobOrderId = (int)($order['job_order_id'] ?? 0);
+    return payment_verification_staff_proof_url(0, $orderId, $jobOrderId) ?: null;
 }
 
 try {

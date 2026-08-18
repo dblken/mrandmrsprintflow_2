@@ -2198,6 +2198,29 @@ if (!function_exists('payment_verification_proof_url')) {
     }
 }
 
+if (!function_exists('payment_verification_staff_proof_url')) {
+    function payment_verification_staff_proof_url(
+        int $submissionId = 0,
+        int $orderId = 0,
+        int $jobOrderId = 0,
+        string $variant = 'full'
+    ): string {
+        $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+        $query = [];
+        if ($submissionId > 0) {
+            $query['id'] = $submissionId;
+        } elseif ($jobOrderId > 0) {
+            $query['job_order_id'] = $jobOrderId;
+        } elseif ($orderId > 0) {
+            $query['order_id'] = $orderId;
+        } else {
+            return '';
+        }
+        if ($variant === 'thumbnail') $query['variant'] = 'thumbnail';
+        return $base . '/staff/api/payment_proof_image.php?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+}
+
 if (!function_exists('payment_verification_order_label')) {
     function payment_verification_order_label(array $row): string {
         $orderId = (int)($row['order_id'] ?? 0);

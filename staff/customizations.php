@@ -1743,9 +1743,9 @@ $online_closed_count = 0;
                             <label style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;display:block;margin-bottom:12px;">Payment proof (customer)</label>
                             <div class="payment-proof-preview" @click="previewFile = staffPaymentProofSrc(currentJo)"
                                  style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;max-width:100%;cursor:zoom-in;box-shadow:0 4px 12px rgba(15,23,42,0.06);">
-                                <img :src="staffPaymentProofSrc(currentJo)"
-                                     alt="Payment proof"
-                                     @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment+proof'; $el.style.opacity='0.4'">
+                                 <img :src="staffPaymentProofSrc(currentJo)"
+                                      alt="Payment proof"
+                                      @error="handlePaymentProofImageError($el)">
                             </div>
                         </div>
                     </template>
@@ -1777,9 +1777,9 @@ $online_closed_count = 0;
                                 <template x-if="staffPaymentProofSrc(currentJo)">
                                         <div class="payment-proof-preview" @click="previewFile = staffPaymentProofSrc(currentJo)"
                                              style="display:flex;justify-content:center;line-height:0;background:#fff;border:1px solid #d1d5db;border-radius:12px;overflow:auto;box-shadow:0 8px 18px rgba(15,23,42,0.08);cursor:zoom-in;">
-                                            <img :src="staffPaymentProofSrc(currentJo)"
-                                                 alt="Payment Proof"
-                                                 @error="$el.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/image_broken.php?text=Payment Proof'; $el.style.opacity='0.4'">
+                                             <img :src="staffPaymentProofSrc(currentJo)"
+                                                  alt="Payment Proof"
+                                                  @error="handlePaymentProofImageError($el)">
                                         </div>
                                     </template>
                                 
@@ -3785,8 +3785,21 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             staffPaymentProofSrc(jo) {
                 if (!jo) return '';
+                const submissionId = parseInt(jo.payment_submission_id || 0, 10) || 0;
+                const base = document.body.getAttribute('data-base-url') || '';
+                if (submissionId > 0) {
+                    return base + '/staff/api/payment_proof_image.php?id=' + encodeURIComponent(submissionId);
+                }
                 const raw = (jo.payment_proof_original_url || jo.payment_proof_path || jo.payment_proof || '').trim();
-                return raw ? this.staffResolveMediaUrl(raw) : '';
+                if (!raw || /(?:^|\/)uploads\/secure_payments\//i.test(raw)) return '';
+                return this.staffResolveMediaUrl(raw);
+            },
+            handlePaymentProofImageError(image) {
+                if (!image || image.dataset.proofFallbackApplied === '1') return;
+                image.dataset.proofFallbackApplied = '1';
+                image.src = (document.body.getAttribute('data-base-url') || '') + '/public/assets/images/payment-proof-placeholder.svg';
+                image.style.opacity = '1';
+                image.style.cursor = 'default';
             },
             staffFilenameLooksLikeImage(name) {
                 if (!name) return false;
