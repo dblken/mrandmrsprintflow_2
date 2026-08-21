@@ -89,6 +89,7 @@ function printflow_provider_payment_public(array $payment): array {
         'channel' => (string)($payment['channel'] ?? ''),
         'mode' => $mode,
         'test_mode' => $mode === 'test',
+        'payment_flow' => (string)($payment['payment_flow'] ?? 'payment_link'),
         'status' => $status,
         'payment_status' => $paymentStatus,
         'provider_status' => $providerStatus,
@@ -100,6 +101,8 @@ function printflow_provider_payment_public(array $payment): array {
         'remaining_balance_centavos' => $remaining,
         'currency' => (string)($payment['currency'] ?? 'PHP'),
         'payment_link_id' => (string)($payment['link_id'] ?? ''),
+        'payment_intent_id' => (string)($payment['payment_intent_id'] ?? ''),
+        'payment_method_id' => (string)($payment['payment_method_id'] ?? ''),
         'checkout_url' => $status === 'paid' ? '' : (string)($payment['checkout_url'] ?? ''),
         'provider_payment_id' => $providerPaymentId,
         'payment_reference' => $providerPaymentId,
@@ -170,6 +173,9 @@ function printflow_provider_payment_reconcile(array $payment): array {
             'result' => $result,
             'errors' => empty($result['ok']) ? ['finalization_failed'] : [],
         ];
+    }
+    if ((string)($payment['payment_flow'] ?? 'payment_link') === 'payment_intent') {
+        return printflow_provider_payment_reconcile_intent($payment);
     }
     if ((string)($payment['status'] ?? '') !== 'awaiting_payment'
         || empty($payment['link_id'])) {
@@ -509,6 +515,16 @@ function printflow_provider_payment_create_link(
 
     $existing = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
     if (!empty($existing)) {
+        $existingFlow = (string)($existing['payment_flow'] ?? 'payment_link');
+        if ($existingFlow !== 'payment_link'
+            && in_array((string)$existing['status'], ['generating', 'awaiting_payment', 'paid'], true)) {
+            $conn->rollback();
+            return [
+                'ok' => false,
+                'http_status' => 409,
+                'message' => 'This order already has an active PayMongo Payment Intent.',
+            ];
+        }
         if (in_array((string)$existing['status'], ['awaiting_payment', 'paid'], true)) {
             if ((int)($existing['amount_centavos'] ?? 0) !== $amountCentavos) {
                 $conn->rollback();
@@ -535,11 +551,37 @@ function printflow_provider_payment_create_link(
             }
             $ledgerId = (int)$existing['id'];
         } else {
+            $resetParts = [
+                "status = 'generating'",
+                'amount_centavos = ?',
+                'last_error_code = NULL',
+                'checkout_url = NULL',
+                'link_id = NULL',
+            ];
+            if (db_table_has_column('provider_payments', 'payment_flow')) {
+                $resetParts[] = "payment_flow = 'payment_link'";
+            }
+            if (db_table_has_column('provider_payments', 'payment_status')) {
+                $resetParts[] = "payment_status = 'generating'";
+            }
+            if (db_table_has_column('provider_payments', 'provider_status')) {
+                $resetParts[] = "provider_status = 'generating'";
+            }
+            foreach (['provider_payment_id', 'payment_method', 'reference_number'] as $column) {
+                if (db_table_has_column('provider_payments', $column)) {
+                    $resetParts[] = "{$column} = NULL";
+                }
+            }
+            foreach (['payment_intent_id', 'payment_method_id', 'qr_image_url', 'qr_expires_at', 'client_key'] as $column) {
+                if (db_table_has_column('provider_payments', $column)) {
+                    $resetParts[] = "{$column} = NULL";
+                }
+            }
+            $resetParts[] = 'updated_at = NOW()';
             $claimed = db_execute_affected_rows(
                 "UPDATE provider_payments
-                 SET status = 'generating', amount_centavos = ?, last_error_code = NULL,
-                     checkout_url = NULL, link_id = NULL, updated_at = NOW()
-                 WHERE id = ? AND status IN ('failed', 'cancelled')",
+                 SET " . implode(', ', $resetParts) . "
+                 WHERE id = ? AND status IN ('failed', 'expired', 'cancelled')",
                 'ii',
                 [$amountCentavos, (int)$existing['id']]
             );
@@ -677,6 +719,649 @@ function printflow_provider_payment_create_link(
     ];
 }
 
+function printflow_provider_payment_intent_schema_ready(): bool {
+    foreach ([
+        'payment_flow', 'payment_intent_id', 'payment_method_id', 'qr_image_url',
+        'qr_expires_at', 'client_key', 'idempotency_key', 'payment_status', 'provider_status',
+    ] as $column) {
+        if (!db_table_has_column('provider_payments', $column)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function printflow_provider_payment_creation_error(
+    array $subject,
+    string $channel,
+    string $noun = 'payment request'
+): array {
+    if (empty($subject)) {
+        return ['ok' => false, 'http_status' => 404, 'message' => 'The order was not found.'];
+    }
+    if (strcasecmp((string)($subject['payment_status'] ?? ''), 'Paid') === 0) {
+        return ['ok' => false, 'http_status' => 409, 'message' => 'This order is already paid.'];
+    }
+    $status = strtoupper(str_replace(' ', '_', trim((string)($subject['order_status'] ?? ''))));
+    if (in_array($status, ['CANCELLED', 'REJECTED', 'COMPLETED'], true)) {
+        return ['ok' => false, 'http_status' => 409, 'message' => 'This order can no longer be paid.'];
+    }
+    if ($channel === 'online' && !in_array($status, ['TO_PAY', 'PAYMENT_CONFIRMED'], true)) {
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'message' => "The final price must be approved before creating this {$noun}.",
+        ];
+    }
+    if (function_exists('printflow_order_price_is_final')
+        && !printflow_order_price_is_final($subject)) {
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'message' => "The final price must be approved before creating this {$noun}.",
+        ];
+    }
+    if (printflow_provider_payment_manual_review_pending($subject)) {
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'manual_proof_under_review' => true,
+            'message' => 'A manual payment proof is under review. Resolve it before creating a PayMongo payment.',
+        ];
+    }
+    if (printflow_money_to_centavos($subject['total_amount'] ?? '') < 100) {
+        return [
+            'ok' => false,
+            'http_status' => 400,
+            'message' => 'A final amount of at least PHP 1.00 is required.',
+        ];
+    }
+    return [];
+}
+
+function printflow_provider_payment_create_intent(
+    string $subjectType,
+    int $subjectId,
+    string $channel,
+    int $createdBy,
+    string $paymentMethod = 'qrph'
+): array {
+    global $conn;
+    $paymentMethod = strtolower(trim($paymentMethod));
+    if (!printflow_provider_payments_ready() || !printflow_provider_payment_intent_schema_ready()) {
+        return [
+            'ok' => false,
+            'http_status' => 503,
+            'message' => 'The Payment Intent migration has not been applied.',
+        ];
+    }
+    $mode = printflow_paymongo_mode();
+    if ($mode === '' || !printflow_provider_payment_mode_supported($mode)) {
+        return ['ok' => false, 'http_status' => 503, 'message' => 'PayMongo is not configured for this environment.'];
+    }
+    if (!in_array($channel, ['online', 'pos'], true)
+        || !in_array($subjectType, ['order', 'job_order'], true)) {
+        return ['ok' => false, 'http_status' => 400, 'message' => 'Unsupported payment subject or channel.'];
+    }
+    if ($paymentMethod !== 'qrph'
+        || !in_array($paymentMethod, printflow_paymongo_enabled_methods($mode), true)) {
+        return ['ok' => false, 'http_status' => 400, 'message' => 'QRPh is not enabled for this environment.'];
+    }
+
+    $subject = printflow_provider_payment_load_subject($subjectType, $subjectId);
+    $validation = printflow_provider_payment_creation_error($subject, $channel, 'Payment Intent');
+    if ($validation !== []) {
+        return $validation;
+    }
+
+    $transactionOpen = false;
+    try {
+        $conn->begin_transaction();
+        $transactionOpen = true;
+        $lockRows = $subjectType === 'order'
+            ? (db_query('SELECT order_id FROM orders WHERE order_id = ? FOR UPDATE', 'i', [$subjectId]) ?: [])
+            : (db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [$subjectId]) ?: []);
+        $subject = !empty($lockRows)
+            ? printflow_provider_payment_load_subject($subjectType, $subjectId)
+            : [];
+        $validation = printflow_provider_payment_creation_error($subject, $channel, 'Payment Intent');
+        if ($validation !== []) {
+            $conn->rollback();
+            $transactionOpen = false;
+            return $validation;
+        }
+        $amountCentavos = printflow_money_to_centavos($subject['total_amount'] ?? '');
+
+        $crossModeRows = db_query(
+            "SELECT id FROM provider_payments
+             WHERE subject_type = ? AND subject_id = ? AND channel = ?
+               AND provider = 'paymongo' AND mode <> ?
+               AND status IN ('generating', 'awaiting_payment', 'paid')
+             ORDER BY id DESC LIMIT 1 FOR UPDATE",
+            'siss',
+            [$subjectType, $subjectId, $channel, $mode]
+        ) ?: [];
+        if (!empty($crossModeRows)) {
+            $conn->rollback();
+            $transactionOpen = false;
+            return [
+                'ok' => false,
+                'http_status' => 409,
+                'message' => 'This order already has a PayMongo payment in another environment.',
+            ];
+        }
+
+        $existing = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
+        $ledgerId = 0;
+        $reuseIntent = false;
+        $preparedForAttachment = false;
+        if (!empty($existing)) {
+            $sameFlow = (string)($existing['payment_flow'] ?? 'payment_link') === 'payment_intent';
+            $sameMethod = (string)($existing['payment_method'] ?? '') === $paymentMethod;
+            if (in_array((string)$existing['status'], ['awaiting_payment', 'paid'], true)) {
+                if (!$sameFlow || !$sameMethod) {
+                    $conn->rollback();
+                    $transactionOpen = false;
+                    return [
+                        'ok' => false,
+                        'http_status' => 409,
+                        'message' => 'This order already has an active PayMongo Payment Link or another payment flow.',
+                    ];
+                }
+                if ((int)($existing['amount_centavos'] ?? 0) !== $amountCentavos) {
+                    $conn->rollback();
+                    $transactionOpen = false;
+                    return [
+                        'ok' => false,
+                        'http_status' => 409,
+                        'message' => 'The final price no longer matches the existing Payment Intent.',
+                    ];
+                }
+                $qrIsUsable = !empty($existing['qr_image_url'])
+                    && (empty($existing['qr_expires_at'])
+                        || strtotime((string)$existing['qr_expires_at']) > time());
+                if ((string)$existing['status'] === 'paid' || $qrIsUsable) {
+                    $conn->commit();
+                    $transactionOpen = false;
+                    return [
+                        'ok' => true,
+                        'reused' => true,
+                        'ledger' => $existing,
+                        'payment' => printflow_provider_payment_public($existing),
+                    ];
+                }
+                $ledgerId = (int)$existing['id'];
+                $reuseIntent = !empty($existing['payment_intent_id']) && !empty($existing['client_key']);
+                $claimed = db_execute_affected_rows(
+                    "UPDATE provider_payments
+                     SET status = 'generating', payment_status = 'generating', provider_status = 'generating',
+                         payment_method_id = NULL, qr_image_url = NULL, qr_expires_at = NULL,
+                         last_error_code = NULL, reconciliation_error_code = NULL, updated_at = NOW()
+                     WHERE id = ? AND status = 'awaiting_payment'",
+                    'i',
+                    [$ledgerId]
+                );
+                if ($claimed !== 1) {
+                    $conn->rollback();
+                    $transactionOpen = false;
+                    return ['ok' => false, 'http_status' => 409, 'message' => 'QRPh regeneration is already in progress.'];
+                }
+                $preparedForAttachment = true;
+            }
+            if ($ledgerId <= 0) {
+                $ledgerId = (int)$existing['id'];
+            }
+            if (!$preparedForAttachment && (string)$existing['status'] === 'generating') {
+                $claimed = db_execute_affected_rows(
+                    "UPDATE provider_payments SET updated_at = NOW()
+                     WHERE id = ? AND status = 'generating'
+                       AND updated_at <= DATE_SUB(NOW(), INTERVAL 2 MINUTE)",
+                    'i',
+                    [$ledgerId]
+                );
+                if ($claimed !== 1) {
+                    $conn->rollback();
+                    $transactionOpen = false;
+                    return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
+                }
+                $reuseIntent = $sameFlow && !empty($existing['payment_intent_id']) && !empty($existing['client_key']);
+            } elseif (!$preparedForAttachment) {
+                $reuseIntent = $sameFlow
+                    && !empty($existing['payment_intent_id'])
+                    && !empty($existing['client_key']);
+                $claimed = db_execute_affected_rows(
+                    "UPDATE provider_payments
+                     SET status = 'generating', payment_status = 'generating', provider_status = 'generating',
+                         payment_flow = 'payment_intent', payment_method = ?, amount_centavos = ?,
+                         link_id = NULL, checkout_url = NULL, provider_payment_id = NULL,
+                         payment_method_id = NULL, qr_image_url = NULL, qr_expires_at = NULL,
+                         last_error_code = NULL, reconciliation_error_code = NULL, updated_at = NOW()
+                     WHERE id = ? AND status IN ('failed', 'expired', 'cancelled')",
+                    'sii',
+                    [$paymentMethod, $amountCentavos, $ledgerId]
+                );
+                if ($claimed !== 1) {
+                    $conn->rollback();
+                    $transactionOpen = false;
+                    return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
+                }
+            }
+        } else {
+            $created = db_execute(
+                "INSERT INTO provider_payments
+                    (subject_type, subject_id, order_id, job_order_id, customer_id, branch_id,
+                     channel, mode, amount_centavos, status, payment_status, provider_status,
+                     payment_flow, payment_method, created_by)
+                 VALUES (?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, NULLIF(?, 0), ?, ?, ?,
+                         'generating', 'generating', 'generating', 'payment_intent', ?, ?)",
+                'siiiiissisi',
+                [
+                    $subjectType,
+                    $subjectId,
+                    (int)($subject['order_id'] ?? 0),
+                    (int)($subject['job_order_id'] ?? 0),
+                    (int)$subject['customer_id'],
+                    (int)($subject['branch_id'] ?? 0),
+                    $channel,
+                    $mode,
+                    $amountCentavos,
+                    $paymentMethod,
+                    $createdBy,
+                ]
+            );
+            if (!$created) {
+                $conn->rollback();
+                $transactionOpen = false;
+                return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
+            }
+            $ledgerId = (int)$conn->insert_id;
+        }
+
+        $orderId = (int)($subject['order_id'] ?? 0);
+        $identity = $orderId > 0 ? 'order-' . $orderId : 'job-order-' . $subjectId;
+        $idempotencyKey = 'printflow-intent-' . $mode . '-' . $identity
+            . '-ledger-' . $ledgerId . '-' . $paymentMethod;
+        if (!db_execute(
+            'UPDATE provider_payments SET idempotency_key = ? WHERE id = ?',
+            'si',
+            [$idempotencyKey, $ledgerId]
+        )) {
+            throw new RuntimeException('The Payment Intent idempotency key could not be stored.');
+        }
+        $conn->commit();
+        $transactionOpen = false;
+
+        if (!$reuseIntent) {
+            $intent = printflow_paymongo_create_payment_intent(
+                $amountCentavos,
+                'Mr. and Mrs. Print ' . ($subjectType === 'order' ? 'Order' : 'Job Order') . " #{$subjectId}",
+                [
+                    'printflow_payment_id' => (string)$ledgerId,
+                    'subject_type' => $subjectType,
+                    'subject_id' => (string)$subjectId,
+                    'order_id' => (string)$orderId,
+                    'job_order_id' => (string)((int)($subject['job_order_id'] ?? 0)),
+                    'customer_id' => (string)((int)$subject['customer_id']),
+                    'channel' => $channel,
+                    'mode' => $mode,
+                    'payment_flow' => 'payment_intent',
+                    'payment_method' => $paymentMethod,
+                ],
+                [$paymentMethod],
+                $mode,
+                $idempotencyKey
+            );
+            $validIntent = !empty($intent['ok'])
+                && (bool)($intent['livemode'] ?? true) === ($mode === 'live')
+                && !empty($intent['id'])
+                && !empty($intent['client_key'])
+                && (int)($intent['amount'] ?? 0) === $amountCentavos
+                && strtoupper((string)($intent['currency'] ?? '')) === 'PHP';
+            if (!$validIntent) {
+                $errorCode = substr((string)($intent['error_code'] ?? 'intent_creation_failed'), 0, 100);
+                printflow_provider_payment_mark_failed($ledgerId, $errorCode, 'intent_creation_failed');
+                return [
+                    'ok' => false,
+                    'http_status' => (int)($intent['http_status'] ?? 502),
+                    'message' => (string)($intent['message'] ?? 'PayMongo could not create the Payment Intent.'),
+                    'error_code' => $errorCode,
+                ];
+            }
+            $stored = db_execute(
+                "UPDATE provider_payments
+                 SET payment_intent_id = ?, client_key = ?, provider_status = ?,
+                     last_error_code = NULL, updated_at = NOW()
+                 WHERE id = ? AND status = 'generating'",
+                'sssi',
+                [(string)$intent['id'], (string)$intent['client_key'], (string)$intent['status'], $ledgerId]
+            );
+            if (!$stored) {
+                return [
+                    'ok' => false,
+                    'http_status' => 500,
+                    'message' => 'The Payment Intent was created but could not be saved. Do not retry until staff reconciles it.',
+                    'error_code' => 'intent_persistence_failed',
+                ];
+            }
+        }
+
+        $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+        $ledger = $rows[0] ?? [];
+        return [
+            'ok' => !empty($ledger),
+            'reused' => $reuseIntent,
+            'ledger' => $ledger,
+            'payment' => printflow_provider_payment_public($ledger),
+        ];
+    } catch (Throwable $error) {
+        if ($transactionOpen) {
+            $conn->rollback();
+        }
+        error_log('PayMongo Payment Intent preparation failed for subject #' . $subjectId);
+        return ['ok' => false, 'http_status' => 500, 'message' => 'The Payment Intent could not be prepared safely.'];
+    }
+}
+
+function printflow_provider_payment_create_qrph(
+    string $subjectType,
+    int $subjectId,
+    string $channel,
+    int $createdBy,
+    int $expirySeconds = 1800
+): array {
+    $expirySeconds = max(60, min(9000, $expirySeconds));
+    $intentResult = printflow_provider_payment_create_intent(
+        $subjectType,
+        $subjectId,
+        $channel,
+        $createdBy,
+        'qrph'
+    );
+    if (empty($intentResult['ok'])) {
+        return $intentResult;
+    }
+    $ledger = isset($intentResult['ledger']) && is_array($intentResult['ledger'])
+        ? $intentResult['ledger']
+        : [];
+    $ledgerId = (int)($ledger['id'] ?? 0);
+    if ($ledgerId <= 0) {
+        return ['ok' => false, 'http_status' => 500, 'message' => 'The payment ledger could not be loaded.'];
+    }
+    if ((string)($ledger['status'] ?? '') === 'paid') {
+        return [
+            'ok' => true,
+            'reused' => true,
+            'payment' => printflow_provider_payment_public($ledger),
+            'qr_image_url' => '',
+            'qr_expires_at' => $ledger['qr_expires_at'] ?? null,
+        ];
+    }
+    if ((string)($ledger['status'] ?? '') === 'awaiting_payment'
+        && !empty($ledger['qr_image_url'])
+        && (empty($ledger['qr_expires_at']) || strtotime((string)$ledger['qr_expires_at']) > time())) {
+        return [
+            'ok' => true,
+            'reused' => true,
+            'payment' => printflow_provider_payment_public($ledger),
+            'qr_image_url' => (string)$ledger['qr_image_url'],
+            'qr_expires_at' => $ledger['qr_expires_at'],
+        ];
+    }
+
+    $mode = (string)$ledger['mode'];
+    $paymentMethod = printflow_paymongo_create_payment_method(
+        'qrph',
+        [],
+        $expirySeconds,
+        $mode,
+        ''
+    );
+    $validMethod = !empty($paymentMethod['ok'])
+        && (bool)($paymentMethod['livemode'] ?? true) === ($mode === 'live')
+        && (string)($paymentMethod['type'] ?? '') === 'qrph'
+        && !empty($paymentMethod['id']);
+    if (!$validMethod) {
+        $errorCode = substr((string)($paymentMethod['error_code'] ?? 'payment_method_creation_failed'), 0, 100);
+        printflow_provider_payment_mark_failed($ledgerId, $errorCode, 'payment_method_creation_failed');
+        return [
+            'ok' => false,
+            'http_status' => (int)($paymentMethod['http_status'] ?? 502),
+            'message' => (string)($paymentMethod['message'] ?? 'PayMongo could not create the QRPh Payment Method.'),
+            'error_code' => $errorCode,
+        ];
+    }
+    if (!db_execute(
+        "UPDATE provider_payments SET payment_method_id = ?, updated_at = NOW()
+         WHERE id = ? AND status = 'generating' AND payment_intent_id = ?",
+        'sis',
+        [(string)$paymentMethod['id'], $ledgerId, (string)$ledger['payment_intent_id']]
+    )) {
+        printflow_provider_payment_mark_failed($ledgerId, 'payment_method_persistence_failed', 'payment_method_persistence_failed');
+        return [
+            'ok' => false,
+            'http_status' => 500,
+            'message' => 'The QRPh Payment Method was created but could not be saved.',
+            'error_code' => 'payment_method_persistence_failed',
+        ];
+    }
+
+    $attached = printflow_paymongo_attach_payment_method(
+        (string)$ledger['payment_intent_id'],
+        (string)$paymentMethod['id'],
+        (string)$ledger['client_key'],
+        $mode,
+        ''
+    );
+    $validAttachment = !empty($attached['ok'])
+        && (bool)($attached['livemode'] ?? true) === ($mode === 'live')
+        && (string)($attached['id'] ?? '') === (string)$ledger['payment_intent_id']
+        && (int)($attached['amount'] ?? 0) === (int)$ledger['amount_centavos']
+        && strtoupper((string)($attached['currency'] ?? '')) === 'PHP'
+        && (string)($attached['status'] ?? '') === 'awaiting_next_action'
+        && !empty($attached['qr_image_url']);
+    if (!$validAttachment) {
+        $errorCode = substr((string)($attached['error_code'] ?? 'payment_method_attach_failed'), 0, 100);
+        printflow_provider_payment_mark_failed($ledgerId, $errorCode, 'payment_method_attach_failed');
+        return [
+            'ok' => false,
+            'http_status' => (int)($attached['http_status'] ?? 502),
+            'message' => (string)($attached['message'] ?? 'PayMongo could not attach the QRPh Payment Method.'),
+            'error_code' => $errorCode,
+        ];
+    }
+
+    $expiresAt = date('Y-m-d H:i:s', time() + $expirySeconds);
+    $stored = db_execute(
+        "UPDATE provider_payments
+         SET status = 'awaiting_payment', payment_status = 'awaiting_payment', provider_status = ?,
+             qr_image_url = ?, qr_expires_at = ?, last_error_code = NULL,
+             reconciliation_error_code = NULL, updated_at = NOW()
+         WHERE id = ? AND status = 'generating' AND payment_intent_id = ? AND payment_method_id = ?",
+        'sssiss',
+        [
+            (string)$attached['status'],
+            (string)$attached['qr_image_url'],
+            $expiresAt,
+            $ledgerId,
+            (string)$ledger['payment_intent_id'],
+            (string)$paymentMethod['id'],
+        ]
+    );
+    if (!$stored) {
+        return [
+            'ok' => false,
+            'http_status' => 500,
+            'message' => 'The QRPh code was created but could not be saved. Do not retry until staff reconciles it.',
+            'error_code' => 'qrph_persistence_failed',
+        ];
+    }
+    $rows = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+    return [
+        'ok' => true,
+        'reused' => false,
+        'payment' => printflow_provider_payment_public($rows[0] ?? []),
+        'qr_image_url' => (string)$attached['qr_image_url'],
+        'qr_expires_at' => $expiresAt,
+    ];
+}
+
+function printflow_provider_payment_reconcile_intent(array $payment): array {
+    $ledgerId = (int)($payment['id'] ?? 0);
+    $intentId = (string)($payment['payment_intent_id'] ?? '');
+    $mode = (string)($payment['mode'] ?? '');
+    if ($ledgerId <= 0 || !preg_match('/^pi_[A-Za-z0-9_-]+$/', $intentId)) {
+        return ['ok' => false, 'paid' => false, 'errors' => ['payment_intent_id']];
+    }
+    $intent = printflow_paymongo_get_payment_intent($intentId, $mode);
+    $errors = [];
+    if (empty($intent['ok']) || (string)($intent['id'] ?? '') !== $intentId) {
+        $errors[] = 'payment_intent';
+    }
+    if ((bool)($intent['livemode'] ?? ($mode !== 'live')) !== ($mode === 'live')
+        || (string)($intent['mode'] ?? $mode) !== $mode) {
+        $errors[] = 'livemode';
+    }
+    if ((int)($intent['amount'] ?? 0) !== (int)($payment['amount_centavos'] ?? 0)) {
+        $errors[] = 'amount';
+    }
+    if (strtoupper((string)($intent['currency'] ?? '')) !== 'PHP') {
+        $errors[] = 'currency';
+    }
+    $metadata = isset($intent['metadata']) && is_array($intent['metadata']) ? $intent['metadata'] : [];
+    if (isset($metadata['printflow_payment_id'])
+        && (int)$metadata['printflow_payment_id'] !== $ledgerId) {
+        $errors[] = 'metadata';
+    }
+    if ($errors !== []) {
+        printflow_provider_payment_set_reconciliation_error($ledgerId, $errors);
+        return ['ok' => false, 'paid' => false, 'errors' => array_values(array_unique($errors))];
+    }
+
+    $status = strtolower((string)($intent['status'] ?? ''));
+    db_execute(
+        'UPDATE provider_payments SET provider_status = ?, updated_at = NOW() WHERE id = ?',
+        'si',
+        [$status, $ledgerId]
+    );
+    if ($status === 'succeeded') {
+        $providerPaymentId = (string)($intent['payment_id'] ?? '');
+        if (!preg_match('/^pay_[A-Za-z0-9_-]+$/', $providerPaymentId)) {
+            printflow_provider_payment_set_reconciliation_error($ledgerId, ['provider_payment_id']);
+            return ['ok' => false, 'paid' => false, 'errors' => ['provider_payment_id']];
+        }
+        $verified = printflow_paymongo_get_payment($providerPaymentId, $mode);
+        $paymentIntentId = (string)($verified['payment_intent_id'] ?? '');
+        $errors = printflow_provider_payment_revalidation_errors($payment, $verified);
+        if ($paymentIntentId !== '' && $paymentIntentId !== $intentId) {
+            $errors[] = 'payment_intent';
+        }
+        if ($errors !== []) {
+            printflow_provider_payment_set_reconciliation_error($ledgerId, $errors);
+            return ['ok' => false, 'paid' => false, 'errors' => array_values(array_unique($errors))];
+        }
+        $result = printflow_provider_payment_mark_paid(
+            $ledgerId,
+            $providerPaymentId,
+            (string)($verified['payment_method'] ?? 'qrph'),
+            (int)($verified['amount'] ?? 0),
+            (string)($verified['reference_number'] ?? ''),
+            $verified['provider_paid_at'] ?? null
+        );
+        printflow_provider_payment_set_reconciliation_error(
+            $ledgerId,
+            empty($result['ok']) ? ['finalization_failed'] : []
+        );
+        return [
+            'ok' => !empty($result['ok']),
+            'paid' => !empty($result['ok']),
+            'result' => $result,
+            'errors' => empty($result['ok']) ? ['finalization_failed'] : [],
+        ];
+    }
+    if (in_array($status, ['failed', 'cancelled'], true)) {
+        $result = printflow_provider_payment_mark_failed($ledgerId, 'provider_' . $status, 'provider_' . $status);
+        return ['ok' => !empty($result['ok']), 'paid' => false, 'result' => $result, 'errors' => []];
+    }
+    if (!empty($payment['qr_expires_at']) && strtotime((string)$payment['qr_expires_at']) <= time()) {
+        $result = printflow_provider_payment_mark_expired($ledgerId, 'qrph_expired');
+        return ['ok' => !empty($result['ok']), 'paid' => false, 'result' => $result, 'errors' => []];
+    }
+    printflow_provider_payment_set_reconciliation_error($ledgerId, []);
+    return ['ok' => true, 'paid' => false, 'errors' => [], 'provider_status' => $status];
+}
+
+function printflow_provider_payment_mark_terminal(
+    int $ledgerId,
+    string $status,
+    string $errorCode,
+    string $providerStatus
+): array {
+    global $conn;
+    if ($ledgerId <= 0 || !in_array($status, ['failed', 'expired'], true)) {
+        return ['ok' => false, 'message' => 'Invalid terminal payment state.'];
+    }
+    $errorCode = substr((string)preg_replace('/[^a-z0-9_-]/i', '', $errorCode), 0, 100);
+    $providerStatus = substr((string)preg_replace('/[^a-z0-9_-]/i', '', $providerStatus), 0, 30);
+    $transactionOpen = false;
+    try {
+        $conn->begin_transaction();
+        $transactionOpen = true;
+        $rows = db_query('SELECT * FROM provider_payments WHERE id = ? FOR UPDATE', 'i', [$ledgerId]) ?: [];
+        if (empty($rows)) {
+            throw new RuntimeException('Payment record not found.');
+        }
+        $payment = $rows[0];
+        if ((string)($payment['status'] ?? '') === 'paid') {
+            $conn->commit();
+            return ['ok' => true, 'already_processed' => true, 'payment' => $payment];
+        }
+        $oldStatus = (string)($payment['status'] ?? '');
+        if (!db_execute(
+            "UPDATE provider_payments
+             SET status = ?, payment_status = ?, provider_status = ?, last_error_code = ?, updated_at = NOW()
+             WHERE id = ? AND status <> 'paid'",
+            'ssssi',
+            [$status, $status, $providerStatus !== '' ? $providerStatus : $status, $errorCode ?: null, $ledgerId]
+        )) {
+            throw new RuntimeException('Payment terminal state could not be saved.');
+        }
+        printflow_provider_payment_record_transition(
+            $ledgerId,
+            (int)($payment['order_id'] ?? 0),
+            'payment_' . $status,
+            $oldStatus,
+            $status,
+            'PayMongo',
+            0
+        );
+        $conn->commit();
+        $transactionOpen = false;
+        $refreshed = db_query('SELECT * FROM provider_payments WHERE id = ? LIMIT 1', 'i', [$ledgerId]) ?: [];
+        return ['ok' => true, 'already_processed' => $oldStatus === $status, 'payment' => $refreshed[0] ?? $payment];
+    } catch (Throwable $error) {
+        if ($transactionOpen) {
+            $conn->rollback();
+        }
+        error_log('PayMongo terminal state update failed for ledger #' . $ledgerId);
+        return ['ok' => false, 'message' => 'The payment state could not be updated.'];
+    }
+}
+
+function printflow_provider_payment_mark_failed(
+    int $ledgerId,
+    string $errorCode = 'payment_failed',
+    string $providerStatus = 'failed'
+): array {
+    return printflow_provider_payment_mark_terminal($ledgerId, 'failed', $errorCode, $providerStatus);
+}
+
+function printflow_provider_payment_mark_expired(
+    int $ledgerId,
+    string $providerStatus = 'qrph_expired'
+): array {
+    return printflow_provider_payment_mark_terminal($ledgerId, 'expired', 'qrph_expired', $providerStatus);
+}
+
 function printflow_provider_payment_mark_paid(
     int $ledgerId,
     string $providerPaymentId,
@@ -742,6 +1427,10 @@ function printflow_provider_payment_mark_paid(
         }
 
         $alreadyPaid = (string)($payment['status'] ?? '') === 'paid';
+        if ($alreadyPaid && !empty($payment['provider_payment_id'])
+            && (string)$payment['provider_payment_id'] !== $providerPaymentId) {
+            throw new RuntimeException('The payment was already finalized with a different provider transaction.');
+        }
         $normalizedMethod = strtolower(trim($paymentMethod));
         if (!preg_match('/^[a-z0-9_-]{2,30}$/', $normalizedMethod)) {
             $normalizedMethod = strtolower(trim((string)($payment['payment_method'] ?? '')));

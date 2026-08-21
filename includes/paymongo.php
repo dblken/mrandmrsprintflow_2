@@ -44,6 +44,26 @@ if (!function_exists('printflow_paymongo_secret_key_for_mode')) {
     }
 }
 
+if (!function_exists('printflow_paymongo_public_key_for_mode')) {
+    function printflow_paymongo_public_key_for_mode(string $mode): string {
+        $mode = strtolower(trim($mode));
+        if (!in_array($mode, ['test', 'live'], true)) {
+            return '';
+        }
+
+        $specific = printflow_paymongo_env(
+            $mode === 'live' ? 'PAYMONGO_LIVE_PUBLIC_KEY' : 'PAYMONGO_TEST_PUBLIC_KEY'
+        );
+        $expectedPrefix = $mode === 'live' ? 'pk_live_' : 'pk_test_';
+        if ($specific !== '' && str_starts_with($specific, $expectedPrefix)) {
+            return $specific;
+        }
+
+        $legacy = printflow_paymongo_env('PAYMONGO_PUBLIC_KEY');
+        return $legacy !== '' && str_starts_with($legacy, $expectedPrefix) ? $legacy : '';
+    }
+}
+
 if (!function_exists('printflow_paymongo_live_enabled')) {
     function printflow_paymongo_live_enabled(): bool {
         $value = strtolower(printflow_paymongo_env('PAYMONGO_LIVE_ENABLED'));
@@ -142,8 +162,8 @@ if (!function_exists('printflow_paymongo_diagnostic_flags')) {
     function printflow_paymongo_diagnostic_flags(): array {
         return [
             'public_key_set' => printflow_paymongo_env('PAYMONGO_PUBLIC_KEY') !== '',
-            'test_public_key_set' => printflow_paymongo_env('PAYMONGO_TEST_PUBLIC_KEY') !== '',
-            'live_public_key_set' => printflow_paymongo_env('PAYMONGO_LIVE_PUBLIC_KEY') !== '',
+            'test_public_key_set' => printflow_paymongo_public_key_for_mode('test') !== '',
+            'live_public_key_set' => printflow_paymongo_public_key_for_mode('live') !== '',
             'secret_key_set' => printflow_paymongo_env('PAYMONGO_SECRET_KEY') !== '',
             'test_secret_key_set' => printflow_paymongo_secret_key_for_mode('test') !== '',
             'live_secret_key_set' => printflow_paymongo_secret_key_for_mode('live') !== '',
@@ -157,13 +177,162 @@ if (!function_exists('printflow_paymongo_diagnostic_flags')) {
     }
 }
 
+if (!function_exists('printflow_paymongo_safe_metadata')) {
+    function printflow_paymongo_safe_metadata(array $metadata): array {
+        $safeMetadata = [];
+        foreach ($metadata as $key => $value) {
+            $safeKey = preg_replace('/[^A-Za-z0-9_.-]/', '_', (string)$key);
+            if ($safeKey === '') {
+                continue;
+            }
+            $safeMetadata[substr($safeKey, 0, 40)] = substr((string)$value, 0, 255);
+        }
+        return $safeMetadata;
+    }
+}
+
+if (!function_exists('printflow_paymongo_normalize_payment_intent')) {
+    function printflow_paymongo_normalize_payment_intent(array $data, string $mode, int $httpCode): array {
+        $attributes = isset($data['attributes']) && is_array($data['attributes'])
+            ? $data['attributes']
+            : [];
+        $candidateId = trim((string)($data['id'] ?? ''));
+        $paymentIds = [];
+        foreach (($attributes['payments'] ?? []) as $payment) {
+            if (is_string($payment)) {
+                $paymentId = trim($payment);
+            } elseif (is_array($payment)) {
+                $paymentId = trim((string)($payment['id'] ?? $payment['data']['id'] ?? ''));
+            } else {
+                continue;
+            }
+            if (preg_match('/^pay_[A-Za-z0-9_-]+$/', $paymentId)) {
+                $paymentIds[] = $paymentId;
+            }
+        }
+        $nextAction = isset($attributes['next_action']) && is_array($attributes['next_action'])
+            ? $attributes['next_action']
+            : [];
+        $code = isset($nextAction['code']) && is_array($nextAction['code'])
+            ? $nextAction['code']
+            : [];
+        $imageUrl = trim((string)($code['image_url'] ?? ''));
+        if (!preg_match('#^data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=\r\n]+$#', $imageUrl)
+            || strlen($imageUrl) > 2000000) {
+            $imageUrl = '';
+        }
+
+        return [
+            'ok' => true,
+            'mode' => $mode,
+            'test_mode' => $mode === 'test',
+            'http_status' => $httpCode,
+            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'id' => preg_match('/^pi_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
+            'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
+            'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
+            'status' => strtolower(trim((string)($attributes['status'] ?? ''))),
+            'client_key' => substr(trim((string)($attributes['client_key'] ?? '')), 0, 255),
+            'payment_ids' => array_values(array_unique($paymentIds)),
+            'payment_id' => (string)(end($paymentIds) ?: ''),
+            'qr_image_url' => $imageUrl,
+            'metadata' => isset($attributes['metadata']) && is_array($attributes['metadata'])
+                ? $attributes['metadata']
+                : [],
+        ];
+    }
+}
+
+if (!function_exists('printflow_paymongo_normalize_payment_method')) {
+    function printflow_paymongo_normalize_payment_method(array $data, string $mode, int $httpCode): array {
+        $attributes = isset($data['attributes']) && is_array($data['attributes'])
+            ? $data['attributes']
+            : [];
+        $candidateId = trim((string)($data['id'] ?? ''));
+        $type = strtolower(trim((string)($attributes['type'] ?? '')));
+        return [
+            'ok' => true,
+            'mode' => $mode,
+            'test_mode' => $mode === 'test',
+            'http_status' => $httpCode,
+            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'id' => preg_match('/^pm_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
+            'type' => preg_match('/^[a-z0-9_-]{2,30}$/', $type) ? $type : '',
+        ];
+    }
+}
+
+if (!function_exists('printflow_paymongo_normalize_payment')) {
+    function printflow_paymongo_normalize_payment(array $data, string $mode, int $httpCode): array {
+        $attributes = isset($data['attributes']) && is_array($data['attributes'])
+            ? $data['attributes']
+            : [];
+        $candidateId = trim((string)($data['id'] ?? ''));
+        $source = isset($attributes['source']) && is_array($attributes['source'])
+            ? $attributes['source']
+            : [];
+        $method = strtolower(trim((string)(
+            $attributes['payment_method_used'] ?? $source['type'] ?? ''
+        )));
+        $paymentMethodId = trim((string)(
+            $attributes['payment_method_id']
+            ?? $attributes['payment_method']['id']
+            ?? $attributes['payment_method']['data']['id']
+            ?? ''
+        ));
+        $paidAt = $attributes['paid_at'] ?? null;
+        if (is_numeric($paidAt)) {
+            $paidAt = gmdate('Y-m-d H:i:s', (int)$paidAt);
+        } elseif (is_string($paidAt) && $paidAt !== '') {
+            $paidAt = substr(str_replace('T', ' ', (string)preg_replace('/(?:\.\d+)?Z$/', '', $paidAt)), 0, 19);
+        } else {
+            $paidAt = null;
+        }
+        $status = strtolower(trim((string)($attributes['status'] ?? '')));
+        return [
+            'ok' => true,
+            'mode' => $mode,
+            'test_mode' => $mode === 'test',
+            'http_status' => $httpCode,
+            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'paid' => $status === 'paid',
+            'payment_id' => preg_match('/^pay_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
+            'payment_intent_id' => preg_match(
+                '/^pi_[A-Za-z0-9_-]+$/',
+                (string)($attributes['payment_intent_id'] ?? '')
+            ) ? (string)$attributes['payment_intent_id'] : '',
+            'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
+            'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
+            'status' => $status,
+            'payment_method' => preg_match('/^[a-z0-9_-]{2,30}$/', $method) ? $method : '',
+            'payment_method_id' => preg_match('/^pm_[A-Za-z0-9_-]+$/', $paymentMethodId)
+                ? $paymentMethodId
+                : '',
+            'failure_code' => substr((string)preg_replace('/[^a-z0-9_-]/i', '', (string)(
+                $attributes['failure_code']
+                ?? $attributes['last_payment_error']['code']
+                ?? $attributes['last_payment_error']['failed_code']
+                ?? 'payment_failed'
+            )), 0, 100),
+            'reference_number' => substr(trim((string)(
+                $attributes['external_reference_number'] ?? $attributes['reference_number'] ?? ''
+            )), 0, 100),
+            'provider_paid_at' => $paidAt,
+            'metadata' => isset($attributes['metadata']) && is_array($attributes['metadata'])
+                ? $attributes['metadata']
+                : [],
+        ];
+    }
+}
+
 if (!function_exists('printflow_paymongo_request')) {
     function printflow_paymongo_request(
         string $method,
         string $path,
         ?array $payload = null,
         string $mode = '',
-        string $idempotencyKey = ''
+        string $idempotencyKey = '',
+        string $keyType = 'secret'
     ): array {
         $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
         if ($mode === '' || ($mode === 'live' && !printflow_paymongo_live_enabled())) {
@@ -187,12 +356,15 @@ if (!function_exists('printflow_paymongo_request')) {
             );
         }
 
-        $secretKey = printflow_paymongo_secret_key_for_mode($mode);
-        if ($secretKey === '') {
+        $keyType = strtolower(trim($keyType));
+        $apiKey = $keyType === 'public'
+            ? printflow_paymongo_public_key_for_mode($mode)
+            : printflow_paymongo_secret_key_for_mode($mode);
+        if ($apiKey === '') {
             return printflow_paymongo_failure(
-                'The PayMongo secret key is not configured for this environment.',
+                'The required PayMongo API key is not configured for this environment.',
                 400,
-                'secret_key_missing',
+                $keyType === 'public' ? 'public_key_missing' : 'secret_key_missing',
                 $mode
             );
         }
@@ -201,7 +373,7 @@ if (!function_exists('printflow_paymongo_request')) {
         $ch = curl_init($url);
         $headers = [
             'Accept: application/json',
-            'Authorization: Basic ' . base64_encode($secretKey . ':'),
+            'Authorization: Basic ' . base64_encode($apiKey . ':'),
         ];
         $idempotencyKey = trim($idempotencyKey);
         if (strtoupper($method) === 'POST' && $idempotencyKey !== '') {
@@ -283,6 +455,15 @@ if (!function_exists('printflow_paymongo_request')) {
         $data = isset($decoded['data']) && is_array($decoded['data'])
             ? $decoded['data']
             : [];
+        if (preg_match('#^/v1/payment_intents(?:/pi_[A-Za-z0-9_-]+(?:/attach)?)?$#', $path)) {
+            return printflow_paymongo_normalize_payment_intent($data, $mode, $httpCode);
+        }
+        if (preg_match('#^/v1/payment_methods(?:/pm_[A-Za-z0-9_-]+)?$#', $path)) {
+            return printflow_paymongo_normalize_payment_method($data, $mode, $httpCode);
+        }
+        if (preg_match('#^/v1/payments/pay_[A-Za-z0-9_-]+$#', $path)) {
+            return printflow_paymongo_normalize_payment($data, $mode, $httpCode);
+        }
         if (preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+/payments(?:\?.*)?$#', $path)) {
             $paidPayment = [];
             $paidPaymentData = [];
@@ -460,6 +641,200 @@ if (!function_exists('printflow_paymongo_create_order_payment_link')) {
                 ],
             ],
         ], $mode, $idempotencyKey);
+    }
+}
+
+if (!function_exists('printflow_paymongo_enabled_methods')) {
+    /**
+     * Direct methods are deliberately allowlisted per environment. Test mode
+     * defaults to QRPh; live mode must be explicitly enabled after merchant
+     * capability confirmation.
+     */
+    function printflow_paymongo_enabled_methods(string $mode = ''): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if ($mode === '' || ($mode === 'live' && !printflow_paymongo_live_enabled())
+            || printflow_paymongo_secret_key_for_mode($mode) === ''
+            || printflow_paymongo_public_key_for_mode($mode) === '') {
+            return [];
+        }
+
+        $configured = printflow_paymongo_env(
+            $mode === 'live' ? 'PAYMONGO_LIVE_DIRECT_METHODS' : 'PAYMONGO_TEST_DIRECT_METHODS'
+        );
+        if ($configured === '') {
+            $configured = printflow_paymongo_env('PAYMONGO_DIRECT_METHODS');
+        }
+        if ($configured === '' && $mode === 'test') {
+            $configured = 'qrph';
+        }
+        $requested = preg_split('/[\s,]+/', strtolower($configured), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return array_values(array_intersect(['qrph'], array_unique($requested)));
+    }
+}
+
+if (!function_exists('printflow_paymongo_create_payment_intent')) {
+    function printflow_paymongo_create_payment_intent(
+        int $amountCentavos,
+        string $description,
+        array $metadata,
+        array $allowedMethods = ['qrph'],
+        string $mode = '',
+        string $idempotencyKey = ''
+    ): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if ($amountCentavos < 100 || $amountCentavos > 999999999) {
+            return printflow_paymongo_failure(
+                'The payment amount is outside PayMongo limits.',
+                400,
+                'invalid_amount',
+                $mode
+            );
+        }
+        $allowedMethods = array_values(array_unique(array_map(
+            static fn($method): string => strtolower(trim((string)$method)),
+            $allowedMethods
+        )));
+        $enabledMethods = printflow_paymongo_enabled_methods($mode);
+        if ($allowedMethods === [] || array_diff($allowedMethods, $enabledMethods) !== []) {
+            return printflow_paymongo_failure(
+                'The requested direct payment method is not enabled for this environment.',
+                400,
+                'payment_method_unavailable',
+                $mode
+            );
+        }
+
+        return printflow_paymongo_request('POST', '/v1/payment_intents', [
+            'data' => [
+                'attributes' => [
+                    'amount' => $amountCentavos,
+                    'currency' => 'PHP',
+                    'payment_method_allowed' => $allowedMethods,
+                    'description' => substr(trim($description), 0, 255),
+                    'metadata' => printflow_paymongo_safe_metadata($metadata),
+                ],
+            ],
+        ], $mode, $idempotencyKey, 'secret');
+    }
+}
+
+if (!function_exists('printflow_paymongo_create_payment_method')) {
+    function printflow_paymongo_create_payment_method(
+        string $type,
+        array $details = [],
+        int $expirySeconds = 1800,
+        string $mode = '',
+        string $idempotencyKey = ''
+    ): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        $type = strtolower(trim($type));
+        if ($type !== 'qrph' || !in_array($type, printflow_paymongo_enabled_methods($mode), true)) {
+            return printflow_paymongo_failure(
+                'The requested direct payment method is not enabled for this environment.',
+                400,
+                'payment_method_unavailable',
+                $mode
+            );
+        }
+        if ($details !== []) {
+            return printflow_paymongo_failure(
+                'QRPh does not accept customer payment details on the server.',
+                400,
+                'payment_method_details_not_allowed',
+                $mode
+            );
+        }
+        $expirySeconds = max(60, min(9000, $expirySeconds));
+        return printflow_paymongo_request('POST', '/v1/payment_methods', [
+            'data' => [
+                'attributes' => [
+                    'type' => 'qrph',
+                    'expiry_seconds' => $expirySeconds,
+                ],
+            ],
+        ], $mode, $idempotencyKey, 'public');
+    }
+}
+
+if (!function_exists('printflow_paymongo_attach_payment_method')) {
+    function printflow_paymongo_attach_payment_method(
+        string $paymentIntentId,
+        string $paymentMethodId,
+        string $clientKey,
+        string $mode = '',
+        string $idempotencyKey = ''
+    ): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if (!preg_match('/^pi_[A-Za-z0-9_-]+$/', $paymentIntentId)
+            || !preg_match('/^pm_[A-Za-z0-9_-]+$/', $paymentMethodId)
+            || !str_starts_with($clientKey, $paymentIntentId . '_client_')
+            || strlen($clientKey) > 255) {
+            return printflow_paymongo_failure(
+                'Valid Payment Intent attachment details are required.',
+                400,
+                'invalid_payment_attachment',
+                $mode
+            );
+        }
+        return printflow_paymongo_request(
+            'POST',
+            '/v1/payment_intents/' . rawurlencode($paymentIntentId) . '/attach',
+            [
+                'data' => [
+                    'attributes' => [
+                        'payment_method' => $paymentMethodId,
+                        'client_key' => $clientKey,
+                    ],
+                ],
+            ],
+            $mode,
+            $idempotencyKey,
+            'public'
+        );
+    }
+}
+
+if (!function_exists('printflow_paymongo_get_payment_intent')) {
+    function printflow_paymongo_get_payment_intent(string $paymentIntentId, string $mode = ''): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if (!preg_match('/^pi_[A-Za-z0-9_-]+$/', $paymentIntentId)) {
+            return printflow_paymongo_failure(
+                'A valid Payment Intent is required.',
+                400,
+                'invalid_payment_intent',
+                $mode
+            );
+        }
+        return printflow_paymongo_request(
+            'GET',
+            '/v1/payment_intents/' . rawurlencode($paymentIntentId),
+            null,
+            $mode,
+            '',
+            'secret'
+        );
+    }
+}
+
+if (!function_exists('printflow_paymongo_get_payment')) {
+    function printflow_paymongo_get_payment(string $paymentId, string $mode = ''): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if (!preg_match('/^pay_[A-Za-z0-9_-]+$/', $paymentId)) {
+            return printflow_paymongo_failure(
+                'A valid PayMongo Payment is required.',
+                400,
+                'invalid_payment',
+                $mode
+            );
+        }
+        return printflow_paymongo_request(
+            'GET',
+            '/v1/payments/' . rawurlencode($paymentId),
+            null,
+            $mode,
+            '',
+            'secret'
+        );
     }
 }
 

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Shared PayMongo Payment Link webhook processor.
+ * Shared PayMongo Payment Link and Payment Intent webhook processor.
  *
  * The existing endpoint is intentionally the Test Mode endpoint. The live
  * endpoint defines PRINTFLOW_PAYMONGO_WEBHOOK_MODE before loading this file.
@@ -10,6 +10,7 @@ declare(strict_types=1);
  */
 
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/paymongo_webhook_events.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -56,6 +57,9 @@ function printflow_paymongo_webhook_schema_ready(): bool {
             'reference_number',
             'provider_paid_at',
             'reconciliation_error_code',
+            'payment_flow',
+            'payment_intent_id',
+            'payment_method_id',
         ],
         'provider_webhook_events' => [
             'mode',
@@ -71,6 +75,8 @@ function printflow_paymongo_webhook_schema_ready(): bool {
             'payment_method',
             'reference_number',
             'provider_paid_at',
+            'payment_intent_id',
+            'payment_method_id',
         ],
     ];
 
@@ -95,7 +101,9 @@ function printflow_paymongo_webhook_claim_event(
     string $mode,
     string $safePayloadJson,
     string $payloadSha256,
-    string $linkId
+    string $linkId,
+    string $paymentIntentId = '',
+    string $paymentMethodId = ''
 ): array {
     global $conn;
 
@@ -104,11 +112,22 @@ function printflow_paymongo_webhook_claim_event(
     $inserted = db_execute_affected_rows(
         "INSERT INTO provider_webhook_events
             (provider, event_id, event_type, mode, status, raw_event_json,
-             payload_sha256, payment_link_id, attempt_count, last_attempt_at, updated_at)
-         VALUES ('paymongo', ?, ?, ?, 'processing', ?, ?, NULLIF(?, ''), 1, NOW(), NOW())
+             payload_sha256, payment_link_id, payment_intent_id, payment_method_id,
+             attempt_count, last_attempt_at, updated_at)
+         VALUES ('paymongo', ?, ?, ?, 'processing', ?, ?, NULLIF(?, ''),
+                 NULLIF(?, ''), NULLIF(?, ''), 1, NOW(), NOW())
          ON DUPLICATE KEY UPDATE id = provider_webhook_events.id",
-        'ssssss',
-        [$eventId, $eventType, $mode, $safePayloadJson, $payloadSha256, $linkId]
+        'ssssssss',
+        [
+            $eventId,
+            $eventType,
+            $mode,
+            $safePayloadJson,
+            $payloadSha256,
+            $linkId,
+            $paymentIntentId,
+            $paymentMethodId,
+        ]
     );
     if ($inserted === 1) {
         return [
@@ -146,7 +165,8 @@ function printflow_paymongo_webhook_claim_event(
     $claimed = db_execute_affected_rows(
         "UPDATE provider_webhook_events
          SET status = 'processing', raw_event_json = ?, payload_sha256 = ?,
-             payment_link_id = NULLIF(?, ''), attempt_count = attempt_count + 1,
+             payment_link_id = NULLIF(?, ''), payment_intent_id = NULLIF(?, ''),
+             payment_method_id = NULLIF(?, ''), attempt_count = attempt_count + 1,
              last_attempt_at = NOW(), processed_at = NULL, last_error_code = NULL,
              updated_at = NOW()
          WHERE id = ?
@@ -158,8 +178,15 @@ function printflow_paymongo_webhook_claim_event(
                         <= DATE_SUB(NOW(), INTERVAL " . PRINTFLOW_PAYMONGO_WEBHOOK_STALE_MINUTES . " MINUTE)
                 )
            )",
-        'sssi',
-        [$safePayloadJson, $payloadSha256, $linkId, (int)$existing['id']]
+        'sssssi',
+        [
+            $safePayloadJson,
+            $payloadSha256,
+            $linkId,
+            $paymentIntentId,
+            $paymentMethodId,
+            (int)$existing['id'],
+        ]
     );
     if ($claimed === 1) {
         return [
@@ -198,6 +225,8 @@ function printflow_paymongo_webhook_finish_event(
              provider_payment_id = NULLIF(?, 0),
              provider_transaction_id = NULLIF(?, ''),
              payment_link_id = NULLIF(?, ''),
+             payment_intent_id = NULLIF(?, ''),
+             payment_method_id = NULLIF(?, ''),
              paid_amount_centavos = ?,
              currency = NULLIF(?, ''),
              payment_method = NULLIF(?, ''),
@@ -206,12 +235,14 @@ function printflow_paymongo_webhook_finish_event(
              last_error_code = NULLIF(?, ''),
              processed_at = NOW(), updated_at = NOW()
          WHERE id = ? AND status = 'processing'",
-        'sississsssi',
+        'sissssisssssi',
         [
             $status,
             (int)($metadata['ledger_id'] ?? 0),
             printflow_paymongo_webhook_safe_text($metadata['provider_transaction_id'] ?? '', 100),
             printflow_paymongo_webhook_safe_text($metadata['link_id'] ?? '', 100),
+            printflow_paymongo_webhook_safe_text($metadata['payment_intent_id'] ?? '', 100),
+            printflow_paymongo_webhook_safe_text($metadata['payment_method_id'] ?? '', 100),
             array_key_exists('paid_amount_centavos', $metadata)
                 ? (int)$metadata['paid_amount_centavos']
                 : null,
@@ -233,6 +264,301 @@ function printflow_paymongo_webhook_finish_event(
         [$eventRowId]
     ) ?: [];
     return (string)($rows[0]['status'] ?? '') === $status;
+}
+
+function printflow_paymongo_webhook_lookup_intent_ledger(
+    array $context,
+    array $verifiedPayment,
+    string $mode
+): array {
+    $intentIds = array_values(array_unique(array_filter([
+        (string)($context['payment_intent_id'] ?? ''),
+        (string)($verifiedPayment['payment_intent_id'] ?? ''),
+    ], static fn(string $id): bool => preg_match('/^pi_[A-Za-z0-9_-]+$/', $id) === 1)));
+    foreach ($intentIds as $intentId) {
+        $rows = db_query(
+            "SELECT * FROM provider_payments
+             WHERE payment_intent_id = ? AND provider = 'paymongo' AND mode = ?
+               AND payment_flow = 'payment_intent' LIMIT 1",
+            'ss',
+            [$intentId, $mode]
+        ) ?: [];
+        if (!empty($rows)) {
+            return $rows[0];
+        }
+    }
+
+    $metadataIds = [];
+    if ((int)($context['ledger_id'] ?? 0) > 0) {
+        $metadataIds[] = (int)$context['ledger_id'];
+    }
+    $verifiedMetadata = isset($verifiedPayment['metadata']) && is_array($verifiedPayment['metadata'])
+        ? $verifiedPayment['metadata']
+        : [];
+    if (isset($verifiedMetadata['printflow_payment_id'])
+        && ctype_digit((string)$verifiedMetadata['printflow_payment_id'])) {
+        $metadataIds[] = (int)$verifiedMetadata['printflow_payment_id'];
+    }
+    foreach (array_values(array_unique($metadataIds)) as $ledgerId) {
+        $rows = db_query(
+            "SELECT * FROM provider_payments
+             WHERE id = ? AND provider = 'paymongo' AND mode = ?
+               AND payment_flow = 'payment_intent' LIMIT 1",
+            'is',
+            [$ledgerId, $mode]
+        ) ?: [];
+        if (!empty($rows)) {
+            return $rows[0];
+        }
+    }
+
+    $providerPaymentIds = array_values(array_unique(array_filter([
+        (string)($verifiedPayment['payment_id'] ?? ''),
+        (string)($context['payment_id'] ?? ''),
+    ], static fn(string $id): bool => preg_match('/^pay_[A-Za-z0-9_-]+$/', $id) === 1)));
+    foreach ($providerPaymentIds as $providerPaymentId) {
+        $rows = db_query(
+            "SELECT * FROM provider_payments
+             WHERE provider_payment_id = ? AND provider = 'paymongo' AND mode = ?
+               AND payment_flow = 'payment_intent' LIMIT 1",
+            'ss',
+            [$providerPaymentId, $mode]
+        ) ?: [];
+        if (!empty($rows)) {
+            return $rows[0];
+        }
+    }
+
+    $paymentMethodId = (string)($context['payment_method_id'] ?? '');
+    if (preg_match('/^pm_[A-Za-z0-9_-]+$/', $paymentMethodId)) {
+        $rows = db_query(
+            "SELECT * FROM provider_payments
+             WHERE payment_method_id = ? AND provider = 'paymongo' AND mode = ?
+               AND payment_flow = 'payment_intent' LIMIT 1",
+            'ss',
+            [$paymentMethodId, $mode]
+        ) ?: [];
+        if (!empty($rows)) {
+            return $rows[0];
+        }
+    }
+    return [];
+}
+
+function printflow_paymongo_webhook_audit_metadata(
+    array $ledger,
+    array $context,
+    array $verifiedPayment = []
+): array {
+    return [
+        'ledger_id' => (int)($ledger['id'] ?? 0),
+        'provider_transaction_id' => (string)(
+            $verifiedPayment['payment_id'] ?? $context['payment_id'] ?? ''
+        ),
+        'link_id' => '',
+        'payment_intent_id' => (string)(
+            $ledger['payment_intent_id'] ?? $context['payment_intent_id'] ?? ''
+        ),
+        'payment_method_id' => (string)(
+            $context['payment_method_id']
+            ?: ($verifiedPayment['payment_method_id']
+                ?? $ledger['payment_method_id']
+                ?? '')
+        ),
+        'paid_amount_centavos' => ($context['event_type'] ?? '') === 'payment.paid'
+            ? (int)($verifiedPayment['amount'] ?? 0)
+            : null,
+        'currency' => (string)($verifiedPayment['currency'] ?? $context['currency'] ?? ''),
+        'payment_method' => (string)(
+            $verifiedPayment['payment_method'] ?? $context['payment_method'] ?? $ledger['payment_method'] ?? ''
+        ),
+        'reference_number' => (string)(
+            $verifiedPayment['reference_number'] ?? $context['reference_number'] ?? ''
+        ),
+        'provider_paid_at' => (string)(
+            $verifiedPayment['provider_paid_at'] ?? $context['provider_paid_at'] ?? ''
+        ),
+    ];
+}
+
+function printflow_paymongo_webhook_fail(
+    int $eventRowId,
+    string $errorCode,
+    array $metadata = [],
+    int $httpStatus = 409
+): void {
+    printflow_paymongo_webhook_finish_event($eventRowId, 'failed', $errorCode, $metadata);
+    printflow_paymongo_webhook_respond($httpStatus, [
+        'success' => false,
+        'processed' => false,
+        'error_code' => $errorCode,
+    ]);
+}
+
+function printflow_paymongo_webhook_complete(
+    int $eventRowId,
+    array $metadata,
+    bool $duplicate = false
+): void {
+    if (!printflow_paymongo_webhook_finish_event($eventRowId, 'processed', '', $metadata)) {
+        printflow_paymongo_webhook_respond(500, [
+            'success' => false,
+            'processed' => false,
+            'error_code' => 'event_completion_failed',
+        ]);
+    }
+    printflow_paymongo_webhook_respond(200, [
+        'success' => true,
+        'processed' => true,
+        'duplicate' => $duplicate,
+    ]);
+}
+
+function printflow_paymongo_webhook_handle_intent_event(
+    string $eventType,
+    array $eventData,
+    string $expectedMode,
+    int $eventRowId,
+    array $claim
+): void {
+    $context = printflow_paymongo_webhook_event_context($eventType, $eventData, $expectedMode);
+    $verifiedPayment = [];
+    if (in_array($eventType, ['payment.paid', 'payment.failed'], true)) {
+        $eventPaymentId = (string)($context['payment_id'] ?? '');
+        if (!preg_match('/^pay_[A-Za-z0-9_-]+$/', $eventPaymentId)) {
+            printflow_paymongo_webhook_fail($eventRowId, 'payment_id_missing', [], 503);
+        }
+        $verifiedPayment = printflow_paymongo_get_payment($eventPaymentId, $expectedMode);
+        if (empty($verifiedPayment['ok'])
+            || (string)($verifiedPayment['payment_id'] ?? '') !== $eventPaymentId) {
+            printflow_paymongo_webhook_fail(
+                $eventRowId,
+                'payment_retrieval_failed',
+                ['provider_transaction_id' => $eventPaymentId],
+                503
+            );
+        }
+        if (empty($context['payment_intent_id'])) {
+            $context['payment_intent_id'] = (string)($verifiedPayment['payment_intent_id'] ?? '');
+        }
+        if (empty($context['payment_method_id'])) {
+            $context['payment_method_id'] = (string)($verifiedPayment['payment_method_id'] ?? '');
+        }
+    }
+
+    $ledger = printflow_paymongo_webhook_lookup_intent_ledger($context, $verifiedPayment, $expectedMode);
+    if (empty($ledger)) {
+        printflow_paymongo_webhook_fail(
+            $eventRowId,
+            'ledger_not_found',
+            printflow_paymongo_webhook_audit_metadata([], $context, $verifiedPayment),
+            503
+        );
+    }
+    $auditMetadata = printflow_paymongo_webhook_audit_metadata($ledger, $context, $verifiedPayment);
+    $action = printflow_paymongo_webhook_transition_action(
+        (string)($ledger['status'] ?? ''),
+        $eventType,
+        (string)($ledger['provider_payment_id'] ?? ''),
+        (string)($verifiedPayment['payment_id'] ?? $context['payment_id'] ?? '')
+    );
+    if ($action === 'provider_payment_conflict') {
+        printflow_paymongo_webhook_fail($eventRowId, 'provider_payment_conflict', $auditMetadata, 409);
+    }
+    if ($action === 'already_paid') {
+        printflow_paymongo_webhook_complete($eventRowId, $auditMetadata, !empty($claim['duplicate']));
+    }
+
+    $intentId = (string)($ledger['payment_intent_id'] ?? '');
+    $verifiedIntent = printflow_paymongo_get_payment_intent($intentId, $expectedMode);
+    if (empty($verifiedIntent['ok']) || (string)($verifiedIntent['id'] ?? '') !== $intentId) {
+        printflow_paymongo_webhook_fail($eventRowId, 'intent_retrieval_failed', $auditMetadata, 503);
+    }
+    if ($eventType === 'qrph.expired'
+        && strtolower((string)($verifiedIntent['status'] ?? '')) === 'succeeded') {
+        $reconciled = printflow_provider_payment_reconcile_intent($ledger);
+        if (!empty($reconciled['paid'])) {
+            printflow_paymongo_webhook_complete($eventRowId, $auditMetadata, !empty($claim['duplicate']));
+        }
+        printflow_paymongo_webhook_fail($eventRowId, 'paid_reconciliation_pending', $auditMetadata, 503);
+    }
+
+    $subject = printflow_provider_payment_load_subject(
+        (string)($ledger['subject_type'] ?? ''),
+        (int)($ledger['subject_id'] ?? 0)
+    );
+    $paymentMethodId = (string)(
+        $context['payment_method_id']
+        ?: ($verifiedPayment['payment_method_id'] ?? '')
+    );
+    $verificationErrors = printflow_paymongo_webhook_intent_errors(
+        $ledger,
+        $verifiedPayment,
+        $verifiedIntent,
+        $subject,
+        $eventType,
+        $expectedMode,
+        $paymentMethodId
+    );
+    if ($eventType === 'payment.paid') {
+        $verificationErrors = array_merge(
+            $verificationErrors,
+            printflow_provider_payment_revalidation_errors($ledger, $verifiedPayment)
+        );
+    }
+    $verificationErrors = array_values(array_unique($verificationErrors));
+    if ($verificationErrors !== []) {
+        printflow_provider_payment_set_reconciliation_error((int)$ledger['id'], $verificationErrors);
+        $errorCode = printflow_paymongo_webhook_error_code($verificationErrors);
+        $retryable = in_array('intent_status', $verificationErrors, true);
+        printflow_paymongo_webhook_fail($eventRowId, $errorCode, $auditMetadata, $retryable ? 503 : 409);
+    }
+
+    if ($paymentMethodId !== '') {
+        $storedMethodId = (string)($ledger['payment_method_id'] ?? '');
+        if ($storedMethodId !== '' && $storedMethodId !== $paymentMethodId) {
+            printflow_paymongo_webhook_fail($eventRowId, 'payment_method_conflict', $auditMetadata, 409);
+        }
+        if (!db_execute(
+            "UPDATE provider_payments
+             SET payment_method_id = COALESCE(payment_method_id, ?), updated_at = NOW()
+             WHERE id = ? AND provider = 'paymongo' AND mode = ? AND payment_intent_id = ?",
+            'siss',
+            [$paymentMethodId, (int)$ledger['id'], $expectedMode, $intentId]
+        )) {
+            printflow_paymongo_webhook_fail($eventRowId, 'payment_method_persistence_failed', $auditMetadata, 500);
+        }
+        $auditMetadata['payment_method_id'] = $paymentMethodId;
+    }
+
+    if ($action === 'mark_paid') {
+        $providerPaidAt = (string)($verifiedPayment['provider_paid_at'] ?? '');
+        $result = printflow_provider_payment_mark_paid(
+            (int)$ledger['id'],
+            (string)$verifiedPayment['payment_id'],
+            (string)($verifiedPayment['payment_method'] ?? $context['payment_method'] ?? ''),
+            (int)($verifiedPayment['amount'] ?? 0),
+            (string)($verifiedPayment['reference_number'] ?? $context['reference_number'] ?? ''),
+            $providerPaidAt !== '' ? $providerPaidAt : null
+        );
+    } elseif ($action === 'mark_failed') {
+        $failureCode = (string)($verifiedPayment['failure_code'] ?? $context['failure_code'] ?? 'payment_failed');
+        $result = printflow_provider_payment_mark_failed(
+            (int)$ledger['id'],
+            $failureCode,
+            'failed'
+        );
+    } elseif ($action === 'mark_expired') {
+        $result = printflow_provider_payment_mark_expired((int)$ledger['id'], 'qrph_expired');
+    } else {
+        printflow_paymongo_webhook_fail($eventRowId, 'unsupported_transition', $auditMetadata, 409);
+    }
+    if (empty($result['ok'])) {
+        printflow_provider_payment_set_reconciliation_error((int)$ledger['id'], ['finalization_failed']);
+        printflow_paymongo_webhook_fail($eventRowId, 'finalization_failed', $auditMetadata, 500);
+    }
+    printflow_provider_payment_set_reconciliation_error((int)$ledger['id'], []);
+    printflow_paymongo_webhook_complete($eventRowId, $auditMetadata, !empty($claim['duplicate']));
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -276,7 +602,12 @@ if (!preg_match('/^evt_[A-Za-z0-9_-]+$/', $eventId)
     || $livemode !== $expectedLivemode) {
     printflow_paymongo_webhook_respond(409, ['success' => false, 'message' => 'Webhook environment mismatch.']);
 }
-if ($eventType !== 'link.payment.paid') {
+if (!in_array($eventType, [
+    'link.payment.paid',
+    'payment.paid',
+    'payment.failed',
+    'qrph.expired',
+], true)) {
     printflow_paymongo_webhook_respond(202, ['success' => true, 'processed' => false]);
 }
 if (!printflow_paymongo_webhook_schema_ready()) {
@@ -289,7 +620,12 @@ if (!printflow_paymongo_webhook_schema_ready()) {
 $eventData = isset($attributes['data']) && is_array($attributes['data'])
     ? $attributes['data']
     : [];
-$linkId = printflow_find_paymongo_link_id($eventData);
+$eventContext = printflow_paymongo_webhook_event_context($eventType, $eventData, $expectedMode);
+$linkId = $eventType === 'link.payment.paid'
+    ? printflow_find_paymongo_link_id($eventData)
+    : '';
+$paymentIntentId = (string)($eventContext['payment_intent_id'] ?? '');
+$paymentMethodId = (string)($eventContext['payment_method_id'] ?? '');
 $safeEnvelope = json_encode([
     'payload_version' => 2,
     'event_id' => $eventId,
@@ -297,6 +633,9 @@ $safeEnvelope = json_encode([
     'mode' => $expectedMode,
     'livemode' => $expectedLivemode,
     'link_id' => $linkId,
+    'payment_id' => (string)($eventContext['payment_id'] ?? ''),
+    'payment_intent_id' => $paymentIntentId,
+    'payment_method_id' => $paymentMethodId,
 ], JSON_UNESCAPED_SLASHES);
 $safeEnvelope = is_string($safeEnvelope) ? $safeEnvelope : '{}';
 
@@ -306,7 +645,9 @@ $claim = printflow_paymongo_webhook_claim_event(
     $expectedMode,
     $safeEnvelope,
     hash('sha256', $rawBody),
-    $linkId
+    $linkId,
+    $paymentIntentId,
+    $paymentMethodId
 );
 if (!empty($claim['processed'])) {
     printflow_paymongo_webhook_respond(200, [
@@ -323,6 +664,16 @@ if (empty($claim['ok'])) {
     );
 }
 $eventRowId = (int)($claim['event_row_id'] ?? 0);
+
+if (in_array($eventType, ['payment.paid', 'payment.failed', 'qrph.expired'], true)) {
+    printflow_paymongo_webhook_handle_intent_event(
+        $eventType,
+        $eventData,
+        $expectedMode,
+        $eventRowId,
+        $claim
+    );
+}
 
 if ($linkId === '') {
     printflow_paymongo_webhook_finish_event($eventRowId, 'failed', 'link_id_missing');
