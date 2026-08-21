@@ -62,7 +62,7 @@ if ($method === 'POST') {
         http_response_code(409);
         echo json_encode([
             'success' => false,
-            'message' => 'Manual GCash payment proof is the active online payment method. PayMongo link creation is disabled.',
+            'message' => 'The active online payment mode does not allow PayMongo payment creation.',
             'online_payment_mode' => printflow_online_payment_mode(),
         ]);
         exit;

@@ -11,13 +11,12 @@ require_once __DIR__ . '/paymongo.php';
 /**
  * Customer-facing online payment selector.
  *
- * Manual GCash is the safe default while PayMongo onboarding is incomplete.
- * PayMongo remains installed and can be restored without code changes by
- * setting ONLINE_PAYMENT_MODE=paymongo after live onboarding is complete.
+ * PayMongo is the primary online flow. The manual proof system remains
+ * available as an explicit fallback through ONLINE_PAYMENT_MODE=manual_gcash.
  */
 function printflow_online_payment_mode(): string {
     $mode = strtolower(trim((string)printflow_env('ONLINE_PAYMENT_MODE')));
-    return in_array($mode, ['paymongo', 'manual_gcash'], true) ? $mode : 'manual_gcash';
+    return in_array($mode, ['paymongo', 'manual_gcash'], true) ? $mode : 'paymongo';
 }
 
 function printflow_manual_online_payment_enabled(): bool {

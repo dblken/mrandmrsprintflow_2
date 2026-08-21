@@ -17,11 +17,17 @@ printflow_require_staff_module('customizations');
 if (in_array($_SESSION['user_type'] ?? '', ['Staff', 'Manager'], true)) {
     require_once __DIR__ . '/../includes/staff_pending_check.php';
 }
+$onlinePaymentMode = printflow_online_payment_mode();
 $paymongoMode = printflow_paymongo_mode();
-$paymongoOnlineEnabled = printflow_paymongo_online_payment_enabled()
+$paymongoOnlineEnabled = $onlinePaymentMode === 'paymongo'
     && in_array($paymongoMode, ['test', 'live'], true)
     && printflow_paymongo_secret_key_for_mode($paymongoMode) !== '';
 $paymongoQrphEnabled = in_array('qrph', printflow_paymongo_enabled_methods($paymongoMode), true);
+$staffOnlinePaymentMessage = $paymongoOnlineEnabled
+    ? 'PayMongo payment is active. Waiting for provider confirmation.'
+    : ($onlinePaymentMode === 'manual_gcash'
+        ? 'Waiting for the customer payment proof. Review the submission in Payment Verification.'
+        : 'PayMongo payment is selected but currently unavailable.');
 
 $deepLinkOrderId = (int)($_GET['order_id'] ?? 0);
 $deepLinkJobType = strtoupper(trim((string)($_GET['job_type'] ?? '')));
@@ -2004,9 +2010,7 @@ $online_closed_count = 0;
                                 <div style="font-size:14px; font-weight:500; color:#1e40af;">Total Outstanding:</div>
                                 <div style="font-size:20px; font-weight:800; color:#1e40af;" x-text="'₱' + Number(currentJo.estimated_total || 0).toLocaleString()"></div>
                             </div>
-                            <div style="font-size:13px; color:#1e40af; line-height:1.5;"><?php echo $paymongoOnlineEnabled
-                                ? 'Waiting for PayMongo to confirm the customer payment.'
-                                : 'Waiting for the customer to pay via GCash and upload payment proof. Review the submission in Payment Verification.'; ?></div>
+                            <div style="font-size:13px; color:#1e40af; line-height:1.5;"><?php echo htmlspecialchars($staffOnlinePaymentMessage, ENT_QUOTES, 'UTF-8'); ?></div>
                             <?php if ($paymongoOnlineEnabled): ?>
                             <div style="margin-top:14px;padding-top:14px;border-top:1px solid #bfdbfe;">
                                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
@@ -2032,9 +2036,13 @@ $online_closed_count = 0;
                                 <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open PayMongo Checkout</a>
                                 <button x-show="paymongoPayment && paymongoPayment.payment_flow === 'payment_intent' && ['failed','expired','cancelled'].includes(paymongoPayment.status)" type="button" @click="generatePayMongoPayment('create_qrph')" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" style="margin-top:9px;">Generate New QR</button>
                             </div>
-                            <?php else: ?>
+                            <?php elseif ($onlinePaymentMode === 'manual_gcash'): ?>
                             <div style="margin-top:14px;padding:12px 14px;border:1px solid #bfdbfe;background:#ffffff;color:#1e40af;font-size:12px;line-height:1.55;">
-                                Manual GCash is active. No PayMongo link is required. The customer sees the configured GCash QR and amount due on their payment page.
+                                Manual payment verification is active. Review customer proof submissions in Payment Verification.
+                            </div>
+                            <?php else: ?>
+                            <div style="margin-top:14px;padding:12px 14px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;font-size:12px;line-height:1.55;">
+                                PayMongo payment is selected but currently unavailable. Verify the active environment configuration before requesting payment.
                             </div>
                             <?php endif; ?>
                         </div>

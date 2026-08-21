@@ -938,11 +938,12 @@ if (!function_exists('pf_payment_qr_url')) {
                     <?php if ($paymongo_available): ?>
                         <div id="paymongo-test-payment" style="padding:16px;margin-bottom:20px;border:1px solid #53c5e0;background:#062c38;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                                <strong style="color:#eaf6fb;font-size:15px;">PayMongo Payment</strong>
+                                <strong style="color:#eaf6fb;font-size:15px;">Payment Method - PayMongo</strong>
                                 <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
                             </div>
                             <div style="color:#9fc4d4;font-size:13px;margin-bottom:12px;">
-                                Amount: <strong style="color:#eaf6fb;"><?php echo format_currency($total_amount); ?></strong>
+                                Amount Due: <strong style="color:#eaf6fb;"><?php echo format_currency($total_amount); ?></strong>
+                                <div style="margin-top:5px;">Choose how you want to pay securely.</div>
                             </div>
                             <div id="paymongo-method-actions" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin-bottom:12px;">
                                 <?php if ($paymongo_qrph_available): ?>
@@ -967,6 +968,11 @@ if (!function_exists('pf_payment_qr_url')) {
                             <span style="height:1px;background:#31515c;flex:1;"></span>
                         </div>
                         <?php endif; ?>
+                    <?php endif; ?>
+                    <?php if ($paymongo_online_enabled && !$paymongo_available): ?>
+                        <div style="padding:14px;margin-bottom:20px;border:1px solid #f59e0b;background:#2b2110;color:#fde68a;font-size:13px;line-height:1.55;">
+                            PayMongo payment is temporarily unavailable. Please contact the shop before sending payment.
+                        </div>
                     <?php endif; ?>
                     <?php if ($manual_payment_enabled): ?>
                     <form id="paymentForm" enctype="multipart/form-data">
