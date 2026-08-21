@@ -454,7 +454,14 @@ $paymongo_public = !empty($paymongo_payment)
 $paymongo_mode = in_array((string)($paymongo_payment['mode'] ?? ''), ['test', 'live'], true)
     ? (string)$paymongo_payment['mode']
     : printflow_paymongo_mode();
-$paymongo_available = $paymongo_online_enabled && in_array($paymongo_mode, ['test', 'live'], true);
+$paymongo_available = $paymongo_online_enabled
+    && in_array($paymongo_mode, ['test', 'live'], true)
+    && printflow_paymongo_secret_key_for_mode($paymongo_mode) !== '';
+$paymongo_direct_methods = $paymongo_available
+    ? printflow_paymongo_enabled_methods($paymongo_mode)
+    : [];
+$paymongo_qrph_available = in_array('qrph', $paymongo_direct_methods, true);
+$customer_paymongo_csrf = generate_csrf_token();
 if (!$is_job_order && !empty($items) && !empty($financial_snapshot['price_is_final'])) {
     $remainingDisplayAmount = $financial_snapshot['amount_due_centavos'] / 100;
     $totalQty = max(1, array_sum(array_map(static fn($line): int => max(1, (int)($line['quantity'] ?? 1)), $items)));
@@ -931,22 +938,27 @@ if (!function_exists('pf_payment_qr_url')) {
                     <?php if ($paymongo_available): ?>
                         <div id="paymongo-test-payment" style="padding:16px;margin-bottom:20px;border:1px solid #53c5e0;background:#062c38;">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                                <strong style="color:#eaf6fb;font-size:15px;">Pay securely with PayMongo</strong>
+                                <strong style="color:#eaf6fb;font-size:15px;">PayMongo Payment</strong>
                                 <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
                             </div>
                             <div style="color:#9fc4d4;font-size:13px;margin-bottom:12px;">
                                 Amount: <strong style="color:#eaf6fb;"><?php echo format_currency($total_amount); ?></strong>
                             </div>
-                            <?php if (($paymongo_payment['status'] ?? '') === 'awaiting_payment' && !empty($paymongo_payment['checkout_url'])): ?>
-                                <a id="paymongo-pay-now" href="<?php echo htmlspecialchars((string)$paymongo_payment['checkout_url'], ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener noreferrer" class="shopee-btn-primary" style="display:block;text-align:center;padding:11px;text-decoration:none;background:#53c5e0;color:#fff;font-weight:800;">
-                                    Pay Now
-                                </a>
-                                <div id="paymongo-payment-state" style="margin-top:9px;color:#9fc4d4;font-size:12px;text-align:center;">Waiting for payment confirmation.</div>
-                            <?php else: ?>
-                                <div id="paymongo-payment-state" style="padding:10px;background:#0a2530;color:#9fc4d4;font-size:12px;text-align:center;">
-                                    Waiting for staff to generate your PayMongo Payment Link.
-                                </div>
-                            <?php endif; ?>
+                            <div id="paymongo-method-actions" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin-bottom:12px;">
+                                <?php if ($paymongo_qrph_available): ?>
+                                    <button id="paymongo-create-qrph" type="button" class="shopee-btn-primary" style="padding:11px;border:0;background:#53c5e0;color:#fff;font-weight:800;cursor:pointer;">Pay with QR Ph</button>
+                                <?php endif; ?>
+                                <button id="paymongo-create-link" type="button" style="padding:11px;border:1px solid #53c5e0;background:#0a2530;color:#eaf6fb;font-weight:800;cursor:pointer;">Secure Checkout</button>
+                            </div>
+                            <div id="paymongo-qr-panel" style="display:none;text-align:center;padding:12px;background:#fff;color:#0f172a;margin-bottom:10px;">
+                                <div style="font-size:12px;font-weight:800;margin-bottom:8px;">Order #<?php echo (int)$order_id; ?> &middot; <?php echo format_currency($total_amount); ?></div>
+                                <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code" style="display:block;width:min(260px,100%);aspect-ratio:1/1;object-fit:contain;margin:0 auto 10px;background:#fff;">
+                                <div style="font-size:12px;color:#475569;line-height:1.5;">Scan using GCash, Maya, or another QR Ph-compatible banking app.</div>
+                                <div id="paymongo-qr-countdown" style="font-size:13px;font-weight:900;color:#0f766e;margin-top:8px;min-height:20px;"></div>
+                            </div>
+                            <a id="paymongo-pay-now" href="#" target="_blank" rel="noopener noreferrer" class="shopee-btn-primary" style="display:none;text-align:center;padding:11px;text-decoration:none;background:#53c5e0;color:#fff;font-weight:800;margin-bottom:9px;">Open Secure Checkout</a>
+                            <div id="paymongo-payment-state" style="padding:10px;background:#0a2530;color:#9fc4d4;font-size:12px;text-align:center;min-height:38px;">Choose a PayMongo payment method.</div>
+                            <button id="paymongo-retry" type="button" style="display:none;width:100%;margin-top:9px;padding:10px;border:1px solid #53c5e0;background:transparent;color:#eaf6fb;font-weight:800;cursor:pointer;">Generate New QR</button>
                         </div>
                         <?php if ($manual_payment_enabled): ?>
                         <div style="display:flex;align-items:center;gap:10px;margin:0 0 20px;color:#9fc4d4;font-size:12px;">
@@ -1086,12 +1098,38 @@ if (!function_exists('pf_payment_qr_url')) {
 
 <script>
     const paymongoStatusUrl = 'api_paymongo_status.php?subject_type=<?php echo rawurlencode($paymongo_subject_type); ?>&subject_id=<?php echo (int)$order_id; ?>';
+    const paymongoCreateUrl = 'api_paymongo_status.php';
+    const paymongoCsrfToken = <?php echo json_encode($customer_paymongo_csrf); ?>;
+    const paymongoSubjectType = <?php echo json_encode($paymongo_subject_type); ?>;
+    const paymongoSubjectId = <?php echo (int)$order_id; ?>;
     const paymongoState = document.getElementById('paymongo-payment-state');
     const paymongoPayNow = document.getElementById('paymongo-pay-now');
+    const paymongoQrPanel = document.getElementById('paymongo-qr-panel');
+    const paymongoQrImage = document.getElementById('paymongo-qr-image');
+    const paymongoQrCountdown = document.getElementById('paymongo-qr-countdown');
+    const paymongoQrButton = document.getElementById('paymongo-create-qrph');
+    const paymongoLinkButton = document.getElementById('paymongo-create-link');
+    const paymongoRetryButton = document.getElementById('paymongo-retry');
     const paymentSidebarCard = document.getElementById('payment-sidebar-card');
     if (paymongoState) {
         let paymongoPollTimer = null;
+        let paymongoCountdownTimer = null;
+        let paymongoBusy = false;
+        let paymongoCurrentPayment = <?php echo json_encode($paymongo_public, JSON_UNESCAPED_SLASHES); ?>;
+        const stopPayMongoTimers = () => {
+            if (paymongoPollTimer) window.clearTimeout(paymongoPollTimer);
+            if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
+            paymongoPollTimer = null;
+            paymongoCountdownTimer = null;
+        };
+        const setPayMongoButtonsBusy = (busy) => {
+            paymongoBusy = busy;
+            [paymongoQrButton, paymongoLinkButton, paymongoRetryButton].forEach((button) => {
+                if (button) button.disabled = busy;
+            });
+        };
         const renderPayMongoConfirmed = (payment) => {
+            stopPayMongoTimers();
             if (!paymentSidebarCard) return;
             paymentSidebarCard.replaceChildren();
             const panel = document.createElement('div');
@@ -1157,14 +1195,77 @@ if (!function_exists('pf_payment_qr_url')) {
             panel.appendChild(orderLink);
             paymentSidebarCard.appendChild(panel);
         };
+        const startQrCountdown = (payment) => {
+            if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
+            if (!paymongoQrCountdown || !payment.qr_expires_at_epoch) return;
+            const render = () => {
+                const remaining = Math.max(0, Number(payment.qr_expires_at_epoch) - Math.floor(Date.now() / 1000));
+                const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+                const seconds = String(remaining % 60).padStart(2, '0');
+                paymongoQrCountdown.textContent = remaining > 0
+                    ? `QR expires in ${minutes}:${seconds}`
+                    : 'QR code expired';
+                if (remaining <= 0 && paymongoCountdownTimer) {
+                    window.clearInterval(paymongoCountdownTimer);
+                    paymongoCountdownTimer = null;
+                    pollPayMongo();
+                }
+            };
+            render();
+            paymongoCountdownTimer = window.setInterval(render, 1000);
+        };
+        const renderPayMongoPayment = (payment) => {
+            paymongoCurrentPayment = payment || null;
+            if (!payment) {
+                paymongoState.textContent = 'Choose a PayMongo payment method.';
+                if (paymongoQrPanel) paymongoQrPanel.style.display = 'none';
+                if (paymongoPayNow) paymongoPayNow.style.display = 'none';
+                if (paymongoRetryButton) paymongoRetryButton.style.display = 'none';
+                return false;
+            }
+            const status = String(payment.status || '').toLowerCase();
+            if (status === 'paid') {
+                renderPayMongoConfirmed(payment);
+                return true;
+            }
+            const isQr = payment.payment_flow === 'payment_intent' && payment.payment_method === 'qrph';
+            const hasQr = isQr && Boolean(payment.qr_image_url);
+            if (paymongoQrPanel) paymongoQrPanel.style.display = hasQr ? 'block' : 'none';
+            if (paymongoQrImage && hasQr) paymongoQrImage.src = payment.qr_image_url;
+            if (paymongoPayNow) {
+                paymongoPayNow.style.display = payment.checkout_url ? 'block' : 'none';
+                if (payment.checkout_url) paymongoPayNow.href = payment.checkout_url;
+            }
+            if (paymongoRetryButton) {
+                paymongoRetryButton.style.display = isQr && ['failed', 'expired', 'cancelled'].includes(status)
+                    ? 'block'
+                    : 'none';
+            }
+            if (status === 'failed') {
+                paymongoState.textContent = 'Payment was not completed. You may generate a new QR and try again.';
+            } else if (status === 'expired') {
+                paymongoState.textContent = 'QR code expired. Generate a new QR code to continue.';
+            } else if (status === 'generating') {
+                paymongoState.textContent = 'Preparing your PayMongo payment...';
+            } else {
+                paymongoState.textContent = isQr
+                    ? 'Waiting for payment confirmation.'
+                    : 'Complete payment in the secure PayMongo checkout.';
+            }
+            if (hasQr) startQrCountdown(payment);
+            return ['paid', 'failed', 'expired', 'cancelled'].includes(status);
+        };
+        const schedulePayMongoPoll = () => {
+            if (paymongoPollTimer) window.clearTimeout(paymongoPollTimer);
+            paymongoPollTimer = window.setTimeout(pollPayMongo, 5000);
+        };
         const pollPayMongo = async () => {
             try {
                 const response = await fetch(paymongoStatusUrl, { cache: 'no-store' });
                 const data = await response.json();
-                if (data.success && data.payment && data.payment.status === 'paid') {
-                    if (paymongoPollTimer) window.clearTimeout(paymongoPollTimer);
-                    renderPayMongoConfirmed(data.payment);
-                    return;
+                if (data.success) {
+                    const terminal = renderPayMongoPayment(data.payment);
+                    if (terminal) return;
                 }
                 if (data.success && data.confirming) {
                     paymongoState.textContent = 'Payment received by PayMongo. Confirming your payment…';
@@ -1172,9 +1273,43 @@ if (!function_exists('pf_payment_qr_url')) {
             } catch (error) {
                 // The next poll retries; no credential or provider response is logged.
             }
-            paymongoPollTimer = window.setTimeout(pollPayMongo, 5000);
+            schedulePayMongoPoll();
         };
-        paymongoPollTimer = window.setTimeout(pollPayMongo, 1500);
+        const createPayMongoPayment = async (action) => {
+            if (paymongoBusy) return;
+            setPayMongoButtonsBusy(true);
+            paymongoState.textContent = action === 'create_qrph'
+                ? 'Generating your QR Ph code...'
+                : 'Preparing secure checkout...';
+            try {
+                const response = await fetch(paymongoCreateUrl, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action,
+                        subject_type: paymongoSubjectType,
+                        subject_id: paymongoSubjectId,
+                        csrf_token: paymongoCsrfToken
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success || !data.payment) {
+                    throw new Error(data.message || 'The payment could not be prepared.');
+                }
+                stopPayMongoTimers();
+                const terminal = renderPayMongoPayment(data.payment);
+                if (!terminal) schedulePayMongoPoll();
+            } catch (error) {
+                paymongoState.textContent = error.message || 'The payment could not be prepared. Please try again.';
+            } finally {
+                setPayMongoButtonsBusy(false);
+            }
+        };
+        if (paymongoQrButton) paymongoQrButton.addEventListener('click', () => createPayMongoPayment('create_qrph'));
+        if (paymongoLinkButton) paymongoLinkButton.addEventListener('click', () => createPayMongoPayment('create_link'));
+        if (paymongoRetryButton) paymongoRetryButton.addEventListener('click', () => createPayMongoPayment('create_qrph'));
+        const initialTerminal = renderPayMongoPayment(paymongoCurrentPayment);
+        if (!initialTerminal) paymongoPollTimer = window.setTimeout(pollPayMongo, 1500);
     }
 
     function toggleItems(btn) {

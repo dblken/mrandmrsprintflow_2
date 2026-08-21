@@ -79,6 +79,13 @@ function printflow_provider_payment_public(array $payment): array {
         : ($status === 'paid' ? $amountDue : 0);
     $remaining = max(0, $amountDue - $paidAmount);
     $providerPaymentId = (string)($payment['provider_payment_id'] ?? '');
+    $paymentFlow = (string)($payment['payment_flow'] ?? 'payment_link');
+    $qrExpiresAt = (string)($payment['qr_expires_at'] ?? '');
+    $qrExpiresEpoch = $qrExpiresAt !== '' ? strtotime($qrExpiresAt) : false;
+    $qrIsActive = $paymentFlow === 'payment_intent'
+        && $status === 'awaiting_payment'
+        && !empty($payment['qr_image_url'])
+        && ($qrExpiresEpoch === false || $qrExpiresEpoch > time());
 
     return [
         // Keep payment_id as the legacy internal ledger id and expose an
@@ -89,7 +96,7 @@ function printflow_provider_payment_public(array $payment): array {
         'channel' => (string)($payment['channel'] ?? ''),
         'mode' => $mode,
         'test_mode' => $mode === 'test',
-        'payment_flow' => (string)($payment['payment_flow'] ?? 'payment_link'),
+        'payment_flow' => $paymentFlow,
         'status' => $status,
         'payment_status' => $paymentStatus,
         'provider_status' => $providerStatus,
@@ -103,6 +110,11 @@ function printflow_provider_payment_public(array $payment): array {
         'payment_link_id' => (string)($payment['link_id'] ?? ''),
         'payment_intent_id' => (string)($payment['payment_intent_id'] ?? ''),
         'payment_method_id' => (string)($payment['payment_method_id'] ?? ''),
+        'qr_image_url' => $qrIsActive ? (string)$payment['qr_image_url'] : '',
+        'qr_expires_at' => $qrExpiresAt !== '' ? $qrExpiresAt : null,
+        'qr_expires_at_epoch' => $qrExpiresEpoch !== false ? $qrExpiresEpoch : null,
+        'retryable' => in_array($status, ['failed', 'expired', 'cancelled'], true),
+        'terminal' => in_array($status, ['paid', 'failed', 'expired', 'cancelled'], true),
         'checkout_url' => $status === 'paid' ? '' : (string)($payment['checkout_url'] ?? ''),
         'provider_payment_id' => $providerPaymentId,
         'payment_reference' => $providerPaymentId,
@@ -495,6 +507,24 @@ function printflow_provider_payment_create_link(
     $subject = $lockedSubject;
     $amountCentavos = $lockedAmount;
 
+    $crossChannelRows = db_query(
+        "SELECT id FROM provider_payments
+         WHERE subject_type = ? AND subject_id = ? AND channel <> ?
+           AND provider = 'paymongo'
+           AND status IN ('generating', 'awaiting_payment', 'paid')
+         ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        'sis',
+        [$subjectType, $subjectId, $channel]
+    ) ?: [];
+    if (!empty($crossChannelRows)) {
+        $conn->rollback();
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'message' => 'This order already has an active PayMongo payment in another channel.',
+        ];
+    }
+
     $crossModeRows = db_query(
         "SELECT id FROM provider_payments
          WHERE subject_type = ? AND subject_id = ? AND channel = ?
@@ -832,6 +862,25 @@ function printflow_provider_payment_create_intent(
         }
         $amountCentavos = printflow_money_to_centavos($subject['total_amount'] ?? '');
 
+        $crossChannelRows = db_query(
+            "SELECT id FROM provider_payments
+             WHERE subject_type = ? AND subject_id = ? AND channel <> ?
+               AND provider = 'paymongo'
+               AND status IN ('generating', 'awaiting_payment', 'paid')
+             ORDER BY id DESC LIMIT 1 FOR UPDATE",
+            'sis',
+            [$subjectType, $subjectId, $channel]
+        ) ?: [];
+        if (!empty($crossChannelRows)) {
+            $conn->rollback();
+            $transactionOpen = false;
+            return [
+                'ok' => false,
+                'http_status' => 409,
+                'message' => 'This order already has an active PayMongo payment in another channel.',
+            ];
+        }
+
         $crossModeRows = db_query(
             "SELECT id FROM provider_payments
              WHERE subject_type = ? AND subject_id = ? AND channel = ?
@@ -855,9 +904,11 @@ function printflow_provider_payment_create_intent(
         $ledgerId = 0;
         $reuseIntent = false;
         $preparedForAttachment = false;
+        $previousIntentId = '';
         if (!empty($existing)) {
             $sameFlow = (string)($existing['payment_flow'] ?? 'payment_link') === 'payment_intent';
             $sameMethod = (string)($existing['payment_method'] ?? '') === $paymentMethod;
+            $previousIntentId = (string)($existing['payment_intent_id'] ?? '');
             if (in_array((string)$existing['status'], ['awaiting_payment', 'paid'], true)) {
                 if (!$sameFlow || !$sameMethod) {
                     $conn->rollback();
@@ -891,12 +942,20 @@ function printflow_provider_payment_create_intent(
                     ];
                 }
                 $ledgerId = (int)$existing['id'];
-                $reuseIntent = !empty($existing['payment_intent_id']) && !empty($existing['client_key']);
+                $qrHasExpired = !empty($existing['qr_expires_at'])
+                    && strtotime((string)$existing['qr_expires_at']) <= time();
+                $reuseIntent = !$qrHasExpired
+                    && !empty($existing['payment_intent_id'])
+                    && !empty($existing['client_key']);
+                $resetExpiredIntentSql = $qrHasExpired
+                    ? ', payment_intent_id = NULL, client_key = NULL'
+                    : '';
                 $claimed = db_execute_affected_rows(
                     "UPDATE provider_payments
                      SET status = 'generating', payment_status = 'generating', provider_status = 'generating',
                          payment_method_id = NULL, qr_image_url = NULL, qr_expires_at = NULL,
-                         last_error_code = NULL, reconciliation_error_code = NULL, updated_at = NOW()
+                         last_error_code = NULL, reconciliation_error_code = NULL{$resetExpiredIntentSql},
+                         updated_at = NOW()
                      WHERE id = ? AND status = 'awaiting_payment'",
                     'i',
                     [$ledgerId]
@@ -934,7 +993,8 @@ function printflow_provider_payment_create_intent(
                      SET status = 'generating', payment_status = 'generating', provider_status = 'generating',
                          payment_flow = 'payment_intent', payment_method = ?, amount_centavos = ?,
                          link_id = NULL, checkout_url = NULL, provider_payment_id = NULL,
-                         payment_method_id = NULL, qr_image_url = NULL, qr_expires_at = NULL,
+                         payment_intent_id = NULL, payment_method_id = NULL, client_key = NULL,
+                         qr_image_url = NULL, qr_expires_at = NULL,
                          last_error_code = NULL, reconciliation_error_code = NULL, updated_at = NOW()
                      WHERE id = ? AND status IN ('failed', 'expired', 'cancelled')",
                     'sii',
@@ -945,6 +1005,7 @@ function printflow_provider_payment_create_intent(
                     $transactionOpen = false;
                     return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
                 }
+                $reuseIntent = false;
             }
         } else {
             $created = db_execute(
@@ -981,6 +1042,9 @@ function printflow_provider_payment_create_intent(
         $identity = $orderId > 0 ? 'order-' . $orderId : 'job-order-' . $subjectId;
         $idempotencyKey = 'printflow-intent-' . $mode . '-' . $identity
             . '-ledger-' . $ledgerId . '-' . $paymentMethod;
+        if (!empty($previousIntentId) && !$reuseIntent) {
+            $idempotencyKey .= '-retry-' . substr(hash('sha256', $previousIntentId), 0, 12);
+        }
         if (!db_execute(
             'UPDATE provider_payments SET idempotency_key = ? WHERE id = ?',
             'si',

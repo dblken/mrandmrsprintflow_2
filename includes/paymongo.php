@@ -654,7 +654,10 @@ if (!function_exists('printflow_paymongo_enabled_methods')) {
         $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
         if ($mode === '' || ($mode === 'live' && !printflow_paymongo_live_enabled())
             || printflow_paymongo_secret_key_for_mode($mode) === ''
-            || printflow_paymongo_public_key_for_mode($mode) === '') {
+            || printflow_paymongo_public_key_for_mode($mode) === ''
+            || printflow_paymongo_env(
+                $mode === 'live' ? 'PAYMONGO_LIVE_WEBHOOK_SECRET' : 'PAYMONGO_TEST_WEBHOOK_SECRET'
+            ) === '') {
             return [];
         }
 

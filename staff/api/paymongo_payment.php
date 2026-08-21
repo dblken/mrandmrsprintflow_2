@@ -42,6 +42,15 @@ if (!$isAdmin && $staffBranch > 0 && (int)($subject['branch_id'] ?? 0) !== $staf
     echo json_encode(['success' => false, 'message' => 'This order belongs to another branch.']);
     exit;
 }
+$mode = printflow_paymongo_mode();
+$directMethods = in_array($mode, ['test', 'live'], true)
+    ? printflow_paymongo_enabled_methods($mode)
+    : [];
+$availableFlows = [
+    'qrph' => in_array('qrph', $directMethods, true),
+    'payment_link' => in_array($mode, ['test', 'live'], true)
+        && printflow_paymongo_secret_key_for_mode($mode) !== '',
+];
 
 if ($method === 'POST') {
     if (!verify_csrf_token((string)($input['csrf_token'] ?? ''))) {
@@ -71,7 +80,6 @@ if ($method === 'POST') {
             exit;
         }
         if ((string)$payment['status'] === 'awaiting_payment'
-            && !empty($payment['link_id'])
             && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 3)) {
             printflow_provider_payment_reconcile($payment);
             $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
@@ -109,12 +117,35 @@ if ($method === 'POST') {
         ], JSON_UNESCAPED_SLASHES);
         exit;
     }
-    $result = printflow_provider_payment_create_link(
-        $subjectType,
-        $subjectId,
-        $channel,
-        (int)get_user_id()
-    );
+    $action = strtolower(trim((string)($input['action'] ?? 'create_link')));
+    if ($action === 'create_qrph' && !$availableFlows['qrph']) {
+        http_response_code(409);
+        echo json_encode([
+            'success' => false,
+            'message' => 'QR Ph is not enabled for this payment environment.',
+            'available_flows' => $availableFlows,
+        ]);
+        exit;
+    }
+    if ($action === 'create_qrph') {
+        $result = printflow_provider_payment_create_qrph(
+            $subjectType,
+            $subjectId,
+            $channel,
+            (int)get_user_id()
+        );
+    } elseif ($action === 'create_link') {
+        $result = printflow_provider_payment_create_link(
+            $subjectType,
+            $subjectId,
+            $channel,
+            (int)get_user_id()
+        );
+    } else {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'Unsupported payment action.']);
+        exit;
+    }
     http_response_code(!empty($result['ok']) ? 200 : (int)($result['http_status'] ?? 400));
     echo json_encode([
         'success' => !empty($result['ok']),
@@ -130,18 +161,23 @@ if ($method === 'POST') {
         'manual_proof_under_review' => !empty($result['manual_proof_under_review']),
         'message' => $result['message'] ?? null,
         'payment' => $result['payment'] ?? null,
+        'available_flows' => $availableFlows,
     ], JSON_UNESCAPED_SLASHES);
     exit;
 }
 
 $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
 if (empty($payment)) {
-    echo json_encode(['success' => true, 'payment' => null, 'receipt_available' => false]);
+    echo json_encode([
+        'success' => true,
+        'payment' => null,
+        'receipt_available' => false,
+        'available_flows' => $availableFlows,
+    ]);
     exit;
 }
 
 if ((string)$payment['status'] === 'awaiting_payment'
-    && !empty($payment['link_id'])
     && printflow_provider_payment_claim_reconciliation((int)$payment['id'], 5)) {
     printflow_provider_payment_reconcile($payment);
     $payment = printflow_provider_payment_find($subjectType, $subjectId, $channel);
@@ -166,4 +202,5 @@ echo json_encode([
     'receipt_available' => $paid && $channel === 'pos' && $posCompleted && $orderId > 0,
     'receipt' => !empty($receipt) ? $receipt : null,
     'print_job' => $printJob,
+    'available_flows' => $availableFlows,
 ], JSON_UNESCAPED_SLASHES);
