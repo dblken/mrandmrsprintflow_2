@@ -4309,7 +4309,11 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 const controller = new AbortController();
                 ordersAbortController = controller;
-                const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+                let timedOut = false;
+                const timeoutId = window.setTimeout(() => {
+                    timedOut = true;
+                    controller.abort();
+                }, 15000);
                 if (!silent && this.orders.length === 0) this.loadingOrders = true;
                 this.ordersError = '';
                 this.modalCache = {};
@@ -4365,10 +4369,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.bumpOrdersVersion();
                     }
                 } catch(err) {
-                    if (err && err.name === 'AbortError' && ordersAbortController !== controller) {
+                    const wasAbort = err && err.name === 'AbortError';
+                    if (wasAbort && ordersAbortController !== controller) {
                         return;
                     }
-                    if (!silent || !err || err.name !== 'AbortError') {
+                    if (!wasAbort && !silent) {
                         console.error('Error loading orders:', err);
                     }
                     if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders)) {
@@ -4376,7 +4381,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.bumpOrdersVersion();
                     }
                     this.ordersError = this.orders.length === 0
-                        ? ((err && err.message) || 'Unable to load customizations.')
+                        ? (timedOut ? 'Loading customizations took too long. Please refresh and try again.' : ((err && err.message) || 'Unable to load customizations.'))
                         : '';
                 } finally {
                     window.clearTimeout(timeoutId);
