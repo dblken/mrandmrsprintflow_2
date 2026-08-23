@@ -2050,23 +2050,17 @@ $online_closed_count = 0;
 
                     <!-- 4. PAYMENT_CONFIRMED (staff-controlled production gate) -->
                     <template x-if="modalWorkflowStatus(currentJo) === 'PAYMENT_CONFIRMED'">
-                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #86efac; background:#f0fdf4;">
+                        <div style="margin-bottom:20px;padding:20px;border-radius:14px;border:1px solid #b9dfd3;background:#ffffff;box-shadow:0 8px 24px rgba(15,118,110,.08);">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-                                <label style="font-size:12px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.05em;">Payment Received / Awaiting Production</label>
+                                <label style="font-size:12px;font-weight:850;color:#0f5f59;text-transform:uppercase;letter-spacing:.1em;">Payment Received</label>
                                 <span x-show="(providerPaymentFor(currentJo) || {}).test_mode" style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
                             </div>
-                            <style>#paymongo-paid-details > div:nth-child(-n+4){display:none}</style>
-                            <div id="paymongo-paid-details" style="display:grid;gap:8px;color:#166534;font-size:13px;">
-                                <div>Status: <strong>PAID</strong></div>
-                                <div><strong>Paid via PayMongo — <span x-text="(providerPaymentFor(currentJo) || {}).payment_method_label || 'PayMongo'"></span></strong></div>
-                                <div>Amount: <strong x-text="'₱' + (Number((providerPaymentFor(currentJo) || {}).amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
-                                <div x-show="(providerPaymentFor(currentJo) || {}).paid_at">Paid date: <strong x-text="(providerPaymentFor(currentJo) || {}).paid_at || ''"></strong></div>
-                                <div>Status: <strong>PAID / AWAITING PRODUCTION</strong></div>
-                                <div>Payment Method: <strong x-text="(providerPaymentFor(currentJo) || {}).payment_method_label || currentJo.payment_method || 'PayMongo'"></strong></div>
-                                <div>Amount Paid: <strong x-text="'PHP ' + (Number((providerPaymentFor(currentJo) || {}).paid_amount_centavos || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
-                                <div>Remaining Balance: <strong x-text="'PHP ' + (Number((providerPaymentFor(currentJo) || {}).remaining_balance_centavos || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></strong></div>
-                                <div x-show="currentJo.payment_reference">Payment Reference: <strong x-text="currentJo.payment_reference || ''"></strong></div>
-                                <div x-show="currentJo.payment_paid_at">Payment Date: <strong x-text="currentJo.payment_paid_at || ''"></strong></div>
+                            <div style="font-size:25px;font-weight:900;color:#0b665f;margin-bottom:14px;" x-text="'₱' + (Number((providerPaymentFor(currentJo) || {}).paid_amount_centavos || (providerPaymentFor(currentJo) || {}).amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})"></div>
+                            <div id="paymongo-paid-details" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;color:#172b32;font-size:13px;">
+                                <div style="padding:11px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;"><span style="display:block;color:#64748b;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Method</span><strong style="display:block;margin-top:3px;color:#17343d;" x-text="(providerPaymentFor(currentJo) || {}).payment_method_label || currentJo.payment_method || 'PayMongo'"></strong></div>
+                                <div style="min-width:0;padding:11px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;"><span style="display:block;color:#64748b;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Reference</span><strong style="display:block;margin-top:3px;color:#17343d;overflow-wrap:anywhere;" x-text="(providerPaymentFor(currentJo) || {}).reference_number || (providerPaymentFor(currentJo) || {}).payment_reference || currentJo.payment_reference || 'Not recorded'"></strong></div>
+                                <div style="padding:11px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;"><span style="display:block;color:#64748b;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Paid On</span><strong style="display:block;margin-top:3px;color:#17343d;" x-text="(providerPaymentFor(currentJo) || {}).provider_paid_at || (providerPaymentFor(currentJo) || {}).paid_at || currentJo.payment_paid_at || 'Not recorded'"></strong></div>
+                                <div style="padding:11px;border:1px solid #cce8dd;border-radius:9px;background:#edf8f4;"><span style="display:block;color:#55746c;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Status</span><strong style="display:block;margin-top:3px;color:#136b55;">Paid / Awaiting Production</strong></div>
                             </div>
                             <div x-show="!canStartProduction(currentJo)" style="margin-top:14px;padding:10px 12px;border:1px solid #fecaca;background:#fff1f2;color:#b91c1c;font-size:12px;font-weight:700;line-height:1.5;">
                                 <template x-for="(message, key) in startProductionErrors(currentJo)" :key="key">

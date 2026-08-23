@@ -753,6 +753,34 @@ if (!function_exists('pf_payment_qr_url')) {
         border-radius: 4px;
         color: #00232b !important;
     }
+    .paymongo-card { padding:1.4rem;margin-bottom:1.25rem;border:1px solid #dbe5e8;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(0,35,43,.08);color:#172b32; }
+    .paymongo-eyebrow { color:#0f766e;font-size:.7rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase; }
+    .paymongo-title { margin:.35rem 0 0;color:#102f38;font-size:1.08rem;font-weight:850; }
+    .paymongo-amount-wrap { margin:1.15rem 0;padding:1rem;border-radius:10px;background:#f1f8f8; }
+    .paymongo-label { color:#64748b;font-size:.72rem;font-weight:750;letter-spacing:.04em;text-transform:uppercase; }
+    .paymongo-amount { margin-top:.15rem;color:#082f3a;font-size:1.8rem;font-weight:900;letter-spacing:-.025em; }
+    .paymongo-options { display:grid;grid-template-columns:1fr 1fr;gap:.75rem; }
+    .paymongo-option { min-height:116px;padding:.9rem;border:1px solid #cbdde1;border-radius:10px;background:#fff;color:#17343d;text-align:left;cursor:pointer;transition:border-color .18s,box-shadow .18s,transform .18s; }
+    .paymongo-option:hover { border-color:#12818a;box-shadow:0 5px 16px rgba(15,118,110,.1);transform:translateY(-1px); }
+    .paymongo-option:disabled { opacity:.58;cursor:wait;transform:none; }
+    .paymongo-option-primary { border-color:#0f8a8f;background:#f3fbfb; }
+    .paymongo-option strong { display:block;color:#082f3a;font-size:.84rem;letter-spacing:.035em; }
+    .paymongo-option span { display:block;margin-top:.45rem;color:#5b6f76;font-size:.76rem;line-height:1.45; }
+    .paymongo-recommended { display:inline-flex !important;width:auto;margin:0 0 .55rem !important;padding:.18rem .45rem;border-radius:999px;background:#dff5f2;color:#0f766e !important;font-size:.62rem !important;font-weight:800;text-transform:uppercase; }
+    .paymongo-qr-card { margin-top:1rem;padding:1.15rem;border:1px solid #dbe5e8;border-radius:12px;background:#fbfefe;text-align:center; }
+    .paymongo-qr-card img { width:min(248px,100%);padding:8px;border:1px solid #e2e8f0;border-radius:8px; }
+    .paymongo-state { margin-top:.85rem;padding:.7rem .8rem;border-radius:8px;background:#f1f5f9;color:#43565d;font-size:.8rem;line-height:1.45;text-align:center; }
+    .paymongo-actions { display:flex;justify-content:center;flex-wrap:wrap;gap:.65rem;margin-top:.85rem; }
+    .paymongo-action { display:inline-flex;min-height:42px;align-items:center;justify-content:center;width:auto;padding:.65rem 1rem;border-radius:9px;font-size:.8rem;font-weight:800;text-decoration:none; }
+    .paymongo-action-primary { border:1px solid #063b47;background:#063b47;color:#fff; }
+    .paymongo-action-secondary { border:1px solid #a9c7cc;background:#fff;color:#0a5962; }
+    .payment-confirmed-card { padding:1.5rem;color:#172b32;text-align:center; }
+    .payment-confirmed-card .paid-total { margin:.65rem 0 1.15rem;color:#08756d;font-size:1.65rem;font-weight:900; }
+    .payment-detail-grid { display:grid;grid-template-columns:1fr 1fr;gap:.7rem;text-align:left; }
+    .payment-detail { min-width:0;padding:.8rem;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc; }
+    .payment-detail-value { display:block;margin-top:.18rem;color:#142f38;font-size:.9rem;font-weight:800;overflow-wrap:anywhere; }
+    .payment-confirmed-actions { display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:.65rem;margin-top:1.15rem; }
+    .payment-status-badge { display:inline-flex;min-height:42px;align-items:center;padding:.6rem 1rem;border-radius:9px;background:#e8f6f1;color:#136b55;font-size:.8rem;font-weight:800; }
     /* Compact specs in item card */
     .order-spec-grid {
         display: grid;
@@ -777,6 +805,9 @@ if (!function_exists('pf_payment_qr_url')) {
         .order-item-header { flex-direction: column !important; align-items: stretch !important; }
         .order-item-image { width: 100% !important; height: auto !important; aspect-ratio: 1 / 1; }
         .order-item-image img { width: 100% !important; height: 100% !important; object-fit: cover; }
+        .paymongo-options, .payment-detail-grid { grid-template-columns:1fr; }
+        .paymongo-card, .payment-confirmed-card { padding:1.05rem; }
+        .paymongo-action { flex:1 1 auto; }
     }
 </style>
 
@@ -891,34 +922,27 @@ if (!function_exists('pf_payment_qr_url')) {
 
                 <!-- Payment Section -->
                 <?php if ($is_paid_ui): ?>
-                    <div style="text-align: center; padding: 2rem;">
+                    <div class="payment-confirmed-card">
                         <?php if (($paymongo_payment['status'] ?? '') === 'paid' && ($paymongo_payment['mode'] ?? '') === 'test'): ?>
                             <div style="display:inline-flex;align-items:center;padding:4px 9px;margin-bottom:12px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:800;text-transform:uppercase;">PayMongo Test Mode</div>
                         <?php endif; ?>
-                        <div style="width: 80px; height: 80px; margin: 0 auto 1.5rem; background: linear-gradient(135deg, #059669, #047857); display: flex; align-items: center; justify-content: center; position: relative;">
-                            <svg style="width: 48px; height: 48px; color: #fff;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
-                        <h3 style="font-weight: 800; color: #059669; margin-bottom: 0.5rem;">✓ Payment Confirmed</h3>
+                        <div class="paymongo-eyebrow">Payment Confirmed</div>
                         <?php if (($paymongo_payment['status'] ?? '') === 'paid'): ?>
-                            <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency(((int)$paymongo_public['paid_amount_centavos']) / 100); ?></div>
-                            <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Remaining Balance: <?php echo format_currency(((int)$paymongo_public['remaining_balance_centavos']) / 100); ?></p>
-                            <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)$paymongo_public['payment_method_label']); ?></p>
-                            <?php if (!empty($paymongo_public['reference_number']) || !empty($paymongo_public['payment_reference'])): ?>
-                                <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Reference: <?php echo htmlspecialchars((string)($paymongo_public['reference_number'] ?: $paymongo_public['payment_reference'])); ?></p>
-                            <?php endif; ?>
-                            <?php if (!empty($paymongo_public['provider_paid_at'])): ?>
-                                <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Paid on: <?php echo htmlspecialchars((string)$paymongo_public['provider_paid_at']); ?></p>
-                            <?php endif; ?>
-                            <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Awaiting Production.</strong><br>Your payment has been received. The shop will begin production after staff confirmation.</p>
-                            <button type="button" disabled class="shopee-btn-primary" style="display:block;width:100%;margin-top:18px;padding:11px;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;">Awaiting Production</button>
+                            <div class="paid-total"><?php echo format_currency(((int)$paymongo_public['paid_amount_centavos']) / 100); ?> PAID</div>
+                            <div class="payment-detail-grid">
+                                <div class="payment-detail"><span class="paymongo-label">Payment Method</span><strong class="payment-detail-value"><?php echo htmlspecialchars((string)$paymongo_public['payment_method_label']); ?></strong></div>
+                                <div class="payment-detail"><span class="paymongo-label">Reference</span><strong class="payment-detail-value"><?php echo htmlspecialchars((string)($paymongo_public['reference_number'] ?: $paymongo_public['payment_reference'] ?: 'Not recorded')); ?></strong></div>
+                                <div class="payment-detail"><span class="paymongo-label">Paid On</span><strong class="payment-detail-value"><?php echo htmlspecialchars(!empty($paymongo_public['provider_paid_at']) ? format_datetime((string)$paymongo_public['provider_paid_at']) : 'Not recorded'); ?></strong></div>
+                                <div class="payment-detail"><span class="paymongo-label">Order Status</span><strong class="payment-detail-value">Awaiting Production</strong></div>
+                            </div>
+                            <p style="color:#52666d;font-size:.82rem;line-height:1.55;margin:1rem auto 0;max-width:34rem;">Payment has been received. Production will begin after staff confirmation.</p>
+                            <div class="payment-confirmed-actions"><span class="payment-status-badge">Awaiting Production</span><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
                         <?php else: ?>
                             <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency($total_amount); ?></div>
                             <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)($order['payment_method'] ?? 'GCash')); ?></p>
                             <p style="color:#9fc4d4;font-size:.875rem;"><strong style="color:#eaf6fb;">Status: Payment Approved.</strong><br>Your order is proceeding through production.</p>
                         <?php endif; ?>
-                        <a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="btn-primary w-full mt-6 text-center block" style="text-decoration: none;">View Order Details</a>
+                        <?php if (($paymongo_payment['status'] ?? '') !== 'paid'): ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary" style="margin-top:1rem;">View Order Details</a><?php endif; ?>
                     </div>
                 <?php elseif (!$show_payment_form): ?>
                     <div style="text-align: center; padding: 2rem;">
@@ -936,30 +960,31 @@ if (!function_exists('pf_payment_qr_url')) {
                     $payment_submission_token = bin2hex(random_bytes(24));
                     ?>
                     <?php if ($paymongo_available): ?>
-                        <div id="paymongo-test-payment" style="padding:16px;margin-bottom:20px;border:1px solid #53c5e0;background:#062c38;">
+                        <div id="paymongo-test-payment" class="paymongo-card">
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
-                                <strong style="color:#eaf6fb;font-size:15px;">Payment Method - PayMongo</strong>
+                                <div><div class="paymongo-eyebrow">Payment Method</div><h2 class="paymongo-title">Pay securely with PayMongo</h2></div>
                                 <?php if ($paymongo_mode === 'test'): ?><span style="padding:3px 8px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
                             </div>
-                            <div style="color:#9fc4d4;font-size:13px;margin-bottom:12px;">
-                                Amount Due: <strong style="color:#eaf6fb;"><?php echo format_currency($total_amount); ?></strong>
-                                <div style="margin-top:5px;">Choose how you want to pay securely.</div>
+                            <div class="paymongo-amount-wrap">
+                                <div class="paymongo-label">Amount Due</div>
+                                <div class="paymongo-amount"><?php echo format_currency($total_amount); ?></div>
                             </div>
-                            <div id="paymongo-method-actions" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin-bottom:12px;">
+                            <div id="paymongo-method-actions" class="paymongo-options">
                                 <?php if ($paymongo_qrph_available): ?>
-                                    <button id="paymongo-create-qrph" type="button" class="shopee-btn-primary" style="padding:11px;border:0;background:#53c5e0;color:#fff;font-weight:800;cursor:pointer;">Pay with QR Ph</button>
+                                    <button id="paymongo-create-qrph" type="button" class="paymongo-option paymongo-option-primary"><span class="paymongo-recommended">Recommended</span><strong>QR PH</strong><span>Scan a secure QR using a supported banking or e-wallet app.</span></button>
                                 <?php endif; ?>
-                                <button id="paymongo-create-link" type="button" style="padding:11px;border:1px solid #53c5e0;background:#0a2530;color:#eaf6fb;font-weight:800;cursor:pointer;">Secure Checkout</button>
+                                <button id="paymongo-create-link" type="button" class="paymongo-option"><strong>SECURE CHECKOUT</strong><span>Continue to PayMongo's hosted secure checkout.</span></button>
                             </div>
-                            <div id="paymongo-qr-panel" style="display:none;text-align:center;padding:12px;background:#fff;color:#0f172a;margin-bottom:10px;">
-                                <div style="font-size:12px;font-weight:800;margin-bottom:8px;">Order #<?php echo (int)$order_id; ?> &middot; <?php echo format_currency($total_amount); ?></div>
-                                <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code" style="display:block;width:min(260px,100%);aspect-ratio:1/1;object-fit:contain;margin:0 auto 10px;background:#fff;">
-                                <div style="font-size:12px;color:#475569;line-height:1.5;">Scan using GCash, Maya, or another QR Ph-compatible banking app.</div>
-                                <div id="paymongo-qr-countdown" style="font-size:13px;font-weight:900;color:#0f766e;margin-top:8px;min-height:20px;"></div>
+                            <div id="paymongo-qr-panel" class="paymongo-qr-card" style="display:none;">
+                                <div class="paymongo-eyebrow">QR Ph Payment</div><div class="paymongo-amount" style="font-size:1.45rem;margin:.3rem 0 .5rem;"><?php echo format_currency($total_amount); ?></div>
+                                <div style="font-size:.8rem;color:#52666d;line-height:1.5;margin-bottom:.8rem;">Scan this QR using a supported banking or e-wallet application.</div>
+                                <img id="paymongo-qr-image" alt="PayMongo QR Ph payment code">
+                                <div style="margin-top:.75rem;font-size:.82rem;font-weight:800;color:#9a6700;">Waiting for payment</div>
+                                <div id="paymongo-qr-countdown" style="font-size:.82rem;font-weight:800;color:#0f766e;margin-top:.25rem;min-height:20px;"></div>
+                                <div style="margin-top:.5rem;font-size:.72rem;color:#64748b;overflow-wrap:anywhere;">Order Reference: <strong style="color:#223b43;">#<?php echo (int)$order_id; ?></strong></div>
                             </div>
-                            <a id="paymongo-pay-now" href="#" target="_blank" rel="noopener noreferrer" class="shopee-btn-primary" style="display:none;text-align:center;padding:11px;text-decoration:none;background:#53c5e0;color:#fff;font-weight:800;margin-bottom:9px;">Open Secure Checkout</a>
-                            <div id="paymongo-payment-state" style="padding:10px;background:#0a2530;color:#9fc4d4;font-size:12px;text-align:center;min-height:38px;">Choose a PayMongo payment method.</div>
-                            <button id="paymongo-retry" type="button" style="display:none;width:100%;margin-top:9px;padding:10px;border:1px solid #53c5e0;background:transparent;color:#eaf6fb;font-weight:800;cursor:pointer;">Generate New QR</button>
+                            <div class="paymongo-actions"><a id="paymongo-pay-now" href="#" target="_blank" rel="noopener noreferrer" class="paymongo-action paymongo-action-secondary" style="display:none;">Open Secure Checkout</a><button id="paymongo-retry" type="button" class="paymongo-action paymongo-action-primary" style="display:none;">Generate New QR</button></div>
+                            <div id="paymongo-payment-state" class="paymongo-state" role="status" aria-live="polite">Choose a PayMongo payment method.</div>
                         </div>
                         <?php if ($manual_payment_enabled): ?>
                         <div style="display:flex;align-items:center;gap:10px;margin:0 0 20px;color:#9fc4d4;font-size:12px;">
@@ -1134,12 +1159,19 @@ if (!function_exists('pf_payment_qr_url')) {
                 if (button) button.disabled = busy;
             });
         };
+        const parsePayMongoJson = async (response) => {
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error('The payment service returned an invalid response. Please try again.');
+            }
+            return response.json();
+        };
         const renderPayMongoConfirmed = (payment) => {
             stopPayMongoTimers();
             if (!paymentSidebarCard) return;
             paymentSidebarCard.replaceChildren();
             const panel = document.createElement('div');
-            panel.style.cssText = 'text-align:center;padding:2rem;';
+            panel.className = 'payment-confirmed-card';
 
             if (payment.test_mode) {
                 const badge = document.createElement('div');
@@ -1148,57 +1180,57 @@ if (!function_exists('pf_payment_qr_url')) {
                 panel.appendChild(badge);
             }
 
-            const icon = document.createElement('div');
-            icon.textContent = '✓';
-            icon.style.cssText = 'width:80px;height:80px;margin:0 auto 1.5rem;background:linear-gradient(135deg,#059669,#047857);display:flex;align-items:center;justify-content:center;color:#fff;font-size:48px;font-weight:900;';
-            panel.appendChild(icon);
-
-            const heading = document.createElement('h3');
-            heading.textContent = 'Payment Received';
-            heading.style.cssText = 'font-weight:800;color:#059669;margin-bottom:.5rem;';
+            const heading = document.createElement('div');
+            heading.textContent = 'Payment Confirmed';
+            heading.className = 'paymongo-eyebrow';
             panel.appendChild(heading);
 
             const amount = document.createElement('div');
-            amount.textContent = '₱' + (Number(payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' paid through PayMongo';
-            amount.textContent = 'Amount Paid: PHP ' + (Number(payment.paid_amount_centavos || payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-            amount.style.cssText = 'font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;';
+            amount.textContent = '₱' + (Number(payment.paid_amount_centavos || payment.amount || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' PAID';
+            amount.className = 'paid-total';
             panel.appendChild(amount);
 
-            const method = document.createElement('p');
-            method.textContent = 'Payment method: ' + (payment.payment_method_label || 'QRPh');
-            method.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;';
-            panel.appendChild(method);
-
-            const balance = document.createElement('p');
-            balance.textContent = 'Remaining Balance: PHP ' + (Number(payment.remaining_balance_centavos || 0) / 100).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-            balance.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;';
-            panel.appendChild(balance);
-
+            const details = document.createElement('div');
+            details.className = 'payment-detail-grid';
             const reference = payment.reference_number || payment.payment_reference || '';
-            if (reference) {
-                const referenceLine = document.createElement('p');
-                referenceLine.textContent = 'Reference: ' + reference;
-                referenceLine.style.cssText = 'color:#9fc4d4;font-size:.875rem;margin-bottom:6px;overflow-wrap:anywhere;';
-                panel.appendChild(referenceLine);
-            }
+            const detailValues = [
+                ['Payment Method', payment.payment_method_label || 'QR Ph'],
+                ['Reference', reference || 'Not recorded'],
+                ['Paid On', payment.provider_paid_at || payment.paid_at || 'Not recorded'],
+                ['Order Status', 'Awaiting Production']
+            ];
+            detailValues.forEach(([label, value]) => {
+                const detail = document.createElement('div');
+                detail.className = 'payment-detail';
+                const labelElement = document.createElement('span');
+                labelElement.className = 'paymongo-label';
+                labelElement.textContent = label;
+                const valueElement = document.createElement('strong');
+                valueElement.className = 'payment-detail-value';
+                valueElement.textContent = value;
+                detail.append(labelElement, valueElement);
+                details.appendChild(detail);
+            });
+            panel.appendChild(details);
 
             const next = document.createElement('p');
-            next.textContent = 'Status: Awaiting Production. Your payment has been received. The shop will begin production after staff confirmation.';
-            next.style.cssText = 'color:#9fc4d4;font-size:.875rem;';
+            next.textContent = 'Payment has been received. Production will begin after staff confirmation.';
+            next.style.cssText = 'color:#52666d;font-size:.82rem;line-height:1.55;margin:1rem auto 0;max-width:34rem;';
             panel.appendChild(next);
 
-            const confirmedButton = document.createElement('button');
-            confirmedButton.type = 'button';
-            confirmedButton.disabled = true;
-            confirmedButton.textContent = 'Awaiting Production';
-            confirmedButton.style.cssText = 'display:block;width:100%;margin-top:18px;padding:11px;border:0;background:#059669;color:#fff;font-weight:800;opacity:.82;cursor:not-allowed;';
-            panel.appendChild(confirmedButton);
+            const actions = document.createElement('div');
+            actions.className = 'payment-confirmed-actions';
+            const statusBadge = document.createElement('span');
+            statusBadge.className = 'payment-status-badge';
+            statusBadge.textContent = 'Awaiting Production';
+            actions.appendChild(statusBadge);
 
             const orderLink = document.createElement('a');
             orderLink.href = <?php echo json_encode(!$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'); ?>;
             orderLink.textContent = 'View Order Details';
-            orderLink.style.cssText = 'display:block;margin-top:18px;text-decoration:none;color:#53c5e0;font-weight:800;';
-            panel.appendChild(orderLink);
+            orderLink.className = 'paymongo-action paymongo-action-secondary';
+            actions.appendChild(orderLink);
+            panel.appendChild(actions);
             paymentSidebarCard.appendChild(panel);
         };
         const startQrCountdown = (payment) => {
@@ -1263,12 +1295,21 @@ if (!function_exists('pf_payment_qr_url')) {
         };
         const schedulePayMongoPoll = () => {
             if (paymongoPollTimer) window.clearTimeout(paymongoPollTimer);
+            const status = String(paymongoCurrentPayment?.status || '').toLowerCase();
+            if (!['generating', 'awaiting_payment'].includes(status)) {
+                paymongoPollTimer = null;
+                return;
+            }
             paymongoPollTimer = window.setTimeout(pollPayMongo, 5000);
         };
         const pollPayMongo = async () => {
             try {
                 const response = await fetch(paymongoStatusUrl, { cache: 'no-store' });
-                const data = await response.json();
+                const data = await parsePayMongoJson(response);
+                if (!response.ok) {
+                    paymongoState.textContent = data.message || `Payment status is temporarily unavailable (${response.status}).`;
+                    return;
+                }
                 if (data.success) {
                     const terminal = renderPayMongoPayment(data.payment);
                     if (terminal) return;
@@ -1285,7 +1326,7 @@ if (!function_exists('pf_payment_qr_url')) {
             if (paymongoBusy) return;
             setPayMongoButtonsBusy(true);
             paymongoState.textContent = action === 'create_qrph'
-                ? 'Generating your QR Ph code...'
+                ? 'Generating secure QR...'
                 : 'Preparing secure checkout...';
             try {
                 const response = await fetch(paymongoCreateUrl, {
@@ -1298,7 +1339,7 @@ if (!function_exists('pf_payment_qr_url')) {
                         csrf_token: paymongoCsrfToken
                     })
                 });
-                const data = await response.json();
+                const data = await parsePayMongoJson(response);
                 if (!response.ok || !data.success || !data.payment) {
                     throw new Error(data.message || 'The payment could not be prepared.');
                 }
@@ -1314,8 +1355,9 @@ if (!function_exists('pf_payment_qr_url')) {
         if (paymongoQrButton) paymongoQrButton.addEventListener('click', () => createPayMongoPayment('create_qrph'));
         if (paymongoLinkButton) paymongoLinkButton.addEventListener('click', () => createPayMongoPayment('create_link'));
         if (paymongoRetryButton) paymongoRetryButton.addEventListener('click', () => createPayMongoPayment('create_qrph'));
+        window.addEventListener('pagehide', stopPayMongoTimers, {once: true});
         const initialTerminal = renderPayMongoPayment(paymongoCurrentPayment);
-        if (!initialTerminal) paymongoPollTimer = window.setTimeout(pollPayMongo, 1500);
+        if (!initialTerminal) schedulePayMongoPoll();
     }
 
     function toggleItems(btn) {

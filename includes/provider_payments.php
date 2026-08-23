@@ -67,7 +67,7 @@ function printflow_provider_payment_public(array $payment): array {
     $providerStatus = (string)($payment['provider_status'] ?? $status);
     $method = strtolower(trim((string)($payment['payment_method'] ?? '')));
     $methodLabel = $method === 'qrph'
-        ? 'QRPh'
+        ? 'QR Ph'
         : ($method !== '' ? strtoupper($method) : 'PayMongo');
 
     $mode = (string)($payment['mode'] ?? '');
@@ -978,9 +978,19 @@ function printflow_provider_payment_create_intent(
                     [$ledgerId]
                 );
                 if ($claimed !== 1) {
-                    $conn->rollback();
+                    // Another request already owns this short-lived creation
+                    // lease. This is an idempotent in-progress state, not a
+                    // business conflict. Return the same ledger so callers can
+                    // poll it instead of creating a duplicate Payment Intent.
+                    $conn->commit();
                     $transactionOpen = false;
-                    return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
+                    return [
+                        'ok' => true,
+                        'reused' => true,
+                        'in_progress' => true,
+                        'ledger' => $existing,
+                        'payment' => printflow_provider_payment_public($existing),
+                    ];
                 }
                 $reuseIntent = $sameFlow && !empty($existing['payment_intent_id']) && !empty($existing['client_key']);
             } elseif (!$preparedForAttachment) {
@@ -1002,7 +1012,17 @@ function printflow_provider_payment_create_intent(
                 if ($claimed !== 1) {
                     $conn->rollback();
                     $transactionOpen = false;
-                    return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
+                    $raced = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
+                    if (!empty($raced) && in_array((string)($raced['status'] ?? ''), ['generating', 'awaiting_payment'], true)) {
+                        return [
+                            'ok' => true,
+                            'reused' => true,
+                            'in_progress' => true,
+                            'ledger' => $raced,
+                            'payment' => printflow_provider_payment_public($raced),
+                        ];
+                    }
+                    return ['ok' => false, 'http_status' => 500, 'message' => 'The Payment Intent retry could not be claimed safely.'];
                 }
                 $reuseIntent = false;
             }
@@ -1032,7 +1052,17 @@ function printflow_provider_payment_create_intent(
             if (!$created) {
                 $conn->rollback();
                 $transactionOpen = false;
-                return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'];
+                $raced = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
+                if (!empty($raced) && in_array((string)($raced['status'] ?? ''), ['generating', 'awaiting_payment'], true)) {
+                    return [
+                        'ok' => true,
+                        'reused' => true,
+                        'in_progress' => true,
+                        'ledger' => $raced,
+                        'payment' => printflow_provider_payment_public($raced),
+                    ];
+                }
+                return ['ok' => false, 'http_status' => 500, 'message' => 'The Payment Intent ledger could not be created safely.'];
             }
             $ledgerId = (int)$conn->insert_id;
         }
@@ -1149,6 +1179,17 @@ function printflow_provider_payment_create_qrph(
     $ledgerId = (int)($ledger['id'] ?? 0);
     if ($ledgerId <= 0) {
         return ['ok' => false, 'http_status' => 500, 'message' => 'The payment ledger could not be loaded.'];
+    }
+    if (!empty($intentResult['in_progress'])
+        && (string)($ledger['status'] ?? '') === 'generating') {
+        return [
+            'ok' => true,
+            'reused' => true,
+            'in_progress' => true,
+            'payment' => printflow_provider_payment_public($ledger),
+            'qr_image_url' => '',
+            'qr_expires_at' => null,
+        ];
     }
     if ((string)($ledger['status'] ?? '') === 'paid') {
         return [

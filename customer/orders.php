@@ -1659,7 +1659,6 @@ require_once __DIR__ . '/../includes/header.php';
                             $financial = (array)($order['_financial_snapshot'] ?? []);
                             $amount_due = ((int)($financial['amount_due_centavos'] ?? 0)) / 100;
                             $paid_amount = ((int)($financial['paid_amount_centavos'] ?? 0)) / 100;
-                            $remaining_balance = ((int)($financial['remaining_balance_centavos'] ?? 0)) / 100;
                             $payment_paid_at = trim((string)($order['_payment_paid_at_raw'] ?? ''));
                         ?>
                         <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" data-payment-received="<?php echo !empty($order['_payment_received']) ? '1' : '0'; ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
@@ -1688,7 +1687,6 @@ require_once __DIR__ . '/../includes/header.php';
                                         <?php if (!empty($order['_payment_received'])): ?>
                                             <div class="payment-received-summary">
                                                 <span><strong>Paid:</strong> <?php echo htmlspecialchars(format_currency($paid_amount)); ?></span>
-                                                <span><strong>Balance:</strong> <?php echo htmlspecialchars(format_currency($remaining_balance)); ?></span>
                                                 <span><strong>Method:</strong> <?php echo htmlspecialchars((string)$order['_payment_method_display']); ?></span>
                                                 <span><strong>Reference:</strong> <?php echo htmlspecialchars((string)($order['_payment_reference_display'] ?: 'Not recorded')); ?></span>
                                                 <span><strong>Paid on:</strong> <?php echo htmlspecialchars($payment_paid_at !== '' ? format_datetime($payment_paid_at) : 'Not recorded'); ?></span>
@@ -2380,7 +2378,6 @@ function openItemsModal(orderId, event) {
                             `}
                             ${paymentReceived ? `
                                 <div><div class="im-label" style="margin-bottom: 4px;">Paid amount</div><div class="im-val">${escIM(payment.paid_amount || data.financial?.paid_amount || data.total_amount)}</div></div>
-                                <div><div class="im-label" style="margin-bottom: 4px;">Remaining balance</div><div class="im-val">${escIM(payment.remaining_balance || data.financial?.remaining_balance || '₱0.00')}</div></div>
                                 <div><div class="im-label" style="margin-bottom: 4px;">Payment reference</div><div class="im-val" style="overflow-wrap:anywhere;">${escIM(paymentReference || 'Not recorded')}</div></div>
                                 <div><div class="im-label" style="margin-bottom: 4px;">Payment date</div><div class="im-val">${escIM(paymentPaidAt || 'Not recorded')}</div></div>
                             ` : ''}
