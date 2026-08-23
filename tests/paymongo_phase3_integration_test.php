@@ -82,7 +82,7 @@ phase3_check(
 );
 phase3_check(
     str_contains($customerApi, "\$action === 'create_link'")
-        && str_contains($customerPage, 'Open Secure Checkout')
+        && str_contains($customerPage, 'Continue to Secure Checkout')
         && str_contains($provider, 'function printflow_provider_payment_create_link('),
     '10. existing customer Payment Link flow remains available'
 );

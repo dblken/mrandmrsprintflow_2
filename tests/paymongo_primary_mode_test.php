@@ -83,7 +83,7 @@ primary_mode_check(
 );
 primary_mode_check(
     str_contains($staffApi, "\$action === 'create_link'")
-        && str_contains($customerPage, 'Open Secure Checkout'),
+        && str_contains($customerPage, 'Continue to Secure Checkout'),
     '10. existing Payment Link flow remains available to customer and staff'
 );
 primary_mode_check(

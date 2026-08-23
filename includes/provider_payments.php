@@ -114,7 +114,11 @@ function printflow_provider_payment_public(array $payment): array {
         'qr_expires_at_epoch' => $qrExpiresEpoch !== false ? $qrExpiresEpoch : null,
         'retryable' => in_array($status, ['failed', 'expired', 'cancelled'], true),
         'terminal' => in_array($status, ['paid', 'failed', 'expired', 'cancelled'], true),
-        'checkout_url' => $status === 'paid' ? '' : (string)($payment['checkout_url'] ?? ''),
+        'checkout_url' => $status !== 'paid'
+            && $paymentFlow === 'payment_link'
+            && printflow_paymongo_checkout_url_is_safe((string)($payment['checkout_url'] ?? ''))
+                ? (string)$payment['checkout_url']
+                : '',
         'provider_payment_id' => $providerPaymentId,
         'payment_reference' => $providerPaymentId,
         'reference_number' => (string)($payment['reference_number'] ?? ''),
@@ -551,6 +555,7 @@ function printflow_provider_payment_create_link(
             return [
                 'ok' => false,
                 'http_status' => 409,
+                'error_code' => 'active_payment_flow_conflict',
                 'message' => 'This order already has an active PayMongo Payment Intent.',
             ];
         }
@@ -563,8 +568,19 @@ function printflow_provider_payment_create_link(
                     'message' => 'The final price no longer matches the existing payment link. Resolve the payment before changing the price.',
                 ];
             }
-            $conn->commit();
-            return ['ok' => true, 'reused' => true, 'payment' => printflow_provider_payment_public($existing)];
+            $linkIsReusable = (string)$existing['status'] === 'paid'
+                || printflow_paymongo_checkout_url_is_safe((string)($existing['checkout_url'] ?? ''));
+            if ($linkIsReusable) {
+                $conn->commit();
+                return ['ok' => true, 'reused' => true, 'payment' => printflow_provider_payment_public($existing)];
+            }
+            db_execute(
+                "UPDATE provider_payments SET status = 'failed', last_error_code = 'invalid_stored_checkout_url', updated_at = NOW()
+                 WHERE id = ? AND status = 'awaiting_payment'",
+                'i',
+                [(int)$existing['id']]
+            );
+            $existing['status'] = 'failed';
         }
         if ((string)$existing['status'] === 'generating') {
             $reclaimed = db_execute_affected_rows(
@@ -575,8 +591,13 @@ function printflow_provider_payment_create_link(
                 [(int)$existing['id']]
             );
             if ($reclaimed !== 1) {
-                $conn->rollback();
-                return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Link generation is already in progress.'];
+                $conn->commit();
+                return [
+                    'ok' => true,
+                    'reused' => true,
+                    'in_progress' => true,
+                    'payment' => printflow_provider_payment_public($existing),
+                ];
             }
             $ledgerId = (int)$existing['id'];
         } else {
@@ -616,7 +637,11 @@ function printflow_provider_payment_create_link(
             );
             if ($claimed !== 1) {
                 $conn->rollback();
-                return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Link generation is already in progress.'];
+                $raced = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
+                if (!empty($raced) && in_array((string)($raced['status'] ?? ''), ['generating', 'awaiting_payment'], true)) {
+                    return ['ok' => true, 'reused' => true, 'in_progress' => true, 'payment' => printflow_provider_payment_public($raced)];
+                }
+                return ['ok' => false, 'http_status' => 500, 'error_code' => 'link_retry_claim_failed', 'message' => 'Secure checkout could not be prepared safely.'];
             }
             $ledgerId = (int)$existing['id'];
         }
@@ -646,16 +671,33 @@ function printflow_provider_payment_create_link(
         );
         if (!$created) {
             $raced = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
-            if (!empty($raced) && in_array((string)$raced['status'], ['awaiting_payment', 'paid'], true)) {
+            if (!empty($raced) && in_array((string)$raced['status'], ['generating', 'awaiting_payment', 'paid'], true)) {
                 $conn->commit();
-                return ['ok' => true, 'reused' => true, 'payment' => printflow_provider_payment_public($raced)];
+                return [
+                    'ok' => true,
+                    'reused' => true,
+                    'in_progress' => (string)$raced['status'] === 'generating',
+                    'payment' => printflow_provider_payment_public($raced),
+                ];
             }
             $conn->rollback();
-            return ['ok' => false, 'http_status' => 409, 'message' => 'Payment Link generation is already in progress.'];
+            return ['ok' => false, 'http_status' => 500, 'error_code' => 'link_ledger_creation_failed', 'message' => 'Secure checkout could not be prepared safely.'];
         }
         $ledgerId = (int)$conn->insert_id;
     }
     $idempotencyKey = 'printflow-link-' . $mode . '-' . $subjectType . '-' . $subjectId . '-ledger-' . $ledgerId;
+    $flowUpdates = [];
+    if (db_table_has_column('provider_payments', 'payment_flow')) $flowUpdates[] = "payment_flow = 'payment_link'";
+    if (db_table_has_column('provider_payments', 'payment_status')) $flowUpdates[] = "payment_status = 'generating'";
+    if (db_table_has_column('provider_payments', 'provider_status')) $flowUpdates[] = "provider_status = 'generating'";
+    if ($flowUpdates !== [] && !db_execute(
+        'UPDATE provider_payments SET ' . implode(', ', $flowUpdates) . ' WHERE id = ?',
+        'i',
+        [$ledgerId]
+    )) {
+        $conn->rollback();
+        return ['ok' => false, 'http_status' => 500, 'error_code' => 'link_flow_persistence_failed', 'message' => 'Secure checkout could not be prepared safely.'];
+    }
     if (db_table_has_column('provider_payments', 'idempotency_key')) {
         if (!db_execute(
             'UPDATE provider_payments SET idempotency_key = ? WHERE id = ?',
@@ -688,7 +730,11 @@ function printflow_provider_payment_create_link(
     if (empty($apiResult['ok']) || (bool)($apiResult['livemode'] ?? true) !== ($mode === 'live')
         || empty($apiResult['id']) || empty($apiResult['url'])
         || (int)($apiResult['amount'] ?? 0) !== $amountCentavos) {
-        $errorCode = substr((string)($apiResult['error_code'] ?? 'link_creation_failed'), 0, 100);
+        $providerHttpStatus = (int)($apiResult['http_status'] ?? 0);
+        $providerRejected = empty($apiResult['ok']);
+        $errorCode = substr((string)($apiResult['error_code'] ?? (
+            $providerRejected ? 'link_creation_failed' : 'invalid_payment_link_response'
+        )), 0, 100);
         db_execute(
             "UPDATE provider_payments
              SET status = 'failed', last_error_code = ?, updated_at = NOW()
@@ -696,10 +742,24 @@ function printflow_provider_payment_create_link(
             'si',
             [$errorCode, $ledgerId]
         );
+        error_log('[paymongo-link] ' . json_encode([
+            'action' => 'create_link',
+            'payment_flow' => 'payment_link',
+            'subject_type' => $subjectType,
+            'subject_id' => $subjectId,
+            'ledger_id' => $ledgerId,
+            'mode' => $mode,
+            'provider_http_status' => $providerHttpStatus,
+            'provider_error_code' => $errorCode,
+        ], JSON_UNESCAPED_SLASHES));
         return [
             'ok' => false,
-            'http_status' => (int)($apiResult['http_status'] ?? 502),
-            'message' => (string)($apiResult['message'] ?? 'PayMongo could not create the Payment Link.'),
+            'http_status' => $providerRejected && in_array($providerHttpStatus, [400, 401, 403, 404, 409, 422, 429, 500, 502, 503], true)
+                ? ($providerHttpStatus === 429 ? 503 : ($providerHttpStatus >= 500 ? 502 : $providerHttpStatus))
+                : 502,
+            'message' => $providerRejected
+                ? (string)($apiResult['message'] ?? 'PayMongo could not create the Payment Link.')
+                : 'PayMongo returned an invalid Payment Link response. Please try again.',
             'error_code' => $errorCode,
         ];
     }
@@ -708,19 +768,21 @@ function printflow_provider_payment_create_link(
     $stored = $setReference
         ? db_execute(
             "UPDATE provider_payments
-             SET status = 'awaiting_payment', link_id = ?, checkout_url = ?, reference_number = NULLIF(?, ''),
+             SET status = 'awaiting_payment', payment_status = 'awaiting_payment', provider_status = ?,
+                 payment_flow = 'payment_link', link_id = ?, checkout_url = ?, reference_number = NULLIF(?, ''),
                  last_error_code = NULL, updated_at = NOW()
              WHERE id = ? AND status = 'generating'",
-            'sssi',
-            [(string)$apiResult['id'], (string)$apiResult['url'], (string)($apiResult['reference_number'] ?? ''), $ledgerId]
+            'ssssi',
+            [(string)($apiResult['status'] ?? 'active'), (string)$apiResult['id'], (string)$apiResult['url'], (string)($apiResult['reference_number'] ?? ''), $ledgerId]
         )
         : db_execute(
             "UPDATE provider_payments
-             SET status = 'awaiting_payment', link_id = ?, checkout_url = ?,
+             SET status = 'awaiting_payment', payment_status = 'awaiting_payment', provider_status = ?,
+                 payment_flow = 'payment_link', link_id = ?, checkout_url = ?,
                  last_error_code = NULL, updated_at = NOW()
              WHERE id = ? AND status = 'generating'",
-            'ssi',
-            [(string)$apiResult['id'], (string)$apiResult['url'], $ledgerId]
+            'sssi',
+            [(string)($apiResult['status'] ?? 'active'), (string)$apiResult['id'], (string)$apiResult['url'], $ledgerId]
         );
     if (!$stored) {
         return [

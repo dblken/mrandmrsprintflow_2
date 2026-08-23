@@ -15,7 +15,14 @@ function printflow_customer_paymongo_respond(int $status, array $payload): void 
 }
 
 set_exception_handler(static function (Throwable $error): void {
-    error_log('Customer PayMongo API request failed unexpectedly.');
+    $context = isset($GLOBALS['printflow_paymongo_request_context'])
+        && is_array($GLOBALS['printflow_paymongo_request_context'])
+        ? $GLOBALS['printflow_paymongo_request_context']
+        : [];
+    error_log('[customer-paymongo-api] ' . json_encode($context + [
+        'exception_class' => get_class($error),
+        'exception_code' => (string)$error->getCode(),
+    ], JSON_UNESCAPED_SLASHES));
     printflow_customer_paymongo_respond(500, [
         'success' => false,
         'code' => 'internal_error',
@@ -46,6 +53,12 @@ $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 $input = $method === 'POST'
     ? (json_decode((string)file_get_contents('php://input'), true) ?: $_POST)
     : $_GET;
+$GLOBALS['printflow_paymongo_request_context'] = [
+    'action' => strtolower(trim((string)($input['action'] ?? ($method === 'GET' ? 'status' : '')))),
+    'payment_flow' => (($input['action'] ?? '') === 'create_qrph') ? 'payment_intent' : ((($input['action'] ?? '') === 'create_link') ? 'payment_link' : 'status'),
+    'subject_type' => trim((string)($input['subject_type'] ?? 'order')),
+    'subject_id' => (int)($input['subject_id'] ?? $input['order_id'] ?? 0),
+];
 $subjectType = trim((string)($input['subject_type'] ?? 'order'));
 $subjectId = (int)($input['subject_id'] ?? $input['order_id'] ?? 0);
 if (!in_array($subjectType, ['order', 'job_order'], true) || $subjectId <= 0) {
@@ -125,6 +138,13 @@ if ($method === 'POST') {
             'in_progress' => !empty($result['in_progress']),
             'code' => (string)($result['error_code'] ?? ($responseStatus === 409 ? 'payment_state_conflict' : '')),
             'payment' => $publicPayment !== [] ? $publicPayment : null,
+            'payment_flow' => (string)($publicPayment['payment_flow'] ?? ''),
+            'payment_method' => (string)($publicPayment['payment_method'] ?? ''),
+            'status' => (string)($publicPayment['status'] ?? ''),
+            'qr_image_url' => (string)($publicPayment['qr_image_url'] ?? ''),
+            'qr_expires_at' => $publicPayment['qr_expires_at'] ?? null,
+            'amount_centavos' => (int)($publicPayment['amount_due_centavos'] ?? 0),
+            'checkout_url' => (string)($publicPayment['checkout_url'] ?? ''),
             'available_flows' => $availableFlows,
             'message' => !empty($result['ok'])
                 ? null

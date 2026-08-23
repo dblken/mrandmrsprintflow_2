@@ -325,6 +325,56 @@ if (!function_exists('printflow_paymongo_normalize_payment')) {
     }
 }
 
+if (!function_exists('printflow_paymongo_checkout_url_is_safe')) {
+    function printflow_paymongo_checkout_url_is_safe(string $candidateUrl): bool {
+        $candidateUrl = trim($candidateUrl);
+        $urlParts = $candidateUrl !== '' ? parse_url($candidateUrl) : false;
+        return filter_var($candidateUrl, FILTER_VALIDATE_URL)
+            && is_array($urlParts)
+            && strtolower((string)($urlParts['scheme'] ?? '')) === 'https'
+            && in_array(
+                strtolower((string)($urlParts['host'] ?? '')),
+                ['pm.link', 'checkout.paymongo.com'],
+                true
+            );
+    }
+}
+
+if (!function_exists('printflow_paymongo_normalize_payment_link')) {
+    /**
+     * Normalize both the current flat /v1/payment_links response and the
+     * legacy nested Link shape. Checkout URLs remain restricted to PayMongo.
+     */
+    function printflow_paymongo_normalize_payment_link(array $data, string $mode, int $httpCode): array {
+        $attributes = isset($data['attributes']) && is_array($data['attributes'])
+            ? $data['attributes']
+            : $data;
+        $candidateUrl = trim((string)($attributes['url'] ?? $attributes['checkout_url'] ?? ''));
+        $url = printflow_paymongo_checkout_url_is_safe($candidateUrl)
+            ? $candidateUrl
+            : '';
+        $candidateId = trim((string)($data['id'] ?? ''));
+        $candidateStatus = strtolower(trim((string)($attributes['status'] ?? '')));
+        $status = in_array($candidateStatus, ['active', 'archived'], true)
+            ? $candidateStatus
+            : ($candidateStatus === 'unpaid' ? 'active' : '');
+
+        return [
+            'ok' => true,
+            'mode' => $mode,
+            'test_mode' => $mode === 'test',
+            'http_status' => $httpCode,
+            'livemode' => (bool)($attributes['livemode'] ?? ($mode === 'live')),
+            'id' => preg_match('/^link_[A-Za-z0-9_-]+$/', $candidateId) ? $candidateId : '',
+            'url' => $url,
+            'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
+            'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
+            'status' => $status,
+            'reference_number' => substr(trim((string)($attributes['reference_number'] ?? '')), 0, 100),
+        ];
+    }
+}
+
 if (!function_exists('printflow_paymongo_request')) {
     function printflow_paymongo_request(
         string $method,
@@ -463,6 +513,9 @@ if (!function_exists('printflow_paymongo_request')) {
         }
         if (preg_match('#^/v1/payments/pay_[A-Za-z0-9_-]+$#', $path)) {
             return printflow_paymongo_normalize_payment($data, $mode, $httpCode);
+        }
+        if ($path === '/v1/payment_links') {
+            return printflow_paymongo_normalize_payment_link($data, $mode, $httpCode);
         }
         if (preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+/payments(?:\?.*)?$#', $path)) {
             $paidPayment = [];
