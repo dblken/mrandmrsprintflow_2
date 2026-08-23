@@ -480,14 +480,18 @@ function printflow_provider_payment_for_customer(
     if (!printflow_provider_payments_ready() || $customerId <= 0 || $subjectId <= 0) {
         return [];
     }
+    $mode = printflow_paymongo_mode();
+    if (!in_array($mode, ['test', 'live'], true)) {
+        return [];
+    }
     $rows = db_query(
         "SELECT * FROM provider_payments
          WHERE customer_id = ? AND subject_type = ? AND subject_id = ?
-           AND provider = 'paymongo'
+           AND channel = 'online' AND provider = 'paymongo' AND mode = ?
          ORDER BY CASE WHEN status = 'paid' THEN 0 WHEN status = 'awaiting_payment' THEN 1 ELSE 2 END,
                   id DESC LIMIT 1",
-        'isi',
-        [$customerId, $subjectType, $subjectId]
+        'isis',
+        [$customerId, $subjectType, $subjectId, $mode]
     ) ?: [];
     return $rows[0] ?? [];
 }

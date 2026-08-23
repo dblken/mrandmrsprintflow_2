@@ -55,7 +55,7 @@ $input = $method === 'POST'
     : $_GET;
 $GLOBALS['printflow_paymongo_request_context'] = [
     'action' => strtolower(trim((string)($input['action'] ?? ($method === 'GET' ? 'status' : '')))),
-    'payment_flow' => (($input['action'] ?? '') === 'create_qrph') ? 'payment_intent' : ((($input['action'] ?? '') === 'create_link') ? 'payment_link' : 'status'),
+    'payment_flow' => in_array(($input['action'] ?? ''), ['create_qrph', 'retry_qrph'], true) ? 'payment_intent' : ((($input['action'] ?? '') === 'create_link') ? 'payment_link' : 'status'),
     'subject_type' => trim((string)($input['subject_type'] ?? 'order')),
     'subject_id' => (int)($input['subject_id'] ?? $input['order_id'] ?? 0),
 ];
@@ -94,7 +94,7 @@ if ($method === 'POST') {
     }
 
     $action = strtolower(trim((string)($input['action'] ?? '')));
-    if ($action === 'create_qrph' && !$availableFlows['qrph']) {
+    if (in_array($action, ['create_qrph', 'retry_qrph'], true) && !$availableFlows['qrph']) {
         printflow_customer_paymongo_respond(422, [
             'success' => false,
             'code' => 'qrph_unavailable',
@@ -112,7 +112,7 @@ if ($method === 'POST') {
             'message' => 'This order has already been paid.',
         ]);
     }
-    if ($action === 'create_qrph') {
+    if (in_array($action, ['create_qrph', 'retry_qrph'], true)) {
         $result = printflow_provider_payment_create_qrph($subjectType, $subjectId, 'online', $customerId);
     } elseif ($action === 'create_link') {
         $result = printflow_provider_payment_create_link($subjectType, $subjectId, 'online', $customerId);

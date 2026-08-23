@@ -61,14 +61,15 @@ primary_mode_check(
 );
 primary_mode_check(
     !str_contains($staffPage, 'Manual GCash is active')
-        && str_contains($staffPage, 'PayMongo payment is active.'),
+        && str_contains($staffPage, 'The customer chooses QR Ph or Secure Checkout'),
     '6. staff page no longer presents the old Manual GCash active message'
 );
 primary_mode_check(
-    str_contains($staffPage, "generatePayMongoPayment('create_qrph')")
-        && str_contains($staffPage, 'paymongoPayment.qr_image_url')
-        && str_contains($staffApi, 'printflow_provider_payment_create_qrph('),
-    '7. staff uses existing PayMongo QR controls and provider reconciliation'
+    !str_contains($staffPage, 'generatePayMongoPayment(')
+        && !str_contains($staffPage, 'paymongoPayment.qr_image_url')
+        && str_contains($staffPage, 'Selected by customer:')
+        && str_contains($staffApi, "'code' => 'customer_owned_payment_method'"),
+    '7. staff observes customer-owned PayMongo state without QR controls'
 );
 primary_mode_check(
     str_contains($posPage, '<option value="PayMongo QRPh">')
@@ -82,9 +83,10 @@ primary_mode_check(
     '9. successful POS payment does not automatically complete fulfillment'
 );
 primary_mode_check(
-    str_contains($staffApi, "\$action === 'create_link'")
-        && str_contains($customerPage, 'Continue to Secure Checkout'),
-    '10. existing Payment Link flow remains available to customer and staff'
+    str_contains($customerApi, "\$action === 'create_link'")
+        && str_contains($customerPage, 'Continue to Secure Checkout')
+        && str_contains($staffApi, "if (\$channel === 'online')"),
+    '10. Payment Link creation belongs to the customer while staff remains read-only'
 );
 primary_mode_check(
     str_contains($customerPage, 'Payment Method')

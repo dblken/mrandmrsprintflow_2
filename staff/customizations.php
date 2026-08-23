@@ -22,9 +22,8 @@ $paymongoMode = printflow_paymongo_mode();
 $paymongoOnlineEnabled = $onlinePaymentMode === 'paymongo'
     && in_array($paymongoMode, ['test', 'live'], true)
     && printflow_paymongo_secret_key_for_mode($paymongoMode) !== '';
-$paymongoQrphEnabled = in_array('qrph', printflow_paymongo_enabled_methods($paymongoMode), true);
 $staffOnlinePaymentMessage = $paymongoOnlineEnabled
-    ? 'PayMongo payment is active. Waiting for provider confirmation.'
+    ? 'The customer chooses QR Ph or Secure Checkout from their payment page.'
     : ($onlinePaymentMode === 'manual_gcash'
         ? 'Waiting for the customer payment proof. Review the submission in Payment Verification.'
         : 'PayMongo payment is selected but currently unavailable.');
@@ -2017,24 +2016,16 @@ $online_closed_count = 0;
                                     <strong style="font-size:12px;color:#1e40af;">PayMongo Payment</strong>
                                     <span x-show="paymongoPayment && paymongoPayment.test_mode" style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
                                 </div>
-                                <div x-show="!paymongoPayment || paymongoPayment.status !== 'paid'" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;">
-                                    <?php if ($paymongoQrphEnabled): ?>
-                                    <button type="button" @click="generatePayMongoPayment('create_qrph')" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" :style="paymongoBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Dynamic QR Ph</button>
-                                    <?php endif; ?>
-                                    <button type="button" @click="generatePayMongoPayment('create_link')" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" :style="paymongoBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Payment Link</button>
+                                <div x-show="!paymongoPayment" style="padding:12px;border:1px solid #bfdbfe;background:#fff;color:#1e40af;font-size:12px;line-height:1.6;">
+                                    <div><span style="font-weight:700;">Status:</span> Awaiting Customer Payment</div>
+                                    <div><span style="font-weight:700;">Available to customer:</span> QR Ph or Secure Checkout</div>
                                 </div>
-                                <div x-show="paymongoPayment && paymongoPayment.qr_image_url" style="margin-top:10px;padding:10px;background:#fff;text-align:center;">
-                                    <img :src="paymongoPayment ? paymongoPayment.qr_image_url : ''" alt="PayMongo QR Ph payment code" style="display:block;width:min(240px,100%);aspect-ratio:1/1;object-fit:contain;margin:0 auto 8px;">
-                                    <div style="font-size:12px;color:#475569;">Scan using a QR Ph-compatible banking or e-wallet app.</div>
-                                    <div x-text="paymongoCountdown" style="font-size:12px;font-weight:800;color:#0f766e;margin-top:6px;min-height:18px;"></div>
-                                </div>
-                                <div x-show="paymongoPayment" style="margin-top:9px;color:#1e40af;font-size:11px;line-height:1.5;">
+                                <div x-show="paymongoPayment" style="padding:12px;border:1px solid #bfdbfe;background:#fff;color:#1e40af;font-size:12px;line-height:1.6;">
+                                    <div>Selected by customer: <strong x-text="paymongoPayment ? (paymongoPayment.payment_flow === 'payment_link' ? 'Secure Checkout' : (paymongoPayment.payment_method_label || 'QR Ph')) : ''"></strong></div>
                                     <div>Status: <strong x-text="paymongoPayment ? String(paymongoPayment.status || '').replaceAll('_', ' ') : ''"></strong></div>
                                     <div x-show="paymongoPayment && paymongoPayment.created_at">Created: <span x-text="paymongoPayment ? paymongoPayment.created_at : ''"></span></div>
                                     <div x-show="paymongoPayment && paymongoPayment.paid_at">Paid: <span x-text="paymongoPayment ? paymongoPayment.paid_at : ''"></span></div>
                                 </div>
-                                <a x-show="paymongoPayment && paymongoPayment.checkout_url" :href="paymongoPayment ? paymongoPayment.checkout_url : '#'" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:9px;color:#1d4ed8;font-size:12px;font-weight:700;word-break:break-all;">Open PayMongo Checkout</a>
-                                <button x-show="paymongoPayment && paymongoPayment.payment_flow === 'payment_intent' && ['failed','expired','cancelled'].includes(paymongoPayment.status)" type="button" @click="generatePayMongoPayment('create_qrph')" :disabled="paymongoBusy" class="pf-entry-btn pf-entry-in" style="margin-top:9px;">Generate New QR</button>
                             </div>
                             <?php elseif ($onlinePaymentMode === 'manual_gcash'): ?>
                             <div style="margin-top:14px;padding:12px 14px;border:1px solid #bfdbfe;background:#ffffff;color:#1e40af;font-size:12px;line-height:1.55;">
@@ -2570,11 +2561,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             rejectPaymentModalError: '',
             previewFile: null,
             currentJo: {},
-            paymongoBusy: false,
             paymongoPayment: null,
             paymongoPollTimer: null,
-            paymongoCountdownTimer: null,
-            paymongoCountdown: '',
             detailContextMode: 'production_view',
             deepLinkExpectedStatus: '',
             deepLinkSourceOrderId: '',
@@ -2942,7 +2930,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
-                if (this.paymongoPayment?.qr_image_url) this.startPayMongoCountdown();
                 this.schedulePayMongoPolling();
             },
             finishDetailLoadWith(data, orderType, cacheKey) {
@@ -2952,7 +2939,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.currentJo.customer_type = this.normalizeCustomerType(this.currentJo.customer_type, this.currentJo.transaction_count);
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
-                if (this.paymongoPayment?.qr_image_url) this.startPayMongoCountdown();
                 this.schedulePayMongoPolling();
                 this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
                     ? this.currentJo.final_price
@@ -5412,30 +5398,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             stopPayMongoPolling() {
                 if (this.paymongoPollTimer) window.clearTimeout(this.paymongoPollTimer);
-                if (this.paymongoCountdownTimer) window.clearInterval(this.paymongoCountdownTimer);
                 this.paymongoPollTimer = null;
-                this.paymongoCountdownTimer = null;
-            },
-            startPayMongoCountdown() {
-                if (this.paymongoCountdownTimer) window.clearInterval(this.paymongoCountdownTimer);
-                this.paymongoCountdown = '';
-                const render = () => {
-                    const expires = Number(this.paymongoPayment?.qr_expires_at_epoch || 0);
-                    if (!expires) return;
-                    const remaining = Math.max(0, expires - Math.floor(Date.now() / 1000));
-                    const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
-                    const seconds = String(remaining % 60).padStart(2, '0');
-                    this.paymongoCountdown = remaining > 0
-                        ? `QR expires in ${minutes}:${seconds}`
-                        : 'QR code expired';
-                    if (remaining <= 0 && this.paymongoCountdownTimer) {
-                        window.clearInterval(this.paymongoCountdownTimer);
-                        this.paymongoCountdownTimer = null;
-                        this.pollPayMongoPayment();
-                    }
-                };
-                render();
-                this.paymongoCountdownTimer = window.setInterval(render, 1000);
             },
             schedulePayMongoPolling() {
                 if (this.paymongoPollTimer) window.clearTimeout(this.paymongoPollTimer);
@@ -5452,57 +5415,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                     const data = await this.parseJsonResponse(response);
                     if (data.success) {
                         this.paymongoPayment = data.payment || null;
-                        if (this.paymongoPayment?.qr_image_url) this.startPayMongoCountdown();
                     }
                 } catch (error) {
                     // A later poll retries transient provider or network failures.
                 }
                 this.schedulePayMongoPolling();
-            },
-            async generatePayMongoPayment(action = 'create_link') {
-                if (this.paymongoBusy || !this.currentJo) return;
-                const subject = this.paymongoSubject();
-                if (!subject) {
-                    this.showStaffAlert('PayMongo Payment', 'The linked order could not be resolved.');
-                    return;
-                }
-                this.paymongoBusy = true;
-                try {
-                    const response = await fetch(this.staffApiUrl('api/paymongo_payment.php'), {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            action,
-                            ...subject,
-                            channel: 'online',
-                            csrf_token: document.body.getAttribute('data-csrf') || ''
-                        })
-                    });
-                    const data = await this.parseJsonResponse(response);
-                    if (!data.success) {
-                        const title = data.manual_proof_under_review ? 'Manual Proof Under Review' : 'PayMongo Payment';
-                        this.showStaffAlert(title, data.message || 'The PayMongo payment could not be generated.');
-                        return;
-                    }
-                    this.paymongoPayment = data.payment || null;
-                    if (this.paymongoPayment?.qr_image_url) this.startPayMongoCountdown();
-                    this.schedulePayMongoPolling();
-                    this.showStaffAlert(
-                        action === 'create_qrph' ? 'QR Ph Ready' : 'Payment Link Ready',
-                        data.reused
-                            ? 'The existing PayMongo payment was reused.'
-                            : (action === 'create_qrph'
-                                ? 'A Dynamic QR Ph payment is ready to scan.'
-                                : 'A PayMongo Payment Link is now available to the customer.')
-                    );
-                } catch (error) {
-                    this.showStaffAlert('PayMongo Payment', 'The PayMongo request could not be completed.');
-                } finally {
-                    this.paymongoBusy = false;
-                }
-            },
-            async generatePayMongoLink() {
-                return this.generatePayMongoPayment('create_link');
             },
             async submitToPay() {
                 console.log('submitToPay called');

@@ -764,7 +764,6 @@ if (!function_exists('pf_payment_qr_url')) {
     .paymongo-option:hover { border-color:#12818a;box-shadow:0 5px 16px rgba(15,118,110,.1);transform:translateY(-1px); }
     .paymongo-option:disabled { opacity:.58;cursor:wait;transform:none; }
     .paymongo-option.is-selected { border-color:#075e68;background:#eaf8f7;box-shadow:0 0 0 2px rgba(15,118,110,.13); }
-    .paymongo-option.is-selected::after { content:'Selected';position:absolute;top:.65rem;right:.65rem;padding:.16rem .4rem;border-radius:999px;background:#0f766e;color:#fff;font-size:.58rem;font-weight:850;letter-spacing:.035em;text-transform:uppercase; }
     .paymongo-option strong { display:block;color:#082f3a;font-size:.84rem;letter-spacing:.035em; }
     .paymongo-option span { display:block;margin-top:.45rem;color:#5b6f76;font-size:.76rem;line-height:1.45; }
     .paymongo-recommended { display:inline-flex !important;width:auto;margin:0 0 .55rem !important;padding:.18rem .45rem;border-radius:999px;background:#dff5f2;color:#0f766e !important;font-size:.62rem !important;font-weight:800;text-transform:uppercase; }
@@ -985,7 +984,7 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <div style="margin-top:.5rem;font-size:.72rem;color:#64748b;overflow-wrap:anywhere;">Order Reference: <strong style="color:#223b43;">#<?php echo (int)$order_id; ?></strong></div>
                             </div>
                             <div class="paymongo-actions"><button id="paymongo-pay-now" type="button" class="paymongo-action paymongo-action-secondary" style="display:none;">Continue to Secure Checkout</button><button id="paymongo-retry" type="button" class="paymongo-action paymongo-action-primary" style="display:none;">Generate New QR</button></div>
-                            <div id="paymongo-payment-state" class="paymongo-state" role="status" aria-live="polite">Choose a PayMongo payment method.</div>
+                            <div id="paymongo-payment-state" class="paymongo-state" role="status" aria-live="polite">Choose a payment method to continue.</div>
                         </div>
                         <?php if ($manual_payment_enabled): ?>
                         <div style="display:flex;align-items:center;gap:10px;margin:0 0 20px;color:#9fc4d4;font-size:12px;">
@@ -1150,7 +1149,7 @@ if (!function_exists('pf_payment_qr_url')) {
         let paymongoCurrentPayment = <?php echo json_encode($paymongo_public, JSON_UNESCAPED_SLASHES); ?>;
         let selectedPayMongoMethod = paymongoCurrentPayment?.payment_flow === 'payment_link'
             ? 'payment_link'
-            : (paymongoQrButton ? 'qrph' : 'payment_link');
+            : (paymongoCurrentPayment?.payment_flow === 'payment_intent' ? 'qrph' : null);
         const stopPayMongoTimers = () => {
             if (paymongoPollTimer) window.clearTimeout(paymongoPollTimer);
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
@@ -1176,14 +1175,14 @@ if (!function_exists('pf_payment_qr_url')) {
             return response.json();
         };
         const setSelectedPayMongoMethod = (method) => {
-            selectedPayMongoMethod = method === 'payment_link' ? 'payment_link' : 'qrph';
+            selectedPayMongoMethod = ['qrph', 'payment_link'].includes(method) ? method : null;
             const qrSelected = selectedPayMongoMethod === 'qrph';
             const linkSelected = selectedPayMongoMethod === 'payment_link';
             document.querySelectorAll('#paymongo-method-actions .paymongo-option').forEach((card) => {
                 card.classList.remove('is-selected');
                 card.setAttribute('aria-checked', 'false');
             });
-            const selectedCard = qrSelected ? paymongoQrButton : paymongoLinkButton;
+            const selectedCard = qrSelected ? paymongoQrButton : (linkSelected ? paymongoLinkButton : null);
             if (selectedCard) {
                 selectedCard.classList.add('is-selected');
                 selectedCard.setAttribute('aria-checked', 'true');
@@ -1192,7 +1191,9 @@ if (!function_exists('pf_payment_qr_url')) {
             if (paymongoQrPanel && !qrSelected) paymongoQrPanel.style.display = 'none';
             paymongoState.textContent = qrSelected
                 ? 'Scan a secure QR using a supported banking or e-wallet app.'
-                : 'You\'ll continue to PayMongo\'s secure hosted checkout.';
+                : (linkSelected
+                    ? 'You\'ll continue to PayMongo\'s secure hosted checkout.'
+                    : 'Choose a payment method to continue.');
         };
         const renderPayMongoConfirmed = (payment) => {
             stopPayMongoTimers();
@@ -1285,7 +1286,9 @@ if (!function_exists('pf_payment_qr_url')) {
             if (!payment) {
                 paymongoState.textContent = selectedPayMongoMethod === 'qrph'
                     ? 'Scan a secure QR using a supported banking or e-wallet app.'
-                    : 'You\'ll continue to PayMongo\'s secure hosted checkout.';
+                    : (selectedPayMongoMethod === 'payment_link'
+                        ? 'You\'ll continue to PayMongo\'s secure hosted checkout.'
+                        : 'Choose a payment method to continue.');
                 if (paymongoQrPanel) paymongoQrPanel.style.display = 'none';
                 if (paymongoPayNow) paymongoPayNow.style.display = selectedPayMongoMethod === 'payment_link' ? 'inline-flex' : 'none';
                 if (paymongoRetryButton) paymongoRetryButton.style.display = 'none';
@@ -1332,7 +1335,9 @@ if (!function_exists('pf_payment_qr_url')) {
         const schedulePayMongoPoll = () => {
             if (paymongoPollTimer) window.clearTimeout(paymongoPollTimer);
             const status = String(paymongoCurrentPayment?.status || '').toLowerCase();
-            if (!['generating', 'awaiting_payment'].includes(status)) {
+            if (selectedPayMongoMethod !== 'qrph'
+                || paymongoCurrentPayment?.payment_flow !== 'payment_intent'
+                || !['generating', 'awaiting_payment'].includes(status)) {
                 paymongoPollTimer = null;
                 return;
             }
@@ -1360,8 +1365,9 @@ if (!function_exists('pf_payment_qr_url')) {
         };
         const createPayMongoPayment = async (action) => {
             if (paymentCreateInFlight) return null;
+            const isQrAction = ['create_qrph', 'retry_qrph'].includes(action);
             setPayMongoButtonsBusy(true);
-            paymongoState.textContent = action === 'create_qrph'
+            paymongoState.textContent = isQrAction
                 ? 'Generating secure QR...'
                 : 'Preparing secure checkout...';
             try {
@@ -1402,7 +1408,7 @@ if (!function_exists('pf_payment_qr_url')) {
         if (paymongoQrButton) paymongoQrButton.addEventListener('click', () => {
             stopPayMongoTimers();
             setSelectedPayMongoMethod('qrph');
-            createPayMongoPayment('create_qrph');
+            createPayMongoPayment('retry_qrph');
         });
         if (paymongoLinkButton) paymongoLinkButton.addEventListener('click', () => {
             stopPayMongoTimers();

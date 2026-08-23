@@ -101,8 +101,8 @@ inline_checkout_check(str_contains($provider, 'printflow_provider_payment_supers
 inline_checkout_check(str_contains($customer, 'selectedPayMongoMethod') && str_contains($customer, "selectedPayMongoMethod === 'payment_link'"), '18. switching methods obeys explicit selected-method rules');
 inline_checkout_check(str_contains($webhook, "'link.payment.paid'"), '19. link.payment.paid webhook support remains intact');
 
-inline_checkout_check(str_contains($staff, "generatePayMongoPayment('create_qrph')") && str_contains($staffApi, 'printflow_provider_payment_create_qrph('), '20. staff Dynamic QRPh uses the direct intent flow');
-inline_checkout_check(str_contains($staff, "generatePayMongoPayment('create_link')") && str_contains($staffApi, 'printflow_provider_payment_create_link('), '21. staff Payment Link uses the hosted-link flow');
+inline_checkout_check(!str_contains($staff, 'generatePayMongoPayment(') && !str_contains($staff, 'paymongoPayment.qr_image_url'), '20. staff cannot create or render an online customer QR');
+inline_checkout_check(str_contains($staffApi, "'code' => 'customer_owned_payment_method'") && str_contains($staff, 'Available to customer:'), '21. staff Payment Link controls are replaced by read-only customer options');
 inline_checkout_check(str_contains($provider, "payment_flow = 'payment_link'") && str_contains($provider, "'payment_flow' => 'payment_intent'"), '22. the persisted flow determines the customer DTO and UI');
 
 inline_checkout_check($legacyCheckoutFixture['url'] === 'https://checkout.paymongo.com/order11297fixture', '23. legacy nested PayMongo checkout response is normalized safely');
@@ -124,11 +124,13 @@ inline_checkout_check(str_contains($provider, "'payment_flow_switch_failed'") &&
 inline_checkout_check(str_contains($customer, "document.querySelectorAll('#paymongo-method-actions .paymongo-option').forEach") && str_contains($customer, "card.classList.remove('is-selected')"), '33. every selection clears all prior selected classes first');
 inline_checkout_check(str_contains($customer, "selectedCard.classList.add('is-selected')") && str_contains($customer, "selectedCard.setAttribute('aria-checked', 'true')"), '34. exactly the chosen radio card receives selected and accessible state');
 inline_checkout_check(!str_contains($customer, 'paymongo-option-primary') && str_contains($customer, 'paymongo-recommended'), '35. Recommended styling is independent from selected styling');
-inline_checkout_check(str_contains($customer, ".paymongo-option.is-selected::after { content:'Selected'") && str_contains($customer, '.paymongo-option.is-selected {'), '36. selected styling uses a distinct teal state and label');
+inline_checkout_check(!str_contains($customer, '.paymongo-option.is-selected::after') && str_contains($customer, '.paymongo-option.is-selected {'), '36. selected styling uses the teal card state without an overlapping badge');
 inline_checkout_check(str_contains($customer, "setSelectedPayMongoMethod('payment_link')") && str_contains($customer, "setSelectedPayMongoMethod('qrph')"), '37. QR to Link and Link to QR use the same single-state setter');
-inline_checkout_check(substr_count($customer, "createPayMongoPayment('create_link')") === 1 && substr_count($customer, "createPayMongoPayment('create_qrph')") === 2, '38. action wiring has one link creation site and explicit QR create/retry sites only');
+inline_checkout_check(substr_count($customer, "createPayMongoPayment('create_link')") === 1 && substr_count($customer, "createPayMongoPayment('create_qrph')") === 1 && substr_count($customer, "createPayMongoPayment('retry_qrph')") === 1, '38. action wiring has one link, one QR create, and one explicit QR retry site');
 inline_checkout_check(str_contains($customer, "paymentCreateInFlight || selectedPayMongoMethod !== 'payment_link'") && str_contains($customer, "'Creating secure checkout...'"), '39. Continue double-click is guarded and exposes a loading label');
 inline_checkout_check(substr_count($customer, 'stopPayMongoTimers();') >= 5 && str_contains($customer, "setTimeout(pollPayMongo, 5000)"), '40. method changes clear old timers and polling remains status-only');
 inline_checkout_check(str_contains($customer, "paymongoRetryButton.style.display = selectedPayMongoMethod === 'qrph'") && str_contains($customer, "'We couldn\\'t create Secure Checkout right now. Please try again.'"), '41. only selected-flow actions remain visible and controlled failures render inline');
+inline_checkout_check(str_contains($customer, "? 'payment_link'") && str_contains($customer, ": (paymongoCurrentPayment?.payment_flow === 'payment_intent' ? 'qrph' : null)"), '42. no-ledger customer UI starts with no selected provider method');
+inline_checkout_check(str_contains($api, "['create_qrph', 'retry_qrph']") && str_contains($provider, "channel = 'online' AND provider = 'paymongo' AND mode = ?"), '43. customer QR create/retry can reuse a mode-bound legacy online ledger');
 
 echo "All {$passed} inline QRPh and Secure Checkout regression tests passed.\n";

@@ -58,12 +58,12 @@ if ($method === 'POST') {
         echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
         exit;
     }
-    if ($channel === 'online' && !printflow_paymongo_online_payment_enabled()) {
-        http_response_code(409);
+    if ($channel === 'online') {
+        http_response_code(405);
         echo json_encode([
             'success' => false,
-            'message' => 'The active online payment mode does not allow PayMongo payment creation.',
-            'online_payment_mode' => printflow_online_payment_mode(),
+            'code' => 'customer_owned_payment_method',
+            'message' => 'Online payment method selection belongs to the customer. Staff access is read-only.',
         ]);
         exit;
     }

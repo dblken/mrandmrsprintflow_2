@@ -36,7 +36,7 @@ $finishPaidEnd = strpos($posPage, 'const poll = async', $finishPaidStart);
 $finishPaidFunction = substr($posPage, $finishPaidStart, $finishPaidEnd - $finishPaidStart);
 
 phase3_check(
-    str_contains($customerApi, "\$action === 'create_qrph'")
+    str_contains($customerApi, "['create_qrph', 'retry_qrph']")
         && str_contains($customerApi, 'printflow_provider_payment_create_qrph('),
     '1. customer can request server-side Dynamic QRPh creation'
 );
@@ -87,16 +87,17 @@ phase3_check(
     '10. existing customer Payment Link flow remains available'
 );
 phase3_check(
-    str_contains($staffPage, "generatePayMongoPayment('create_qrph')")
-        && str_contains($staffPage, 'paymongoPayment.qr_image_url')
-        && str_contains($staffApi, 'printflow_provider_payment_create_qrph('),
-    '11. staff can create and display Dynamic QRPh'
+    !str_contains($staffPage, 'generatePayMongoPayment(')
+        && !str_contains($staffPage, 'paymongoPayment.qr_image_url')
+        && str_contains($staffPage, 'Awaiting Customer Payment')
+        && str_contains($staffApi, "'code' => 'customer_owned_payment_method'"),
+    '11. staff online payment UI is read-only and does not render customer QRPh'
 );
 phase3_check(
     str_contains($staffApi, "has_role(['Admin', 'Staff', 'Manager'])")
         && str_contains($staffApi, 'This order belongs to another branch.')
         && str_contains($staffApi, 'verify_csrf_token('),
-    '12. unauthorized or cross-branch staff QR creation is rejected'
+    '12. unauthorized or cross-branch staff payment access is rejected'
 );
 phase3_check(
     str_contains($posApi, '$isPayMongoQrph')
