@@ -262,6 +262,10 @@ function printflow_paymongo_webhook_transition_action(
             ? 'already_paid'
             : 'provider_payment_conflict';
     }
+    if (in_array($ledgerStatus, ['failed', 'expired', 'cancelled'], true)
+        && in_array($eventType, ['payment.failed', 'qrph.expired'], true)) {
+        return 'already_terminal';
+    }
     return match ($eventType) {
         'payment.paid' => 'mark_paid',
         'payment.failed' => 'mark_failed',

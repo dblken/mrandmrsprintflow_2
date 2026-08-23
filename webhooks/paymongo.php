@@ -24,6 +24,18 @@ function printflow_paymongo_webhook_respond(int $status, array $payload): void {
     exit;
 }
 
+set_exception_handler(static function (Throwable $error): void {
+    error_log('[paymongo-webhook] unexpected_exception ' . json_encode([
+        'type' => get_class($error),
+        'message' => substr((string)$error->getMessage(), 0, 180),
+    ], JSON_UNESCAPED_SLASHES));
+    printflow_paymongo_webhook_respond(500, [
+        'success' => false,
+        'processed' => false,
+        'error_code' => 'internal_error',
+    ]);
+});
+
 function printflow_paymongo_webhook_safe_text($value, int $maxLength = 100): string {
     $value = is_scalar($value) ? trim((string)$value) : '';
     $value = (string)preg_replace('/[\x00-\x1F\x7F]+/', ' ', $value);
@@ -388,6 +400,15 @@ function printflow_paymongo_webhook_fail(
     int $httpStatus = 409
 ): void {
     printflow_paymongo_webhook_finish_event($eventRowId, 'failed', $errorCode, $metadata);
+    error_log('[paymongo-webhook] request_failed ' . json_encode([
+        'event_row_id' => $eventRowId,
+        'error_code' => printflow_paymongo_webhook_safe_text($errorCode, 100),
+        'http_status' => $httpStatus,
+        'ledger_id' => (int)($metadata['ledger_id'] ?? 0),
+        'payment_intent_id' => printflow_paymongo_webhook_safe_text($metadata['payment_intent_id'] ?? '', 100),
+        'payment_method_id' => printflow_paymongo_webhook_safe_text($metadata['payment_method_id'] ?? '', 100),
+        'link_id' => printflow_paymongo_webhook_safe_text($metadata['link_id'] ?? '', 100),
+    ], JSON_UNESCAPED_SLASHES));
     printflow_paymongo_webhook_respond($httpStatus, [
         'success' => false,
         'processed' => false,
@@ -398,20 +419,25 @@ function printflow_paymongo_webhook_fail(
 function printflow_paymongo_webhook_complete(
     int $eventRowId,
     array $metadata,
-    bool $duplicate = false
+    bool $duplicate = false,
+    string $acceptedCode = ''
 ): void {
-    if (!printflow_paymongo_webhook_finish_event($eventRowId, 'processed', '', $metadata)) {
+    if (!printflow_paymongo_webhook_finish_event($eventRowId, 'processed', $acceptedCode, $metadata)) {
         printflow_paymongo_webhook_respond(500, [
             'success' => false,
             'processed' => false,
             'error_code' => 'event_completion_failed',
         ]);
     }
-    printflow_paymongo_webhook_respond(200, [
+    $payload = [
         'success' => true,
         'processed' => true,
         'duplicate' => $duplicate,
-    ]);
+    ];
+    if ($acceptedCode !== '') {
+        $payload['accepted_code'] = $acceptedCode;
+    }
+    printflow_paymongo_webhook_respond(200, $payload);
 }
 
 function printflow_paymongo_webhook_handle_intent_event(
@@ -426,7 +452,7 @@ function printflow_paymongo_webhook_handle_intent_event(
     if (in_array($eventType, ['payment.paid', 'payment.failed'], true)) {
         $eventPaymentId = (string)($context['payment_id'] ?? '');
         if (!preg_match('/^pay_[A-Za-z0-9_-]+$/', $eventPaymentId)) {
-            printflow_paymongo_webhook_fail($eventRowId, 'payment_id_missing', [], 503);
+            printflow_paymongo_webhook_fail($eventRowId, 'payment_id_missing', [], 400);
         }
         $verifiedPayment = printflow_paymongo_get_payment($eventPaymentId, $expectedMode);
         if (empty($verifiedPayment['ok'])
@@ -463,10 +489,20 @@ function printflow_paymongo_webhook_handle_intent_event(
         (string)($verifiedPayment['payment_id'] ?? $context['payment_id'] ?? '')
     );
     if ($action === 'provider_payment_conflict') {
-        printflow_paymongo_webhook_fail($eventRowId, 'provider_payment_conflict', $auditMetadata, 409);
+        printflow_paymongo_webhook_complete(
+            $eventRowId,
+            $auditMetadata,
+            !empty($claim['duplicate']),
+            'provider_payment_conflict'
+        );
     }
-    if ($action === 'already_paid') {
-        printflow_paymongo_webhook_complete($eventRowId, $auditMetadata, !empty($claim['duplicate']));
+    if (in_array($action, ['already_paid', 'already_terminal'], true)) {
+        printflow_paymongo_webhook_complete(
+            $eventRowId,
+            $auditMetadata,
+            !empty($claim['duplicate']),
+            $action
+        );
     }
 
     $intentId = (string)($ledger['payment_intent_id'] ?? '');
@@ -511,13 +547,21 @@ function printflow_paymongo_webhook_handle_intent_event(
         printflow_provider_payment_set_reconciliation_error((int)$ledger['id'], $verificationErrors);
         $errorCode = printflow_paymongo_webhook_error_code($verificationErrors);
         $retryable = in_array('intent_status', $verificationErrors, true);
-        printflow_paymongo_webhook_fail($eventRowId, $errorCode, $auditMetadata, $retryable ? 503 : 409);
+        if ($retryable) {
+            printflow_paymongo_webhook_fail($eventRowId, $errorCode, $auditMetadata, 503);
+        }
+        printflow_paymongo_webhook_complete($eventRowId, $auditMetadata, !empty($claim['duplicate']), $errorCode);
     }
 
     if ($paymentMethodId !== '') {
         $storedMethodId = (string)($ledger['payment_method_id'] ?? '');
         if ($storedMethodId !== '' && $storedMethodId !== $paymentMethodId) {
-            printflow_paymongo_webhook_fail($eventRowId, 'payment_method_conflict', $auditMetadata, 409);
+            printflow_paymongo_webhook_complete(
+                $eventRowId,
+                $auditMetadata,
+                !empty($claim['duplicate']),
+                'payment_method_conflict'
+            );
         }
         if (!db_execute(
             "UPDATE provider_payments
@@ -551,7 +595,12 @@ function printflow_paymongo_webhook_handle_intent_event(
     } elseif ($action === 'mark_expired') {
         $result = printflow_provider_payment_mark_expired((int)$ledger['id'], 'qrph_expired');
     } else {
-        printflow_paymongo_webhook_fail($eventRowId, 'unsupported_transition', $auditMetadata, 409);
+        printflow_paymongo_webhook_complete(
+            $eventRowId,
+            $auditMetadata,
+            !empty($claim['duplicate']),
+            'unsupported_transition'
+        );
     }
     if (empty($result['ok'])) {
         printflow_provider_payment_set_reconciliation_error((int)$ledger['id'], ['finalization_failed']);
@@ -590,6 +639,9 @@ if (!is_string($rawBody) || strlen($rawBody) > PRINTFLOW_PAYMONGO_WEBHOOK_MAX_BY
 }
 
 $payload = json_decode($rawBody, true);
+if (!is_array($payload) || json_last_error() !== JSON_ERROR_NONE) {
+    printflow_paymongo_webhook_respond(400, ['success' => false, 'message' => 'Malformed webhook payload.']);
+}
 $event = isset($payload['data']) && is_array($payload['data']) ? $payload['data'] : [];
 $attributes = isset($event['attributes']) && is_array($event['attributes']) ? $event['attributes'] : [];
 $eventId = printflow_paymongo_webhook_safe_text($event['id'] ?? '', 100);
@@ -608,7 +660,7 @@ if (!in_array($eventType, [
     'payment.failed',
     'qrph.expired',
 ], true)) {
-    printflow_paymongo_webhook_respond(202, ['success' => true, 'processed' => false]);
+    printflow_paymongo_webhook_respond(200, ['success' => true, 'processed' => false, 'ignored' => true]);
 }
 if (!printflow_paymongo_webhook_schema_ready()) {
     printflow_paymongo_webhook_respond(503, [
@@ -658,6 +710,14 @@ if (!empty($claim['processed'])) {
 }
 if (empty($claim['ok'])) {
     $code = (string)($claim['error_code'] ?? 'event_claim_failed');
+    if ($code === 'event_processing_in_progress') {
+        printflow_paymongo_webhook_respond(200, [
+            'success' => true,
+            'processed' => false,
+            'duplicate' => true,
+            'accepted_code' => $code,
+        ]);
+    }
     printflow_paymongo_webhook_respond(
         $code === 'event_mode_conflict' ? 409 : 503,
         ['success' => false, 'processed' => false, 'error_code' => $code]
@@ -676,12 +736,12 @@ if (in_array($eventType, ['payment.paid', 'payment.failed', 'qrph.expired'], tru
 }
 
 if ($linkId === '') {
-    printflow_paymongo_webhook_finish_event($eventRowId, 'failed', 'link_id_missing');
-    printflow_paymongo_webhook_respond(503, [
-        'success' => false,
-        'processed' => false,
-        'error_code' => 'link_id_missing',
-    ]);
+    printflow_paymongo_webhook_complete(
+        $eventRowId,
+        ['link_id' => $linkId],
+        !empty($claim['duplicate']),
+        'link_id_missing'
+    );
 }
 
 $paymentRows = db_query(
@@ -692,17 +752,12 @@ $paymentRows = db_query(
     [$linkId, $expectedMode]
 ) ?: [];
 if (empty($paymentRows)) {
-    printflow_paymongo_webhook_finish_event(
+    printflow_paymongo_webhook_complete(
         $eventRowId,
-        'failed',
-        'ledger_not_found',
-        ['link_id' => $linkId]
+        ['link_id' => $linkId],
+        !empty($claim['duplicate']),
+        'ledger_not_found'
     );
-    printflow_paymongo_webhook_respond(503, [
-        'success' => false,
-        'processed' => false,
-        'error_code' => 'ledger_not_found',
-    ]);
 }
 
 $payment = $paymentRows[0];
@@ -728,13 +783,16 @@ if (!empty($verificationErrors)) {
     if (function_exists('printflow_provider_payment_set_reconciliation_error')) {
         printflow_provider_payment_set_reconciliation_error((int)$payment['id'], $verificationErrors);
     }
-    printflow_paymongo_webhook_finish_event($eventRowId, 'failed', $errorCode, $verifiedMetadata);
     $providerPendingOnly = array_values(array_unique($verificationErrors)) === ['provider_status'];
-    printflow_paymongo_webhook_respond($providerPendingOnly ? 503 : 409, [
-        'success' => false,
-        'processed' => false,
-        'error_code' => $errorCode,
-    ]);
+    if ($providerPendingOnly) {
+        printflow_paymongo_webhook_fail($eventRowId, $errorCode, $verifiedMetadata, 503);
+    }
+    printflow_paymongo_webhook_complete(
+        $eventRowId,
+        $verifiedMetadata,
+        !empty($claim['duplicate']),
+        $errorCode
+    );
 }
 
 $providerPaidAt = (string)($verified['provider_paid_at'] ?? '');

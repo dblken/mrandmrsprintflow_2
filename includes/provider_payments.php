@@ -1633,10 +1633,14 @@ function printflow_provider_payment_mark_terminal(
             return ['ok' => true, 'already_processed' => true, 'payment' => $payment];
         }
         $oldStatus = (string)($payment['status'] ?? '');
+        if (in_array($oldStatus, ['failed', 'expired', 'cancelled'], true)) {
+            $conn->commit();
+            return ['ok' => true, 'already_processed' => true, 'payment' => $payment];
+        }
         if (!db_execute(
             "UPDATE provider_payments
              SET status = ?, payment_status = ?, provider_status = ?, last_error_code = ?, updated_at = NOW()
-             WHERE id = ? AND status <> 'paid'",
+             WHERE id = ? AND status NOT IN ('paid', 'failed', 'expired', 'cancelled')",
             'ssssi',
             [$status, $status, $providerStatus !== '' ? $providerStatus : $status, $errorCode ?: null, $ledgerId]
         )) {
