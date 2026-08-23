@@ -93,6 +93,13 @@ function printflow_paymongo_webhook_event_context(
         ?? $attributes['last_payment_error']['failed_code']
         ?? 'payment_failed'
     ));
+    $sourceStatus = strtolower(trim((string)(
+        $attributes['source_status']
+        ?? $source['status']
+        ?? $attributes['status']
+        ?? ''
+    )));
+    $sourceStatus = substr((string)preg_replace('/[^a-z0-9_-]/i', '', $sourceStatus), 0, 40);
 
     return [
         'event_type' => $eventType,
@@ -107,6 +114,7 @@ function printflow_paymongo_webhook_event_context(
         'amount' => isset($attributes['amount']) ? (int)$attributes['amount'] : 0,
         'currency' => strtoupper(substr((string)($attributes['currency'] ?? ''), 0, 3)),
         'status' => strtolower(trim((string)($attributes['status'] ?? ''))),
+        'source_status' => $sourceStatus,
         'payment_method' => $method,
         'reference_number' => substr(trim((string)(
             $attributes['external_reference_number']
@@ -151,7 +159,8 @@ function printflow_paymongo_webhook_intent_errors(
     array $subject,
     string $eventType,
     string $expectedMode,
-    string $eventPaymentMethodId = ''
+    string $eventPaymentMethodId = '',
+    string $eventSourceStatus = ''
 ): array {
     $errors = [];
     $expectedLive = $expectedMode === 'live';
@@ -220,9 +229,17 @@ function printflow_paymongo_webhook_intent_errors(
     if ($eventType === 'payment.paid' && $intentStatus !== 'succeeded') {
         $errors[] = 'intent_status';
     }
-    if (in_array($eventType, ['payment.failed', 'qrph.expired'], true)
-        && $intentStatus !== 'awaiting_payment_method') {
+    if ($eventType === 'payment.failed' && $intentStatus !== 'awaiting_payment_method') {
         $errors[] = 'intent_status';
+    }
+    if ($eventType === 'qrph.expired') {
+        $eventSourceStatus = strtolower(trim($eventSourceStatus));
+        if ($eventSourceStatus !== 'expired') {
+            $errors[] = 'source_status';
+        }
+        if ($intentStatus === 'succeeded') {
+            $errors[] = 'intent_status';
+        }
     }
     if (in_array($eventType, ['payment.paid', 'payment.failed'], true)) {
         $expectedPaymentStatus = $eventType === 'payment.paid' ? 'paid' : 'failed';

@@ -364,6 +364,11 @@ function printflow_paymongo_webhook_audit_metadata(
 ): array {
     return [
         'ledger_id' => (int)($ledger['id'] ?? 0),
+        'event_type' => (string)($context['event_type'] ?? ''),
+        'source_status' => (string)($context['source_status'] ?? $context['status'] ?? ''),
+        'provider_intent_status' => (string)($verifiedPayment['provider_intent_status'] ?? ''),
+        'local_ledger_status' => (string)($ledger['status'] ?? ''),
+        'payment_flow' => (string)($ledger['payment_flow'] ?? ''),
         'provider_transaction_id' => (string)(
             $verifiedPayment['payment_id'] ?? $context['payment_id'] ?? ''
         ),
@@ -405,6 +410,11 @@ function printflow_paymongo_webhook_fail(
         'error_code' => printflow_paymongo_webhook_safe_text($errorCode, 100),
         'http_status' => $httpStatus,
         'ledger_id' => (int)($metadata['ledger_id'] ?? 0),
+        'event_type' => printflow_paymongo_webhook_safe_text($metadata['event_type'] ?? '', 100),
+        'source_status' => printflow_paymongo_webhook_safe_text($metadata['source_status'] ?? '', 40),
+        'provider_intent_status' => printflow_paymongo_webhook_safe_text($metadata['provider_intent_status'] ?? '', 40),
+        'local_ledger_status' => printflow_paymongo_webhook_safe_text($metadata['local_ledger_status'] ?? '', 40),
+        'payment_flow' => printflow_paymongo_webhook_safe_text($metadata['payment_flow'] ?? '', 40),
         'payment_intent_id' => printflow_paymongo_webhook_safe_text($metadata['payment_intent_id'] ?? '', 100),
         'payment_method_id' => printflow_paymongo_webhook_safe_text($metadata['payment_method_id'] ?? '', 100),
         'link_id' => printflow_paymongo_webhook_safe_text($metadata['link_id'] ?? '', 100),
@@ -510,6 +520,17 @@ function printflow_paymongo_webhook_handle_intent_event(
     if (empty($verifiedIntent['ok']) || (string)($verifiedIntent['id'] ?? '') !== $intentId) {
         printflow_paymongo_webhook_fail($eventRowId, 'intent_retrieval_failed', $auditMetadata, 503);
     }
+    $auditMetadata['provider_intent_status'] = (string)($verifiedIntent['status'] ?? '');
+    if ($eventType === 'qrph.expired') {
+        error_log('[paymongo-webhook] qrph_expired_context ' . json_encode([
+            'event_type' => $eventType,
+            'source_status' => printflow_paymongo_webhook_safe_text($auditMetadata['source_status'] ?? '', 40),
+            'provider_intent_status' => printflow_paymongo_webhook_safe_text($auditMetadata['provider_intent_status'] ?? '', 40),
+            'local_ledger_status' => printflow_paymongo_webhook_safe_text($auditMetadata['local_ledger_status'] ?? '', 40),
+            'payment_flow' => printflow_paymongo_webhook_safe_text($auditMetadata['payment_flow'] ?? '', 40),
+            'payment_intent_id' => printflow_paymongo_webhook_safe_text($auditMetadata['payment_intent_id'] ?? '', 100),
+        ], JSON_UNESCAPED_SLASHES));
+    }
     if ($eventType === 'qrph.expired'
         && strtolower((string)($verifiedIntent['status'] ?? '')) === 'succeeded') {
         $reconciled = printflow_provider_payment_reconcile_intent($ledger);
@@ -534,7 +555,8 @@ function printflow_paymongo_webhook_handle_intent_event(
         $subject,
         $eventType,
         $expectedMode,
-        $paymentMethodId
+        $paymentMethodId,
+        (string)($context['source_status'] ?? $context['status'] ?? '')
     );
     if ($eventType === 'payment.paid') {
         $verificationErrors = array_merge(
@@ -546,7 +568,7 @@ function printflow_paymongo_webhook_handle_intent_event(
     if ($verificationErrors !== []) {
         printflow_provider_payment_set_reconciliation_error((int)$ledger['id'], $verificationErrors);
         $errorCode = printflow_paymongo_webhook_error_code($verificationErrors);
-        $retryable = in_array('intent_status', $verificationErrors, true);
+        $retryable = $eventType === 'payment.paid' && in_array('intent_status', $verificationErrors, true);
         if ($retryable) {
             printflow_paymongo_webhook_fail($eventRowId, $errorCode, $auditMetadata, 503);
         }

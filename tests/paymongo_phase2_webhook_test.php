@@ -107,7 +107,7 @@ phase2_check(
 );
 phase2_check(
     printflow_paymongo_webhook_intent_errors(
-        $ledger, [], $awaitingIntent, $subject, 'qrph.expired', 'test', 'pm_fixture71'
+        $ledger, [], $awaitingIntent, $subject, 'qrph.expired', 'test', 'pm_fixture71', 'expired'
     ) === []
         && printflow_paymongo_webhook_transition_action('pending', 'qrph.expired') === 'mark_expired',
     '4. valid qrph.expired is accepted without a paid transition'
