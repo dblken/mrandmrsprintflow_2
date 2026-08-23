@@ -1,0 +1,96 @@
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+$customer = (string)file_get_contents($root . '/customer/orders.php');
+$pos = (string)file_get_contents($root . '/staff/pos.php');
+$receiptPrinter = (string)file_get_contents($root . '/includes/pos_receipt_printer.php');
+
+$passed = 0;
+function receipt_format_check(bool $condition, string $name): void {
+    global $passed;
+    if (!$condition) {
+        fwrite(STDERR, "FAIL: {$name}\n");
+        exit(1);
+    }
+    $passed++;
+    echo "PASS: {$name}\n";
+}
+
+foreach ([
+    '.receipt-sheet',
+    'width: 58mm',
+    'padding: 4mm',
+    'font-size: 11px',
+    'line-height: 1.25',
+    'font-family: "Courier New", "Liberation Mono", Consolas, monospace',
+    'border-top: 1px dashed #111827',
+    'table-layout: fixed',
+    'size: 58mm auto',
+    'width: 52mm !important',
+    "format: [58, 210]",
+] as $contract) {
+    receipt_format_check(
+        str_contains($customer, $contract) && str_contains($pos, $contract),
+        "customer receipt reuses POS receipt contract: {$contract}"
+    );
+}
+
+receipt_format_check(
+    str_contains($customer, 'width:116px !important') && str_contains($customer, 'height:116px !important')
+        && str_contains($pos, 'width:116px !important') && str_contains($pos, 'height:116px !important'),
+    'customer receipt QR dimensions match POS receipt QR dimensions'
+);
+
+receipt_format_check(
+    str_contains($customer, 'overflow-wrap: anywhere')
+        && str_contains($customer, 'word-break: break-word')
+        && str_contains($customer, 'font-variant-numeric: tabular-nums'),
+    'long item names, order numbers, references, and totals wrap safely'
+);
+
+receipt_format_check(
+    str_contains($customer, 'body *') && str_contains($customer, 'visibility: hidden !important')
+        && str_contains($customer, '#receipt-print-area')
+        && str_contains($customer, '.receipt-modal-header')
+        && str_contains($customer, 'display: none !important'),
+    'print output targets only the receipt area and hides modal chrome'
+);
+
+receipt_format_check(
+    str_contains($customer, 'Scan for staff order lookup')
+        && str_contains($customer, 'new QRCode(target, { text: String(payload), width: 116, height: 116'),
+    'customer receipt QR label and size match the POS lookup QR'
+);
+
+receipt_format_check(
+    str_contains($customer, 'Official Online Receipt')
+        && str_contains($customer, 'Order Number')
+        && str_contains($customer, 'Payment Status')
+        && str_contains($customer, 'Reference')
+        && str_contains($customer, 'materials.join'),
+    'online-specific receipt data is preserved'
+);
+
+receipt_format_check(
+    str_contains($pos, 'Official POS Receipt')
+        && str_contains($pos, 'downloadReceiptPdf()')
+        && str_contains($pos, 'renderPosReceiptQr'),
+    'POS receipt implementation remains present'
+);
+
+receipt_format_check(
+    str_contains($receiptPrinter, 'printflow_receipt_format_text')
+        && str_contains($receiptPrinter, 'columns = 32')
+        && str_contains($receiptPrinter, 'paper_width_mm'),
+    'thermal receipt printer formatter remains intact'
+);
+
+receipt_format_check(
+    !str_contains($customer, 'CREATE TABLE')
+        && !str_contains($customer, 'ALTER TABLE')
+        && !str_contains($customer, 'DROP TABLE'),
+    'no database migration is introduced by receipt UI changes'
+);
+
+echo "All {$passed} customer/POS receipt format consistency tests passed.\n";
