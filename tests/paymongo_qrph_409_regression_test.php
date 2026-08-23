@@ -39,7 +39,7 @@ qrph_409_check(str_contains($posApi, 'printflow_provider_payment_create_qrph(') 
 qrph_409_check(str_contains($api, "'code' => 'invalid_action'") && str_contains($api, 'Unsupported payment action.'), '15. invalid requests receive structured JSON errors');
 qrph_409_check(str_contains($api, "\$responseStatus === 409 ? 'payment_state_conflict'") && str_contains($provider, 'final price no longer matches'), '16. genuine business conflicts still return structured HTTP 409');
 qrph_409_check(str_contains($customer, 'parsePayMongoJson') && str_contains($customer, 'data.message ||'), '17. frontend safely parses and displays structured conflict responses');
-qrph_409_check(str_contains($customer, "selectedPayMongoMethod !== 'qrph'") && str_contains($customer, "!['generating', 'awaiting_payment'].includes(status)") && str_contains($customer, 'pagehide'), '18. non-QR and terminal states cannot create an infinite polling loop');
+qrph_409_check(str_contains($customer, "paymongoCurrentPayment?.payment_flow !== 'payment_intent'") && str_contains($customer, "!['generating', 'awaiting_payment'].includes(status)") && str_contains($customer, 'pagehide'), '18. non-QR and terminal states cannot create an infinite polling loop');
 qrph_409_check(str_contains($customer, 'window.clearTimeout(paymongoPollTimer)') && str_contains($staff, 'if (this.paymongoPollTimer) window.clearTimeout'), '19. customer and staff maintain only one polling timer');
 qrph_409_check(str_contains($provider, 'already finalized with a different provider transaction') && str_contains($provider, 'FOR UPDATE'), '20. duplicate successful payment application remains locked and rejected');
 
@@ -47,7 +47,7 @@ qrph_409_check(!str_contains($customer, '✓ Payment Confirmed') && !str_contain
 qrph_409_check(str_contains($customer, 'class="paid-total"') && str_contains($customer, 'payment-detail-grid'), '22. paid amount and key values use an emphasized professional layout');
 qrph_409_check(str_contains($customer, 'payment-status-badge') && !str_contains($customer, 'confirmedButton'), '23. Awaiting Production is a compact semantic status');
 qrph_409_check(!str_contains($orders, '<strong>Balance:</strong>') && !str_contains($orders, '>Remaining balance<') && !str_contains($customer, 'Remaining Balance:'), '24. customer Balance and Remaining Balance fields are removed');
-qrph_409_check(str_contains($customer, 'paymongo-options') && str_contains($customer, 'Generating secure QR...'), '25. PayMongo selector and loading state use the redesigned UI');
+qrph_409_check(str_contains($customer, 'paymongo-method-summary') && str_contains($customer, 'Generating secure QR...'), '25. PayMongo QR-only panel and loading state use the redesigned UI');
 qrph_409_check(str_contains($staff, 'id="paymongo-paid-details"') && !str_contains($staff, 'Remaining Balance:'), '26. staff Payment Received details are readable and omit the redundant balance');
 
 echo "All {$passed} PayMongo QRPh 409 and payment UI regression tests passed.\n";

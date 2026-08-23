@@ -82,9 +82,10 @@ phase3_check(
 );
 phase3_check(
     str_contains($customerApi, "\$action === 'create_link'")
-        && str_contains($customerPage, 'Continue to Secure Checkout')
+        && !str_contains($customerPage, 'Continue to Secure Checkout')
+        && !str_contains($customerPage, "createPayMongoPayment('create_link')")
         && str_contains($provider, 'function printflow_provider_payment_create_link('),
-    '10. existing customer Payment Link flow remains available'
+    '10. Payment Link backend remains available while customer UI is QR-only'
 );
 phase3_check(
     !str_contains($staffPage, 'generatePayMongoPayment(')

@@ -38,7 +38,7 @@ primary_mode_check(
 );
 primary_mode_check(
     $manualFormStart !== false && $paymentFormStart !== false && $manualFormStart < $paymentFormStart
-        && str_contains($customerPage, 'if ($paymongo_available)'),
+        && str_contains($customerPage, 'if ($paymongo_available && $paymongo_qrph_available)'),
     '2. PayMongo mode renders PayMongo while manual GCash UI remains server-conditional'
 );
 primary_mode_check(
@@ -48,10 +48,11 @@ primary_mode_check(
     '3. Dynamic QR uses only the validated PayMongo QR data field'
 );
 primary_mode_check(
-    str_contains($customerPage, 'paymongo-create-link')
+    !str_contains($customerPage, 'paymongo-create-link')
+        && !str_contains($customerPage, 'Continue to Secure Checkout')
         && str_contains($customerApi, "\$action === 'create_link'")
         && str_contains($provider, 'function printflow_provider_payment_create_link('),
-    '4. PayMongo Secure Checkout fallback remains functional'
+    '4. PayMongo Payment Link backend remains functional while customer UI is QR-only'
 );
 primary_mode_check(
     $submitGuard !== false
@@ -84,9 +85,10 @@ primary_mode_check(
 );
 primary_mode_check(
     str_contains($customerApi, "\$action === 'create_link'")
-        && str_contains($customerPage, 'Continue to Secure Checkout')
+        && !str_contains($customerPage, "createPayMongoPayment('create_link')")
+        && !str_contains($customerPage, 'Continue to Secure Checkout')
         && str_contains($staffApi, "if (\$channel === 'online')"),
-    '10. Payment Link creation belongs to the customer while staff remains read-only'
+    '10. Payment Link creation is hidden from customer UI while staff remains read-only'
 );
 primary_mode_check(
     str_contains($customerPage, 'Payment Method')
@@ -123,7 +125,7 @@ primary_mode_check(
 );
 primary_mode_check(
     str_contains($customerPage, "status === 'expired'")
-        && str_contains($customerPage, "createPayMongoPayment('create_qrph')"),
+        && str_contains($customerPage, "'retry_qrph'"),
     '17. expired QRPh state supports fresh retry'
 );
 primary_mode_check(

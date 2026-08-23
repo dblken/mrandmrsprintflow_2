@@ -59,9 +59,9 @@ success_status_check(
 );
 success_status_check(
     str_contains($api, "'checkout_url' => (string)(\$publicPayment['checkout_url'] ?? '')")
-        && str_contains($customer, 'data?.checkout_url || payment.checkout_url')
-        && str_contains($customer, 'window.location.assign(payment.checkout_url)'),
-    '7. Payment Link returns and consumes the normalized checkout_url'
+        && !str_contains($customer, 'data?.checkout_url || payment.checkout_url')
+        && !str_contains($customer, 'window.location.assign(payment.checkout_url)'),
+    '7. Payment Link URL remains in backend response but is not consumed by customer UI'
 );
 success_status_check(
     str_contains($api, "\$GLOBALS['printflow_customer_paymongo_response_complete'] = true")
