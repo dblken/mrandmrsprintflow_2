@@ -4,14 +4,36 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 
-header('Content-Type: application/json; charset=utf-8');
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 ini_set('display_errors', '0');
+$GLOBALS['printflow_customer_paymongo_response_complete'] = false;
+$GLOBALS['printflow_customer_paymongo_buffer_level'] = ob_get_level();
+ob_start();
 
-function printflow_customer_paymongo_respond(int $status, array $payload): void {
+function printflow_customer_paymongo_respond(int $status, array $payload): never {
+    $status = $status >= 100 && $status <= 599 ? $status : 500;
+    $json = json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    if ($json === false) {
+        $status = 500;
+        $json = '{"success":false,"code":"response_encoding_failed","message":"The payment service could not encode its response."}';
+    }
+
+    $baseLevel = (int)($GLOBALS['printflow_customer_paymongo_buffer_level'] ?? 0);
+    while (ob_get_level() > $baseLevel) {
+        ob_end_clean();
+    }
     http_response_code($status);
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
-    exit;
+    header('Content-Type: application/json; charset=utf-8', true, $status);
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('X-Content-Type-Options: nosniff');
+    $GLOBALS['printflow_customer_paymongo_response_complete'] = true;
+    echo $json;
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
+    exit(0);
 }
 
 set_exception_handler(static function (Throwable $error): void {
@@ -30,14 +52,20 @@ set_exception_handler(static function (Throwable $error): void {
     ]);
 });
 register_shutdown_function(static function (): void {
+    if (!empty($GLOBALS['printflow_customer_paymongo_response_complete'])) {
+        return;
+    }
     $error = error_get_last();
     if ($error === null || !in_array((int)$error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
         return;
     }
-    if (!headers_sent()) {
-        http_response_code(500);
-        header('Content-Type: application/json; charset=utf-8');
+    $baseLevel = (int)($GLOBALS['printflow_customer_paymongo_buffer_level'] ?? 0);
+    while (ob_get_level() > $baseLevel) {
+        ob_end_clean();
     }
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8', true, 500);
+    header('Cache-Control: no-store');
     echo json_encode([
         'success' => false,
         'code' => 'internal_error',
@@ -143,6 +171,7 @@ if ($method === 'POST') {
             'status' => (string)($publicPayment['status'] ?? ''),
             'qr_image_url' => (string)($publicPayment['qr_image_url'] ?? ''),
             'qr_expires_at' => $publicPayment['qr_expires_at'] ?? null,
+            'qr_expires_at_epoch' => $publicPayment['qr_expires_at_epoch'] ?? null,
             'amount_centavos' => (int)($publicPayment['amount_due_centavos'] ?? 0),
             'checkout_url' => (string)($publicPayment['checkout_url'] ?? ''),
             'available_flows' => $availableFlows,

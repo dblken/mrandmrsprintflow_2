@@ -1343,6 +1343,19 @@ if (!function_exists('pf_payment_qr_url')) {
             }
             paymongoPollTimer = window.setTimeout(pollPayMongo, 5000);
         };
+        const normalizePayMongoPayment = (data) => {
+            const payment = data?.payment && typeof data.payment === 'object'
+                ? {...data.payment}
+                : {};
+            payment.payment_flow = data?.payment_flow || payment.payment_flow || '';
+            payment.payment_method = data?.payment_method || payment.payment_method || '';
+            payment.status = data?.status || payment.status || '';
+            payment.qr_image_url = data?.qr_image_url || payment.qr_image_url || '';
+            payment.qr_expires_at = data?.qr_expires_at || payment.qr_expires_at || null;
+            payment.qr_expires_at_epoch = data?.qr_expires_at_epoch || payment.qr_expires_at_epoch || null;
+            payment.checkout_url = data?.checkout_url || payment.checkout_url || '';
+            return payment;
+        };
         const pollPayMongo = async () => {
             try {
                 const response = await fetch(paymongoStatusUrl, { cache: 'no-store' });
@@ -1352,7 +1365,7 @@ if (!function_exists('pf_payment_qr_url')) {
                     return;
                 }
                 if (data.success) {
-                    const terminal = renderPayMongoPayment(data.payment);
+                    const terminal = renderPayMongoPayment(normalizePayMongoPayment(data));
                     if (terminal) return;
                 }
                 if (data.success && data.confirming) {
@@ -1382,15 +1395,23 @@ if (!function_exists('pf_payment_qr_url')) {
                     })
                 });
                 const data = await parsePayMongoJson(response);
-                if (!response.ok || !data.success || !data.payment) {
+                if (!response.ok || !data.success) {
                     throw new Error(data.message || (action === 'create_link'
                         ? 'We couldn\'t create Secure Checkout right now. Please try again.'
                         : 'We couldn\'t generate a QR right now. Please try again.'));
                 }
+                const payment = normalizePayMongoPayment(data);
+                if (!payment.payment_flow
+                    || (isQrAction && payment.status === 'awaiting_payment' && !payment.qr_image_url)
+                    || (action === 'create_link' && !payment.checkout_url)) {
+                    throw new Error(action === 'create_link'
+                        ? 'We couldn\'t create Secure Checkout right now. Please try again.'
+                        : 'We couldn\'t generate a QR right now. Please try again.');
+                }
                 stopPayMongoTimers();
-                const terminal = renderPayMongoPayment(data.payment);
+                const terminal = renderPayMongoPayment(payment);
                 if (!terminal) schedulePayMongoPoll();
-                return data.payment;
+                return payment;
             } catch (error) {
                 paymongoState.textContent = error.message || 'The payment could not be prepared. Please try again.';
                 return null;
