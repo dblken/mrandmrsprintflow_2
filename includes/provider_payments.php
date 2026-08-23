@@ -349,6 +349,129 @@ function printflow_provider_payment_find(
     return $rows[0] ?? [];
 }
 
+/**
+ * Safely deactivate an awaiting opposite PayMongo flow before reusing the
+ * subject ledger for the method the customer explicitly selected.
+ */
+function printflow_provider_payment_supersede_active_flow(
+    string $subjectType,
+    int $subjectId,
+    string $channel,
+    string $mode,
+    string $targetFlow,
+    int $actorId = 0
+): array {
+    $existing = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
+    if (empty($existing)) {
+        return ['ok' => true];
+    }
+    $existingFlow = (string)($existing['payment_flow'] ?? 'payment_link');
+    $existingStatus = (string)($existing['status'] ?? '');
+    if ($existingFlow === $targetFlow || !in_array($existingStatus, ['generating', 'awaiting_payment', 'paid'], true)) {
+        return ['ok' => true];
+    }
+    if ($existingStatus === 'paid') {
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'error_code' => 'payment_already_paid',
+            'message' => 'This order already has a confirmed PayMongo payment.',
+        ];
+    }
+    if ($existingStatus === 'generating') {
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'error_code' => 'payment_switch_in_progress',
+            'message' => 'The previous payment method is still being prepared. Please wait a moment and try again.',
+        ];
+    }
+
+    $providerResult = [];
+    $providerStatus = '';
+    $expectedProviderId = '';
+    if ($existingFlow === 'payment_link') {
+        $expectedProviderId = trim((string)($existing['link_id'] ?? ''));
+        $providerResult = printflow_paymongo_archive_payment_link($expectedProviderId, $mode);
+        $providerStatus = strtolower(trim((string)($providerResult['status'] ?? '')));
+        $providerConfirmed = !empty($providerResult['ok'])
+            && hash_equals($expectedProviderId, (string)($providerResult['id'] ?? ''))
+            && $providerStatus === 'archived';
+    } elseif ($existingFlow === 'payment_intent') {
+        $expectedProviderId = trim((string)($existing['payment_intent_id'] ?? ''));
+        $providerResult = printflow_paymongo_cancel_payment_intent($expectedProviderId, $mode);
+        $providerStatus = strtolower(trim((string)($providerResult['status'] ?? '')));
+        $providerConfirmed = !empty($providerResult['ok'])
+            && hash_equals($expectedProviderId, (string)($providerResult['id'] ?? ''))
+            && in_array($providerStatus, ['cancelled', 'canceled'], true);
+    } else {
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'error_code' => 'active_payment_flow_conflict',
+            'message' => 'The active PayMongo payment type cannot be switched automatically.',
+        ];
+    }
+
+    if (!$providerConfirmed) {
+        $providerHttpStatus = (int)($providerResult['http_status'] ?? 502);
+        error_log('[paymongo-switch] ' . json_encode([
+            'ledger_id' => (int)$existing['id'],
+            'from_flow' => $existingFlow,
+            'target_flow' => $targetFlow,
+            'provider_http_status' => $providerHttpStatus,
+            'provider_error_code' => (string)($providerResult['error_code'] ?? 'invalid_switch_response'),
+        ], JSON_UNESCAPED_SLASHES));
+        return [
+            'ok' => false,
+            'http_status' => $providerHttpStatus >= 400 && $providerHttpStatus < 500 ? 409 : 502,
+            'error_code' => 'payment_flow_switch_failed',
+            'message' => 'The previous payment method could not be closed safely. Please try again.',
+        ];
+    }
+
+    $cancelled = db_execute_affected_rows(
+        "UPDATE provider_payments
+         SET status = 'cancelled', payment_status = 'cancelled', provider_status = ?,
+             last_error_code = ?, checkout_url = NULL, qr_image_url = NULL, updated_at = NOW()
+         WHERE id = ? AND status = 'awaiting_payment' AND payment_flow = ?",
+        'ssis',
+        [
+            $providerStatus,
+            'superseded_by_' . $targetFlow,
+            (int)$existing['id'],
+            $existingFlow,
+        ]
+    );
+    if ($cancelled !== 1) {
+        $raced = printflow_provider_payment_find($subjectType, $subjectId, $channel, $mode);
+        if ((string)($raced['status'] ?? '') === 'paid') {
+            return [
+                'ok' => false,
+                'http_status' => 409,
+                'error_code' => 'payment_already_paid',
+                'message' => 'Payment was confirmed while the payment method was being changed.',
+            ];
+        }
+        return [
+            'ok' => false,
+            'http_status' => 409,
+            'error_code' => 'payment_flow_changed',
+            'message' => 'The payment state changed. Refresh and try again.',
+        ];
+    }
+    printflow_provider_payment_record_transition(
+        (int)$existing['id'],
+        (int)($existing['order_id'] ?? 0),
+        'flow-switch-' . (int)$existing['id'] . '-' . $targetFlow,
+        'awaiting_payment',
+        'cancelled',
+        $channel === 'online' ? 'customer' : 'staff',
+        $actorId
+    );
+    return ['ok' => true, 'superseded' => true];
+}
+
 function printflow_provider_payment_for_customer(
     int $customerId,
     string $subjectType,
@@ -479,6 +602,18 @@ function printflow_provider_payment_create_link(
     $amountCentavos = printflow_money_to_centavos($subject['total_amount'] ?? '');
     if ($amountCentavos < 100) {
         return ['ok' => false, 'http_status' => 400, 'message' => 'A final amount of at least PHP 1.00 is required.'];
+    }
+
+    $switch = printflow_provider_payment_supersede_active_flow(
+        $subjectType,
+        $subjectId,
+        $channel,
+        $mode,
+        'payment_link',
+        $createdBy
+    );
+    if (empty($switch['ok'])) {
+        return $switch;
     }
 
     // Serialize price finalization and link creation on the subject row. The
@@ -903,6 +1038,18 @@ function printflow_provider_payment_create_intent(
     $validation = printflow_provider_payment_creation_error($subject, $channel, 'Payment Intent');
     if ($validation !== []) {
         return $validation;
+    }
+
+    $switch = printflow_provider_payment_supersede_active_flow(
+        $subjectType,
+        $subjectId,
+        $channel,
+        $mode,
+        'payment_intent',
+        $createdBy
+    );
+    if (empty($switch['ok'])) {
+        return $switch;
     }
 
     $transactionOpen = false;

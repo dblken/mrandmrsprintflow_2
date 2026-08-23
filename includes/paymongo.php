@@ -505,7 +505,7 @@ if (!function_exists('printflow_paymongo_request')) {
         $data = isset($decoded['data']) && is_array($decoded['data'])
             ? $decoded['data']
             : [];
-        if (preg_match('#^/v1/payment_intents(?:/pi_[A-Za-z0-9_-]+(?:/attach)?)?$#', $path)) {
+        if (preg_match('#^/v1/payment_intents(?:/pi_[A-Za-z0-9_-]+(?:/(?:attach|cancel))?)?$#', $path)) {
             return printflow_paymongo_normalize_payment_intent($data, $mode, $httpCode);
         }
         if (preg_match('#^/v1/payment_methods(?:/pm_[A-Za-z0-9_-]+)?$#', $path)) {
@@ -514,7 +514,8 @@ if (!function_exists('printflow_paymongo_request')) {
         if (preg_match('#^/v1/payments/pay_[A-Za-z0-9_-]+$#', $path)) {
             return printflow_paymongo_normalize_payment($data, $mode, $httpCode);
         }
-        if ($path === '/v1/payment_links') {
+        if ($path === '/v1/payment_links'
+            || preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+$#', $path)) {
             return printflow_paymongo_normalize_payment_link($data, $mode, $httpCode);
         }
         if (preg_match('#^/v1/payment_links/link_[A-Za-z0-9_-]+/payments(?:\?.*)?$#', $path)) {
@@ -697,6 +698,28 @@ if (!function_exists('printflow_paymongo_create_order_payment_link')) {
     }
 }
 
+if (!function_exists('printflow_paymongo_archive_payment_link')) {
+    function printflow_paymongo_archive_payment_link(string $linkId, string $mode = ''): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if (!preg_match('/^link_[A-Za-z0-9_-]+$/', $linkId)) {
+            return printflow_paymongo_failure(
+                'A valid PayMongo Payment Link is required.',
+                400,
+                'invalid_payment_link',
+                $mode
+            );
+        }
+        return printflow_paymongo_request(
+            'PATCH',
+            '/v1/payment_links/' . rawurlencode($linkId),
+            ['archive' => true],
+            $mode,
+            '',
+            'secret'
+        );
+    }
+}
+
 if (!function_exists('printflow_paymongo_enabled_methods')) {
     /**
      * Direct methods are deliberately allowlisted per environment. Test mode
@@ -864,6 +887,28 @@ if (!function_exists('printflow_paymongo_get_payment_intent')) {
         return printflow_paymongo_request(
             'GET',
             '/v1/payment_intents/' . rawurlencode($paymentIntentId),
+            null,
+            $mode,
+            '',
+            'secret'
+        );
+    }
+}
+
+if (!function_exists('printflow_paymongo_cancel_payment_intent')) {
+    function printflow_paymongo_cancel_payment_intent(string $paymentIntentId, string $mode = ''): array {
+        $mode = in_array($mode, ['test', 'live'], true) ? $mode : printflow_paymongo_mode();
+        if (!preg_match('/^pi_[A-Za-z0-9_-]+$/', $paymentIntentId)) {
+            return printflow_paymongo_failure(
+                'A valid Payment Intent is required.',
+                400,
+                'invalid_payment_intent',
+                $mode
+            );
+        }
+        return printflow_paymongo_request(
+            'POST',
+            '/v1/payment_intents/' . rawurlencode($paymentIntentId) . '/cancel',
             null,
             $mode,
             '',

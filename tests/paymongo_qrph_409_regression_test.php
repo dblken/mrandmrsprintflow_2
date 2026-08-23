@@ -23,7 +23,7 @@ function qrph_409_check(bool $condition, string $name): void {
 }
 
 qrph_409_check(str_contains($api, "\$action === 'create_qrph'") && str_contains($api, 'printflow_provider_payment_create_qrph('), '1. first QRPh creation uses the explicit creation action');
-qrph_409_check(str_contains($customer, 'if (paymongoBusy) return;') && str_contains($provider, "'in_progress' => true"), '2. duplicate clicks and concurrent creation return an idempotent in-progress response');
+qrph_409_check(str_contains($customer, 'if (paymongoBusy) return null;') && str_contains($provider, "'in_progress' => true"), '2. duplicate clicks and concurrent creation return an idempotent in-progress response');
 qrph_409_check(str_contains($provider, "'reused' => true") && str_contains($provider, '$qrIsUsable'), '3. an existing usable QR is returned instead of recreated');
 qrph_409_check(str_contains($api, "\$input['action'] ?? 'status'") && str_contains($api, 'printflow_customer_paymongo_respond(200'), '4. status polling is separate and returns HTTP 200');
 qrph_409_check(str_contains($customer, 'schedulePayMongoPoll') && str_contains($customer, "['generating', 'awaiting_payment'].includes(status)"), '5. repeated pending polling remains HTTP-based and bounded to active states');
@@ -33,7 +33,7 @@ qrph_409_check(str_contains($api, "'code' => 'payment_already_paid'") && str_con
 qrph_409_check(str_contains($provider, "This order is already paid.") && str_contains($api, 'printflow_provider_payment_public($existingPayment)'), '9. a paid order cannot create another provider payment');
 qrph_409_check(str_contains($provider, 'Another request already owns this short-lived creation') && str_contains($provider, "'http_status' => 409, 'message' => 'Payment Intent generation is already in progress.'") === false, '10. two tabs do not receive the old generating-state 409');
 qrph_409_check(str_contains($api, "(int)(\$subject['customer_id'] ?? 0) !== \$customerId"), '11. customers cannot access another customer payment');
-qrph_409_check(str_contains($provider, 'active PayMongo Payment Link or another payment flow'), '12. an active Payment Link remains an intentional duplicate-payment conflict');
+qrph_409_check(str_contains($provider, 'printflow_paymongo_archive_payment_link(') && str_contains($provider, "'superseded' => true"), '12. an active Payment Link is archived before QRPh safely replaces it');
 qrph_409_check(str_contains($provider, 'channel <> ?') && str_contains($staffApi, 'printflow_provider_payment_create_qrph('), '13. staff/customer cross-channel active payment protection remains enforced');
 qrph_409_check(str_contains($posApi, 'printflow_provider_payment_create_qrph(') && str_contains($provider, 'active PayMongo payment in another channel'), '14. POS/customer cross-channel active payment protection remains enforced');
 qrph_409_check(str_contains($api, "'code' => 'invalid_action'") && str_contains($api, 'Unsupported payment action.'), '15. invalid requests receive structured JSON errors');
