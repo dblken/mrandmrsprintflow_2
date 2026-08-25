@@ -43,7 +43,7 @@ receipt_format_check(
 
 receipt_format_check(
     str_contains($customer, 'const pageHeightMm = Math.max(58, Math.ceil(contentHeightMm))')
-        && str_contains($customer, 'format: [58, pageHeightMm]')
+        && str_contains($customer, 'format: [contentWidthMm, pageHeightMm]')
         && !str_contains($customer, 'format: [58, 210]'),
     'downloaded receipt uses dynamic content height instead of a fixed page'
 );
@@ -54,6 +54,22 @@ receipt_format_check(
         && str_contains($customer, 'qrTarget.innerHTML')
         && str_contains($customer, 'await receiptWaitForImages(capture)'),
     'downloaded receipt embeds a deterministic QR PNG before capture'
+);
+
+receipt_format_check(
+    str_contains($customer, 'await worker.set({')
+        && str_contains($customer, '}).toPdf()')
+        && str_contains($customer, "const pdf = await worker.get('pdf')")
+        && !str_contains($customer, 'window.jspdf?.jsPDF')
+        && !str_contains($customer, "throw new Error('PDF renderer is unavailable.')"),
+    'download uses the html2pdf bundle pipeline without requiring an unavailable jsPDF global'
+);
+
+receipt_format_check(
+    str_contains($customer, 'typeof window.html2pdf')
+        && str_contains($customer, 'Unable to generate the receipt PDF right now. Please try again.')
+        && str_contains($customer, "failureStage = 'pdf-render'"),
+    'missing renderer and render failures show a safe customer message with staged diagnostics'
 );
 
 receipt_format_check(

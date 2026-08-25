@@ -2536,10 +2536,6 @@ function receiptWaitForImages(root) {
 }
 
 async function downloadReceiptPdf() {
-    if (!activeReceiptData || typeof html2pdf === 'undefined') return;
-    const printArea = document.getElementById('receipt-print-area');
-    if (!printArea) return;
-
     const downloadButton = document.querySelector('#receiptModal .receipt-action-btn--primary');
     if (downloadButton?.disabled) return;
     if (downloadButton) {
@@ -2547,15 +2543,25 @@ async function downloadReceiptPdf() {
         downloadButton.textContent = 'Preparing PDF...';
     }
 
-    const captureHost = document.createElement('div');
-    captureHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:58mm;background:#fff;z-index:-1;';
-    const capture = printArea.cloneNode(true);
-    capture.id = 'receipt-pdf-capture';
-    capture.classList.add('receipt-pdf-capture');
-    captureHost.appendChild(capture);
-    document.body.appendChild(captureHost);
+    let captureHost = null;
+    let failureStage = 'initialization';
 
     try {
+        if (!activeReceiptData) throw new Error('Receipt data is unavailable.');
+        if (typeof window.html2pdf !== 'function') throw new Error('html2pdf did not initialize.');
+
+        const printArea = document.getElementById('receipt-print-area');
+        if (!printArea) throw new Error('Receipt content is unavailable.');
+
+        captureHost = document.createElement('div');
+        captureHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:58mm;background:#fff;z-index:-1;';
+        const capture = printArea.cloneNode(true);
+        capture.id = 'receipt-pdf-capture';
+        capture.classList.add('receipt-pdf-capture');
+        captureHost.appendChild(capture);
+        document.body.appendChild(captureHost);
+
+        failureStage = 'asset-preparation';
         const qrTarget = capture.querySelector('#customer-receipt-qr');
         if (qrTarget && activeReceiptData.qr_payload) {
             const qrDataUrl = await receiptQrPngDataUrl(activeReceiptData.qr_payload);
@@ -2565,7 +2571,8 @@ async function downloadReceiptPdf() {
         if (document.fonts?.ready) await document.fonts.ready;
         await receiptWaitForImages(capture);
 
-        const worker = html2pdf().set({
+        failureStage = 'html-capture';
+        const worker = window.html2pdf().set({
             image: {type: 'png', quality: 1},
             html2canvas: {
                 scale: 3,
@@ -2576,37 +2583,39 @@ async function downloadReceiptPdf() {
                 scrollY: 0,
                 windowWidth: capture.scrollWidth
             }
-        }).from(capture).toCanvas();
+        }).from(capture);
+        await worker.toCanvas();
         const canvas = await worker.get('canvas');
-        const JsPdf = window.jspdf?.jsPDF;
-        if (!canvas || !JsPdf) throw new Error('PDF renderer is unavailable.');
+        if (!canvas || !canvas.width || !canvas.height) throw new Error('Receipt capture is empty.');
 
         const contentWidthMm = 58;
-        const marginMm = 0;
         const contentHeightMm = canvas.height * contentWidthMm / canvas.width;
         const pageHeightMm = Math.max(58, Math.ceil(contentHeightMm));
-        const pdf = new JsPdf({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: [58, pageHeightMm],
-            compress: true
-        });
-        pdf.addImage(
-            canvas.toDataURL('image/png'),
-            'PNG',
-            marginMm,
-            marginMm,
-            contentWidthMm,
-            contentHeightMm,
-            undefined,
-            'FAST'
-        );
+        failureStage = 'pdf-render';
+        await worker.set({
+            jsPDF: {
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [contentWidthMm, pageHeightMm],
+                compress: true
+            }
+        }).toPdf();
+        const pdf = await worker.get('pdf');
+        if (!pdf || typeof pdf.save !== 'function') throw new Error('PDF output is unavailable.');
+
+        failureStage = 'download';
         pdf.save(`${activeReceiptData.receipt_number || 'receipt'}.pdf`);
     } catch (error) {
-        console.error('Receipt PDF download failed:', error);
-        if (typeof showToast === 'function') showToast('Receipt PDF could not be generated. Please try again.');
+        console.error('Receipt PDF download failed.', {
+            stage: failureStage,
+            name: error instanceof Error ? error.name : 'UnknownError',
+            message: error instanceof Error ? error.message : 'Unknown receipt PDF error'
+        });
+        if (typeof showToast === 'function') {
+            showToast('Unable to generate the receipt PDF right now. Please try again.');
+        }
     } finally {
-        captureHost.remove();
+        captureHost?.remove();
         if (downloadButton) {
             downloadButton.disabled = false;
             downloadButton.textContent = 'Download Receipt';
