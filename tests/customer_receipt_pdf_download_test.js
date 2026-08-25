@@ -15,12 +15,24 @@ const capture = {
     id: '',
     classList: {add() {}},
     style: {cssText: '', setProperty() {}},
-    querySelector() { return null; },
+    querySelector(selector) { return selector === '#customer-receipt-qr' ? qrTarget : null; },
     offsetWidth: 219,
     scrollWidth: 219,
     offsetHeight: 440,
     scrollHeight: 440,
     getBoundingClientRect() { return {width: 219, height: 440}; }
+};
+const qrImage = {
+    src: '',
+    alt: '',
+    width: 0,
+    height: 0,
+    naturalWidth: 396,
+    naturalHeight: 396
+};
+const qrTarget = {
+    removeAttribute() {},
+    replaceChildren(image) { assert.strictEqual(image, qrImage); }
 };
 const printArea = {cloneNode() { return capture; }};
 const captureHost = {
@@ -89,10 +101,10 @@ let workerCalls = 0;
 const toastMessages = [];
 const diagnostics = [];
 const context = vm.createContext({
-    activeReceiptData: {receipt_number: 'ONL-123', qr_payload: ''},
+    activeReceiptData: {receipt_number: 'ONL-123', qr_payload: 'PF1:ORDER:123'},
     document: {
         body: {appendChild() {}},
-        createElement() { return captureHost; },
+        createElement(type) { return type === 'img' ? qrImage : captureHost; },
         fonts: {ready: Promise.resolve()},
         getElementById(id) { return id === 'receipt-print-area' ? printArea : null; },
         querySelector() { return button; }
@@ -105,7 +117,7 @@ const context = vm.createContext({
         }
     },
     receiptWaitForImages: async () => {},
-    receiptQrPngDataUrl: async () => '',
+    receiptQrPngDataUrl: async () => `data:image/png;base64,${'a'.repeat(1200)}`,
     showToast(message) { toastMessages.push(message); },
     console: {
         error(message, detail) { diagnostics.push({message, detail}); },
@@ -117,6 +129,7 @@ const context = vm.createContext({
 });
 
 vm.runInContext(functionSource, context);
+context.receiptDrawQrOnCanvas = () => ({x: 100, y: 100, size: 396, contrastRange: 255});
 
 (async () => {
     assert.strictEqual(context.window.jspdf, undefined, 'test intentionally provides no jsPDF global');
@@ -151,9 +164,16 @@ vm.runInContext(functionSource, context);
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'html-capture');
     assert.strictEqual(toastMessages.at(-1), 'Unable to generate the receipt PDF right now. Please try again.');
 
+    context.activeReceiptData.qr_payload = '';
+    workerCalls = 0;
+    await context.downloadReceiptPdf();
+    assert.strictEqual(workerCalls, 0, 'missing QR payload fails before receipt rendering');
+    assert.strictEqual(diagnostics.at(-1).detail.stage, 'asset-preparation');
+
+    context.activeReceiptData.qr_payload = 'PF1:ORDER:123';
     context.window.html2pdf = undefined;
     await context.downloadReceiptPdf();
-    assert.strictEqual(toastMessages.length, 3);
+    assert.strictEqual(toastMessages.length, 4);
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'initialization');
     assert.strictEqual(button.disabled, false);
 
