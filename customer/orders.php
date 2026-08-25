@@ -2563,6 +2563,27 @@ function receiptWaitForImages(root) {
     }));
 }
 
+function receiptCanvasHasVisibleContent(canvas) {
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) return false;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const pixelCount = canvas.width * canvas.height;
+    const sampleStep = Math.max(1, Math.floor(Math.sqrt(pixelCount / 250000)));
+    let sampledPixels = 0;
+    let visibleInkPixels = 0;
+
+    for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += sampleStep) {
+        const channelIndex = pixelIndex * 4;
+        sampledPixels++;
+        if (pixels[channelIndex + 3] > 20
+            && (pixels[channelIndex] < 245 || pixels[channelIndex + 1] < 245 || pixels[channelIndex + 2] < 245)) {
+            visibleInkPixels++;
+        }
+    }
+
+    return visibleInkPixels >= Math.max(24, Math.ceil(sampledPixels * 0.0005));
+}
+
 async function downloadReceiptPdf() {
     const downloadButton = document.querySelector('#receiptModal .receipt-action-btn--primary');
     if (downloadButton?.disabled) return;
@@ -2582,10 +2603,14 @@ async function downloadReceiptPdf() {
         if (!printArea) throw new Error('Receipt content is unavailable.');
 
         captureHost = document.createElement('div');
-        captureHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:58mm;background:#fff;z-index:-1;';
+        // Keep the source renderable at the capture origin. Combining a large
+        // negative left offset with html2canvas's explicit viewport crop made
+        // the 58mm page correct but captured almost entirely blank pixels.
+        captureHost.style.cssText = 'position:fixed;left:0;top:0;width:58mm;height:auto;max-height:none;overflow:visible;background:#fff;z-index:-2147483647;pointer-events:none;';
         const capture = printArea.cloneNode(true);
         capture.id = 'receipt-pdf-capture';
         capture.classList.add('receipt-pdf-capture');
+        capture.style.cssText += 'display:block!important;visibility:visible!important;opacity:1!important;transform:none!important;position:relative!important;left:0!important;top:0!important;height:auto!important;max-height:none!important;overflow:visible!important;';
         captureHost.appendChild(capture);
         document.body.appendChild(captureHost);
 
@@ -2604,11 +2629,34 @@ async function downloadReceiptPdf() {
         }
         if (document.fonts?.ready) await document.fonts.ready;
         await receiptWaitForImages(capture);
+        await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+
+        const sourceStyle = window.getComputedStyle(capture);
+        const sourceRect = capture.getBoundingClientRect();
+        const sourceMetrics = {
+            element: '#receipt-pdf-capture (clone of #receipt-print-area)',
+            offsetWidth: capture.offsetWidth,
+            scrollWidth: capture.scrollWidth,
+            offsetHeight: capture.offsetHeight,
+            scrollHeight: capture.scrollHeight,
+            rectWidth: sourceRect.width,
+            rectHeight: sourceRect.height,
+            display: sourceStyle.display,
+            visibility: sourceStyle.visibility,
+            opacity: sourceStyle.opacity,
+            transform: sourceStyle.transform,
+            overflow: sourceStyle.overflow
+        };
+        if (sourceMetrics.offsetWidth <= 0 || sourceMetrics.scrollWidth <= 0
+            || sourceMetrics.offsetHeight <= 0 || sourceMetrics.scrollHeight <= 0
+            || sourceStyle.display === 'none' || sourceStyle.visibility === 'hidden'
+            || Number(sourceStyle.opacity) === 0) {
+            throw new Error('Receipt capture source is not visibly rendered.');
+        }
 
         failureStage = 'html-capture';
         const contentWidthMm = 58;
         const captureScale = 3;
-        const captureViewportWidthPx = Math.ceil(contentWidthMm * 96 / 25.4);
         const captureOptions = {
             margin: 0,
             image: {type: 'png', quality: 1},
@@ -2627,8 +2675,17 @@ async function downloadReceiptPdf() {
                 backgroundColor: '#ffffff',
                 scrollX: 0,
                 scrollY: 0,
-                width: captureViewportWidthPx,
-                windowWidth: captureViewportWidthPx
+                onclone: clonedDocument => {
+                    const clonedCapture = clonedDocument.getElementById('receipt-pdf-capture');
+                    if (!clonedCapture) return;
+                    clonedCapture.style.setProperty('display', 'block', 'important');
+                    clonedCapture.style.setProperty('visibility', 'visible', 'important');
+                    clonedCapture.style.setProperty('opacity', '1', 'important');
+                    clonedCapture.style.setProperty('transform', 'none', 'important');
+                    clonedCapture.style.setProperty('height', 'auto', 'important');
+                    clonedCapture.style.setProperty('max-height', 'none', 'important');
+                    clonedCapture.style.setProperty('overflow', 'visible', 'important');
+                }
             }
         };
         const measurementWorker = window.html2pdf().set(captureOptions).from(capture);
@@ -2638,6 +2695,13 @@ async function downloadReceiptPdf() {
         const expectedCanvasWidthPx = contentWidthMm * 96 / 25.4 * captureScale;
         if (Math.abs(canvas.width - expectedCanvasWidthPx) > 6) {
             throw new Error('Receipt capture width is not 58mm.');
+        }
+        if (!receiptCanvasHasVisibleContent(canvas)) {
+            throw new Error('Receipt canvas contains no visible content.');
+        }
+        const canvasPng = canvas.toDataURL('image/png');
+        if (!canvasPng.startsWith('data:image/png;base64,') || canvasPng.length < 1000) {
+            throw new Error('Receipt canvas PNG could not be created.');
         }
 
         const contentHeightMm = canvas.height * contentWidthMm / canvas.width;
@@ -2667,6 +2731,19 @@ async function downloadReceiptPdf() {
             || pageCount !== 1) {
             throw new Error('Receipt PDF page dimensions are invalid.');
         }
+
+        console.info('Receipt PDF render metrics.', {
+            source: sourceMetrics,
+            canvas: {width: canvas.width, height: canvas.height, pngBytesApprox: Math.floor(canvasPng.length * 0.75)},
+            pdf: {
+                widthMm: actualWidthMm,
+                heightMm: actualHeightMm,
+                imageXmm: 0,
+                imageYmm: 0,
+                imageWidthMm: contentWidthMm,
+                imageHeightMm: contentHeightMm
+            }
+        });
 
         failureStage = 'download';
         pdf.save(`${activeReceiptData.receipt_number || 'receipt'}.pdf`);

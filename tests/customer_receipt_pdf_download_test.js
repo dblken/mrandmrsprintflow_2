@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'customer', 'orders.php'), 'utf8');
-const match = source.match(/async function downloadReceiptPdf\(\) \{[\s\S]*?\r?\n\}\r?\n\r?\nlet currentOrderItemsRequest/);
+const match = source.match(/function receiptCanvasHasVisibleContent\(canvas\) \{[\s\S]*?\r?\n\}\r?\n\r?\nasync function downloadReceiptPdf\(\) \{[\s\S]*?\r?\n\}\r?\n\r?\nlet currentOrderItemsRequest/);
 assert(match, 'downloadReceiptPdf() must remain available');
 const functionSource = match[0].replace(/\r?\n\r?\nlet currentOrderItemsRequest$/, '');
 
@@ -14,8 +14,13 @@ const button = {disabled: false, textContent: 'Download Receipt'};
 const capture = {
     id: '',
     classList: {add() {}},
+    style: {cssText: '', setProperty() {}},
     querySelector() { return null; },
-    scrollWidth: 220
+    offsetWidth: 219,
+    scrollWidth: 219,
+    offsetHeight: 440,
+    scrollHeight: 440,
+    getBoundingClientRect() { return {width: 219, height: 440}; }
 };
 const printArea = {cloneNode() { return capture; }};
 const captureHost = {
@@ -23,7 +28,14 @@ const captureHost = {
     appendChild() {},
     remove() { this.removed = true; }
 };
-const canvas = {width: 660, height: 1320};
+const canvas = {
+    width: 660,
+    height: 1320,
+    getContext() {
+        return {getImageData() { return {data: new Uint8ClampedArray(660 * 1320 * 4).fill(100)}; }};
+    },
+    toDataURL() { return `data:image/png;base64,${'a'.repeat(1200)}`; }
+};
 let measuredCanvas = canvas;
 const saved = [];
 const pdf = {
@@ -41,7 +53,8 @@ const measurementWorker = {
         assert.strictEqual(value, capture);
         assert.strictEqual(this.options.jsPDF.format[0], 58, 'capture worker uses receipt width before toCanvas');
         assert.strictEqual(this.options.jsPDF.format[1], 2000, 'capture worker uses a tall temporary receipt page');
-        assert.strictEqual(this.options.html2canvas.width, 220, 'capture viewport is 58mm in CSS pixels');
+        assert.strictEqual(this.options.html2canvas.width, undefined, 'capture does not crop an off-screen source to a viewport width');
+        assert.strictEqual(this.options.html2canvas.windowWidth, undefined, 'capture does not override the browser viewport');
         return this;
     },
     async toCanvas() {},
@@ -84,13 +97,23 @@ const context = vm.createContext({
         getElementById(id) { return id === 'receipt-print-area' ? printArea : null; },
         querySelector() { return button; }
     },
-    window: {html2pdf() { return workerCalls++ === 0 ? measurementWorker : pdfWorker; }},
+    window: {
+        html2pdf() { return workerCalls++ === 0 ? measurementWorker : pdfWorker; },
+        requestAnimationFrame(callback) { callback(); },
+        getComputedStyle() {
+            return {display: 'block', visibility: 'visible', opacity: '1', transform: 'none', overflow: 'visible'};
+        }
+    },
     receiptWaitForImages: async () => {},
     receiptQrPngDataUrl: async () => '',
     showToast(message) { toastMessages.push(message); },
-    console: {error(message, detail) { diagnostics.push({message, detail}); }},
+    console: {
+        error(message, detail) { diagnostics.push({message, detail}); },
+        info(message, detail) { diagnostics.push({message, detail}); }
+    },
     Error,
-    Promise
+    Promise,
+    Uint8ClampedArray
 });
 
 vm.runInContext(functionSource, context);
@@ -105,6 +128,21 @@ vm.runInContext(functionSource, context);
     assert.strictEqual(captureHost.removed, true);
     assert.deepStrictEqual(toastMessages, []);
 
+    measuredCanvas = {
+        width: 660,
+        height: 1320,
+        getContext() {
+            const pixels = new Uint8ClampedArray(660 * 1320 * 4).fill(255);
+            return {getImageData() { return {data: pixels}; }};
+        },
+        toDataURL() { return `data:image/png;base64,${'a'.repeat(1200)}`; }
+    };
+    workerCalls = 0;
+    await context.downloadReceiptPdf();
+    assert.deepStrictEqual(saved, ['ONL-123.pdf'], 'blank canvas must not be inserted into a PDF');
+    assert.strictEqual(workerCalls, 1, 'blank capture fails before PDF worker creation');
+    assert.strictEqual(diagnostics.at(-1).detail.stage, 'html-capture');
+
     measuredCanvas = {width: 2382, height: 2553};
     workerCalls = 0;
     await context.downloadReceiptPdf();
@@ -115,7 +153,7 @@ vm.runInContext(functionSource, context);
 
     context.window.html2pdf = undefined;
     await context.downloadReceiptPdf();
-    assert.strictEqual(toastMessages.length, 2);
+    assert.strictEqual(toastMessages.length, 3);
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'initialization');
     assert.strictEqual(button.disabled, false);
 
