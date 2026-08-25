@@ -79,10 +79,11 @@ receipt_format_check(
     str_contains($customer, 'const quietZonePx = 48')
         && str_contains($customer, "context.fillStyle = '#ffffff'")
         && str_contains($customer, 'context.imageSmoothingEnabled = false')
-        && str_contains($customer, 'receiptQrContrastMetrics')
+        && str_contains($customer, 'receiptQrSourceMetrics')
+        && !str_contains($customer, 'Embedded receipt QR has insufficient contrast.')
         && str_contains($customer, 'image.naturalWidth')
         && str_contains($customer, 'image.naturalHeight'),
-    'QR is a deterministic padded PNG and blank images fail before PDF capture'
+    'QR is validated as a deterministic padded PNG before PDF capture without a resampled contrast rejection'
 );
 
 receipt_format_check(

@@ -100,6 +100,7 @@ const pdfWorker = {
 let workerCalls = 0;
 const toastMessages = [];
 const diagnostics = [];
+const requestedQrPayloads = [];
 const context = vm.createContext({
     activeReceiptData: {receipt_number: 'ONL-123', qr_payload: 'PF1:ORDER:123'},
     document: {
@@ -117,7 +118,16 @@ const context = vm.createContext({
         }
     },
     receiptWaitForImages: async () => {},
-    receiptQrPngDataUrl: async () => `data:image/png;base64,${'a'.repeat(1200)}`,
+    receiptQrPngDataUrl: async payload => {
+        requestedQrPayloads.push(payload);
+        return {
+            dataUrl: `data:image/png;base64,${'a'.repeat(1200)}`,
+            payload,
+            width: 396,
+            height: 396,
+            metrics: {valid: true, width: 396, height: 396, darkPixels: 40000, lightPixels: 116816}
+        };
+    },
     showToast(message) { toastMessages.push(message); },
     console: {
         error(message, detail) { diagnostics.push({message, detail}); },
@@ -129,7 +139,7 @@ const context = vm.createContext({
 });
 
 vm.runInContext(functionSource, context);
-context.receiptDrawQrOnCanvas = () => ({x: 100, y: 100, size: 396, contrastRange: 255});
+context.receiptDrawQrOnCanvas = () => ({x: 100, y: 100, size: 396, sourceWidth: 396, sourceHeight: 396});
 
 (async () => {
     assert.strictEqual(context.window.jspdf, undefined, 'test intentionally provides no jsPDF global');
@@ -140,6 +150,13 @@ context.receiptDrawQrOnCanvas = () => ({x: 100, y: 100, size: 396, contrastRange
     assert.strictEqual(button.textContent, 'Download Receipt');
     assert.strictEqual(captureHost.removed, true);
     assert.deepStrictEqual(toastMessages, []);
+    assert.deepStrictEqual(requestedQrPayloads, ['PF1:ORDER:123']);
+
+    context.activeReceiptData = {receipt_number: 'ONL-456', qr_payload: 'PF1:ORDER:456'};
+    workerCalls = 0;
+    await context.downloadReceiptPdf();
+    assert.deepStrictEqual(saved, ['ONL-123.pdf', 'ONL-456.pdf'], 'a different receipt uses its own filename and QR payload');
+    assert.deepStrictEqual(requestedQrPayloads, ['PF1:ORDER:123', 'PF1:ORDER:456']);
 
     measuredCanvas = {
         width: 660,
@@ -152,14 +169,14 @@ context.receiptDrawQrOnCanvas = () => ({x: 100, y: 100, size: 396, contrastRange
     };
     workerCalls = 0;
     await context.downloadReceiptPdf();
-    assert.deepStrictEqual(saved, ['ONL-123.pdf'], 'blank canvas must not be inserted into a PDF');
+    assert.deepStrictEqual(saved, ['ONL-123.pdf', 'ONL-456.pdf'], 'blank canvas must not be inserted into a PDF');
     assert.strictEqual(workerCalls, 1, 'blank capture fails before PDF worker creation');
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'html-capture');
 
     measuredCanvas = {width: 2382, height: 2553};
     workerCalls = 0;
     await context.downloadReceiptPdf();
-    assert.deepStrictEqual(saved, ['ONL-123.pdf'], 'A4-width production capture must not be saved');
+    assert.deepStrictEqual(saved, ['ONL-123.pdf', 'ONL-456.pdf'], 'A4-width production capture must not be saved');
     assert.strictEqual(workerCalls, 1, 'invalid capture fails before PDF worker creation');
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'html-capture');
     assert.strictEqual(toastMessages.at(-1), 'Unable to generate the receipt PDF right now. Please try again.');
@@ -169,6 +186,7 @@ context.receiptDrawQrOnCanvas = () => ({x: 100, y: 100, size: 396, contrastRange
     await context.downloadReceiptPdf();
     assert.strictEqual(workerCalls, 0, 'missing QR payload fails before receipt rendering');
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'asset-preparation');
+    assert.strictEqual(toastMessages.at(-1), 'Unable to generate receipt QR.');
 
     context.activeReceiptData.qr_payload = 'PF1:ORDER:123';
     context.window.html2pdf = undefined;
