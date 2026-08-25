@@ -42,27 +42,40 @@ receipt_format_check(
 );
 
 receipt_format_check(
-    str_contains($customer, 'const pageHeightMm = Math.max(58, Math.ceil(contentHeightMm))')
+    str_contains($customer, 'const pageHeightMm = Math.max(58, Math.ceil((contentHeightMm + 0.5) * 10) / 10)')
         && str_contains($customer, 'format: [contentWidthMm, pageHeightMm]')
+        && str_contains($customer, "from(canvas, 'canvas')")
+        && str_contains($customer, 'actualWidthMm')
+        && str_contains($customer, 'pageCount !== 1')
         && !str_contains($customer, 'format: [58, 210]'),
-    'downloaded receipt uses dynamic content height instead of a fixed page'
+    'downloaded receipt enforces a one-page 58mm media box with dynamic content height'
 );
 
 receipt_format_check(
-    str_contains($customer, "canvas.toDataURL('image/png')")
+    str_contains($customer, "outputCanvas.toDataURL('image/png')")
         && str_contains($customer, 'receiptQrPngDataUrl')
-        && str_contains($customer, 'qrTarget.innerHTML')
+        && str_contains($customer, 'qrTarget.replaceChildren(qrImage)')
+        && str_contains($customer, 'await receiptWaitForImages(qrTarget)')
         && str_contains($customer, 'await receiptWaitForImages(capture)'),
     'downloaded receipt embeds a deterministic QR PNG before capture'
 );
 
 receipt_format_check(
-    str_contains($customer, 'await worker.set({')
-        && str_contains($customer, '}).toPdf()')
-        && str_contains($customer, "const pdf = await worker.get('pdf')")
+    str_contains($customer, 'const pdfWorker = window.html2pdf().set({')
+        && str_contains($customer, 'await pdfWorker.toPdf()')
+        && str_contains($customer, "const pdf = await pdfWorker.get('pdf')")
         && !str_contains($customer, 'window.jspdf?.jsPDF')
         && !str_contains($customer, "throw new Error('PDF renderer is unavailable.')"),
     'download uses the html2pdf bundle pipeline without requiring an unavailable jsPDF global'
+);
+
+receipt_format_check(
+    str_contains($customer, 'const quietZonePx = 8')
+        && str_contains($customer, "context.fillStyle = '#ffffff'")
+        && str_contains($customer, 'context.imageSmoothingEnabled = false')
+        && str_contains($customer, 'image.naturalWidth')
+        && str_contains($customer, 'image.naturalHeight'),
+    'QR is a deterministic padded PNG and blank images fail before PDF capture'
 );
 
 receipt_format_check(

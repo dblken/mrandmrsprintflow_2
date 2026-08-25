@@ -2508,9 +2508,21 @@ function receiptQrPngDataUrl(payload) {
             new QRCode(host, {text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M});
             window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
                 try {
-                    const canvas = host.querySelector('canvas');
-                    const image = host.querySelector('img');
-                    const dataUrl = canvas ? canvas.toDataURL('image/png') : String(image?.src || '');
+                    const qrCanvas = host.querySelector('canvas');
+                    if (!qrCanvas || !qrCanvas.width || !qrCanvas.height) {
+                        throw new Error('Receipt QR canvas is unavailable.');
+                    }
+                    const quietZonePx = 8;
+                    const outputCanvas = document.createElement('canvas');
+                    outputCanvas.width = qrCanvas.width + (quietZonePx * 2);
+                    outputCanvas.height = qrCanvas.height + (quietZonePx * 2);
+                    const context = outputCanvas.getContext('2d');
+                    if (!context) throw new Error('Receipt QR image context is unavailable.');
+                    context.fillStyle = '#ffffff';
+                    context.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+                    context.imageSmoothingEnabled = false;
+                    context.drawImage(qrCanvas, quietZonePx, quietZonePx);
+                    const dataUrl = outputCanvas.toDataURL('image/png');
                     host.remove();
                     dataUrl.startsWith('data:image/') ? resolve(dataUrl) : reject(new Error('Receipt QR image could not be created.'));
                 } catch (error) {
@@ -2526,12 +2538,28 @@ function receiptQrPngDataUrl(payload) {
 }
 
 function receiptWaitForImages(root) {
-    return Promise.all(Array.from(root.querySelectorAll('img')).map(image => {
-        if (image.complete) return Promise.resolve();
-        return new Promise(resolve => {
-            image.addEventListener('load', resolve, {once: true});
-            image.addEventListener('error', resolve, {once: true});
-        });
+    return Promise.all(Array.from(root.querySelectorAll('img')).map(async image => {
+        if (!image.complete) {
+            await new Promise((resolve, reject) => {
+                const timeoutId = window.setTimeout(() => finish(new Error('Receipt image loading timed out.')), 10000);
+                const finish = error => {
+                    window.clearTimeout(timeoutId);
+                    image.removeEventListener('load', onLoad);
+                    image.removeEventListener('error', onError);
+                    error ? reject(error) : resolve();
+                };
+                const onLoad = () => finish();
+                const onError = () => finish(new Error('Receipt image failed to load.'));
+                image.addEventListener('load', onLoad, {once: true});
+                image.addEventListener('error', onError, {once: true});
+            });
+        }
+        if (typeof image.decode === 'function') {
+            try { await image.decode(); } catch (ignore) {}
+        }
+        if (!image.naturalWidth || !image.naturalHeight) {
+            throw new Error('Receipt image has no rendered dimensions.');
+        }
     }));
 }
 
@@ -2566,13 +2594,19 @@ async function downloadReceiptPdf() {
         if (qrTarget && activeReceiptData.qr_payload) {
             const qrDataUrl = await receiptQrPngDataUrl(activeReceiptData.qr_payload);
             qrTarget.removeAttribute('id');
-            qrTarget.innerHTML = `<img src="${qrDataUrl}" alt="Order details QR" width="116" height="116">`;
+            const qrImage = document.createElement('img');
+            qrImage.src = qrDataUrl;
+            qrImage.alt = 'Order details QR';
+            qrImage.width = 116;
+            qrImage.height = 116;
+            qrTarget.replaceChildren(qrImage);
+            await receiptWaitForImages(qrTarget);
         }
         if (document.fonts?.ready) await document.fonts.ready;
         await receiptWaitForImages(capture);
 
         failureStage = 'html-capture';
-        const worker = window.html2pdf().set({
+        const captureOptions = {
             image: {type: 'png', quality: 1},
             html2canvas: {
                 scale: 3,
@@ -2583,25 +2617,40 @@ async function downloadReceiptPdf() {
                 scrollY: 0,
                 windowWidth: capture.scrollWidth
             }
-        }).from(capture);
-        await worker.toCanvas();
-        const canvas = await worker.get('canvas');
+        };
+        const measurementWorker = window.html2pdf().set(captureOptions).from(capture);
+        await measurementWorker.toCanvas();
+        const canvas = await measurementWorker.get('canvas');
         if (!canvas || !canvas.width || !canvas.height) throw new Error('Receipt capture is empty.');
 
         const contentWidthMm = 58;
         const contentHeightMm = canvas.height * contentWidthMm / canvas.width;
-        const pageHeightMm = Math.max(58, Math.ceil(contentHeightMm));
+        const pageHeightMm = Math.max(58, Math.ceil((contentHeightMm + 0.5) * 10) / 10);
         failureStage = 'pdf-render';
-        await worker.set({
+        // Use a fresh worker so the custom media box is configured before PDF
+        // page metrics are initialized. Feed it the already-rendered canvas so
+        // the validated QR PNG and receipt layout are captured exactly once.
+        const pdfWorker = window.html2pdf().set({
+            margin: 0,
+            image: {type: 'png', quality: 1},
             jsPDF: {
                 orientation: 'portrait',
                 unit: 'mm',
                 format: [contentWidthMm, pageHeightMm],
                 compress: true
             }
-        }).toPdf();
-        const pdf = await worker.get('pdf');
+        }).from(canvas, 'canvas');
+        await pdfWorker.toPdf();
+        const pdf = await pdfWorker.get('pdf');
         if (!pdf || typeof pdf.save !== 'function') throw new Error('PDF output is unavailable.');
+        const actualWidthMm = Number(pdf.internal?.pageSize?.getWidth?.() || 0);
+        const actualHeightMm = Number(pdf.internal?.pageSize?.getHeight?.() || 0);
+        const pageCount = typeof pdf.getNumberOfPages === 'function' ? pdf.getNumberOfPages() : 0;
+        if (Math.abs(actualWidthMm - contentWidthMm) > 0.25
+            || Math.abs(actualHeightMm - pageHeightMm) > 0.25
+            || pageCount !== 1) {
+            throw new Error('Receipt PDF page dimensions are invalid.');
+        }
 
         failureStage = 'download';
         pdf.save(`${activeReceiptData.receipt_number || 'receipt'}.pdf`);

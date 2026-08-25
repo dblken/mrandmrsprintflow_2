@@ -25,8 +25,12 @@ const captureHost = {
 };
 const canvas = {width: 660, height: 1320};
 const saved = [];
-const pdf = {save(filename) { saved.push(filename); }};
-const worker = {
+const pdf = {
+    internal: {pageSize: {getWidth() { return 58; }, getHeight() { return 116.5; }}},
+    getNumberOfPages() { return 1; },
+    save(filename) { saved.push(filename); }
+};
+const measurementWorker = {
     options: {},
     set(options) {
         this.options = {...this.options, ...options};
@@ -37,14 +41,34 @@ const worker = {
         return this;
     },
     async toCanvas() {},
-    async toPdf() {
-        assert.strictEqual(this.options.jsPDF.format[0], 58);
-        assert.strictEqual(this.options.jsPDF.format[1], 116);
-    },
     async get(key) {
-        return key === 'canvas' ? canvas : pdf;
+        assert.strictEqual(key, 'canvas');
+        return canvas;
     }
 };
+const pdfWorker = {
+    options: {},
+    set(options) {
+        this.options = {...this.options, ...options};
+        return this;
+    },
+    from(value, type) {
+        assert.strictEqual(value, canvas);
+        assert.strictEqual(type, 'canvas');
+        assert.strictEqual(this.options.jsPDF.format[0], 58, 'custom width is configured before PDF input');
+        assert.strictEqual(this.options.jsPDF.format[1], 116.5, 'dynamic height is configured before PDF input');
+        return this;
+    },
+    async toPdf() {
+        assert.strictEqual(this.options.jsPDF.format[0], 58);
+        assert.strictEqual(this.options.jsPDF.format[1], 116.5);
+    },
+    async get(key) {
+        assert.strictEqual(key, 'pdf');
+        return pdf;
+    }
+};
+let workerCalls = 0;
 const toastMessages = [];
 const diagnostics = [];
 const context = vm.createContext({
@@ -56,7 +80,7 @@ const context = vm.createContext({
         getElementById(id) { return id === 'receipt-print-area' ? printArea : null; },
         querySelector() { return button; }
     },
-    window: {html2pdf() { return worker; }},
+    window: {html2pdf() { return workerCalls++ === 0 ? measurementWorker : pdfWorker; }},
     receiptWaitForImages: async () => {},
     receiptQrPngDataUrl: async () => '',
     showToast(message) { toastMessages.push(message); },
@@ -70,6 +94,7 @@ vm.runInContext(functionSource, context);
 (async () => {
     assert.strictEqual(context.window.jspdf, undefined, 'test intentionally provides no jsPDF global');
     await context.downloadReceiptPdf();
+    assert.strictEqual(workerCalls, 2, 'measurement and PDF use separate workers');
     assert.deepStrictEqual(saved, ['ONL-123.pdf']);
     assert.strictEqual(button.disabled, false);
     assert.strictEqual(button.textContent, 'Download Receipt');
