@@ -38,5 +38,41 @@ for (const expected of [
     assert.strictEqual(image.dataset.barcodeIntrinsicWidth, '286');
 }
 
+assert(source.includes('@media (max-width: 768px)'), 'tablet/mobile breakpoint must remain present');
+assert(source.includes('grid-template-columns: minmax(0, 1fr) !important;'), 'Product Details must become one column');
+assert(source.includes('overflow-x: auto;'), 'barcode viewport must permit controlled horizontal scrolling');
+assert(source.includes('width: max-content;'), 'barcode track must retain scanner-safe intrinsic width');
+assert(source.includes('max-height: calc(100dvh - 16px);'), 'mobile modal must stay within the dynamic viewport');
+
+function availableBarcodeViewportWidth(viewportWidth) {
+    if (viewportWidth <= 768) {
+        // 8px overlay gutters, 16px modal-body gutters, and the barcode card's
+        // 14px padding plus 1px border on each side.
+        return viewportWidth - 16 - 32 - 30;
+    }
+    const modalWidth = Math.min(1000, viewportWidth - 32);
+    const columnWidth = (modalWidth - 48 - 24) / 2;
+    return columnWidth - 30;
+}
+
+for (const viewport of [
+    {width: 360, height: 800, dpr: 3},
+    {width: 390, height: 844, dpr: 3},
+    {width: 412, height: 915, dpr: 3},
+    {width: 768, height: 1024, dpr: 1},
+    {width: 1024, height: 768, dpr: 1},
+    {width: 1440, height: 900, dpr: 1}
+]) {
+    const {image, result} = measureAt(viewport.dpr);
+    const availableWidth = availableBarcodeViewportWidth(viewport.width);
+    assert(result.cssWidth === Number.parseFloat(image.style.width), 'barcode width must be explicit and proportional');
+    if (result.cssWidth > availableWidth) {
+        assert(source.includes('overflow-x: auto;'), `${viewport.width}x${viewport.height} must scroll instead of shrinking`);
+        assert.strictEqual(image.style.maxWidth, 'none', `${viewport.width}x${viewport.height} must not compress the barcode`);
+    } else {
+        assert(result.cssWidth <= availableWidth, `${viewport.width}x${viewport.height} must show the full barcode`);
+    }
+}
+
 assert.strictEqual(context.pfApplyBarcodeScreenGeometry({naturalWidth: 0, naturalHeight: 0}), null);
-console.log('Product barcode screen geometry tests passed.');
+console.log('Product barcode screen geometry and responsive-width tests passed.');

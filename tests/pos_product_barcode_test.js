@@ -121,6 +121,12 @@ function scannerEvent(key, target = {tagName: 'BUTTON', closest() { return null;
     assert.strictEqual(additions[0].product_name, 'Super Mario T Shirt');
     assert.strictEqual(additions[0].has_variant_stock, true, 'variant metadata remains intact');
 
+    const manualStickerStart = additions.length;
+    await context.handleBarcodeScan('STK-0001', input, {terminator: 'Enter', source: 'barcode-input'});
+    assert.strictEqual(requests.at(-1), '/staff/api/get_product_by_sku.php?sku=STK-0001');
+    assert.strictEqual(additions.length - manualStickerStart, 1, 'manual STK-0001 plus Enter adds exactly once');
+    assert.strictEqual(additions.at(-1).sku, 'STK-0001', 'manual SKU lookup returns the exact requested product SKU');
+
     let releaseFirst;
     const firstBlockedAdd = new Promise(resolve => { releaseFirst = resolve; });
     context.addToCart = async product => {

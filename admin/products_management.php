@@ -2044,9 +2044,19 @@ if (isset($_GET['ajax'])) {
             box-sizing: border-box;
         }
         .pf-product-barcode-frame {
+            width: 100%;
+            max-width: 100%;
             overflow-x: auto;
             overflow-y: hidden;
             scrollbar-width: thin;
+            overscroll-behavior-x: contain;
+            box-sizing: border-box;
+        }
+        .pf-product-barcode-track {
+            display: flex;
+            justify-content: center;
+            width: max-content;
+            min-width: 100%;
         }
         .pf-product-barcode-image {
             display: block;
@@ -2054,7 +2064,58 @@ if (isset($_GET['ajax'])) {
             height: auto;
             max-width: none;
             flex: none;
-            margin: 0 auto 8px;
+            margin: 0;
+        }
+        .pf-product-barcode-text {
+            margin-top: 8px;
+            color: #111827;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            overflow-wrap: anywhere;
+            text-align: center;
+        }
+        .view-product-details-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 24px;
+            min-width: 0;
+        }
+        @media (max-width: 768px) {
+            #view-product-modal-overlay {
+                align-items: flex-start;
+                padding: 8px;
+            }
+            #view-product-modal {
+                width: 100%;
+                max-width: calc(100vw - 16px);
+                max-height: calc(100vh - 16px);
+                max-height: calc(100dvh - 16px);
+                margin: 0;
+                overscroll-behavior: contain;
+                -webkit-overflow-scrolling: touch;
+            }
+            #view-product-modal .modal-body {
+                padding: 16px !important;
+            }
+            .view-product-details-grid {
+                grid-template-columns: minmax(0, 1fr) !important;
+                gap: 16px !important;
+            }
+            #view-product-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            #view-product-actions button {
+                flex: none !important;
+                width: 100%;
+                min-width: 0 !important;
+            }
+        }
+        @media (max-width: 420px) {
+            .view-product-compact-grid {
+                grid-template-columns: minmax(0, 1fr) !important;
+            }
         }
         @media (max-width: 600px) {
             #product-modal .form-row { grid-template-columns: 1fr; }
@@ -2612,9 +2673,13 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="modal-barcode-preview-wrap" style="display:none;margin:-2px 0 18px;">
                     <label class="view-label" style="margin-bottom:8px;">Barcode Preview</label>
-                    <div class="pf-product-barcode-frame" style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
-                        <img id="modal-barcode-preview-img" class="pf-product-barcode-image" alt="SKU barcode preview">
-                        <div id="modal-barcode-preview-text" style="font-size:13px;font-weight:700;color:#111827;letter-spacing:0.04em;word-break:break-word;">-</div>
+                    <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;min-width:0;">
+                        <div class="pf-product-barcode-frame" role="region" aria-label="Scrollable product barcode preview" tabindex="0">
+                            <div class="pf-product-barcode-track">
+                                <img id="modal-barcode-preview-img" class="pf-product-barcode-image" alt="SKU barcode preview">
+                            </div>
+                        </div>
+                        <div id="modal-barcode-preview-text" class="pf-product-barcode-text">-</div>
                     </div>
                 </div>
 
@@ -2727,7 +2792,7 @@ if (isset($_GET['ajax'])) {
             </button>
         </div>
         <div class="modal-body" style="padding:24px;">
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; min-width:0;">
+            <div class="view-product-details-grid">
                 <!-- Left Side: Details -->
                 <div style="display:flex; flex-direction:column; gap:16px; min-width:0;">
                     <div>
@@ -2735,7 +2800,7 @@ if (isset($_GET['ajax'])) {
                         <div id="view-product-name" class="view-value-box">-</div>
                     </div>
                     
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                    <div class="view-product-compact-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                         <div>
                             <label class="view-label">SKU</label>
                             <div id="view-product-sku" class="view-value-box">-</div>
@@ -2746,7 +2811,7 @@ if (isset($_GET['ajax'])) {
                         </div>
                     </div>
 
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                    <div class="view-product-compact-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                         <div>
                             <label class="view-label">Price</label>
                             <div id="view-product-price" class="view-value-box">-</div>
@@ -2757,7 +2822,7 @@ if (isset($_GET['ajax'])) {
                         </div>
                     </div>
 
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                    <div class="view-product-compact-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
                         <div>
                             <label class="view-label">Current Quantity</label>
                             <div id="view-product-stock" class="view-value-box" style="font-weight:700;">-</div>
@@ -2779,9 +2844,13 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div id="view-product-barcode-wrap" style="display:none;">
                         <label class="view-label">Barcode Preview</label>
-                        <div class="pf-product-barcode-frame" style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
-                            <img id="view-product-barcode-img" class="pf-product-barcode-image" alt="Product SKU barcode">
-                            <div id="view-product-barcode-text" style="font-size:13px;font-weight:700;color:#111827;letter-spacing:0.04em;word-break:break-word;">-</div>
+                        <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;min-width:0;">
+                            <div class="pf-product-barcode-frame" role="region" aria-label="Scrollable product barcode preview" tabindex="0">
+                                <div class="pf-product-barcode-track">
+                                    <img id="view-product-barcode-img" class="pf-product-barcode-image" alt="Product SKU barcode">
+                                </div>
+                            </div>
+                            <div id="view-product-barcode-text" class="pf-product-barcode-text">-</div>
                         </div>
                     </div>
                 </div>

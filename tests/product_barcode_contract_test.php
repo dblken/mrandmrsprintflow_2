@@ -21,11 +21,31 @@ $check = static function (bool $condition, string $message) use (&$passed): void
 require_once $root . '/includes/barcode.php';
 $check(printflow_barcode_clean_value(" TSH-0004\r\n") === 'TSH-0004', 'barcode payload normalizes to the visible canonical SKU');
 $tshirtBarcodeSvg = printflow_barcode_svg('TSH-0004', 2, 72);
+$stickerBarcodeSvg = printflow_barcode_svg('STK-0001', 2, 72);
+preg_match_all('/<rect x="(\d+)" y="0" width="(\d+)" height="72" \/>/', $stickerBarcodeSvg, $stickerBars, PREG_SET_ORDER);
+$stickerLastBar = $stickerBars[count($stickerBars) - 1] ?? null;
+$stickerRightQuietZone = $stickerLastBar
+    ? 286 - ((int)$stickerLastBar[1] + (int)$stickerLastBar[2])
+    : -1;
 $check(
     str_contains($tshirtBarcodeSvg, 'width="286"')
         && str_contains($tshirtBarcodeSvg, 'height="72"')
         && str_contains($tshirtBarcodeSvg, 'shape-rendering="crispEdges"'),
     'TSH-0004 uses a crisp 286x72 Code 128 SVG with integer-width bars'
+);
+$check(
+    str_contains($stickerBarcodeSvg, 'width="286"')
+        && str_contains($stickerBarcodeSvg, 'height="72"')
+        && $stickerBarcodeSvg !== $tshirtBarcodeSvg,
+    'STK-0001 keeps its exact payload in a distinct crisp 286x72 Code 128 SVG'
+);
+$check(
+    preg_match('/<rect x="20" y="0" width="\d+" height="72" \/>/', $stickerBarcodeSvg) === 1
+        && $stickerRightQuietZone === 20
+        && str_contains($stickerBarcodeSvg, '<rect width="100%" height="100%" fill="#fff"/>')
+        && str_contains($stickerBarcodeSvg, '<g fill="#000">')
+        && !str_contains($barcodeHelper, 'BarcodeGeneratorSVG'),
+    'canonical generator always supplies pure black bars, a pure white background, and 20px quiet zones'
 );
 $check(
     str_contains($admin, "pfProductBarcodeUrl(sku)")
@@ -39,6 +59,20 @@ $check(
         && str_contains($admin, "img.style.maxWidth = 'none'")
         && !str_contains($admin, 'max-width:100%;height:72px;object-fit:contain'),
     'Admin preview maps Code 128 modules to whole device pixels instead of arbitrary responsive scaling'
+);
+$check(
+    str_contains($admin, 'class="view-product-details-grid"')
+        && str_contains($admin, '@media (max-width: 768px)')
+        && str_contains($admin, 'grid-template-columns: minmax(0, 1fr) !important;')
+        && str_contains($admin, 'max-height: calc(100dvh - 16px);'),
+    'Product Details switches to a viewport-contained single column on tablet and mobile'
+);
+$check(
+    str_contains($admin, 'class="pf-product-barcode-track"')
+        && str_contains($admin, 'width: max-content;')
+        && str_contains($admin, 'overflow-x: auto;')
+        && str_contains($admin, 'class="pf-product-barcode-text"'),
+    'Barcode keeps scanner-safe width in its own horizontal viewport while the SKU stays visible below'
 );
 $check(
     str_contains($admin, '.barcode{width:auto;height:auto;max-width:none;')
