@@ -100,13 +100,10 @@ if ($method === 'POST') {
         $receipt = !empty($completed['ok'])
             ? printflow_pos_build_receipt((int)($payment['order_id'] ?? 0))
             : [];
-        $printJob = !empty($completed['ok'])
-            ? printflow_receipt_enqueue_order_print_safe(
-                (int)($payment['order_id'] ?? 0),
-                $receipt,
-                (int)($subject['branch_id'] ?? 0) ?: null
-            )
-            : null;
+        if (!empty($receipt)) {
+            $_SESSION['pos_receipt_snapshots'][(int)($payment['order_id'] ?? 0)] = $receipt;
+        }
+        $printJob = null;
         http_response_code(!empty($completed['ok']) ? 200 : 409);
         echo json_encode([
             'success' => !empty($completed['ok']),
@@ -192,9 +189,10 @@ $orderId = (int)($payment['order_id'] ?? 0);
 $receipt = $paid && $channel === 'pos' && $posCompleted && $orderId > 0
     ? printflow_pos_build_receipt($orderId)
     : [];
-$printJob = !empty($receipt)
-    ? printflow_receipt_enqueue_order_print_safe($orderId, $receipt, (int)($subject['branch_id'] ?? 0) ?: null)
-    : null;
+if (!empty($receipt)) {
+    $_SESSION['pos_receipt_snapshots'][$orderId] = $receipt;
+}
+$printJob = null;
 echo json_encode([
     'success' => true,
     'payment' => printflow_provider_payment_public($payment),

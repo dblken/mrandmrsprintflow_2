@@ -276,6 +276,8 @@ $data = [
     'height_ft' => $height_ft,
     'quantity' => $total_qty,
     'status' => $mapped_status,
+    'raw_status' => $db_status,
+    'order_source' => (string)($o['order_source'] ?? ''),
     'design_status' => (string)($o['design_status'] ?? ''),
     'revision_reason' => (string)($o['revision_reason'] ?? ''),
     // Keep the legacy estimated_total consumer synchronized once staff has

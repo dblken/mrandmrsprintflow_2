@@ -1979,14 +1979,12 @@ try {
                     </div>
                     <h2 style="margin:0;font-size:26px;font-weight:800;color:#0f172a;letter-spacing:-0.03em;">Sale
                         Receipt</h2>
-                    <p style="margin:6px 0 0;color:#64748b;font-size:14px;">Review, print, or download the completed
-                        transaction.</p>
+                    <p style="margin:6px 0 0;color:#64748b;font-size:14px;">Review the completed transaction before printing.</p>
+                    <p id="receipt-print-result" role="status" style="margin:8px 0 0;color:#475569;font-size:13px;font-weight:700;"></p>
                 </div>
                 <div class="receipt-modal-actions">
                     <button type="button" class="receipt-action-btn" onclick="closeReceiptModal()">Close</button>
-                    <button type="button" class="receipt-action-btn" onclick="printReceipt()">Print</button>
-                    <button type="button" class="receipt-action-btn receipt-action-btn--primary"
-                        onclick="downloadReceiptPdf()">Download PDF</button>
+                    <button id="pos-print-receipt-btn" type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="printReceipt()">Print Receipt</button>
                 </div>
             </div>
             <div class="receipt-modal-body">
@@ -2237,7 +2235,7 @@ try {
             return `
                 <div class="receipt-header">
                     ${company.logo_url ? `<img src="${escapeHtml(company.logo_url)}" alt="${escapeHtml(company.name || 'Company')}" class="receipt-logo">` : ''}
-                    <div class="receipt-brand-name">${escapeHtml(company.name || 'PrintFlow')}</div>
+                    <div class="receipt-brand-name">PrintFlow</div>
                     <div class="receipt-branch">${escapeHtml(company.branch_name || 'Main Branch')}</div>
                     <div class="receipt-company-meta">
                         ${company.address ? `<div>${escapeHtml(company.address)}</div>` : ''}
@@ -2248,7 +2246,7 @@ try {
 
                 <div class="receipt-section">
                     <div class="receipt-section-title">Receipt Info</div>
-                    ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="pos-receipt-qr"></div><div class="receipt-qr-caption">Scan for staff order lookup</div></div>` : ''}
+                    ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="pos-receipt-qr"></div><div class="receipt-qr-caption">Scan for order details</div></div>` : ''}
                     <div class="receipt-info-grid">
                         <div class="receipt-info-card">
                             <div class="receipt-label">Receipt No.</div>
@@ -2310,17 +2308,38 @@ try {
                 </div>
 
                 <div class="receipt-footer">
-                    <strong>Thank you for choosing Printflow!</strong>
+                    <strong>Thank you for choosing PrintFlow!</strong>
                     <p>Please keep this receipt for your records.</p>
                 </div>
             `;
+        }
+
+        let activePosReceipt = null;
+        let activePosPrintJob = null;
+        let posReceiptPrintProcessing = false;
+
+        function setPosReceiptPrintState(message = '', failed = false) {
+            const status = document.getElementById('receipt-print-result');
+            const button = document.getElementById('pos-print-receipt-btn');
+            if (status) {
+                status.textContent = message;
+                status.style.color = failed ? '#b91c1c' : '#0f766e';
+            }
+            if (button) {
+                button.disabled = posReceiptPrintProcessing;
+                button.textContent = failed ? 'Retry Print' : (posReceiptPrintProcessing ? 'Printing...' : 'Print Receipt');
+            }
         }
 
         function openReceiptModal(receipt) {
             const overlay = document.getElementById('receipt-modal-overlay');
             const printArea = document.getElementById('receipt-print-area');
             if (!overlay || !printArea) return;
-            printArea.innerHTML = buildReceiptHtml(receipt || {});
+            activePosReceipt = receipt || {};
+            activePosPrintJob = null;
+            posReceiptPrintProcessing = false;
+            setPosReceiptPrintState('No physical receipt has been printed yet.');
+            printArea.innerHTML = buildReceiptHtml(activePosReceipt);
             renderPosReceiptQr(receipt?.qr_payload);
             overlay.style.display = 'flex';
             document.body.style.overflow = 'hidden';
@@ -2340,8 +2359,35 @@ try {
             document.body.style.overflow = '';
         }
 
-        function printReceipt() {
-            window.print();
+        async function printReceipt() {
+            if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            posReceiptPrintProcessing = true;
+            setPosReceiptPrintState('Sending receipt to POS-58...');
+            try {
+                if (activePosPrintJob?.job_id) {
+                    await retryReceiptPrintJob(activePosPrintJob);
+                    return;
+                }
+                const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'print',
+                        order_id: Number(activePosReceipt.order_id),
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.print_job?.ok) {
+                    throw new Error(result.message || 'Receipt printing failed.');
+                }
+                activePosPrintJob = result.print_job;
+                await monitorReceiptPrintJob(result.print_job);
+            } catch (error) {
+                console.error('Receipt printing failed:', error);
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Receipt printing failed.', true);
+            }
         }
 
         async function retryReceiptPrintJob(printJob) {
@@ -2364,10 +2410,12 @@ try {
                 if (!response.ok || !result.success) {
                     throw new Error(result.message || 'Receipt print job could not be retried.');
                 }
-                await monitorReceiptPrintJob(result.print_job || {ok: true, job_id: jobId});
+                activePosPrintJob = result.print_job || {ok: true, job_id: jobId};
+                await monitorReceiptPrintJob(activePosPrintJob);
             } catch (error) {
                 console.error('Receipt print retry failed:', error);
-                await showPOSAlert('Receipt printing failed', error.message || 'Receipt print job could not be retried.', 'error');
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Receipt printing failed.', true);
             }
         }
 
@@ -2394,17 +2442,13 @@ try {
             };
             console.error('Receipt printing failed:', failure);
             if (!printJob?.job_id) {
-                await showPOSAlert('Receipt printing failed', 'The sale is complete. ' + message, 'error');
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Receipt printing failed.', true);
                 return;
             }
-            const shouldRetry = await showPOSConfirm(
-                'Receipt printing failed',
-                'The sale is complete and was not duplicated.\n' + message + '\n\nRetry this existing receipt now?',
-                'Retry Print'
-            );
-            if (shouldRetry) {
-                await retryReceiptPrintJob(printJob);
-            }
+            posReceiptPrintProcessing = false;
+            activePosPrintJob = printJob?.job_id ? printJob : activePosPrintJob;
+            setPosReceiptPrintState('Receipt printing failed.', true);
         }
 
         async function monitorReceiptPrintJob(printJob) {
@@ -2426,7 +2470,10 @@ try {
                     lastStatusResult = {...result, _http_status: response.status};
                     const status = result?.job?.status;
                     if (response.ok && status === 'printed') {
-                        showPOSScanNotice('Transaction completed', 'Receipt printed.', 'success');
+                        posReceiptPrintProcessing = false;
+                        activePosPrintJob = null;
+                        setPosReceiptPrintState('Receipt printed successfully.');
+                        showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
                         return;
                     }
                     if (response.ok && status === 'failed') {
@@ -4320,7 +4367,7 @@ try {
                     toggleReferenceField();
                     calculateChange();
                     updateCheckoutState();
-                    monitorReceiptPrintJob(data.print_job);
+                    openReceiptModal(data.receipt);
                 } else {
                     await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
                     updateCheckoutState();
@@ -4489,7 +4536,7 @@ try {
                     pendingPayMongoReceipt = data.receipt;
                     pendingPayMongoPrintJob = data.print_job || null;
                     closePayMongoPosModal();
-                    monitorReceiptPrintJob(data.print_job);
+                    openReceiptModal(data.receipt);
                     pendingPayMongoOrderId = 0;
                     return true;
                 }
@@ -4532,11 +4579,10 @@ try {
 
         async function completePayMongoPosTransaction() {
             if (pendingPayMongoReceipt) {
-                const printJob = pendingPayMongoPrintJob;
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
                 closePayMongoPosModal();
-                monitorReceiptPrintJob(printJob);
+                openReceiptModal(pendingPayMongoReceipt);
                 pendingPayMongoOrderId = 0;
                 return;
             }
@@ -4567,7 +4613,7 @@ try {
                 sessionStorage.removeItem('pos_paymongo_pending');
                 sessionStorage.removeItem('pos_paymongo_checkout_token');
                 closePayMongoPosModal();
-                monitorReceiptPrintJob(data.print_job);
+                openReceiptModal(data.receipt);
                 pendingPayMongoOrderId = 0;
             } catch (error) {
                 completeButton.disabled = false;

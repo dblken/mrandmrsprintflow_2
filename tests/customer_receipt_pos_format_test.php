@@ -58,9 +58,9 @@ receipt_format_check(
 );
 
 receipt_format_check(
-    str_contains($customer, 'Scan for staff order lookup')
+    str_contains($customer, 'Scan for order details')
         && str_contains($customer, 'new QRCode(target, { text: String(payload), width: 116, height: 116'),
-    'customer receipt QR label and size match the POS lookup QR'
+    'customer receipt QR caption and size match the POS receipt QR'
 );
 
 receipt_format_check(
@@ -74,7 +74,7 @@ receipt_format_check(
 
 receipt_format_check(
     str_contains($pos, 'Official POS Receipt')
-        && str_contains($pos, 'downloadReceiptPdf()')
+        && str_contains($pos, 'Print Receipt')
         && str_contains($pos, 'renderPosReceiptQr'),
     'POS receipt implementation remains present'
 );

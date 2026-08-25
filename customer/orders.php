@@ -2191,10 +2191,9 @@ window.addEventListener('DOMContentLoaded', () => {
         <div class="receipt-modal-header">
             <div>
                 <div class="receipt-modal-title">Order Receipt</div>
-                <div class="receipt-modal-subtitle">View, print, or download your completed order receipt.</div>
+                <div class="receipt-modal-subtitle">View or download your completed order receipt.</div>
             </div>
             <div class="receipt-modal-actions">
-                <button type="button" class="receipt-action-btn" onclick="printReceipt()">Print Receipt</button>
                 <button type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="downloadReceiptPdf()">Download Receipt</button>
                 <button type="button" class="receipt-action-btn" onclick="closeReceiptModal()">Close</button>
             </div>
@@ -2353,7 +2352,7 @@ function buildReceiptHtml(receipt) {
     return `
         <div class="receipt-header">
             ${company.logo_url ? `<img src="${receiptEscape(company.logo_url)}" alt="${receiptEscape(company.name || 'PrintFlow')}" class="receipt-logo">` : ''}
-            <div class="receipt-brand-name">${receiptEscape(company.name || 'PrintFlow')}</div>
+            <div class="receipt-brand-name">PrintFlow</div>
             <div class="receipt-branch">${receiptEscape(company.branch_name || 'Main Branch')}</div>
             <div class="receipt-company-meta">
                 ${company.address ? `<div>${receiptEscape(company.address)}</div>` : ''}
@@ -2364,7 +2363,7 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-section">
             <div class="receipt-section-title">Receipt Info</div>
-            ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="customer-receipt-qr"></div><div class="receipt-qr-caption">Scan for staff order lookup</div></div>` : ''}
+            ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="customer-receipt-qr"></div><div class="receipt-qr-caption">Scan for order details</div></div>` : ''}
             <div class="receipt-info-grid">
                 <div class="receipt-info-card">
                     <div class="receipt-label">Receipt No.</div>
@@ -2418,12 +2417,13 @@ function buildReceiptHtml(receipt) {
             <div class="receipt-payment-breakdown">
                 <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
                 <div class="receipt-total-line"><span>Payment Status</span><strong style="color:#0f766e;">${receiptEscape(payment.status || 'Paid')}</strong></div>
+                <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || receipt.total || 0)}</strong></div>
                 ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${receiptEscape(payment.reference)}</span></div>` : ''}
             </div>
         </div>
 
         <div class="receipt-footer">
-            <strong>Thank you for choosing Printflow!</strong>
+            <strong>Thank you for choosing PrintFlow!</strong>
             <p>Please keep this receipt for your records.</p>
         </div>
     `;
@@ -2457,13 +2457,6 @@ function closeReceiptModal() {
     modal.classList.remove('open');
     const itemsModal = document.getElementById('itemsModal');
     document.body.style.overflow = itemsModal && itemsModal.classList.contains('open') ? 'hidden' : '';
-}
-
-function printReceipt() {
-    if (!activeReceiptData) {
-        return;
-    }
-    window.print();
 }
 
 async function downloadReceiptPdf() {

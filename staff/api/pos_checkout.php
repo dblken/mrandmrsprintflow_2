@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../includes/order_items_persistence.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/runtime_config.php';
 require_once __DIR__ . '/../../includes/provider_payments.php';
+require_once __DIR__ . '/../../includes/pos_receipt.php';
 require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 
 function pos_payload_item_is_service(array $item): bool {
@@ -753,6 +754,8 @@ function pos_extract_order_item_display_name(array $item): string {
 }
 
 function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): array {
+    return printflow_pos_build_receipt($orderId, $amountTendered);
+    /* Legacy implementation retained below temporarily for caller compatibility. */
     $orderRows = db_query(
         "SELECT o.*, c.first_name, c.last_name, c.email, c.contact_number,
                 b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
@@ -1148,6 +1151,16 @@ try {
     $priceFinalValues = '';
     $priceFinalTypes = '';
     $priceFinalParams = [];
+    $amountPaidColumns = '';
+    $amountPaidValues = '';
+    $amountPaidTypes = '';
+    $amountPaidParams = [];
+    if (!$isPayMongo && pos_table_has_column('orders', 'amount_paid')) {
+        $amountPaidColumns = ', amount_paid';
+        $amountPaidValues = ', ?';
+        $amountPaidTypes = 'd';
+        $amountPaidParams[] = $amount_tendered;
+    }
     if (db_table_has_column('orders', 'price_finalized_at')
         && db_table_has_column('orders', 'price_finalized_by')) {
         $priceFinalColumns = ', price_finalized_at, price_finalized_by';
@@ -1157,11 +1170,12 @@ try {
     }
 
     $order_result = db_execute(
-        "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$priceFinalColumns})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$priceFinalValues})",
-        'iiidsssss' . $priceFinalTypes,
+        "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+        'iiidsssss' . $amountPaidTypes . $priceFinalTypes,
         array_merge(
             [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $initial_payment_status, $payment_method, $reference_number, $order_type],
+            $amountPaidParams,
             $priceFinalParams
         )
     );
@@ -1516,7 +1530,7 @@ try {
     }
 
     $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
-    $print_job = printflow_receipt_enqueue_order_print_safe((int)$order_id, $receipt, (int)$branch_id);
+    $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
@@ -1524,7 +1538,7 @@ try {
         'message' => 'Sale completed successfully.',
         'warning' => $sync_warning,
         'receipt' => $receipt,
-        'print_job' => $print_job
+        'print_job' => null
     ]);
 
 } catch (Exception $e) {
@@ -1534,7 +1548,7 @@ try {
     if (!empty($order_id) && !$transaction_open) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
         $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
-        $print_job = printflow_receipt_enqueue_order_print_safe((int)$order_id, $receipt, isset($branch_id) ? (int)$branch_id : null);
+        $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
         echo json_encode([
             'success' => true,
             'order_id' => (int)$order_id,
@@ -1542,7 +1556,7 @@ try {
             'message' => 'Sale completed successfully.',
             'warning' => 'Production sync needs follow-up.',
             'receipt' => $receipt,
-            'print_job' => $print_job
+            'print_job' => null
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);

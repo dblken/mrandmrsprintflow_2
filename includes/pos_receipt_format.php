@@ -68,6 +68,7 @@ function printflow_receipt_escpos_base64(string $text, string $qrPayload = ''): 
         $body .= $line . "\n";
         if (!$qrInserted && $qrPayload !== '' && trim($line) === 'RECEIPT INFO') {
             $body .= printflow_receipt_escpos_qr_commands($qrPayload);
+            $body .= "\x1Ba\x01Scan for order details\n\x1Ba\x00";
             $qrInserted = true;
         }
     }

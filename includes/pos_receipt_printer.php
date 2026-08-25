@@ -343,13 +343,14 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     $payment = $receipt['payment'] ?? [];
     $discount = $receipt['discount'] ?? [];
 
-    $out[] = printflow_receipt_center((string)($company['name'] ?? 'PrintFlow'), $columns);
+    $out[] = printflow_receipt_center('PrintFlow', $columns);
     if (!empty($company['branch_name'])) $out[] = printflow_receipt_center((string)$company['branch_name'], $columns);
     foreach (printflow_receipt_wrap((string)($company['address'] ?? ''), $columns) as $addr) {
         if (trim($addr) !== '') $out[] = printflow_receipt_center($addr, $columns);
     }
     if (!empty($company['contact'])) $out[] = printflow_receipt_center((string)$company['contact'], $columns);
     $out[] = printflow_receipt_center('OFFICIAL POS RECEIPT', $columns);
+    if (!empty($receipt['reprint'])) $out[] = printflow_receipt_center('REPRINT', $columns);
     $out[] = $eq;
     $out[] = printflow_receipt_center('RECEIPT INFO', $columns);
     $out[] = printflow_receipt_pair('Receipt No.', (string)($receipt['receipt_number'] ?? ''), $columns);
@@ -493,7 +494,13 @@ function printflow_receipt_order_branch_id(int $orderId): ?int {
     return $branchId > 0 ? $branchId : null;
 }
 
-function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?int $branchId = null, string $jobType = 'pos_receipt'): array {
+function printflow_receipt_enqueue_order_print(
+    int $orderId,
+    array $receipt,
+    ?int $branchId = null,
+    string $jobType = 'pos_receipt',
+    string $deliveryKey = ''
+): array {
     printflow_receipt_printer_ensure_schema();
     if ($orderId <= 0 || empty($receipt)) {
         return ['ok' => false, 'code' => 'missing_receipt', 'message' => 'Receipt data is unavailable.'];
@@ -509,6 +516,9 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
 
     $printerId = (int)$printer['id'];
     $idempotencyKey = $jobType . ':order:' . $orderId . ':printer:' . $printerId;
+    if ($deliveryKey !== '') {
+        $idempotencyKey .= ':delivery:' . substr(hash('sha256', $deliveryKey), 0, 24);
+    }
     $existing = db_query(
         'SELECT id, job_uuid, status FROM receipt_print_jobs WHERE idempotency_key = ? LIMIT 1',
         's',
@@ -581,9 +591,15 @@ function printflow_receipt_enqueue_order_print(int $orderId, array $receipt, ?in
     return ['ok' => true, 'queued' => true, 'job_id' => (int)$jobId, 'job_uuid' => $uuid, 'status' => 'pending'];
 }
 
-function printflow_receipt_enqueue_order_print_safe(int $orderId, array $receipt, ?int $branchId = null): array {
+function printflow_receipt_enqueue_order_print_safe(
+    int $orderId,
+    array $receipt,
+    ?int $branchId = null,
+    string $jobType = 'pos_receipt',
+    string $deliveryKey = ''
+): array {
     try {
-        return printflow_receipt_enqueue_order_print($orderId, $receipt, $branchId);
+        return printflow_receipt_enqueue_order_print($orderId, $receipt, $branchId, $jobType, $deliveryKey);
     } catch (Throwable $e) {
         error_log('[receipt-print-queue] Order #' . $orderId . ': ' . $e->getMessage());
         return [

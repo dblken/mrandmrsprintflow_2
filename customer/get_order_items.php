@@ -17,6 +17,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
 require_once __DIR__ . '/../includes/receipt_access.php';
+require_once __DIR__ . '/../includes/pos_receipt_format.php';
 
 function customer_order_items_json_flags(): int {
     $flags = JSON_UNESCAPED_SLASHES;
@@ -421,11 +422,11 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
     return [
         'receipt_number' => 'WEB-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_number' => printflow_format_order_code($orderId, $order['order_sku'] ?? ''),
-        'qr_payload' => 'PF1:ORDER:' . $orderId,
+        'qr_payload' => printflow_receipt_qr_payload($orderId),
         'date_time' => $receiptDateTime,
-        'date_time_display' => date('M j, Y h:i A', strtotime($receiptDateTime) ?: time()),
+        'date_time_display' => printflow_receipt_format_datetime($receiptDateTime),
         'company' => [
-            'name' => $shopName,
+            'name' => 'PrintFlow',
             'logo_url' => $logoUrl,
             'branch_name' => (string)($order['branch_name'] ?? 'Main Branch'),
             'address' => (string)($order['branch_address'] ?? ''),

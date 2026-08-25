@@ -2068,10 +2068,18 @@ $page_title = 'Orders - Staff';
         var csrf = d.csrf_token || '';
 
         var actionsHTML = '';
-        var isViewOnlyStatus = ['Completed', 'Cancelled', 'Rejected'].includes(d.status);
+        var isViewOnlyStatus = ['Completed', 'Cancelled', 'Rejected', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(d.status);
         var verifyStatuses = ['To Verify', 'Pending Verification', 'Verify Pay'];
         var isVerifyStatus = verifyStatuses.includes(d.status);
         var canVerifyPayment = isVerifyStatus && d.payment_proof && d.payment_proof !== 'null' && d.payment_proof !== 'undefined';
+        var isCompletedWalkIn = d.status === 'COMPLETED'
+            && String(d.payment_status || '').toLowerCase() === 'paid'
+            && /^(pos|walk-in)/i.test(String(d.order_source || ''));
+        if (isCompletedWalkIn) {
+            actionsHTML = '<div style="margin-top:28px;">' +
+                '<button class="btn-primary" onclick="reprintCompletedPosReceipt(' + d.order_id + ', this)" style="width:100%; background:#0f766e; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Reprint Receipt</button>' +
+                '</div>';
+        }
         if (!isViewOnlyStatus) {
             if (isVerifyStatus) {
                 if (canVerifyPayment) {
@@ -2187,6 +2195,66 @@ $page_title = 'Orders - Staff';
         '</div>';
 
         document.getElementById('omBody').innerHTML = contentHTML + detailsHTML + notesBlock + payBlock + actionsHTML;
+    }
+
+    async function reprintCompletedPosReceipt(orderId, button) {
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Printing...';
+        var result = null;
+        try {
+            var existingJobId = Number(button.dataset.printJobId || 0);
+            var endpoint = existingJobId > 0
+                ? 'staff/api/pos_receipt_print_retry.php'
+                : 'staff/api/pos_receipt_print.php';
+            var requestBody = existingJobId > 0
+                ? {job_id: existingJobId, csrf_token: document.body.getAttribute('data-csrf') || ''}
+                : {
+                    action: 'reprint',
+                    order_id: Number(orderId),
+                    csrf_token: document.body.getAttribute('data-csrf') || ''
+                };
+            var response = await fetch(staffUrl(endpoint), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(requestBody)
+            });
+            result = await response.json();
+            if (!response.ok || !result.success || !result.print_job || !result.print_job.job_id) {
+                throw new Error(result.message || 'Receipt printing failed.');
+            }
+            button.dataset.printJobId = String(result.print_job.job_id);
+            for (var attempt = 0; attempt < 15; attempt += 1) {
+                await new Promise(function(resolve) { window.setTimeout(resolve, 1500); });
+                var statusResponse = await fetch(
+                    staffUrl('staff/api/pos_receipt_print_status.php') + '?job_id=' + encodeURIComponent(result.print_job.job_id) + '&_=' + Date.now(),
+                    {cache: 'no-store'}
+                );
+                var statusResult = await statusResponse.json();
+                var status = statusResult && statusResult.job ? statusResult.job.status : '';
+                if (statusResponse.ok && status === 'printed') {
+                    delete button.dataset.printJobId;
+                    button.textContent = 'Receipt printed successfully.';
+                    window.setTimeout(function() {
+                        button.disabled = false;
+                        button.textContent = 'Reprint Receipt';
+                    }, 2500);
+                    return;
+                }
+                if (statusResponse.ok && status === 'failed') {
+                    throw new Error(statusResult.job.error_message || 'Receipt printing failed.');
+                }
+            }
+            throw new Error('Receipt printing was not confirmed in time.');
+        } catch (error) {
+            console.error('POS receipt reprint failed:', error);
+            if (result && result.print_job && result.print_job.job_id) {
+                button.dataset.printJobId = String(result.print_job.job_id);
+            }
+            button.disabled = false;
+            button.textContent = 'Retry Reprint';
+            alert('Receipt printing failed. The original sale was not changed.');
+        }
     }
 
     // ── DOMContentLoaded: event listeners & auto-open ────

@@ -98,7 +98,7 @@ expect_true(printflow_customer_receipt_is_available('Ready for Pickup', 'Paid'),
 $customerEndpoint = file_get_contents(__DIR__ . '/../customer/get_order_items.php');
 expect_true(str_contains($customerEndpoint, 'WHERE o.order_id = ? AND o.customer_id = ?'), 'customer receipt query enforces order ownership');
 expect_true(str_contains($customerEndpoint, 'printflow_customer_receipt_is_available'), 'customer receipt payload is server-side stage gated');
-expect_true(str_contains($customerEndpoint, "'qr_payload' => 'PF1:ORDER:'"), 'customer receipt uses the canonical non-secret QR payload');
+expect_true(str_contains($customerEndpoint, "'qr_payload' => printflow_receipt_qr_payload(\$orderId)"), 'customer receipt uses the canonical non-secret QR payload helper');
 
 $customerUi = file_get_contents(__DIR__ . '/../customer/orders.php');
 expect_true(str_contains($customerUi, 'html2pdf().set'), 'customer PDF uses the authorized canonical web receipt payload');
