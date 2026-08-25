@@ -20,11 +20,36 @@ $check = static function (bool $condition, string $message) use (&$passed): void
 
 require_once $root . '/includes/barcode.php';
 $check(printflow_barcode_clean_value(" TSH-0004\r\n") === 'TSH-0004', 'barcode payload normalizes to the visible canonical SKU');
+$tshirtBarcodeSvg = printflow_barcode_svg('TSH-0004', 2, 72);
+$check(
+    str_contains($tshirtBarcodeSvg, 'width="286"')
+        && str_contains($tshirtBarcodeSvg, 'height="72"')
+        && str_contains($tshirtBarcodeSvg, 'shape-rendering="crispEdges"'),
+    'TSH-0004 uses a crisp 286x72 Code 128 SVG with integer-width bars'
+);
 $check(
     str_contains($admin, "pfProductBarcodeUrl(sku)")
         && str_contains($admin, 'txt.textContent = sku')
         && str_contains($barcodeApi, 'printflow_barcode_svg($sku'),
     'Admin preview text and generated Code 128 image use the same SKU value'
+);
+$check(
+    str_contains($admin, 'function pfApplyBarcodeScreenGeometry(img)')
+        && str_contains($admin, 'targetDeviceModulePx = Math.max(3')
+        && str_contains($admin, "img.style.maxWidth = 'none'")
+        && !str_contains($admin, 'max-width:100%;height:72px;object-fit:contain'),
+    'Admin preview maps Code 128 modules to whole device pixels instead of arbitrary responsive scaling'
+);
+$check(
+    str_contains($admin, '.barcode{width:auto;height:auto;max-width:none;')
+        && !str_contains($admin, '.barcode{width:100%;height:86px;'),
+    'print barcode preserves the SVG intrinsic aspect ratio without width stretching'
+);
+$check(
+    str_contains($admin, 'var scale = 3;')
+        && str_contains($admin, "ctx.fillStyle = '#ffffff';")
+        && str_contains($admin, 'ctx.imageSmoothingEnabled = false;'),
+    'downloaded PNG uses a three-times raster with a solid white background and smoothing disabled'
 );
 $check(
     str_contains($lookupApi, 'WHERE LOWER(TRIM(p.sku)) = LOWER(?)')

@@ -1689,7 +1689,7 @@ if (isset($_GET['ajax'])) {
             display: flex;
         }
         #product-modal { max-width: 580px; }
-        #view-product-modal { max-width: 800px; }
+        #view-product-modal { max-width: 1000px; }
         #product-modal,
         #view-product-modal {
             background: white;
@@ -2042,6 +2042,19 @@ if (isset($_GET['ajax'])) {
             word-break: break-all;
             overflow-wrap: break-word;
             box-sizing: border-box;
+        }
+        .pf-product-barcode-frame {
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+        }
+        .pf-product-barcode-image {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: none;
+            flex: none;
+            margin: 0 auto 8px;
         }
         @media (max-width: 600px) {
             #product-modal .form-row { grid-template-columns: 1fr; }
@@ -2599,8 +2612,8 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="modal-barcode-preview-wrap" style="display:none;margin:-2px 0 18px;">
                     <label class="view-label" style="margin-bottom:8px;">Barcode Preview</label>
-                    <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
-                        <img id="modal-barcode-preview-img" alt="SKU barcode preview" style="max-width:100%;height:72px;object-fit:contain;display:block;margin:0 auto 8px;">
+                    <div class="pf-product-barcode-frame" style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
+                        <img id="modal-barcode-preview-img" class="pf-product-barcode-image" alt="SKU barcode preview">
                         <div id="modal-barcode-preview-text" style="font-size:13px;font-weight:700;color:#111827;letter-spacing:0.04em;word-break:break-word;">-</div>
                     </div>
                 </div>
@@ -2766,8 +2779,8 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div id="view-product-barcode-wrap" style="display:none;">
                         <label class="view-label">Barcode Preview</label>
-                        <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
-                            <img id="view-product-barcode-img" alt="Product SKU barcode" style="max-width:100%;height:72px;object-fit:contain;display:block;margin:0 auto 8px;">
+                        <div class="pf-product-barcode-frame" style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;text-align:center;">
+                            <img id="view-product-barcode-img" class="pf-product-barcode-image" alt="Product SKU barcode">
                             <div id="view-product-barcode-text" style="font-size:13px;font-weight:700;color:#111827;letter-spacing:0.04em;word-break:break-word;">-</div>
                         </div>
                     </div>
@@ -3295,6 +3308,33 @@ function pfProductBarcodeUrl(sku) {
     return 'api_product_barcode.php?sku=' + encodeURIComponent(String(sku || '').trim());
 }
 
+function pfApplyBarcodeScreenGeometry(img) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return null;
+    // The API uses a two-CSS-pixel Code 128 module. Choose a proportional
+    // scale whose smallest bar lands on at least three whole device pixels,
+    // avoiding the 2.5px antialiasing produced at Windows 125% scaling.
+    var sourceModulePx = 2;
+    var devicePixelRatio = Math.max(0.5, Number(window.devicePixelRatio) || 1);
+    var targetDeviceModulePx = Math.max(3, Math.ceil(sourceModulePx * devicePixelRatio));
+    var cssScale = targetDeviceModulePx / (sourceModulePx * devicePixelRatio);
+    var cssWidth = img.naturalWidth * cssScale;
+    var cssHeight = img.naturalHeight * cssScale;
+    img.style.width = cssWidth.toFixed(4) + 'px';
+    img.style.height = cssHeight.toFixed(4) + 'px';
+    img.style.maxWidth = 'none';
+    img.dataset.barcodeModuleDevicePx = String(targetDeviceModulePx);
+    img.dataset.barcodeIntrinsicWidth = String(img.naturalWidth);
+    img.dataset.barcodeIntrinsicHeight = String(img.naturalHeight);
+    return {
+        intrinsicWidth: img.naturalWidth,
+        intrinsicHeight: img.naturalHeight,
+        cssWidth: cssWidth,
+        cssHeight: cssHeight,
+        devicePixelRatio: devicePixelRatio,
+        moduleDevicePixels: targetDeviceModulePx
+    };
+}
+
 function pfSetBarcodePreview(prefix, sku) {
     sku = String(sku || '').trim();
     var wrap = document.getElementById(prefix + '-barcode-preview-wrap') || document.getElementById(prefix + '-barcode-wrap');
@@ -3308,9 +3348,22 @@ function pfSetBarcodePreview(prefix, sku) {
         return;
     }
     wrap.style.display = 'block';
+    img.onload = function() { pfApplyBarcodeScreenGeometry(img); };
     img.src = pfProductBarcodeUrl(sku);
+    if (img.complete && img.naturalWidth) pfApplyBarcodeScreenGeometry(img);
     txt.textContent = sku;
 }
+
+var pfBarcodeGeometryFrame = 0;
+window.addEventListener('resize', function() {
+    if (pfBarcodeGeometryFrame) window.cancelAnimationFrame(pfBarcodeGeometryFrame);
+    pfBarcodeGeometryFrame = window.requestAnimationFrame(function() {
+        pfBarcodeGeometryFrame = 0;
+        document.querySelectorAll('.pf-product-barcode-image').forEach(function(img) {
+            if (img.complete && img.naturalWidth) pfApplyBarcodeScreenGeometry(img);
+        });
+    });
+});
 
 function pfRefreshModalBarcodePreview() {
     var skuEl = document.getElementById('modal-sku');
@@ -3336,7 +3389,7 @@ function printProductBarcode() {
     if (!w) return;
     var imgUrl = pfProductBarcodeUrl(sku);
     w.document.write('<!doctype html><html><head><title>Barcode - ' + pfEscapeHtml(sku) + '</title>'
-        + '<style>body{margin:0;background:#fff;font-family:Arial,sans-serif;color:#111827}.label{width:320px;margin:24px auto;padding:18px 16px;border:1px solid #e5e7eb;text-align:center}.name{font-size:14px;font-weight:700;margin:0 0 10px;line-height:1.25}.barcode{width:100%;height:86px;object-fit:contain;display:block;margin:0 auto 8px}.sku{font-size:15px;font-weight:800;letter-spacing:.06em}@media print{body{margin:0}.label{border:0;margin:0;width:300px;page-break-inside:avoid}}</style>'
+        + '<style>body{margin:0;background:#fff;font-family:Arial,sans-serif;color:#111827}.label{width:320px;margin:24px auto;padding:18px 16px;border:1px solid #e5e7eb;text-align:center}.name{font-size:14px;font-weight:700;margin:0 0 10px;line-height:1.25}.barcode{width:auto;height:auto;max-width:none;display:block;margin:0 auto 8px}.sku{font-size:15px;font-weight:800;letter-spacing:.06em}@media print{body{margin:0}.label{border:0;margin:0;width:320px;page-break-inside:avoid}}</style>'
         + '</head><body><div class="label"><p class="name"></p><img class="barcode" alt="Barcode"><div class="sku"></div></div></body></html>');
     w.document.close();
     w.document.querySelector('.name').textContent = name;
