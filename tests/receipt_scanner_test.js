@@ -130,7 +130,7 @@ function emit(runtime, text, target = runtime.body, terminator = 'Enter', shifte
 
     emit(productRuntime, 'PF1:ORDER:11280', productInput);
     await new Promise(resolve => setTimeout(resolve, 0));
-    assert(productCalls === 1, 'canonical receipt input in the focused POS barcode field uses the shared lookup path');
+    assert(productCalls === 0, 'focused POS barcode field always retains ownership of receipt and product scans');
 
     let retryCalls = 0;
     const retryRuntime = createRuntime(async () => {

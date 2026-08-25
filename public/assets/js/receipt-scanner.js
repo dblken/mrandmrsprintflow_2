@@ -222,6 +222,10 @@
 
     document.addEventListener('keydown', function (event) {
         if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) { reset(); return; }
+        // The dedicated POS field owns every scan while it is focused. Receipt
+        // payloads entered there are routed by POS itself, so the two scanners
+        // never buffer or consume the same keyboard events.
+        if (isProductBarcodeTarget(event.target)) { reset(); return; }
         if (isProtectedEditingTarget(event.target)) { reset(); return; }
         var now = Date.now();
         var isTerminator = event.key === 'Enter' || event.key === 'Tab' || event.key === '\r' || event.key === '\n';

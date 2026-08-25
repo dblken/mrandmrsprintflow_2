@@ -2577,7 +2577,7 @@ try {
             const catEl = document.getElementById('pos-category');
             barcodeInputs.forEach(function(barcodeEl) {
                 barcodeEl.addEventListener('keydown', function(e) {
-                    if (e.key !== 'Enter') return;
+                    if (!isBarcodeTerminatorKey(e.key)) return;
                     e.preventDefault();
                     handleBarcodeScan(barcodeEl.value, barcodeEl);
                 });
@@ -3494,9 +3494,13 @@ try {
             focusBarcodeInput(input);
         }
 
+        function isBarcodeTerminatorKey(key) {
+            return key === 'Enter' || key === 'Tab' || key === '\r' || key === '\n';
+        }
+
         async function handleBarcodeScan(code, sourceInput = null) {
             const barcodeEl = sourceInput || document.getElementById('pos-barcode-input') || document.getElementById('pos-barcode-input-home');
-            const sku = String(code || '').trim();
+            const sku = String(code || '').replace(/[\r\n]+/g, '').trim();
             if (!sku) {
                 finishBarcodeScan(barcodeEl);
                 return;

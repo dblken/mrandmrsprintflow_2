@@ -64,7 +64,7 @@ $assert(str_contains($api, 'printflow_staff_role_can_access_order_source'), 'loo
 $assert(str_contains($api, 'WHERE o.order_id = ?'), 'lookup API uses a prepared order-id query');
 $assert(str_contains($api, "'code' => 'LOOKUP_ERROR'") && str_contains($api, "'request_id'"), 'lookup API returns structured failure codes and a safe diagnostic request id');
 $assert(str_contains($pos, '/^PF1:ORDER:'), 'POS scanner reuses its existing input for receipt QR payloads');
-$assert(str_contains($scanner, 'isProductBarcodeTarget(target)'), 'global receipt scanner distinguishes the dedicated POS product barcode input');
+$assert(str_contains($scanner, 'if (isProductBarcodeTarget(event.target)) { reset(); return; }'), 'global receipt scanner yields every focused POS barcode event to the product field');
 $assert(str_contains($scanner, 'PF1:ORDER:[1-9][0-9]{0,9}'), 'global scanner accepts only the canonical receipt payload');
 $assert(str_contains($scanner, 'MAX_GAP_MS') && str_contains($scanner, 'DUPLICATE_MS'), 'global scanner enforces scanner speed and duplicate-scan protection');
 $assert(str_contains($scanner, "event.key === 'Tab'") && str_contains($scanner, "event.key === 'Shift'"), 'global scanner accepts Tab termination and does not discard shifted colon input');
