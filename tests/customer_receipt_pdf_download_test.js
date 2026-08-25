@@ -6,7 +6,7 @@ const path = require('path');
 const vm = require('vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'customer', 'orders.php'), 'utf8');
-const match = source.match(/function receiptCanvasHasVisibleContent\(canvas\) \{[\s\S]*?\r?\n\}\r?\n\r?\nasync function downloadReceiptPdf\(\) \{[\s\S]*?\r?\n\}\r?\n\r?\nlet currentOrderItemsRequest/);
+const match = source.match(/function receiptDrawQrOnCanvas\(canvas, capture, qrImage\) \{[\s\S]*?\r?\n\}\r?\n\r?\nfunction receiptCanvasHasVisibleContent\(canvas\) \{[\s\S]*?\r?\n\}\r?\n\r?\nasync function downloadReceiptPdf\(\) \{[\s\S]*?\r?\n\}\r?\n\r?\nlet currentOrderItemsRequest/);
 assert(match, 'downloadReceiptPdf() must remain available');
 const functionSource = match[0].replace(/\r?\n\r?\nlet currentOrderItemsRequest$/, '');
 

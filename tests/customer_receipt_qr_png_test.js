@@ -21,7 +21,17 @@ const outputContext = {
     fillStyle: '',
     imageSmoothingEnabled: true,
     fillRect(...args) { operations.push(['fillRect', ...args]); },
-    drawImage(...args) { operations.push(['drawImage', ...args]); }
+    drawImage(...args) { operations.push(['drawImage', ...args]); },
+    getImageData() {
+        const pixels = new Uint8ClampedArray(132 * 132 * 4).fill(255);
+        for (let pixelIndex = 0; pixelIndex < 200; pixelIndex++) {
+            const channelIndex = pixelIndex * 4;
+            pixels[channelIndex] = 0;
+            pixels[channelIndex + 1] = 0;
+            pixels[channelIndex + 2] = 0;
+        }
+        return {data: pixels};
+    }
 };
 const outputCanvas = {
     width: 0,
@@ -52,7 +62,8 @@ const context = vm.createContext({
     window: {requestAnimationFrame(callback) { callback(); }},
     QRCode,
     Error,
-    Promise
+    Promise,
+    Uint8ClampedArray
 });
 vm.runInContext(functionSource, context);
 

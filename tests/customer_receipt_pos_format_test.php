@@ -48,6 +48,7 @@ receipt_format_check(
         && str_contains($customer, 'expectedCanvasWidthPx')
         && str_contains($customer, "throw new Error('Receipt capture width is not 58mm.')")
         && str_contains($customer, 'receiptCanvasHasVisibleContent(canvas)')
+        && str_contains($customer, 'receiptDrawQrOnCanvas(canvas, capture, qrImage)')
         && !str_contains($customer, 'width: captureViewportWidthPx')
         && str_contains($customer, "from(canvas, 'canvas')")
         && str_contains($customer, 'actualWidthMm')

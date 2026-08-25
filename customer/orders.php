@@ -2522,6 +2522,17 @@ function receiptQrPngDataUrl(payload) {
                     context.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
                     context.imageSmoothingEnabled = false;
                     context.drawImage(qrCanvas, quietZonePx, quietZonePx);
+                    const qrPixels = context.getImageData(0, 0, outputCanvas.width, outputCanvas.height).data;
+                    let darkPixels = 0;
+                    for (let channelIndex = 0; channelIndex < qrPixels.length; channelIndex += 4) {
+                        if (qrPixels[channelIndex + 3] > 20
+                            && qrPixels[channelIndex] < 80
+                            && qrPixels[channelIndex + 1] < 80
+                            && qrPixels[channelIndex + 2] < 80) {
+                            darkPixels++;
+                        }
+                    }
+                    if (darkPixels < 100) throw new Error('Receipt QR image contains no visible modules.');
                     const dataUrl = outputCanvas.toDataURL('image/png');
                     host.remove();
                     dataUrl.startsWith('data:image/') ? resolve(dataUrl) : reject(new Error('Receipt QR image could not be created.'));
@@ -2561,6 +2572,48 @@ function receiptWaitForImages(root) {
             throw new Error('Receipt image has no rendered dimensions.');
         }
     }));
+}
+
+function receiptDrawQrOnCanvas(canvas, capture, qrImage) {
+    const captureRect = capture.getBoundingClientRect();
+    const qrRect = qrImage.getBoundingClientRect();
+    if (!captureRect.width || !captureRect.height || !qrRect.width || !qrRect.height) {
+        throw new Error('Receipt QR placement dimensions are unavailable.');
+    }
+
+    const scaleX = canvas.width / captureRect.width;
+    const scaleY = canvas.height / captureRect.height;
+    const destinationSize = Math.max(1, Math.round(Math.min(qrRect.width * scaleX, qrRect.height * scaleY)));
+    const destinationX = Math.round((qrRect.left - captureRect.left) * scaleX + ((qrRect.width * scaleX - destinationSize) / 2));
+    const destinationY = Math.round((qrRect.top - captureRect.top) * scaleY + ((qrRect.height * scaleY - destinationSize) / 2));
+    if (destinationX < 0 || destinationY < 0
+        || destinationX + destinationSize > canvas.width
+        || destinationY + destinationSize > canvas.height) {
+        throw new Error('Receipt QR placement falls outside the receipt canvas.');
+    }
+
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) throw new Error('Receipt canvas context is unavailable for QR embedding.');
+    context.imageSmoothingEnabled = false;
+    context.drawImage(qrImage, destinationX, destinationY, destinationSize, destinationSize);
+
+    const qrPixels = context.getImageData(destinationX, destinationY, destinationSize, destinationSize).data;
+    let darkPixels = 0;
+    let lightPixels = 0;
+    for (let channelIndex = 0; channelIndex < qrPixels.length; channelIndex += 4) {
+        if (qrPixels[channelIndex + 3] <= 20) continue;
+        const red = qrPixels[channelIndex];
+        const green = qrPixels[channelIndex + 1];
+        const blue = qrPixels[channelIndex + 2];
+        if (red < 80 && green < 80 && blue < 80) darkPixels++;
+        if (red > 240 && green > 240 && blue > 240) lightPixels++;
+    }
+    const requiredPixels = Math.max(100, Math.floor(destinationSize * destinationSize * 0.03));
+    if (darkPixels < requiredPixels || lightPixels < requiredPixels) {
+        throw new Error('Embedded receipt QR failed its black-and-white module check.');
+    }
+
+    return {x: destinationX, y: destinationY, size: destinationSize};
 }
 
 function receiptCanvasHasVisibleContent(canvas) {
@@ -2615,11 +2668,18 @@ async function downloadReceiptPdf() {
         document.body.appendChild(captureHost);
 
         failureStage = 'asset-preparation';
+        let qrImage = null;
         const qrTarget = capture.querySelector('#customer-receipt-qr');
+        if (activeReceiptData.qr_payload && !qrTarget) {
+            throw new Error('Receipt QR target is unavailable.');
+        }
         if (qrTarget && activeReceiptData.qr_payload) {
             const qrDataUrl = await receiptQrPngDataUrl(activeReceiptData.qr_payload);
+            if (!qrDataUrl.startsWith('data:image/png;base64,') || qrDataUrl.length < 1000) {
+                throw new Error('Receipt QR PNG data is invalid.');
+            }
             qrTarget.removeAttribute('id');
-            const qrImage = document.createElement('img');
+            qrImage = document.createElement('img');
             qrImage.src = qrDataUrl;
             qrImage.alt = 'Order details QR';
             qrImage.width = 116;
@@ -2696,6 +2756,7 @@ async function downloadReceiptPdf() {
         if (Math.abs(canvas.width - expectedCanvasWidthPx) > 6) {
             throw new Error('Receipt capture width is not 58mm.');
         }
+        const qrCanvasPlacement = qrImage ? receiptDrawQrOnCanvas(canvas, capture, qrImage) : null;
         if (!receiptCanvasHasVisibleContent(canvas)) {
             throw new Error('Receipt canvas contains no visible content.');
         }
@@ -2735,6 +2796,7 @@ async function downloadReceiptPdf() {
         console.info('Receipt PDF render metrics.', {
             source: sourceMetrics,
             canvas: {width: canvas.width, height: canvas.height, pngBytesApprox: Math.floor(canvasPng.length * 0.75)},
+            qrCanvasPlacement,
             pdf: {
                 widthMm: actualWidthMm,
                 heightMm: actualHeightMm,
