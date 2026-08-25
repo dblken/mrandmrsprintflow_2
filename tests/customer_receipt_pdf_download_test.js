@@ -24,6 +24,7 @@ const captureHost = {
     remove() { this.removed = true; }
 };
 const canvas = {width: 660, height: 1320};
+let measuredCanvas = canvas;
 const saved = [];
 const pdf = {
     internal: {pageSize: {getWidth() { return 58; }, getHeight() { return 116.5; }}},
@@ -38,12 +39,15 @@ const measurementWorker = {
     },
     from(value) {
         assert.strictEqual(value, capture);
+        assert.strictEqual(this.options.jsPDF.format[0], 58, 'capture worker uses receipt width before toCanvas');
+        assert.strictEqual(this.options.jsPDF.format[1], 2000, 'capture worker uses a tall temporary receipt page');
+        assert.strictEqual(this.options.html2canvas.width, 220, 'capture viewport is 58mm in CSS pixels');
         return this;
     },
     async toCanvas() {},
     async get(key) {
         assert.strictEqual(key, 'canvas');
-        return canvas;
+        return measuredCanvas;
     }
 };
 const pdfWorker = {
@@ -101,9 +105,17 @@ vm.runInContext(functionSource, context);
     assert.strictEqual(captureHost.removed, true);
     assert.deepStrictEqual(toastMessages, []);
 
+    measuredCanvas = {width: 2382, height: 2553};
+    workerCalls = 0;
+    await context.downloadReceiptPdf();
+    assert.deepStrictEqual(saved, ['ONL-123.pdf'], 'A4-width production capture must not be saved');
+    assert.strictEqual(workerCalls, 1, 'invalid capture fails before PDF worker creation');
+    assert.strictEqual(diagnostics.at(-1).detail.stage, 'html-capture');
+    assert.strictEqual(toastMessages.at(-1), 'Unable to generate the receipt PDF right now. Please try again.');
+
     context.window.html2pdf = undefined;
     await context.downloadReceiptPdf();
-    assert.deepStrictEqual(toastMessages, ['Unable to generate the receipt PDF right now. Please try again.']);
+    assert.strictEqual(toastMessages.length, 2);
     assert.strictEqual(diagnostics.at(-1).detail.stage, 'initialization');
     assert.strictEqual(button.disabled, false);
 

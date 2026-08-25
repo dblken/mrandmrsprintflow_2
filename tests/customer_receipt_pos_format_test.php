@@ -44,6 +44,9 @@ receipt_format_check(
 receipt_format_check(
     str_contains($customer, 'const pageHeightMm = Math.max(58, Math.ceil((contentHeightMm + 0.5) * 10) / 10)')
         && str_contains($customer, 'format: [contentWidthMm, pageHeightMm]')
+        && str_contains($customer, 'format: [contentWidthMm, 2000]')
+        && str_contains($customer, 'expectedCanvasWidthPx')
+        && str_contains($customer, "throw new Error('Receipt capture width is not 58mm.')")
         && str_contains($customer, "from(canvas, 'canvas')")
         && str_contains($customer, 'actualWidthMm')
         && str_contains($customer, 'pageCount !== 1')

@@ -2606,24 +2606,40 @@ async function downloadReceiptPdf() {
         await receiptWaitForImages(capture);
 
         failureStage = 'html-capture';
+        const contentWidthMm = 58;
+        const captureScale = 3;
+        const captureViewportWidthPx = Math.ceil(contentWidthMm * 96 / 25.4);
         const captureOptions = {
+            margin: 0,
             image: {type: 'png', quality: 1},
+            // html2pdf sizes its cloned HTML container from jsPDF pageSize even
+            // for toCanvas(). Without this, it uses the default A4 width and
+            // captures a 794px canvas with the 58mm receipt stranded at left.
+            jsPDF: {
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [contentWidthMm, 2000]
+            },
             html2canvas: {
-                scale: 3,
+                scale: captureScale,
                 useCORS: true,
                 allowTaint: false,
                 backgroundColor: '#ffffff',
                 scrollX: 0,
                 scrollY: 0,
-                windowWidth: capture.scrollWidth
+                width: captureViewportWidthPx,
+                windowWidth: captureViewportWidthPx
             }
         };
         const measurementWorker = window.html2pdf().set(captureOptions).from(capture);
         await measurementWorker.toCanvas();
         const canvas = await measurementWorker.get('canvas');
         if (!canvas || !canvas.width || !canvas.height) throw new Error('Receipt capture is empty.');
+        const expectedCanvasWidthPx = contentWidthMm * 96 / 25.4 * captureScale;
+        if (Math.abs(canvas.width - expectedCanvasWidthPx) > 6) {
+            throw new Error('Receipt capture width is not 58mm.');
+        }
 
-        const contentWidthMm = 58;
         const contentHeightMm = canvas.height * contentWidthMm / canvas.width;
         const pageHeightMm = Math.max(58, Math.ceil((contentHeightMm + 0.5) * 10) / 10);
         failureStage = 'pdf-render';
