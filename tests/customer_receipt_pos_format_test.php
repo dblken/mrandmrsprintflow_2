@@ -25,16 +25,36 @@ foreach ([
     'line-height: 1.25',
     'font-family: "Courier New", "Liberation Mono", Consolas, monospace',
     'border-top: 1px dashed #111827',
-    'table-layout: fixed',
     'size: 58mm auto',
     'width: 52mm !important',
-    "format: [58, 210]",
 ] as $contract) {
     receipt_format_check(
         str_contains($customer, $contract) && str_contains($pos, $contract),
         "customer receipt reuses POS receipt contract: {$contract}"
     );
 }
+
+receipt_format_check(
+    str_contains($customer, 'class="receipt-line-items"')
+        && str_contains($customer, 'class="receipt-item-amounts"')
+        && !str_contains($customer, '<th>Item / Service</th>'),
+    'online receipt uses a 58mm-safe stacked item layout'
+);
+
+receipt_format_check(
+    str_contains($customer, 'const pageHeightMm = Math.max(58, Math.ceil(contentHeightMm))')
+        && str_contains($customer, 'format: [58, pageHeightMm]')
+        && !str_contains($customer, 'format: [58, 210]'),
+    'downloaded receipt uses dynamic content height instead of a fixed page'
+);
+
+receipt_format_check(
+    str_contains($customer, "canvas.toDataURL('image/png')")
+        && str_contains($customer, 'receiptQrPngDataUrl')
+        && str_contains($customer, 'qrTarget.innerHTML')
+        && str_contains($customer, 'await receiptWaitForImages(capture)'),
+    'downloaded receipt embeds a deterministic QR PNG before capture'
+);
 
 receipt_format_check(
     str_contains($customer, 'width:116px !important') && str_contains($customer, 'height:116px !important')

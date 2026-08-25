@@ -1799,6 +1799,53 @@ require_once __DIR__ . '/../includes/header.php';
     overflow-wrap: anywhere;
 }
 
+.receipt-line-items {
+    border-top: 1px solid #111827;
+}
+
+.receipt-item {
+    padding: 4px 0;
+    border-bottom: 1px dashed #111827;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.receipt-item-amounts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 10px;
+}
+
+.receipt-money {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.receipt-qr-wrap,
+.receipt-info-card,
+.receipt-total-line,
+.receipt-payment-breakdown,
+.receipt-footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.receipt-pdf-capture {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+}
+
 .receipt-summary {
     margin-top: 4px;
     margin-left: 0;
@@ -2315,7 +2362,7 @@ function receiptDetailLines(item) {
     };
 
     Object.entries(custom).forEach(([key, value]) => {
-        if (details.length >= 4) {
+        if (details.length >= 8) {
             return;
         }
         if (value == null || value === '' || typeof value === 'object') {
@@ -2338,15 +2385,14 @@ function buildReceiptHtml(receipt) {
     const materials = Array.isArray(receipt?.materials) ? receipt.materials : [];
     const contact = String(receipt?.customer_contact || customer.phone || '').trim();
     const itemRows = items.map(item => `
-        <tr>
-            <td>
-                <div class="receipt-item-name">${receiptEscape(item.name || 'Item')}</div>
-                ${receiptDetailLines(item).length ? `<div class="receipt-item-meta">${receiptEscape(receiptDetailLines(item).join(' • '))}</div>` : ''}
-            </td>
-            <td>${receiptEscape(item.quantity || 0)}</td>
-            <td>${formatMoney(item.unit_price || 0)}</td>
-            <td style="font-weight:800;color:#0f172a;">${formatMoney(item.line_total || 0)}</td>
-        </tr>
+        <div class="receipt-item">
+            <div class="receipt-item-name">${receiptEscape(item.name || 'Item')}</div>
+            <div class="receipt-item-amounts">
+                <span>${receiptEscape(item.quantity || 0)} x ${formatMoney(item.unit_price || 0)}</span>
+                <strong class="receipt-money">${formatMoney(item.line_total || 0)}</strong>
+            </div>
+            ${receiptDetailLines(item).map(line => `<div class="receipt-item-meta">${receiptEscape(line)}</div>`).join('')}
+        </div>
     `).join('');
 
     return `
@@ -2393,17 +2439,7 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-section">
             <div class="receipt-section-title">Items</div>
-            <table class="receipt-items">
-                <thead>
-                    <tr>
-                        <th>Item / Service</th>
-                        <th>Qty</th>
-                        <th>Price</th>
-                        <th>Amount</th>
-                    </tr>
-                </thead>
-                <tbody>${itemRows}</tbody>
-            </table>
+            <div class="receipt-line-items">${itemRows}</div>
             ${materials.length ? `<div class="receipt-item-meta" style="margin-top:12px;"><strong>Materials used:</strong> ${receiptEscape(materials.join(', '))}</div>` : ''}
         </div>
 
@@ -2459,21 +2495,123 @@ function closeReceiptModal() {
     document.body.style.overflow = itemsModal && itemsModal.classList.contains('open') ? 'hidden' : '';
 }
 
+function receiptQrPngDataUrl(payload) {
+    return new Promise((resolve, reject) => {
+        if (!payload || typeof QRCode === 'undefined') {
+            reject(new Error('Receipt QR generator is unavailable.'));
+            return;
+        }
+        const host = document.createElement('div');
+        host.style.cssText = 'position:fixed;left:-10000px;top:0;width:116px;height:116px;background:#fff;';
+        document.body.appendChild(host);
+        try {
+            new QRCode(host, {text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M});
+            window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+                try {
+                    const canvas = host.querySelector('canvas');
+                    const image = host.querySelector('img');
+                    const dataUrl = canvas ? canvas.toDataURL('image/png') : String(image?.src || '');
+                    host.remove();
+                    dataUrl.startsWith('data:image/') ? resolve(dataUrl) : reject(new Error('Receipt QR image could not be created.'));
+                } catch (error) {
+                    host.remove();
+                    reject(error);
+                }
+            }));
+        } catch (error) {
+            host.remove();
+            reject(error);
+        }
+    });
+}
+
+function receiptWaitForImages(root) {
+    return Promise.all(Array.from(root.querySelectorAll('img')).map(image => {
+        if (image.complete) return Promise.resolve();
+        return new Promise(resolve => {
+            image.addEventListener('load', resolve, {once: true});
+            image.addEventListener('error', resolve, {once: true});
+        });
+    }));
+}
+
 async function downloadReceiptPdf() {
-    if (!activeReceiptData || typeof html2pdf === 'undefined') {
-        return;
-    }
+    if (!activeReceiptData || typeof html2pdf === 'undefined') return;
     const printArea = document.getElementById('receipt-print-area');
-    if (!printArea) {
-        return;
+    if (!printArea) return;
+
+    const downloadButton = document.querySelector('#receiptModal .receipt-action-btn--primary');
+    if (downloadButton?.disabled) return;
+    if (downloadButton) {
+        downloadButton.disabled = true;
+        downloadButton.textContent = 'Preparing PDF...';
     }
-    await html2pdf().set({
-        margin: 8,
-        filename: `${activeReceiptData.receipt_number || 'receipt'}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: [58, 210], orientation: 'portrait' }
-    }).from(printArea).save();
+
+    const captureHost = document.createElement('div');
+    captureHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:58mm;background:#fff;z-index:-1;';
+    const capture = printArea.cloneNode(true);
+    capture.id = 'receipt-pdf-capture';
+    capture.classList.add('receipt-pdf-capture');
+    captureHost.appendChild(capture);
+    document.body.appendChild(captureHost);
+
+    try {
+        const qrTarget = capture.querySelector('#customer-receipt-qr');
+        if (qrTarget && activeReceiptData.qr_payload) {
+            const qrDataUrl = await receiptQrPngDataUrl(activeReceiptData.qr_payload);
+            qrTarget.removeAttribute('id');
+            qrTarget.innerHTML = `<img src="${qrDataUrl}" alt="Order details QR" width="116" height="116">`;
+        }
+        if (document.fonts?.ready) await document.fonts.ready;
+        await receiptWaitForImages(capture);
+
+        const worker = html2pdf().set({
+            image: {type: 'png', quality: 1},
+            html2canvas: {
+                scale: 3,
+                useCORS: true,
+                allowTaint: false,
+                backgroundColor: '#ffffff',
+                scrollX: 0,
+                scrollY: 0,
+                windowWidth: capture.scrollWidth
+            }
+        }).from(capture).toCanvas();
+        const canvas = await worker.get('canvas');
+        const JsPdf = window.jspdf?.jsPDF;
+        if (!canvas || !JsPdf) throw new Error('PDF renderer is unavailable.');
+
+        const contentWidthMm = 58;
+        const marginMm = 0;
+        const contentHeightMm = canvas.height * contentWidthMm / canvas.width;
+        const pageHeightMm = Math.max(58, Math.ceil(contentHeightMm));
+        const pdf = new JsPdf({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: [58, pageHeightMm],
+            compress: true
+        });
+        pdf.addImage(
+            canvas.toDataURL('image/png'),
+            'PNG',
+            marginMm,
+            marginMm,
+            contentWidthMm,
+            contentHeightMm,
+            undefined,
+            'FAST'
+        );
+        pdf.save(`${activeReceiptData.receipt_number || 'receipt'}.pdf`);
+    } catch (error) {
+        console.error('Receipt PDF download failed:', error);
+        if (typeof showToast === 'function') showToast('Receipt PDF could not be generated. Please try again.');
+    } finally {
+        captureHost.remove();
+        if (downloadButton) {
+            downloadButton.disabled = false;
+            downloadButton.textContent = 'Download Receipt';
+        }
+    }
 }
 
 let currentOrderItemsRequest = null;

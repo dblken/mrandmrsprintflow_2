@@ -676,27 +676,30 @@ function printflow_receipt_enqueue_test_print(int $printerId, int $userId): arra
 function printflow_receipt_claim_next_job(array $printer): array {
     printflow_receipt_printer_ensure_schema();
     $printerId = (int)$printer['id'];
+    // A printer reconnect is availability, not fresh print intent. Expire old
+    // unclaimed jobs and require staff to deliberately use Retry Print.
     db_execute(
         "UPDATE receipt_print_jobs
-         SET status = 'pending', claimed_at = NULL,
-             error_message = 'Printer agent did not acknowledge the previous claim.'
-         WHERE printer_id = ? AND status = 'claimed' AND claimed_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE)
-           AND attempts < max_attempts",
+         SET status = 'failed', failed_at = NOW(),
+             error_message = 'Print intent expired before the printer claimed it. Use Retry Print.'
+         WHERE printer_id = ? AND status = 'pending'
+           AND updated_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE)",
         'i',
         [$printerId]
     );
     db_execute(
         "UPDATE receipt_print_jobs
          SET status = 'failed', failed_at = NOW(),
-             error_message = 'Maximum print attempts reached without acknowledgement.'
-         WHERE printer_id = ? AND status = 'claimed' AND claimed_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE)
-           AND attempts >= max_attempts",
+             error_message = 'Printer agent did not finish the claimed job. Use Retry Print.'
+         WHERE printer_id = ? AND status IN ('claimed', 'delivering')
+           AND claimed_at < DATE_SUB(NOW(), INTERVAL 2 MINUTE)",
         'i',
         [$printerId]
     );
     $rows = db_query(
         "SELECT * FROM receipt_print_jobs
          WHERE printer_id = ? AND status = 'pending' AND attempts < max_attempts
+           AND updated_at >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)
          ORDER BY created_at ASC, id ASC LIMIT 1",
         'i',
         [$printerId]
@@ -764,8 +767,7 @@ function printflow_receipt_ack_job(array $printer, int $jobId, string $status, s
         );
         $eventStatus = 'printed';
     } else {
-        $willRetry = (int)$rows[0]['attempts'] < (int)$rows[0]['max_attempts'];
-        $nextStatus = $willRetry ? 'pending' : 'failed';
+        $nextStatus = 'failed';
         $ok = db_execute(
             "UPDATE receipt_print_jobs
              SET status = ?, claimed_at = NULL,
@@ -776,7 +778,7 @@ function printflow_receipt_ack_job(array $printer, int $jobId, string $status, s
             [$nextStatus, $nextStatus, substr($message, 0, 1000), $jobId, (int)$printer['id']]
         );
         $eventStatus = $nextStatus;
-        if ($willRetry && $message === '') $message = 'Printer agent reported a failure; job queued for retry.';
+        if ($message === '') $message = 'Printer agent reported a failure. Use Retry Print to try again.';
     }
     if ($ok) {
         db_execute(

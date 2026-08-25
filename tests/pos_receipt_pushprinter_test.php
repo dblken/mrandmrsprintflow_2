@@ -21,6 +21,8 @@ $customerOrders = $read('customer/orders.php');
 $customerItems = $read('customer/get_order_items.php');
 $staffOrders = $read('staff/orders.php');
 $printerApi = $read('public/api/printer/jobs.php');
+$escposDelivery = $read('printing/client/order-to-escpos/index.php');
+$pushprinterStatus = $read('printing/jobs/update/status/index.php');
 $migration = $read('database/receipt_printers_pushprinter_20260816.sql');
 
 $assert(str_contains($migration, 'UNIQUE KEY uq_receipt_print_jobs_idempotency'), 'print jobs have database-level idempotency');
@@ -34,6 +36,13 @@ $assert(str_contains($printer, "'printer_type' => 'escpos'"), 'PushPrinter notif
 $assert(str_contains($printer, "'order_number' => \$orderNumber"), 'PushPrinter notification includes its required order_number field');
 $assert(str_contains($printer, "status IN ('pending', 'failed')"), 'pending or failed receipt jobs can be retried without recreating a sale');
 $assert(str_contains($printer, 'SET job_uuid = ?'), 'retry rotates the delivery UUID so PushPrinter does not reject a cached job');
+$assert(str_contains($printer, 'Print intent expired before the printer claimed it. Use Retry Print.'), 'stale pending jobs expire instead of printing on reconnect');
+$assert(str_contains($printer, "updated_at >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)"), 'printer polling can claim only a fresh explicit print intent');
+$assert(!str_contains($printer, "SET status = 'pending', claimed_at = NULL,"), 'stale claimed jobs are not automatically requeued');
+$assert(str_contains($printer, "\$nextStatus = 'failed';"), 'printer failures wait for deliberate Retry Print');
+$assert(str_contains($escposDelivery, "status IN ('pending', 'claimed')") && str_contains($escposDelivery, 'updated_at >= DATE_SUB'), 'stale Pushy notifications cannot fetch printable ESC/POS data');
+$assert(str_contains($pushprinterStatus, "\$jobStatuses = \$status === 'received'") && str_contains($pushprinterStatus, 'updated_at >= DATE_SUB'), 'stale PushPrinter callbacks cannot reactivate old jobs');
+$assert(str_contains($escposDelivery, "SET status = 'delivering'") && str_contains($escposDelivery, 'already delivered'), 'one Pushy notification can fetch the ESC/POS payload only once');
 $assert(!str_contains(substr($checkout, strpos($checkout, '$receipt = pos_build_receipt_payload((int)$order_id')), 'printflow_receipt_enqueue_order_print_safe'), 'cash checkout does not queue a physical receipt');
 $assert(str_contains($checkout, "'cashier' =>"), 'cash receipt includes the cashier');
 $assert(!str_contains($paymongo, 'printflow_receipt_enqueue_order_print_safe'), 'PayMongo completion does not queue a physical receipt');

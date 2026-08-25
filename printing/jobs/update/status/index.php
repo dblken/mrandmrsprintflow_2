@@ -14,7 +14,17 @@ if ($jobUuid === '' || !in_array($status, $allowed, true)) {
     exit;
 }
 
-$rows = db_query('SELECT id, status FROM receipt_print_jobs WHERE job_uuid = ? LIMIT 1', 's', [$jobUuid]) ?: [];
+$jobStatuses = $status === 'received' ? ['pending', 'claimed'] : ['claimed', 'delivering'];
+$statusPlaceholders = implode(',', array_fill(0, count($jobStatuses), '?'));
+$rows = db_query(
+    "SELECT id, status FROM receipt_print_jobs
+     WHERE job_uuid = ?
+       AND status IN ($statusPlaceholders)
+       AND updated_at >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)
+     LIMIT 1",
+    's' . str_repeat('s', count($jobStatuses)),
+    array_merge([$jobUuid], $jobStatuses)
+) ?: [];
 if (empty($rows)) {
     http_response_code(404);
     echo json_encode(['success' => false]);
@@ -45,4 +55,3 @@ db_execute(
 );
 
 echo json_encode(['success' => true]);
-
