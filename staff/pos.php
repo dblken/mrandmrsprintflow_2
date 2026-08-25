@@ -2109,9 +2109,20 @@ try {
         let currentTotal = 0;
         let currentMode = null; // 'products' or 'services'
         let barcodeScanBusy = false;
+        let barcodeScanQueueRunning = false;
+        const barcodeScanQueue = [];
+        let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+        try {
+            posBarcodeDebugEnabled = new URLSearchParams(window.location.search).get('pos_barcode_debug') === '1'
+                || window.localStorage.getItem('printflow_pos_barcode_debug') === '1';
+        } catch (ignore) {}
+        function posBarcodeDebug(message, details) {
+            if (!posBarcodeDebugEnabled || !window.console || typeof window.console.info !== 'function') return;
+            window.console.info('[POS Barcode] ' + message, details || {});
+        }
         let paymongoPollTimer = null;
         let paymongoCountdownTimer = null;
         let pendingPayMongoPayment = null;
@@ -2579,12 +2590,13 @@ try {
                 barcodeEl.addEventListener('keydown', function(e) {
                     if (!isBarcodeTerminatorKey(e.key)) return;
                     e.preventDefault();
-                    handleBarcodeScan(barcodeEl.value, barcodeEl);
+                    handleBarcodeScan(barcodeEl.value, barcodeEl, {terminator: e.key, source: 'barcode-input'});
                 });
                 barcodeEl.addEventListener('paste', function() {
                     setTimeout(function() { barcodeEl.select(); }, 0);
                 });
             });
+            installPosBarcodeKeyboardCapture();
             setTimeout(focusBarcodeInput, 80);
             if (searchEl) searchEl.addEventListener('input', renderProducts);
             if (catEl) catEl.addEventListener('change', renderProducts);
@@ -3450,7 +3462,9 @@ try {
 
         function focusBarcodeInput(preferredInput = null) {
             const inputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
-            const input = preferredInput || inputs.find(function(el) {
+            const preferredIsVisible = preferredInput
+                && !!(preferredInput.offsetWidth || preferredInput.offsetHeight || preferredInput.getClientRects().length);
+            const input = (preferredIsVisible ? preferredInput : null) || inputs.find(function(el) {
                 return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
             }) || inputs[0];
             if (!input) return;
@@ -3498,18 +3512,132 @@ try {
             return key === 'Enter' || key === 'Tab' || key === '\r' || key === '\n';
         }
 
-        async function handleBarcodeScan(code, sourceInput = null) {
-            const barcodeEl = sourceInput || document.getElementById('pos-barcode-input') || document.getElementById('pos-barcode-input-home');
-            const sku = String(code || '').replace(/[\r\n]+/g, '').trim();
+        function normalizeProductBarcode(code) {
+            return String(code || '').replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060\uFEFF]+/g, '').trim();
+        }
+
+        function isProtectedPosBarcodeTarget(target) {
+            if (!target || target === document.body) return false;
+            if (target.closest && target.closest('.pos-barcode-entry')) return true;
+            if (target.isContentEditable) return true;
+            const tag = String(target.tagName || '').toLowerCase();
+            return tag === 'input' || tag === 'textarea' || tag === 'select';
+        }
+
+        function installPosBarcodeKeyboardCapture() {
+            if (window.__printflowPosProductScannerCaptureInstalled) return;
+            window.__printflowPosProductScannerCaptureInstalled = true;
+            let buffer = '';
+            let startedAt = 0;
+            let lastKeyAt = 0;
+            const maxGapMs = 120;
+            const maxScanMs = 2500;
+
+            function resetBuffer() {
+                buffer = '';
+                startedAt = 0;
+                lastKeyAt = 0;
+            }
+
+            document.addEventListener('keydown', function(event) {
+                if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
+                    resetBuffer();
+                    return;
+                }
+                if (event.target && event.target.closest && event.target.closest('.pos-barcode-entry')) {
+                    resetBuffer();
+                    return;
+                }
+                if (isProtectedPosBarcodeTarget(event.target)) {
+                    resetBuffer();
+                    return;
+                }
+
+                const now = Date.now();
+                if (isBarcodeTerminatorKey(event.key)) {
+                    const raw = buffer;
+                    const duration = startedAt ? now - startedAt : Number.MAX_SAFE_INTEGER;
+                    resetBuffer();
+                    const normalized = normalizeProductBarcode(raw);
+                    posBarcodeDebug('key terminator', {terminator: event.key, characters: raw.length, duration_ms: duration});
+                    if (!normalized || normalized.length < 3 || duration > maxScanMs) return;
+                    // The shared receipt scanner owns canonical receipt payloads
+                    // outside the dedicated product input.
+                    if (/^PF1:ORDER:[1-9][0-9]{0,9}$/i.test(normalized)) return;
+                    event.preventDefault();
+                    if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+                    handleBarcodeScan(raw, null, {terminator: event.key, source: 'pos-keyboard-buffer'});
+                    return;
+                }
+                if (event.key === 'Shift' || event.key === 'CapsLock' || event.key === 'NumLock' || event.key === 'Process') return;
+                if (event.key.length !== 1 || !/[\x20-\x7E]/.test(event.key)) {
+                    resetBuffer();
+                    return;
+                }
+                if (!startedAt || now - lastKeyAt > maxGapMs) {
+                    resetBuffer();
+                    startedAt = now;
+                    posBarcodeDebug('scan started', {source: 'pos-keyboard-buffer'});
+                }
+                buffer += event.key;
+                lastKeyAt = now;
+                if (buffer.length > 96) resetBuffer();
+            }, true);
+        }
+
+        function handleBarcodeScan(code, sourceInput = null, scanMeta = {}) {
+            const barcodeEl = sourceInput || Array.from(document.querySelectorAll('.pos-barcode-entry')).find(function(input) {
+                return !!(input.offsetWidth || input.offsetHeight || input.getClientRects().length);
+            }) || document.getElementById('pos-barcode-input-home');
+            const raw = String(code || '');
+            const sku = normalizeProductBarcode(raw);
+            posBarcodeDebug('raw value', {value: raw, source: scanMeta.source || 'manual'});
+            posBarcodeDebug('normalized value', {value: sku, terminator: scanMeta.terminator || ''});
             if (!sku) {
                 finishBarcodeScan(barcodeEl);
-                return;
+                return Promise.resolve(false);
             }
-            if (barcodeScanBusy) return;
+            clearBarcodeInputs();
+            focusBarcodeInput(barcodeEl);
+            return new Promise(function(resolve) {
+                barcodeScanQueue.push({sku, barcodeEl, scanMeta: {...scanMeta, queuedAt: Date.now()}, resolve});
+                posBarcodeDebug('scan queued', {value: sku, queue_length: barcodeScanQueue.length});
+                drainBarcodeScanQueue();
+            });
+        }
+
+        async function drainBarcodeScanQueue() {
+            if (barcodeScanQueueRunning) return;
+            barcodeScanQueueRunning = true;
             barcodeScanBusy = true;
-            document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = true; });
             try {
-                // Printed PrintFlow receipts use this canonical payload. Reuse the
+                while (barcodeScanQueue.length > 0) {
+                    const scan = barcodeScanQueue.shift();
+                    let result = false;
+                    try {
+                        result = await processBarcodeScan(scan.sku, scan.barcodeEl, scan.scanMeta);
+                    } catch (error) {
+                        console.error('[POS Barcode] scan processing failed', {
+                            value: scan.sku,
+                            name: error instanceof Error ? error.name : 'UnknownError',
+                            message: error instanceof Error ? error.message : 'Unknown scan error'
+                        });
+                        showPOSScanNotice('Scan Error', 'Unable to scan product. Please try again.', 'error');
+                    } finally {
+                        scan.resolve(result);
+                        focusBarcodeInput(scan.barcodeEl);
+                    }
+                }
+            } finally {
+                barcodeScanBusy = false;
+                barcodeScanQueueRunning = false;
+                if (barcodeScanQueue.length > 0) drainBarcodeScanQueue();
+            }
+        }
+
+        async function processBarcodeScan(sku, barcodeEl, scanMeta = {}) {
+            posBarcodeDebug('lookup request started', {value: sku, source: scanMeta.source || 'manual'});
+            // Printed PrintFlow receipts use this canonical payload. Reuse the
                 // existing focused scanner input without adding a competing global
                 // keyboard listener or treating the receipt as a product SKU.
                 if (/^PF1:ORDER:[1-9][0-9]{0,9}$/i.test(sku)) {
@@ -3534,8 +3662,27 @@ try {
                 let product = null;
                 let availability = null;
                 try {
-                    const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
-                    const data = await res.json();
+                    const res = await fetch(
+                        staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku),
+                        {credentials: 'same-origin', cache: 'no-store', headers: {'Accept': 'application/json'}}
+                    );
+                    const contentType = res.headers && typeof res.headers.get === 'function'
+                        ? String(res.headers.get('content-type') || '')
+                        : '';
+                    const data = await res.json().catch(function() { return null; });
+                    posBarcodeDebug('lookup response', {
+                        value: sku,
+                        http_status: Number(res.status || 0),
+                        content_type: contentType,
+                        success: !!(data && data.success),
+                        availability: data && data.availability ? data.availability : '',
+                        product_id: data && data.product && data.product.product_id ? data.product.product_id : null,
+                        response_sku: data && data.product && data.product.sku ? data.product.sku : ''
+                    });
+                    if (!res.ok || !data || (contentType && !contentType.toLowerCase().includes('application/json'))) {
+                        showPOSScanNotice('Scan Error', 'Unable to scan product. Please try again.', 'error');
+                        return;
+                    }
                     if (!data.success) {
                         showPOSScanNotice('Scan Error', data.message || 'Could not scan barcode.', 'error');
                         return;
@@ -3579,6 +3726,13 @@ try {
                 }
 
                 const result = await addToCart(product, null, null, { silentErrors: true });
+                posBarcodeDebug('add-to-cart result', {
+                    value: sku,
+                    product_id: product.product_id,
+                    success: !!(result && result.success),
+                    message: result && result.message ? result.message : '',
+                    elapsed_ms: scanMeta.queuedAt ? Date.now() - scanMeta.queuedAt : null
+                });
                 if (result && result.success) {
                     showPOSScanNotice('Added to Cart', (product.product_name || 'Product') + ' was added to the cart.', 'success');
                     renderProducts();
@@ -3591,11 +3745,7 @@ try {
                 } else if (result && result.success === false) {
                     showPOSScanNotice('Scan Error', 'Could not add this product to the cart.', 'error');
                 }
-            } finally {
-                barcodeScanBusy = false;
-                document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = false; });
-                finishBarcodeScan(barcodeEl);
-            }
+            return true;
         }
         async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
             const name = overrideName || p.product_name;

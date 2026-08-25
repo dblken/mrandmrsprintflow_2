@@ -34,7 +34,9 @@ $check(
 );
 $check(
     str_contains($pos, "key === 'Enter' || key === 'Tab' || key === '\\r' || key === '\\n'")
-        && str_contains($pos, "replace(/[\\r\\n]+/g, '').trim()"),
+        && str_contains($pos, 'function normalizeProductBarcode(code)')
+        && str_contains($pos, '\\u0000-\\u001F')
+        && str_contains($pos, '.trim()'),
     'POS accepts Enter, CR, LF, CRLF, and Tab while preserving SKU punctuation'
 );
 $check(
@@ -42,10 +44,26 @@ $check(
     'global receipt scanner yields focused POS barcode events'
 );
 $check(
-    str_contains($pos, 'if (barcodeScanBusy) return;')
+    str_contains($pos, 'const barcodeScanQueue = []')
+        && str_contains($pos, 'await processBarcodeScan(scan.sku')
+        && !str_contains($pos, 'if (barcodeScanBusy) return;')
         && str_contains($pos, 'scannedCartQuantity(product) >= stock')
         && str_contains($pos, 'await addToCart(product, null, null, { silentErrors: true })'),
-    'one-at-a-time scanning retains stock checks and the existing cart action'
+    'FIFO scanning retains stock checks and the existing cart action without dropping busy scans'
+);
+$check(
+    str_contains($pos, 'installPosBarcodeKeyboardCapture()')
+        && str_contains($pos, "source: 'pos-keyboard-buffer'")
+        && str_contains($pos, 'isProtectedPosBarcodeTarget(event.target)')
+        && str_contains($pos, "if (/^PF1:ORDER:"),
+    'scoped POS capture works away from the barcode input and yields receipt payloads and editing fields'
+);
+$check(
+    str_contains($pos, "window.console.info('[POS Barcode] '")
+        && str_contains($pos, "posBarcodeDebug('lookup request started'")
+        && str_contains($pos, "posBarcodeDebug('lookup response'")
+        && str_contains($pos, "posBarcodeDebug('add-to-cart result'"),
+    'opt-in barcode diagnostics trace capture, lookup, and cart completion without payment data'
 );
 $check(
     str_contains($lookupApi, 'printflow_product_option_stock_total')
