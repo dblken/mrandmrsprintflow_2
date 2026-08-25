@@ -20,8 +20,9 @@ $check = static function (bool $condition, string $message) use (&$passed): void
 
 require_once $root . '/includes/barcode.php';
 $check(printflow_barcode_clean_value(" TSH-0004\r\n") === 'TSH-0004', 'barcode payload normalizes to the visible canonical SKU');
-$tshirtBarcodeSvg = printflow_barcode_svg('TSH-0004', 2, 72);
-$stickerBarcodeSvg = printflow_barcode_svg('STK-0001', 2, 72);
+$tshirtBarcodeSvg = printflow_barcode_code128b_svg('TSH-0004', 2, 72);
+$stickerBarcodeSvg = printflow_barcode_code128b_svg('STK-0001', 2, 72);
+$activeStickerBarcodeSvg = printflow_barcode_svg('STK-0001', 2, 72);
 preg_match_all('/<rect x="(\d+)" y="0" width="(\d+)" height="72" \/>/', $stickerBarcodeSvg, $stickerBars, PREG_SET_ORDER);
 $stickerLastBar = $stickerBars[count($stickerBars) - 1] ?? null;
 $stickerRightQuietZone = $stickerLastBar
@@ -44,8 +45,10 @@ $check(
         && $stickerRightQuietZone === 20
         && str_contains($stickerBarcodeSvg, '<rect width="100%" height="100%" fill="#fff"/>')
         && str_contains($stickerBarcodeSvg, '<g fill="#000">')
-        && !str_contains($barcodeHelper, 'BarcodeGeneratorSVG'),
-    'canonical generator always supplies pure black bars, a pure white background, and 20px quiet zones'
+        && str_contains($barcodeHelper, 'BarcodeGeneratorSVG')
+        && str_contains($barcodeHelper, 'TYPE_CODE_128')
+        && str_contains($activeStickerBarcodeSvg, '<svg'),
+    'last-known-good Picqer Code 128 path is restored with the black/white quiet-zone fallback'
 );
 $check(
     str_contains($admin, "pfProductBarcodeUrl(sku)")
@@ -54,11 +57,13 @@ $check(
     'Admin preview text and generated Code 128 image use the same SKU value'
 );
 $check(
-    str_contains($admin, 'function pfApplyBarcodeScreenGeometry(img)')
-        && str_contains($admin, 'targetDeviceModulePx = Math.max(3')
-        && str_contains($admin, "img.style.maxWidth = 'none'")
-        && !str_contains($admin, 'max-width:100%;height:72px;object-fit:contain'),
-    'Admin preview maps Code 128 modules to whole device pixels instead of arbitrary responsive scaling'
+    !str_contains($admin, 'function pfApplyBarcodeScreenGeometry(img)')
+        && !str_contains($admin, 'targetDeviceModulePx')
+        && !str_contains($admin, 'devicePixelRatio')
+        && str_contains($admin, '.pf-product-barcode-image')
+        && str_contains($admin, 'width: auto;')
+        && str_contains($admin, 'height: auto;'),
+    'Admin preview preserves the last-known-good native SVG dimensions without device-pixel rewriting'
 );
 $check(
     str_contains($admin, 'class="view-product-details-grid"')

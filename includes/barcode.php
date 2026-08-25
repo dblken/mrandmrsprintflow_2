@@ -2,10 +2,10 @@
 /**
  * Dynamic barcode helpers for product SKUs.
  *
- * Uses one canonical Code 128B SVG renderer in every deployment so the bars,
- * white background, and quiet zones do not change depending on whether
- * optional Composer dependencies are installed. The renderer supports the
- * existing SKU character set: letters, numbers, spaces, and hyphens.
+ * Uses the original Picqer Code 128 generator when Composer dependencies are
+ * available. The Code 128B fallback keeps product barcodes available in
+ * constrained deployments and supports the existing SKU character set:
+ * letters, numbers, spaces, and hyphens.
  */
 
 function printflow_barcode_clean_value(string $value): string
@@ -23,6 +23,16 @@ function printflow_barcode_svg(string $value, int $widthFactor = 2, int $height 
     $value = printflow_barcode_clean_value($value);
     if ($value === '') {
         throw new InvalidArgumentException('Barcode value is required.');
+    }
+
+    $autoload = __DIR__ . '/../vendor/autoload.php';
+    if (is_file($autoload)) {
+        require_once $autoload;
+    }
+
+    if (class_exists('\Picqer\Barcode\BarcodeGeneratorSVG')) {
+        $generator = new \Picqer\Barcode\BarcodeGeneratorSVG();
+        return $generator->getBarcode($value, $generator::TYPE_CODE_128, $widthFactor, $height);
     }
 
     return printflow_barcode_code128b_svg($value, $widthFactor, $height);

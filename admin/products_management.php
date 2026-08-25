@@ -2117,6 +2117,11 @@ if (isset($_GET['ajax'])) {
                 grid-template-columns: minmax(0, 1fr) !important;
             }
         }
+        @media (max-width: 380px) {
+            .pf-product-barcode-card {
+                padding: 10px !important;
+            }
+        }
         @media (max-width: 600px) {
             #product-modal .form-row { grid-template-columns: 1fr; }
             #product-modal .form-row-3 { grid-template-columns: 1fr; }
@@ -2673,7 +2678,7 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="modal-barcode-preview-wrap" style="display:none;margin:-2px 0 18px;">
                     <label class="view-label" style="margin-bottom:8px;">Barcode Preview</label>
-                    <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;min-width:0;">
+                    <div class="pf-product-barcode-card" style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;min-width:0;">
                         <div class="pf-product-barcode-frame" role="region" aria-label="Scrollable product barcode preview" tabindex="0">
                             <div class="pf-product-barcode-track">
                                 <img id="modal-barcode-preview-img" class="pf-product-barcode-image" alt="SKU barcode preview">
@@ -2844,7 +2849,7 @@ if (isset($_GET['ajax'])) {
                     </div>
                     <div id="view-product-barcode-wrap" style="display:none;">
                         <label class="view-label">Barcode Preview</label>
-                        <div style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;min-width:0;">
+                        <div class="pf-product-barcode-card" style="border:1px solid #e5e7eb;border-radius:10px;background:#fff;padding:14px;min-width:0;">
                             <div class="pf-product-barcode-frame" role="region" aria-label="Scrollable product barcode preview" tabindex="0">
                                 <div class="pf-product-barcode-track">
                                     <img id="view-product-barcode-img" class="pf-product-barcode-image" alt="Product SKU barcode">
@@ -3377,33 +3382,6 @@ function pfProductBarcodeUrl(sku) {
     return 'api_product_barcode.php?sku=' + encodeURIComponent(String(sku || '').trim());
 }
 
-function pfApplyBarcodeScreenGeometry(img) {
-    if (!img || !img.naturalWidth || !img.naturalHeight) return null;
-    // The API uses a two-CSS-pixel Code 128 module. Choose a proportional
-    // scale whose smallest bar lands on at least three whole device pixels,
-    // avoiding the 2.5px antialiasing produced at Windows 125% scaling.
-    var sourceModulePx = 2;
-    var devicePixelRatio = Math.max(0.5, Number(window.devicePixelRatio) || 1);
-    var targetDeviceModulePx = Math.max(3, Math.ceil(sourceModulePx * devicePixelRatio));
-    var cssScale = targetDeviceModulePx / (sourceModulePx * devicePixelRatio);
-    var cssWidth = img.naturalWidth * cssScale;
-    var cssHeight = img.naturalHeight * cssScale;
-    img.style.width = cssWidth.toFixed(4) + 'px';
-    img.style.height = cssHeight.toFixed(4) + 'px';
-    img.style.maxWidth = 'none';
-    img.dataset.barcodeModuleDevicePx = String(targetDeviceModulePx);
-    img.dataset.barcodeIntrinsicWidth = String(img.naturalWidth);
-    img.dataset.barcodeIntrinsicHeight = String(img.naturalHeight);
-    return {
-        intrinsicWidth: img.naturalWidth,
-        intrinsicHeight: img.naturalHeight,
-        cssWidth: cssWidth,
-        cssHeight: cssHeight,
-        devicePixelRatio: devicePixelRatio,
-        moduleDevicePixels: targetDeviceModulePx
-    };
-}
-
 function pfSetBarcodePreview(prefix, sku) {
     sku = String(sku || '').trim();
     var wrap = document.getElementById(prefix + '-barcode-preview-wrap') || document.getElementById(prefix + '-barcode-wrap');
@@ -3417,22 +3395,9 @@ function pfSetBarcodePreview(prefix, sku) {
         return;
     }
     wrap.style.display = 'block';
-    img.onload = function() { pfApplyBarcodeScreenGeometry(img); };
     img.src = pfProductBarcodeUrl(sku);
-    if (img.complete && img.naturalWidth) pfApplyBarcodeScreenGeometry(img);
     txt.textContent = sku;
 }
-
-var pfBarcodeGeometryFrame = 0;
-window.addEventListener('resize', function() {
-    if (pfBarcodeGeometryFrame) window.cancelAnimationFrame(pfBarcodeGeometryFrame);
-    pfBarcodeGeometryFrame = window.requestAnimationFrame(function() {
-        pfBarcodeGeometryFrame = 0;
-        document.querySelectorAll('.pf-product-barcode-image').forEach(function(img) {
-            if (img.complete && img.naturalWidth) pfApplyBarcodeScreenGeometry(img);
-        });
-    });
-});
 
 function pfRefreshModalBarcodePreview() {
     var skuEl = document.getElementById('modal-sku');
