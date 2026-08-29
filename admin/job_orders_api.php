@@ -72,6 +72,7 @@ require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 
 if (!is_logged_in()) {
     jo_api_json_response(['success' => false, 'error' => 'Unauthorized'], 401);
@@ -94,6 +95,8 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
     $durationMs = max(0, (microtime(true) - (float)$joApiStartedAt) * 1000);
     header('Server-Timing: app;dur=' . number_format($durationMs, 1, '.', ''));
     header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store, max-age=0');
+    header('Vary: Cookie');
     if ($durationMs >= 2000) {
         $action = preg_replace('/[^a-z0-9_\-]/i', '', (string)($_GET['action'] ?? $_POST['action'] ?? 'unknown'));
         error_log(sprintf(
@@ -904,9 +907,117 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
 
 try {
     switch ($action) {
+        case 'customization_counts':
+            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
+                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
+            }
+            // Counts are intentionally computed from identifiers/statuses only.
+            // Full order items, specifications, designs and payment proofs never
+            // participate in this response.
+            $countRows = [];
+            $orderCountSql = "SELECT o.order_id AS id, o.status, COALESCE(o.order_source, 'customer') AS order_source,
+                                     LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email
+                              FROM orders o
+                              LEFT JOIN customers c ON c.customer_id = o.customer_id
+                              WHERE o.order_type = 'custom'
+                                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
+                                AND o.status IN (
+                                    'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
+                                    'Approved', 'Design Approved', 'To Pay', 'Payment Confirmed',
+                                    'Downpayment Submitted', 'Pending Verification', 'To Verify',
+                                    'Processing', 'In Production', 'Printing', 'Paid – In Process',
+                                    'Paid - In Process', 'Ready for Pickup', 'Completed', 'Rejected', 'Cancelled'
+                                )";
+            $countTypes = '';
+            $countParams = [];
+            if ($joStaffBranch !== null) {
+                $orderCountSql .= ' AND o.branch_id = ?';
+                $countTypes .= 'i';
+                $countParams[] = $joStaffBranch;
+            }
+            $orderRows = db_query($orderCountSql, $countTypes ?: null, $countParams ?: null) ?: [];
+            foreach ($orderRows as $row) {
+                $source = strtolower(trim((string)($row['order_source'] ?? 'customer')));
+                if (($row['customer_email'] ?? '') === 'walkin@pos.local') {
+                    $source = 'pos';
+                }
+                if (jo_api_source_matches($source, $listSource)) {
+                    $countRows[] = ['status' => (string)($row['status'] ?? '')];
+                }
+            }
+
+            // Standalone production jobs have no store order to represent them.
+            $jobCountSql = 'SELECT status FROM job_orders WHERE order_id IS NULL';
+            $jobCountTypes = '';
+            $jobCountParams = [];
+            if ($joStaffBranch !== null) {
+                $jobCountSql .= ' AND branch_id = ?';
+                $jobCountTypes = 'i';
+                $jobCountParams[] = $joStaffBranch;
+            }
+            if ($listSource !== 'pos') {
+                $countRows = array_merge($countRows, db_query($jobCountSql, $jobCountTypes ?: null, $jobCountParams ?: null) ?: []);
+            }
+
+            if ($listSource !== 'pos') {
+                service_order_ensure_tables();
+                $serviceCountSql = "SELECT status FROM service_orders
+                                    WHERE status IN (
+                                        'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
+                                        'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
+                                        'Completed', 'Rejected', 'Cancelled'
+                                    )";
+                $serviceCountTypes = '';
+                $serviceCountParams = [];
+                if ($joStaffBranch !== null) {
+                    $serviceCountSql .= ' AND branch_id = ?';
+                    $serviceCountTypes = 'i';
+                    $serviceCountParams[] = $joStaffBranch;
+                }
+                $countRows = array_merge($countRows, db_query($serviceCountSql, $serviceCountTypes ?: null, $serviceCountParams ?: null) ?: []);
+            }
+
+            $counts = [
+                'ALL' => 0, 'INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0,
+                'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CLOSED' => 0,
+                'PENDING' => 0, 'CANCELLED' => 0,
+            ];
+            foreach ($countRows as $row) {
+                $statusKey = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
+                $statusKey = str_replace(['–', '-'], '_', $statusKey);
+                $counts['ALL']++;
+                if (in_array($statusKey, ['REJECTED', 'CANCELLED'], true)) {
+                    $counts['CLOSED']++;
+                    $counts['CANCELLED']++;
+                } elseif ($statusKey === 'COMPLETED') {
+                    $counts['COMPLETED']++;
+                } elseif (in_array($statusKey, ['TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_TO_COLLECT'], true)) {
+                    $counts['TO_RECEIVE']++;
+                    $counts['PENDING']++;
+                } elseif (in_array($statusKey, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'PAID___IN_PROCESS'], true)) {
+                    $counts['PRODUCTION']++;
+                    $counts['PENDING']++;
+                } elseif (in_array($statusKey, ['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)) {
+                    $counts['PAYMENT']++;
+                    $counts['PENDING']++;
+                } else {
+                    $counts['INQUIRY']++;
+                    $counts['PENDING']++;
+                }
+            }
+            jo_api_json_response(['success' => true, 'data' => $counts]);
+            break;
+
         case 'list_orders':
             $status = sanitize($_GET['status'] ?? '');
-            $sql = "SELECT jo.*, c.first_name, c.last_name, c.customer_type, c.transaction_count,
+            $jobColumns = $summaryOnly
+                ? "jo.id, jo.order_id, jo.customer_id, jo.order_item_id, jo.branch_id,
+                   jo.job_title, jo.customer_name, jo.service_type, jo.status, jo.customer_type,
+                   jo.width_ft, jo.height_ft, jo.quantity, jo.estimated_total, jo.amount_paid,
+                   jo.required_payment, jo.payment_status, jo.due_date, jo.priority,
+                   jo.created_at, jo.updated_at, jo.payment_proof_status"
+                : 'jo.*';
+            $sql = "SELECT {$jobColumns}, c.first_name, c.last_name, c.customer_type, c.transaction_count,
                            c.profile_picture AS customer_profile_picture,
                            TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                            COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
@@ -943,12 +1054,21 @@ try {
                     )
                 )";
             }
+            if ($listSource === 'pos') {
+                $sql .= " AND jo.order_id IS NOT NULL
+                          AND (LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
+                               OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local')";
+            } elseif ($listSource === 'online') {
+                $sql .= " AND (jo.order_id IS NULL
+                          OR (LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_draft', 'pos_merged')
+                              AND LOWER(TRIM(COALESCE(c.email, ''))) <> 'walkin@pos.local'))";
+            }
             
             // Pagination
             $page = max(1, (int)($_GET['page'] ?? 1));
             $per_page = isset($_GET['customer_id'])
                 ? 10
-                : min(500, max(1, (int)($_GET['per_page'] ?? 250)));
+                : min(500, max(1, (int)($_GET['per_page'] ?? ($summaryOnly ? 25 : 250))));
             $offset = ($page - 1) * $per_page;
             
             $includePagination = isset($_GET['customer_id'])
@@ -969,6 +1089,7 @@ try {
             $sql .= " ORDER BY jo.priority = 'HIGH' DESC, jo.due_date ASC, jo.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $per_page; $params[] = $offset; $types .= 'ii';
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
+            $fetchedOrderCount = count($orders);
 
             $orderSourceMap = jo_api_resolve_order_sources_batch($orders);
             if ($listSource !== 'all') {
@@ -1048,7 +1169,9 @@ try {
                     }
                 }
                 
-                $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($jobOrderIds, $serviceOnly);
+                $payloads = $summaryOnly
+                    ? JobOrderService::getStoreOrderItemSummariesBatch($jobOrderIds, $serviceOnly)
+                    : JobOrderService::getStoreOrderItemsPayloadsBatch($jobOrderIds, $serviceOnly);
                 $orderCodes = jo_api_order_codes($jobOrderIds);
 
                 $visibleOrders = [];
@@ -1105,6 +1228,9 @@ try {
                 $orders = $visibleOrders;
             }
             jo_api_attach_provider_payments($orders);
+            if ($summaryOnly) {
+                $orders = jo_api_summary_rows($orders);
+            }
             
             $response = ['success' => true, 'data' => $orders];
             if ($includePagination) {
@@ -1112,7 +1238,8 @@ try {
                     'current_page' => $page,
                     'total_pages' => max(1, ceil($total_count / $per_page)),
                     'total_items' => $total_count,
-                    'per_page' => $per_page
+                    'per_page' => $per_page,
+                    'has_more' => $fetchedOrderCount === $per_page,
                 ];
             }
             
@@ -1141,7 +1268,10 @@ try {
             break;
 
         case 'list_pending_orders':
-            $dashboardListLimit = min(500, max(50, (int)($_GET['per_page'] ?? 250)));
+            $dashboardListLimit = min(500, max(1, (int)($_GET['per_page'] ?? ($summaryOnly ? 25 : 250))));
+            $dashboardListPage = max(1, (int)($_GET['page'] ?? 1));
+            $dashboardListOffset = ($dashboardListPage - 1) * $dashboardListLimit;
+            $dashboardFetchLimit = min(500, $dashboardListOffset + $dashboardListLimit + 1);
             // Fetch regular product orders with pending status for staff customization dashboard
             $sql = "SELECT 
                         o.order_id as id,
@@ -1187,7 +1317,7 @@ try {
                         NULL as priority,
                         o.total_amount as estimated_total,
                         (SELECT MIN(jo.id) FROM job_orders jo WHERE jo.order_id = o.order_id) AS job_order_id,
-                        o.payment_proof as payment_proof_path,
+                        " . ($summaryOnly ? "NULL" : "o.payment_proof") . " as payment_proof_path,
                         o.downpayment_amount as payment_submitted_amount,
                         COALESCE(o.order_source, 'customer') as order_source
                     FROM orders o
@@ -1204,14 +1334,20 @@ try {
                         'Completed', 'Rejected', 'Cancelled'
                     )"
                     . ($serviceOnly ? " AND o.order_type = 'custom'" : "")
+                    . ($listSource === 'pos'
+                        ? " AND (LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in') OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local')"
+                        : ($listSource === 'online'
+                            ? " AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_draft', 'pos_merged') AND LOWER(TRIM(COALESCE(c.email, ''))) <> 'walkin@pos.local'"
+                            : ""))
                     . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                     GROUP BY o.order_id
                     ORDER BY o.order_date DESC
-                    LIMIT " . (int)$dashboardListLimit;
+                    LIMIT " . (int)$dashboardFetchLimit;
 
              $pending_orders = $joStaffBranch !== null
                  ? (db_query($sql, 'i', [$joStaffBranch]) ?: [])
                  : (db_query($sql) ?: []);
+             $pendingFetchedCount = count($pending_orders);
 
              $pendingSourceMap = jo_api_resolve_order_sources_batch($pending_orders);
              if ($listSource !== 'all') {
@@ -1233,7 +1369,9 @@ try {
                  }
              }
 
-             $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
+             $payloads = $summaryOnly
+                 ? JobOrderService::getStoreOrderItemSummariesBatch($pendingOrderIds, $serviceOnly)
+                 : JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
              $pendingOrderCodes = jo_api_order_codes($pendingOrderIds);
 
              $visiblePendingOrders = [];
@@ -1253,7 +1391,10 @@ try {
                  }
                  $visiblePendingOrders[] = $order;
              }
-             $pending_orders = $visiblePendingOrders;
+            $pending_orders = $visiblePendingOrders;
+            // Use the pre-filter count so a page containing rows from the other
+            // staff source does not incorrectly terminate online/POS paging.
+            $pendingHasMore = $pendingFetchedCount === $dashboardFetchLimit;
 
             // Customizations from POS (customizations table).
             // Online service orders also create rows in customizations, but the complete
@@ -1314,7 +1455,7 @@ try {
                 )"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
-                LIMIT " . (int)$dashboardListLimit;
+                LIMIT " . (int)$dashboardFetchLimit;
 
             $custom_orders = [];
             if ($listSource !== 'online') {
@@ -1340,6 +1481,7 @@ try {
                 }
             }
             unset($co);
+            $customHasMore = count($custom_orders) === $dashboardFetchLimit;
 
             // Service purchases (service_orders) — same dashboard shape; order_type SERVICE
             service_order_ensure_tables();
@@ -1384,17 +1526,23 @@ try {
                     'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                     'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                     'Completed', 'Rejected', 'Cancelled'
-                )
+                )"
+                . ($joStaffBranch !== null ? " AND so.branch_id = ?" : "") . "
                 ORDER BY so.created_at DESC
-                LIMIT " . (int)$dashboardListLimit;
+                LIMIT " . (int)$dashboardFetchLimit;
 
-            $svc_orders = $listSource === 'pos' ? [] : (db_query($svc_sql) ?: []);
+            $svc_orders = $listSource === 'pos'
+                ? []
+                : ($joStaffBranch !== null
+                    ? (db_query($svc_sql, 'i', [$joStaffBranch]) ?: [])
+                    : (db_query($svc_sql) ?: []));
             foreach ($svc_orders as &$so) {
                 $so['readiness'] = 'READY';
                 $so['estimated_cost'] = 0;
                 $so['order_code'] = 'SRV-' . str_pad((string)((int)($so['id'] ?? 0)), 5, '0', STR_PAD_LEFT);
             }
             unset($so);
+            $serviceHasMore = count($svc_orders) === $dashboardFetchLimit;
 
             $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
             jo_api_attach_provider_payments($merged);
@@ -1404,7 +1552,37 @@ try {
                 return $tb <=> $ta;
             });
 
-            jo_api_json_response(['success' => true, 'data' => $merged]);
+            // The three sources can mirror the same store order. Keep the newest
+            // representative before applying the combined server-side page.
+            $deduped = [];
+            $seenOrderKeys = [];
+            foreach ($merged as $row) {
+                $orderKey = (string)($row['order_id'] ?? $row['id'] ?? '');
+                if ($orderKey !== '' && isset($seenOrderKeys[$orderKey])) {
+                    continue;
+                }
+                if ($orderKey !== '') {
+                    $seenOrderKeys[$orderKey] = true;
+                }
+                $deduped[] = $row;
+            }
+            $mergedHasMore = count($deduped) > ($dashboardListOffset + $dashboardListLimit)
+                || $pendingHasMore || $customHasMore || $serviceHasMore;
+            $merged = array_slice($deduped, $dashboardListOffset, $dashboardListLimit);
+
+            if ($summaryOnly) {
+                $merged = jo_api_summary_rows($merged);
+            }
+
+            jo_api_json_response([
+                'success' => true,
+                'data' => $merged,
+                'pagination' => [
+                    'current_page' => $dashboardListPage,
+                    'per_page' => $dashboardListLimit,
+                    'has_more' => $mergedHasMore,
+                ],
+            ]);
             break;
 
         case 'list_machines':

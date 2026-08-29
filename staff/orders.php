@@ -1445,6 +1445,8 @@ $page_title = 'Orders - Staff';
     var searchDebounceTimer = null;
     var ordersFetchController = null;
     var ordersRequestSerial = 0;
+    var ordersLastRefreshAt = 0;
+    var ordersMinimumRefreshAgeMs = 5000;
     var staffOrdersRealtimeMs = 15000;
     var staffOrdersRealtimeTimer = null;
     var staffOrdersRealtimeBound = false;
@@ -1483,6 +1485,8 @@ $page_title = 'Orders - Staff';
 
     async function fetchUpdatedTable(overrides = {}, options = {}) {
         const silent = !!options.silent;
+        if (silent && (Date.now() - ordersLastRefreshAt) < ordersMinimumRefreshAgeMs) return;
+        if (silent && ordersFetchController) return;
         const url = buildFilterURL(overrides, true);
         const container = document.querySelector('.orders-table tbody');
         if (!container) return;
@@ -1503,6 +1507,7 @@ $page_title = 'Orders - Staff';
             const resp = await fetch(url, { signal: ordersFetchController.signal });
             const data = await resp.json();
             if (requestSerial !== ordersRequestSerial) return;
+            ordersLastRefreshAt = Date.now();
 
             container.innerHTML = data.tbody;
 

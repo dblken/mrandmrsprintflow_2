@@ -1427,8 +1427,8 @@ $online_closed_count = 0;
                 <div x-show="totalPages > 1" class="pagination-container" style="display: flex !important; width: 100% !important; justify-content: center !important; align-items: center !important; padding: 24px 0; border-top: 1px solid #f3f4f6; margin-top: auto !important; clear: both !important;">
                     <div style="display: flex !important; align-items: center !important; gap: 6px !important; justify-content: center !important;">
                         <!-- Previous Button -->
-                        <button x-show="currentPage > 1" 
-                                @click="currentPage--" 
+                        <button x-show="currentPage > 1"
+                                @click="goToOrdersPage(currentPage - 1)"
                                 style="display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;"
                                 onmouseover="this.style.borderColor='#06A1A1'; this.style.color='#06A1A1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(6, 161, 161, 0.1)';" 
                                 onmouseout="this.style.borderColor='#e2e8f0'; this.style.color='#64748b'; this.style.transform='none'; this.style.boxShadow='none';">
@@ -1441,7 +1441,7 @@ $online_closed_count = 0;
                                     <span style="width:38px; height:38px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; font-weight:600; font-size:14px; letter-spacing:1px;">...</span>
                                 </template>
                                 <template x-if="p !== '...'">
-                                    <button @click="currentPage = p" 
+                                    <button @click="goToOrdersPage(p)"
                                             :style="currentPage === p 
                                                 ? 'display:inline-flex; align-items:center; justify-content:center; min-width:38px; height:38px; padding:0 12px; border-radius:10px; border:none; background:linear-gradient(135deg, #06A1A1 0%, #047676 100%); color:white; font-size:14px; font-weight:700; box-shadow: 0 4px 12px rgba(6, 161, 161, 0.25); cursor:pointer;'
                                                 : 'display:inline-flex; align-items:center; justify-content:center; min-width:38px; height:38px; padding:0 12px; border-radius:10px; border:1px solid #e2e8f0; background:#fff; color:#64748b; font-size:14px; font-weight:600; transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;'"
@@ -1454,8 +1454,8 @@ $online_closed_count = 0;
                         </template>
 
                         <!-- Next Button -->
-                        <button x-show="currentPage < totalPages" 
-                                @click="currentPage++" 
+                        <button x-show="currentPage < totalPages"
+                                @click="goToOrdersPage(currentPage + 1)"
                                 style="display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;"
                                 onmouseover="this.style.borderColor='#06A1A1'; this.style.color='#06A1A1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(6, 161, 161, 0.1)';" 
                                 onmouseout="this.style.borderColor='#e2e8f0'; this.style.color='#64748b'; this.style.transform='none'; this.style.boxShadow='none';">
@@ -2526,8 +2526,18 @@ window.pfCustomizationPreloadedOrders = (() => {
             loadingOrders: true,
             ordersError: '',
             ordersLastLoadedAt: 0,
-            ordersMinRefreshMs: 8000,
+            ordersMinRefreshMs: 15000,
             modalCache: {},
+            modalCacheLoadedAt: {},
+            modalCacheTtlMs: 60000,
+            // Two scoped summary sources are merged; 15 each caps the initial
+            // response set at roughly 30 rows before de-duplication.
+            ordersSummaryPageSize: 15,
+            ordersApiPage: 1,
+            ordersHasMore: false,
+            loadingMoreOrders: false,
+            statusCounts: {},
+            filterCoverageTimer: null,
             loadingDetailKey: '',
             detailError: '',
             detailRetryPayload: null,
@@ -2946,6 +2956,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
+                this.modalCacheLoadedAt[cacheKey] = Date.now();
                 if (window.PrintFlowReceiptScanner && this.currentJo.order_id) {
                     window.PrintFlowReceiptScanner.markOrderOpened(this.currentJo.order_id, 'staff-customizations');
                 }
@@ -2979,6 +2990,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.paymongoPayment = merged.provider_payment || this.paymongoPayment || null;
                     this.restoreSavedInkUsage();
                     this.modalCache[cacheKey] = merged;
+                    this.modalCacheLoadedAt[cacheKey] = Date.now();
                 } catch (e) {
                     console.warn('Deferred modal assignments load failed:', e);
                 } finally {
@@ -4120,8 +4132,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
                     this.bumpOrdersVersion();
                 }
-                this.$watch('search', () => { this.currentPage = 1; });
-                this.$watch('activeStatus', () => { this.currentPage = 1; });
+                this.$watch('search', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('activeStatus', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('serviceFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('dateFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('sortOrder', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('showDetailsModal', (isOpen) => {
                     if (!isOpen) this.clearDeepLinkParams();
                 });
@@ -4276,12 +4291,138 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
             },
 
+            async fetchOrderSummaryPage(page, signal = undefined) {
+                const sourceFilter = <?php echo json_encode(
+                    $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
+                ); ?>;
+                const query = new URLSearchParams({
+                    service_only: '1',
+                    summary_only: '1',
+                    source: sourceFilter,
+                    page: String(Math.max(1, Number(page) || 1)),
+                    per_page: String(this.ordersSummaryPageSize),
+                    _: String(Date.now())
+                });
+                const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&include_pagination=1&${query.toString()}`;
+                const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&${query.toString()}`;
+                const requestOptions = {
+                    cache: 'no-store',
+                    signal,
+                    headers: { 'Accept': 'application/json' }
+                };
+                const [joRes, pendingRes] = await Promise.all([
+                    fetch(ordersEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Customization orders', ordersEndpoint)),
+                    fetch(pendingEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Pending customization orders', pendingEndpoint)),
+                ]);
+
+                if (!joRes.success && !pendingRes.success) {
+                    throw new Error(joRes.error || pendingRes.error || 'Customization list requests failed');
+                }
+                const joHasMore = !!(joRes.pagination && joRes.pagination.has_more);
+                const pendingHasMore = !!(pendingRes.pagination && pendingRes.pagination.has_more);
+                return {
+                    rows: [
+                        ...(joRes.success && Array.isArray(joRes.data) ? joRes.data : []),
+                        ...(pendingRes.success && Array.isArray(pendingRes.data) ? pendingRes.data : [])
+                    ],
+                    hasMore: joHasMore || pendingHasMore,
+                    errors: [joRes.success ? '' : joRes.error, pendingRes.success ? '' : pendingRes.error].filter(Boolean)
+                };
+            },
+
+            async loadStatusCounts(signal = undefined) {
+                const sourceFilter = <?php echo json_encode(
+                    $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
+                ); ?>;
+                const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}`;
+                const response = await fetch(endpoint, {
+                    cache: 'no-store', signal, headers: { 'Accept': 'application/json' }
+                });
+                const result = await this.parseJsonResponse(response, 'Customization counts', endpoint);
+                if (result.success && result.data) {
+                    this.statusCounts = result.data;
+                }
+            },
+
+            async loadNextOrderSummaryPage() {
+                if (!this.ordersHasMore || this.loadingMoreOrders) return false;
+                this.loadingMoreOrders = true;
+                try {
+                    const nextPage = this.ordersApiPage + 1;
+                    const result = await this.fetchOrderSummaryPage(nextPage);
+                    this.orders = this.prepareOrderRows([...this.orders, ...result.rows]);
+                    this.ordersApiPage = nextPage;
+                    this.ordersHasMore = result.hasMore;
+                    this.bumpOrdersVersion();
+                    return result.rows.length > 0;
+                } finally {
+                    this.loadingMoreOrders = false;
+                }
+            },
+
+            scheduleFilterCoverage() {
+                if (this.filterCoverageTimer) window.clearTimeout(this.filterCoverageTimer);
+                this.filterCoverageTimer = window.setTimeout(() => {
+                    this.filterCoverageTimer = null;
+                    this.ensureFilterCoverage().catch(error => {
+                        console.warn('[Customizations] Filter pagination stopped:', error);
+                    });
+                }, 250);
+            },
+
+            async ensureFilterCoverage() {
+                const hasFilter = !!this.search || this.activeStatus !== 'ALL'
+                    || this.serviceFilter !== 'ALL' || this.dateFilter !== 'ALL'
+                    || this.sortOrder !== 'newest';
+                if (!hasFilter) return;
+                const needsCompleteSet = ['oldest', 'az', 'za'].includes(this.sortOrder);
+                const targetMatches = needsCompleteSet ? Number.POSITIVE_INFINITY : (this.search ? 1 : this.itemsPerPage);
+                let pagesLoaded = 0;
+                while (this.ordersHasMore && this.filteredOrders.length < targetMatches && pagesLoaded < 40) {
+                    const loaded = await this.loadNextOrderSummaryPage();
+                    pagesLoaded++;
+                    if (!loaded) break;
+                }
+            },
+
+            async goToOrdersPage(page) {
+                const target = Math.max(1, Number(page) || 1);
+                let pagesLoaded = 0;
+                while (target > Math.max(1, Math.ceil(this.filteredOrders.length / this.itemsPerPage))
+                    && this.ordersHasMore && pagesLoaded < 40) {
+                    const loaded = await this.loadNextOrderSummaryPage();
+                    pagesLoaded++;
+                    if (!loaded) break;
+                }
+                this.currentPage = Math.min(target, Math.max(1, Math.ceil(this.filteredOrders.length / this.itemsPerPage)));
+            },
+
+            invalidateDetailCacheForRows(rows = []) {
+                if (!Array.isArray(rows) || rows.length === 0) return;
+                const changedIds = new Set();
+                rows.forEach(row => {
+                    [row && row.id, row && row.order_id, row && row.job_order_id]
+                        .filter(value => value !== null && value !== undefined && value !== '')
+                        .forEach(value => changedIds.add(String(value)));
+                });
+                Object.keys(this.modalCache).forEach(cacheKey => {
+                    const cached = this.modalCache[cacheKey] || {};
+                    const matches = [cached.id, cached.order_id, cached.job_order_id]
+                        .some(value => value !== null && value !== undefined && changedIds.has(String(value)));
+                    if (matches) {
+                        delete this.modalCache[cacheKey];
+                        delete this.modalCacheLoadedAt[cacheKey];
+                    }
+                });
+            },
+
             async loadOrders(options = {}) {
                 const silent = !!options.silent;
                 const force = !!options.force;
                 const now = Date.now();
                 if (silent && document.visibilityState !== 'visible') return;
                 if (!force && silent && (now - this.ordersLastLoadedAt) < this.ordersMinRefreshMs) return;
+                if (silent && this.loadingMoreOrders) return;
                 if (ordersAbortController) {
                     if (silent) return;
                     ordersAbortController.abort();
@@ -4296,7 +4437,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }, 15000);
                 if (!silent && this.orders.length === 0) this.loadingOrders = true;
                 this.ordersError = '';
-                this.modalCache = {};
+                if (!silent) {
+                    this.modalCache = {};
+                    this.modalCacheLoadedAt = {};
+                }
                 try {
                     // Drop stale optimistic overrides before applying freshly fetched rows.
                     const now = Date.now();
@@ -4306,42 +4450,33 @@ window.pfCustomizationPreloadedOrders = (() => {
                             delete this.statusOverrides[key];
                         }
                     });
-                    const refreshToken = Date.now();
-                    const sourceFilter = <?php echo json_encode(
-                        $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
-                    ); ?>;
-                    const requestOptions = {
-                        cache: 'no-store',
-                        signal: controller.signal,
-                        headers: { 'Accept': 'application/json' }
-                    };
-                    const ordersEndpoint = `../admin/job_orders_api.php?action=list_orders&service_only=1&summary_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=200&_=${refreshToken}`;
-                    const pendingEndpoint = `../admin/job_orders_api.php?action=list_pending_orders&service_only=1&source=${encodeURIComponent(sourceFilter)}&per_page=250&_=${refreshToken}`;
-                    const [joRes, pendingRes] = await Promise.all([
-                        fetch(ordersEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Customization orders', ordersEndpoint)),
-                        fetch(pendingEndpoint, requestOptions).then(r => this.parseJsonResponse(r, 'Pending customization orders', pendingEndpoint)),
+                    const [summaryPage] = await Promise.all([
+                        this.fetchOrderSummaryPage(1, controller.signal),
+                        this.loadStatusCounts(controller.signal).catch(error => {
+                            console.warn('[Customizations] Count refresh failed:', error);
+                        })
                     ]);
-
-                    if (!joRes.success && !pendingRes.success) {
-                        throw new Error(joRes.error || pendingRes.error || 'Customization list requests failed');
+                    if (summaryPage.errors.length) {
+                        console.error('[Customizations] Some summary sources failed:', summaryPage.errors);
                     }
-                    if (!joRes.success) {
-                        console.error('[Customizations] Primary orders request failed:', joRes.error);
+                    if (silent) {
+                        this.invalidateDetailCacheForRows(summaryPage.rows);
                     }
-                    if (!pendingRes.success) {
-                        console.error('[Customizations] Pending orders request failed:', pendingRes.error);
-                    }
-
-                    const jobOrders = joRes.success ? joRes.data : [];
-                    const pendingOrders = pendingRes.success ? pendingRes.data : [];
                     // Include JOB rows plus store/service rows (ORDER, CUSTOMIZATION, SERVICE) so customer service
                     // checkout always appears even when job_orders is missing or filtered differently per API.
-                    const combinedRows = [...jobOrders, ...pendingOrders];
+                    const combinedRows = silent && this.orders.length > 0
+                        ? [...summaryPage.rows, ...this.orders]
+                        : summaryPage.rows;
                     const preparedRows = this.prepareOrderRows(combinedRows);
                     const visibleRows = <?php echo $showLatestCustomizationOnly ? 'preparedRows.slice(0, 1)' : 'preparedRows'; ?>;
                     this.orders = visibleRows;
                     this.bumpOrdersVersion();
                     this.ordersLastLoadedAt = Date.now();
+                    if (!silent) {
+                        this.ordersApiPage = 1;
+                        this.ordersHasMore = summaryPage.hasMore;
+                    }
+                    this.currentPage = Math.min(this.currentPage, Math.max(1, Math.ceil(this.filteredOrders.length / this.itemsPerPage)));
 
                     if (this.orders.length === 0 && Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                         const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
@@ -4681,7 +4816,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
 
             get totalPages() {
-                return Math.ceil(this.filteredOrders.length / this.itemsPerPage);
+                const loadedPages = Math.max(1, Math.ceil(this.filteredOrders.length / this.itemsPerPage));
+                return loadedPages + (this.ordersHasMore ? 1 : 0);
             },
 
             get pageNumbers() {
@@ -4707,6 +4843,10 @@ window.pfCustomizationPreloadedOrders = (() => {
 
             getStatusCount(status) {
                 void this.ordersVersion;
+                const hasLocalFilters = this.search || this.serviceFilter !== 'ALL' || this.dateFilter !== 'ALL';
+                if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, status)) {
+                    return Number(this.statusCounts[status] || 0);
+                }
                 return this.orders.filter(o => this.matchesNonStatusFilters(o) && this.matchesStatusTab(o, status)).length;
             },
 
@@ -4732,6 +4872,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';
                 this.primeDetailsShell(order, orderType, id);
+
+                const cachedDetail = this.modalCache[cacheKey] || null;
+                const cachedAt = Number(this.modalCacheLoadedAt[cacheKey] || 0);
+                if (cachedDetail && cachedAt > 0 && (Date.now() - cachedAt) < this.modalCacheTtlMs) {
+                    this.finishDetailLoadWith(cachedDetail, cachedDetail.order_type || orderType, cacheKey);
+                    this.loadingDetails = false;
+                    this.loadingDetailKey = '';
+                    return;
+                }
                 
                 if (orderType === 'CUSTOMIZATION') {
                     try {
@@ -5376,6 +5525,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.currentJo.status = 'IN_PRODUCTION';
                     this.activeStatus = this.isPosSimplifiedView ? 'PENDING' : 'PRODUCTION';
                     this.modalCache = {};
+                    this.modalCacheLoadedAt = {};
                     await this.loadOrders({ force: true });
                     this.showDetailsModal = false;
                     this.showStaffAlert(
@@ -6156,6 +6306,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             }
                             this.activeStatus = 'COMPLETED';
                             this.modalCache = {};
+                            this.modalCacheLoadedAt = {};
                             await this.loadOrders({ force: true });
                             this.showStaffAlert(
                                 res.already_completed ? 'Completed' : 'Success',
@@ -6176,6 +6327,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     if (ok) {
                         this.activeStatus = 'COMPLETED';
                         this.modalCache = {};
+                        this.modalCacheLoadedAt = {};
                         await this.loadOrders({ force: true });
                         this.showStaffAlert('Success', 'Order marked as completed.');
                     }

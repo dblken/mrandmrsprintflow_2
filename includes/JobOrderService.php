@@ -2756,6 +2756,131 @@ class JobOrderService {
     }
 
     /**
+     * Batch-load the small subset of order-item data required by staff list rows.
+     *
+     * This deliberately never selects design_image and never returns raw
+     * customization/specification JSON. Full media and specifications belong to
+     * getStoreOrderItemsPayload()/getOrder(), which are called when View opens.
+     *
+     * @param  int[] $orderIds
+     * @return array<int, array{items:array,width_ft:string,height_ft:string,service_type:string,line_qty:int}>
+     */
+    public static function getStoreOrderItemSummariesBatch(array $orderIds, bool $serviceOnly = false): array {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if ($orderIds === []) {
+            return [];
+        }
+
+        if (function_exists('printflow_ensure_order_items_specifications_column')) {
+            printflow_ensure_order_items_specifications_column();
+        }
+
+        $idsStr = implode(',', $orderIds);
+        $items = db_query(
+            "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
+                    p.name AS product_name, p.category, p.product_type,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.width')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.width')) END
+                    ) AS pf_width,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.height')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.height')) END
+                    ) AS pf_height,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.dimensions')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.dimensions')) END
+                    ) AS pf_dimensions,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.service_type')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')) END
+                    ) AS pf_service_type,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.source_page')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.source_page')) END
+                    ) AS pf_source_page,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.form_type')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.form_type')) END
+                    ) AS pf_form_type
+             FROM order_items oi
+             LEFT JOIN products p ON p.product_id = oi.product_id
+             WHERE oi.order_id IN ({$idsStr})
+             ORDER BY oi.order_item_id ASC"
+        ) ?: [];
+
+        $itemsByOrder = [];
+        foreach ($items as $item) {
+            $itemsByOrder[(int)$item['order_id']][] = $item;
+        }
+
+        $payloads = [];
+        foreach ($orderIds as $orderId) {
+            $itemsOut = [];
+            $firstCustom = [];
+            $totalQty = 0;
+            $widthFt = '1';
+            $heightFt = '1';
+
+            foreach ($itemsByOrder[$orderId] ?? [] as $item) {
+                $custom = array_filter([
+                    'width' => $item['pf_width'] ?? null,
+                    'height' => $item['pf_height'] ?? null,
+                    'dimensions' => $item['pf_dimensions'] ?? null,
+                    'service_type' => $item['pf_service_type'] ?? null,
+                    'source_page' => $item['pf_source_page'] ?? null,
+                    'form_type' => $item['pf_form_type'] ?? null,
+                ], static fn($value): bool => $value !== null && trim((string)$value) !== '');
+                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                    continue;
+                }
+                if ($firstCustom === []) {
+                    $firstCustom = $custom;
+                }
+
+                $quantity = max(0, (int)($item['quantity'] ?? 0));
+                $totalQty += $quantity;
+                if (!empty($custom['width']) && !empty($custom['height'])) {
+                    $widthFt = (string)$custom['width'];
+                    $heightFt = (string)$custom['height'];
+                } elseif (!empty($custom['dimensions'])) {
+                    $dimensions = $custom['dimensions'];
+                    if (is_string($dimensions) && preg_match('/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/iu', $dimensions, $matches)) {
+                        $widthFt = $matches[1];
+                        $heightFt = $matches[2];
+                    }
+                }
+
+                $name = trim((string)($item['product_name'] ?? ''));
+                if ($name === '') {
+                    $name = get_service_name_from_customization($custom, 'Custom Order');
+                }
+
+                $itemsOut[] = [
+                    'order_item_id' => (int)($item['order_item_id'] ?? 0),
+                    'product_name' => $name,
+                    'product_type' => $item['product_type'] ?? 'custom',
+                    'quantity' => $quantity,
+                    'customization' => [],
+                ];
+            }
+
+            $serviceName = $itemsOut !== []
+                ? get_service_name_from_customization($firstCustom, $itemsOut[0]['product_name'] ?? 'Custom Order')
+                : '';
+            $payloads[$orderId] = [
+                'items' => $itemsOut,
+                'width_ft' => $widthFt,
+                'height_ft' => $heightFt,
+                'service_type' => $serviceName,
+                'line_qty' => $totalQty,
+            ];
+        }
+
+        return $payloads;
+    }
+
+    /**
      * Batch-load lightweight item payloads for a list of order IDs in ONE query.
      * Used by list_orders / list_pending_orders to replace the N+1 loop.
      *

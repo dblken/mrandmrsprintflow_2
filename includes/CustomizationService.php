@@ -255,12 +255,15 @@ class CustomizationService
                 require_once $path;
             }
         }
-        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemsPayloadsBatch')) {
+        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemSummariesBatch')) {
             return;
         }
 
         try {
-            $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($missing, false);
+            // List cards only need names/quantities. Full specifications and
+            // design metadata are loaded by getOrderDetail() in a separate
+            // request when View opens.
+            $payloads = JobOrderService::getStoreOrderItemSummariesBatch($missing, false);
             foreach ($missing as $orderId) {
                 self::$storePayloadCache[$orderId] = is_array($payloads[$orderId] ?? null)
                     ? $payloads[$orderId]
