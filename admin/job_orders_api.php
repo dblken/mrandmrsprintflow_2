@@ -915,7 +915,8 @@ try {
             // Full order items, specifications, designs and payment proofs never
             // participate in this response.
             $countRows = [];
-            $orderCountSql = "SELECT o.order_id AS id, o.status, COALESCE(o.order_source, 'customer') AS order_source,
+            $orderCountSql = "SELECT o.order_id AS id, o.order_id, o.status, o.updated_at,
+                                     'ORDER' AS order_type, COALESCE(o.order_source, 'customer') AS order_source,
                                      LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email
                               FROM orders o
                               LEFT JOIN customers c ON c.customer_id = o.customer_id
@@ -942,12 +943,48 @@ try {
                     $source = 'pos';
                 }
                 if (jo_api_source_matches($source, $listSource)) {
-                    $countRows[] = ['status' => (string)($row['status'] ?? '')];
+                    $row['_count_key'] = 'ORDER:' . (int)($row['order_id'] ?? 0);
+                    $countRows[] = $row;
+                }
+            }
+
+            // POS customizations are workflow mirrors of store orders and may
+            // carry a newer status. Include only their tiny identity/status
+            // projection, then de-duplicate by order below.
+            if ($listSource !== 'online') {
+                $customCountSql = "SELECT cust.customization_id AS id, cust.order_id, cust.status, cust.updated_at,
+                                          'CUSTOMIZATION' AS order_type, 'pos' AS order_source
+                                   FROM customizations cust
+                                   LEFT JOIN orders o ON o.order_id = cust.order_id
+                                   WHERE cust.order_id IS NOT NULL
+                                     AND cust.status IN (
+                                         'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
+                                         'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification',
+                                         'Downpayment Submitted', 'To Verify', 'Processing', 'In Production',
+                                         'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled'
+                                     )
+                                     AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
+                                     AND (
+                                         LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
+                                         OR cust.customization_details LIKE '%\"source\":\"POS\"%'
+                                         OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                                     )";
+                $customCountTypes = '';
+                $customCountParams = [];
+                if ($joStaffBranch !== null) {
+                    $customCountSql .= ' AND o.branch_id = ?';
+                    $customCountTypes = 'i';
+                    $customCountParams[] = $joStaffBranch;
+                }
+                foreach (db_query($customCountSql, $customCountTypes ?: null, $customCountParams ?: null) ?: [] as $row) {
+                    $row['_count_key'] = 'ORDER:' . (int)($row['order_id'] ?? 0);
+                    $countRows[] = $row;
                 }
             }
 
             // Standalone production jobs have no store order to represent them.
-            $jobCountSql = 'SELECT status FROM job_orders WHERE order_id IS NULL';
+            $jobCountSql = "SELECT id, NULL AS order_id, status, updated_at, 'JOB' AS order_type
+                            FROM job_orders WHERE order_id IS NULL";
             $jobCountTypes = '';
             $jobCountParams = [];
             if ($joStaffBranch !== null) {
@@ -956,12 +993,15 @@ try {
                 $jobCountParams[] = $joStaffBranch;
             }
             if ($listSource !== 'pos') {
-                $countRows = array_merge($countRows, db_query($jobCountSql, $jobCountTypes ?: null, $jobCountParams ?: null) ?: []);
+                foreach (db_query($jobCountSql, $jobCountTypes ?: null, $jobCountParams ?: null) ?: [] as $row) {
+                    $row['_count_key'] = 'JOB:' . (int)($row['id'] ?? 0);
+                    $countRows[] = $row;
+                }
             }
 
             if ($listSource !== 'pos') {
                 service_order_ensure_tables();
-                $serviceCountSql = "SELECT status FROM service_orders
+                $serviceCountSql = "SELECT id, id AS order_id, status, updated_at, 'SERVICE' AS order_type FROM service_orders
                                     WHERE status IN (
                                         'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                                         'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
@@ -974,8 +1014,26 @@ try {
                     $serviceCountTypes = 'i';
                     $serviceCountParams[] = $joStaffBranch;
                 }
-                $countRows = array_merge($countRows, db_query($serviceCountSql, $serviceCountTypes ?: null, $serviceCountParams ?: null) ?: []);
+                foreach (db_query($serviceCountSql, $serviceCountTypes ?: null, $serviceCountParams ?: null) ?: [] as $row) {
+                    $row['_count_key'] = 'SERVICE:' . (int)($row['id'] ?? 0);
+                    $countRows[] = $row;
+                }
             }
+
+            $countRowsByKey = [];
+            foreach ($countRows as $row) {
+                $key = (string)($row['_count_key'] ?? '');
+                if ($key === '') continue;
+                $incomingTs = strtotime((string)($row['updated_at'] ?? '')) ?: 0;
+                $existingTs = isset($countRowsByKey[$key])
+                    ? (strtotime((string)($countRowsByKey[$key]['updated_at'] ?? '')) ?: 0)
+                    : -1;
+                if (!isset($countRowsByKey[$key]) || $incomingTs >= $existingTs) {
+                    $countRowsByKey[$key] = $row;
+                }
+            }
+            $countRows = array_values($countRowsByKey);
+            jo_api_attach_provider_payments($countRows);
 
             $counts = [
                 'ALL' => 0, 'INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0,

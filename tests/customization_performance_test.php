@@ -69,6 +69,25 @@ $assert(strpos($pageSource, 'ordersSummaryPageSize: 15') !== false, 'initial mer
 $assert(strpos($pageSource, 'loadNextOrderSummaryPage') !== false, 'older summaries must remain reachable on demand');
 $assert(strpos($pageSource, 'ensureFilterCoverage') !== false, 'search and filters must page through older summaries on demand');
 $assert(strpos($pageSource, 'customization_counts') !== false, 'status tabs must use the lightweight count endpoint');
+$assert(strpos($pageSource, 'let countsAbortController = null') !== false, 'count refreshes must own a separate abort controller');
+$assert(strpos($pageSource, 'if (countsRequestPromise) return countsRequestPromise') !== false, 'count refreshes must remain single-flight');
+$assert(strpos($pageSource, 'loadStatusCounts(controller.signal)') === false, 'count refreshes must not inherit the row-list abort signal');
+$assert(strpos($pageSource, 'customizations-data-table') !== false, 'customizations table must have a responsive layout contract');
+$assert(strpos($pageSource, 'class="col-order"') !== false, 'desktop table must use stable semantic columns');
+$assert(strpos($pageSource, 'class="px-4 py-4 customer-cell" data-label="Customer"') !== false, 'mobile customer cell must be semantic');
+$assert(strpos($pageSource, 'class="px-4 py-4 action-col-cell" data-label="Action"') !== false, 'mobile action cell must remain visible');
+
+$apiSource = (string)file_get_contents(__DIR__ . '/../admin/job_orders_api.php');
+$assert(strpos($apiSource, "cust.customization_id AS id, cust.order_id, cust.status, cust.updated_at") !== false, 'POS counts must include the current customization workflow status');
+$assert(strpos($apiSource, '$countRowsByKey') !== false, 'count candidates must be de-duplicated by dashboard identity');
+$assert(strpos($apiSource, 'jo_api_attach_provider_payments($countRows)') !== false, 'counts must apply the same provider-payment status adjustment as rows');
+
+$swSource = (string)file_get_contents(__DIR__ . '/../public/sw.php');
+$assert(strpos($swSource, "const CACHE_VERSION = 'v18'") !== false, 'service-worker cache policy change must invalidate old caches');
+$assert(strpos($swSource, 'isTrustedStaticAsset(url)') !== false, 'service worker must use an explicit static-asset allowlist');
+$assert(strpos($swSource, "url.pathname.startsWith(assetRoot + 'uploads/')") !== false, 'uploaded media must be excluded from the shell cache');
+$assert(strpos($swSource, 'isCachePutEligible(request, response)') !== false, 'Cache.put must be guarded by request and response eligibility');
+$assert(strpos($swSource, 'networkWithCacheFallback') === false, 'unknown authenticated resources must not fall through to generic caching');
 
 $ordersPageSource = (string)file_get_contents(__DIR__ . '/../staff/orders.php');
 $assert(strpos($ordersPageSource, 'ordersMinimumRefreshAgeMs') !== false, 'orders focus/visibility refreshes must have a minimum age');

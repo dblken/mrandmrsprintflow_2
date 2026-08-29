@@ -682,6 +682,19 @@ $online_closed_count = 0;
         @keyframes pf-tab-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
         [x-cloak] { display: none !important; }
 
+        .customizations-table-scroll {
+            overflow-x: auto;
+            overscroll-behavior-inline: contain;
+            scrollbar-gutter: stable;
+        }
+        .customizations-data-table { min-width: 940px; }
+        .customizations-data-table .col-order { width: 14%; }
+        .customizations-data-table .col-info { width: 28%; }
+        .customizations-data-table .col-status { width: 16%; }
+        .customizations-data-table .col-customer { width: 18%; }
+        .customizations-data-table .col-created { width: 14%; }
+        .customizations-data-table .col-action { width: 10%; }
+
         @media (max-width: 1100px) {
             .toolbar-container {
                 gap: 10px;
@@ -695,6 +708,15 @@ $online_closed_count = 0;
             .toolbar-btn {
                 min-height: 42px;
                 padding: 0 16px;
+            }
+
+            .customizations-table-scroll {
+                margin-left: -16px !important;
+                margin-right: -16px !important;
+                padding-left: 16px !important;
+                padding-right: 16px !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch;
             }
         }
 
@@ -1051,6 +1073,103 @@ $online_closed_count = 0;
                 gap: 10px !important;
                 width: 100% !important;
             }
+
+            /* Semantic mobile cards. The former nth-child rules assumed seven
+               columns even though this table has six. */
+            html .pf-staff-customizations-root .customizations-table-scroll,
+            .pf-staff-customizations-root .customizations-table-scroll {
+                overflow-x: hidden !important;
+            }
+            html .pf-staff-customizations-root .customizations-data-table,
+            .pf-staff-customizations-root .customizations-data-table {
+                min-width: 0 !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row,
+            .pf-staff-customizations-root tr.customization-row {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) auto !important;
+                padding: 0 !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row td,
+            .pf-staff-customizations-root tr.customization-row td {
+                display: flex !important;
+                width: auto !important;
+                max-width: none !important;
+                padding: 9px 12px !important;
+                overflow: hidden !important;
+            }
+            .pf-staff-customizations-root tr.customization-row td::before {
+                content: attr(data-label) !important;
+                flex: 0 0 78px;
+                margin-right: 10px;
+                color: #94a3b8;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: .06em;
+                text-transform: uppercase;
+            }
+            html .pf-staff-customizations-root tr.customization-row .order-code-cell,
+            .pf-staff-customizations-root tr.customization-row .order-code-cell {
+                grid-column: 1 / 2 !important;
+                order: 0 !important;
+                background: #f8fafc !important;
+            }
+            .pf-staff-customizations-root tr.customization-row .order-code-cell::before,
+            .pf-staff-customizations-root tr.customization-row .status-col-cell::before,
+            .pf-staff-customizations-root tr.customization-row .action-col-cell::before {
+                content: none !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row .status-col-cell,
+            .pf-staff-customizations-root tr.customization-row .status-col-cell {
+                grid-column: 2 / 3 !important;
+                order: 0 !important;
+                justify-content: flex-end !important;
+                background: #f8fafc !important;
+            }
+            .pf-staff-customizations-root tr.customization-row .status-badge-pill {
+                min-width: 92px !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row .customization-info-cell,
+            .pf-staff-customizations-root tr.customization-row .customization-info-cell {
+                grid-column: 1 / -1 !important;
+                order: 1 !important;
+                flex-direction: row !important;
+                align-items: flex-start !important;
+            }
+            .pf-staff-customizations-root tr.customization-row .customization-info-cell::before {
+                display: block !important;
+                content: attr(data-label) !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row .customer-cell,
+            .pf-staff-customizations-root tr.customization-row .customer-cell,
+            html .pf-staff-customizations-root tr.customization-row .created-cell,
+            .pf-staff-customizations-root tr.customization-row .created-cell {
+                display: flex !important;
+                grid-column: 1 / -1 !important;
+                order: 2 !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row .created-cell,
+            .pf-staff-customizations-root tr.customization-row .created-cell {
+                order: 3 !important;
+                text-align: left !important;
+            }
+            html .pf-staff-customizations-root tr.customization-row .action-col-cell,
+            .pf-staff-customizations-root tr.customization-row .action-col-cell {
+                display: flex !important;
+                grid-column: 1 / -1 !important;
+                order: 4 !important;
+                padding: 10px 12px !important;
+                border-top: 1px solid #e8eef3 !important;
+                border-bottom: 0 !important;
+            }
+            .pf-staff-customizations-root tr.customization-row .action-btn-group,
+            .pf-staff-customizations-root tr.customization-row .table-action-btn {
+                width: 100% !important;
+            }
+            .pf-staff-customizations-root tr.customization-row .table-text-main,
+            .pf-staff-customizations-root tr.customization-row .table-text-sub {
+                max-width: none !important;
+            }
         }
         .production-field-invalid {
             border-color: #dc2626 !important;
@@ -1342,8 +1461,12 @@ $online_closed_count = 0;
                     </div>
                 </div>
 
-                <div class="overflow-x-auto -mx-6 px-6" style="clear:both;">
-                    <table class="w-full text-sm text-left border-separate border-spacing-0" style="table-layout:fixed;">
+                <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
+                    <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table" style="table-layout:fixed;">
+                        <colgroup>
+                            <col class="col-order"><col class="col-info"><col class="col-status">
+                            <col class="col-customer"><col class="col-created"><col class="col-action">
+                        </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
                                 <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
@@ -1356,12 +1479,12 @@ $online_closed_count = 0;
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             <template x-for="jo in paginatedOrders" :key="(jo.order_type || 'JOB') + '-' + jo.id">
-                                <tr @click="viewDetails(jo.id, jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer">
-                                    <td class="pl-6 pr-4 py-4 relative order-code-cell">
+                                <tr @click="viewDetails(jo.id, jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer customization-row">
+                                    <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
                                         <div class="row-indicator"></div>
                                         <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
                                     </td>
-                                    <td class="px-4 py-4 customization-info-cell">
+                                    <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                         <div class="flex items-center gap-3">
                                             <div class="flex flex-col gap-0 min-w-0">
                                                 <div class="table-text-main truncate-ellipsis" :title="getRowDisplayName(jo)" x-text="getRowDisplayName(jo)"></div>
@@ -1372,20 +1495,20 @@ $online_closed_count = 0;
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4 status-col-cell">
+                                    <td class="px-4 py-4 status-col-cell" data-label="Status">
                                         <div class="status-col-inner">
                                         <div :class="getStatusBadgeClass(jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(jo)">
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 customer-cell" data-label="Customer">
                                         <div class="table-text-main truncate-ellipsis" :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()" x-text="jo.first_name + ' ' + (jo.last_name || '')"></div>
                                     </td>
-                                    <td class="px-4 py-4 text-right">
+                                    <td class="px-4 py-4 text-right created-cell" data-label="Created">
                                         <div class="table-text-main truncate-ellipsis" :title="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
                                         <div class="table-text-sub uppercase truncate-ellipsis" :title="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''" x-text="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''"></div>
                                     </td>
-                                    <td class="px-4 py-4 action-col-cell">
+                                    <td class="px-4 py-4 action-col-cell" data-label="Action">
                                         <div class="action-btn-group">
                                             <button
                                                 @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')"
@@ -2516,6 +2639,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             console.info('[Customizations] joManager created');
             defaultStatus = defaultStatus || 'ALL';
             let ordersAbortController = null;
+            let countsAbortController = null;
+            let countsRequestPromise = null;
             return {
             ...window.printflowStaffServiceOrderModalMixin({
                 async afterSvcMutation() { await this.loadOrders(); }
@@ -2537,6 +2662,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             ordersHasMore: false,
             loadingMoreOrders: false,
             statusCounts: {},
+            countsLastLoadedAt: 0,
+            countsMinRefreshMs: 15000,
             filterCoverageTimer: null,
             loadingDetailKey: '',
             detailError: '',
@@ -4148,6 +4275,16 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 // Keep stock values in sync with admin-side ledger deductions.
                 // This page otherwise fetches `current_stock` only once on load and would show stale stock.
+                window.pfStaffCustomizationsAbortActiveRequests = () => {
+                    if (ordersAbortController) {
+                        ordersAbortController.abort();
+                        ordersAbortController = null;
+                    }
+                    if (countsAbortController) {
+                        countsAbortController.abort();
+                        countsAbortController = null;
+                    }
+                };
                 if (!window.pfStaffCustomizationsInventoryPollListenerAttached) {
                     window.pfStaffCustomizationsInventoryPollListenerAttached = true;
                     document.addEventListener('turbo:before-cache', () => {
@@ -4159,9 +4296,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                             clearInterval(window.pfStaffCustomizationsOrdersPoll);
                             window.pfStaffCustomizationsOrdersPoll = null;
                         }
-                        if (ordersAbortController) {
-                            ordersAbortController.abort();
-                            ordersAbortController = null;
+                        if (window.pfStaffCustomizationsAbortActiveRequests) {
+                            window.pfStaffCustomizationsAbortActiveRequests();
                         }
                     });
                 }
@@ -4330,18 +4466,44 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
 
-            async loadStatusCounts(signal = undefined) {
+            loadStatusCounts(options = {}) {
+                const force = !!options.force;
+                if (!force && (Date.now() - this.countsLastLoadedAt) < this.countsMinRefreshMs) {
+                    return Promise.resolve();
+                }
+                if (countsRequestPromise) return countsRequestPromise;
+
                 const sourceFilter = <?php echo json_encode(
                     $staffCustomizationRole === 'pos' ? 'pos' : ($staffCustomizationRole === 'online' ? 'online' : 'all')
                 ); ?>;
                 const endpoint = `../admin/job_orders_api.php?action=customization_counts&source=${encodeURIComponent(sourceFilter)}`;
-                const response = await fetch(endpoint, {
-                    cache: 'no-store', signal, headers: { 'Accept': 'application/json' }
-                });
-                const result = await this.parseJsonResponse(response, 'Customization counts', endpoint);
-                if (result.success && result.data) {
-                    this.statusCounts = result.data;
-                }
+                const controller = new AbortController();
+                countsAbortController = controller;
+                const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+                const request = (async () => {
+                    try {
+                        const response = await fetch(endpoint, {
+                            cache: 'no-store', signal: controller.signal, headers: { 'Accept': 'application/json' }
+                        });
+                        const result = await this.parseJsonResponse(response, 'Customization counts', endpoint);
+                        if (!result.success || !result.data) {
+                            throw new Error(result.error || 'Customization counts response was invalid');
+                        }
+                        this.statusCounts = result.data;
+                        this.countsLastLoadedAt = Date.now();
+                    } catch (error) {
+                        // Navigation, teardown and timeout aborts are expected. Keep
+                        // the last good counters without reporting a false failure.
+                        if (error && error.name === 'AbortError') return;
+                        throw error;
+                    } finally {
+                        window.clearTimeout(timeoutId);
+                        if (countsAbortController === controller) countsAbortController = null;
+                        if (countsRequestPromise === request) countsRequestPromise = null;
+                    }
+                })();
+                countsRequestPromise = request;
+                return request;
             },
 
             async loadNextOrderSummaryPage() {
@@ -4450,12 +4612,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                             delete this.statusOverrides[key];
                         }
                     });
-                    const [summaryPage] = await Promise.all([
-                        this.fetchOrderSummaryPage(1, controller.signal),
-                        this.loadStatusCounts(controller.signal).catch(error => {
+                    // Counts are independent and single-flight: a superseded row
+                    // request must not cancel or delay their refresh.
+                    this.loadStatusCounts({ force }).catch(error => {
                             console.warn('[Customizations] Count refresh failed:', error);
-                        })
-                    ]);
+                        });
+                    const summaryPage = await this.fetchOrderSummaryPage(1, controller.signal);
                     if (summaryPage.errors.length) {
                         console.error('[Customizations] Some summary sources failed:', summaryPage.errors);
                     }
