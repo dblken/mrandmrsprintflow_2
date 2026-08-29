@@ -226,6 +226,7 @@ $online_closed_count = 0;
 
         .pf-staff-customizations-root .pf-customizations-table-card {
             margin-top: 8px;
+            container: customization-list / inline-size;
         }
 
         .pf-custom-tabs {
@@ -696,6 +697,10 @@ $online_closed_count = 0;
         .customizations-data-table .col-action { width: 10%; }
 
         @media (max-width: 1100px) {
+            .pf-staff-customizations-root .kpi-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+
             .toolbar-container {
                 gap: 10px;
             }
@@ -1169,6 +1174,147 @@ $online_closed_count = 0;
             .pf-staff-customizations-root tr.customization-row .table-text-main,
             .pf-staff-customizations-root tr.customization-row .table-text-sub {
                 max-width: none !important;
+            }
+        }
+
+        /* The sidebar changes the list's usable width independently of the
+           viewport. Convert records to cards when this component is narrow. */
+        @container customization-list (max-width: 960px) {
+            .customizations-table-scroll {
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+            }
+            .customizations-data-table,
+            .customizations-data-table tbody {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow: visible !important;
+            }
+            .customizations-data-table thead { display: none !important; }
+            .customizations-data-table tr.customization-row {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                min-height: 0 !important;
+                margin: 0 0 12px !important;
+                padding: 0 !important;
+                gap: 0 !important;
+                overflow: hidden !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 12px !important;
+                background: #fff !important;
+                box-sizing: border-box !important;
+            }
+            .customizations-data-table tr.customization-row td {
+                display: grid !important;
+                grid-template-columns: 88px minmax(0, 1fr) !important;
+                align-items: center !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                padding: 8px 12px !important;
+                overflow: hidden !important;
+                border-bottom: 1px solid #f1f5f9 !important;
+                box-sizing: border-box !important;
+                text-align: left !important;
+            }
+            .customizations-data-table tr.customization-row td::before {
+                content: attr(data-label) !important;
+                display: block !important;
+                margin: 0 !important;
+                color: #94a3b8;
+                font-size: 9px !important;
+                font-weight: 800 !important;
+                letter-spacing: .06em;
+                line-height: 1.2;
+                text-transform: uppercase;
+            }
+            .customizations-data-table tr.customization-row .order-code-cell,
+            .customizations-data-table tr.customization-row .customization-info-cell,
+            .customizations-data-table tr.customization-row .status-col-cell,
+            .customizations-data-table tr.customization-row .customer-cell,
+            .customizations-data-table tr.customization-row .created-cell,
+            .customizations-data-table tr.customization-row .action-col-cell {
+                order: initial !important;
+                grid-column: auto !important;
+                background: #fff !important;
+            }
+            .customizations-data-table tr.customization-row .order-code-cell {
+                padding-top: 11px !important;
+                background: #f8fafc !important;
+                font-weight: 700 !important;
+            }
+            .customizations-data-table tr.customization-row .order-code-cell::before,
+            .customizations-data-table tr.customization-row .status-col-cell::before {
+                content: attr(data-label) !important;
+            }
+            .customizations-data-table tr.customization-row .order-code-cell .truncate-ellipsis {
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+            }
+            .customizations-data-table tr.customization-row .customization-info-cell {
+                display: grid !important;
+                align-items: start !important;
+            }
+            .customizations-data-table tr.customization-row .customization-info-cell::before {
+                display: block !important;
+            }
+            .customizations-data-table tr.customization-row .customization-info-cell > *,
+            .customizations-data-table tr.customization-row .customization-info-cell .min-w-0 {
+                min-width: 0;
+                max-width: 100%;
+            }
+            .customizations-data-table tr.customization-row .table-text-main,
+            .customizations-data-table tr.customization-row .table-text-sub {
+                width: 100% !important;
+                max-width: none !important;
+            }
+            .customizations-data-table tr.customization-row .status-col-inner {
+                align-items: flex-start !important;
+                justify-content: flex-start !important;
+            }
+            .customizations-data-table tr.customization-row .status-badge-pill {
+                width: auto !important;
+                min-width: 92px !important;
+                max-width: 100% !important;
+                white-space: nowrap;
+            }
+            .customizations-data-table tr.customization-row .action-col-cell {
+                display: block !important;
+                padding: 10px 12px !important;
+                overflow: visible !important;
+                border-bottom: 0 !important;
+            }
+            .customizations-data-table tr.customization-row .action-col-cell::before { display: none !important; }
+            .customizations-data-table tr.customization-row .action-btn-group,
+            .customizations-data-table tr.customization-row .table-action-btn {
+                width: 100% !important;
+                max-width: none !important;
+                min-width: 0 !important;
+            }
+            .customizations-data-table tr.customization-row .table-action-btn {
+                min-height: 40px !important;
+                padding: 9px 10px !important;
+            }
+            .customizations-data-table tr.customization-row .row-indicator {
+                top: 0 !important;
+                bottom: 0 !important;
+                opacity: 1 !important;
+            }
+        }
+
+        @container customization-list (max-width: 430px) {
+            .customizations-data-table tr.customization-row td {
+                grid-template-columns: 74px minmax(0, 1fr) !important;
+                padding-left: 10px !important;
+                padding-right: 10px !important;
             }
         }
         .production-field-invalid {

@@ -462,7 +462,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
         foreach ($orders as $order) {
             ?>
             <tr class="staff-order-row" onclick="openOrderModal(<?php echo $order['order_id']; ?>)">
-                <td class="pl-6 pr-4 py-4 relative">
+                <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order Code">
                     <div class="row-indicator"></div>
                     <div class="order-info-cell">
                         <div class="order-id-wrap">
@@ -478,35 +478,38 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                         </div>
                     </div>
                 </td>
-                <td class="px-4 py-4">
+                <td class="px-4 py-4 product-cell" data-label="Product">
                     <?php $display_product_name = staff_orders_product_name($order); ?>
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($display_product_name); ?>">
                         <?php echo htmlspecialchars(strlen($display_product_name) > 120 ? substr($display_product_name, 0, 120) . '...' : $display_product_name); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4">
+                <td class="px-4 py-4 customer-cell" data-label="Customer">
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                         <?php echo htmlspecialchars($order['customer_name']); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4 status-col-cell">
+                <?php if (!$is_pos_staff): ?>
+                <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">
                     <?php if (($order['order_source'] ?? '') === 'pos'): ?>
                         <span class="pf-pill source-badge-pill pos">Pos</span>
                     <?php else: ?>
                         <span class="pf-pill source-badge-pill online">Online</span>
                     <?php endif; ?>
                 </td>
-                <td class="px-4 py-4">
+                <?php endif; ?>
+                <td class="px-4 py-4 date-cell" data-label="Date">
                     <div class="table-text-sub truncate-ellipsis" title="<?php echo htmlspecialchars(format_date($order['order_date'])); ?>">
                         <?php echo format_date($order['order_date']); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4">
+                <td class="px-4 py-4 total-cell" data-label="Total">
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars(format_currency($order['total_amount'])); ?>">
                         <?php echo format_currency($order['total_amount']); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4 status-col-cell">
+                <?php if (!$is_pos_staff): ?>
+                <td class="px-4 py-4 status-col-cell order-status-cell" data-label="Status">
                     <?php
                     // Counter staff uses a simplified Pending/Completed display.
                     $display_order_status = staff_orders_display_status((string)$order['status']);
@@ -520,8 +523,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                         <?php endif; ?>
                     </div>
                 </td>
-                <td class="px-4 py-4 action-col-cell">
-                    <div class="action-cell">
+                <?php endif; ?>
+                <td class="px-4 py-4 action-col-cell" data-label="Actions">
+                    <div class="action-cell<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                         <button
                             onclick="event.stopPropagation(); window.openStaffOrderManage(<?php echo $order['order_id']; ?>, '<?php echo addslashes($order['status']); ?>');"
                             class="table-action-btn alt"
@@ -829,6 +833,12 @@ $page_title = 'Orders - Staff';
             margin-bottom: 24px;
         }
 
+        @media (max-width: 1100px) {
+            .kpi-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+        }
+
         .staff-orders-table-card {
             margin-top: 12px;
         }
@@ -897,7 +907,23 @@ $page_title = 'Orders - Staff';
         }
 
         /* ── Table improvements (match customizations table) ─── */
-        .orders-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; table-layout: fixed; }
+        .staff-orders-table-card { container: staff-orders-card / inline-size; }
+        .orders-table-scroll { overflow-x: auto; overscroll-behavior-inline: contain; }
+        .orders-table { width: 100%; min-width: 1040px; border-collapse: separate; border-spacing: 0; font-size: 13px; table-layout: fixed; }
+        .orders-table--online .col-order { width: 15%; }
+        .orders-table--online .col-product { width: 17%; }
+        .orders-table--online .col-customer { width: 13%; }
+        .orders-table--online .col-source { width: 9%; }
+        .orders-table--online .col-date { width: 10%; }
+        .orders-table--online .col-total { width: 9%; }
+        .orders-table--online .col-status { width: 12%; }
+        .orders-table--online .col-action { width: 15%; }
+        .orders-table--pos .col-order { width: 20%; }
+        .orders-table--pos .col-product { width: 24%; }
+        .orders-table--pos .col-customer { width: 18%; }
+        .orders-table--pos .col-date { width: 14%; }
+        .orders-table--pos .col-total { width: 12%; }
+        .orders-table--pos .col-action { width: 12%; }
         .orders-table thead th {
             padding: 18px 20px;
             font-size: 11px;
@@ -1232,6 +1258,156 @@ $page_title = 'Orders - Staff';
                 font-weight: 600 !important; border-radius: 8px !important; white-space: nowrap !important; 
                 overflow: hidden !important; text-overflow: ellipsis !important; min-height: 36px !important; 
                 box-sizing: border-box !important; 
+            }
+        }
+
+        /* Switch based on the table's real available width after the sidebar,
+           rather than waiting for the full viewport to reach phone size. */
+        @container staff-orders-card (max-width: 1050px) {
+            .orders-table-scroll {
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+            }
+            .orders-table,
+            .orders-table tbody {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow: visible !important;
+            }
+            .orders-table thead { display: none !important; }
+            .orders-table tr.staff-order-row {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                min-height: 0 !important;
+                margin: 0 0 12px !important;
+                padding: 0 !important;
+                gap: 0 !important;
+                overflow: hidden !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 12px !important;
+                background: #fff !important;
+                box-sizing: border-box !important;
+            }
+            .orders-table tr.staff-order-row td {
+                display: grid !important;
+                grid-template-columns: 88px minmax(0, 1fr) !important;
+                align-items: center !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                padding: 8px 12px !important;
+                overflow: hidden !important;
+                border-bottom: 1px solid #f1f5f9 !important;
+                box-sizing: border-box !important;
+                text-align: left !important;
+            }
+            .orders-table tr.staff-order-row td::before {
+                content: attr(data-label) !important;
+                display: block !important;
+                color: #94a3b8;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: .06em;
+                line-height: 1.2;
+                text-transform: uppercase;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row td.order-code-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.product-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.customer-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.source-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.date-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.total-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.order-status-cell::before {
+                content: attr(data-label) !important;
+                display: block !important;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row td.source-cell,
+            html.printflow-staff .orders-table tr.staff-order-row td.date-cell,
+            html.printflow-staff .orders-table tr.staff-order-row td.total-cell,
+            html.printflow-staff .orders-table tr.staff-order-row td.order-status-cell {
+                display: grid !important;
+            }
+            .orders-table tr.staff-order-row .order-code-cell,
+            .orders-table tr.staff-order-row .product-cell {
+                grid-template-columns: 1fr !important;
+                align-items: start !important;
+            }
+            .orders-table tr.staff-order-row .order-code-cell {
+                padding: 11px 12px 8px !important;
+                background: #f8fafc !important;
+                font-weight: 700 !important;
+            }
+            .orders-table tr.staff-order-row .order-code-cell::before,
+            .orders-table tr.staff-order-row .product-cell::before { margin-bottom: 4px; }
+            .orders-table tr.staff-order-row .order-code-cell .truncate-ellipsis {
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row .product-cell .table-text-main,
+            html.printflow-staff .orders-table tr.staff-order-row .customer-cell .table-text-main,
+            .orders-table tr.staff-order-row .date-cell .table-text-sub,
+            .orders-table tr.staff-order-row .total-cell .table-text-main {
+                width: 100% !important;
+                max-width: none !important;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row .product-cell .table-text-main {
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+            }
+            .orders-table tr.staff-order-row .status-col-cell,
+            .orders-table tr.staff-order-row .status-col-inner {
+                justify-items: start !important;
+                justify-content: start !important;
+                align-items: start !important;
+            }
+            .orders-table tr.staff-order-row .source-badge-pill,
+            .orders-table tr.staff-order-row .status-badge-pill,
+            .orders-table tr.staff-order-row .pf-pill {
+                max-width: 100%;
+                white-space: nowrap;
+            }
+            .orders-table tr.staff-order-row .action-col-cell {
+                display: block !important;
+                padding: 10px 12px !important;
+                border-bottom: 0 !important;
+                overflow: visible !important;
+            }
+            .orders-table tr.staff-order-row .action-col-cell::before { display: none !important; }
+            .orders-table tr.staff-order-row .action-cell {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important;
+            }
+            .orders-table tr.staff-order-row .action-cell:has(> :only-child),
+            .orders-table tr.staff-order-row .action-cell--single { grid-template-columns: 1fr !important; }
+            .orders-table tr.staff-order-row .action-cell .table-action-btn {
+                width: 100% !important;
+                max-width: none !important;
+                min-width: 0 !important;
+                min-height: 40px !important;
+                padding: 9px 10px !important;
+            }
+            .orders-table tr.staff-order-row .row-indicator {
+                top: 0 !important;
+                bottom: 0 !important;
+                opacity: 1 !important;
+            }
+        }
+
+        @container staff-orders-card (max-width: 430px) {
+            .orders-table tr.staff-order-row td {
+                grid-template-columns: 74px minmax(0, 1fr) !important;
+                padding-left: 10px !important;
+                padding-right: 10px !important;
             }
         }
 
@@ -2494,8 +2670,15 @@ $page_title = 'Orders - Staff';
                     </div>
                 </div>
 
-                <div class="overflow-x-auto -mx-6 px-6" style="clear:both;">
-                    <table class="orders-table">
+                <div class="overflow-x-auto -mx-6 px-6 orders-table-scroll" style="clear:both;">
+                    <table class="orders-table <?php echo $is_pos_staff ? 'orders-table--pos' : 'orders-table--online'; ?>">
+                        <colgroup>
+                            <col class="col-order"><col class="col-product"><col class="col-customer">
+                            <?php if (!$is_pos_staff): ?><col class="col-source"><?php endif; ?>
+                            <col class="col-date"><col class="col-total">
+                            <?php if (!$is_pos_staff): ?><col class="col-status"><?php endif; ?>
+                            <col class="col-action">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th class="pl-6 pr-4 py-4 w-[16%] border-b border-gray-100">Order Code</th>
@@ -2511,7 +2694,7 @@ $page_title = 'Orders - Staff';
                         <tbody>
                             <?php foreach ($orders as $order): ?>
                                 <tr class="staff-order-row" onclick="openOrderModal(<?php echo $order['order_id']; ?>)">
-                                    <td class="pl-6 pr-4 py-4 relative">
+                                    <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order Code">
                                         <div class="row-indicator"></div>
                                         <div class="order-info-cell">
                                             <div class="order-id-wrap">
@@ -2527,19 +2710,19 @@ $page_title = 'Orders - Staff';
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 product-cell" data-label="Product">
                                         <?php $display_product_name = staff_orders_product_name($order); ?>
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($display_product_name); ?>">
                                             <?php echo htmlspecialchars(strlen($display_product_name) > 120 ? substr($display_product_name, 0, 120) . '...' : $display_product_name); ?>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 customer-cell" data-label="Customer">
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                                             <?php echo htmlspecialchars($order['customer_name']); ?>
                                         </div>
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
-                                    <td class="px-4 py-4 status-col-cell">
+                                    <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">
                                         <?php if (($order['order_source'] ?? '') === 'pos'): ?>
                                             <span class="pf-pill source-badge-pill pos">Pos</span>
                                         <?php else: ?>
@@ -2547,18 +2730,18 @@ $page_title = 'Orders - Staff';
                                         <?php endif; ?>
                                     </td>
                                     <?php endif; ?>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 date-cell" data-label="Date">
                                         <div class="table-text-sub truncate-ellipsis" title="<?php echo htmlspecialchars(format_date($order['order_date'])); ?>">
                                             <?php echo format_date($order['order_date']); ?>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 total-cell" data-label="Total">
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars(format_currency($order['total_amount'])); ?>">
                                             <?php echo format_currency($order['total_amount']); ?>
                                         </div>
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
-                                    <td class="px-4 py-4 status-col-cell">
+                                    <td class="px-4 py-4 status-col-cell order-status-cell" data-label="Status">
                                         <?php $display_order_status2 = staff_orders_display_status((string)$order['status']); ?>
                                         <div class="status-col-inner">
                                             <?php echo staff_orders_status_pill_html($display_order_status2); ?>
@@ -2570,8 +2753,8 @@ $page_title = 'Orders - Staff';
                                         </div>
                                     </td>
                                     <?php endif; ?>
-                                    <td class="px-4 py-4 action-col-cell">
-                                        <div class="action-cell">
+                                    <td class="px-4 py-4 action-col-cell" data-label="Actions">
+                                        <div class="action-cell<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                                             <button onclick="event.stopPropagation(); openOrderModal(<?php echo $order['order_id']; ?>)" 
                                                     class="table-action-btn alt">
                                                 View
