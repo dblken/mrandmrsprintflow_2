@@ -14,6 +14,11 @@ $assert(strpos($orders, 'container: staff-orders-card / inline-size') !== false,
 $assert(strpos($orders, '@container staff-orders-card (min-width: 801px) and (max-width: 1040px)') !== false, 'Orders must retain a compact table at medium component widths');
 $assert(strpos($orders, '@container staff-orders-card (max-width: 800px)') !== false, 'Orders must reserve cards for genuinely narrow component widths');
 $assert(strpos($orders, '.orders-table--online .col-action { width: 20%; }') !== false, 'Compact Online Orders must preserve room for side-by-side actions');
+$assert(substr_count($orders, 'class="table-action-btn alt"') === 0, 'Orders View and Message actions must use the same teal outlined base style');
+$assert(strpos($orders, 'height: 40px !important;') !== false && strpos($orders, 'max-height: 40px !important;') !== false, 'Mobile Orders actions must have identical fixed heights');
+$assert(strpos($orders, ".pagination-wrapper .pagination-link.is-active") !== false, 'Orders pagination must have a scoped Customizations-style active state');
+$assert(strpos($orders, 'min-width: 38px !important;') !== false && strpos($orders, 'border-radius: 10px !important;') !== false, 'Orders pagination must reuse the Customizations control geometry');
+$assert(strpos($orders, "content: '…';") !== false, 'Orders pagination gaps must use a compact ellipsis');
 $assert(strpos($orders, '@container staff-orders-card (max-width: 430px)') !== false, 'Orders must compact labels for small phones');
 $assert(strpos($orders, 'grid-template-columns: repeat(2, minmax(0, 1fr)) !important') !== false, 'Orders KPI cards must form a readable tablet grid');
 $assert(strpos($orders, 'overflow-x: hidden !important') !== false, 'Order cards must not require horizontal scrolling');

@@ -528,7 +528,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                     <div class="action-cell<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                         <button
                             onclick="event.stopPropagation(); window.openStaffOrderManage(<?php echo $order['order_id']; ?>, '<?php echo addslashes($order['status']); ?>');"
-                            class="table-action-btn alt"
+                            class="table-action-btn"
                         >
                             View
                         </button>
@@ -1034,6 +1034,88 @@ $page_title = 'Orders - Staff';
             color: #fff !important;
             border-color: #0f766e;
         }
+
+        /* Match the Customizations pagination visual system without changing
+           the shared server-side pagination renderer or its page window. */
+        .pagination-wrapper {
+            padding: 0 !important;
+            border-top: 0 !important;
+        }
+        .pagination-wrapper .pagination-container {
+            display: flex !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+            margin-top: 0 !important;
+            padding: 24px 12px !important;
+            border-top: 1px solid #f3f4f6 !important;
+            box-sizing: border-box !important;
+        }
+        .pagination-wrapper .pagination-link {
+            box-sizing: border-box !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-width: 38px !important;
+            height: 38px !important;
+            padding: 0 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            background: #fff !important;
+            color: #64748b !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            line-height: 1 !important;
+            text-decoration: none !important;
+            cursor: pointer !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .pagination-wrapper .pagination-link:hover {
+            border-color: #06A1A1 !important;
+            color: #06A1A1 !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(6, 161, 161, 0.1);
+        }
+        .pagination-wrapper .pagination-link:focus-visible {
+            outline: 3px solid rgba(6, 161, 161, 0.24) !important;
+            outline-offset: 2px !important;
+        }
+        .pagination-wrapper .pagination-link.is-active {
+            border-color: transparent !important;
+            background: linear-gradient(135deg, #06A1A1 0%, #047676 100%) !important;
+            color: #fff !important;
+            font-weight: 700 !important;
+            box-shadow: 0 4px 12px rgba(6, 161, 161, 0.25) !important;
+            transform: none;
+        }
+        .pagination-wrapper .pagination-prev,
+        .pagination-wrapper .pagination-next {
+            width: 38px !important;
+            min-width: 38px !important;
+            padding: 0 !important;
+        }
+        .pagination-wrapper .pagination-prev svg,
+        .pagination-wrapper .pagination-next svg {
+            width: 18px;
+            height: 18px;
+            stroke-width: 2.5;
+        }
+        .pagination-wrapper .pagination-container > span {
+            min-width: 38px !important;
+            width: 38px !important;
+            height: 38px !important;
+            font-size: 0 !important;
+            color: #94a3b8 !important;
+        }
+        .pagination-wrapper .pagination-container > span::before {
+            content: '…';
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
         .order-info-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .order-id-wrap { font-weight: 500; color: #111827; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
         .order-id-wrap > span:first-child,
@@ -1445,8 +1527,19 @@ $page_title = 'Orders - Staff';
                 width: 100% !important;
                 max-width: none !important;
                 min-width: 0 !important;
+                height: 40px !important;
                 min-height: 40px !important;
-                padding: 9px 10px !important;
+                max-height: 40px !important;
+                padding: 0 10px !important;
+                border: 1px solid var(--staff-primary) !important;
+                border-radius: 8px !important;
+                color: var(--staff-primary) !important;
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                line-height: 1 !important;
+                appearance: none;
+                -webkit-appearance: none;
+                box-sizing: border-box !important;
             }
             .orders-table tr.staff-order-row .row-indicator {
                 top: 0 !important;
@@ -2808,7 +2901,7 @@ $page_title = 'Orders - Staff';
                                     <td class="px-4 py-4 action-col-cell" data-label="Actions">
                                         <div class="action-cell<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                                             <button onclick="event.stopPropagation(); openOrderModal(<?php echo $order['order_id']; ?>)" 
-                                                    class="table-action-btn alt">
+                                                    class="table-action-btn">
                                                 View
                                             </button>
                                             <?php if (!$is_pos_staff): ?>
