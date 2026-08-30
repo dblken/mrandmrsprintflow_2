@@ -1042,7 +1042,59 @@ $page_title = 'Orders - Staff';
         }
         .order-items-sub { font-size: 11px; color: #6b7280; font-weight: 400; }
 
-        /* ── Order Detail Modal ─────────────────────────────────── */
+        /* Medium-width table stage */
+        /* Keep a real table at medium component widths. The container width,
+           rather than the viewport, accounts for the persistent sidebar. */
+        @container staff-orders-card (min-width: 801px) and (max-width: 1040px) {
+            .orders-table-scroll {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+            }
+            html.printflow-staff .orders-table,
+            .orders-table {
+                min-width: 0 !important;
+                table-layout: fixed !important;
+                font-size: 12.5px;
+            }
+            html.printflow-staff .orders-table th,
+            .orders-table th {
+                padding: 10px 8px !important;
+                font-size: 10.5px !important;
+                letter-spacing: 0.035em;
+            }
+            html.printflow-staff .orders-table td,
+            .orders-table td {
+                min-width: 0;
+                padding: 13px 8px !important;
+            }
+            .orders-table--online .col-order { width: 14%; }
+            .orders-table--online .col-product { width: 16%; }
+            .orders-table--online .col-customer { width: 12%; }
+            .orders-table--online .col-source { width: 8%; }
+            .orders-table--online .col-date { width: 9%; }
+            .orders-table--online .col-total { width: 9%; }
+            .orders-table--online .col-status { width: 12%; }
+            .orders-table--online .col-action { width: 20%; }
+            .orders-table .source-badge-pill,
+            .orders-table .status-badge-pill,
+            .orders-table .pf-pill {
+                min-width: 0;
+                max-width: 100%;
+                padding-left: 7px;
+                padding-right: 7px;
+                font-size: 10px;
+            }
+            .orders-table .action-cell { gap: 6px; }
+            .orders-table .action-cell .table-action-btn {
+                flex: 1 1 0;
+                min-width: 0;
+                padding: 6px 5px;
+            }
+        }
+
+        /* Order Detail Modal */
         #orderModal {
             position: fixed; inset: 0; z-index: 9999;
             display: flex; align-items: center; justify-content: center;
@@ -1261,9 +1313,9 @@ $page_title = 'Orders - Staff';
             }
         }
 
-        /* Switch based on the table's real available width after the sidebar,
-           rather than waiting for the full viewport to reach phone size. */
-        @container staff-orders-card (max-width: 1050px) {
+        /* Switch to cards only when the table's real available width after the
+           sidebar is too narrow for the compact table stage. */
+        @container staff-orders-card (max-width: 800px) {
             .orders-table-scroll {
                 margin: 0 !important;
                 padding: 0 !important;
