@@ -9,6 +9,9 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+function pf_terms_agreement_accepted($value): bool {
+    return in_array((string)$value, ['1', 'on', 'true', 'yes'], true);
+}
 function pf_register_redirect_error(string $message): void {
     redirect(AUTH_REDIRECT_BASE . '/?auth_modal=register&error=' . urlencode($message));
 }
@@ -53,6 +56,10 @@ $identifier_type = sanitize($_POST['identifier_type'] ?? 'email');
 $identifier = sanitize($_POST['identifier'] ?? '');
 $password = $_POST['password'] ?? '';
 $confirm_password = $_POST['confirm_password'] ?? '';
+
+if (!pf_terms_agreement_accepted($_POST['terms_agreement'] ?? '')) {
+    pf_register_redirect_error('Please agree to the Terms of Service and Privacy Policy before creating your account.');
+}
 
 if ($reg_type !== 'direct') {
     pf_register_redirect_error('Public registration is for customer accounts only.');
@@ -104,7 +111,7 @@ if ($identifier_type === 'email') {
     pf_remove_legacy_public_staff_registration($identifier);
 }
 
-$result = register_customer_direct($identifier_type, $identifier, $password);
+$result = register_customer_direct($identifier_type, $identifier, $password, date('Y-m-d H:i:s'), PRINTFLOW_TERMS_VERSION);
 if (!$result['success']) {
     pf_register_redirect_error($result['message'] ?? 'Registration failed. Please try again.');
 }

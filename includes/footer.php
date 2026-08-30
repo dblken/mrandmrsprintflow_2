@@ -172,6 +172,8 @@ function _ft_detect_social(string $url): array {
                         <li><a href="<?php echo $base_path; ?>/public/about.php">About</a></li>
                         <li><a href="<?php echo $base_path; ?>/public/services.php">Services</a></li>
                         <li><a href="<?php echo $url_products; ?>">Products</a></li>
+                        <li><a href="<?php echo $base_path; ?>/public/terms.php">Terms of Service</a></li>
+                        <li><a href="<?php echo $base_path; ?>/public/privacy.php">Privacy Policy</a></li>
                         <?php if (!$is_logged_in): ?>
                         <li><a href="#" data-auth-modal="login">Login</a></li>
                         <li><a href="#" data-auth-modal="register">Register</a></li>

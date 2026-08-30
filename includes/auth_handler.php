@@ -10,6 +10,9 @@ require_once __DIR__ . '/functions.php';
 
 $action = $_GET['action'] ?? '';
 
+function auth_terms_agreement_accepted($value): bool {
+    return in_array((string)$value, ['1', 'on', 'true', 'yes'], true);
+}
 // 1. Handle GET requests (Redirect to home with modal)
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $error_param = isset($_GET['error']) ? '&error=' . urlencode($_GET['error']) : '';
@@ -132,14 +135,16 @@ function handle_register() {
             $password        = $_POST['password'] ?? '';
             $confirm_password = $_POST['confirm_password'] ?? '';
 
-            if (empty($identifier_type) || empty($identifier) || empty($password)) {
+            if (!auth_terms_agreement_accepted($_POST['terms_agreement'] ?? '')) {
+                $error = 'Please agree to the Terms of Service and Privacy Policy before creating your account.';
+            } elseif (empty($identifier_type) || empty($identifier) || empty($password)) {
                 $error = 'Please fill in all fields.';
             } elseif (strlen($password) < 8) {
                 $error = 'Password must be at least 8 characters.';
             } elseif ($password !== $confirm_password) {
                 $error = 'Passwords do not match.';
             } else {
-                $result = register_customer_direct($identifier_type, $identifier, $password);
+                $result = register_customer_direct($identifier_type, $identifier, $password, date('Y-m-d H:i:s'), PRINTFLOW_TERMS_VERSION);
                 if ($result['success']) {
                     $_SESSION['otp_pending_email'] = ($identifier_type === 'email') ? $identifier : ($identifier . '@phone.local');
                     $_SESSION['otp_user_type'] = 'Customer';

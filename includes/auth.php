@@ -447,6 +447,29 @@ function printflow_ensure_customers_auth_provider_column() {
     }
 }
 
+if (!defined('PRINTFLOW_TERMS_VERSION')) {
+    define('PRINTFLOW_TERMS_VERSION', '2026-08-30');
+}
+
+/**
+ * Confirm the customer Terms/Privacy acceptance columns exist.
+ * Schema changes must be applied through a reviewed migration, not during registration.
+ */
+function printflow_customer_terms_acceptance_columns_ready(): bool {
+    static $ready = null;
+    if ($ready !== null) {
+        return $ready;
+    }
+    try {
+        $ready = db_table_has_column('customers', 'terms_accepted_at')
+            && db_table_has_column('customers', 'terms_version');
+    } catch (Exception $e) {
+        error_log('printflow_customer_terms_acceptance_columns_ready: ' . $e->getMessage());
+        $ready = false;
+    }
+    return $ready;
+}
+
 function printflow_google_placeholder_password_hash(): string {
     return '!google-oauth-only!';
 }
@@ -1062,7 +1085,11 @@ function register_customer($data) {
  * @param string $password The password
  * @return array ['success' => bool, 'message' => string]
  */
-function register_customer_direct($type, $identifier, $password) {
+function register_customer_direct($type, $identifier, $password, $terms_accepted_at = null, $terms_version = null) {
+    if (!printflow_customer_terms_acceptance_columns_ready()) {
+        return ['success' => false, 'message' => 'Registration is temporarily unavailable. Please contact support.'];
+    }
+
     // Determine email and contact_number
     if ($type === 'email') {
         $email = $identifier;
@@ -1103,16 +1130,18 @@ function register_customer_direct($type, $identifier, $password) {
 
     $password_hash = password_hash($password, PASSWORD_BCRYPT);
 
-    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, is_profile_complete, email_verified, created_by_system) 
-            VALUES (?, '', ?, NULL, NULL, ?, ?, ?, 0, 0, 1)";
+    $sql = "INSERT INTO customers (first_name, middle_name, last_name, dob, gender, email, contact_number, password_hash, is_profile_complete, email_verified, created_by_system, terms_accepted_at, terms_version)
+            VALUES (?, '', ?, NULL, NULL, ?, ?, ?, 0, 0, 1, ?, ?)";
 
-    $result = printflow_run_guarded_account_insert(function() use ($sql, $email, $contact_number, $password_hash) {
-        return db_execute($sql, 'sssss', [
+    $result = printflow_run_guarded_account_insert(function() use ($sql, $email, $contact_number, $password_hash, $terms_accepted_at, $terms_version) {
+        return db_execute($sql, 'sssssss', [
             '',           // placeholder first_name
             '',           // placeholder last_name
             $email,
             $contact_number,
-            $password_hash
+            $password_hash,
+            $terms_accepted_at,
+            $terms_version
         ]);
     });
 

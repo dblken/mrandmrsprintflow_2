@@ -162,6 +162,33 @@ if (!empty($google_client_id)) {
     .auth-modal .auth-field-row label { margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: #94a3b8; }
     .auth-modal .auth-field-row a { font-size: 0.875rem; color: #53C5E0; }
     .auth-modal input[type="checkbox"] { accent-color: #32a1c4; }
+    .auth-terms-field {
+        margin: 0.1rem 0 0;
+    }
+    .auth-terms-label {
+        display: flex !important;
+        align-items: flex-start;
+        gap: 0.65rem;
+        margin: 0 !important;
+        color: #cbd5e1 !important;
+        font-size: 0.82rem !important;
+        line-height: 1.45;
+        font-weight: 500 !important;
+        cursor: pointer;
+    }
+    .auth-terms-label input {
+        width: 1rem;
+        height: 1rem;
+        margin-top: 0.12rem;
+        flex-shrink: 0;
+    }
+    .auth-terms-label a {
+        color: #53C5E0;
+        font-weight: 700;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+    .auth-terms-label a:hover { color: #7acae3; }
     .auth-modal .auth-google-wrap { margin-bottom: 1rem; }
     /* Field-level error messages in modals */
     .modal-field-error {
@@ -485,6 +512,13 @@ if (!empty($google_client_id)) {
                     <p class="modal-field-error" id="reg-confirm-error"></p>
                     <p class="reg-match-ok" id="reg-match-ok" style="display:none;">✓ Passwords match</p>
                 </div>
+                <div class="auth-terms-field">
+                    <label for="reg-terms-agreement" class="auth-terms-label">
+                        <input type="checkbox" id="reg-terms-agreement" name="terms_agreement" value="1" aria-describedby="reg-terms-error">
+                        <span>I agree to the <a href="<?php echo htmlspecialchars($base_url); ?>/public/terms.php" target="_blank" rel="noopener noreferrer">Terms of Service</a> and <a href="<?php echo htmlspecialchars($base_url); ?>/public/privacy.php" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</span>
+                    </label>
+                    <p class="modal-field-error" id="reg-terms-error"></p>
+                </div>
 
                 <button type="submit" class="auth-btn-submit">Create Account</button>
             </form>
@@ -807,7 +841,7 @@ if (!empty($google_client_id)) {
     });
 
     // ═══ Registration logic ═══
-    var regTouched = { identifier: false, password: false, confirm: false };
+    var regTouched = { identifier: false, password: false, confirm: false, terms: false };
     var regPendingEmail = '';
     var regPendingType = 'email';
     var regOtpCooldownTimer = null;
@@ -1003,6 +1037,20 @@ if (!empty($google_client_id)) {
         }
     }
 
+    function regCheckTerms(showErrors) {
+        var termsEl = document.getElementById('reg-terms-agreement');
+        var termsErrEl = document.getElementById('reg-terms-error');
+        var ok = termsEl ? termsEl.checked : false;
+        var showMsg = Boolean(showErrors || regTouched.terms);
+        if (termsErrEl) {
+            termsErrEl.textContent = (!ok && showMsg) ? 'Please agree to the Terms of Service and Privacy Policy before creating your account.' : '';
+        }
+        if (termsEl) {
+            termsEl.setAttribute('aria-invalid', ok ? 'false' : (showMsg ? 'true' : 'false'));
+        }
+        return ok;
+    }
+
     function regCheckForm(showErrors) {
         showErrors = Boolean(showErrors);
         /* Checklist first on every pass — same order as reset-password updatePwChecklist → resetCheckForm */
@@ -1038,6 +1086,7 @@ if (!empty($google_client_id)) {
         var pwOk = !pwErr;
 
         var cpwOk = regCheckConfirm(showErrors || regTouched.confirm);
+        regCheckTerms(showErrors || regTouched.terms);
 
         if (submitBtn) submitBtn.disabled = !(idOk && pwOk && cpwOk);
     }
@@ -1201,7 +1250,7 @@ if (!empty($google_client_id)) {
     }
 
     function resetRegisterFlow() {
-        regTouched = { identifier: false, password: false, confirm: false };
+        regTouched = { identifier: false, password: false, confirm: false, terms: false };
         regPendingEmail      = '';
         regPendingType       = 'email';
         regOtpResendAttempts = 0;
@@ -1377,6 +1426,13 @@ if (!empty($google_client_id)) {
             regCheckForm(true);
         });
     }
+    var regTermsEl = document.getElementById('reg-terms-agreement');
+    if (regTermsEl) {
+        regTermsEl.addEventListener('change', function() {
+            regTouched.terms = true;
+            regCheckForm(true);
+        });
+    }
     if (regPwEl) regBlockSpaces(regPwEl);
     if (regCpwEl) regBlockSpaces(regCpwEl);
 
@@ -1408,7 +1464,13 @@ if (!empty($google_client_id)) {
             regTouched.identifier = true;
             regTouched.password = true;
             regTouched.confirm = true;
+            regTouched.terms = true;
             regCheckForm(true);
+
+            if (!regCheckTerms(true)) {
+                if (msgEl) msgEl.innerHTML = '';
+                return;
+            }
 
             if (submitBtn && submitBtn.disabled) {
                 if (msgEl) msgEl.innerHTML = '';
