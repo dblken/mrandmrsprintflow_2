@@ -15,6 +15,12 @@ $assert(strpos($orders, '@container staff-orders-card (min-width: 801px) and (ma
 $assert(strpos($orders, '@container staff-orders-card (max-width: 800px)') !== false, 'Orders must reserve cards for genuinely narrow component widths');
 $assert(strpos($orders, '.orders-table--online .col-action { width: 20%; }') !== false, 'Compact Online Orders must preserve room for side-by-side actions');
 $assert(substr_count($orders, 'class="table-action-btn alt"') === 0, 'Orders View and Message actions must use the same teal outlined base style');
+$assert(strpos($orders, 'class="action-cell orders-card-actions') === false, 'Orders actions must not inherit the shared mobile flex/max-width rule');
+$assert(substr_count($orders, 'class="orders-card-actions') >= 2, 'Initial and AJAX rows must share the dedicated two-slot action wrapper');
+$assert(preg_match_all('/class="orders-card-actions[^\"]*"[^>]*>(.*?)<\/div>/s', $orders, $actionWrappers) >= 2, 'Initial and AJAX action wrappers must be inspectable');
+foreach ($actionWrappers[1] as $actionMarkup) {
+    $assert(substr_count($actionMarkup, 'class="table-action-btn"') === 2, 'Every online Orders action wrapper must contain exactly View and Message slots');
+}
 $assert(strpos($orders, 'height: 40px !important;') !== false && strpos($orders, 'max-height: 40px !important;') !== false, 'Mobile Orders actions must have identical fixed heights');
 $assert(strpos($orders, ".pagination-wrapper .pagination-link.is-active") !== false, 'Orders pagination must have a scoped Customizations-style active state');
 $assert(strpos($orders, 'min-width: 38px !important;') !== false && strpos($orders, 'border-radius: 10px !important;') !== false, 'Orders pagination must reuse the Customizations control geometry');
