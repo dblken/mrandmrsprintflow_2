@@ -1,0 +1,238 @@
+<?php
+
+require_once __DIR__ . '/../../../includes/pos_receipt_printer.php';
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+function printer_api_respond(int $statusCode, array $payload): void {
+    http_response_code($statusCode);
+    echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function printer_api_input(): array {
+    $raw = file_get_contents('php://input');
+    if (!is_string($raw) || trim($raw) === '') return [];
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function printer_api_key(array $input): string {
+    $authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
+    if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+        return trim($matches[1]);
+    }
+    $forwarded = trim((string)($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
+    if (preg_match('/^Bearer\s+(.+)$/i', $forwarded, $matches)) {
+        return trim($matches[1]);
+    }
+    return trim((string)(
+        $_SERVER['HTTP_X_PRINTFLOW_PRINTER_KEY']
+        ?? $input['api_key']
+        ?? $_REQUEST['api_key']
+        ?? ''
+    ));
+}
+
+if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'POST'], true)) {
+    printer_api_respond(405, ['ok' => false, 'error' => 'method_not_allowed']);
+}
+
+$input = printer_api_input();
+$printer = printflow_receipt_printer_authenticate(printer_api_key($input));
+if (empty($printer)) {
+    printer_api_respond(401, ['ok' => false, 'error' => 'invalid_printer_api_key']);
+}
+
+$action = strtolower(trim((string)($input['action'] ?? $_GET['action'] ?? 'poll')));
+
+try {
+    if (in_array($action, ['ack', 'acknowledge', 'complete', 'status'], true)) {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            printer_api_respond(405, ['ok' => false, 'error' => 'ack_requires_post']);
+        }
+        $jobId = (int)($input['job_id'] ?? $input['id'] ?? 0);
+        $reportedStatus = strtolower(trim((string)($input['status'] ?? '')));
+        $status = in_array($reportedStatus, ['printed', 'success', 'completed', 'done'], true)
+            ? 'printed'
+            : (in_array($reportedStatus, ['failed', 'error'], true) ? 'failed' : '');
+        if ($jobId <= 0 || $status === '') {
+            printer_api_respond(422, ['ok' => false, 'error' => 'invalid_acknowledgement']);
+        }
+        $ok = printflow_receipt_ack_job(
+            $printer,
+            $jobId,
+            $status,
+            trim((string)($input['message'] ?? $input['error'] ?? ''))
+        );
+        printer_api_respond($ok ? 200 : 404, ['ok' => $ok, 'job_id' => $jobId, 'status' => $status]);
+    }
+
+    if (in_array($action, ['heartbeat', 'ping'], true)) {
+        printer_api_respond(200, [
+            'ok' => true,
+            'printer_id' => (int)$printer['id'],
+            'printer_name' => (string)$printer['name'],
+            'server_time' => date(DATE_ATOM),
+        ]);
+    }
+
+    if ($action === 'adopt-retry') {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            printer_api_respond(405, ['ok' => false, 'error' => 'adopt_retry_requires_post']);
+        }
+        $jobId = (int)($input['job_id'] ?? 0);
+        $jobs = $jobId > 0 ? (db_query(
+            "SELECT id, job_type, order_id, branch_id, receipt_number, status
+             FROM receipt_print_jobs WHERE id = ? LIMIT 1",
+            'i',
+            [$jobId]
+        ) ?: []) : [];
+        if (empty($jobs)) {
+            printer_api_respond(404, ['ok' => false, 'error' => 'print_job_not_found']);
+        }
+        $job = $jobs[0];
+        $jobBranch = (int)($job['branch_id'] ?? 0);
+        $printerBranch = (int)($printer['branch_id'] ?? 0);
+        if ($printerBranch > 0 && $jobBranch > 0 && $printerBranch !== $jobBranch) {
+            printer_api_respond(403, ['ok' => false, 'error' => 'print_job_branch_mismatch']);
+        }
+        if (!in_array((string)$job['status'], ['pending', 'failed'], true)) {
+            printer_api_respond(409, ['ok' => false, 'error' => 'print_job_not_retryable']);
+        }
+
+        $printerId = (int)$printer['id'];
+        if ($jobBranch > 0) {
+            db_execute(
+                'UPDATE receipt_printers SET is_default = 0 WHERE branch_id = ? AND id != ?',
+                'ii',
+                [$jobBranch, $printerId]
+            );
+            db_execute(
+                "UPDATE receipt_printers
+                 SET branch_id = ?, is_default = 1, auto_print = 1, status = 'active'
+                 WHERE id = ?",
+                'ii',
+                [$jobBranch, $printerId]
+            );
+        } else {
+            db_execute(
+                "UPDATE receipt_printers SET is_default = 1, auto_print = 1, status = 'active' WHERE id = ?",
+                'i',
+                [$printerId]
+            );
+        }
+
+        $newUuid = printflow_receipt_job_uuid();
+        $idempotencyKey = (string)$job['job_type'] . ':order:' . (int)$job['order_id'] . ':printer:' . $printerId;
+        $updated = db_execute_affected_rows(
+            "UPDATE receipt_print_jobs
+             SET job_uuid = ?, idempotency_key = ?, printer_id = ?, status = 'pending',
+                 attempts = 0, claimed_at = NULL, printed_at = NULL, failed_at = NULL,
+                 error_message = NULL
+             WHERE id = ? AND status IN ('pending', 'failed')",
+            'ssii',
+            [$newUuid, $idempotencyKey, $printerId, $jobId]
+        );
+        if ($updated !== 1) {
+            printer_api_respond(409, ['ok' => false, 'error' => 'print_job_adopt_failed']);
+        }
+
+        db_execute(
+            'INSERT INTO receipt_print_job_events (job_id, status, message) VALUES (?, ?, ?)',
+            'iss',
+            [$jobId, 'pending', 'Existing receipt job adopted by printer #' . $printerId . ' for retry.']
+        );
+        $printer['branch_id'] = $jobBranch > 0 ? $jobBranch : ($printer['branch_id'] ?? null);
+        $notificationError = null;
+        $notified = printflow_receipt_pushprinter_notify($printer, [
+            'job_uuid' => $newUuid,
+            'receipt_number' => (string)$job['receipt_number'],
+        ], $notificationError);
+        db_execute(
+            'INSERT INTO receipt_print_job_events (job_id, status, message) VALUES (?, ?, ?)',
+            'iss',
+            [
+                $jobId,
+                $notified ? 'notified' : 'pending',
+                $notified
+                    ? 'Pushy accepted the adopted receipt notification.'
+                    : 'Adopted receipt notification failed: ' . ($notificationError ?: 'unknown provider error'),
+            ]
+        );
+        if (!$notified) {
+            db_execute(
+                'UPDATE receipt_print_jobs SET error_message = ? WHERE id = ?',
+                'si',
+                [$notificationError ?: 'Pushy notification failed.', $jobId]
+            );
+        }
+        printer_api_respond(200, [
+            'ok' => true,
+            'job_id' => $jobId,
+            'printer_id' => $printerId,
+            'status' => 'pending',
+            'notified' => $notified,
+            'notification_error' => $notified ? null : ($notificationError ?: 'unknown_provider_error'),
+        ]);
+    }
+
+    if ($action === 'diagnostics') {
+        $jobs = db_query(
+            "SELECT id, job_uuid, order_id, receipt_number, status, attempts, max_attempts,
+                    error_message, claimed_at, printed_at, failed_at, created_at, updated_at
+             FROM receipt_print_jobs
+             WHERE printer_id = ?
+             ORDER BY id DESC
+             LIMIT 10",
+            'i',
+            [(int)$printer['id']]
+        ) ?: [];
+        foreach ($jobs as &$diagnosticJob) {
+            $diagnosticJob['id'] = (int)$diagnosticJob['id'];
+            $diagnosticJob['order_id'] = (int)$diagnosticJob['order_id'];
+            $diagnosticJob['attempts'] = (int)$diagnosticJob['attempts'];
+            $diagnosticJob['max_attempts'] = (int)$diagnosticJob['max_attempts'];
+            $diagnosticJob['events'] = db_query(
+                'SELECT status, message, created_at FROM receipt_print_job_events WHERE job_id = ? ORDER BY id DESC LIMIT 12',
+                'i',
+                [(int)$diagnosticJob['id']]
+            ) ?: [];
+        }
+        unset($diagnosticJob);
+        printer_api_respond(200, [
+            'ok' => true,
+            'printer_id' => (int)$printer['id'],
+            'printer_name' => (string)$printer['name'],
+            'pushy_secret_configured' => printflow_receipt_pushy_secret() !== '',
+            'pushy_device_registered' => trim((string)($printer['pushy_device_token'] ?? '')) !== '',
+            'pushy_registered_at' => $printer['pushy_registered_at'] ?? null,
+            'printer_last_seen_at' => $printer['last_seen_at'] ?? null,
+            'jobs' => $jobs,
+        ]);
+    }
+
+    if (!in_array($action, ['poll', 'next', ''], true)) {
+        printer_api_respond(400, ['ok' => false, 'error' => 'unknown_action']);
+    }
+
+    $job = printflow_receipt_claim_next_job($printer);
+    if (empty($job)) {
+        printer_api_respond(200, [
+            'ok' => true,
+            'job' => null,
+            'printer_id' => (int)$printer['id'],
+            'poll_after_ms' => 2000,
+        ]);
+    }
+
+    printer_api_respond(200, [
+        'ok' => true,
+        'job' => printflow_receipt_public_job_payload($job, $printer),
+        'poll_after_ms' => 0,
+    ]);
+} catch (Throwable $e) {
+    error_log('[printer-api] ' . $e->getMessage());
+    printer_api_respond(500, ['ok' => false, 'error' => 'printer_api_error']);
+}

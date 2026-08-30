@@ -117,6 +117,10 @@ if ($date_from_filter !== '')      $active_filters['date_from']      = $date_fro
 if ($date_to_filter !== '')        $active_filters['date_to']        = $date_to_filter;
 if ($customer_filter !== '')       $active_filters['customer']       = $customer_filter;
 if ($sort_by !== 'newest')         $active_filters['sort']           = $sort_by;
+$pagination_params = $active_filters;
+if (isset($_GET['status']) && in_array($status_filter, $valid_status_filters, true)) {
+    $pagination_params['status'] = $status_filter;
+}
 $active_filter_parts = [$customer_filter, $date_from_filter, $date_to_filter];
 if (!$is_pos_staff && $status_filter !== 'ALL') {
     $active_filter_parts[] = $status_filter;
@@ -336,11 +340,12 @@ $count_sql = "SELECT COUNT(*) as total FROM orders o LEFT JOIN customers c ON o.
 // Pagination settings
 $items_per_page = 15;
 $current_page = max(1, (int)($_GET['page'] ?? 1));
-$offset = ($current_page - 1) * $items_per_page;
 
 $total_result = db_query($count_sql, $types, $params);
 $total_items = $total_result[0]['total'] ?? 0;
-$total_pages = ceil($total_items / $items_per_page);
+$total_pages = (int)ceil($total_items / $items_per_page);
+$current_page = $total_pages > 0 ? min($current_page, $total_pages) : 1;
+$offset = ($current_page - 1) * $items_per_page;
 
 $sort_clause = match($sort_by) {
     'oldest' => " ORDER BY o.order_date ASC",
@@ -462,7 +467,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
         foreach ($orders as $order) {
             ?>
             <tr class="staff-order-row" onclick="openOrderModal(<?php echo $order['order_id']; ?>)">
-                <td class="pl-6 pr-4 py-4 relative">
+                <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order Code">
                     <div class="row-indicator"></div>
                     <div class="order-info-cell">
                         <div class="order-id-wrap">
@@ -478,35 +483,38 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                         </div>
                     </div>
                 </td>
-                <td class="px-4 py-4">
+                <td class="px-4 py-4 product-cell" data-label="Product">
                     <?php $display_product_name = staff_orders_product_name($order); ?>
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($display_product_name); ?>">
                         <?php echo htmlspecialchars(strlen($display_product_name) > 120 ? substr($display_product_name, 0, 120) . '...' : $display_product_name); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4">
+                <td class="px-4 py-4 customer-cell" data-label="Customer">
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                         <?php echo htmlspecialchars($order['customer_name']); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4 status-col-cell">
+                <?php if (!$is_pos_staff): ?>
+                <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">
                     <?php if (($order['order_source'] ?? '') === 'pos'): ?>
                         <span class="pf-pill source-badge-pill pos">Pos</span>
                     <?php else: ?>
                         <span class="pf-pill source-badge-pill online">Online</span>
                     <?php endif; ?>
                 </td>
-                <td class="px-4 py-4">
+                <?php endif; ?>
+                <td class="px-4 py-4 date-cell" data-label="Date">
                     <div class="table-text-sub truncate-ellipsis" title="<?php echo htmlspecialchars(format_date($order['order_date'])); ?>">
                         <?php echo format_date($order['order_date']); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4">
+                <td class="px-4 py-4 total-cell" data-label="Total">
                     <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars(format_currency($order['total_amount'])); ?>">
                         <?php echo format_currency($order['total_amount']); ?>
                     </div>
                 </td>
-                <td class="px-4 py-4 status-col-cell">
+                <?php if (!$is_pos_staff): ?>
+                <td class="px-4 py-4 status-col-cell order-status-cell" data-label="Status">
                     <?php
                     // Counter staff uses a simplified Pending/Completed display.
                     $display_order_status = staff_orders_display_status((string)$order['status']);
@@ -520,11 +528,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                         <?php endif; ?>
                     </div>
                 </td>
-                <td class="px-4 py-4 action-col-cell">
-                    <div class="action-cell">
+                <?php endif; ?>
+                <td class="px-4 py-4 action-col-cell" data-label="Actions">
+                    <div class="orders-card-actions<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                         <button
                             onclick="event.stopPropagation(); window.openStaffOrderManage(<?php echo $order['order_id']; ?>, '<?php echo addslashes($order['status']); ?>');"
-                            class="table-action-btn alt"
+                            class="table-action-btn"
                         >
                             View
                         </button>
@@ -543,12 +552,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
         }
     }
     $tbody = ob_get_clean();
-    $pagination = render_pagination($current_page, $total_pages, $active_filters);
+    $pagination = render_pagination($current_page, $total_pages, $pagination_params);
     
     header('Content-Type: application/json');
     echo json_encode([
         'tbody'      => $tbody, 
         'pagination' => $pagination, 
+        'page'       => $current_page,
         'total'      => number_format($total_items),
         'counts'     => $all_counts,
         'badge'      => $active_filter_badge_count
@@ -829,6 +839,12 @@ $page_title = 'Orders - Staff';
             margin-bottom: 24px;
         }
 
+        @media (max-width: 1100px) {
+            .kpi-row {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+        }
+
         .staff-orders-table-card {
             margin-top: 12px;
         }
@@ -897,7 +913,23 @@ $page_title = 'Orders - Staff';
         }
 
         /* ── Table improvements (match customizations table) ─── */
-        .orders-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; table-layout: fixed; }
+        .staff-orders-table-card { container: staff-orders-card / inline-size; }
+        .orders-table-scroll { overflow-x: auto; overscroll-behavior-inline: contain; }
+        .orders-table { width: 100%; min-width: 1040px; border-collapse: separate; border-spacing: 0; font-size: 13px; table-layout: fixed; }
+        .orders-table--online .col-order { width: 15%; }
+        .orders-table--online .col-product { width: 17%; }
+        .orders-table--online .col-customer { width: 13%; }
+        .orders-table--online .col-source { width: 9%; }
+        .orders-table--online .col-date { width: 10%; }
+        .orders-table--online .col-total { width: 9%; }
+        .orders-table--online .col-status { width: 12%; }
+        .orders-table--online .col-action { width: 15%; }
+        .orders-table--pos .col-order { width: 20%; }
+        .orders-table--pos .col-product { width: 24%; }
+        .orders-table--pos .col-customer { width: 18%; }
+        .orders-table--pos .col-date { width: 14%; }
+        .orders-table--pos .col-total { width: 12%; }
+        .orders-table--pos .col-action { width: 12%; }
         .orders-table thead th {
             padding: 18px 20px;
             font-size: 11px;
@@ -975,7 +1007,14 @@ $page_title = 'Orders - Staff';
         }
         .orders-table tbody tr:hover .row-indicator { opacity: 1; }
 
-        .action-cell { display: flex; justify-content: center; gap: 6px; }
+        .orders-card-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
+            width: 100%;
+            min-width: 0;
+        }
+        .orders-card-actions.action-cell--single { grid-template-columns: minmax(0, 1fr); }
         .table-action-btn {
             display: inline-flex;
             align-items: center;
@@ -1008,6 +1047,100 @@ $page_title = 'Orders - Staff';
             color: #fff !important;
             border-color: #0f766e;
         }
+
+        /* Match the Customizations pagination visual system without changing
+           the shared server-side pagination renderer or its page window. */
+        .pagination-wrapper {
+            padding: 0 !important;
+            border-top: 0 !important;
+        }
+        .pagination-wrapper .pagination-container {
+            display: flex !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+            margin-top: 0 !important;
+            padding: 24px 12px !important;
+            border-top: 1px solid #f3f4f6 !important;
+            box-sizing: border-box !important;
+        }
+        .pagination-wrapper .pagination-link {
+            box-sizing: border-box !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-width: 38px !important;
+            height: 38px !important;
+            padding: 0 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            background: #fff !important;
+            color: #64748b !important;
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            line-height: 1 !important;
+            text-decoration: none !important;
+            cursor: pointer !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .pagination-wrapper .pagination-link:hover {
+            border-color: var(--staff-primary) !important;
+            color: var(--staff-primary) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(var(--staff-accent-rgb), 0.1);
+        }
+        .pagination-wrapper .pagination-link:focus-visible {
+            outline: 3px solid rgba(var(--staff-accent-rgb), 0.24) !important;
+            outline-offset: 2px !important;
+        }
+        .pagination-wrapper .pagination-link.is-active {
+            border-color: var(--staff-pagination-active-border) !important;
+            background: var(--staff-pagination-active-bg) !important;
+            color: #fff !important;
+            font-weight: 700 !important;
+            box-shadow: 0 4px 12px rgba(var(--staff-accent-rgb), 0.25) !important;
+            transform: none;
+        }
+        .pagination-wrapper .pagination-prev,
+        .pagination-wrapper .pagination-next {
+            width: 38px !important;
+            min-width: 38px !important;
+            padding: 0 !important;
+        }
+        .pagination-wrapper .pagination-prev svg,
+        .pagination-wrapper .pagination-next svg {
+            width: 18px;
+            height: 18px;
+            stroke-width: 2.5;
+        }
+        .pagination-wrapper .pagination-container > span {
+            min-width: 38px !important;
+            width: 38px !important;
+            height: 38px !important;
+            font-size: 0 !important;
+            color: #94a3b8 !important;
+        }
+        .pagination-wrapper .pagination-container > span::before {
+            content: '…';
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+        .pagination-wrapper.is-loading .pagination-container {
+            opacity: 0.62;
+            transition: opacity 0.15s ease;
+        }
+        .pagination-wrapper.is-loading .pagination-link {
+            pointer-events: none !important;
+            cursor: wait !important;
+        }
+        .pagination-wrapper.is-loading .pagination-link.is-pending {
+            opacity: 1;
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.16) !important;
+        }
         .order-info-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .order-id-wrap { font-weight: 500; color: #111827; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
         .order-id-wrap > span:first-child,
@@ -1016,7 +1149,59 @@ $page_title = 'Orders - Staff';
         }
         .order-items-sub { font-size: 11px; color: #6b7280; font-weight: 400; }
 
-        /* ── Order Detail Modal ─────────────────────────────────── */
+        /* Medium-width table stage */
+        /* Keep a real table at medium component widths. The container width,
+           rather than the viewport, accounts for the persistent sidebar. */
+        @container staff-orders-card (min-width: 801px) and (max-width: 1040px) {
+            .orders-table-scroll {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+            }
+            html.printflow-staff .orders-table,
+            .orders-table {
+                min-width: 0 !important;
+                table-layout: fixed !important;
+                font-size: 12.5px;
+            }
+            html.printflow-staff .orders-table th,
+            .orders-table th {
+                padding: 10px 8px !important;
+                font-size: 10.5px !important;
+                letter-spacing: 0.035em;
+            }
+            html.printflow-staff .orders-table td,
+            .orders-table td {
+                min-width: 0;
+                padding: 13px 8px !important;
+            }
+            .orders-table--online .col-order { width: 14%; }
+            .orders-table--online .col-product { width: 16%; }
+            .orders-table--online .col-customer { width: 12%; }
+            .orders-table--online .col-source { width: 8%; }
+            .orders-table--online .col-date { width: 9%; }
+            .orders-table--online .col-total { width: 9%; }
+            .orders-table--online .col-status { width: 12%; }
+            .orders-table--online .col-action { width: 20%; }
+            .orders-table .source-badge-pill,
+            .orders-table .status-badge-pill,
+            .orders-table .pf-pill {
+                min-width: 0;
+                max-width: 100%;
+                padding-left: 7px;
+                padding-right: 7px;
+                font-size: 10px;
+            }
+            .orders-table .orders-card-actions { gap: 6px; }
+            .orders-table .orders-card-actions .table-action-btn {
+                min-width: 0;
+                width: 100%;
+                padding: 6px 5px;
+            }
+        }
+
+        /* Order Detail Modal */
         #orderModal {
             position: fixed; inset: 0; z-index: 9999;
             display: flex; align-items: center; justify-content: center;
@@ -1219,19 +1404,212 @@ $page_title = 'Orders - Staff';
             /* ── Row 5: Action buttons — ALWAYS both visible ── */
             html.printflow-staff .orders-table td.action-col-cell, .orders-table td.action-col-cell { order: 10 !important; padding: 8px 10px !important; border-top: 1px solid #e8eef3 !important; border-bottom: none !important; overflow: visible !important; }
             .orders-table td.action-col-cell::before { display: none !important; }
-            .action-cell { display: flex !important; width: 100% !important; gap: 6px !important; flex-wrap: nowrap !important; }
+            .orders-card-actions {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                width: 100% !important;
+                gap: 6px !important;
+            }
             
             /* High specificity to force View + Message onto one line equally */
-            html.printflow-staff .orders-table .action-cell .table-action-btn, 
-            html.printflow-staff .orders-table .action-cell a.table-action-btn, 
-            .orders-table .action-cell .table-action-btn, 
-            .orders-table .action-cell a.table-action-btn { 
+            html.printflow-staff .orders-table .orders-card-actions .table-action-btn,
+            html.printflow-staff .orders-table .orders-card-actions a.table-action-btn,
+            .orders-table .orders-card-actions .table-action-btn,
+            .orders-table .orders-card-actions a.table-action-btn {
                 display: inline-flex !important; align-items: center !important; justify-content: center !important; 
-                flex: 1 1 0 !important; width: calc(50% - 3px) !important; max-width: calc(50% - 3px) !important; 
+                width: 100% !important; max-width: 100% !important;
                 min-width: 0 !important; padding: 8px 4px !important; font-size: 12px !important; 
                 font-weight: 600 !important; border-radius: 8px !important; white-space: nowrap !important; 
                 overflow: hidden !important; text-overflow: ellipsis !important; min-height: 36px !important; 
                 box-sizing: border-box !important; 
+            }
+        }
+
+        /* Switch to cards only when the table's real available width after the
+           sidebar is too narrow for the compact table stage. */
+        @container staff-orders-card (max-width: 800px) {
+            .orders-table-scroll {
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow-x: hidden !important;
+            }
+            .orders-table,
+            .orders-table tbody {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow: visible !important;
+            }
+            .orders-table thead { display: none !important; }
+            .orders-table tr.staff-order-row {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                min-height: 0 !important;
+                margin: 0 0 12px !important;
+                padding: 0 !important;
+                gap: 0 !important;
+                overflow: hidden !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 12px !important;
+                background: #fff !important;
+                box-sizing: border-box !important;
+            }
+            .orders-table tr.staff-order-row td {
+                display: grid !important;
+                grid-template-columns: 88px minmax(0, 1fr) !important;
+                align-items: center !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: auto !important;
+                padding: 8px 12px !important;
+                overflow: hidden !important;
+                border-bottom: 1px solid #f1f5f9 !important;
+                box-sizing: border-box !important;
+                text-align: left !important;
+            }
+            .orders-table tr.staff-order-row td::before {
+                content: attr(data-label) !important;
+                display: block !important;
+                color: #94a3b8;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: .06em;
+                line-height: 1.2;
+                text-transform: uppercase;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row td.order-code-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.product-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.customer-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.source-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.date-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.total-cell::before,
+            html.printflow-staff .orders-table tr.staff-order-row td.order-status-cell::before {
+                content: attr(data-label) !important;
+                display: block !important;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row td.source-cell,
+            html.printflow-staff .orders-table tr.staff-order-row td.date-cell,
+            html.printflow-staff .orders-table tr.staff-order-row td.total-cell,
+            html.printflow-staff .orders-table tr.staff-order-row td.order-status-cell {
+                display: grid !important;
+            }
+            .orders-table tr.staff-order-row .order-code-cell,
+            .orders-table tr.staff-order-row .product-cell {
+                grid-template-columns: 1fr !important;
+                align-items: start !important;
+            }
+            .orders-table tr.staff-order-row .order-code-cell {
+                padding: 11px 12px 8px !important;
+                background: #f8fafc !important;
+                font-weight: 700 !important;
+            }
+            .orders-table tr.staff-order-row .order-code-cell::before,
+            .orders-table tr.staff-order-row .product-cell::before { margin-bottom: 4px; }
+            .orders-table tr.staff-order-row .order-code-cell .truncate-ellipsis {
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row .product-cell .table-text-main,
+            html.printflow-staff .orders-table tr.staff-order-row .customer-cell .table-text-main,
+            .orders-table tr.staff-order-row .date-cell .table-text-sub,
+            .orders-table tr.staff-order-row .total-cell .table-text-main {
+                width: 100% !important;
+                max-width: none !important;
+            }
+            html.printflow-staff .orders-table tr.staff-order-row .product-cell .table-text-main {
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+            }
+            .orders-table tr.staff-order-row .status-col-cell,
+            .orders-table tr.staff-order-row .status-col-inner {
+                justify-items: start !important;
+                justify-content: start !important;
+                align-items: start !important;
+            }
+            .orders-table tr.staff-order-row .source-badge-pill,
+            .orders-table tr.staff-order-row .status-badge-pill,
+            .orders-table tr.staff-order-row .pf-pill {
+                max-width: 100%;
+                white-space: nowrap;
+            }
+            .orders-table tr.staff-order-row .action-col-cell {
+                display: block !important;
+                padding: 10px 12px !important;
+                border-bottom: 0 !important;
+                overflow: visible !important;
+            }
+            .orders-table tr.staff-order-row .action-col-cell::before { display: none !important; }
+            .orders-table tr.staff-order-row .orders-card-actions {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+            }
+            .orders-table tr.staff-order-row .orders-card-actions:has(> :only-child),
+            .orders-table tr.staff-order-row .orders-card-actions.action-cell--single { grid-template-columns: 1fr !important; }
+            .orders-table tr.staff-order-row .orders-card-actions > .table-action-btn {
+                display: inline-flex !important;
+                flex: none !important;
+                justify-self: stretch !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                height: 40px !important;
+                min-height: 40px !important;
+                max-height: 40px !important;
+                padding: 0 10px !important;
+                border: 1px solid var(--staff-primary) !important;
+                border-radius: 8px !important;
+                color: var(--staff-primary) !important;
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                line-height: 1 !important;
+                appearance: none;
+                -webkit-appearance: none;
+                box-sizing: border-box !important;
+            }
+            .orders-table tr.staff-order-row .row-indicator {
+                top: 0 !important;
+                bottom: 0 !important;
+                opacity: 1 !important;
+            }
+        }
+
+        @container staff-orders-card (max-width: 430px) {
+            .orders-table tr.staff-order-row td {
+                grid-template-columns: 74px minmax(0, 1fr) !important;
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+        }
+
+        /* Viewport fallback mirrors the card container rule so shared mobile
+           action styles cannot reintroduce unequal flex or max-width values. */
+        @media (max-width: 768px) {
+            html.printflow-staff .orders-table .orders-card-actions {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+            }
+            html.printflow-staff .orders-table .orders-card-actions > .table-action-btn {
+                flex: none !important;
+                justify-self: stretch !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
             }
         }
 
@@ -1445,6 +1823,8 @@ $page_title = 'Orders - Staff';
     var searchDebounceTimer = null;
     var ordersFetchController = null;
     var ordersRequestSerial = 0;
+    var ordersLastRefreshAt = 0;
+    var ordersMinimumRefreshAgeMs = 5000;
     var staffOrdersRealtimeMs = 15000;
     var staffOrdersRealtimeTimer = null;
     var staffOrdersRealtimeBound = false;
@@ -1476,6 +1856,17 @@ $page_title = 'Orders - Staff';
         return window.location.pathname + '?' + params.toString();
     }
 
+    function buildOrdersTargetURL(target, isAjax = false) {
+        const url = new URL(target, window.location.href);
+        if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) {
+            throw new Error('Orders pagination target must stay on the current Orders page.');
+        }
+        if (isAjax) url.searchParams.set('ajax', '1');
+        else url.searchParams.delete('ajax');
+        const query = url.searchParams.toString();
+        return url.pathname + (query ? '?' + query : '');
+    }
+
     function getOrdersDashboardData() {
         const dashboardEl = document.querySelector('[x-data^="ordersPage"]');
         return (dashboardEl && dashboardEl.__x && dashboardEl.__x.$data) ? dashboardEl.__x.$data : null;
@@ -1483,7 +1874,11 @@ $page_title = 'Orders - Staff';
 
     async function fetchUpdatedTable(overrides = {}, options = {}) {
         const silent = !!options.silent;
-        const url = buildFilterURL(overrides, true);
+        if (silent && (Date.now() - ordersLastRefreshAt) < ordersMinimumRefreshAgeMs) return;
+        if (silent && ordersFetchController) return;
+        const url = options.targetUrl
+            ? buildOrdersTargetURL(options.targetUrl, true)
+            : buildFilterURL(overrides, true);
         const container = document.querySelector('.orders-table tbody');
         if (!container) return;
 
@@ -1500,14 +1895,20 @@ $page_title = 'Orders - Staff';
         }
 
         try {
-            const resp = await fetch(url, { signal: ordersFetchController.signal });
+            const resp = await fetch(url, {
+                signal: ordersFetchController.signal,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                cache: 'no-store'
+            });
+            if (!resp.ok) throw new Error('Orders request failed with HTTP ' + resp.status);
             const data = await resp.json();
             if (requestSerial !== ordersRequestSerial) return;
+            ordersLastRefreshAt = Date.now();
 
             container.innerHTML = data.tbody;
 
-            const pag = document.querySelector('.pagination-container');
-            if (pag && data.pagination) pag.outerHTML = data.pagination;
+            const paginationWrapper = document.querySelector('.pagination-wrapper');
+            if (paginationWrapper) paginationWrapper.innerHTML = data.pagination || '';
 
             const bc = document.getElementById('filterBadgeContainer');
             if (bc) bc.innerHTML = data.badge > 0 ? `<span class="filter-badge">${data.badge}</span>` : '';
@@ -1522,14 +1923,25 @@ $page_title = 'Orders - Staff';
 
             window.dispatchEvent(new CustomEvent('filter-badge-update', { detail: { badge: data.badge } }));
 
-            const displayUrl = buildFilterURL(overrides, false);
+            const resolvedPage = Math.max(1, parseInt(data.page || 1, 10));
+            let displayUrl;
+            if (options.targetUrl) {
+                const displayTarget = new URL(options.targetUrl, window.location.href);
+                displayTarget.searchParams.set('page', String(resolvedPage));
+                displayUrl = buildOrdersTargetURL(displayTarget.toString(), false);
+            } else {
+                const resolvedOverrides = Object.assign({}, overrides, { page: resolvedPage });
+                displayUrl = buildFilterURL(resolvedOverrides, false);
+            }
             window.history.replaceState({ path: displayUrl }, '', displayUrl);
+            return true;
         } catch (e) {
             if (e.name !== 'AbortError') {
                 console.error('Error updating table:', e);
             }
+            return false;
         } finally {
-            if (!silent) {
+            if (!silent && requestSerial === ordersRequestSerial) {
                 container.style.opacity = '1';
                 container.style.pointerEvents = 'all';
             }
@@ -1539,15 +1951,51 @@ $page_title = 'Orders - Staff';
         }
     }
 
+    function initOrdersPaginationNavigation() {
+        const wrapper = document.querySelector('.pagination-wrapper');
+        if (!wrapper || wrapper.dataset.paginationBound === '1') return;
+        wrapper.dataset.paginationBound = '1';
+
+        wrapper.addEventListener('click', async function(event) {
+            const link = event.target.closest('a.pagination-link');
+            if (!link || !wrapper.contains(link)) return;
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+
+            if (link.getAttribute('aria-current') === 'page') return;
+
+            if (wrapper.classList.contains('is-loading')) {
+                return;
+            }
+
+            wrapper.classList.add('is-loading');
+            wrapper.setAttribute('aria-busy', 'true');
+            link.classList.add('is-pending');
+
+            const targetUrl = link.href;
+            const loaded = await fetchUpdatedTable({}, { targetUrl: targetUrl });
+            if (!loaded) {
+                window.location.assign(targetUrl);
+                return;
+            }
+
+            if (document.documentElement.contains(wrapper)) {
+                wrapper.classList.remove('is-loading');
+                wrapper.removeAttribute('aria-busy');
+                link.classList.remove('is-pending');
+            }
+        });
+    }
+
     function applyFilters(resetAll = false) {
         if (resetAll) {
             window.location.href = window.location.pathname;
-        } else { fetchUpdatedTable(); }
+        } else { fetchUpdatedTable({ page: 1 }); }
     }
 
     function applySortFilter(sortKey) {
         window.dispatchEvent(new CustomEvent('sort-changed', { detail: { sortKey } }));
-        fetchUpdatedTable({ sort: sortKey });
+        fetchUpdatedTable({ sort: sortKey, page: 1 });
     }
 
     function resetFilterField(fields) {
@@ -1555,7 +2003,7 @@ $page_title = 'Orders - Staff';
             const el = document.getElementById('fp_' + f);
             if (el) el.value = '';
         });
-        fetchUpdatedTable();
+        fetchUpdatedTable({ page: 1 });
     }
 
     function ordersPage() {
@@ -1731,6 +2179,9 @@ $page_title = 'Orders - Staff';
                         '<div class="om-alert om-alert-error">Rendering Error: ' + err.message + '</div>';
                 }
             }
+            if (window.PrintFlowReceiptScanner) {
+                window.PrintFlowReceiptScanner.markOrderOpened(orderId, 'staff-orders');
+            }
         })
         .catch(function(err) {
             console.error('Fetch Error:', err);
@@ -1785,16 +2236,27 @@ $page_title = 'Orders - Staff';
         document.getElementById('revisionModal').classList.remove('open');
         document.getElementById('revForm').reset();
         document.getElementById('revOtherWrapper').style.display = 'none';
+        document.getElementById('revFieldWrapper').style.display = 'none';
     }
     function handleReasonChange(select) {
         var wrap  = document.getElementById('revOtherWrapper');
         var input = document.getElementById('revOtherInput');
-        if (select.value === 'Other') {
+        var fieldWrap = document.getElementById('revFieldWrapper');
+        var boxes = Array.from(document.querySelectorAll('#revFieldWrapper input[type="checkbox"]'));
+        fieldWrap.style.display = select.value ? 'block' : 'none';
+        boxes.forEach(function(box) { box.checked = false; box.disabled = false; });
+        if (select.value === 'others') {
             wrap.style.display = 'block';
             input.required = true;
         } else {
             wrap.style.display = 'none';
             input.required = false;
+        }
+        if (['low_image_quality', 'wrong_design', 'invalid_format'].includes(select.value)) {
+            var design = boxes.find(function(box) { return box.value === 'uploaded_design'; });
+            if (design) { design.checked = true; design.disabled = true; }
+        } else if (select.value === 'incorrect_details') {
+            boxes.filter(function(box) { return box.value !== 'uploaded_design'; }).forEach(function(box) { box.checked = true; });
         }
     }
 
@@ -2003,6 +2465,7 @@ $page_title = 'Orders - Staff';
         fd.append('order_id', orderId);
         fd.append('price', price);
         fd.append('action', 'update_order_price');
+        fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
 
         fetch(staffUrl('admin/job_orders_api.php'), {
             method: 'POST', body: fd,
@@ -2053,10 +2516,18 @@ $page_title = 'Orders - Staff';
         var csrf = d.csrf_token || '';
 
         var actionsHTML = '';
-        var isViewOnlyStatus = ['Completed', 'Cancelled', 'Rejected'].includes(d.status);
+        var isViewOnlyStatus = ['Completed', 'Cancelled', 'Rejected', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(d.status);
         var verifyStatuses = ['To Verify', 'Pending Verification', 'Verify Pay'];
         var isVerifyStatus = verifyStatuses.includes(d.status);
         var canVerifyPayment = isVerifyStatus && d.payment_proof && d.payment_proof !== 'null' && d.payment_proof !== 'undefined';
+        var isCompletedWalkIn = d.status === 'COMPLETED'
+            && String(d.payment_status || '').toLowerCase() === 'paid'
+            && /^(pos|walk-in)/i.test(String(d.order_source || ''));
+        if (isCompletedWalkIn) {
+            actionsHTML = '<div style="margin-top:28px;">' +
+                '<button class="btn-primary" onclick="reprintCompletedPosReceipt(' + d.order_id + ', this)" style="width:100%; background:#0f766e; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Reprint Receipt</button>' +
+                '</div>';
+        }
         if (!isViewOnlyStatus) {
             if (isVerifyStatus) {
                 if (canVerifyPayment) {
@@ -2141,6 +2612,16 @@ $page_title = 'Orders - Staff';
                 });
                 if (grid) specHTML = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; margin-top:12px;">' + grid + '</div>';
             }
+            if (item.has_design && item.design_url) {
+                specHTML += '<div style="margin-top:10px;font-size:12px;"><strong>Uploaded Design:</strong> ' +
+                    '<a href="' + esc(item.design_url) + '" target="_blank" rel="noopener" style="color:#2563eb;">' +
+                    esc(item.design_name || 'View uploaded design') + '</a></div>';
+            }
+            if (item.has_reference && item.reference_url) {
+                specHTML += '<div style="margin-top:8px;font-size:12px;"><strong>Reference File:</strong> ' +
+                    '<a href="' + esc(item.reference_url) + '" target="_blank" rel="noopener" style="color:#2563eb;">' +
+                    esc(item.reference_name || 'View reference file') + '</a></div>';
+            }
 
             itemsHTML += '<div style="padding:16px; background:#fff; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:12px;">' +
                 '<div style="display:flex; gap:16px; align-items:flex-start;">' +
@@ -2164,8 +2645,70 @@ $page_title = 'Orders - Staff';
         document.getElementById('omBody').innerHTML = contentHTML + detailsHTML + notesBlock + payBlock + actionsHTML;
     }
 
+    async function reprintCompletedPosReceipt(orderId, button) {
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Printing...';
+        var result = null;
+        try {
+            var existingJobId = Number(button.dataset.printJobId || 0);
+            var endpoint = existingJobId > 0
+                ? 'staff/api/pos_receipt_print_retry.php'
+                : 'staff/api/pos_receipt_print.php';
+            var requestBody = existingJobId > 0
+                ? {job_id: existingJobId, csrf_token: document.body.getAttribute('data-csrf') || ''}
+                : {
+                    action: 'reprint',
+                    order_id: Number(orderId),
+                    csrf_token: document.body.getAttribute('data-csrf') || ''
+                };
+            var response = await fetch(staffUrl(endpoint), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(requestBody)
+            });
+            result = await response.json();
+            if (!response.ok || !result.success || !result.print_job || !result.print_job.job_id) {
+                throw new Error(result.message || 'Receipt printing failed.');
+            }
+            button.dataset.printJobId = String(result.print_job.job_id);
+            for (var attempt = 0; attempt < 15; attempt += 1) {
+                await new Promise(function(resolve) { window.setTimeout(resolve, 1500); });
+                var statusResponse = await fetch(
+                    staffUrl('staff/api/pos_receipt_print_status.php') + '?job_id=' + encodeURIComponent(result.print_job.job_id) + '&_=' + Date.now(),
+                    {cache: 'no-store'}
+                );
+                var statusResult = await statusResponse.json();
+                var status = statusResult && statusResult.job ? statusResult.job.status : '';
+                if (statusResponse.ok && status === 'printed') {
+                    delete button.dataset.printJobId;
+                    button.textContent = 'Receipt printed successfully.';
+                    window.setTimeout(function() {
+                        button.disabled = false;
+                        button.textContent = 'Reprint Receipt';
+                    }, 2500);
+                    return;
+                }
+                if (statusResponse.ok && status === 'failed') {
+                    throw new Error(statusResult.job.error_message || 'Receipt printing failed.');
+                }
+            }
+            throw new Error('Receipt printing was not confirmed in time.');
+        } catch (error) {
+            console.error('POS receipt reprint failed:', error);
+            if (result && result.print_job && result.print_job.job_id) {
+                button.dataset.printJobId = String(result.print_job.job_id);
+            }
+            button.disabled = false;
+            button.textContent = 'Retry Reprint';
+            alert('Receipt printing failed. The original sale was not changed.');
+        }
+    }
+
     // ── DOMContentLoaded: event listeners & auto-open ────
     document.addEventListener('DOMContentLoaded', function() {
+        initOrdersPaginationNavigation();
+
         // Escape key closes modal
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') closeOrderModal();
@@ -2175,6 +2718,15 @@ $page_title = 'Orders - Staff';
         var revForm = document.getElementById('revForm');
         if (revForm) {
             revForm.addEventListener('submit', function(e) {
+                var sel = this.querySelector('select[name="revision_reason_code"]');
+                var oth = this.querySelector('textarea[name="revision_reason_other"]');
+                var instruction = this.querySelector('textarea[name="revision_instruction"]');
+                var selectedFields = this.querySelectorAll('input[name="revision_permitted_fields[]"]:checked');
+                if (!sel || !sel.value || !instruction || !instruction.value.trim() || !selectedFields.length || (sel.value === 'others' && !oth.value.trim())) {
+                    e.preventDefault();
+                    alert(!selectedFields.length ? 'Select at least one field the customer may edit.' : 'Complete the revision reason and customer instructions.');
+                    return false;
+                }
                 var submitBtn = this.querySelector('button[type="submit"]');
                 if (submitBtn) {
                     if (submitBtn.disabled) { e.preventDefault(); return false; }
@@ -2182,10 +2734,8 @@ $page_title = 'Orders - Staff';
                     submitBtn.textContent = 'Sending...';
                     submitBtn.style.opacity = '0.7';
                 }
-                var sel = this.querySelector('select[name="revision_reason_select"]');
-                var oth = this.querySelector('textarea[name="revision_reason_other"]');
-                var finalReason = sel ? sel.value : '';
-                if (finalReason === 'Other' && oth) finalReason = oth.value;
+                var finalReason = sel.options[sel.selectedIndex].text;
+                if (sel.value === 'others' && oth) finalReason = oth.value.trim();
                 var hidden = this.querySelector('input[name="revision_reason"]');
                 if (!hidden) {
                     hidden = document.createElement('input');
@@ -2194,6 +2744,7 @@ $page_title = 'Orders - Staff';
                     this.appendChild(hidden);
                 }
                 hidden.value = finalReason;
+                this.querySelector('input[name="revision_reason_label"]').value = finalReason;
             });
         }
 
@@ -2388,8 +2939,15 @@ $page_title = 'Orders - Staff';
                     </div>
                 </div>
 
-                <div class="overflow-x-auto -mx-6 px-6" style="clear:both;">
-                    <table class="orders-table">
+                <div class="overflow-x-auto -mx-6 px-6 orders-table-scroll" style="clear:both;">
+                    <table class="orders-table <?php echo $is_pos_staff ? 'orders-table--pos' : 'orders-table--online'; ?>">
+                        <colgroup>
+                            <col class="col-order"><col class="col-product"><col class="col-customer">
+                            <?php if (!$is_pos_staff): ?><col class="col-source"><?php endif; ?>
+                            <col class="col-date"><col class="col-total">
+                            <?php if (!$is_pos_staff): ?><col class="col-status"><?php endif; ?>
+                            <col class="col-action">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th class="pl-6 pr-4 py-4 w-[16%] border-b border-gray-100">Order Code</th>
@@ -2405,7 +2963,7 @@ $page_title = 'Orders - Staff';
                         <tbody>
                             <?php foreach ($orders as $order): ?>
                                 <tr class="staff-order-row" onclick="openOrderModal(<?php echo $order['order_id']; ?>)">
-                                    <td class="pl-6 pr-4 py-4 relative">
+                                    <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order Code">
                                         <div class="row-indicator"></div>
                                         <div class="order-info-cell">
                                             <div class="order-id-wrap">
@@ -2421,19 +2979,19 @@ $page_title = 'Orders - Staff';
                                             </div>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 product-cell" data-label="Product">
                                         <?php $display_product_name = staff_orders_product_name($order); ?>
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($display_product_name); ?>">
                                             <?php echo htmlspecialchars(strlen($display_product_name) > 120 ? substr($display_product_name, 0, 120) . '...' : $display_product_name); ?>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 customer-cell" data-label="Customer">
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars($order['customer_name']); ?>">
                                             <?php echo htmlspecialchars($order['customer_name']); ?>
                                         </div>
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
-                                    <td class="px-4 py-4 status-col-cell">
+                                    <td class="px-4 py-4 status-col-cell source-cell" data-label="Source">
                                         <?php if (($order['order_source'] ?? '') === 'pos'): ?>
                                             <span class="pf-pill source-badge-pill pos">Pos</span>
                                         <?php else: ?>
@@ -2441,18 +2999,18 @@ $page_title = 'Orders - Staff';
                                         <?php endif; ?>
                                     </td>
                                     <?php endif; ?>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 date-cell" data-label="Date">
                                         <div class="table-text-sub truncate-ellipsis" title="<?php echo htmlspecialchars(format_date($order['order_date'])); ?>">
                                             <?php echo format_date($order['order_date']); ?>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4">
+                                    <td class="px-4 py-4 total-cell" data-label="Total">
                                         <div class="table-text-main truncate-ellipsis" title="<?php echo htmlspecialchars(format_currency($order['total_amount'])); ?>">
                                             <?php echo format_currency($order['total_amount']); ?>
                                         </div>
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
-                                    <td class="px-4 py-4 status-col-cell">
+                                    <td class="px-4 py-4 status-col-cell order-status-cell" data-label="Status">
                                         <?php $display_order_status2 = staff_orders_display_status((string)$order['status']); ?>
                                         <div class="status-col-inner">
                                             <?php echo staff_orders_status_pill_html($display_order_status2); ?>
@@ -2464,10 +3022,10 @@ $page_title = 'Orders - Staff';
                                         </div>
                                     </td>
                                     <?php endif; ?>
-                                    <td class="px-4 py-4 action-col-cell">
-                                        <div class="action-cell">
+                                    <td class="px-4 py-4 action-col-cell" data-label="Actions">
+                                        <div class="orders-card-actions<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                                             <button onclick="event.stopPropagation(); openOrderModal(<?php echo $order['order_id']; ?>)" 
-                                                    class="table-action-btn alt">
+                                                    class="table-action-btn">
                                                 View
                                             </button>
                                             <?php if (!$is_pos_staff): ?>
@@ -2487,8 +3045,8 @@ $page_title = 'Orders - Staff';
             </div>
 
             <!-- Pagination -->
-            <div class="pagination-wrapper" style="padding: 24px 0; border-top: 1px solid #f3f4f6;">
-                <?php echo render_pagination($current_page, $total_pages, $active_filters); ?>
+            <div class="pagination-wrapper staff-pagination-shell" data-turbo="false">
+                <?php echo render_pagination($current_page, $total_pages, $pagination_params); ?>
             </div>
         </main>
     </div>
@@ -2553,30 +3111,46 @@ $page_title = 'Orders - Staff';
 <div id="revisionModal" role="dialog" aria-modal="true">
     <div class="rev-backdrop" onclick="closeRevisionModal()"></div>
     <div class="rev-panel">
-        <div class="rev-title">Request Design Revision</div>
-        <p class="rev-sub">Please select a reason for the revision request. This will be sent to the customer.</p>
+        <div class="rev-title">Request Additional Details</div>
+        <p class="rev-sub">Select exactly which fields the customer may correct.</p>
         
         <form id="revForm" action="request_revision_process.php" method="POST">
             <input type="hidden" name="order_id" id="revOrderId">
             <input type="hidden" name="csrf_token" id="revCsrfToken">
+            <input type="hidden" name="revision_reason_label" value="">
             
             <div style="margin-bottom: 20px;">
                 <label style="display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:8px;">Reason for Revision</label>
-                <select name="revision_reason_select" class="input-field" required onchange="handleReasonChange(this)">
+                <select name="revision_reason_code" class="input-field" required onchange="handleReasonChange(this)">
                     <option value="" disabled selected>Select a reason...</option>
-                    <option value="Low image quality / Blurry file">Low image quality / Blurry file</option>
-                    <option value="Incorrect dimensions / Size issue">Incorrect dimensions / Size issue</option>
-                    <option value="Wrong file format">Wrong file format</option>
-                    <option value="Design not print-ready">Design not print-ready</option>
-                    <option value="Incomplete details">Incomplete details</option>
-                    <option value="Copyright or restricted content">Copyright or restricted content</option>
-                    <option value="Other">Other (Please specify)</option>
+                    <option value="low_image_quality">Low image quality</option>
+                    <option value="wrong_design">Wrong design uploaded</option>
+                    <option value="incorrect_details">Incorrect details provided</option>
+                    <option value="invalid_format">Not printable / invalid format</option>
+                    <option value="others">Others</option>
                 </select>
             </div>
 
             <div id="revOtherWrapper" style="display:none; margin-bottom:20px;">
                 <label style="display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:8px;">Specify Other Reason</label>
                 <textarea name="revision_reason_other" id="revOtherInput" class="input-field" style="height:80px;"></textarea>
+            </div>
+
+            <div id="revFieldWrapper" style="display:none; margin-bottom:20px;">
+                <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;">Allow customer to edit</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="uploaded_design"> Uploaded Design</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="needed_date"> Needed Date</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="type_specifications"> Type / Specifications</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="layout"> Layout</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="quantity"> Quantity</label>
+                    <label><input type="checkbox" name="revision_permitted_fields[]" value="order_notes"> Order Notes</label>
+                </div>
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;">Instructions for Customer</label>
+                <textarea name="revision_instruction" class="input-field" style="height:90px;" required placeholder="Explain what must be corrected."></textarea>
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">

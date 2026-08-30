@@ -394,12 +394,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
                     : (review_item_unit_price($item) * review_item_quantity($item));
                 $grand_total += $subtotal;
                 
-                if ($reference_id === null && !empty($item['product_id'])) {
+                if ($reference_id === null && review_item_is_product($item) && !empty($item['product_id'])) {
                     $reference_id = $item['product_id'];
                 }
-                
+
                 if (review_item_is_service($item)) {
                     $order_type = 'custom';
+                    if ($reference_id === null) {
+                        $serviceReferenceId = printflow_resolve_service_catalog_service_id_from_cart_line($item);
+                        if ($serviceReferenceId > 0) {
+                            $reference_id = $serviceReferenceId;
+                        }
+                    }
                 }
 
                 if (!empty($custom)) {
@@ -1412,6 +1418,223 @@ require_once __DIR__ . '/../includes/header.php';
         .review-order-item .order-item-image { width: 100% !important; }
         .order-review-page-title { font-size: 1.15rem !important; }
     }
+
+    /* Order review page only: preserve the original card and flatten specification tiles. */
+    .order-review-page .review-order-entry .order-item-header {
+        align-items: center !important;
+    }
+    .order-review-page .review-order-entry .order-item-image {
+        align-self: center !important;
+    }
+    .order-review-page .review-order-entry .order-item-content {
+        display: grid !important;
+        grid-template-columns: minmax(80px, 0.9fr) minmax(86px, auto) minmax(185px, 1.15fr) !important;
+        align-items: center !important;
+        align-self: center !important;
+        gap: 0.75rem !important;
+        overflow: visible !important;
+    }
+    .order-review-page .review-order-entry .order-item-content h3 {
+        margin: 0 !important;
+        color: #ffffff !important;
+    }
+    .order-review-page .review-order-entry .order-item-category-badge {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        justify-content: center !important;
+        align-self: center !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        color: #53c5e0 !important;
+        text-transform: uppercase !important;
+        line-height: 1.15 !important;
+        white-space: nowrap !important;
+    }
+    .order-review-page .review-order-entry .order-item-category-badge::before {
+        content: "Category:";
+        display: block !important;
+        margin-bottom: 0.18rem !important;
+        color: #9fc4d4 !important;
+        font-size: 0.68rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.04em !important;
+        text-transform: uppercase !important;
+    }
+    .order-review-page .review-order-entry .order-item-details {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 0.9rem !important;
+        margin: 0 !important;
+        flex-wrap: nowrap !important;
+        min-width: 0 !important;
+        overflow: visible !important;
+    }
+    .order-review-page .review-order-entry .review-detail-row,
+    .order-review-page .review-order-entry .review-total-row {
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        align-self: center !important;
+    }
+    .order-review-page .review-order-entry .review-detail-row {
+        min-width: 52px !important;
+    }
+    .order-review-page .review-order-entry .review-total-row {
+        min-width: 112px !important;
+    }
+    .order-review-page .review-order-entry .review-detail-label,
+    .order-review-page .review-order-entry .review-total-label {
+        color: #9fc4d4 !important;
+        white-space: nowrap;
+        font-size: 0.64rem !important;
+    }
+    .order-review-page .review-order-entry .review-detail-value {
+        color: #eaf6fb !important;
+    }
+    .order-review-page .review-order-entry .review-total-value {
+        color: #53c5e0 !important;
+        font-size: 1.1rem !important;
+        white-space: nowrap;
+    }
+    .order-review-page .review-order-entry .order-item-spec-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 1rem 1.25rem !important;
+    }
+    .order-review-page .review-order-entry .order-item-spec-tile {
+        min-width: 0 !important;
+        height: auto !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+    }
+    .order-review-page .review-order-entry .order-item-spec-tile .pf-spec-label {
+        margin-bottom: 0.35rem !important;
+        color: #9fc4d4 !important;
+    }
+    .order-review-page .review-order-entry .order-item-spec-tile .pf-spec-value {
+        color: #eaf6fb !important;
+    }
+    .order-review-page .review-order-entry .order-item-upload-design {
+        grid-column: 1 / -1 !important;
+        padding-top: 0.25rem !important;
+    }
+    .order-review-page .review-order-entry .order-item-upload-design img {
+        display: block !important;
+        width: 100% !important;
+        max-width: 320px !important;
+        max-height: 280px !important;
+        margin: 0 !important;
+        border: 1px solid rgba(83, 197, 224, 0.22) !important;
+        border-radius: 8px !important;
+        background: rgba(0, 0, 0, 0.25) !important;
+    }
+
+    @media (max-width: 640px) {
+        .order-review-page .review-order-entry {
+            display: block !important;
+            padding: 0 !important;
+            overflow: visible !important;
+        }
+        .order-review-page .review-order-entry .order-item-header {
+            display: grid !important;
+            grid-template-columns: 84px minmax(0, 1fr) !important;
+            align-items: center !important;
+            gap: 1rem !important;
+            padding: 1rem !important;
+        }
+        .order-review-page .review-order-entry .order-item-image {
+            display: flex !important;
+            width: 84px !important;
+            height: 84px !important;
+            aspect-ratio: 1 / 1 !important;
+            margin: 0 !important;
+            border-radius: 10px !important;
+        }
+        .order-review-page .review-order-entry .order-item-content {
+            width: 100% !important;
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            align-items: center !important;
+            gap: 0.65rem 0.75rem !important;
+            padding: 0 !important;
+            text-align: left !important;
+        }
+        .order-review-page .review-order-entry .order-item-content h3 {
+            width: auto !important;
+            margin: 0 !important;
+            text-align: left !important;
+        }
+        .order-review-page .review-order-entry .order-item-category-badge {
+            justify-self: end !important;
+        }
+        .order-review-page .review-order-entry .order-item-details {
+            grid-column: 1 / -1 !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: row !important;
+            justify-content: flex-start !important;
+            gap: 1.25rem !important;
+            margin: 0 !important;
+            padding-top: 0.65rem !important;
+            border-top: 1px solid rgba(83, 197, 224, 0.12) !important;
+            flex-wrap: wrap !important;
+        }
+        .order-review-page .review-order-entry .review-detail-row,
+        .order-review-page .review-order-entry .review-total-row {
+            display: block !important;
+            width: auto !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: 0 !important;
+            text-align: left !important;
+        }
+        .order-review-page .review-order-entry .order-item-specs {
+            display: block !important;
+            width: 100% !important;
+            padding: 1.25rem 1rem !important;
+        }
+        .order-review-page .review-order-entry .order-item-spec-grid {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 1rem !important;
+        }
+        .order-review-page .review-order-entry .order-item-spec-tile {
+            display: block !important;
+            width: 100% !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+        }
+        .order-review-page .review-order-entry .order-item-spec-tile > div:last-child {
+            text-align: left !important;
+        }
+        .order-review-page .review-order-entry .order-item-upload-design {
+            grid-column: 1 / -1 !important;
+        }
+    }
+
+    @media (max-width: 430px) {
+        .order-review-page .review-order-entry .order-item-header {
+            grid-template-columns: 72px minmax(0, 1fr) !important;
+            gap: 0.8rem !important;
+        }
+        .order-review-page .review-order-entry .order-item-image {
+            width: 72px !important;
+            height: 72px !important;
+        }
+        .order-review-page .review-order-entry .order-item-spec-grid {
+            grid-template-columns: 1fr !important;
+        }
+    }
 </style>
 
 <!-- Success Modal -->
@@ -1451,7 +1674,7 @@ require_once __DIR__ . '/../includes/header.php';
     }
 </script>
 
-<div class="min-h-screen py-8">
+<div class="min-h-screen py-8 order-review-page">
     <?php if (!isset($order_placed_id)): ?>
     <div class="container mx-auto px-4 order-container">
         <div class="order-review-page-header">
@@ -1484,7 +1707,7 @@ require_once __DIR__ . '/../includes/header.php';
                     $review_snapshot = pf_order_ui_normalize_review_customization(review_item_customization($item), $item, true);
                     $review_snapshot_json = printflow_encode_customization_payload($review_snapshot);
                 ?>
-                <div class="review-order-item <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
+                <div class="review-order-item review-order-entry <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
                     <input type="hidden" name="spec_snapshot[<?php echo htmlspecialchars((string)$key, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($review_snapshot_json, ENT_QUOTES, 'UTF-8'); ?>">
                     <?php
                     try {

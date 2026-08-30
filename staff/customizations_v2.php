@@ -234,6 +234,10 @@ function cv2_display_status(string $status): string
         .cv2-revise-panel.open { display:block; }
         .cv2-revise-panel select, .cv2-revise-panel textarea { width:100%; padding:9px 11px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:10px; outline:none; box-sizing:border-box; }
         .cv2-revise-panel label { font-size:13px; font-weight:600; color:#9a3412; display:block; margin-bottom:6px; }
+        .cv2-revise-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px 12px; padding:10px; margin-bottom:10px; background:#fff; border:1px solid #fed7aa; border-radius:8px; }
+        .cv2-revise-fields label { display:flex; align-items:center; gap:7px; margin:0; color:#374151; font-weight:500; }
+        .cv2-revise-fields input { accent-color:#0f766e; }
+        @media (max-width:560px) { .cv2-revise-fields { grid-template-columns:1fr; } }
 
         .cv2-banner { border-radius:10px; padding:11px 14px; font-size:13px; font-weight:700; margin-bottom:14px; display:none; }
         .cv2-banner.show { display:block; }
@@ -257,7 +261,7 @@ function cv2_display_status(string $status): string
     <div class="main-content">
         <header>
             <h1 class="page-title">Customizations <span style="font-size:12px; background:#53c5e0; color:#fff; padding:3px 9px; border-radius:999px; vertical-align:middle; margin-left:6px;">V2</span></h1>
-            <p style="color:#64748b; font-size:14px; margin-top:4px;">Track and manage all custom jobs — shows exactly what the customer submitted (online &amp; POS).</p>
+            <p class="pf-page-subtitle" style="color:#64748b; font-size:14px; margin-top:4px;">Track and manage all custom jobs — shows exactly what the customer submitted (online &amp; POS).</p>
         </header>
 
         <main>
@@ -476,17 +480,37 @@ const CV2 = (function () {
             html += renderPosPricePanel(d);
         }
 
+        const seenRevisionFields = new Set();
+        const dynamicRevisionFields = (d.items || []).flatMap(item => Array.isArray(item.revision_fields) ? item.revision_fields : [])
+            .filter(field => field && field.value && !seenRevisionFields.has(field.value) && seenRevisionFields.add(field.value));
+        const dynamicRevisionHtml = dynamicRevisionFields.map(field =>
+            `<label><input type="checkbox" name="cv2_revision_field" value="${esc(field.value)}"> ${esc(field.label)}</label>`
+        ).join('');
+
         html += `<div class="cv2-revise-panel" id="cv2RevisePanel">
-            <label>Details needed from customer</label>
+            <label for="cv2ReviseSelect">Reason for Revision</label>
             <select id="cv2ReviseSelect" onchange="CV2.onReviseSelect()">
                 <option value="">Select a reason…</option>
-                <option>Design quality is too low / blurry</option>
-                <option>Incorrect dimensions or specifications</option>
-                <option>Missing required information</option>
-                <option>File format not supported</option>
-                <option value="__other">Other (specify)</option>
+                <option value="low_image_quality">Low image quality</option>
+                <option value="wrong_design">Wrong design uploaded</option>
+                <option value="incorrect_details">Incorrect details provided</option>
+                <option value="invalid_format">Not printable / invalid format</option>
+                <option value="others">Others</option>
             </select>
-            <textarea id="cv2ReviseText" rows="3" placeholder="Describe the additional details or information needed from the customer…" style="display:none;"></textarea>
+            <div id="cv2ReviseFieldSection" style="display:none;">
+                <label>Allow customer to edit</label>
+                <div class="cv2-revise-fields">
+                    <label><input type="checkbox" name="cv2_revision_field" value="uploaded_design"> Uploaded Design</label>
+                    <label><input type="checkbox" name="cv2_revision_field" value="needed_date"> Needed Date</label>
+                    <label><input type="checkbox" name="cv2_revision_field" value="type_specifications"> Type / Specifications</label>
+                    <label><input type="checkbox" name="cv2_revision_field" value="layout"> Layout</label>
+                    <label><input type="checkbox" name="cv2_revision_field" value="quantity"> Quantity</label>
+                    <label><input type="checkbox" name="cv2_revision_field" value="order_notes"> Order Notes</label>
+                    ${dynamicRevisionHtml}
+                </div>
+                <label for="cv2ReviseText">Instructions for Customer</label>
+                <textarea id="cv2ReviseText" rows="3" required placeholder="Clearly describe what the customer must correct…"></textarea>
+            </div>
         </div>`;
 
         document.getElementById('cv2DrawerBody').innerHTML = html;
@@ -675,6 +699,7 @@ const CV2 = (function () {
         try {
             const fd = new FormData();
             fd.append('action', 'update_customization');
+            fd.append('csrf_token', CSRF);
             fd.append('id', customizationId);
             fd.append('status', 'APPROVED');
             fd.append('price', price);
@@ -723,7 +748,15 @@ const CV2 = (function () {
 
     function onReviseSelect() {
         const sel = document.getElementById('cv2ReviseSelect');
-        document.getElementById('cv2ReviseText').style.display = (sel.value === '__other') ? 'block' : 'none';
+        document.getElementById('cv2ReviseFieldSection').style.display = sel.value ? 'block' : 'none';
+        const boxes = Array.from(document.querySelectorAll('input[name="cv2_revision_field"]'));
+        boxes.forEach(box => { box.checked = false; box.disabled = false; });
+        if (['low_image_quality', 'wrong_design', 'invalid_format'].includes(sel.value)) {
+            const design = boxes.find(box => box.value === 'uploaded_design');
+            if (design) { design.checked = true; design.disabled = true; }
+        } else if (sel.value === 'incorrect_details') {
+            boxes.filter(box => box.value !== 'uploaded_design').forEach(box => { box.checked = true; });
+        }
     }
 
     function toggleRevise() {
@@ -742,10 +775,26 @@ const CV2 = (function () {
 
     function submitRevise() {
         const sel = document.getElementById('cv2ReviseSelect');
-        let reason = sel.value;
-        if (reason === '__other') reason = document.getElementById('cv2ReviseText').value.trim();
-        if (!reason) { banner('Please choose or enter the details you need from the customer.', 'err'); return; }
-        act('request_revision', { reason });
+        const reasonCode = sel.value;
+        const labels = {
+            low_image_quality: 'Low image quality',
+            wrong_design: 'Wrong design uploaded',
+            incorrect_details: 'Incorrect details provided',
+            invalid_format: 'Not printable / invalid format',
+            others: 'Others'
+        };
+        const instruction = document.getElementById('cv2ReviseText').value.trim();
+        const fields = Array.from(document.querySelectorAll('input[name="cv2_revision_field"]:checked')).map(box => box.value);
+        if (!reasonCode) { banner('Please select a revision reason.', 'err'); return; }
+        if (!fields.length) { banner('Select at least one field the customer may edit.', 'err'); return; }
+        if (!instruction) { banner('Instructions for the customer are required.', 'err'); return; }
+        act('request_revision', {
+            reason: labels[reasonCode],
+            revision_reason_code: reasonCode,
+            revision_reason_label: labels[reasonCode],
+            revision_instruction: instruction,
+            revision_permitted_fields: fields
+        });
     }
 
     async function act(action, extra = {}) {
@@ -761,7 +810,10 @@ const CV2 = (function () {
             fd.append('action', action);
             fd.append('order_id', orderId);
             fd.append('csrf_token', CSRF);
-            Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
+            Object.entries(extra).forEach(([k, v]) => {
+                if (Array.isArray(v)) v.forEach(entry => fd.append(`${k}[]`, entry));
+                else fd.append(k, v);
+            });
             const res = await fetch(API, { method: 'POST', body: fd });
             const json = await res.json();
             if (!json.success) throw new Error(json.message || 'Action failed');

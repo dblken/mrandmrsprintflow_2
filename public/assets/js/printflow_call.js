@@ -78,6 +78,8 @@
             this.userName = '';
             this.userAvatar = '';
             this.basePath = '';
+            this.realtimeEnabled = false;
+            this.signalingUrl = '';
 
             this.state = PF_STATE.IDLE;
             this.socket = null;
@@ -123,7 +125,7 @@
         }
 
         _ensureSocketConnection() {
-            if (!this._initialized || !this.socket) return;
+            if (!this.realtimeEnabled || !this._initialized || !this.socket) return;
             if (!this.isSocketConnected && typeof this.socket.connect === 'function') {
                 this.socket.connect();
             }
@@ -153,29 +155,31 @@
             this.userName = config.userName || 'User';
             this.userAvatar = config.userAvatar || '';
             this.basePath = (config.basePath || '').replace(/\/$/, '');
+            this.realtimeEnabled = config.realtimeEnabled === true;
+            this.signalingUrl = String(config.realtimeUrl || '').trim().replace(/\/$/, '');
+            window.PFCallRealtimeEnabled = this.realtimeEnabled && this.signalingUrl !== '';
 
             this._buildUI();
-            this._connectSocket();
+            if (window.PFCallRealtimeEnabled) {
+                this._connectSocket();
+            } else {
+                window.PFCallSocketConnected = false;
+            }
             
-            if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            if (window.PFCallRealtimeEnabled && typeof Notification !== 'undefined' && Notification.permission === 'default') {
                 Notification.requestPermission();
             }
         }
 
         _connectSocket() {
-            if (this.socket) return;
+            if (!this.realtimeEnabled || !this.signalingUrl || this.socket) return;
             if (typeof io === 'undefined') {
                 console.error("[PFCall] Socket.IO library (io) not found. Signaling disabled.");
                 window.PFCallSocketConnected = false;
                 return;
             }
 
-            // In production, point this to your separate Railway Node.js service URL.
-            // Replace '<railway-node-service-url>' with the actual URL provided by Railway.
-            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const url = isLocalhost 
-                ? 'http://localhost:3000' 
-                : 'https://mrandmrsprintflow-production.up.railway.app';
+            const url = this.signalingUrl;
 
             if (window.PF_CALL_DEBUG) {
                 console.log(`[PFCall] Connecting to signaling server: ${url}`);
@@ -296,7 +300,7 @@
         async startCall(targetId, targetType, targetName, targetAvatar, type = 'voice') {
             if (this.state !== PF_STATE.IDLE) return;
             if (!this.socket || !this.isSocketConnected) {
-                if (!window.__PFCallFallbackWarned) {
+                if (this.realtimeEnabled && !window.__PFCallFallbackWarned) {
                     window.__PFCallFallbackWarned = true;
                     console.warn("Socket not available, switching to fallback mode");
                 }

@@ -347,6 +347,7 @@ if (!function_exists('pv_confidence_class')) {
 }
 
 $basePath  = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+$proofPlaceholder = $basePath . '/public/assets/images/payment-proof-placeholder.svg';
 $pageTitle = 'Payment Verification - PrintFlow';
 $csrfToken = generate_csrf_token();
 ?>
@@ -359,8 +360,9 @@ $csrfToken = generate_csrf_token();
     <link rel="stylesheet" href="<?php echo pv_h($basePath); ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        .pv-main { padding: 24px; min-width: 0; }
-        .pv-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+        .pv-main { padding: 0; min-width: 0; }
+        .pv-content { padding: 0 32px 32px; }
+        .pv-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 8px; }
         .pv-title { margin: 0; font-size: 24px; font-weight: 700; color: #1f2937; line-height: 1.2; }
         .pv-subtitle { margin: 4px 0 0; color: #6b7280; font-size: 14px; }
         .pv-kpi-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
@@ -420,7 +422,7 @@ $csrfToken = generate_csrf_token();
         .pv-raw { white-space: pre-wrap; max-height: 250px; overflow: auto; background: #1f2937; color: #e5e7eb; border-radius: 8px; padding: 16px; font: 12px/1.6 ui-monospace, Consolas, monospace; }
         .pv-toast { position: fixed; right: 24px; bottom: 24px; z-index: 5000; max-width: 400px; padding: 16px 20px; border-radius: 10px; color: #fff; background: #1f2937; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); font-size: 14px; font-weight: 600; display: none; }
         @media(max-width: 1150px) { .pv-kpi-row { grid-template-columns: repeat(2, 1fr) } }
-        @media(max-width: 820px) { .pv-main { padding: 16px 12px } .pv-header { align-items: flex-start; flex-direction: column } .pv-kpi-row { grid-template-columns: 1fr 1fr } .pv-detail-grid { grid-template-columns: 1fr } .pv-edit-grid, .pv-info-grid { grid-template-columns: 1fr } .pv-drawer { width: 95vw; max-height: 95vh } .pv-compare { grid-template-columns: 1fr } .pv-proof-large, .pv-proof-pdf { max-height: 50vh; height: 50vh } }
+        @media(max-width: 820px) { .pv-main { padding: 0 } .pv-content { padding: 0 14px 18px } .pv-header { align-items: flex-start; flex-direction: column } .pv-kpi-row { grid-template-columns: 1fr 1fr } .pv-detail-grid { grid-template-columns: 1fr } .pv-edit-grid, .pv-info-grid { grid-template-columns: 1fr } .pv-drawer { width: 95vw; max-height: 95vh } .pv-compare { grid-template-columns: 1fr } .pv-proof-large, .pv-proof-pdf { max-height: 50vh; height: 50vh } }
         @media(max-width: 520px) { .pv-kpi-row { grid-template-columns: 1fr } .pv-title { font-size: 20px } }
     </style>
 </head>
@@ -434,11 +436,13 @@ $csrfToken = generate_csrf_token();
     <main class="main-content pv-main">
         <header class="pv-header">
             <div>
-                <h1 class="pv-title">Payment Verification</h1>
-                <p class="pv-subtitle">OCR-assisted receipt review. Staff confirmation is always required before payment approval.</p>
+                <h1 class="pv-title page-title">Payment Verification</h1>
+                <p class="pv-subtitle page-subtitle">OCR-assisted receipt review. Staff confirmation is always required before payment approval.</p>
             </div>
             <button class="pv-button light" type="button" id="pvRefreshQueue">Refresh Queue</button>
         </header>
+
+        <div class="pv-content">
 
         <?php if ($_pv_boot_error): ?>
             <div style="margin:24px 0; padding:20px 24px; background:#fff7f7; border:1.5px solid #fecaca; border-radius:12px; display:flex; gap:16px; align-items:flex-start;">
@@ -604,13 +608,13 @@ $csrfToken = generate_csrf_token();
                     <thead><tr><th>Proof</th><th>Order / Customer</th><th>Expected Amount</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
                     <?php foreach ($submissions as $submission):
-                        $previewPath = (string)($submission['receipt_thumbnail'] ?: $submission['receipt_file']);
-                        $previewUrl = payment_verification_proof_url($previewPath);
+                        $previewUrl = payment_verification_staff_proof_url((int)$submission['id'], 0, 0, 'thumbnail');
+                        $fullProofUrl = payment_verification_staff_proof_url((int)$submission['id']);
                         $isPdf = strtolower((string)$submission['receipt_mime']) === 'application/pdf' || preg_match('/\.pdf(?:$|\?)/i', (string)$submission['receipt_file']);
                         $viewQuery = array_merge($filterState, ['page' => $page, 'submission_id' => (int)$submission['id']]);
                     ?>
                     <tr>
-                        <td><?php if ($isPdf): ?><a class="pv-pdf-thumb" href="<?php echo pv_h(payment_verification_proof_url((string)$submission['receipt_file'])); ?>" target="_blank" rel="noopener">PDF</a><?php else: ?><img class="pv-receipt-thumb" src="<?php echo pv_h($previewUrl); ?>" alt="Payment proof thumbnail" loading="lazy"><?php endif; ?></td>
+                        <td><?php if ($isPdf): ?><a class="pv-pdf-thumb" href="<?php echo pv_h($fullProofUrl); ?>" target="_blank" rel="noopener">PDF</a><?php else: ?><img class="pv-receipt-thumb" src="<?php echo pv_h($previewUrl); ?>" alt="Payment proof thumbnail" loading="lazy" onerror="this.onerror=null;this.src='<?php echo pv_h($proofPlaceholder); ?>';this.classList.add('is-unavailable');"><?php endif; ?></td>
                         <td><div class="pv-mainline"><?php echo pv_h(payment_verification_order_label($submission)); ?></div><div class="pv-muted"><?php echo pv_h($submission['customer_name'] ?: 'Customer'); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h(format_currency((float)$submission['expected_amount'])); ?></div></td>
                         <td><div class="pv-mainline"><?php echo pv_h(date('M j, Y', strtotime((string)$submission['created_at']))); ?></div><div class="pv-muted"><?php echo pv_h(date('g:i A', strtotime((string)$submission['created_at']))); ?></div></td>
@@ -625,6 +629,7 @@ $csrfToken = generate_csrf_token();
             <?php endif; ?>
         </section>
         <?php endif; ?>
+        </div>
     </main>
 </div>
 
@@ -639,7 +644,7 @@ $csrfToken = generate_csrf_token();
     $detailAmountResultLabel = ucwords(str_replace('_', ' ', $detailAmountResult));
     $detailMethod = pv_effective($detail, 'detected_payment_method', 'ocr_detected_payment_method');
     $closeQuery = $filterState + ['page' => $page];
-    $proofUrl = payment_verification_proof_url((string)$detail['receipt_file']);
+    $proofUrl = payment_verification_staff_proof_url((int)$detail['id']);
     $detailIsPdf = strtolower((string)$detail['receipt_mime']) === 'application/pdf' || preg_match('/\.pdf(?:$|\?)/i', (string)$detail['receipt_file']);
 ?>
 <div class="pv-overlay active" role="dialog" aria-modal="true" aria-label="Payment submission review">
@@ -647,7 +652,7 @@ $csrfToken = generate_csrf_token();
         <header class="pv-drawer-head"><div><strong style="font-size:19px;">Review <?php echo pv_h(payment_verification_order_label($detail)); ?></strong><div class="pv-muted">Submission #<?php echo (int)$detail['id']; ?>, received <?php echo pv_h(date('M j, Y g:i A', strtotime((string)$detail['created_at']))); ?></div></div><a class="pv-button light" href="?<?php echo pv_h(http_build_query(array_filter($closeQuery, static fn($value) => $value !== ''))); ?>">Close</a></header>
         <div class="pv-detail-grid">
             <div>
-                <div class="pv-card"><h2 class="pv-card-title">Payment Proof</h2><?php if ($detailIsPdf): ?><object class="pv-proof-pdf" data="<?php echo pv_h($proofUrl); ?>" type="application/pdf"><a href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open PDF receipt</a></object><?php else: ?><img class="pv-proof-large" src="<?php echo pv_h($proofUrl); ?>" alt="Uploaded payment receipt"><?php endif; ?><div class="pv-actions"><a class="pv-button light" href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open Full Receipt</a><button class="pv-button light" id="pvRescanButton" type="button" onclick="pvRescan(<?php echo (int)$detail['id']; ?>)" <?php echo $isFinal ? 'disabled' : ''; ?>>Re-scan OCR</button></div></div>
+                <div class="pv-card"><h2 class="pv-card-title">Payment Proof</h2><?php if ($detailIsPdf): ?><object class="pv-proof-pdf" data="<?php echo pv_h($proofUrl); ?>" type="application/pdf"><a href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open PDF receipt</a></object><?php else: ?><img class="pv-proof-large" src="<?php echo pv_h($proofUrl); ?>" alt="Uploaded payment receipt" onerror="this.onerror=null;this.src='<?php echo pv_h($proofPlaceholder); ?>';this.classList.add('is-unavailable');"><?php endif; ?><div class="pv-actions"><a class="pv-button light" href="<?php echo pv_h($proofUrl); ?>" target="_blank" rel="noopener">Open Full Receipt</a><button class="pv-button light" id="pvRescanButton" type="button" onclick="pvRescan(<?php echo (int)$detail['id']; ?>)" <?php echo $isFinal ? 'disabled' : ''; ?>>Re-scan OCR</button></div></div>
                 <div class="pv-card">
                     <h2 class="pv-card-title">Order Information</h2>
                     <div class="pv-info-grid">

@@ -70,7 +70,6 @@ if (isset($_SESSION['user_id'])) {
                 </svg>
                 Orders
             </a>
-
             <a href="<?php echo $base_path; ?>/manager/payment.php" class="nav-item <?php echo $current_page === 'payment.php' ? 'active' : ''; ?>">
                 <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
@@ -347,4 +346,6 @@ window.PFConfig = { userId: <?php echo json_encode($_pf_uid); ?>, userType: <?ph
 <?php $notif_js_ver = @filemtime(__DIR__ . '/../public/assets/js/notifications.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
 <script src="<?php echo $base_path; ?>/public/assets/js/inactivity_logout.js" defer></script>
+<?php $receipt_scanner_ver = @filemtime(__DIR__ . '/../public/assets/js/receipt-scanner.js') ?: time(); ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/receipt-scanner.js?v=<?php echo $receipt_scanner_ver; ?>" data-base-path="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" defer></script>
 </div>

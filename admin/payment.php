@@ -50,22 +50,9 @@ function pf_admin_payment_has_column(string $table, string $column): bool
     return function_exists('db_table_has_column') && db_table_has_column($table, $column);
 }
 
-function pf_admin_payment_proof_url(string $proof): string
+function pf_admin_payment_proof_url(int $submissionId, string $variant = 'full'): string
 {
-    $proof = trim($proof);
-    if ($proof === '') {
-        return '';
-    }
-
-    $base = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-    if (stripos($proof, 'api_view_proof.php') !== false) {
-        if (preg_match('#^https?://#i', $proof)) {
-            return $proof;
-        }
-        return $base . '/' . ltrim($proof, '/');
-    }
-
-    return $base . '/staff/api_view_proof.php?file=' . rawurlencode($proof);
+    return payment_verification_staff_proof_url($submissionId, 0, 0, $variant);
 }
 
 function pf_admin_payment_badge(string $status, string $kind = 'proof'): string
@@ -226,9 +213,8 @@ if ($schemaReady) {
         $row['proof_status'] = (string)($row['verification_status'] ?? 'Pending Review');
         $row['workflow_status'] = (string)($row['verification_status'] ?? 'Pending Review');
         $row['proof_path'] = $receiptFile;
-        $row['proof_url'] = pf_admin_payment_proof_url($receiptFile);
-        $previewPath = (string)(($row['receipt_thumbnail'] ?? '') ?: $receiptFile);
-        $row['proof_preview_url'] = pf_admin_payment_proof_url($previewPath);
+        $row['proof_url'] = pf_admin_payment_proof_url((int)$row['id']);
+        $row['proof_preview_url'] = pf_admin_payment_proof_url((int)$row['id'], 'thumbnail');
         $row['submitted_at'] = (string)($row['created_at'] ?? '');
         $row['service_type'] = trim((string)($row['service_type'] ?? '')) ?: ($isCustomization ? 'Customization' : 'Product');
         $row['customer_name'] = trim((string)($row['customer_name'] ?? '')) ?: 'Customer';
@@ -571,7 +557,7 @@ $page_title = $isManagerPanel ? 'Payment - Manager | PrintFlow' : 'Payment - Adm
                                     <td class="py-3 text-center">
                                         <?php if ($proofUrl !== ''): ?>
                                             <button class="proof-thumb" type="button" onclick="event.stopPropagation(); openProofModal('<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>', '<?php echo htmlspecialchars((string)($payment['order_label'] ?? (($isCustomization ? 'Customization #' : 'Order #') . $recordId)), ENT_QUOTES, 'UTF-8'); ?>')" title="View proof">
-                                                <img src="<?php echo htmlspecialchars($proofPreviewUrl); ?>" alt="Payment proof" onerror="this.onerror=null; this.src='<?php echo htmlspecialchars($proofUrl, ENT_QUOTES, 'UTF-8'); ?>';">
+                                                <img src="<?php echo htmlspecialchars($proofPreviewUrl); ?>" alt="Payment proof" onerror="this.onerror=null;this.src='<?php echo htmlspecialchars($base_path . '/public/assets/images/payment-proof-placeholder.svg', ENT_QUOTES, 'UTF-8'); ?>';">
                                             </button>
                                         <?php else: ?>
                                             <span class="text-gray-400 text-xs">None</span>

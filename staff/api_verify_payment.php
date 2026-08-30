@@ -118,6 +118,11 @@ if (empty($order_result)) {
 $order = $order_result[0];
 $submission_id = $submission_id > 0 ? $submission_id : payment_verification_latest_submission_id($order_id, 0);
 $submission = $submission_id > 0 ? payment_verification_get_submission($submission_id) : null;
+if (!$submission) {
+    http_response_code(409);
+    echo json_encode(['success' => false, 'error' => 'No payment proof submission is available for this order.']);
+    exit;
+}
 $orderBranchId = (int)($order['branch_id'] ?? 0);
 if ($staffBranchId !== null) {
     $branchMatches =
@@ -137,6 +142,7 @@ if ($submission && in_array((string)$submission['verification_status'], ['Approv
     if ((string)$submission['verification_status'] === $expectedDecision) {
         echo json_encode(['success' => true, 'already_processed' => true]);
     } else {
+        http_response_code(409);
         echo json_encode(['success' => false, 'error' => 'This payment submission has already been finalized.']);
     }
     exit;
@@ -156,6 +162,59 @@ $payment_status = $order['payment_status'];
 $success = false;
 $error_message = '';
 $sync_warning = '';
+$transaction_started = false;
+
+$lock_submission_for_decision = static function () use ($submission_id, $order_id, $action): void {
+    global $conn;
+    $rows = db_query(
+        'SELECT id, order_id, verification_status FROM payment_submissions WHERE id = ? LIMIT 1 FOR UPDATE',
+        'i',
+        [$submission_id]
+    ) ?: [];
+    if (empty($rows) || (int)($rows[0]['order_id'] ?? 0) !== $order_id) {
+        throw new RuntimeException('The payment proof submission no longer belongs to this order.');
+    }
+
+    $current = (string)($rows[0]['verification_status'] ?? '');
+    if (!in_array($current, ['Approved', 'Rejected'], true)) {
+        return;
+    }
+
+    $expected = $action === 'Approve' ? 'Approved' : 'Rejected';
+    $conn->rollback();
+    if ($current === $expected) {
+        echo json_encode(['success' => true, 'already_processed' => true]);
+    } else {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'This payment submission has already been finalized.']);
+    }
+    exit;
+};
+
+$lock_order_for_decision = static function () use ($order_id, $staffBranchId): array {
+    $rows = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', 'i', [$order_id]) ?: [];
+    if (empty($rows)) {
+        throw new RuntimeException('The order no longer exists.');
+    }
+    $lockedOrder = $rows[0];
+    $lockedBranchId = (int)($lockedOrder['branch_id'] ?? 0);
+    if ($staffBranchId !== null) {
+        $branchMatches = ($lockedBranchId > 0 && $lockedBranchId === (int)$staffBranchId)
+            || printflow_order_in_branch($order_id, (int)$staffBranchId);
+        if (!$branchMatches) {
+            throw new RuntimeException('The order is outside the staff branch scope.');
+        }
+    }
+
+    if (strcasecmp(trim((string)($lockedOrder['payment_status'] ?? '')), 'Paid') === 0) {
+        throw new RuntimeException('This order is already paid.');
+    }
+    $lockedStatus = strtoupper(trim((string)($lockedOrder['status'] ?? '')));
+    if (in_array($lockedStatus, ['CANCELLED', 'COMPLETED', 'RATED'], true)) {
+        throw new RuntimeException('This order can no longer accept a payment decision.');
+    }
+    return $lockedOrder;
+};
 
 // ENUM/VARCHAR widen so statuses like Rejected save reliably (noop if already migrated).
 printflow_ensure_orders_status_schema();
@@ -190,8 +249,31 @@ try {
             $product_name = $items[0]['service_type'];
         }
 
-        $conn->begin_transaction();
+        if (!$conn->begin_transaction()) {
+            throw new RuntimeException('Could not start the payment approval transaction.');
+        }
+        $transaction_started = true;
         try {
+            // Provider callbacks lock the PayMongo ledger before the order.
+            // Preserve that lock ordering so a late historical callback cannot
+            // race a manual approval into a second paid transition.
+            if (printflow_provider_payments_ready()) {
+                $providerRows = db_query(
+                    "SELECT id, status FROM provider_payments
+                     WHERE provider = 'paymongo' AND subject_type = 'order'
+                       AND subject_id = ? AND channel = 'online'
+                     ORDER BY CASE WHEN status = 'paid' THEN 0 ELSE 1 END, id DESC
+                     LIMIT 1 FOR UPDATE",
+                    'i',
+                    [$order_id]
+                ) ?: [];
+                if (($providerRows[0]['status'] ?? '') === 'paid') {
+                    throw new RuntimeException('This order is already paid through PayMongo.');
+                }
+            }
+            $lock_submission_for_decision();
+            $order = $lock_order_for_decision();
+            $orderBranchId = (int)($order['branch_id'] ?? 0);
             // Update order
             if ($staffBranchId !== null) {
                 $sql = "UPDATE orders SET status = ?, payment_status = ? WHERE order_id = ? AND branch_id = ?";
@@ -294,17 +376,36 @@ try {
                 }
             }
 
-            $conn->commit();
+            if (!$conn->commit()) {
+                throw new RuntimeException('Could not commit the payment approval.');
+            }
+            $transaction_started = false;
         } catch (Throwable $e) {
-            if ($conn->in_transaction ?? false) {
+            if ($transaction_started || ($conn->in_transaction ?? false)) {
                 $conn->rollback();
+                $transaction_started = false;
             }
             throw $e;
         }
     } else {
         // Payment proof rejected — explicit status so lists/modals/customer flows recognize it (not "still verifying").
+        // Prepare linked rows before our transaction because the repair helper
+        // may use its own transaction internally.
+        require_once __DIR__ . '/../includes/JobOrderService.php';
+        JobOrderService::ensureJobsForStoreOrder($order_id);
+        global $conn;
+        if (!$conn->begin_transaction()) {
+            throw new RuntimeException('Could not start the payment rejection transaction.');
+        }
+        $transaction_started = true;
+        $lock_submission_for_decision();
+        $order = $lock_order_for_decision();
+
         $new_status = 'Rejected';
-        $reason = $_POST['reason'] ?? 'Payment proof rejected by staff.';
+        $reason = mb_substr(trim((string)($_POST['reason'] ?? '')), 0, 1000);
+        if ($reason === '') {
+            $reason = 'Payment proof rejected by staff. Please upload a clearer or corrected receipt.';
+        }
         
         // Get product name for better message context
         $product_name = 'your order';
@@ -320,7 +421,7 @@ try {
         }
         
         if ($success) {
-            payment_verification_mark_order_decision(
+            if (!payment_verification_mark_order_decision(
                 $submission_id,
                 $order_id,
                 0,
@@ -328,7 +429,9 @@ try {
                 $staff_id,
                 $reason,
                 $submission_notes
-            );
+            )) {
+                throw new RuntimeException('Payment submission was already finalized.');
+            }
             $msg = "Your payment proof was rejected. Reason: " . $reason . ". Please resubmit your payment proof.";
             if (!empty($order['customer_id'])) {
                 create_notification((int)$order['customer_id'], 'Customer', $msg, 'Order', false, false, $order_id);
@@ -360,12 +463,10 @@ try {
             
             log_activity($staff_id, 'Payment Rejected', "Rejected payment for Order #{$order_id}. Reason: {$reason}");
 
-            // Mirror checkout flow: guarantees at least one job row so payment flags persist (fixes empty Rejected tab).
-            require_once __DIR__ . '/../includes/JobOrderService.php';
-            JobOrderService::ensureJobsForStoreOrder($order_id);
-
-            db_execute(
+            // Mirror the rejected payment state into linked production rows.
+            $jobsRejected = db_execute(
                 "UPDATE job_orders SET payment_proof_status = 'REJECTED', status = 'TO_PAY',
+                 payment_status = 'UNPAID', amount_paid = 0,
                  payment_rejection_reason = ?,
                  payment_submitted_amount = 0,
                  payment_proof_uploaded_at = NULL
@@ -373,11 +474,25 @@ try {
                 'si',
                 [$reason, $order_id]
             );
+            if (!$jobsRejected) {
+                throw new RuntimeException('Linked production payment state could not be rejected.');
+            }
 
             // Proof file intentionally retained — staff can reopen the rejected proof; clearing DB paths caused 403/404 churn.
         }
+        if (!$success) {
+            throw new RuntimeException('The rejected payment state could not be saved.');
+        }
+        if (!$conn->commit()) {
+            throw new RuntimeException('Could not commit the payment rejection.');
+        }
+        $transaction_started = false;
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    if ($transaction_started && isset($conn) && $conn instanceof mysqli) {
+        $conn->rollback();
+        $transaction_started = false;
+    }
     $success = false;
     payment_verification_log('store_payment_review_failed', [
         'order_id' => $order_id,

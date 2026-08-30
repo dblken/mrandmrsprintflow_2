@@ -16,6 +16,9 @@ ob_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, must-revalidate');
 
+require_once __DIR__ . '/../includes/receipt_access.php';
+require_once __DIR__ . '/../includes/pos_receipt_format.php';
+
 function customer_order_items_json_flags(): int {
     $flags = JSON_UNESCAPED_SLASHES;
     if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
@@ -84,6 +87,8 @@ require_once __DIR__ . '/../includes/order_ui_helper.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/revision_workflow.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role('Customer');
 
@@ -387,7 +392,10 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
             'quantity' => $quantity,
             'unit_price' => round($unitPriceRaw, 2),
             'line_total' => round($lineTotalRaw, 2),
-            'customization' => is_array($item['customization'] ?? null) ? $item['customization'] : [],
+            'customization' => printflow_customization_display_specs(
+                is_array($item['customization'] ?? null) ? $item['customization'] : [],
+                ['include_service' => false, 'include_design' => false, 'include_notes' => true, 'include_quantity' => false]
+            ),
         ];
     }
 
@@ -407,12 +415,18 @@ function customer_receipt_build_payload(array $order, array $items, string $paym
         $customerName = 'Customer';
     }
 
+    $receiptDateTime = trim((string)($order['_receipt_paid_at'] ?? ''));
+    if ($receiptDateTime === '') {
+        $receiptDateTime = (string)($order['updated_at'] ?? $order['order_date'] ?? date('Y-m-d H:i:s'));
+    }
     return [
         'receipt_number' => 'WEB-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_number' => printflow_format_order_code($orderId, $order['order_sku'] ?? ''),
-        'date_time' => (string)($order['updated_at'] ?? $order['order_date'] ?? date('Y-m-d H:i:s')),
+        'qr_payload' => printflow_receipt_qr_payload($orderId),
+        'date_time' => $receiptDateTime,
+        'date_time_display' => printflow_receipt_format_datetime($receiptDateTime),
         'company' => [
-            'name' => $shopName,
+            'name' => 'PrintFlow',
             'logo_url' => $logoUrl,
             'branch_name' => (string)($order['branch_name'] ?? 'Main Branch'),
             'address' => (string)($order['branch_address'] ?? ''),
@@ -582,6 +596,14 @@ $latestJobPaymentStatusSelect = $jobOrdersHasPaymentStatus
         ORDER BY {$jobOrdersPaymentOrderBy}
         LIMIT 1) as latest_job_payment_status,"
     : "'' as latest_job_payment_status,";
+$latestJobPaymentVerifiedAtSelect = $jobOrdersHasPaymentVerifiedAt && $jobOrdersHasPaymentStatus
+    ? "(SELECT jo.payment_verified_at
+        FROM job_orders jo
+        WHERE jo.order_id = o.order_id
+          AND UPPER(TRIM(COALESCE(jo.payment_status, ''))) = 'PAID'
+        ORDER BY jo.payment_verified_at DESC, jo.id DESC
+        LIMIT 1) as latest_job_payment_verified_at,"
+    : "'' as latest_job_payment_verified_at,";
 $paymentRejectionReasonSelect = $jobOrdersHasPaymentRejectionReason
     ? "(SELECT jo.payment_rejection_reason
         FROM job_orders jo
@@ -592,13 +614,15 @@ $paymentRejectionReasonSelect = $jobOrdersHasPaymentRejectionReason
         LIMIT 1) as payment_rejection_reason,"
     : "'' as payment_rejection_reason,";
 
-// Verify order belongs to this customer
-$order_result = db_query("
+// Verify order belongs to this customer. Keep the query reusable because a
+// provider reconciliation can atomically update the payment/order mirrors.
+$orderSql = "
     SELECT o.*, b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
            c.first_name, c.last_name, c.email, c.contact_number AS customer_contact_number,
            {$paymentReferenceSelect}
            {$latestPaymentProofStatusSelect}
            {$latestJobPaymentStatusSelect}
+           {$latestJobPaymentVerifiedAtSelect}
            {$paymentRejectionReasonSelect}
            (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
            IFNULL((
@@ -613,20 +637,65 @@ $order_result = db_query("
     LEFT JOIN branches b ON o.branch_id = b.id 
     LEFT JOIN customers c ON c.customer_id = o.customer_id
     WHERE o.order_id = ? AND o.customer_id = ?
-", 'ii', [$order_id, $customer_id]);
+";
+$order_result = db_query($orderSql, 'ii', [$order_id, $customer_id]);
 
 if (empty($order_result)) {
     customer_order_items_json(['error' => 'Order not found'], 404);
 }
 $order = $order_result[0];
-$order['_safe_payment_reference'] = (string)($order['payment_reference'] ?? '');
+
+// Opening order details is a safe fallback for a missed/delayed webhook. The
+// ledger claim throttles provider GETs and the shared reconciler never trusts a
+// browser success flag. Paid rows are also finalized idempotently when an
+// older order mirror has not yet been synchronized.
+$provider_payment = printflow_provider_payment_for_customer($customer_id, 'order', $order_id);
+$provider_status = strtolower((string)($provider_payment['status'] ?? ''));
+$paid_mirror_needs_sync = $provider_status === 'paid'
+    && !empty($provider_payment['provider_payment_id'])
+    && (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') !== 0
+        || trim((string)($order['payment_method'] ?? '')) === ''
+        || ($orderHasPaymentReference && trim((string)($order['payment_reference'] ?? '')) === ''));
+$awaiting_payment_needs_reconciliation = $provider_status === 'awaiting_payment'
+    && !empty($provider_payment['link_id']);
+if (!empty($provider_payment['id'])
+    && ($paid_mirror_needs_sync || $awaiting_payment_needs_reconciliation)
+    && printflow_provider_payment_claim_reconciliation((int)$provider_payment['id'], 10)) {
+    try {
+        printflow_provider_payment_reconcile($provider_payment);
+    } catch (Throwable $reconcileError) {
+        customer_order_items_log_error('Provider payment reconciliation failed', [
+            'order_id' => $order_id,
+            'ledger_id' => (int)$provider_payment['id'],
+            'error_type' => get_class($reconcileError),
+        ]);
+    }
+
+    $refreshedOrder = db_query($orderSql, 'ii', [$order_id, $customer_id]);
+    if (!empty($refreshedOrder[0])) {
+        $order = $refreshedOrder[0];
+    }
+    $provider_payment = printflow_provider_payment_for_customer($customer_id, 'order', $order_id);
+}
+
+$provider_payment_public = !empty($provider_payment)
+    ? printflow_provider_payment_public($provider_payment)
+    : [];
+$provider_is_paid = strtolower((string)($provider_payment['status'] ?? '')) === 'paid';
 $latest_payment_proof_status = strtoupper((string)($order['latest_payment_proof_status'] ?? ''));
 $latest_job_payment_status = strtoupper((string)($order['latest_job_payment_status'] ?? ''));
-$is_rejected_payment = (strcasecmp((string)($order['status'] ?? ''), 'Rejected') === 0)
-    || ($latest_payment_proof_status === 'REJECTED');
+$is_rejected_payment = !$provider_is_paid
+    && ((strcasecmp((string)($order['status'] ?? ''), 'Rejected') === 0)
+        || ($latest_payment_proof_status === 'REJECTED'));
+
+$payment_received = $provider_is_paid
+    || strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0
+    || $latest_job_payment_status === 'PAID';
 
 $payment_status = (string)($order['payment_status'] ?? 'Not Specified');
-if ($is_rejected_payment) {
+if ($payment_received) {
+    $payment_status = 'Paid';
+} elseif ($is_rejected_payment) {
     $payment_status = 'Unpaid';
 } elseif ($latest_job_payment_status === 'PAID') {
     $payment_status = 'Paid';
@@ -636,11 +705,36 @@ if ($is_rejected_payment) {
     $payment_status = 'Partial';
 }
 
-$payment_method_display = customer_order_items_friendly_payment_method($order['payment_method'] ?? null, $payment_status);
+$provider_method_display = trim((string)($provider_payment_public['payment_method_label'] ?? ''));
+$payment_method_display = customer_order_items_friendly_payment_method(
+    $provider_is_paid && $provider_method_display !== ''
+        ? $provider_method_display
+        : ($order['payment_method'] ?? null),
+    $payment_status
+);
+$payment_reference = trim((string)(
+    ($provider_payment_public['reference_number'] ?? '')
+    ?: ($provider_payment_public['provider_payment_id'] ?? '')
+    ?: ($order['payment_reference'] ?? '')
+));
+$payment_paid_at_raw = trim((string)(
+    ($provider_payment_public['provider_paid_at'] ?? '')
+    ?: ($provider_payment_public['paid_at'] ?? '')
+    ?: ($order['latest_job_payment_verified_at'] ?? '')
+));
+$order['_safe_payment_reference'] = $payment_reference;
 $status_meta = customer_order_items_status_meta($order, $payment_status);
-
-$service_final_price_pending_statuses = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
-$service_final_price_locked = in_array((string)($order['status'] ?? ''), $service_final_price_pending_statuses, true);
+$financial_snapshot = printflow_order_financial_snapshot($order, $provider_payment);
+$price_is_final = !empty($financial_snapshot['price_is_final']);
+$approved_order_amount = max(0, (int)($financial_snapshot['amount_due_centavos'] ?? 0)) / 100;
+$payment_received = $payment_received
+    || ((int)($financial_snapshot['paid_amount_centavos'] ?? 0) > 0
+        && (int)($financial_snapshot['remaining_balance_centavos'] ?? 0) === 0);
+$awaiting_production = $payment_received && !in_array((string)($order['status'] ?? ''), [
+    'In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid â€“ In Process',
+    'Ready for Pickup', 'Approved Design', 'To Receive', 'Completed', 'To Rate', 'Rated',
+    'Cancelled', 'Rejected'
+], true);
 
 $valid_order_item_ids = [];
 $valid_line_rows = db_query('SELECT order_item_id FROM order_items WHERE order_id = ?', 'i', [$order_id]) ?: [];
@@ -751,6 +845,9 @@ if (!empty($first_item_raw_customization[0]['customization_data'])) {
             $display_status = 'CANCELLED';
         }
     }
+    if ($awaiting_production) {
+        $display_status = 'Payment Received / Awaiting Production';
+    }
 
     // Get items with design info
     $items = db_query("
@@ -836,6 +933,8 @@ if ($items === []) {
         $items = [[
             'order_item_id' => 0,
             'product_id' => $ref,
+            'service_id' => $ref,
+            'item_type' => 'service',
             'quantity' => 1,
             'unit_price' => $synthUnit,
             'customization_data' => null,
@@ -1059,18 +1158,11 @@ foreach ($items as $lineIndex => $item) {
         }
     }
 
-    $use_job_line_fallback = ($item_count === 1) || ($first_order_item_id !== null && (int)($item['order_item_id'] ?? 0) === (int)$first_order_item_id);
-    $orderLike = [
-        'order_type' => $order['order_type'] ?? '',
-        'reference_id' => $order['reference_id'] ?? null,
-        'first_product_name' => (string)($item['product_name'] ?? ''),
-        'first_customization_service_type' => (string)$fallbackSvc,
-        'first_job_title' => (string)($order['first_job_title'] ?? ''),
-        'first_job_service_type' => (string)($order['first_job_service_type'] ?? ''),
-        '_merged_customization' => $custom_data,
-        '_use_job_title_fallback' => $use_job_line_fallback,
-    ];
-    $resolved_item_name = customer_orders_primary_item_name($orderLike);
+    $line_identity = printflow_resolve_order_line_identity($order, $item, $custom_data);
+    $resolved_item_name = trim((string)($line_identity['display_name'] ?? ''));
+    if ($resolved_item_name === '') {
+        $resolved_item_name = 'Order Item';
+    }
     $customForPayload = function_exists('printflow_flatten_customization_for_customer_order_modal')
         ? printflow_flatten_customization_for_customer_order_modal($custom_data, $raw_quantity)
         : (function_exists('printflow_flatten_order_customization_for_customer_modal')
@@ -1103,9 +1195,14 @@ foreach ($items as $lineIndex => $item) {
 
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
+        'raw_unit_price' => $raw_unit_price,
+        'quantity' => $raw_quantity,
         'payload' => [
         'order_item_id' => (int)$item['order_item_id'],
         'product_name'  => $resolved_item_name,
+        'item_type'     => (string)($line_identity['item_type'] ?? ''),
+        'product_id'    => (int)($line_identity['product_id'] ?? 0),
+        'service_id'    => (int)($line_identity['service_id'] ?? 0),
         'category'      => (strtolower($item['category'] ?? '') === 'merchandise') ? '' : ($item['category'] ?? ''),
         'quantity'      => $raw_quantity,
         'unit_price'    => format_currency($raw_unit_price),
@@ -1137,19 +1234,36 @@ if ($estimated_order_amount <= 0) {
 }
 
 $estimated_sum = 0.0;
+$quantity_sum = 0;
 foreach ($service_items_raw as $entry) {
     $estimated_sum += (float)($entry['raw_subtotal'] ?? 0);
+    $quantity_sum += max(1, (int)($entry['quantity'] ?? 1));
 }
 
+$final_total_centavos = $price_is_final
+    ? max(0, (int)($financial_snapshot['amount_due_centavos'] ?? 0))
+    : 0;
+$remaining_final_centavos = $final_total_centavos;
+$last_item_index = array_key_last($service_items_raw);
 foreach ($service_items_raw as $index => $entry) {
     $payload = $entry['payload'];
     $raw_subtotal = (float)($entry['raw_subtotal'] ?? 0);
+    $raw_unit_price = (float)($entry['raw_unit_price'] ?? 0);
     $final_item_amount = null;
 
-    if (!$service_final_price_locked && $order_total_amount > 0 && $item_count === 1) {
-        $final_item_amount = $order_total_amount > 0 ? $order_total_amount : $raw_subtotal;
-    } elseif (!$service_final_price_locked && $estimated_sum > 0 && $order_total_amount > 0) {
-        $final_item_amount = ($raw_subtotal / $estimated_sum) * $order_total_amount;
+    if ($final_total_centavos > 0) {
+        if ($index === $last_item_index) {
+            $line_centavos = $remaining_final_centavos;
+        } elseif ($estimated_sum > 0) {
+            $line_centavos = (int)round($final_total_centavos * ($raw_subtotal / $estimated_sum));
+        } else {
+            $line_centavos = (int)round(
+                $final_total_centavos * (max(1, (int)($entry['quantity'] ?? 1)) / max(1, $quantity_sum))
+            );
+        }
+        $line_centavos = max(0, min($remaining_final_centavos, $line_centavos));
+        $remaining_final_centavos -= $line_centavos;
+        $final_item_amount = $line_centavos / 100;
     }
 
     $payload['estimated_price'] = format_currency($raw_subtotal);
@@ -1167,7 +1281,18 @@ if ($order['status'] === 'Cancelled') {
     $cancel_info = trim(($order['cancelled_by'] ? 'By: ' . $order['cancelled_by'] : '') . ' | ' . ($order['cancel_reason'] ?? ''), ' |');
 }
 
-$can_cancel = can_customer_cancel_order($order);
+$can_cancel = !$payment_received && can_customer_cancel_order($order);
+$active_revision = null;
+$revision_request_error = '';
+if (($order['status'] ?? '') === 'For Revision' || ($order['design_status'] ?? '') === 'Revision Requested') {
+    $active_revision = printflow_revision_get_active_or_legacy($order_id, $customer_id);
+    if ($active_revision === null || empty($active_revision['permitted_fields_array'])) {
+        $requestId = (int)($active_revision['revision_request_id'] ?? 0);
+        $revision_request_error = 'This revision request is missing editable fields. The shop has been notified.';
+        error_log("Revision authorization invalid for customer Order #{$order_id}, Request #{$requestId}, while the order is marked Revision Requested.");
+        $active_revision = null;
+    }
+}
 $restriction_msg = '';
 if (!$can_cancel && !in_array($order['status'], ['Cancelled', 'Completed'])) {
     switch ($order['status']) {
@@ -1205,11 +1330,21 @@ if (in_array($order['status'], ['Completed', 'To Rate', 'Rated'], true)) {
     }
 }
 
-$receipt_available = in_array((string)($order['status'] ?? ''), ['Completed', 'To Rate', 'Rated'], true)
-    && strcasecmp($payment_status, 'Paid') === 0;
+$order['_receipt_paid_at'] = $payment_paid_at_raw;
+$receipt_available = printflow_customer_receipt_is_available(
+    (string)($order['status'] ?? ''),
+    $payment_status
+);
 $receipt_payload = $receipt_available
     ? customer_receipt_build_payload($order, $items_out, $payment_status)
     : null;
+$payment_paid_at_display = $payment_paid_at_raw !== '' ? format_datetime($payment_paid_at_raw) : '';
+$amount_due_display = format_currency(((int)($financial_snapshot['amount_due_centavos'] ?? 0)) / 100);
+$paid_amount_display = format_currency(((int)($financial_snapshot['paid_amount_centavos'] ?? 0)) / 100);
+$remaining_balance_display = format_currency(((int)($financial_snapshot['remaining_balance_centavos'] ?? 0)) / 100);
+$final_total_display = $price_is_final && $approved_order_amount > 0
+    ? format_currency($approved_order_amount)
+    : 'To Be Discussed';
 
 customer_order_items_json([
     'success'          => true,
@@ -1223,13 +1358,16 @@ customer_order_items_json([
             ? format_currency($estimated_order_amount)
             : 'Pending')
         : null,
-    'total_amount'     => ($is_service_order && ($service_final_price_locked || $order_total_amount <= 0))
-        ? 'To Be Discussed'
-        : format_currency($order['total_amount']),
+    'total_amount'     => $final_total_display,
+    'price_is_final'   => $price_is_final,
     'status'           => $order['status'],
     'display_status'   => $display_status,
     'payment_status'   => $payment_status,
     'payment_method'   => $payment_method_display,
+    'payment_received' => $payment_received,
+    'awaiting_production' => $awaiting_production,
+    'payment_reference' => $payment_reference,
+    'payment_paid_at' => $payment_paid_at_display,
     'payment_proof_status' => $latest_payment_proof_status,
     'branch_name'      => $order['branch_name'] ?? 'Not Specified',
     'estimated_comp'   => $status_meta['value'],
@@ -1240,6 +1378,24 @@ customer_order_items_json([
     'cancelled_at'     => !empty($order['cancelled_at']) ? format_datetime($order['cancelled_at']) : '',
     'design_status'    => $order['design_status'] ?? 'Pending',
     'revision_reason'  => $order['revision_reason'] ?? '',
+    'revision_request' => $active_revision ? [
+        'id' => (int) $active_revision['revision_request_id'],
+        'order_id' => $order_id,
+        'order_item_ids' => array_values(array_filter(array_map(
+            static fn(array $item): int => (int)($item['order_item_id'] ?? 0),
+            is_array($active_revision['previous_values_array']['items'] ?? null) ? $active_revision['previous_values_array']['items'] : []
+        ))),
+        'customer_id' => (int) $active_revision['customer_id'],
+        'reason' => (string) $active_revision['revision_reason'],
+        'instruction' => (string) $active_revision['staff_instruction'],
+        'status' => (string) $active_revision['request_status'],
+        'permitted_fields' => $active_revision['permitted_fields_array'],
+        'permitted_field_labels' => printflow_revision_permission_labels($active_revision['permitted_fields_array'], $active_revision['previous_values_array']),
+        'action_label' => printflow_revision_action_label($active_revision['permitted_fields_array']),
+        'requested_at' => (string) $active_revision['requested_at'],
+        'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
+    ] : null,
+    'revision_request_error' => $revision_request_error,
     'payment_rejection_reason' => $order['payment_rejection_reason'] ?? '',
     'items'            => $items_out,
     'can_cancel'       => $can_cancel,
@@ -1257,9 +1413,8 @@ customer_order_items_json([
         'estimated_completion' => $status_meta['value'],
         'estimated_completion_label' => $status_meta['label'],
         'notes' => (string)($order['notes'] ?? ''),
-        'total_amount' => ($is_service_order && ($service_final_price_locked || $order_total_amount <= 0))
-            ? 'To Be Discussed'
-            : format_currency($order['total_amount']),
+        'total_amount' => $final_total_display,
+        'price_is_final' => $price_is_final,
         'estimated_price' => $is_service_order
             ? ($estimated_order_amount > 0 ? format_currency($estimated_order_amount) : 'Pending')
             : null,
@@ -1268,8 +1423,30 @@ customer_order_items_json([
     'payment'          => [
         'status' => $payment_status,
         'method' => $payment_method_display,
+        'received' => $payment_received,
+        'awaiting_production' => $awaiting_production,
+        'amount_due' => $amount_due_display,
+        'paid_amount' => $paid_amount_display,
+        'remaining_balance' => $remaining_balance_display,
+        'amount_due_centavos' => (int)($financial_snapshot['amount_due_centavos'] ?? 0),
+        'paid_amount_centavos' => (int)($financial_snapshot['paid_amount_centavos'] ?? 0),
+        'remaining_balance_centavos' => (int)($financial_snapshot['remaining_balance_centavos'] ?? 0),
+        'reference' => $payment_reference,
+        'paid_at' => $payment_paid_at_display,
+        'paid_at_raw' => $payment_paid_at_raw,
+        'provider' => $provider_payment_public !== [] ? $provider_payment_public : null,
         'proof_status' => $latest_payment_proof_status,
         'rejection_reason' => $order['payment_rejection_reason'] ?? '',
+    ],
+    'financial'        => [
+        'price_is_final' => $price_is_final,
+        'amount_due' => $amount_due_display,
+        'paid_amount' => $paid_amount_display,
+        'remaining_balance' => $remaining_balance_display,
+        'amount_due_centavos' => (int)($financial_snapshot['amount_due_centavos'] ?? 0),
+        'paid_amount_centavos' => (int)($financial_snapshot['paid_amount_centavos'] ?? 0),
+        'remaining_balance_centavos' => (int)($financial_snapshot['remaining_balance_centavos'] ?? 0),
+        'provider_amount_matches' => !empty($financial_snapshot['provider_amount_matches']),
     ],
     'csrf_token'       => generate_csrf_token()
 ]);

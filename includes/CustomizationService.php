@@ -24,6 +24,7 @@
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/order_ui_helper.php';
 require_once __DIR__ . '/CustomizationRepository.php';
+require_once __DIR__ . '/revision_workflow.php';
 
 class CustomizationService
 {
@@ -254,12 +255,15 @@ class CustomizationService
                 require_once $path;
             }
         }
-        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemsPayloadsBatch')) {
+        if (!class_exists('JobOrderService') || !method_exists('JobOrderService', 'getStoreOrderItemSummariesBatch')) {
             return;
         }
 
         try {
-            $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($missing, false);
+            // List cards only need names/quantities. Full specifications and
+            // design metadata are loaded by getOrderDetail() in a separate
+            // request when View opens.
+            $payloads = JobOrderService::getStoreOrderItemSummariesBatch($missing, false);
             foreach ($missing as $orderId) {
                 self::$storePayloadCache[$orderId] = is_array($payloads[$orderId] ?? null)
                     ? $payloads[$orderId]
@@ -922,6 +926,23 @@ class CustomizationService
             $designUploadName = basename(trim((string)$item['design_file']));
         }
 
+        $revisionFields = [];
+        $orderItemId = (int)($item['order_item_id'] ?? 0);
+        foreach ($custom as $fieldKey => $fieldValue) {
+            $fieldKey = (string)$fieldKey;
+            if ($orderItemId <= 0 || $fieldValue === '' || $fieldValue === null
+                || printflow_revision_is_protected_spec($fieldKey)) {
+                continue;
+            }
+            if (in_array(printflow_revision_key_group($fieldKey), ['needed_date', 'layout', 'order_notes'], true)) {
+                continue;
+            }
+            $revisionFields[] = [
+                'value' => printflow_revision_spec_token($orderItemId, $fieldKey),
+                'label' => self::FIELD_LABELS[$fieldKey] ?? ucwords(str_replace(['_', '-'], ' ', $fieldKey)),
+            ];
+        }
+
         return [
             'order_item_id'     => (int)($item['order_item_id'] ?? 0),
             'name'              => $name,
@@ -947,6 +968,7 @@ class CustomizationService
             'design_source'     => $images['design_source'] ?? null,
             'design_serve_url'  => $images['design_serve_url'] ?? null,
             'design_upload_requested' => (bool)($images['design_upload_requested'] ?? false),
+            'revision_fields'   => $revisionFields,
         ];
     }
 
@@ -2169,6 +2191,7 @@ class CustomizationService
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'Approved');
+        printflow_revision_close_active($orderId, 'Closed - Approved');
         $this->repo->updateOrderStatus($orderId, 'Approved');
         $this->syncJobs($orderId, 'APPROVED');
         $this->sendChat($orderId, 'approved');
@@ -2181,8 +2204,9 @@ class CustomizationService
      *
      * @return array{success:bool,message:string}
      */
-    public function requestRevision(int $orderId, string $reason): array
+    public function requestRevision(int $orderId, string $reason, array $revisionMeta = []): array
     {
+        global $conn;
         $reason = trim($reason);
         if ($reason === '') {
             return ['success' => false, 'message' => 'Please provide details for the customer.'];
@@ -2192,10 +2216,36 @@ class CustomizationService
         if ($order === null) {
             return ['success' => false, 'message' => 'Order not found.'];
         }
+        if (!printflow_revision_ensure_schema()) {
+            return ['success' => false, 'message' => 'Revision request storage is unavailable.'];
+        }
 
-        $this->repo->updateCustomizationStatus($orderId, 'For Revision', $reason);
-        $this->repo->updateOrderStatus($orderId, 'For Revision', 'Revision Requested', $reason);
-        $this->sendChat($orderId, 'for_revision', ['reason' => $reason]);
+        $transactionStarted = $conn instanceof mysqli && !($conn->in_transaction ?? false);
+        try {
+            if ($transactionStarted && !$conn->begin_transaction()) {
+                throw new RuntimeException('Unable to start the revision request transaction.');
+            }
+            $revisionRequest = printflow_revision_create_request(
+                $orderId,
+                function_exists('get_user_id') ? (int) get_user_id() : 0,
+                trim((string)($revisionMeta['reason_code'] ?? '')) !== '' ? (string)$revisionMeta['reason_code'] : $reason,
+                trim((string)($revisionMeta['instruction'] ?? '')) !== '' ? (string)$revisionMeta['instruction'] : $reason,
+                is_array($revisionMeta['permitted_fields'] ?? null) ? $revisionMeta['permitted_fields'] : [],
+                trim((string)($revisionMeta['reason_label'] ?? '')) !== '' ? (string)$revisionMeta['reason_label'] : $reason
+            );
+            $reason = (string) $revisionRequest['legacy_reason'];
+            $this->repo->updateCustomizationStatus($orderId, 'For Revision', $reason);
+            $this->repo->updateOrderStatus($orderId, 'For Revision', 'Revision Requested', $reason);
+            $this->sendChat($orderId, 'for_revision', ['reason' => $reason]);
+            if ($transactionStarted && !$conn->commit()) {
+                throw new RuntimeException('Unable to commit the revision request.');
+            }
+        } catch (Throwable $e) {
+            if ($transactionStarted && $conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+                $conn->rollback();
+            }
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
 
         return ['success' => true, 'message' => 'Additional details request sent successfully.'];
     }
@@ -2213,6 +2263,7 @@ class CustomizationService
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'Rejected');
+        printflow_revision_close_active($orderId, 'Closed - Rejected');
         $this->repo->updateOrderStatus($orderId, 'Rejected', 'Rejected');
         $this->syncJobs($orderId, 'REJECTED');
         $this->sendChat($orderId, 'cancelled');
@@ -2233,6 +2284,7 @@ class CustomizationService
         }
 
         $this->repo->updateCustomizationStatus($orderId, 'Completed');
+        printflow_revision_close_active($orderId, 'Closed - Completed');
         $this->repo->updateOrderStatus($orderId, 'Completed');
         $this->syncJobs($orderId, 'COMPLETED');
         $this->sendChat($orderId, 'completed');

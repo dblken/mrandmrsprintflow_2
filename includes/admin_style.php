@@ -101,12 +101,17 @@ unset($__pf_admin_mobile_css_file, $__pf_admin_mobile_css_ver);
 <!-- PrintFlow Call & Signaling System (Global for Admin/Staff/Manager) -->
 <?php if (function_exists('is_logged_in') && is_logged_in()): ?>
     <?php
+        require_once __DIR__ . '/realtime.php';
+        $__pf_realtime_enabled = printflow_realtime_available();
+        $__pf_realtime_url = printflow_realtime_url();
         $__pf_call_css_file = __DIR__ . '/../public/assets/css/printflow_call.css';
         $__pf_call_css_ver = is_file($__pf_call_css_file) ? (string) filemtime($__pf_call_css_file) : '1';
         $__pf_call_js_file = __DIR__ . '/../public/assets/js/printflow_call.js';
         $__pf_call_js_ver = is_file($__pf_call_js_file) ? (string) filemtime($__pf_call_js_file) : '1';
     ?>
+    <?php if ($__pf_realtime_enabled): ?>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" defer></script>
+    <?php endif; ?>
     <link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim($__pf_base_path, '/') . '/public/assets/css/printflow_call.css', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_css_ver; ?>">
     <script src="<?php echo htmlspecialchars(rtrim($__pf_base_path, '/') . '/public/assets/js/printflow_call.js', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_js_ver; ?>" defer></script>
 
@@ -131,7 +136,9 @@ unset($__pf_admin_mobile_css_file, $__pf_admin_mobile_css_ver);
                         userType: <?php echo json_encode($call_utype); ?>,
                         userName: <?php echo json_encode($uname); ?>,
                         userAvatar: <?php echo json_encode(function_exists('get_profile_image') ? get_profile_image($uavatar) : $uavatar); ?>,
-                        basePath: <?php echo json_encode($__pf_base_path); ?>
+                        basePath: <?php echo json_encode($__pf_base_path); ?>,
+                        realtimeEnabled: <?php echo $__pf_realtime_enabled ? 'true' : 'false'; ?>,
+                        realtimeUrl: <?php echo json_encode($__pf_realtime_url); ?>
                     });
                 } else {
                     setTimeout(initPFCallGlobal, 500);
@@ -180,6 +187,48 @@ endif; ?>
         --sidebar-w-collapsed: 72px;
         --sidebar-dur: 0.28s;
         --sidebar-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+        /*
+         * Canonical Admin UI metrics. Staff themes consume these values so the
+         * two portals share one typography and spacing rhythm without changing
+         * role-specific colours or feature behaviour.
+         */
+        --pf-ui-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        --pf-ui-font-chart: 'Inter', system-ui, -apple-system, sans-serif;
+        --pf-ui-page-title-size: 24px;
+        --pf-ui-page-title-weight: 600;
+        --pf-ui-page-title-line-height: 1.25;
+        --pf-ui-page-subtitle-size: 14px;
+        --pf-ui-page-subtitle-weight: 400;
+        --pf-ui-page-subtitle-line-height: 1.5;
+        --pf-ui-section-title-size: 15px;
+        --pf-ui-section-title-weight: 700;
+        --pf-ui-card-title-size: 14px;
+        --pf-ui-card-title-weight: 700;
+        --pf-ui-kpi-label-size: 11px;
+        --pf-ui-kpi-label-weight: 600;
+        --pf-ui-kpi-value-size: 26px;
+        --pf-ui-kpi-value-weight: 800;
+        --pf-ui-kpi-sub-size: 12px;
+        --pf-ui-kpi-sub-weight: 600;
+        --pf-ui-kpi-cta-size: 11px;
+        --pf-ui-kpi-cta-weight: 600;
+        --pf-ui-chart-text-size: 11px;
+        --pf-ui-chart-text-weight: 600;
+        --pf-ui-control-height: 38px;
+        --pf-ui-control-radius: 8px;
+        --pf-ui-control-font-size: 13px;
+        --pf-ui-control-font-weight: 500;
+        --pf-ui-filter-height: 34px;
+        --pf-ui-filter-radius: 7px;
+        --pf-ui-card-radius: 16px;
+        --pf-ui-dashboard-card-radius: 12px;
+        --pf-ui-card-padding: 24px;
+        --pf-ui-dashboard-card-padding: 20px;
+        --pf-ui-grid-gap: 24px;
+        --pf-ui-dashboard-gap: 16px;
+        --pf-ui-page-padding-x: 32px;
+        --pf-ui-page-padding-bottom: 32px;
     }
 
     * {
@@ -189,7 +238,7 @@ endif; ?>
     }
 
     body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        font-family: var(--pf-ui-font-sans);
         background: var(--bg-color);
         color: var(--text-main);
     }

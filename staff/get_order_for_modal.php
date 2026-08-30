@@ -152,19 +152,45 @@ if ($includeAssignments && $linked_job_id) {
 }
 
 $proof = payment_verification_resolve_proof($order_id, $linked_job_id);
-$provider_payment = printflow_provider_payment_find('order', $order_id, 'online');
-if (($provider_payment['status'] ?? '') === 'paid' && !empty($provider_payment['provider_payment_id'])) {
-    printflow_provider_payment_mark_paid(
-        (int)$provider_payment['id'],
-        (string)$provider_payment['provider_payment_id'],
-        (string)($provider_payment['payment_method'] ?? '')
-    );
-    $provider_payment = printflow_provider_payment_find('order', $order_id, 'online');
-    $syncedOrder = db_query(
-        'SELECT status, payment_status, payment_method FROM orders WHERE order_id = ? LIMIT 1',
+$activePaymentMode = printflow_paymongo_mode();
+$provider_payment = $activePaymentMode !== ''
+    ? (printflow_provider_payment_mode_supported($activePaymentMode)
+        ? printflow_provider_payment_find('order', $order_id, 'online', $activePaymentMode)
+        : [])
+    : printflow_provider_payment_find('order', $order_id, 'online');
+
+if (!empty($provider_payment)) {
+    $providerStatus = (string)($provider_payment['status'] ?? '');
+    $needsPaidMirrorSync = $providerStatus === 'paid'
+        && !empty($provider_payment['provider_payment_id'])
+        && (
+            strcasecmp((string)($o['payment_status'] ?? ''), 'Paid') !== 0
+            || trim((string)($o['payment_method'] ?? '')) === ''
+            || (db_table_has_column('provider_payments', 'paid_amount_centavos')
+                && (int)($provider_payment['paid_amount_centavos'] ?? 0) <= 0)
+            || (db_table_has_column('provider_payments', 'provider_paid_at')
+                && empty($provider_payment['provider_paid_at']))
+        );
+    $canReconcileAwaiting = $providerStatus === 'awaiting_payment'
+        && !empty($provider_payment['link_id'])
+        && printflow_provider_payment_claim_reconciliation((int)$provider_payment['id'], 5);
+
+    if ($needsPaidMirrorSync || $canReconcileAwaiting) {
+        // This always verifies the saved provider link/payment server-side. No
+        // browser return flag or query parameter can mark an order paid.
+        printflow_provider_payment_reconcile($provider_payment);
+    }
+
+    $refreshedPayment = db_query(
+        'SELECT * FROM provider_payments WHERE id = ? LIMIT 1',
         'i',
-        [$order_id]
+        [(int)$provider_payment['id']]
     ) ?: [];
+    $provider_payment = $refreshedPayment[0] ?? $provider_payment;
+
+    // Reconciliation may have synchronized payment/status/reference fields.
+    // Refresh the complete order row so the modal renders one coherent view.
+    $syncedOrder = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
     if (!empty($syncedOrder[0])) {
         $o = array_merge($o, $syncedOrder[0]);
         $db_status = (string)($o['status'] ?? '');
@@ -174,6 +200,38 @@ if (($provider_payment['status'] ?? '') === 'paid' && !empty($provider_payment['
 $provider_payment_public = !empty($provider_payment)
     ? printflow_provider_payment_public($provider_payment)
     : null;
+$financial = function_exists('printflow_order_financial_snapshot')
+    ? printflow_order_financial_snapshot($o, $provider_payment)
+    : [
+        'price_is_final' => (float)($o['total_amount'] ?? 0) > 0,
+        'amount_due_centavos' => max(0, (int)round((float)($o['total_amount'] ?? 0) * 100)),
+        'paid_amount_centavos' => strcasecmp((string)($o['payment_status'] ?? ''), 'Paid') === 0
+            ? max(0, (int)round((float)($o['total_amount'] ?? 0) * 100))
+            : max(0, (int)round((float)($o['amount_paid'] ?? 0) * 100)),
+        'remaining_balance_centavos' => max(
+            0,
+            (int)round((float)($o['total_amount'] ?? 0) * 100)
+                - (strcasecmp((string)($o['payment_status'] ?? ''), 'Paid') === 0
+                    ? (int)round((float)($o['total_amount'] ?? 0) * 100)
+                    : max(0, (int)round((float)($o['amount_paid'] ?? 0) * 100)))
+        ),
+        'provider_amount_matches' => true,
+    ];
+$amountDue = ((int)($financial['amount_due_centavos'] ?? 0)) / 100;
+$amountPaid = ((int)($financial['paid_amount_centavos'] ?? 0)) / 100;
+$remainingBalance = ((int)($financial['remaining_balance_centavos'] ?? 0)) / 100;
+$providerPaymentIsPaid = strtolower((string)($provider_payment_public['status'] ?? '')) === 'paid';
+$resolvedPaymentMethod = $providerPaymentIsPaid
+    ? trim((string)($provider_payment_public['payment_method_label'] ?? 'PayMongo'))
+    : trim((string)($o['payment_method'] ?? ''));
+$resolvedPaymentReference = trim((string)(
+    ($provider_payment_public['reference_number'] ?? '')
+    ?: ($provider_payment_public['provider_payment_id'] ?? '')
+    ?: ($o['payment_reference'] ?? '')
+));
+$resolvedPaymentDate = $provider_payment_public['provider_paid_at']
+    ?? $provider_payment_public['paid_at']
+    ?? null;
 $payment_proof_url = null;
 $payment_submitted_amount = null;
 $payment_proof_status = 'NONE';
@@ -186,7 +244,11 @@ $verification_status = null;
 if ($proof) {
     $raw_path = $proof['payment_proof_path'];
     if ($raw_path !== '') {
-        $payment_proof_url = payment_verification_proof_url($raw_path);
+        $payment_proof_url = payment_verification_staff_proof_url(
+            (int)($proof['submission_id'] ?? 0),
+            $order_id,
+            (int)$linked_job_id
+        );
         $payment_proof_status = in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true) ? 'VERIFIED' : 'SUBMITTED';
     }
     $payment_submitted_amount = $proof['payment_submitted_amount'];
@@ -214,12 +276,23 @@ $data = [
     'height_ft' => $height_ft,
     'quantity' => $total_qty,
     'status' => $mapped_status,
-    'estimated_total' => (float)($o['estimated_price'] ?? 0),
+    'raw_status' => $db_status,
+    'order_source' => (string)($o['order_source'] ?? ''),
+    'design_status' => (string)($o['design_status'] ?? ''),
+    'revision_reason' => (string)($o['revision_reason'] ?? ''),
+    // Keep the legacy estimated_total consumer synchronized once staff has
+    // finalized pricing; estimated_price remains available as the quotation.
+    'estimated_total' => !empty($financial['price_is_final'])
+        ? $amountDue
+        : (float)($o['estimated_price'] ?? 0),
     'estimated_price' => (float)($o['estimated_price'] ?? 0),
-    'final_price' => (float)($o['total_amount'] ?? 0),
-    'amount_paid' => (($o['payment_status'] ?? '') === 'Paid')
-        ? (float)($o['total_amount'] ?? 0)
-        : (float)($o['amount_paid'] ?? 0),
+    'price_is_final' => !empty($financial['price_is_final']),
+    'approved_price' => !empty($financial['price_is_final']) ? $amountDue : null,
+    'final_price' => $amountDue,
+    'amount_due' => $amountDue,
+    'amount_paid' => $amountPaid,
+    'remaining_balance' => $remainingBalance,
+    'total_outstanding' => $remainingBalance,
     'notes' => $o['notes'] ?? '',
     'payment_proof_status' => $payment_proof_status,
     'payment_proof_path' => $payment_proof_url,
@@ -231,13 +304,20 @@ $data = [
     'ocr_error' => $ocr_error,
     'verification_status' => $verification_status,
     'payment_status' => (string)($o['payment_status'] ?? 'Unpaid'),
-    'payment_method' => (string)($o['payment_method'] ?? ''),
+    'payment_method' => $resolvedPaymentMethod,
+    'payment_reference' => $resolvedPaymentReference,
+    'payment_paid_at' => $resolvedPaymentDate,
+    'payment_date' => $resolvedPaymentDate,
+    'payment_mode' => (string)($provider_payment_public['mode'] ?? ''),
+    'payment_test_mode' => !empty($provider_payment_public['test_mode']),
+    'provider_amount_matches' => !empty($financial['provider_amount_matches']),
     'provider_payment' => $provider_payment_public,
     'provider_payment_status' => (string)($provider_payment_public['status'] ?? ''),
     'readiness' => 'READY',
     'items' => $items_out,
     'materials' => $materials,
     'ink_usage' => $ink_usage,
+    'revision_review' => printflow_revision_review_payload($order_id, true),
 ];
 
 echo json_encode(['success' => true, 'data' => $data]);

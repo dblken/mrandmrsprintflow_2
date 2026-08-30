@@ -1003,6 +1003,9 @@ if (isset($_GET['ajax'])) {
                                         availableRolls: []
                                     }));
                                     this.selectedStatus = data.order.status || 'Pending';
+                                    if (window.PrintFlowReceiptScanner && this.order.order_id) {
+                                        window.PrintFlowReceiptScanner.markOrderOpened(this.order.order_id, 'operations-orders');
+                                    }
                                 } else { 
                                     this.errorMsg = data.error || 'Failed to load order details.'; 
                                 }

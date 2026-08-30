@@ -68,3 +68,24 @@ if (!function_exists('printflow_json_endpoint_bootstrap')) {
         });
     }
 }
+
+if (!function_exists('printflow_json_response')) {
+    function printflow_json_response(array $payload, int $status = 200): never {
+        $baseLevel = (int)($GLOBALS['printflow_json_buffer_base_level'] ?? 0);
+        while (ob_get_level() > $baseLevel) {
+            ob_end_clean();
+        }
+        if (!headers_sent()) {
+            http_response_code($status);
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-store');
+            header('X-Content-Type-Options: nosniff');
+        }
+        $json = json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        echo $json === false ? '{"success":false,"error":"Response encoding failed."}' : $json;
+        exit;
+    }
+}

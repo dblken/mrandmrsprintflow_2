@@ -2,9 +2,10 @@
 /**
  * Dynamic barcode helpers for product SKUs.
  *
- * Uses Picqer when vendor autoload is complete. The small Code 128B fallback
- * keeps SKU barcodes available in constrained deployments and supports the
- * existing SKU character set: letters, numbers, spaces, and hyphens.
+ * Uses the original Picqer Code 128 generator when Composer dependencies are
+ * available. The Code 128B fallback keeps product barcodes available in
+ * constrained deployments and supports the existing SKU character set:
+ * letters, numbers, spaces, and hyphens.
  */
 
 function printflow_barcode_clean_value(string $value): string

@@ -721,6 +721,9 @@ function custom_payment_badge($status) {
                             this.loading = false;
                             if (data.success) {
                                 this.job = data.data;
+                                if (window.PrintFlowReceiptScanner && this.job && this.job.order_id) {
+                                    window.PrintFlowReceiptScanner.markOrderOpened(this.job.order_id, 'operations-customizations');
+                                }
                             } else {
                                 this.errorMsg = data.error || 'Could not load details.';
                             }
@@ -888,19 +891,32 @@ function custom_payment_badge($status) {
             document.addEventListener('DOMContentLoaded', printflowInitCustomizationsPage);
         } else { printflowInitCustomizationsPage(); }
 
-        function printflowOpenJobFromQuery() {
+        var printflowOpenedJobId = 0;
+        function printflowOpenJobFromQuery(attempt) {
             var oj = new URLSearchParams(window.location.search).get('open_job');
             if (!oj) return;
             var jid = parseInt(oj, 10);
-            if (!(jid > 0)) return;
-            requestAnimationFrame(function () {
-                var main = document.querySelector('main[x-data="custModal()"]');
-                if (main && main._x_dataStack && main._x_dataStack[0]) {
-                    main._x_dataStack[0].openModal(jid);
-                }
-            });
+            if (!(jid > 0) || printflowOpenedJobId === jid) return;
+            attempt = Number(attempt || 0);
+            var main = document.querySelector('main[x-data="custModal()"]');
+            if (main && main._x_dataStack && main._x_dataStack[0] && typeof main._x_dataStack[0].openModal === 'function') {
+                printflowOpenedJobId = jid;
+                main._x_dataStack[0].openModal(jid);
+                return;
+            }
+            if (attempt < 120) {
+                requestAnimationFrame(function () { printflowOpenJobFromQuery(attempt + 1); });
+            } else {
+                console.error('[Receipt Scanner] navigation/open failed', { code: 'DESTINATION_NOT_READY', job_id: jid });
+            }
         }
-        printflowOpenJobFromQuery();
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function () { printflowOpenJobFromQuery(0); });
+        } else {
+            printflowOpenJobFromQuery(0);
+        }
+        document.addEventListener('alpine:initialized', function () { printflowOpenJobFromQuery(0); });
+        document.addEventListener('printflow:page-init', function () { printflowOpenJobFromQuery(0); });
         </script>
         <header class="pf-mobile-branch-inline">
             <h1 class="page-title">Customizations</h1>

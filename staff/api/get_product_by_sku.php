@@ -85,14 +85,22 @@ try {
             p.product_image
         FROM products p
         {$join}
-        WHERE LOWER(p.sku) = LOWER(?)
-        LIMIT 1
+        WHERE LOWER(TRIM(p.sku)) = LOWER(?)
+        ORDER BY p.product_id ASC
+        LIMIT 2
         ",
         $types,
         $params
     );
     if (empty($rows)) {
         echo json_encode(['success' => true, 'product' => null]);
+        exit;
+    }
+    if (count($rows) > 1) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'This SKU is assigned to more than one product. Please ask an administrator to correct the duplicate SKU.',
+        ]);
         exit;
     }
 

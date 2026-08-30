@@ -193,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
 
         $reference_id = null;
         foreach ($cart_items as $item) {
-            if (!empty($item['product_id'])) {
+            if (!checkout_item_is_service($item) && !empty($item['product_id'])) {
                 $reference_id = (int)$item['product_id'];
                 break;
             }

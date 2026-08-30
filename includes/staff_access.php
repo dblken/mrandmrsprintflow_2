@@ -201,7 +201,7 @@ if (!function_exists('printflow_staff_order_source_sql')) {
     function printflow_staff_order_source_sql(string $orderAlias = 'o', ?string $role = null): string {
         $role = printflow_normalize_staff_access_role($role ?? printflow_get_staff_access_role());
         $posPredicate = "(
-            LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos', 'walk-in')
+            LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos', 'walk-in', 'pos_merged')
             OR EXISTS (
                 SELECT 1
                 FROM customizations pos_scope
@@ -273,12 +273,12 @@ if (!function_exists('printflow_staff_role_can_access_order_source')) {
     function printflow_staff_role_can_access_order_source(?string $staffRole, ?string $orderSource): bool {
         $staffRole = printflow_normalize_staff_access_role($staffRole ?? printflow_get_staff_access_role());
         $orderSource = strtolower(trim((string)$orderSource));
-        $isPos = in_array($orderSource, ['pos', 'walk-in'], true);
+        $isPos = in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true);
 
         if ($staffRole === 'pos') {
             return $isPos;
         }
 
-        return !$isPos && $orderSource !== 'pos_merged';
+        return !$isPos;
     }
 }

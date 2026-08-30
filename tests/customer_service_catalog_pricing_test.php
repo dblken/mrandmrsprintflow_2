@@ -86,7 +86,11 @@ $staffPriceApi = (string)file_get_contents(__DIR__ . '/../admin/job_orders_api.p
 
 catalog_pricing_assert(strpos($servicesPage, "\$row['price']") === false, 'Customer catalog must not read services.price.');
 catalog_pricing_assert(strpos($servicesPage, 'price_label') !== false, 'Service cards must use explicit price labels.');
-catalog_pricing_assert(strpos($servicesPage, 'Order Now') !== false, 'Quote-only services must remain orderable.');
+catalog_pricing_assert(
+    strpos($servicesPage, 'Customize Now') !== false
+        && strpos($servicesPage, 'order_service_dynamic.php?service_id=') !== false,
+    'Quote-only services must remain orderable.'
+);
 catalog_pricing_assert(strpos($adminServices, '$price = 1.0;') === false, 'Admin must not write the 1.00 placeholder.');
 catalog_pricing_assert(strpos($seedServices, '$price = 1.0;') === false, 'Service seeds must not write the 1.00 placeholder.');
 foreach (['pricing_type', 'display_price', 'minimum_price', 'price_label'] as $key) {
@@ -94,7 +98,9 @@ foreach (['pricing_type', 'display_price', 'minimum_price', 'price_label'] as $k
 }
 catalog_pricing_assert(strpos($staffPriceApi, 'UPDATE services SET price') === false, 'Staff quotation actions must not update the service catalog.');
 catalog_pricing_assert(
-    strpos($paymentPage, "\$total_amount = (\$calculated_total > 0) ? \$calculated_total : (float)\$order['total_amount'];") !== false,
+    strpos($paymentPage, '$total_amount = (float)($order[\'total_amount\'] ?? 0);') !== false
+        && strpos($paymentPage, 'if ($total_amount <= 0) {') !== false
+        && strpos($paymentPage, '$total_amount = $calculated_total;') !== false,
     'Payment page must continue reading the order-specific staff-approved total.'
 );
 

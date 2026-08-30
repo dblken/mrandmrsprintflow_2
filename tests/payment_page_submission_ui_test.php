@@ -32,7 +32,7 @@ if (strpos($onloadBlock, 'finally {') === false || strpos($onloadBlock, 'resetPa
 }
 
 $socketSource = file_get_contents(__DIR__ . '/../public/assets/js/printflow_call.js');
-if (strpos($socketSource, 'reconnectionAttempts: 1') === false || strpos($socketSource, 'this.socket.io.opts.reconnection = false') === false) {
+if (strpos($socketSource, 'reconnection: false') === false || strpos($socketSource, 'this.socket.io.opts.reconnection = false') === false) {
     $failures[] = 'Unavailable Socket.IO signaling must enter fallback mode without repeated retries.';
 }
 

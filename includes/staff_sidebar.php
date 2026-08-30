@@ -166,7 +166,7 @@ if (isset($_SESSION['user_id'])) {
     </nav>
     
     <div class="sidebar-footer">
-        <a href="<?php echo $base_path; ?>/staff/profile.php" class="user-profile" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 6px; transition: background 0.2s;">
+        <a href="<?php echo $base_path; ?>/staff/profile.php" class="user-profile" style="text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border-radius: 10px; transition: background 0.2s;">
             <div class="user-avatar">
                 <?php if ($sidebar_profile_pic): ?>
                     <img src="<?php echo htmlspecialchars($sidebar_profile_pic); ?>?t=<?php echo time(); ?>" alt="" style="width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.parentNode.textContent='<?php echo htmlspecialchars($user_initial, ENT_QUOTES, 'UTF-8'); ?>';">
@@ -339,4 +339,6 @@ window.PFConfig = {
 <?php $notif_js_ver = @filemtime(__DIR__ . '/../public/assets/js/notifications.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
 <script src="<?php echo $base_path; ?>/public/assets/js/inactivity_logout.js" defer></script>
+<?php $receipt_scanner_ver = @filemtime(__DIR__ . '/../public/assets/js/receipt-scanner.js') ?: time(); ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/receipt-scanner.js?v=<?php echo $receipt_scanner_ver; ?>" data-base-path="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" defer></script>
 </div>

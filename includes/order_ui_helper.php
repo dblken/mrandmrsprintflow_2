@@ -526,12 +526,25 @@ if (!function_exists('pf_order_ui_item_unit_price')) {
 
 if (!function_exists('pf_order_ui_item_estimated_total')) {
     function pf_order_ui_item_estimated_total(array $item, bool $is_cart_item = false): float {
-        $quantity = max(1, (int)($item['quantity'] ?? 1));
+        $approved = (float)($item['approved_total'] ?? 0);
+        if (!empty($item['price_is_final']) && $approved > 0) {
+            return $approved;
+        }
         $estimated = (float)($item['estimated_price'] ?? 0);
         if ($estimated > 0) {
             return $estimated;
         }
+        $unit = (float)($item['unit_price'] ?? 0);
+        if (!empty($item['price_is_final']) && $unit > 0) {
+            return $unit * max(1, (int)($item['quantity'] ?? 1));
+        }
         return 0.0;
+    }
+}
+
+if (!function_exists('pf_order_ui_service_price_label')) {
+    function pf_order_ui_service_price_label(array $item): string {
+        return !empty($item['price_is_final']) ? 'Final Price' : 'Estimated Price';
     }
 }
 
@@ -556,6 +569,7 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
     $subtotal = $unit_price * $quantity;
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
+    $service_price_label = pf_order_ui_service_price_label($item);
     $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
     $upload_url = $media['upload_url'] ?? null;
     $catalog_url = $media['catalog_url'] ?? null;
@@ -618,7 +632,7 @@ function render_order_item_neubrutalism($item, $is_cart_item = false, $show_pric
                     </div>
                     <?php if ($show_price): ?>
                     <div style="min-width: 150px;">
-                        <div style="font-size: 0.95rem; font-weight: 800;"><?php echo $is_service_item ? 'Estimated Price' : 'Subtotal'; ?>: <?php echo $is_service_item ? pf_order_ui_escape($estimated_total_display) : format_currency($subtotal); ?></div>
+                        <div style="font-size: 0.95rem; font-weight: 800;"><?php echo $is_service_item ? pf_order_ui_escape($service_price_label) : 'Subtotal'; ?>: <?php echo $is_service_item ? pf_order_ui_escape($estimated_total_display) : format_currency($subtotal); ?></div>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -700,6 +714,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $subtotal = $unit_price * $quantity;
     $estimated_total = $is_service_item ? pf_order_ui_item_estimated_total($item, $is_cart_item) : $subtotal;
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
+    $service_price_label = pf_order_ui_service_price_label($item);
     $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
     $upload_url = $media['upload_url'] ?? null;
     $catalog_url = $media['catalog_url'] ?? null;
@@ -764,7 +779,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                     </div>
                     <?php endif; ?>
                     <div class="review-total-row" style="flex: 1; min-width: 100px;">
-                        <div class="review-total-label" style="font-size: 0.68rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;"><?php echo $is_service_item ? 'Estimated Price' : 'Total'; ?></div>
+                        <div class="review-total-label" style="font-size: 0.68rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;"><?php echo $is_service_item ? pf_order_ui_escape($service_price_label) : 'Total'; ?></div>
                         <div class="review-total-value" style="font-size: 1rem; color: #53c5e0; font-weight: 800;"><?php echo $is_service_item ? pf_order_ui_escape($estimated_total_display) : format_currency($subtotal); ?></div>
                     </div>
                     <?php endif; ?>

@@ -193,7 +193,8 @@ require_once __DIR__ . '/../includes/header.php';
         line-height: 1.5;
         color: #334155;
         margin-bottom: 0.5rem;
-        word-wrap: break-word;
+        overflow-wrap: anywhere;
+        word-break: break-word;
     }
     .notif-meta {
         display: flex;
@@ -252,23 +253,34 @@ require_once __DIR__ . '/../includes/header.php';
             width: 100%;
             text-align: center;
         }
+        .notif-card {
+            padding: 0.75rem;
+        }
         .notif-card-inner {
-            flex-direction: column;
+            display: grid;
+            grid-template-columns: 56px minmax(0, 1fr);
+            align-items: start;
+            gap: 0.75rem;
         }
         .notif-image-wrap {
-            width: 100%;
-            height: auto;
-            aspect-ratio: 16/9;
-            max-height: 180px;
+            width: 56px;
+            height: 56px;
+            min-width: 0;
+            aspect-ratio: auto;
         }
         .notif-meta {
             flex-direction: column;
             align-items: flex-start;
+            gap: 0.5rem;
         }
         .notif-view-btn {
-            width: 100%;
+            width: auto;
             text-align: center;
-            padding: 0.6rem 1rem;
+            min-height: 36px;
+            padding: 0.5rem 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
     }
 </style>
@@ -324,6 +336,8 @@ require_once __DIR__ . '/../includes/header.php';
                                 <img src="<?php echo htmlspecialchars((string)$notif['image']); ?>"
                                      alt="<?php echo htmlspecialchars((string)$notif['title']); ?>"
                                      class="notif-image"
+                                     loading="lazy"
+                                     decoding="async"
                                      onerror="this.onerror=null;this.src='<?php echo htmlspecialchars((string)$notif['fallback'], ENT_QUOTES); ?>';">
                             </div>
                             <div class="notif-content-wrap">

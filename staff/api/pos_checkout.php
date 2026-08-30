@@ -11,6 +11,8 @@ require_once __DIR__ . '/../../includes/order_items_persistence.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/runtime_config.php';
 require_once __DIR__ . '/../../includes/provider_payments.php';
+require_once __DIR__ . '/../../includes/pos_receipt.php';
+require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -73,6 +75,86 @@ function pos_get_walkin_customer_id(): int {
     );
 
     return (int)$conn->insert_id;
+}
+
+function pos_prepare_order_for_paymongo_checkout(
+    int $orderId,
+    int $staffId,
+    string $paymentMethod,
+    string $paymentStatus = 'Awaiting Payment',
+    string $orderStatus = 'Pending'
+): array {
+    if ($orderId <= 0) {
+        return ['ok' => false, 'message' => 'The POS order was not found.'];
+    }
+
+    $rows = db_query(
+        "SELECT order_id, total_amount, status, payment_status
+         FROM orders
+         WHERE order_id = ?
+         LIMIT 1",
+        'i',
+        [$orderId]
+    ) ?: [];
+    if (empty($rows)) {
+        return ['ok' => false, 'message' => 'The POS order was not found.'];
+    }
+
+    $order = $rows[0];
+    $totalAmount = (float)($order['total_amount'] ?? 0);
+    if ($totalAmount <= 0) {
+        return ['ok' => false, 'message' => 'The POS order total must be greater than zero.'];
+    }
+
+    $normalizedStatus = strtoupper(str_replace(' ', '_', trim((string)($order['status'] ?? ''))));
+    if (in_array($normalizedStatus, ['CANCELLED', 'REJECTED', 'COMPLETED'], true)) {
+        return ['ok' => false, 'message' => 'This POS order can no longer be paid.'];
+    }
+
+    $setParts = [];
+    $types = '';
+    $params = [];
+
+    if (db_table_has_column('orders', 'payment_status')) {
+        $setParts[] = 'payment_status = ?';
+        $types .= 's';
+        $params[] = $paymentStatus;
+    }
+
+    if (db_table_has_column('orders', 'payment_method')) {
+        $setParts[] = 'payment_method = ?';
+        $types .= 's';
+        $params[] = $paymentMethod;
+    }
+
+    if (db_table_has_column('orders', 'status')) {
+        $setParts[] = 'status = ?';
+        $types .= 's';
+        $params[] = $orderStatus;
+    }
+
+    if (db_table_has_column('orders', 'price_finalized_at')) {
+        $setParts[] = 'price_finalized_at = COALESCE(price_finalized_at, NOW())';
+    }
+
+    if (db_table_has_column('orders', 'price_finalized_by')) {
+        $setParts[] = 'price_finalized_by = COALESCE(price_finalized_by, ?)';
+        $types .= 'i';
+        $params[] = $staffId;
+    }
+
+    if ($setParts !== []) {
+        $setParts[] = 'updated_at = NOW()';
+        if (!db_execute(
+            'UPDATE orders SET ' . implode(', ', $setParts) . ' WHERE order_id = ?',
+            $types . 'i',
+            array_merge($params, [$orderId])
+        )) {
+            return ['ok' => false, 'message' => 'The POS order could not be prepared for PayMongo checkout.'];
+        }
+    }
+
+    return ['ok' => true];
 }
 
 function pos_order_uses_walkin_placeholder(array $order): bool {
@@ -383,6 +465,7 @@ function pos_sync_order_item_customization_json(int $orderItemId, int $orderId, 
         return;
     }
 
+    $customization = printflow_customization_normalize_storage($customization);
     $json = json_encode($customization ?: new stdClass());
     db_execute(
         'UPDATE order_items SET customization_data = ? WHERE order_item_id = ?',
@@ -671,6 +754,8 @@ function pos_extract_order_item_display_name(array $item): string {
 }
 
 function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): array {
+    return printflow_pos_build_receipt($orderId, $amountTendered);
+    /* Legacy implementation retained below temporarily for caller compatibility. */
     $orderRows = db_query(
         "SELECT o.*, c.first_name, c.last_name, c.email, c.contact_number,
                 b.branch_name, b.address AS branch_address, b.contact_number AS branch_contact,
@@ -706,12 +791,17 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
         $quantity = (int)($itemRow['quantity'] ?? 0);
         $unitPrice = (float)($itemRow['unit_price'] ?? 0);
         $lineTotal = $quantity * $unitPrice;
+        $customization = json_decode((string)($itemRow['customization_data'] ?? ''), true);
+        $customization = printflow_customization_display_specs(is_array($customization) ? $customization : [], [
+            'include_service' => false, 'include_design' => true, 'include_notes' => true, 'include_quantity' => false
+        ]);
         $subtotal += $lineTotal;
         $receiptItems[] = [
             'name' => pos_extract_order_item_display_name($itemRow),
             'quantity' => $quantity,
             'unit_price' => $unitPrice,
             'line_total' => $lineTotal,
+            'customization' => $customization,
         ];
     }
 
@@ -739,10 +829,14 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
     $customerEmail = $isWalkinPlaceholder ? '' : (string)($order['email'] ?? '');
     $customerPhone = $isWalkinPlaceholder ? '' : (string)($order['contact_number'] ?? '');
 
+    $receiptDateTime = (string)($order['order_date'] ?? date('Y-m-d H:i:s'));
     return [
         'receipt_number' => 'POS-' . str_pad((string)$orderId, 6, '0', STR_PAD_LEFT),
         'order_id' => $orderId,
-        'date_time' => (string)($order['order_date'] ?? date('Y-m-d H:i:s')),
+        'qr_payload' => printflow_receipt_qr_payload($orderId),
+        'date_time' => $receiptDateTime,
+        'date_time_display' => date('M j, Y h:i A', strtotime($receiptDateTime) ?: time()),
+        'cashier' => trim((string)($_SESSION['user_name'] ?? 'Staff')) ?: 'Staff',
         'company' => [
             'name' => $shopName,
             'logo_url' => $logoUrl,
@@ -769,6 +863,7 @@ function pos_build_receipt_payload(int $orderId, float $amountTendered = 0.0): a
             'reference' => (string)($order['payment_reference'] ?? ''),
             'amount_paid' => round($amountTendered > 0 ? $amountTendered : $total, 2),
             'change' => round($changeAmount, 2),
+            'balance' => round(max(0, $total - ($amountTendered > 0 ? $amountTendered : $total)), 2),
             'status' => (string)($order['payment_status'] ?? ''),
         ],
     ];
@@ -935,8 +1030,10 @@ $amount_tendered = (float)($data['amount_tendered'] ?? 0);
 $items = $data['items'];
 
 $pm_lc = strtolower(trim($payment_method));
-$is_paymongo_test = $pm_lc === 'paymongo test';
-$reference_required = ($pm_lc !== 'cash' && $pm_lc !== 'gcash' && !$is_paymongo_test);
+$isPayMongoQrph = $pm_lc === 'paymongo qrph';
+$isPayMongoLink = in_array($pm_lc, ['paymongo checkout', 'paymongo test'], true);
+$isPayMongo = $isPayMongoQrph || $isPayMongoLink;
+$reference_required = ($pm_lc !== 'cash' && $pm_lc !== 'gcash' && !$isPayMongo);
 if ($reference_required && $reference_number === '') {
     echo json_encode(['success' => false, 'message' => "Reference number is required for $payment_method."]);
     exit;
@@ -947,28 +1044,42 @@ if ($amount_tendered > 1000000) {
 }
 
 $checkoutToken = strtolower(trim((string)($data['checkout_token'] ?? '')));
-if ($is_paymongo_test && !preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
+if ($isPayMongoQrph
+    && !in_array('qrph', printflow_paymongo_enabled_methods(printflow_paymongo_mode()), true)) {
+    http_response_code(409);
+    echo json_encode(['success' => false, 'message' => 'Dynamic QR Ph is not enabled for this payment environment.']);
+    exit;
+}
+if ($isPayMongo && !preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'A valid POS checkout token is required.']);
     exit;
 }
-if ($is_paymongo_test && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) {
+if ($isPayMongo && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) {
     $existingOrderId = (int)$_SESSION['pos_paymongo_checkouts'][$checkoutToken];
-    $existingResult = printflow_provider_payment_create_link(
-        'order',
+    $preparedOrder = pos_prepare_order_for_paymongo_checkout(
         $existingOrderId,
-        'pos',
-        (int)get_user_id()
+        (int)get_user_id(),
+        $payment_method,
+        'Awaiting Payment',
+        'Pending'
     );
-    http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
-    echo json_encode([
-        'success' => !empty($existingResult['ok']),
-        'order_id' => $existingOrderId,
-        'payment_pending' => true,
-        'payment' => $existingResult['payment'] ?? null,
-        'message' => $existingResult['message'] ?? 'Open the Test Mode checkout to complete payment.',
-    ], JSON_UNESCAPED_SLASHES);
-    exit;
+    if (!$preparedOrder['ok']) {
+        unset($_SESSION['pos_paymongo_checkouts'][$checkoutToken]);
+    } else {
+        $existingResult = $isPayMongoQrph
+            ? printflow_provider_payment_create_qrph('order', $existingOrderId, 'pos', (int)get_user_id())
+            : printflow_provider_payment_create_link('order', $existingOrderId, 'pos', (int)get_user_id());
+        http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
+        echo json_encode([
+            'success' => !empty($existingResult['ok']),
+            'order_id' => $existingOrderId,
+            'payment_pending' => true,
+            'payment' => $existingResult['payment'] ?? null,
+            'message' => $existingResult['message'] ?? 'Complete the PayMongo payment to continue.',
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
 }
 
 printflow_ensure_product_branch_stock_table();
@@ -1032,15 +1143,41 @@ try {
         }
     }
     $order_type = $has_service ? 'custom' : 'product';
-    $order_status = $is_paymongo_test ? 'Pending' : ($has_service ? 'Pending' : 'Completed');
-    $initial_payment_status = $is_paymongo_test ? 'Awaiting Payment' : 'Paid';
+    $order_status = $isPayMongo ? 'Pending' : ($has_service ? 'Pending' : 'Completed');
+    $initial_payment_status = $isPayMongo ? 'Awaiting Payment' : 'Paid';
     $reference_id = $items[0]['id'] ?? null;
 
+    $priceFinalColumns = '';
+    $priceFinalValues = '';
+    $priceFinalTypes = '';
+    $priceFinalParams = [];
+    $amountPaidColumns = '';
+    $amountPaidValues = '';
+    $amountPaidTypes = '';
+    $amountPaidParams = [];
+    if (!$isPayMongo && pos_table_has_column('orders', 'amount_paid')) {
+        $amountPaidColumns = ', amount_paid';
+        $amountPaidValues = ', ?';
+        $amountPaidTypes = 'd';
+        $amountPaidParams[] = $amount_tendered;
+    }
+    if (db_table_has_column('orders', 'price_finalized_at')
+        && db_table_has_column('orders', 'price_finalized_by')) {
+        $priceFinalColumns = ', price_finalized_at, price_finalized_by';
+        $priceFinalValues = ', NOW(), ?';
+        $priceFinalTypes = 'i';
+        $priceFinalParams[] = (int)get_user_id();
+    }
+
     $order_result = db_execute(
-        "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos')",
-        'iiidsssss',
-        [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $initial_payment_status, $payment_method, $reference_number, $order_type]
+        "INSERT INTO orders (customer_id, branch_id, reference_id, total_amount, status, payment_status, payment_method, payment_reference, order_date, updated_at, order_type, order_source{$amountPaidColumns}{$priceFinalColumns})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?, 'pos'{$amountPaidValues}{$priceFinalValues})",
+        'iiidsssss' . $amountPaidTypes . $priceFinalTypes,
+        array_merge(
+            [$customer_id, $branch_id, $reference_id, $total_amount, $order_status, $initial_payment_status, $payment_method, $reference_number, $order_type],
+            $amountPaidParams,
+            $priceFinalParams
+        )
     );
 
     if (!$order_result) {
@@ -1099,6 +1236,7 @@ try {
         if ($is_service && $name) {
             $custom_details['service_type'] = $name;
         }
+        $custom_details = printflow_customization_normalize_storage($custom_details);
         
         $customization_json = json_encode($custom_details ?: new stdClass());
 
@@ -1125,6 +1263,7 @@ try {
                 (string)($designPayload['name'] ?? 'design_upload')
             );
         }
+        $custom_details = printflow_customization_normalize_storage($custom_details);
         printflow_sync_job_orders_artwork_for_order_item((int)$order_item_id);
         error_log('ORDER ITEM ID: ' . $order_item_id);
         error_log('DESIGN FILE: ' . (string)($storedMedia['design_path'] ?? ''));
@@ -1186,7 +1325,7 @@ try {
                     if ($pendingOrderItemId > 0) {
                         pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
                     }
-                    $customizationStatus = $is_paymongo_test ? 'Awaiting Payment' : 'In Production';
+                    $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                     $customization_result = db_execute(
                         "UPDATE customizations
                          SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = ?, updated_at = NOW()
@@ -1222,7 +1361,7 @@ try {
                                 pos_copy_order_item_media_if_missing($pendingOrderItemId, $order_item_id);
                             }
                             $placeholders = implode(',', array_fill(0, count($customizationIds), '?'));
-                            $customizationStatus = $is_paymongo_test ? 'Awaiting Payment' : 'In Production';
+                            $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                             $customization_result = db_execute(
                                 "UPDATE customizations
                                  SET order_id = ?, order_item_id = ?, customer_id = ?, service_type = ?, customization_details = ?, status = ?, updated_at = NOW()
@@ -1237,7 +1376,7 @@ try {
             }
 
             if (!$customization_result) {
-                $customizationStatus = $is_paymongo_test ? 'Awaiting Payment' : 'In Production';
+                $customizationStatus = $isPayMongo ? 'Awaiting Payment' : 'In Production';
                 $customization_result = db_execute(
                     "INSERT INTO customizations (order_id, order_item_id, customer_id, service_type, customization_details, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())",
                     'iiisss',
@@ -1267,6 +1406,17 @@ try {
             
             // Update any existing pending customization orders for this item to mark as paid
             if ($pendingOrderId > 0) {
+                $pendingPriceFinalSql = '';
+                $pendingPriceFinalTypes = '';
+                $pendingPriceFinalParams = [];
+                if (db_table_has_column('orders', 'price_finalized_at')
+                    && db_table_has_column('orders', 'price_finalized_by')) {
+                    $pendingPriceFinalSql = ',
+                         price_finalized_at = COALESCE(price_finalized_at, NOW()),
+                         price_finalized_by = COALESCE(price_finalized_by, ?)';
+                    $pendingPriceFinalTypes = 'i';
+                    $pendingPriceFinalParams[] = (int)get_user_id();
+                }
                 db_execute(
                     "UPDATE orders
                      SET payment_status = ?,
@@ -1275,9 +1425,14 @@ try {
                          status = 'Pending',
                          order_source = 'pos_merged',
                          updated_at = NOW()
+                         {$pendingPriceFinalSql}
                      WHERE order_id = ?",
-                    'ssdi',
-                    [$initial_payment_status, $payment_method, $price * $qty, $pendingOrderId]
+                    'ssd' . $pendingPriceFinalTypes . 'i',
+                    array_merge(
+                        [$initial_payment_status, $payment_method, $price * $qty],
+                        $pendingPriceFinalParams,
+                        [$pendingOrderId]
+                    )
                 );
                 // Hide the temporary POS source order after its customization is re-linked.
                 unset($_SESSION['pos_pending_orders'][$product_id]);
@@ -1287,7 +1442,7 @@ try {
         // Product stock is deducted when counter staff marks the walk-in order Completed.
         // Services/custom items continue through the job/material completion flow.
         $current_user_id = (int)($_SESSION['user_id'] ?? 0);
-        if (!$is_paymongo_test && $order_status === 'Completed' && !$is_service && $is_actual_product) {
+        if (!$isPayMongo && $order_status === 'Completed' && !$is_service && $is_actual_product) {
             // Reduce branch/product stock atomically (will fail if insufficient)
             $deducted = printflow_product_deduct_stock_for_branch($product_id, $branch_id, $qty);
             if ($deducted === false) {
@@ -1314,21 +1469,19 @@ try {
 
     $conn->commit();
     $transaction_open = false;
-    if ($is_paymongo_test) {
+    if ($isPayMongo) {
+        $_SESSION['pos_paymongo_checkouts'] = [];
         $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = (int)$order_id;
-        $linkResult = printflow_provider_payment_create_link(
-            'order',
-            (int)$order_id,
-            'pos',
-            (int)get_user_id()
-        );
-        if (empty($linkResult['ok'])) {
-            http_response_code((int)($linkResult['http_status'] ?? 502));
+        $providerResult = $isPayMongoQrph
+            ? printflow_provider_payment_create_qrph('order', (int)$order_id, 'pos', (int)get_user_id())
+            : printflow_provider_payment_create_link('order', (int)$order_id, 'pos', (int)get_user_id());
+        if (empty($providerResult['ok'])) {
+            http_response_code((int)($providerResult['http_status'] ?? 502));
             echo json_encode([
                 'success' => false,
                 'order_id' => (int)$order_id,
                 'payment_pending' => true,
-                'message' => $linkResult['message'] ?? 'The order was saved, but its Payment Link could not be created. Retry checkout to reuse this order.',
+                'message' => $providerResult['message'] ?? 'The order was saved, but its PayMongo payment could not be created. Retry checkout to reuse this order.',
             ]);
             exit;
         }
@@ -1337,8 +1490,8 @@ try {
             'order_id' => (int)$order_id,
             'customization_id' => $last_customization_id ?? null,
             'payment_pending' => true,
-            'message' => 'Order saved. Complete the PayMongo Test payment before issuing a receipt.',
-            'payment' => $linkResult['payment'] ?? null,
+            'message' => 'Order saved. Complete the PayMongo payment before issuing a receipt.',
+            'payment' => $providerResult['payment'] ?? null,
             'receipt' => null,
         ], JSON_UNESCAPED_SLASHES);
         exit;
@@ -1376,13 +1529,16 @@ try {
         }
     }
 
+    $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+    $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
         'customization_id' => $last_customization_id ?? null,
         'message' => 'Sale completed successfully.',
         'warning' => $sync_warning,
-        'receipt' => pos_build_receipt_payload((int)$order_id, (float)$amount_tendered)
+        'receipt' => $receipt,
+        'print_job' => null
     ]);
 
 } catch (Exception $e) {
@@ -1391,13 +1547,16 @@ try {
     }
     if (!empty($order_id) && !$transaction_open) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
+        $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+        $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
         echo json_encode([
             'success' => true,
             'order_id' => (int)$order_id,
             'customization_id' => $last_customization_id ?? null,
             'message' => 'Sale completed successfully.',
             'warning' => 'Production sync needs follow-up.',
-            'receipt' => pos_build_receipt_payload((int)$order_id, (float)$amount_tendered)
+            'receipt' => $receipt,
+            'print_job' => null
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);

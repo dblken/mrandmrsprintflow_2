@@ -65,6 +65,7 @@ register_shutdown_function(function() {
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/payment_verification.php';
 
 function staff_order_data_columns($table) {
     static $cache = [];
@@ -147,12 +148,9 @@ function staff_order_data_payment_proof_url(array $order): ?string {
         return null;
     }
 
-    if (preg_match('#^https?://#i', $proof)) {
-        return $proof;
-    }
-
-    $base = defined('BASE_PATH') ? BASE_PATH : '/printflow';
-    return rtrim($base, '/') . '/staff/api_view_proof.php?file=' . rawurlencode($proof);
+    $orderId = (int)($order['order_id'] ?? 0);
+    $jobOrderId = (int)($order['job_order_id'] ?? 0);
+    return payment_verification_staff_proof_url(0, $orderId, $jobOrderId) ?: null;
 }
 
 try {
@@ -267,8 +265,12 @@ $items = db_query("
 $items_out = [];
 foreach ($items as $item) {
     $custom_data = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
-    // Remove design_upload key from display
-    unset($custom_data['design_upload']);
+    $custom_data = printflow_customization_display_specs($custom_data, [
+        'include_service' => true,
+        'include_design' => false,
+        'include_notes' => true,
+        'include_quantity' => false,
+    ]);
 
     $items_out[] = [
         'order_item_id' => $item['order_item_id'],
@@ -282,13 +284,14 @@ foreach ($items as $item) {
         'customization' => $custom_data,
         'has_design'    => !empty($item['design_image']) || !empty($item['design_file']),
         'has_reference' => !empty($item['reference_image_file']),
-        'design_name'   => $item['design_image_name'] ?? 'design_file',
+        'design_name'   => basename(str_replace('\\', '/', (string)($item['design_image_name'] ?? $item['design_file'] ?? 'Uploaded design'))),
         'design_url'    => (!empty($item['design_image']) || !empty($item['design_file']))
                             ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id']
                             : null,
         'reference_url' => !empty($item['reference_image_file'])
                             ? BASE_PATH . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'] . '&field=reference'
                             : null,
+        'reference_name' => basename(str_replace('\\', '/', (string)($item['reference_image_file'] ?? 'Reference file'))),
         'product_image' => staff_order_data_product_image_url($item),
         'product_type'  => $item['product_type'] ?? 'custom',
     ];

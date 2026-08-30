@@ -207,7 +207,7 @@ $completed_jobs = db_query("SELECT COUNT(*) as count FROM job_orders jo WHERE st
         .om-items-section { margin-top: 20px; }
     </style>
 </head>
-<body x-data="joManager('ALL')">
+<body x-data="joManager('ALL')" data-csrf="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
 <div class="dashboard-container">
     <?php 
     if ($_SESSION['user_type'] === 'Staff') {
@@ -857,6 +857,7 @@ $completed_jobs = db_query("SELECT COUNT(*) as count FROM job_orders jo WHERE st
                 if(this.jobPriceInput < 0) return;
                 const fd = new FormData();
                 fd.append('action', 'set_price');
+                fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', id);
                 fd.append('price', this.jobPriceInput);
                 fd.append('ink_id', this.selectedInkId);

@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/order_ui_helper.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role('Customer');
 ensure_ratings_table_exists();
@@ -57,6 +58,8 @@ $tab_status_map = [
 $tab_status_map['production'] = ['In Production', 'Processing', 'Printing', 'Paid - In Process', 'Paid – In Process', 'Paid â€“ In Process'];
 $tab_status_map['pickup'] = ['Ready for Pickup', 'Approved Design'];
 
+$provider_payments_ready = printflow_provider_payments_ready();
+
 function customer_orders_display_status(string $status, string $order_type = ''): string {
     $status = trim($status);
     $order_type = strtolower(trim($order_type));
@@ -86,9 +89,6 @@ function customer_orders_display_status(string $status, string $order_type = '')
     }
     return $status;
 }
-
-// Statuses where price is hidden from customer
-$HIDDEN_PRICE_STATUSES = ['Pending', 'Pending Approval', 'Pending Review', 'For Revision', 'Approved'];
 
 $has_product_image = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_image'"));
 $has_photo_path = !empty(db_query("SHOW COLUMNS FROM products LIKE 'photo_path'"));
@@ -132,6 +132,26 @@ foreach ($tab_status_map as $tab_key => $statuses) {
     }
 }
 
+// A paid provider ledger is authoritative even if an older order mirror still
+// says "To Pay". Keep those orders out of the payable count/list immediately.
+$paid_to_pay_sql = "SELECT COUNT(*) AS total
+    FROM orders o
+    WHERE o.customer_id = ? AND o.status = 'To Pay'
+      AND (UPPER(TRIM(COALESCE(o.payment_status, ''))) = 'PAID'";
+if ($provider_payments_ready) {
+    $paid_to_pay_sql .= " OR EXISTS (
+        SELECT 1 FROM provider_payments pp
+        WHERE pp.customer_id = o.customer_id
+          AND pp.subject_type = 'order'
+          AND pp.subject_id = o.order_id
+          AND pp.provider = 'paymongo'
+          AND pp.status = 'paid'
+    )";
+}
+$paid_to_pay_sql .= ')';
+$paid_to_pay_result = db_query($paid_to_pay_sql, 'i', [$customer_id]) ?: [];
+$tab_counts['topay'] = max(0, $tab_counts['topay'] - (int)($paid_to_pay_result[0]['total'] ?? 0));
+
 // Build query
 $sql = "SELECT o.*, 
         (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id) as order_sku,
@@ -169,6 +189,12 @@ $sql = "SELECT o.*,
            AND jo.payment_rejection_reason != ''
          ORDER BY jo.payment_verified_at DESC, jo.id DESC
          LIMIT 1) as payment_rejection_reason,
+        (SELECT jo.payment_verified_at
+         FROM job_orders jo
+         WHERE jo.order_id = o.order_id
+           AND UPPER(TRIM(COALESCE(jo.payment_status, ''))) = 'PAID'
+         ORDER BY jo.payment_verified_at DESC, jo.id DESC
+         LIMIT 1) as latest_payment_verified_at,
         (SELECT jo.job_title FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_title,
         (SELECT jo.service_type FROM job_orders jo WHERE jo.order_id = o.order_id ORDER BY jo.id ASC LIMIT 1) as first_job_service_type
         FROM orders o WHERE o.customer_id = ?";
@@ -190,6 +216,22 @@ if ($active_tab !== 'all' && isset($tab_status_map[$active_tab])) {
         $count_params[] = $s; // Also add to count params
         $types .= 's';
         $count_types .= 's'; // Also add to count types
+    }
+
+    if ($active_tab === 'topay') {
+        $paidGuard = " AND UPPER(TRIM(COALESCE(o.payment_status, ''))) <> 'PAID'";
+        if ($provider_payments_ready) {
+            $paidGuard .= " AND NOT EXISTS (
+                SELECT 1 FROM provider_payments pp
+                WHERE pp.customer_id = o.customer_id
+                  AND pp.subject_type = 'order'
+                  AND pp.subject_id = o.order_id
+                  AND pp.provider = 'paymongo'
+                  AND pp.status = 'paid'
+            )";
+        }
+        $sql .= $paidGuard;
+        $count_sql .= $paidGuard;
     }
 }
 
@@ -224,10 +266,88 @@ $sql .= " ORDER BY {$display_sort_expr} DESC, o.order_id DESC LIMIT {$limit} OFF
 
 $orders_raw = db_query($sql, $types, $params);
 $orders = is_array($orders_raw) ? $orders_raw : [];
+$provider_payments_by_order = [];
+if ($provider_payments_ready && $orders !== []) {
+    $order_ids = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int)($row['order_id'] ?? 0),
+        $orders
+    ))));
+    if ($order_ids !== []) {
+        $providerPlaceholders = implode(',', array_fill(0, count($order_ids), '?'));
+        $providerParams = array_merge([$customer_id], $order_ids);
+        $providerTypes = 'i' . str_repeat('i', count($order_ids));
+        $providerRows = db_query(
+            "SELECT * FROM provider_payments
+             WHERE customer_id = ? AND subject_type = 'order'
+               AND subject_id IN ({$providerPlaceholders})
+               AND provider = 'paymongo'
+             ORDER BY subject_id ASC,
+                      CASE WHEN status = 'paid' THEN 0 WHEN status = 'awaiting_payment' THEN 1 ELSE 2 END,
+                      id DESC",
+            $providerTypes,
+            $providerParams
+        ) ?: [];
+        foreach ($providerRows as $providerRow) {
+            $providerOrderId = (int)($providerRow['subject_id'] ?? $providerRow['order_id'] ?? 0);
+            if ($providerOrderId > 0 && !isset($provider_payments_by_order[$providerOrderId])) {
+                $provider_payments_by_order[$providerOrderId] = $providerRow;
+            }
+        }
+    }
+}
 foreach ($orders as &$order) {
+    $orderId = (int)($order['order_id'] ?? 0);
+    $providerPayment = $provider_payments_by_order[$orderId] ?? [];
+    $providerPublic = $providerPayment !== [] ? printflow_provider_payment_public($providerPayment) : [];
+    $financial = printflow_order_financial_snapshot($order, $providerPayment);
+    $providerPaid = strtolower((string)($providerPayment['status'] ?? '')) === 'paid';
+    $paymentReceived = $providerPaid
+        || strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0
+        || ((int)($financial['paid_amount_centavos'] ?? 0) > 0
+            && (int)($financial['remaining_balance_centavos'] ?? 0) === 0);
+    $statusText = strtolower(trim((string)($order['status'] ?? '')));
+    $hasDownstreamStatus = (bool)preg_match(
+        '/production|processing|printing|ready|pickup|completed|rated|to rate|cancelled|rejected/',
+        $statusText
+    );
+
     $order['order_code'] = printflow_format_order_code($order['order_id'] ?? 0, $order['order_sku'] ?? '');
     $order['_first_item_customization_resolved'] = customer_orders_primary_customization($order);
-    $order['_first_item_display_name'] = customer_orders_primary_item_name($order);
+    $identityItem = [
+        'product_id' => (int)($order['first_product_id'] ?? 0),
+        'product_name' => (string)($order['first_product_name'] ?? ''),
+        'service_id' => (int)($order['_first_item_customization_resolved']['service_id'] ?? 0),
+        'item_type' => (string)($order['_first_item_customization_resolved']['item_type'] ?? ''),
+        'source_page' => (string)($order['_first_item_customization_resolved']['source_page'] ?? ''),
+    ];
+    $identity = printflow_resolve_order_line_identity(
+        $order,
+        $identityItem,
+        $order['_first_item_customization_resolved']
+    );
+    $order['_first_item_identity'] = $identity;
+    $order['_first_item_display_name'] = (string)($identity['display_name'] ?? 'Order Item');
+    $order['_provider_payment'] = $providerPayment;
+    $order['_provider_payment_public'] = $providerPublic;
+    $order['_financial_snapshot'] = $financial;
+    $order['_price_is_final'] = !empty($financial['price_is_final']);
+    $order['_payment_received'] = $paymentReceived;
+    $order['_awaiting_production'] = $paymentReceived && !$hasDownstreamStatus;
+    $order['_payment_method_display'] = trim((string)(
+        ($providerPublic['payment_method_label'] ?? '')
+        ?: ($order['payment_method'] ?? '')
+        ?: ($paymentReceived ? 'Payment method not recorded' : '')
+    ));
+    $order['_payment_reference_display'] = trim((string)(
+        ($providerPublic['reference_number'] ?? '')
+        ?: ($providerPublic['provider_payment_id'] ?? '')
+        ?: ($order['payment_reference'] ?? '')
+    ));
+    $order['_payment_paid_at_raw'] = trim((string)(
+        ($providerPublic['provider_paid_at'] ?? '')
+        ?: ($providerPublic['paid_at'] ?? '')
+        ?: ($order['latest_payment_verified_at'] ?? '')
+    ));
     $order['_display_timestamp_meta'] = printflow_customer_order_timestamp_meta($order);
     $order['_display_ts'] = !empty($order['_display_timestamp_meta']['datetime'])
         ? (strtotime((string)$order['_display_timestamp_meta']['datetime']) ?: 0)
@@ -514,8 +634,24 @@ require_once __DIR__ . '/../includes/header.php';
     .orders-theme-page .final-price { font-size: 1.4rem; }
 }
 .orders-theme-page .hidden-price-msg { font-size: 0.72rem; color: #64748b; font-style: italic; line-height: 1.4; margin-bottom: 0.25rem; }
+.orders-theme-page .payment-received-summary {
+    margin-top: 0.65rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, auto));
+    justify-content: end;
+    gap: 0.2rem 1rem;
+    color: #475569;
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+.orders-theme-page .payment-received-summary strong { color: #0f766e; font-weight: 800; }
 @media (max-width: 640px) {
     .orders-theme-page .hidden-price-msg { font-size: 0.78rem; }
+    .orders-theme-page .payment-received-summary {
+        grid-template-columns: 1fr;
+        justify-content: start;
+        font-size: 0.75rem;
+    }
 }
 .orders-theme-page .card-actions-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 @media (max-width: 640px) {
@@ -1050,6 +1186,16 @@ require_once __DIR__ . '/../includes/header.php';
     justify-content: center;
     padding: 20px;
 }
+.im-revision-fields {
+    margin-top: 0.65rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 7px;
+    background: #ffffff;
+    color: #7f1d1d;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    border: 1px solid #f3d1d1;
+}
 
 #receiptModal.open {
     display: flex;
@@ -1081,6 +1227,11 @@ require_once __DIR__ . '/../includes/header.php';
     font-size: 1.2rem;
     font-weight: 800;
 }
+
+.receipt-qr-wrap { text-align:center; margin:0 auto 16px; }
+.receipt-qr-wrap > div { display:inline-block; padding:8px; background:#fff; border:1px solid #e2e8f0; border-radius:10px; }
+.receipt-qr-wrap canvas, .receipt-qr-wrap img { display:block; width:116px !important; height:116px !important; }
+.receipt-qr-caption { margin-top:6px; color:#64748b; font-size:11px; }
 
 .receipt-modal-subtitle {
     color: #64748b;
@@ -1429,6 +1580,414 @@ require_once __DIR__ . '/../includes/header.php';
         flex-direction: column;
     }
 }
+
+/* Match the existing POS Walk-in receipt sheet and print/download proportions. */
+.receipt-modal-shell {
+    width: min(920px, 100%);
+    max-height: calc(100vh - 48px);
+    border-radius: 28px;
+    box-shadow: 0 30px 80px rgba(15, 23, 42, 0.18);
+}
+
+.receipt-modal-header {
+    padding: 24px 28px;
+    background: linear-gradient(135deg, #f8fffe 0%, #eefaf8 100%);
+}
+
+.receipt-modal-body {
+    padding: 28px;
+}
+
+.receipt-action-btn {
+    border: 1px solid #dbe4f0;
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.receipt-sheet {
+    width: 58mm;
+    max-width: 100%;
+    margin: 0 auto;
+    border: 1px solid #d8e2df;
+    border-radius: 8px;
+    padding: 4mm;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    font-family: "Courier New", "Liberation Mono", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    box-sizing: border-box;
+}
+
+.receipt-header {
+    padding-bottom: 6px;
+    border-bottom: 1px dashed #111827;
+}
+
+.receipt-logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 4px;
+    margin: 0 auto 4px;
+}
+
+.receipt-brand-name {
+    font-size: 13px;
+    letter-spacing: 0;
+}
+
+.receipt-branch {
+    margin-top: 2px;
+    font-size: 10px;
+}
+
+.receipt-company-meta {
+    margin-top: 4px;
+    font-size: 9px;
+    line-height: 1.25;
+}
+
+.receipt-pill {
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #111827;
+    font-size: 9px;
+    letter-spacing: 0;
+    margin-top: 5px;
+}
+
+.receipt-section {
+    padding-top: 6px;
+    margin-top: 6px;
+    border-top: 1px dashed #111827;
+}
+
+.receipt-section-title {
+    font-size: 9px;
+    color: #111827;
+    letter-spacing: 0;
+    margin-bottom: 4px;
+    text-align: center;
+}
+
+.receipt-info-grid {
+    display: block;
+}
+
+.receipt-qr-wrap { margin:0 auto 12px; }
+.receipt-qr-wrap > div { padding:6px; border-radius:8px; }
+.receipt-qr-caption { margin-top:4px; font-size:9px; }
+
+.receipt-info-card {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    border: 0;
+    border-radius: 0;
+    padding: 1px 0;
+    background: transparent;
+}
+
+.receipt-label {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: #111827;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-bottom: 0;
+}
+
+.receipt-value,
+.receipt-value--strong {
+    font-size: 10px;
+    line-height: 1.25;
+    text-align: right;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.receipt-customer {
+    display: block;
+}
+
+.receipt-customer-name {
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.receipt-payment-chip {
+    display: block;
+    margin-top: 3px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #111827;
+    font-size: 10px;
+    letter-spacing: 0;
+    white-space: normal;
+}
+
+.receipt-items {
+    table-layout: fixed;
+    margin-top: 2px;
+    border-top: 1px solid #111827;
+}
+
+.receipt-items th,
+.receipt-items td {
+    padding: 3px 1px;
+    border-bottom: 1px dashed #111827;
+    font-size: 9px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.receipt-items th {
+    color: #111827;
+    font-size: 8px;
+    letter-spacing: 0;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.receipt-items th:first-child,
+.receipt-items td:first-child {
+    width: 43%;
+    text-align: left;
+}
+
+.receipt-items th:nth-child(2),
+.receipt-items td:nth-child(2) {
+    width: 10%;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.receipt-items th:nth-child(3),
+.receipt-items td:nth-child(3) {
+    width: 22%;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.receipt-items th:nth-child(4),
+.receipt-items td:nth-child(4) {
+    width: 25%;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.receipt-item-name {
+    font-size: 10px;
+    overflow-wrap: anywhere;
+}
+
+.receipt-item-meta {
+    margin-top: 2px;
+    font-size: 9px;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.receipt-line-items {
+    border-top: 1px solid #111827;
+}
+
+.receipt-item {
+    padding: 4px 0;
+    border-bottom: 1px dashed #111827;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.receipt-item-amounts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 10px;
+}
+
+.receipt-money {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.receipt-qr-wrap,
+.receipt-info-card,
+.receipt-total-line,
+.receipt-payment-breakdown,
+.receipt-footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.receipt-pdf-capture {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+}
+
+.receipt-pdf-capture .receipt-qr-wrap img {
+    width: 132px !important;
+    height: 132px !important;
+}
+
+.receipt-summary {
+    margin-top: 4px;
+    margin-left: 0;
+    width: 100%;
+}
+
+.receipt-total-line {
+    gap: 6px;
+    padding: 2px 0;
+    border-bottom: 0;
+    font-size: 10px;
+    overflow-wrap: anywhere;
+}
+
+.receipt-total-line > span:first-child {
+    min-width: 0;
+}
+
+.receipt-total-line > strong,
+.receipt-total-line > span:last-child {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.receipt-total-line--grand {
+    margin-top: 4px;
+    padding: 4px 0 2px;
+    border-top: 1px solid #111827;
+    border-radius: 0;
+    background: transparent;
+    font-size: 12px;
+}
+
+.receipt-payment-breakdown {
+    margin-top: 4px;
+    padding: 4px 0 0;
+    border-top: 1px dashed #111827;
+    border-radius: 0;
+    background: transparent;
+}
+
+.receipt-footer {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed #111827;
+}
+
+.receipt-footer strong {
+    font-size: 10px;
+    margin-bottom: 2px;
+}
+
+.receipt-footer p {
+    font-size: 9px;
+    line-height: 1.25;
+}
+
+@media print {
+    @page {
+        size: 58mm auto;
+        margin: 0;
+    }
+
+    html,
+    body {
+        width: 58mm !important;
+        min-width: 58mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        overflow: visible !important;
+    }
+
+    body * {
+        visibility: hidden !important;
+    }
+
+    #receipt-print-area {
+        visibility: visible !important;
+        position: absolute !important;
+        left: 0;
+        top: 0;
+        width: 58mm !important;
+        max-width: 58mm !important;
+        margin: 0 !important;
+        padding: 0 3mm !important;
+        box-sizing: border-box !important;
+        color: #000000 !important;
+        background: #ffffff !important;
+    }
+
+    #receipt-print-area,
+    #receipt-print-area * {
+        visibility: visible !important;
+        box-shadow: none !important;
+        text-shadow: none !important;
+        color: #000000 !important;
+    }
+
+    .receipt-sheet {
+        width: 52mm !important;
+        max-width: 52mm !important;
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 auto !important;
+        font-size: 10px !important;
+        line-height: 1.2 !important;
+        overflow: visible !important;
+    }
+
+    .receipt-modal-body {
+        background: #ffffff !important;
+        padding: 0 !important;
+    }
+
+    .receipt-modal-shell,
+    #receiptModal {
+        display: block !important;
+        position: static !important;
+        background: #ffffff !important;
+        border: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 58mm !important;
+        max-width: 58mm !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    .receipt-modal-header,
+    .receipt-action-btn,
+    .receipt-modal-actions {
+        display: none !important;
+    }
+}
 </style>
 
 
@@ -1488,6 +2047,9 @@ require_once __DIR__ . '/../includes/header.php';
                         <?php 
                             // ... (logic remains same)
                             $display_status = customer_orders_display_status((string)$order['status'], (string)($order['order_type'] ?? ''));
+                            if (!empty($order['_awaiting_production'])) {
+                                $display_status = 'Payment Received / Awaiting Production';
+                            }
                             $s = strtolower($display_status);
                             $st_cls = 'st-pending';
                             if (strpos($s, 'approved') !== false) $st_cls = 'st-approved';
@@ -1498,12 +2060,16 @@ require_once __DIR__ . '/../includes/header.php';
                             elseif (strpos($s, 'cancelled') !== false) $st_cls = 'st-cancelled';
                             
                             $c_json = (array)($order['_first_item_customization_resolved'] ?? customer_orders_primary_customization($order));
-                            $d_name = (string)($order['_first_item_display_name'] ?? customer_orders_primary_item_name($order));
+                            $d_name = (string)($order['_first_item_display_name'] ?? 'Order Item');
                             $preview_url = printflow_order_list_thumbnail_url($order, $d_name);
                             $catalog_fallback_url = rtrim((string)pf_app_base_path(), '/') . '/public/assets/images/services/default.png';
                             $timestamp_meta = $order['_display_timestamp_meta'] ?? printflow_customer_order_timestamp_meta($order);
+                            $financial = (array)($order['_financial_snapshot'] ?? []);
+                            $amount_due = ((int)($financial['amount_due_centavos'] ?? 0)) / 100;
+                            $paid_amount = ((int)($financial['paid_amount_centavos'] ?? 0)) / 100;
+                            $payment_paid_at = trim((string)($order['_payment_paid_at_raw'] ?? ''));
                         ?>
-                        <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
+                        <div class="ct-order-card" id="order-card-<?php echo $order['order_id']; ?>" data-order-id="<?php echo $order['order_id']; ?>" data-status="<?php echo htmlspecialchars($order['status']); ?>" data-order-type="<?php echo htmlspecialchars((string)($order['order_type'] ?? '')); ?>" data-payment-received="<?php echo !empty($order['_payment_received']) ? '1' : '0'; ?>" onclick="openItemsModal(<?php echo $order['order_id']; ?>)">
                             <div class="card-top-row">
                                 <span class="order-id-chip"><?php echo htmlspecialchars($order['order_code']); ?></span>
                                 <div class="status-pill <?php echo $st_cls; ?>"><?php echo htmlspecialchars($display_status); ?></div>
@@ -1521,10 +2087,18 @@ require_once __DIR__ . '/../includes/header.php';
                                 </div>
                                 <div class="pricing-column">
                                     <div class="mb-1">
-                                        <?php if (in_array($order['status'], $HIDDEN_PRICE_STATUSES)): ?>
+                                        <?php if (empty($order['_price_is_final']) || $amount_due <= 0): ?>
                                             <p class="hidden-price-msg">Quote is being finalized by our production team</p>
                                         <?php else: ?>
-                                            <p class="final-price"><?php echo format_currency($order['total_amount']); ?></p>
+                                            <p class="final-price"><?php echo format_currency($amount_due); ?></p>
+                                        <?php endif; ?>
+                                        <?php if (!empty($order['_payment_received'])): ?>
+                                            <div class="payment-received-summary">
+                                                <span><strong>Paid:</strong> <?php echo htmlspecialchars(format_currency($paid_amount)); ?></span>
+                                                <span><strong>Method:</strong> <?php echo htmlspecialchars((string)$order['_payment_method_display']); ?></span>
+                                                <span><strong>Reference:</strong> <?php echo htmlspecialchars((string)($order['_payment_reference_display'] ?: 'Not recorded')); ?></span>
+                                                <span><strong>Paid on:</strong> <?php echo htmlspecialchars($payment_paid_at !== '' ? format_datetime($payment_paid_at) : 'Not recorded'); ?></span>
+                                            </div>
                                         <?php endif; ?>
                                     </div>
                                     <div class="card-actions-inline" onclick="event.stopPropagation()">
@@ -1532,7 +2106,7 @@ require_once __DIR__ . '/../includes/header.php';
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
                                             Message
                                         </a>
-                                        <?php if (strtolower(trim($order['status'])) === 'to pay'): ?>
+                                        <?php if (strtolower(trim($order['status'])) === 'to pay' && empty($order['_payment_received'])): ?>
                                         <a href="<?php echo BASE_URL; ?>/customer/payment.php?order_id=<?php echo $order['order_id']; ?>" class="action-button btn-main" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); padding: 0.45rem 0.85rem; font-size: 0.68rem; position: relative; z-index: 10; white-space: nowrap;">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                                             Pay Now
@@ -1583,6 +2157,7 @@ function get_preview_image_for_order_ui($order, $display_name) {
 ?>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <script>
 document.body.classList.add('orders-page');
@@ -1668,10 +2243,9 @@ window.addEventListener('DOMContentLoaded', () => {
         <div class="receipt-modal-header">
             <div>
                 <div class="receipt-modal-title">Order Receipt</div>
-                <div class="receipt-modal-subtitle">View, print, or download your completed order receipt.</div>
+                <div class="receipt-modal-subtitle">View or download your completed order receipt.</div>
             </div>
             <div class="receipt-modal-actions">
-                <button type="button" class="receipt-action-btn" onclick="printReceipt()">Print Receipt</button>
                 <button type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="downloadReceiptPdf()">Download Receipt</button>
                 <button type="button" class="receipt-action-btn" onclick="closeReceiptModal()">Close</button>
             </div>
@@ -1769,7 +2343,8 @@ function formatReceiptDateTime(value) {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: true
     });
 }
 
@@ -1791,28 +2366,14 @@ function receiptDetailLines(item) {
         details.push(`${label}: ${text}`);
     };
 
-    pushLine('Material', custom.material || custom.material_type || custom.temp_plate_material || custom['Material Selection']);
-
     Object.entries(custom).forEach(([key, value]) => {
-        if (details.length >= 4) {
+        if (details.length >= 8) {
             return;
         }
         if (value == null || value === '' || typeof value === 'object') {
             return;
         }
-        const normalizedKey = String(key).toLowerCase();
-        if ([
-            'service_type', 'source', 'source_page', 'branch_id', 'quantity', 'design_upload', 'design_upload_name',
-            'design_upload_data', 'upload_design_data', 'design_data', 'design_upload_path', 'reference_upload',
-            'reference_upload_path'
-        ].includes(normalizedKey)) {
-            return;
-        }
-        if (normalizedKey === 'material' || normalizedKey === 'material_type' || normalizedKey === 'temp_plate_material') {
-            return;
-        }
-        const label = String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        pushLine(label, value);
+        pushLine(String(key), value);
     });
 
     return details;
@@ -1829,21 +2390,20 @@ function buildReceiptHtml(receipt) {
     const materials = Array.isArray(receipt?.materials) ? receipt.materials : [];
     const contact = String(receipt?.customer_contact || customer.phone || '').trim();
     const itemRows = items.map(item => `
-        <tr>
-            <td>
-                <div class="receipt-item-name">${receiptEscape(item.name || 'Item')}</div>
-                ${receiptDetailLines(item).length ? `<div class="receipt-item-meta">${receiptEscape(receiptDetailLines(item).join(' • '))}</div>` : ''}
-            </td>
-            <td>${receiptEscape(item.quantity || 0)}</td>
-            <td>${formatMoney(item.unit_price || 0)}</td>
-            <td style="font-weight:800;color:#0f172a;">${formatMoney(item.line_total || 0)}</td>
-        </tr>
+        <div class="receipt-item">
+            <div class="receipt-item-name">${receiptEscape(item.name || 'Item')}</div>
+            <div class="receipt-item-amounts">
+                <span>${receiptEscape(item.quantity || 0)} x ${formatMoney(item.unit_price || 0)}</span>
+                <strong class="receipt-money">${formatMoney(item.line_total || 0)}</strong>
+            </div>
+            ${receiptDetailLines(item).map(line => `<div class="receipt-item-meta">${receiptEscape(line)}</div>`).join('')}
+        </div>
     `).join('');
 
     return `
         <div class="receipt-header">
             ${company.logo_url ? `<img src="${receiptEscape(company.logo_url)}" alt="${receiptEscape(company.name || 'PrintFlow')}" class="receipt-logo">` : ''}
-            <div class="receipt-brand-name">${receiptEscape(company.name || 'PrintFlow')}</div>
+            <div class="receipt-brand-name">PrintFlow</div>
             <div class="receipt-branch">${receiptEscape(company.branch_name || 'Main Branch')}</div>
             <div class="receipt-company-meta">
                 ${company.address ? `<div>${receiptEscape(company.address)}</div>` : ''}
@@ -1854,6 +2414,7 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-section">
             <div class="receipt-section-title">Receipt Info</div>
+            ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="customer-receipt-qr"></div><div class="receipt-qr-caption">Scan for order details</div></div>` : ''}
             <div class="receipt-info-grid">
                 <div class="receipt-info-card">
                     <div class="receipt-label">Receipt No.</div>
@@ -1864,8 +2425,8 @@ function buildReceiptHtml(receipt) {
                     <div class="receipt-value">${receiptEscape(receipt.order_number || '')}</div>
                 </div>
                 <div class="receipt-info-card">
-                    <div class="receipt-label">Date Completed</div>
-                    <div class="receipt-value">${receiptEscape(formatReceiptDateTime(receipt.date_time))}</div>
+                    <div class="receipt-label">Receipt Date</div>
+                    <div class="receipt-value">${receiptEscape(receipt.date_time_display || formatReceiptDateTime(receipt.date_time))}</div>
                 </div>
             </div>
         </div>
@@ -1883,17 +2444,7 @@ function buildReceiptHtml(receipt) {
 
         <div class="receipt-section">
             <div class="receipt-section-title">Items</div>
-            <table class="receipt-items">
-                <thead>
-                    <tr>
-                        <th>Item / Service</th>
-                        <th>Qty</th>
-                        <th>Price</th>
-                        <th>Amount</th>
-                    </tr>
-                </thead>
-                <tbody>${itemRows}</tbody>
-            </table>
+            <div class="receipt-line-items">${itemRows}</div>
             ${materials.length ? `<div class="receipt-item-meta" style="margin-top:12px;"><strong>Materials used:</strong> ${receiptEscape(materials.join(', '))}</div>` : ''}
         </div>
 
@@ -1907,12 +2458,13 @@ function buildReceiptHtml(receipt) {
             <div class="receipt-payment-breakdown">
                 <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
                 <div class="receipt-total-line"><span>Payment Status</span><strong style="color:#0f766e;">${receiptEscape(payment.status || 'Paid')}</strong></div>
+                <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || receipt.total || 0)}</strong></div>
                 ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${receiptEscape(payment.reference)}</span></div>` : ''}
             </div>
         </div>
 
         <div class="receipt-footer">
-            <strong>Thank you for choosing Printflow!</strong>
+            <strong>Thank you for choosing PrintFlow!</strong>
             <p>Please keep this receipt for your records.</p>
         </div>
     `;
@@ -1926,8 +2478,16 @@ function openReceiptModal(receipt) {
     }
     activeReceiptData = receipt;
     printArea.innerHTML = buildReceiptHtml(receipt);
+    renderCustomerReceiptQr(receipt.qr_payload);
     modal.classList.add('open');
     document.body.style.overflow = 'hidden';
+}
+
+function renderCustomerReceiptQr(payload) {
+    const target = document.getElementById('customer-receipt-qr');
+    if (!target || !payload || typeof QRCode === 'undefined') return;
+    target.innerHTML = '';
+    new QRCode(target, { text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
 }
 
 function closeReceiptModal() {
@@ -1940,28 +2500,407 @@ function closeReceiptModal() {
     document.body.style.overflow = itemsModal && itemsModal.classList.contains('open') ? 'hidden' : '';
 }
 
-function printReceipt() {
-    if (!activeReceiptData) {
-        return;
+function receiptQrSourceMetrics(pixels, width, height) {
+    const pixelCount = Math.max(0, Number(width) * Number(height));
+    let darkPixels = 0;
+    let lightPixels = 0;
+    let transparentPixels = 0;
+    if (pixels && pixels.length >= pixelCount * 4) {
+        for (let channelIndex = 0; channelIndex < pixelCount * 4; channelIndex += 4) {
+            const alpha = pixels[channelIndex + 3] / 255;
+            if (alpha < 1) transparentPixels++;
+            // Composite onto white before applying fixed, forgiving bands.
+            // This runs only on the clean source, never resampled PDF pixels.
+            const red = (pixels[channelIndex] * alpha) + (255 * (1 - alpha));
+            const green = (pixels[channelIndex + 1] * alpha) + (255 * (1 - alpha));
+            const blue = (pixels[channelIndex + 2] * alpha) + (255 * (1 - alpha));
+            const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
+            if (luminance <= 96) darkPixels++;
+            if (luminance >= 224) lightPixels++;
+        }
     }
-    window.print();
+    const requiredPixels = Math.max(100, Math.ceil(pixelCount * 0.001));
+    const square = Number(width) === Number(height) && Number(width) >= 256;
+
+    return {
+        valid: square && pixelCount > 0
+            && darkPixels >= requiredPixels && lightPixels >= requiredPixels,
+        width: Number(width),
+        height: Number(height),
+        square,
+        pixelCount,
+        darkPixels,
+        lightPixels,
+        transparentPixels,
+        requiredPixels
+    };
+}
+
+function receiptQrPngDataUrl(payload) {
+    return new Promise((resolve, reject) => {
+        if (!payload || typeof QRCode === 'undefined') {
+            reject(new Error('Receipt QR generator is unavailable.'));
+            return;
+        }
+        const host = document.createElement('div');
+        const qrSizePx = 300;
+        const quietZonePx = 48;
+        host.style.cssText = `position:fixed;left:-10000px;top:0;width:${qrSizePx}px;height:${qrSizePx}px;background:#fff;`;
+        document.body.appendChild(host);
+        try {
+            new QRCode(host, {
+                text: String(payload),
+                width: qrSizePx,
+                height: qrSizePx,
+                colorDark: '#000000',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+            window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+                try {
+                    const qrCanvas = host.querySelector('canvas');
+                    if (!qrCanvas || !qrCanvas.width || !qrCanvas.height) {
+                        throw new Error('Receipt QR canvas is unavailable.');
+                    }
+                    const outputCanvas = document.createElement('canvas');
+                    outputCanvas.width = qrCanvas.width + (quietZonePx * 2);
+                    outputCanvas.height = qrCanvas.height + (quietZonePx * 2);
+                    const context = outputCanvas.getContext('2d');
+                    if (!context) throw new Error('Receipt QR image context is unavailable.');
+                    context.fillStyle = '#ffffff';
+                    context.fillRect(0, 0, outputCanvas.width, outputCanvas.height);
+                    context.imageSmoothingEnabled = false;
+                    context.drawImage(qrCanvas, quietZonePx, quietZonePx);
+                    const qrPixels = context.getImageData(0, 0, outputCanvas.width, outputCanvas.height).data;
+                    const qrMetrics = receiptQrSourceMetrics(qrPixels, outputCanvas.width, outputCanvas.height);
+                    if (!qrMetrics.valid) {
+                        const error = new Error('Unable to generate receipt QR.');
+                        error.qrMetrics = qrMetrics;
+                        throw error;
+                    }
+                    const dataUrl = outputCanvas.toDataURL('image/png');
+                    host.remove();
+                    dataUrl.startsWith('data:image/')
+                        ? resolve({
+                            dataUrl,
+                            payload: String(payload),
+                            width: outputCanvas.width,
+                            height: outputCanvas.height,
+                            metrics: qrMetrics
+                        })
+                        : reject(new Error('Unable to generate receipt QR.'));
+                } catch (error) {
+                    host.remove();
+                    reject(error);
+                }
+            }));
+        } catch (error) {
+            host.remove();
+            reject(error);
+        }
+    });
+}
+
+function receiptWaitForImages(root) {
+    return Promise.all(Array.from(root.querySelectorAll('img')).map(async image => {
+        if (!image.complete) {
+            await new Promise((resolve, reject) => {
+                const timeoutId = window.setTimeout(() => finish(new Error('Receipt image loading timed out.')), 10000);
+                const finish = error => {
+                    window.clearTimeout(timeoutId);
+                    image.removeEventListener('load', onLoad);
+                    image.removeEventListener('error', onError);
+                    error ? reject(error) : resolve();
+                };
+                const onLoad = () => finish();
+                const onError = () => finish(new Error('Receipt image failed to load.'));
+                image.addEventListener('load', onLoad, {once: true});
+                image.addEventListener('error', onError, {once: true});
+            });
+        }
+        if (typeof image.decode === 'function') {
+            try { await image.decode(); } catch (ignore) {}
+        }
+        if (!image.naturalWidth || !image.naturalHeight) {
+            throw new Error('Receipt image has no rendered dimensions.');
+        }
+    }));
+}
+
+function receiptDrawQrOnCanvas(canvas, capture, qrImage) {
+    const captureRect = capture.getBoundingClientRect();
+    const qrRect = qrImage.getBoundingClientRect();
+    if (!captureRect.width || !captureRect.height || !qrRect.width || !qrRect.height) {
+        throw new Error('Receipt QR placement dimensions are unavailable.');
+    }
+
+    const scaleX = canvas.width / captureRect.width;
+    const scaleY = canvas.height / captureRect.height;
+    const destinationSize = Math.max(1, Math.round(Math.min(qrRect.width * scaleX, qrRect.height * scaleY)));
+    const destinationX = Math.round((qrRect.left - captureRect.left) * scaleX + ((qrRect.width * scaleX - destinationSize) / 2));
+    const destinationY = Math.round((qrRect.top - captureRect.top) * scaleY + ((qrRect.height * scaleY - destinationSize) / 2));
+    if (destinationX < 0 || destinationY < 0
+        || destinationX + destinationSize > canvas.width
+        || destinationY + destinationSize > canvas.height) {
+        throw new Error('Receipt QR placement falls outside the receipt canvas.');
+    }
+
+    if (!qrImage.naturalWidth || !qrImage.naturalHeight || qrImage.naturalWidth !== qrImage.naturalHeight) {
+        throw new Error('Receipt QR source dimensions are invalid.');
+    }
+
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Receipt canvas context is unavailable for QR embedding.');
+    if (typeof context.save === 'function') context.save();
+    try {
+        if (typeof context.setTransform === 'function') context.setTransform(1, 0, 0, 1, 0, 0);
+        context.globalAlpha = 1;
+        context.globalCompositeOperation = 'source-over';
+        if ('filter' in context) context.filter = 'none';
+        context.fillStyle = '#ffffff';
+        context.fillRect(destinationX, destinationY, destinationSize, destinationSize);
+        context.imageSmoothingEnabled = false;
+        context.drawImage(qrImage, destinationX, destinationY, destinationSize, destinationSize);
+    } finally {
+        if (typeof context.restore === 'function') context.restore();
+    }
+
+    return {
+        x: destinationX,
+        y: destinationY,
+        size: destinationSize,
+        sourceWidth: qrImage.naturalWidth,
+        sourceHeight: qrImage.naturalHeight
+    };
+}
+
+function receiptCanvasHasVisibleContent(canvas) {
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) return false;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const pixelCount = canvas.width * canvas.height;
+    const sampleStep = Math.max(1, Math.floor(Math.sqrt(pixelCount / 250000)));
+    let sampledPixels = 0;
+    let visibleInkPixels = 0;
+
+    for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += sampleStep) {
+        const channelIndex = pixelIndex * 4;
+        sampledPixels++;
+        if (pixels[channelIndex + 3] > 20
+            && (pixels[channelIndex] < 245 || pixels[channelIndex + 1] < 245 || pixels[channelIndex + 2] < 245)) {
+            visibleInkPixels++;
+        }
+    }
+
+    return visibleInkPixels >= Math.max(24, Math.ceil(sampledPixels * 0.0005));
 }
 
 async function downloadReceiptPdf() {
-    if (!activeReceiptData || typeof html2pdf === 'undefined') {
-        return;
+    const downloadButton = document.querySelector('#receiptModal .receipt-action-btn--primary');
+    if (downloadButton?.disabled) return;
+    if (downloadButton) {
+        downloadButton.disabled = true;
+        downloadButton.textContent = 'Preparing PDF...';
     }
-    const printArea = document.getElementById('receipt-print-area');
-    if (!printArea) {
-        return;
+
+    let captureHost = null;
+    let failureStage = 'initialization';
+    let qrSourceMetrics = null;
+
+    try {
+        if (!activeReceiptData) throw new Error('Receipt data is unavailable.');
+        const receiptData = activeReceiptData;
+        const receiptQrPayload = String(receiptData.qr_payload || '');
+        if (typeof window.html2pdf !== 'function') throw new Error('html2pdf did not initialize.');
+
+        const printArea = document.getElementById('receipt-print-area');
+        if (!printArea) throw new Error('Receipt content is unavailable.');
+        failureStage = 'asset-preparation';
+        if (!receiptQrPayload) throw new Error('Receipt QR payload is unavailable.');
+
+        captureHost = document.createElement('div');
+        // Keep the source renderable at the capture origin. Combining a large
+        // negative left offset with html2canvas's explicit viewport crop made
+        // the 58mm page correct but captured almost entirely blank pixels.
+        captureHost.style.cssText = 'position:fixed;left:0;top:0;width:58mm;height:auto;max-height:none;overflow:visible;background:#fff;z-index:-2147483647;pointer-events:none;';
+        const capture = printArea.cloneNode(true);
+        capture.id = 'receipt-pdf-capture';
+        capture.classList.add('receipt-pdf-capture');
+        capture.style.cssText += 'display:block!important;visibility:visible!important;opacity:1!important;transform:none!important;position:relative!important;left:0!important;top:0!important;height:auto!important;max-height:none!important;overflow:visible!important;';
+        captureHost.appendChild(capture);
+        document.body.appendChild(captureHost);
+
+        let qrImage = null;
+        const qrTarget = capture.querySelector('#customer-receipt-qr');
+        if (receiptQrPayload && !qrTarget) {
+            throw new Error('Receipt QR target is unavailable.');
+        }
+        if (qrTarget && receiptQrPayload) {
+            const qrAsset = await receiptQrPngDataUrl(receiptQrPayload);
+            const qrDataUrl = qrAsset?.dataUrl || '';
+            if (!qrDataUrl.startsWith('data:image/png;base64,') || qrDataUrl.length < 1000) {
+                throw new Error('Receipt QR PNG data is invalid.');
+            }
+            if (qrAsset.payload !== receiptQrPayload
+                || !qrAsset.metrics?.valid || qrAsset.width !== qrAsset.height || qrAsset.width < 256) {
+                throw new Error('Unable to generate receipt QR.');
+            }
+            qrSourceMetrics = qrAsset.metrics;
+            qrTarget.removeAttribute('id');
+            qrImage = document.createElement('img');
+            qrImage.src = qrDataUrl;
+            qrImage.alt = 'Order details QR';
+            qrImage.width = 132;
+            qrImage.height = 132;
+            qrTarget.replaceChildren(qrImage);
+            await receiptWaitForImages(qrTarget);
+            if (qrImage.naturalWidth !== qrAsset.width || qrImage.naturalHeight !== qrAsset.height) {
+                throw new Error('Receipt QR PNG dimensions are invalid.');
+            }
+        }
+        if (document.fonts?.ready) await document.fonts.ready;
+        await receiptWaitForImages(capture);
+        await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+
+        const sourceStyle = window.getComputedStyle(capture);
+        const sourceRect = capture.getBoundingClientRect();
+        const sourceMetrics = {
+            element: '#receipt-pdf-capture (clone of #receipt-print-area)',
+            offsetWidth: capture.offsetWidth,
+            scrollWidth: capture.scrollWidth,
+            offsetHeight: capture.offsetHeight,
+            scrollHeight: capture.scrollHeight,
+            rectWidth: sourceRect.width,
+            rectHeight: sourceRect.height,
+            display: sourceStyle.display,
+            visibility: sourceStyle.visibility,
+            opacity: sourceStyle.opacity,
+            transform: sourceStyle.transform,
+            overflow: sourceStyle.overflow
+        };
+        if (sourceMetrics.offsetWidth <= 0 || sourceMetrics.scrollWidth <= 0
+            || sourceMetrics.offsetHeight <= 0 || sourceMetrics.scrollHeight <= 0
+            || sourceStyle.display === 'none' || sourceStyle.visibility === 'hidden'
+            || Number(sourceStyle.opacity) === 0) {
+            throw new Error('Receipt capture source is not visibly rendered.');
+        }
+
+        failureStage = 'html-capture';
+        const contentWidthMm = 58;
+        const captureScale = 3;
+        const captureOptions = {
+            margin: 0,
+            image: {type: 'png', quality: 1},
+            // html2pdf sizes its cloned HTML container from jsPDF pageSize even
+            // for toCanvas(). Without this, it uses the default A4 width and
+            // captures a 794px canvas with the 58mm receipt stranded at left.
+            jsPDF: {
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [contentWidthMm, 2000]
+            },
+            html2canvas: {
+                scale: captureScale,
+                useCORS: true,
+                allowTaint: false,
+                backgroundColor: '#ffffff',
+                scrollX: 0,
+                scrollY: 0,
+                onclone: clonedDocument => {
+                    const clonedCapture = clonedDocument.getElementById('receipt-pdf-capture');
+                    if (!clonedCapture) return;
+                    clonedCapture.style.setProperty('display', 'block', 'important');
+                    clonedCapture.style.setProperty('visibility', 'visible', 'important');
+                    clonedCapture.style.setProperty('opacity', '1', 'important');
+                    clonedCapture.style.setProperty('transform', 'none', 'important');
+                    clonedCapture.style.setProperty('height', 'auto', 'important');
+                    clonedCapture.style.setProperty('max-height', 'none', 'important');
+                    clonedCapture.style.setProperty('overflow', 'visible', 'important');
+                }
+            }
+        };
+        const measurementWorker = window.html2pdf().set(captureOptions).from(capture);
+        await measurementWorker.toCanvas();
+        const canvas = await measurementWorker.get('canvas');
+        if (!canvas || !canvas.width || !canvas.height) throw new Error('Receipt capture is empty.');
+        const expectedCanvasWidthPx = contentWidthMm * 96 / 25.4 * captureScale;
+        if (Math.abs(canvas.width - expectedCanvasWidthPx) > 6) {
+            throw new Error('Receipt capture width is not 58mm.');
+        }
+        const qrCanvasPlacement = qrImage ? receiptDrawQrOnCanvas(canvas, capture, qrImage) : null;
+        if (!receiptCanvasHasVisibleContent(canvas)) {
+            throw new Error('Receipt canvas contains no visible content.');
+        }
+        const canvasPng = canvas.toDataURL('image/png');
+        if (!canvasPng.startsWith('data:image/png;base64,') || canvasPng.length < 1000) {
+            throw new Error('Receipt canvas PNG could not be created.');
+        }
+
+        const contentHeightMm = canvas.height * contentWidthMm / canvas.width;
+        const pageHeightMm = Math.max(58, Math.ceil((contentHeightMm + 0.5) * 10) / 10);
+        failureStage = 'pdf-render';
+        // Use a fresh worker so the custom media box is configured before PDF
+        // page metrics are initialized. Feed it the already-rendered canvas so
+        // the validated QR PNG and receipt layout are captured exactly once.
+        const pdfWorker = window.html2pdf().set({
+            margin: 0,
+            image: {type: 'png', quality: 1},
+            jsPDF: {
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [contentWidthMm, pageHeightMm],
+                compress: true
+            }
+        }).from(canvas, 'canvas');
+        await pdfWorker.toPdf();
+        const pdf = await pdfWorker.get('pdf');
+        if (!pdf || typeof pdf.save !== 'function') throw new Error('PDF output is unavailable.');
+        const actualWidthMm = Number(pdf.internal?.pageSize?.getWidth?.() || 0);
+        const actualHeightMm = Number(pdf.internal?.pageSize?.getHeight?.() || 0);
+        const pageCount = typeof pdf.getNumberOfPages === 'function' ? pdf.getNumberOfPages() : 0;
+        if (Math.abs(actualWidthMm - contentWidthMm) > 0.25
+            || Math.abs(actualHeightMm - pageHeightMm) > 0.25
+            || pageCount !== 1) {
+            throw new Error('Receipt PDF page dimensions are invalid.');
+        }
+
+        console.info('Receipt PDF render metrics.', {
+            source: sourceMetrics,
+            canvas: {width: canvas.width, height: canvas.height, pngBytesApprox: Math.floor(canvasPng.length * 0.75)},
+            qrSource: qrSourceMetrics,
+            qrCanvasPlacement,
+            pdf: {
+                widthMm: actualWidthMm,
+                heightMm: actualHeightMm,
+                imageXmm: 0,
+                imageYmm: 0,
+                imageWidthMm: contentWidthMm,
+                imageHeightMm: contentHeightMm
+            }
+        });
+
+        failureStage = 'download';
+        pdf.save(`${receiptData.receipt_number || 'receipt'}.pdf`);
+    } catch (error) {
+        console.error('Receipt PDF download failed.', {
+            stage: failureStage,
+            name: error instanceof Error ? error.name : 'UnknownError',
+            message: error instanceof Error ? error.message : 'Unknown receipt PDF error',
+            qrMetrics: error && typeof error === 'object' && 'qrMetrics' in error ? error.qrMetrics : null
+        });
+        if (typeof showToast === 'function') {
+            const message = error instanceof Error ? error.message : '';
+            showToast(failureStage === 'asset-preparation' && /receipt QR/i.test(message)
+                ? 'Unable to generate receipt QR.'
+                : 'Unable to generate the receipt PDF right now. Please try again.');
+        }
+    } finally {
+        captureHost?.remove();
+        if (downloadButton) {
+            downloadButton.disabled = false;
+            downloadButton.textContent = 'Download Receipt';
+        }
     }
-    await html2pdf().set({
-        margin: [10, 10, 10, 10],
-        filename: `${activeReceiptData.receipt_number || 'receipt'}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    }).from(printArea).save();
 }
 
 let currentOrderItemsRequest = null;
@@ -2133,13 +3072,24 @@ function openItemsModal(orderId, event) {
                     </td>
                 ` : `
                     <td data-label="Total Price" style="text-align: right; vertical-align: middle; white-space: nowrap;">
-                        <div class="im-total-value">${escIM(item.subtotal)}</div>
+                        <div class="im-total-value">${escIM(data.price_is_final ? (item.final_price || data.total_amount) : item.subtotal)}</div>
                     </td>
                 `}
             </tr>`;
         }).join('');
 
         const estimatedCompLabel = data.estimated_comp_label || 'Estimated completion';
+        const revisionActionUrl = data.revision_request?.revise_url || (CUSTOMER_BASE_URL + '/customer/edit_order.php?order_id=' + data.order_id);
+        const revisionActionLabel = data.revision_request?.action_label || 'Update Requested Details';
+        const revisionFieldLabels = Array.isArray(data.revision_request?.permitted_field_labels)
+            ? data.revision_request.permitted_field_labels
+            : [];
+        const payment = data.payment && typeof data.payment === 'object' ? data.payment : {};
+        const paymentReceived = Boolean(data.payment_received || payment.received || String(data.payment_status || '').toLowerCase() === 'paid');
+        const currentStatusLabel = data.display_status || data.status;
+        const paymentMethod = payment.method || data.payment_method || 'Payment method not recorded';
+        const paymentPaidAt = payment.paid_at || data.payment_paid_at || '';
+        const paymentReference = payment.reference || data.payment_reference || '';
 
         document.getElementById('imBody').innerHTML = `
             <div class="im-dashboard">
@@ -2181,10 +3131,10 @@ function openItemsModal(orderId, event) {
                             <div>
                                 <div class="im-label">Current status</div>
                                 ${data.status === 'Rejected'
-                                    ? `<div style="margin-top: 0.5rem;">${imBadge(data.display_status || data.status)}</div>`
-                                    : `<div class="im-val">${data.status}</div>`}
+                                    ? `<div style="margin-top: 0.5rem;">${imBadge(currentStatusLabel)}</div>`
+                                    : `<div class="im-val">${escIM(currentStatusLabel)}</div>`}
                             </div>
-                            ${data.status === 'Rejected' ? '' : `<div style="transform: scale(0.9); transform-origin: top right;">${imBadge(data.display_status || data.status)}</div>`}
+                            ${data.status === 'Rejected' ? '' : `<div style="transform: scale(0.9); transform-origin: top right;">${imBadge(currentStatusLabel)}</div>`}
                         </div>
                         <div class="im-label" style="margin-top: 16px;">Branch processing</div>
                         <div class="im-val">${escIM(data.branch_name)}</div>
@@ -2193,7 +3143,8 @@ function openItemsModal(orderId, event) {
                     <div class="im-sec-card accent">
                         <div class="im-label" style="margin-bottom: 12px;">Payment information</div>
                         <div class="space-y-4">
-                            <div><div class="im-label" style="margin-bottom: 4px;">Method</div><div class="im-val">${escIM(data.payment_method)}</div></div>
+                            ${paymentReceived ? `<div style="padding:0.65rem 0.75rem;border-radius:8px;background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;font-size:0.78rem;font-weight:800;">${escIM(data.awaiting_production ? 'Payment Received / Awaiting Production' : 'Payment Received')}</div>` : ''}
+                            <div><div class="im-label" style="margin-bottom: 4px;">Method</div><div class="im-val">${escIM(paymentMethod)}</div></div>
                             <div><div class="im-label" style="margin-bottom: 4px;">Status</div><div>${imBadge(data.payment_status)}</div></div>
                             ${data.is_service_order ? `
                                 <div><div class="im-label" style="margin-bottom: 4px;">Estimated price</div><div class="im-val">${escIM(data.estimated_price || 'Pending')}</div></div>
@@ -2201,6 +3152,11 @@ function openItemsModal(orderId, event) {
                             ` : `
                                 <div><div class="im-label" style="margin-bottom: 4px;">Total price</div><div class="im-val">${escIM(data.total_amount)}</div></div>
                             `}
+                            ${paymentReceived ? `
+                                <div><div class="im-label" style="margin-bottom: 4px;">Paid amount</div><div class="im-val">${escIM(payment.paid_amount || data.financial?.paid_amount || data.total_amount)}</div></div>
+                                <div><div class="im-label" style="margin-bottom: 4px;">Payment reference</div><div class="im-val" style="overflow-wrap:anywhere;">${escIM(paymentReference || 'Not recorded')}</div></div>
+                                <div><div class="im-label" style="margin-bottom: 4px;">Payment date</div><div class="im-val">${escIM(paymentPaidAt || 'Not recorded')}</div></div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -2211,20 +3167,25 @@ function openItemsModal(orderId, event) {
 
                     <!-- Actions Area -->
                     <div class="mt-auto pt-4 space-y-3">
-                        ${data.design_status === 'Revision Requested' ? `
+                        ${data.design_status === 'Revision Requested' && data.revision_request ? `
                             <div class="im-reject-card">
-                                <div class="im-reject-title">Awaiting Customer Response</div>
-                                <p class="im-reject-copy">${escIM(data.revision_reason || 'Please provide the requested information, updated specifications, or revised files to continue processing your order.')}</p>
+                                <div class="im-reject-title">Revision Requested</div>
+                                <p class="im-reject-copy"><strong>Reason:</strong> ${escIM(data.revision_request?.reason || 'Additional details required')}</p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Staff instruction:</strong> ${escIM(data.revision_request?.instruction || data.revision_reason || 'Please review and correct the fields requested by staff.')}</p>
+                                ${data.revision_request?.requested_at ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Requested:</strong> ${escIM(formatRevisionRequestedAt(data.revision_request.requested_at))}</p>` : ''}
+                                ${revisionFieldLabels.length ? `<div class="im-revision-fields"><strong>Fields to update:</strong> ${revisionFieldLabels.map(escIM).join(', ')}</div>` : ''}
                                 <div style="display:flex; flex-direction:column; gap:0.85rem; margin-top:1rem;">
-                                    <label for="designReuploadInput-${data.order_id}" class="im-upload-picker">Choose updated design</label>
-                                    <input type="file" id="designReuploadInput-${data.order_id}" style="display:none;" onchange="handleDesignFilePick(this, ${data.order_id})" accept="image/*,application/pdf">
-                                    <div class="im-upload-filename" id="designReuploadFileName-${data.order_id}">No file selected</div>
-                                    <button type="button" id="designReuploadSubmit-${data.order_id}" onclick="submitDesignReupload(${data.order_id}, '${data.csrf_token}')" class="im-primary-action" disabled>Submit Updated Design</button>
+                                    <a href="${escIM(revisionActionUrl)}" data-revision-action="1" class="im-primary-action">${escIM(revisionActionLabel)}</a>
                                 </div>
+                            </div>
+                        ` : data.design_status === 'Revision Requested' ? `
+                            <div class="im-reject-card">
+                                <div class="im-reject-title">Revision Request Unavailable</div>
+                                <p class="im-reject-copy">${escIM(data.revision_request_error || 'We could not load the requested updates. Please refresh the order or contact the shop.')}</p>
                             </div>
                         ` : ''}
 
-                        ${data.status === 'Rejected' ? `
+                        ${data.status === 'Rejected' && !paymentReceived ? `
                             <div class="im-reject-card">
                                 <div class="im-reject-title">Payment rejected</div>
                                 <p class="im-reject-copy">${escIM(data.payment_rejection_reason || 'Your payment proof was rejected. Please review the reason and submit your payment proof again.')}</p>
@@ -2455,6 +3416,17 @@ function closeLightbox() {
 function escIM(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+function formatRevisionRequestedAt(value) {
+    const date = new Date(String(value || '').replace(' ', 'T'));
+    return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString();
+}
+
+document.addEventListener('click', function (event) {
+    const link = event.target.closest('a[data-revision-action="1"]');
+    if (!link) return;
+    event.stopPropagation();
+});
 
 function renderOrderSuccessBanner(message) {
     const host = document.getElementById('orderSuccessBannerHost');
@@ -2693,7 +3665,11 @@ async function refreshOrdersList() {
                 const pill = card.querySelector('.status-pill');
                 if (pill) {
                     const orderType = card.dataset.orderType || order.order_type || '';
-                    const displayStatus = normalizeDisplayStatus(order.status, orderType);
+                    const isPaidAwaitingProduction = card.dataset.paymentReceived === '1'
+                        && !/production|processing|printing|ready|pickup|completed|rated|to rate|cancelled|rejected/i.test(String(order.status || ''));
+                    const displayStatus = isPaidAwaitingProduction
+                        ? 'Payment Received / Awaiting Production'
+                        : normalizeDisplayStatus(order.status, orderType);
                     pill.textContent = displayStatus;
                     pill.className = 'status-pill ' + statusClassFor(displayStatus);
                 }

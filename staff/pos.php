@@ -10,6 +10,13 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
+
+$posPayMongoMode = printflow_paymongo_mode();
+$posPayMongoAvailable = in_array($posPayMongoMode, ['test', 'live'], true)
+    && printflow_paymongo_secret_key_for_mode($posPayMongoMode) !== '';
+$posPayMongoQrphAvailable = $posPayMongoAvailable
+    && in_array('qrph', printflow_paymongo_enabled_methods($posPayMongoMode), true);
 
 // Load GCash QR from admin payment settings
 $_pos_payment_cfg = printflow_load_runtime_config('payment_methods');
@@ -71,7 +78,6 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($page_title); ?> - PrintFlow</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/css/output.css'); ?>">
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
@@ -431,7 +437,7 @@ try {
         }
 
         .pos-card-product-name {
-            font-family: 'Outfit', sans-serif;
+            font-family: var(--pf-ui-font-sans);
             font-size: 14px;
             font-weight: 700;
             color: white;
@@ -796,7 +802,7 @@ try {
             border-radius: 10px;
             font-size: 13px;
             font-weight: 700;
-            font-family: 'Outfit', sans-serif;
+            font-family: var(--pf-ui-font-sans);
             text-transform: uppercase;
             letter-spacing: 0.02em;
             text-align: center;
@@ -1087,289 +1093,399 @@ try {
         }
 
         .receipt-sheet {
-            width: 100%;
-            max-width: 720px;
+            width: 58mm;
+            max-width: 100%;
             margin: 0 auto;
             background: #ffffff;
             border: 1px solid #d8e2df;
-            border-radius: 20px;
-            padding: 24px 24px 22px;
+            border-radius: 8px;
+            padding: 4mm;
             box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-            font-family: "Courier New", "Liberation Mono", monospace;
+            font-family: "Courier New", "Liberation Mono", Consolas, monospace;
             color: #0f172a;
+            font-size: 11px;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            box-sizing: border-box;
         }
 
         .receipt-header {
             text-align: center;
-            padding-bottom: 16px;
-            border-bottom: 1px dashed #cbd5d1;
+            padding-bottom: 6px;
+            border-bottom: 1px dashed #111827;
         }
 
         .receipt-logo {
-            width: 62px;
-            height: 62px;
-            border-radius: 16px;
+            width: 34px;
+            height: 34px;
+            border-radius: 4px;
             object-fit: cover;
             border: 1px solid #dbe4f0;
             background: #ffffff;
-            margin: 0 auto 10px;
+            margin: 0 auto 4px;
         }
 
         .receipt-brand-name {
-            font-family: 'Outfit', sans-serif;
-            font-size: 24px;
+            font-size: 13px;
             font-weight: 800;
-            letter-spacing: 0.04em;
+            letter-spacing: 0;
             text-transform: uppercase;
             color: #00232b;
         }
 
         .receipt-branch {
-            margin-top: 3px;
-            font-size: 14px;
+            margin-top: 2px;
+            font-size: 10px;
             font-weight: 700;
             color: #0f766e;
-            font-family: 'Outfit', sans-serif;
         }
 
         .receipt-company-meta {
-            margin-top: 8px;
-            font-size: 12px;
-            line-height: 1.55;
+            margin-top: 4px;
+            font-size: 9px;
+            line-height: 1.25;
             color: #475569;
         }
 
         .receipt-pill {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 5px 12px;
-            border-radius: 999px;
-            border: 1px solid #cde8e2;
-            background: #f0fdfa;
-            color: #0f766e;
-            font-size: 10px;
+            display: block;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: #111827;
+            font-size: 9px;
             font-weight: 800;
-            letter-spacing: 0.14em;
+            letter-spacing: 0;
             text-transform: uppercase;
-            margin-top: 12px;
+            margin-top: 5px;
         }
 
         .receipt-section {
-            padding-top: 14px;
-            margin-top: 14px;
-            border-top: 1px dashed #d6e0dd;
+            padding-top: 6px;
+            margin-top: 6px;
+            border-top: 1px dashed #111827;
         }
 
         .receipt-section-title {
-            font-size: 11px;
-            color: #64748b;
+            font-size: 9px;
+            color: #111827;
             text-transform: uppercase;
-            letter-spacing: 0.14em;
+            letter-spacing: 0;
             font-weight: 800;
-            margin-bottom: 10px;
+            margin-bottom: 4px;
+            text-align: center;
         }
 
         .receipt-info-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 10px;
+            display: block;
         }
 
+        .receipt-qr-wrap { text-align:center; margin:0 auto 12px; }
+        .receipt-qr-wrap > div { display:inline-block; padding:6px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; }
+        .receipt-qr-wrap canvas, .receipt-qr-wrap img { display:block; width:116px !important; height:116px !important; }
+        .receipt-qr-caption { margin-top:4px; color:#64748b; font-size:9px; }
+
         .receipt-info-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 10px 12px;
-            background: #fbfdfd;
+            display: flex;
+            justify-content: space-between;
+            gap: 6px;
+            border: 0;
+            border-radius: 0;
+            padding: 1px 0;
+            background: transparent;
             min-width: 0;
         }
 
         .receipt-label {
+            flex: 0 0 auto;
             font-size: 10px;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            font-weight: 800;
-            margin-bottom: 5px;
+            color: #111827;
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 700;
+            margin-bottom: 0;
         }
 
         .receipt-value {
             color: #0f172a;
-            font-size: 13px;
-            line-height: 1.45;
-            word-break: break-word;
+            font-size: 10px;
+            line-height: 1.25;
+            text-align: right;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .receipt-value--strong {
-            font-size: 15px;
+            font-size: 10px;
             font-weight: 800;
         }
 
         .receipt-customer {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 14px;
+            display: block;
         }
 
         .receipt-customer-name {
-            font-size: 18px;
+            font-size: 11px;
             font-weight: 800;
             color: #0f172a;
-            font-family: 'Outfit', sans-serif;
+            overflow-wrap: anywhere;
         }
 
         .receipt-payment-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 7px 12px;
-            border-radius: 999px;
-            background: #00232b;
-            color: #ffffff;
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 0.08em;
+            display: block;
+            margin-top: 3px;
+            padding: 0;
+            border-radius: 0;
+            background: transparent;
+            color: #111827;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0;
             text-transform: uppercase;
-            white-space: nowrap;
         }
 
         .receipt-items {
             width: 100%;
+            table-layout: fixed;
             border-collapse: collapse;
-            margin-top: 6px;
+            margin-top: 2px;
+            border-top: 1px solid #111827;
         }
 
         .receipt-items th,
         .receipt-items td {
-            padding: 10px 8px;
-            border-bottom: 1px dashed #d8e2df;
-            font-size: 13px;
+            padding: 3px 1px;
+            border-bottom: 1px dashed #111827;
+            font-size: 9px;
+            line-height: 1.2;
             vertical-align: top;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .receipt-items th {
-            text-align: left;
-            color: #64748b;
-            font-size: 10px;
+            color: #111827;
+            font-size: 8px;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0;
             font-weight: 800;
-            padding-top: 0;
+            padding-top: 2px;
+            padding-bottom: 2px;
         }
 
-        .receipt-items td:last-child,
-        .receipt-items th:last-child,
-        .receipt-items td:nth-last-child(2),
-        .receipt-items th:nth-last-child(2),
-        .receipt-items td:nth-last-child(3),
-        .receipt-items th:nth-last-child(3) {
+        .receipt-items th:first-child,
+        .receipt-items td:first-child {
+            width: 43%;
+            text-align: left;
+        }
+
+        .receipt-items th:nth-child(2),
+        .receipt-items td:nth-child(2) {
+            width: 10%;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .receipt-items th:nth-child(3),
+        .receipt-items td:nth-child(3) {
+            width: 22%;
             text-align: right;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .receipt-items th:nth-child(4),
+        .receipt-items td:nth-child(4) {
+            width: 25%;
+            text-align: right;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }
 
         .receipt-item-name {
             font-weight: 800;
             color: #0f172a;
+            font-size: 10px;
+            overflow-wrap: anywhere;
         }
 
         .receipt-item-meta {
-            margin-top: 4px;
-            font-size: 11px;
-            line-height: 1.45;
+            margin-top: 2px;
+            font-size: 9px;
+            line-height: 1.25;
             color: #64748b;
-            white-space: pre-wrap;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .receipt-line-items {
+            border-top: 1px solid #111827;
+        }
+
+        .receipt-item {
+            padding: 4px 0;
+            border-bottom: 1px dashed #111827;
+        }
+
+        .receipt-item-amounts {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 6px;
+            margin-top: 2px;
+            font-size: 10px;
+        }
+
+        .receipt-money {
+            text-align: right;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }
 
         .receipt-summary {
-            margin-top: 16px;
-            margin-left: auto;
-            width: min(100%, 320px);
+            margin-top: 4px;
+            margin-left: 0;
+            width: 100%;
         }
 
         .receipt-total-line {
             display: flex;
             justify-content: space-between;
-            gap: 16px;
-            padding: 8px 0;
-            border-bottom: 1px dashed #dbe4f0;
-            font-size: 13px;
+            gap: 6px;
+            padding: 2px 0;
+            border-bottom: 0;
+            font-size: 10px;
+            overflow-wrap: anywhere;
+        }
+
+        .receipt-total-line > span:first-child {
+            min-width: 0;
+        }
+
+        .receipt-total-line > strong,
+        .receipt-total-line > span:last-child {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
         }
 
         .receipt-total-line--grand {
-            margin-top: 8px;
-            padding: 12px 14px;
-            border: 1px solid #bfe3da;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 100%);
-            font-size: 22px;
+            margin-top: 4px;
+            padding: 4px 0 2px;
+            border-top: 1px solid #111827;
+            border-radius: 0;
+            background: transparent;
+            font-size: 12px;
             font-weight: 800;
             color: #00232b;
         }
 
         .receipt-payment-breakdown {
-            margin-top: 16px;
-            padding: 14px 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            background: #fbfdfd;
+            margin-top: 4px;
+            padding: 4px 0 0;
+            border-top: 1px dashed #111827;
+            border-radius: 0;
+            background: transparent;
         }
 
         .receipt-footer {
-            margin-top: 18px;
-            padding-top: 14px;
-            border-top: 1px dashed #d6e0dd;
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px dashed #111827;
             text-align: center;
         }
 
         .receipt-footer strong {
             display: block;
-            font-family: 'Outfit', sans-serif;
-            font-size: 14px;
+            font-size: 10px;
             color: #00232b;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
         }
 
         .receipt-footer p {
             margin: 0;
-            font-size: 11px;
-            line-height: 1.5;
+            font-size: 9px;
+            line-height: 1.25;
             color: #64748b;
         }
 
         @media print {
             @page {
-                size: A4;
-                margin: 12mm;
+                size: 58mm auto;
+                margin: 0;
+            }
+
+            html,
+            body {
+                width: 58mm !important;
+                min-width: 58mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+                overflow: visible !important;
             }
 
             body * {
-                visibility: hidden;
+                visibility: hidden !important;
+            }
+
+            #receipt-print-area {
+                visibility: visible !important;
+                position: absolute !important;
+                left: 0;
+                top: 0;
+                width: 58mm !important;
+                max-width: 58mm !important;
+                margin: 0 !important;
+                padding: 0 3mm !important;
+                box-sizing: border-box !important;
+                color: #000000 !important;
+                background: #ffffff !important;
             }
 
             #receipt-print-area,
             #receipt-print-area * {
-                visibility: visible;
-            }
-
-            #receipt-print-area {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                padding: 0;
+                visibility: visible !important;
+                box-shadow: none !important;
+                text-shadow: none !important;
+                color: #000000 !important;
             }
 
             .receipt-sheet {
-                max-width: none;
-                border: none;
-                border-radius: 0;
-                box-shadow: none;
-                padding: 0;
+                width: 52mm !important;
+                max-width: 52mm !important;
+                border: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 auto !important;
+                font-size: 10px !important;
+                line-height: 1.2 !important;
+                overflow: visible !important;
             }
 
             .receipt-modal-body {
-                background: #ffffff;
-                padding: 0;
+                background: #ffffff !important;
+                padding: 0 !important;
+            }
+
+            .receipt-modal,
+            #receipt-modal-overlay {
+                display: block !important;
+                position: static !important;
+                background: #ffffff !important;
+                border: 0 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 58mm !important;
+                max-width: 58mm !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+
+            .receipt-modal-header,
+            .receipt-action-btn,
+            .receipt-modal-actions {
+                display: none !important;
             }
         }
 
@@ -1395,25 +1511,55 @@ try {
 
         /* Mobile & Tablet Responsive Layout */
         @media (max-width: 1024px) {
+            /* The POS wrapper is the single mobile scroll container. */
+            .main-content {
+                overflow-y: hidden !important;
+            }
+
             .pos-wrapper {
                 flex-direction: column !important;
                 overflow-y: auto !important;
+                overflow-x: hidden !important;
                 display: flex !important;
+                height: auto !important;
+                min-height: 0 !important;
+                overscroll-behavior-y: contain;
+                -webkit-overflow-scrolling: touch;
             }
+
             .pos-products-area {
                 flex: none !important;
-                height: 55vh;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
                 border-right: none;
                 border-bottom: 4px solid #e2e8f0;
             }
+
+            #selection-view,
+            #products-view,
+            #services-view {
+                height: auto !important;
+                min-height: 0 !important;
+            }
+
+            .pos-products-grid,
+            .pos-services-grid {
+                flex: none !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+            }
+
             .pos-cart-area {
                 width: 100%;
                 border-left: none;
                 flex: none !important;
                 height: auto;
+                min-height: 0 !important;
             }
             .pos-cart-list {
                 min-height: 350px;
+                overflow: visible !important;
             }
             
             /* Fix squished headers */
@@ -1675,7 +1821,8 @@ try {
                                     onchange="toggleReferenceField()">
                                     <option value="Cash">Cash</option>
                                     <option value="GCash">GCash</option>
-                                    <option value="PayMongo Test">PayMongo Test</option>
+                                    <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">PayMongo QR Ph</option><?php endif; ?>
+                                    <?php if ($posPayMongoAvailable): ?><option value="PayMongo Checkout">PayMongo Checkout</option><?php endif; ?>
                                 </select>
                             </div>
 
@@ -1726,12 +1873,16 @@ try {
     <div id="paymongo-pos-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10020;align-items:center;justify-content:center;padding:16px;">
         <div style="background:#fff;width:min(360px,100%);padding:24px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.28);">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-                <strong style="color:#0f172a;">PayMongo Checkout</strong>
-                <span style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span>
+                <strong id="paymongo-pos-title" style="color:#0f172a;">PayMongo Payment</strong>
+                <?php if ($posPayMongoMode === 'test'): ?><span style="padding:3px 7px;background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;text-transform:uppercase;">Test Mode</span><?php endif; ?>
             </div>
-            <img id="paymongo-pos-qr" alt="PayMongo Test checkout QR" style="width:220px;height:220px;object-fit:contain;margin:0 auto 12px;border:1px solid #e2e8f0;">
+            <div id="paymongo-pos-order" style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:10px;"></div>
+            <img id="paymongo-pos-qr" alt="PayMongo QR Ph payment code" style="display:none;width:220px;height:220px;object-fit:contain;margin:0 auto 10px;border:1px solid #e2e8f0;">
+            <div id="paymongo-pos-countdown" style="font-size:12px;font-weight:800;color:#0f766e;margin-bottom:8px;min-height:18px;"></div>
             <div id="paymongo-pos-status" style="font-size:13px;color:#475569;margin-bottom:14px;">Waiting for payment confirmation.</div>
+            <div id="paymongo-pos-reference" style="font-size:12px;color:#0f766e;font-weight:700;margin-bottom:14px;min-height:16px;"></div>
             <a id="paymongo-pos-open" href="#" target="_blank" rel="noopener noreferrer" style="display:block;padding:11px;background:#00232b;color:#fff;text-decoration:none;font-weight:800;margin-bottom:9px;">Open Checkout</a>
+            <button id="paymongo-pos-retry" type="button" onclick="retryPayMongoPosQr()" style="display:none;width:100%;padding:11px;border:1px solid #0f766e;background:#fff;color:#0f766e;font-weight:800;margin-bottom:9px;">Generate New QR</button>
             <button id="paymongo-pos-complete" type="button" onclick="completePayMongoPosTransaction()" disabled style="width:100%;padding:11px;border:0;background:#94a3b8;color:#fff;font-weight:800;margin-bottom:9px;cursor:not-allowed;">Complete Transaction</button>
             <button type="button" onclick="closePayMongoPosModal()" style="width:100%;padding:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;">Close</button>
         </div>
@@ -1828,14 +1979,12 @@ try {
                     </div>
                     <h2 style="margin:0;font-size:26px;font-weight:800;color:#0f172a;letter-spacing:-0.03em;">Sale
                         Receipt</h2>
-                    <p style="margin:6px 0 0;color:#64748b;font-size:14px;">Review, print, or download the completed
-                        transaction.</p>
+                    <p style="margin:6px 0 0;color:#64748b;font-size:14px;">Review the completed transaction before printing.</p>
+                    <p id="receipt-print-result" role="status" style="margin:8px 0 0;color:#475569;font-size:13px;font-weight:700;"></p>
                 </div>
                 <div class="receipt-modal-actions">
                     <button type="button" class="receipt-action-btn" onclick="closeReceiptModal()">Close</button>
-                    <button type="button" class="receipt-action-btn" onclick="printReceipt()">Print</button>
-                    <button type="button" class="receipt-action-btn receipt-action-btn--primary"
-                        onclick="downloadReceiptPdf()">Download PDF</button>
+                    <button id="pos-print-receipt-btn" type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="printReceipt()">Print Receipt</button>
                 </div>
             </div>
             <div class="receipt-modal-body">
@@ -1949,6 +2098,7 @@ try {
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         window.POS_BRANCHES = <?php echo json_encode(array_map(function ($b) {
             return ['id' => (int) $b['id'], 'name' => $b['branch_name']];
@@ -1959,11 +2109,30 @@ try {
         let currentTotal = 0;
         let currentMode = null; // 'products' or 'services'
         let barcodeScanBusy = false;
+        let barcodeScanQueueRunning = false;
+        const barcodeScanQueue = [];
+        let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
+        try {
+            posBarcodeDebugEnabled = new URLSearchParams(window.location.search).get('pos_barcode_debug') === '1'
+                || window.localStorage.getItem('printflow_pos_barcode_debug') === '1';
+        } catch (ignore) {}
+        function posBarcodeDebug(message, details) {
+            if (!posBarcodeDebugEnabled || !window.console || typeof window.console.info !== 'function') return;
+            window.console.info('[POS Barcode] ' + message, details || {});
+        }
         let paymongoPollTimer = null;
+        let paymongoCountdownTimer = null;
+        let pendingPayMongoPayment = null;
         let pendingPayMongoReceipt = null;
+        let pendingPayMongoOrderId = 0;
+        let posCheckoutRequestInFlight = false;
+        let posCheckoutConfirmOpen = false;
+        let pendingPayMongoPrintJob = null;
+        let posPayMongoCheckoutPending = false;
+        let posPayMongoCheckoutAttemptToken = null;
         function staffUrl(path) {
             return (STAFF_BASE_PATH || '') + '/' + String(path || '').replace(/^\/+/, '');
         }
@@ -2004,7 +2173,8 @@ try {
                 month: 'short',
                 day: 'numeric',
                 hour: 'numeric',
-                minute: '2-digit'
+                minute: '2-digit',
+                hour12: true
             });
         }
 
@@ -2042,33 +2212,12 @@ try {
                 details.push(`${label}: ${text}`);
             };
 
-            pushDetail('Material', custom.material || custom.material_type || custom.temp_plate_material || custom['Material Selection'] || custom['Material Brand']);
-
-            ['dimensions', 'size', 'layout', 'finish', 'lamination', 'laminate_option', 'needed_date'].forEach((key) => {
-                const label = compactReceiptSpecLabel(key);
-                if (!label) return;
-                pushDetail(label, custom[key]);
+            Object.entries(custom).forEach(([key, value]) => {
+                if (details.length >= 4 || value == null || value === '' || typeof value === 'object') return;
+                pushDetail(String(key), value);
             });
 
-            if (details.length === 0) {
-                Object.entries(custom).forEach(([key, value]) => {
-                    if (details.length >= 3) return;
-                    if (value == null || value === '' || typeof value === 'object') return;
-                    const normalizedKey = String(key).toLowerCase();
-                    if ([
-                        'service_type', 'source', 'branch_id', 'quantity', 'notes', 'additional_notes',
-                        'design_upload', 'design_upload_path', 'reference_upload', 'reference_upload_path'
-                    ].includes(normalizedKey)) {
-                        return;
-                    }
-                    const cleanValue = String(value).trim();
-                    if (!cleanValue) return;
-                    const label = String(key).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                    details.push(`${label}: ${cleanValue}`);
-                });
-            }
-
-            return details.slice(0, 3);
+            return details.slice(0, 4);
         }
 
         function buildReceiptHtml(receipt) {
@@ -2097,7 +2246,7 @@ try {
             return `
                 <div class="receipt-header">
                     ${company.logo_url ? `<img src="${escapeHtml(company.logo_url)}" alt="${escapeHtml(company.name || 'Company')}" class="receipt-logo">` : ''}
-                    <div class="receipt-brand-name">${escapeHtml(company.name || 'PrintFlow')}</div>
+                    <div class="receipt-brand-name">PrintFlow</div>
                     <div class="receipt-branch">${escapeHtml(company.branch_name || 'Main Branch')}</div>
                     <div class="receipt-company-meta">
                         ${company.address ? `<div>${escapeHtml(company.address)}</div>` : ''}
@@ -2108,6 +2257,7 @@ try {
 
                 <div class="receipt-section">
                     <div class="receipt-section-title">Receipt Info</div>
+                    ${receipt.qr_payload ? `<div class="receipt-qr-wrap"><div id="pos-receipt-qr"></div><div class="receipt-qr-caption">Scan for order details</div></div>` : ''}
                     <div class="receipt-info-grid">
                         <div class="receipt-info-card">
                             <div class="receipt-label">Receipt No.</div>
@@ -2115,7 +2265,7 @@ try {
                         </div>
                         <div class="receipt-info-card">
                             <div class="receipt-label">Date & Time</div>
-                            <div class="receipt-value">${escapeHtml(formatReceiptDateTime(receipt.date_time))}</div>
+                            <div class="receipt-value">${escapeHtml(receipt.date_time_display || formatReceiptDateTime(receipt.date_time))}</div>
                         </div>
                         <div class="receipt-info-card">
                             <div class="receipt-label">Cashier</div>
@@ -2159,26 +2309,58 @@ try {
                         <div class="receipt-total-line receipt-total-line--grand"><span>Total</span><span>${formatMoney(receipt.total || 0)}</span></div>
                     </div>
                     <div class="receipt-payment-breakdown">
+                        <div class="receipt-total-line"><span>Payment Method</span><strong>${escapeHtml(payment.method || 'Cash')}</strong></div>
                         <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || 0)}</strong></div>
                         <div class="receipt-total-line"><span>Change</span><strong style="color:#0f766e;">${formatMoney(payment.change || 0)}</strong></div>
-                        ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${escapeHtml(payment.reference)}</span></div>` : ''}
+                        ${(payment.balance || 0) > 0 ? `<div class="receipt-total-line"><span>Balance</span><strong>${formatMoney(payment.balance || 0)}</strong></div>` : ''}
+                        ${payment.reference ? `<div class="receipt-total-line"><span>Provider Reference</span><span>${escapeHtml(payment.reference)}</span></div>` : ''}
+                        ${payment.paid_at ? `<div class="receipt-total-line"><span>Paid Date</span><span>${escapeHtml(formatReceiptDateTime(payment.paid_at))}</span></div>` : ''}
                     </div>
                 </div>
 
                 <div class="receipt-footer">
-                    <strong>Thank you for choosing Printflow!</strong>
+                    <strong>Thank you for choosing PrintFlow!</strong>
                     <p>Please keep this receipt for your records.</p>
                 </div>
             `;
+        }
+
+        let activePosReceipt = null;
+        let activePosPrintJob = null;
+        let posReceiptPrintProcessing = false;
+
+        function setPosReceiptPrintState(message = '', failed = false) {
+            const status = document.getElementById('receipt-print-result');
+            const button = document.getElementById('pos-print-receipt-btn');
+            if (status) {
+                status.textContent = message;
+                status.style.color = failed ? '#b91c1c' : '#0f766e';
+            }
+            if (button) {
+                button.disabled = posReceiptPrintProcessing;
+                button.textContent = failed ? 'Retry Print' : (posReceiptPrintProcessing ? 'Printing...' : 'Print Receipt');
+            }
         }
 
         function openReceiptModal(receipt) {
             const overlay = document.getElementById('receipt-modal-overlay');
             const printArea = document.getElementById('receipt-print-area');
             if (!overlay || !printArea) return;
-            printArea.innerHTML = buildReceiptHtml(receipt || {});
+            activePosReceipt = receipt || {};
+            activePosPrintJob = null;
+            posReceiptPrintProcessing = false;
+            setPosReceiptPrintState('No physical receipt has been printed yet.');
+            printArea.innerHTML = buildReceiptHtml(activePosReceipt);
+            renderPosReceiptQr(receipt?.qr_payload);
             overlay.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+        }
+
+        function renderPosReceiptQr(payload) {
+            const target = document.getElementById('pos-receipt-qr');
+            if (!target || !payload || typeof QRCode === 'undefined') return;
+            target.innerHTML = '';
+            new QRCode(target, { text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
         }
 
         function closeReceiptModal() {
@@ -2188,8 +2370,150 @@ try {
             document.body.style.overflow = '';
         }
 
-        function printReceipt() {
-            window.print();
+        async function printReceipt() {
+            if (posReceiptPrintProcessing || !activePosReceipt?.order_id) return;
+            posReceiptPrintProcessing = true;
+            setPosReceiptPrintState('Sending receipt to POS-58...');
+            try {
+                if (activePosPrintJob?.job_id) {
+                    await retryReceiptPrintJob(activePosPrintJob);
+                    return;
+                }
+                const response = await fetch(staffUrl('staff/api/pos_receipt_print.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'print',
+                        order_id: Number(activePosReceipt.order_id),
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success || !result.print_job?.ok) {
+                    throw new Error(result.message || 'Receipt printing failed.');
+                }
+                activePosPrintJob = result.print_job;
+                await monitorReceiptPrintJob(result.print_job);
+            } catch (error) {
+                console.error('Receipt printing failed:', error);
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Receipt printing failed.', true);
+            }
+        }
+
+        async function retryReceiptPrintJob(printJob) {
+            const jobId = Number(printJob?.job_id || 0);
+            if (jobId <= 0) {
+                await showPOSAlert(
+                    'Receipt printing failed',
+                    'The sale is complete, but no printable receipt job is available. Please contact an administrator.',
+                    'error'
+                );
+                return;
+            }
+            try {
+                const response = await fetch(staffUrl('staff/api/pos_receipt_print_retry.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: jobId, csrf_token: POS_CSRF_TOKEN})
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'Receipt print job could not be retried.');
+                }
+                activePosPrintJob = result.print_job || {ok: true, job_id: jobId};
+                await monitorReceiptPrintJob(activePosPrintJob);
+            } catch (error) {
+                console.error('Receipt print retry failed:', error);
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Receipt printing failed.', true);
+            }
+        }
+
+        async function showReceiptPrintFailure(printJob, detail, statusResult = null) {
+            const message = String(detail || 'The printer did not confirm the receipt.');
+            const job = statusResult?.job || {};
+            const failure = {
+                success: statusResult?.success ?? false,
+                status: statusResult?.status ?? job.status ?? printJob?.status ?? 'unknown',
+                message: statusResult?.message ?? message,
+                error: statusResult?.error ?? job.error_message ?? null,
+                job_id: Number(printJob?.job_id || 0),
+                print_job_id: Number(statusResult?.print_job_id || job.print_job_id || printJob?.job_id || 0),
+                printer_id: Number(statusResult?.printer_id || job.printer_id || 0),
+                attempts: Number(statusResult?.attempts ?? job.attempts ?? 0),
+                provider: statusResult?.provider ?? job.provider ?? 'pushy',
+                delivery_status: statusResult?.delivery_status ?? job.delivery_status ?? 'unknown',
+                order_number: job.order_number ?? null,
+                pushy_secret_configured: job.pushy_secret_configured ?? null,
+                pushy_device_registered: job.pushy_device_registered ?? null,
+                printer_last_seen_at: job.printer_last_seen_at ?? null,
+                events: Array.isArray(job.events) ? job.events : [],
+                http_status: statusResult?._http_status ?? null
+            };
+            console.error('Receipt printing failed:', failure);
+            if (!printJob?.job_id) {
+                posReceiptPrintProcessing = false;
+                setPosReceiptPrintState('Receipt printing failed.', true);
+                return;
+            }
+            posReceiptPrintProcessing = false;
+            activePosPrintJob = printJob?.job_id ? printJob : activePosPrintJob;
+            setPosReceiptPrintState('Receipt printing failed.', true);
+        }
+
+        async function monitorReceiptPrintJob(printJob) {
+            if (!printJob?.ok || !printJob?.job_id) {
+                await showReceiptPrintFailure(printJob, printJob?.message || 'The receipt could not be queued for the configured printer.');
+                return;
+            }
+
+            showPOSScanNotice('Transaction completed', 'Printing receipt...', 'success');
+            let lastStatusResult = null;
+            for (let attempt = 0; attempt < 15; attempt += 1) {
+                await new Promise(resolve => window.setTimeout(resolve, 1500));
+                try {
+                    const response = await fetch(
+                        staffUrl('staff/api/pos_receipt_print_status.php') + '?job_id=' + encodeURIComponent(printJob.job_id) + '&_=' + Date.now(),
+                        {cache: 'no-store'}
+                    );
+                    const result = await response.json();
+                    lastStatusResult = {...result, _http_status: response.status};
+                    const status = result?.job?.status;
+                    if (response.ok && status === 'printed') {
+                        posReceiptPrintProcessing = false;
+                        activePosPrintJob = null;
+                        setPosReceiptPrintState('Receipt printed successfully.');
+                        showPOSScanNotice('Transaction completed', 'Receipt printed successfully.', 'success');
+                        return;
+                    }
+                    if (response.ok && status === 'failed') {
+                        await showReceiptPrintFailure(
+                            printJob,
+                            result?.job?.error_message || 'PushPrinter reported that the receipt could not be printed.',
+                            lastStatusResult
+                        );
+                        return;
+                    }
+                } catch (error) {
+                    lastStatusResult = {
+                        success: false,
+                        status: 'status_request_failed',
+                        message: error?.message || 'Receipt print status request failed.',
+                        error: error?.message || String(error),
+                        job_id: Number(printJob.job_id || 0),
+                        print_job_id: Number(printJob.job_id || 0),
+                        provider: 'pushy',
+                        delivery_status: 'unknown'
+                    };
+                    console.warn('Receipt print status check failed:', error);
+                }
+            }
+            await showReceiptPrintFailure(
+                printJob,
+                'PushPrinter did not confirm the receipt in time.',
+                lastStatusResult
+            );
         }
 
         async function downloadReceiptPdf() {
@@ -2201,7 +2525,7 @@ try {
                 filename: `${receiptNumber}.pdf`,
                 image: { type: 'jpeg', quality: 0.98 },
                 html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                jsPDF: { unit: 'mm', format: [58, 210], orientation: 'portrait' }
             }).from(element).save();
         }
 
@@ -2248,19 +2572,31 @@ try {
         document.addEventListener('DOMContentLoaded', async () => {
             fetchProducts();
             refreshCart(); // Initialize cart from session
+            const pendingPayMongo = sessionStorage.getItem('pos_paymongo_pending');
+            if (pendingPayMongo) {
+                try {
+                    const savedPayment = JSON.parse(pendingPayMongo);
+                    if (Number(savedPayment.order_id) > 0) {
+                        resumePayMongoPosModal(Number(savedPayment.order_id));
+                    }
+                } catch (error) {
+                    sessionStorage.removeItem('pos_paymongo_pending');
+                }
+            }
             const barcodeInputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
             const searchEl = document.getElementById('pos-search');
             const catEl = document.getElementById('pos-category');
             barcodeInputs.forEach(function(barcodeEl) {
                 barcodeEl.addEventListener('keydown', function(e) {
-                    if (e.key !== 'Enter') return;
+                    if (!isBarcodeTerminatorKey(e.key)) return;
                     e.preventDefault();
-                    handleBarcodeScan(barcodeEl.value, barcodeEl);
+                    handleBarcodeScan(barcodeEl.value, barcodeEl, {terminator: e.key, source: 'barcode-input'});
                 });
                 barcodeEl.addEventListener('paste', function() {
                     setTimeout(function() { barcodeEl.select(); }, 0);
                 });
             });
+            installPosBarcodeKeyboardCapture();
             setTimeout(focusBarcodeInput, 80);
             if (searchEl) searchEl.addEventListener('input', renderProducts);
             if (catEl) catEl.addEventListener('change', renderProducts);
@@ -2783,10 +3119,8 @@ try {
         }
 
         function setCustomizationValue(customization, row, input, value) {
-            const label = serviceFieldLabel(row);
             const key = serviceFieldKey(row, input ? input.name : '');
             if (key) customization[key] = value;
-            if (label && label !== key) customization[label] = value;
         }
 
         async function confirmServiceModal() {
@@ -2818,7 +3152,6 @@ try {
                 return;
             }
             customization.branch_id = branchVal;
-            customization.branch = branchVal;
             customization.service_id = serviceId;
             customization.service_type = serviceName;
 
@@ -3129,7 +3462,9 @@ try {
 
         function focusBarcodeInput(preferredInput = null) {
             const inputs = Array.from(document.querySelectorAll('.pos-barcode-entry'));
-            const input = preferredInput || inputs.find(function(el) {
+            const preferredIsVisible = preferredInput
+                && !!(preferredInput.offsetWidth || preferredInput.offsetHeight || preferredInput.getClientRects().length);
+            const input = (preferredIsVisible ? preferredInput : null) || inputs.find(function(el) {
                 return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
             }) || inputs[0];
             if (!input) return;
@@ -3173,22 +3508,181 @@ try {
             focusBarcodeInput(input);
         }
 
-        async function handleBarcodeScan(code, sourceInput = null) {
-            const barcodeEl = sourceInput || document.getElementById('pos-barcode-input') || document.getElementById('pos-barcode-input-home');
-            const sku = String(code || '').trim();
+        function isBarcodeTerminatorKey(key) {
+            return key === 'Enter' || key === 'Tab' || key === '\r' || key === '\n';
+        }
+
+        function normalizeProductBarcode(code) {
+            return String(code || '').replace(/[\u0000-\u001F\u007F\u200B-\u200D\u2060\uFEFF]+/g, '').trim();
+        }
+
+        function isProtectedPosBarcodeTarget(target) {
+            if (!target || target === document.body) return false;
+            if (target.closest && target.closest('.pos-barcode-entry')) return true;
+            if (target.isContentEditable) return true;
+            const tag = String(target.tagName || '').toLowerCase();
+            return tag === 'input' || tag === 'textarea' || tag === 'select';
+        }
+
+        function installPosBarcodeKeyboardCapture() {
+            if (window.__printflowPosProductScannerCaptureInstalled) return;
+            window.__printflowPosProductScannerCaptureInstalled = true;
+            let buffer = '';
+            let startedAt = 0;
+            let lastKeyAt = 0;
+            const maxGapMs = 120;
+            const maxScanMs = 2500;
+
+            function resetBuffer() {
+                buffer = '';
+                startedAt = 0;
+                lastKeyAt = 0;
+            }
+
+            document.addEventListener('keydown', function(event) {
+                if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
+                    resetBuffer();
+                    return;
+                }
+                if (event.target && event.target.closest && event.target.closest('.pos-barcode-entry')) {
+                    resetBuffer();
+                    return;
+                }
+                if (isProtectedPosBarcodeTarget(event.target)) {
+                    resetBuffer();
+                    return;
+                }
+
+                const now = Date.now();
+                if (isBarcodeTerminatorKey(event.key)) {
+                    const raw = buffer;
+                    const duration = startedAt ? now - startedAt : Number.MAX_SAFE_INTEGER;
+                    resetBuffer();
+                    const normalized = normalizeProductBarcode(raw);
+                    posBarcodeDebug('key terminator', {terminator: event.key, characters: raw.length, duration_ms: duration});
+                    if (!normalized || normalized.length < 3 || duration > maxScanMs) return;
+                    // The shared receipt scanner owns canonical receipt payloads
+                    // outside the dedicated product input.
+                    if (/^PF1:ORDER:[1-9][0-9]{0,9}$/i.test(normalized)) return;
+                    event.preventDefault();
+                    if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+                    handleBarcodeScan(raw, null, {terminator: event.key, source: 'pos-keyboard-buffer'});
+                    return;
+                }
+                if (event.key === 'Shift' || event.key === 'CapsLock' || event.key === 'NumLock' || event.key === 'Process') return;
+                if (event.key.length !== 1 || !/[\x20-\x7E]/.test(event.key)) {
+                    resetBuffer();
+                    return;
+                }
+                if (!startedAt || now - lastKeyAt > maxGapMs) {
+                    resetBuffer();
+                    startedAt = now;
+                    posBarcodeDebug('scan started', {source: 'pos-keyboard-buffer'});
+                }
+                buffer += event.key;
+                lastKeyAt = now;
+                if (buffer.length > 96) resetBuffer();
+            }, true);
+        }
+
+        function handleBarcodeScan(code, sourceInput = null, scanMeta = {}) {
+            const barcodeEl = sourceInput || Array.from(document.querySelectorAll('.pos-barcode-entry')).find(function(input) {
+                return !!(input.offsetWidth || input.offsetHeight || input.getClientRects().length);
+            }) || document.getElementById('pos-barcode-input-home');
+            const raw = String(code || '');
+            const sku = normalizeProductBarcode(raw);
+            posBarcodeDebug('raw value', {value: raw, source: scanMeta.source || 'manual'});
+            posBarcodeDebug('normalized value', {value: sku, terminator: scanMeta.terminator || ''});
             if (!sku) {
                 finishBarcodeScan(barcodeEl);
-                return;
+                return Promise.resolve(false);
             }
-            if (barcodeScanBusy) return;
+            clearBarcodeInputs();
+            focusBarcodeInput(barcodeEl);
+            return new Promise(function(resolve) {
+                barcodeScanQueue.push({sku, barcodeEl, scanMeta: {...scanMeta, queuedAt: Date.now()}, resolve});
+                posBarcodeDebug('scan queued', {value: sku, queue_length: barcodeScanQueue.length});
+                drainBarcodeScanQueue();
+            });
+        }
+
+        async function drainBarcodeScanQueue() {
+            if (barcodeScanQueueRunning) return;
+            barcodeScanQueueRunning = true;
             barcodeScanBusy = true;
-            document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = true; });
             try {
+                while (barcodeScanQueue.length > 0) {
+                    const scan = barcodeScanQueue.shift();
+                    let result = false;
+                    try {
+                        result = await processBarcodeScan(scan.sku, scan.barcodeEl, scan.scanMeta);
+                    } catch (error) {
+                        console.error('[POS Barcode] scan processing failed', {
+                            value: scan.sku,
+                            name: error instanceof Error ? error.name : 'UnknownError',
+                            message: error instanceof Error ? error.message : 'Unknown scan error'
+                        });
+                        showPOSScanNotice('Scan Error', 'Unable to scan product. Please try again.', 'error');
+                    } finally {
+                        scan.resolve(result);
+                        focusBarcodeInput(scan.barcodeEl);
+                    }
+                }
+            } finally {
+                barcodeScanBusy = false;
+                barcodeScanQueueRunning = false;
+                if (barcodeScanQueue.length > 0) drainBarcodeScanQueue();
+            }
+        }
+
+        async function processBarcodeScan(sku, barcodeEl, scanMeta = {}) {
+            posBarcodeDebug('lookup request started', {value: sku, source: scanMeta.source || 'manual'});
+            // Printed PrintFlow receipts use this canonical payload. Reuse the
+                // existing focused scanner input without adding a competing global
+                // keyboard listener or treating the receipt as a product SKU.
+                if (/^PF1:ORDER:[1-9][0-9]{0,9}$/i.test(sku)) {
+                    try {
+                        const lookupResponse = await fetch(
+                            staffUrl('staff/api/order_receipt_lookup.php?identifier=') + encodeURIComponent(sku) + '&_=' + Date.now(),
+                            { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } }
+                        );
+                        const lookupData = await lookupResponse.json().catch(function() { return {}; });
+                        if (!lookupResponse.ok || !lookupData.success || !lookupData.route) {
+                            showPOSScanNotice('Receipt Lookup', lookupData.message || 'Order lookup failed. Please scan the receipt again.', 'error');
+                            return;
+                        }
+                        showPOSScanNotice('Order Found', lookupData.warning || ('Opening ' + lookupData.identifier + '…'), 'success');
+                        window.setTimeout(function() { window.location.assign(lookupData.route); }, lookupData.warning ? 900 : 150);
+                    } catch (e) {
+                        showPOSScanNotice('Network Error', 'Network error while looking up the receipt.', 'error');
+                    }
+                    return;
+                }
+
                 let product = null;
                 let availability = null;
                 try {
-                    const res = await fetch(staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku));
-                    const data = await res.json();
+                    const res = await fetch(
+                        staffUrl('staff/api/get_product_by_sku.php?sku=') + encodeURIComponent(sku),
+                        {credentials: 'same-origin', cache: 'no-store', headers: {'Accept': 'application/json'}}
+                    );
+                    const contentType = res.headers && typeof res.headers.get === 'function'
+                        ? String(res.headers.get('content-type') || '')
+                        : '';
+                    const data = await res.json().catch(function() { return null; });
+                    posBarcodeDebug('lookup response', {
+                        value: sku,
+                        http_status: Number(res.status || 0),
+                        content_type: contentType,
+                        success: !!(data && data.success),
+                        availability: data && data.availability ? data.availability : '',
+                        product_id: data && data.product && data.product.product_id ? data.product.product_id : null,
+                        response_sku: data && data.product && data.product.sku ? data.product.sku : ''
+                    });
+                    if (!res.ok || !data || (contentType && !contentType.toLowerCase().includes('application/json'))) {
+                        showPOSScanNotice('Scan Error', 'Unable to scan product. Please try again.', 'error');
+                        return;
+                    }
                     if (!data.success) {
                         showPOSScanNotice('Scan Error', data.message || 'Could not scan barcode.', 'error');
                         return;
@@ -3232,6 +3726,13 @@ try {
                 }
 
                 const result = await addToCart(product, null, null, { silentErrors: true });
+                posBarcodeDebug('add-to-cart result', {
+                    value: sku,
+                    product_id: product.product_id,
+                    success: !!(result && result.success),
+                    message: result && result.message ? result.message : '',
+                    elapsed_ms: scanMeta.queuedAt ? Date.now() - scanMeta.queuedAt : null
+                });
                 if (result && result.success) {
                     showPOSScanNotice('Added to Cart', (product.product_name || 'Product') + ' was added to the cart.', 'success');
                     renderProducts();
@@ -3244,11 +3745,7 @@ try {
                 } else if (result && result.success === false) {
                     showPOSScanNotice('Scan Error', 'Could not add this product to the cart.', 'error');
                 }
-            } finally {
-                barcodeScanBusy = false;
-                document.querySelectorAll('.pos-barcode-entry').forEach(function(input) { input.disabled = false; });
-                finishBarcodeScan(barcodeEl);
-            }
+            return true;
         }
         async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
             const name = overrideName || p.product_name;
@@ -3820,7 +4317,7 @@ try {
                 const qrModal = document.getElementById('gcash-qr-modal');
                 if (qrModal) qrModal.style.display = 'flex';
             }
-            const isPayMongo = pm === 'PayMongo Test';
+            const isPayMongo = isPayMongoPaymentMethod(pm);
             document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
             document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
             updateCheckoutState();
@@ -3829,7 +4326,11 @@ try {
         /** Cash and GCash complete without a transaction reference (QR / over-the-counter flow). */
         function posPaymentNeedsRefNumber(pm) {
             const v = (pm || '').trim();
-            return v !== 'Cash' && v !== 'GCash' && v !== 'PayMongo Test';
+            return v !== 'Cash' && v !== 'GCash' && !isPayMongoPaymentMethod(v);
+        }
+
+        function isPayMongoPaymentMethod(method) {
+            return ['PayMongo QRPh', 'PayMongo Checkout', 'PayMongo Test'].includes(String(method || '').trim());
         }
 
         function closeGcashQr() {
@@ -3904,7 +4405,7 @@ try {
 
             // Regular products require payment
             const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
-            if (pm !== 'PayMongo Test' && (tendered < currentTotal || tendered > 1000000)) {
+            if (!isPayMongoPaymentMethod(pm) && (tendered < currentTotal || tendered > 1000000)) {
                 canCheckout = false;
                 if (message === 'Complete Sale') message = 'Enter Valid Amount';
             }
@@ -3915,7 +4416,7 @@ try {
         }
 
         async function processCheckout() {
-            if (cart.length === 0) return;
+            if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
 
             // Validate customer selection
             const customer = $('#pos-customer').val();
@@ -3940,25 +4441,31 @@ try {
 
             const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
 
-            if (pm !== 'PayMongo Test' && (tendered < currentTotal || tendered > 1000000)) {
+            if (!isPayMongoPaymentMethod(pm) && (tendered < currentTotal || tendered > 1000000)) {
                 await showPOSAlert('Invalid Amount', "Amount paid must be at least " + formatMoney(currentTotal) + " and not exceed ₱1,000,000.", 'warning');
                 return;
             }
 
-            const changeAmount = pm === 'PayMongo Test' ? 0 : tendered - currentTotal;
-            const confirmMsg = pm === 'PayMongo Test'
-                ? `Create a Test Mode Payment Link for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
+            const changeAmount = isPayMongoPaymentMethod(pm) ? 0 : tendered - currentTotal;
+            const confirmMsg = isPayMongoPaymentMethod(pm)
+                ? `Create a ${pm === 'PayMongo QRPh' ? 'Dynamic QR Ph payment' : 'PayMongo checkout'} for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
                 : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
-            if (!(await showPOSConfirm('Confirm Transaction', confirmMsg))) {
-                return;
-            }
+            posCheckoutConfirmOpen = true;
+            const confirmed = await showPOSConfirm('Confirm Transaction', confirmMsg);
+            posCheckoutConfirmOpen = false;
+            if (!confirmed) return;
 
             const btn = document.getElementById('pos-checkout-btn');
             btn.disabled = true;
             document.getElementById('checkout-icon').className = 'fas fa-spinner fa-spin';
             document.getElementById('checkout-text').textContent = 'Processing...';
 
+            posCheckoutRequestInFlight = true;
+
+            resetPayMongoPosCheckoutState();
+            const checkoutToken = getPosPayMongoCheckoutToken(true);
+            posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
                 customer_id: $('#pos-customer').val(),
@@ -3966,7 +4473,7 @@ try {
                 reference_number: (document.getElementById('pos-payment-ref')?.value || '').trim(),
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
-                checkout_token: getPosPayMongoCheckoutToken(),
+                checkout_token: checkoutToken,
                 items: cart.map(i => ({
                     id: i.product_id,
                     qty: i.qty,
@@ -4000,11 +4507,13 @@ try {
                     await syncedCartAction('clear');
                     checkoutCompleted = true;
 
-                    if (data.payment_pending && data.payment && data.payment.checkout_url) {
-                        openPayMongoPosModal(data.order_id, data.payment.checkout_url);
+                    if (data.payment_pending && data.payment) {
+                        openPayMongoPosModal(data.order_id, data.payment);
+                        updateCheckoutState();
                         return;
                     }
 
+                    posPayMongoCheckoutPending = false;
                     document.getElementById('pos-payment-method').value = 'Cash';
                     document.getElementById('pos-tendered').value = '';
                     const refInput = document.getElementById('pos-payment-ref');
@@ -4012,7 +4521,7 @@ try {
                     toggleReferenceField();
                     calculateChange();
                     updateCheckoutState();
-                    openReceiptModal(data.receipt || {});
+                    openReceiptModal(data.receipt);
                 } else {
                     await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
                     updateCheckoutState();
@@ -4025,41 +4534,174 @@ try {
                 await showPOSAlert('Network Error', message, 'error');
                 updateCheckoutState();
             } finally {
+                posCheckoutConfirmOpen = false;
+                posCheckoutRequestInFlight = false;
                 if (!checkoutCompleted) {
                     updateCheckoutState();
                 }
             }
         }
 
-        function getPosPayMongoCheckoutToken() {
-            let token = sessionStorage.getItem('pos_paymongo_checkout_token');
-            if (!token) {
+        function getPosPayMongoCheckoutToken(forceNew = false) {
+            if (forceNew) {
                 const bytes = new Uint8Array(24);
                 crypto.getRandomValues(bytes);
-                token = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-                sessionStorage.setItem('pos_paymongo_checkout_token', token);
+                posPayMongoCheckoutAttemptToken = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+                sessionStorage.setItem('pos_paymongo_checkout_token', posPayMongoCheckoutAttemptToken);
+                return posPayMongoCheckoutAttemptToken;
             }
-            return token;
+            if (posPayMongoCheckoutAttemptToken) {
+                return posPayMongoCheckoutAttemptToken;
+            }
+            const stored = sessionStorage.getItem('pos_paymongo_checkout_token');
+            if (stored) {
+                posPayMongoCheckoutAttemptToken = stored;
+                return stored;
+            }
+            const bytes = new Uint8Array(24);
+            crypto.getRandomValues(bytes);
+            posPayMongoCheckoutAttemptToken = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+            sessionStorage.setItem('pos_paymongo_checkout_token', posPayMongoCheckoutAttemptToken);
+            return posPayMongoCheckoutAttemptToken;
+        }
+
+        function resetPayMongoPosCheckoutState() {
+            if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+            if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
+            paymongoPollTimer = null;
+            paymongoCountdownTimer = null;
+            pendingPayMongoPayment = null;
+            pendingPayMongoReceipt = null;
+            pendingPayMongoPrintJob = null;
+            pendingPayMongoOrderId = 0;
+            posPayMongoCheckoutPending = false;
+            posPayMongoCheckoutAttemptToken = null;
+            sessionStorage.removeItem('pos_paymongo_pending');
+            sessionStorage.removeItem('pos_paymongo_checkout_token');
         }
 
         function closePayMongoPosModal() {
             document.getElementById('paymongo-pos-modal').style.display = 'none';
+            document.getElementById('paymongo-pos-reference').textContent = '';
+            resetPayMongoPosCheckoutState();
         }
 
-        function openPayMongoPosModal(orderId, checkoutUrl) {
+        function renderPayMongoPosPayment(payment) {
+            pendingPayMongoPayment = payment || null;
+            const isQr = payment?.payment_flow === 'payment_intent' && payment?.payment_method === 'qrph';
+            const qrImage = document.getElementById('paymongo-pos-qr');
+            qrImage.style.display = isQr && payment?.qr_image_url ? 'block' : 'none';
+            if (isQr && payment?.qr_image_url) qrImage.src = payment.qr_image_url;
+            document.getElementById('paymongo-pos-title').textContent = isQr ? 'Dynamic QR Ph' : 'PayMongo Checkout';
+            document.getElementById('paymongo-pos-order').textContent =
+                `Order #${pendingPayMongoOrderId} - ${formatMoney(Number(payment?.amount || 0) / 100)}`;
+            const checkoutLink = document.getElementById('paymongo-pos-open');
+            checkoutLink.style.display = payment?.checkout_url ? 'block' : 'none';
+            if (payment?.checkout_url) checkoutLink.href = payment.checkout_url;
+            const referenceLabel = document.getElementById('paymongo-pos-reference');
+            const reference = payment?.reference_number || payment?.payment_reference || '';
+            referenceLabel.textContent = reference ? 'Reference Number: ' + reference : '';
+            const retryButton = document.getElementById('paymongo-pos-retry');
+            const status = String(payment?.status || '').toLowerCase();
+            retryButton.style.display = isQr && ['failed', 'expired', 'cancelled'].includes(status) ? 'block' : 'none';
+            const statusLabel = document.getElementById('paymongo-pos-status');
+            if (status === 'failed') statusLabel.textContent = 'Payment was not completed. Generate a new QR to try again.';
+            else if (status === 'expired') statusLabel.textContent = 'QR code expired. Generate a new QR to continue.';
+            else if (status === 'paid') statusLabel.textContent = 'Payment confirmed. Complete the transaction to continue.';
+            else statusLabel.textContent = isQr ? 'Waiting for payment confirmation.' : 'Waiting for secure checkout payment.';
+
+            if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
+            const countdown = document.getElementById('paymongo-pos-countdown');
+            countdown.textContent = '';
+            if (isQr && payment?.qr_expires_at_epoch && status === 'awaiting_payment') {
+                const renderCountdown = () => {
+                    const remaining = Math.max(0, Number(payment.qr_expires_at_epoch) - Math.floor(Date.now() / 1000));
+                    const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+                    const seconds = String(remaining % 60).padStart(2, '0');
+                    countdown.textContent = remaining > 0 ? `QR expires in ${minutes}:${seconds}` : 'QR code expired';
+                    if (remaining <= 0 && paymongoCountdownTimer) {
+                        window.clearInterval(paymongoCountdownTimer);
+                        paymongoCountdownTimer = null;
+                    }
+                };
+                renderCountdown();
+                paymongoCountdownTimer = window.setInterval(renderCountdown, 1000);
+            }
+        }
+
+        async function resumePayMongoPosModal(orderId) {
+            try {
+                const url = staffUrl('staff/api/paymongo_payment.php')
+                    + '?subject_type=order&subject_id=' + encodeURIComponent(orderId)
+                    + '&channel=pos&_=' + Date.now();
+                const response = await fetch(url, {cache: 'no-store'});
+                const data = await response.json();
+                if (response.ok && data.success && data.payment) openPayMongoPosModal(orderId, data.payment);
+                else sessionStorage.removeItem('pos_paymongo_pending');
+            } catch (error) {
+                // Keep the saved order reference so a page refresh can retry safely.
+            }
+        }
+
+        async function retryPayMongoPosQr() {
+            if (pendingPayMongoOrderId <= 0) return;
+            const retryButton = document.getElementById('paymongo-pos-retry');
+            retryButton.disabled = true;
+            document.getElementById('paymongo-pos-status').textContent = 'Generating a new QR Ph code...';
+            try {
+                const response = await fetch(staffUrl('staff/api/paymongo_payment.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'create_qrph',
+                        subject_type: 'order',
+                        subject_id: pendingPayMongoOrderId,
+                        channel: 'pos',
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success || !data.payment) throw new Error(data.message || 'A new QR could not be generated.');
+                openPayMongoPosModal(pendingPayMongoOrderId, data.payment);
+            } catch (error) {
+                document.getElementById('paymongo-pos-status').textContent = error.message || 'A new QR could not be generated.';
+            } finally {
+                retryButton.disabled = false;
+            }
+        }
+
+        function openPayMongoPosModal(orderId, payment) {
             const modal = document.getElementById('paymongo-pos-modal');
-            document.getElementById('paymongo-pos-open').href = checkoutUrl;
-            document.getElementById('paymongo-pos-qr').src =
-                'https://quickchart.io/qr?size=220&text=' + encodeURIComponent(checkoutUrl);
-            document.getElementById('paymongo-pos-status').textContent = 'Waiting for payment confirmation.';
             const completeButton = document.getElementById('paymongo-pos-complete');
             completeButton.disabled = true;
             completeButton.style.background = '#94a3b8';
             completeButton.style.cursor = 'not-allowed';
             pendingPayMongoReceipt = null;
+            pendingPayMongoPrintJob = null;
+            pendingPayMongoOrderId = Number(orderId);
+            sessionStorage.setItem('pos_paymongo_pending', JSON.stringify({order_id: pendingPayMongoOrderId}));
+            renderPayMongoPosPayment(payment);
             modal.style.display = 'flex';
-            sessionStorage.removeItem('pos_paymongo_checkout_token');
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+            const finishPaidPosTransaction = async (data) => {
+                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+                paymongoPollTimer = null;
+                if (data?.receipt_available && data?.receipt) {
+                    pendingPayMongoReceipt = data.receipt;
+                    pendingPayMongoPrintJob = data.print_job || null;
+                    closePayMongoPosModal();
+                    openReceiptModal(data.receipt);
+                    pendingPayMongoOrderId = 0;
+                    return true;
+                }
+                if (data?.can_complete) {
+                    document.getElementById('paymongo-pos-status').textContent = 'Payment confirmed. Complete the transaction to issue the receipt.';
+                    completeButton.disabled = false;
+                    completeButton.style.background = '#059669';
+                    completeButton.style.cursor = 'pointer';
+                }
+                return false;
+            };
             const poll = async () => {
                 try {
                     const url = staffUrl('staff/api/paymongo_payment.php')
@@ -4067,15 +4709,18 @@ try {
                         + '&channel=pos&_=' + Date.now();
                     const response = await fetch(url, {cache: 'no-store'});
                     const data = await response.json();
+                    if (data.success && data.payment) {
+                        renderPayMongoPosPayment(data.payment);
+                        if (['failed', 'expired', 'cancelled'].includes(String(data.payment.status || '').toLowerCase())) {
+                            if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+                            paymongoPollTimer = null;
+                            return;
+                        }
+                    }
                     if (data.success && data.payment && data.payment.status === 'paid') {
-                        window.clearInterval(paymongoPollTimer);
-                        paymongoPollTimer = null;
-                        document.getElementById('paymongo-pos-status').textContent = 'Payment confirmed. Receipt is ready.';
-                        if (data.receipt_available && data.receipt) {
-                            pendingPayMongoReceipt = data.receipt;
-                            completeButton.disabled = false;
-                            completeButton.style.background = '#059669';
-                            completeButton.style.cursor = 'pointer';
+                        const completed = await finishPaidPosTransaction(data);
+                        if (completed) {
+                            return;
                         }
                     }
                 } catch (error) {
@@ -4086,11 +4731,48 @@ try {
             paymongoPollTimer = window.setInterval(poll, 4000);
         }
 
-        function completePayMongoPosTransaction() {
-            if (!pendingPayMongoReceipt) return;
-            closePayMongoPosModal();
-            openReceiptModal(pendingPayMongoReceipt);
-            pendingPayMongoReceipt = null;
+        async function completePayMongoPosTransaction() {
+            if (pendingPayMongoReceipt) {
+                sessionStorage.removeItem('pos_paymongo_pending');
+                sessionStorage.removeItem('pos_paymongo_checkout_token');
+                closePayMongoPosModal();
+                openReceiptModal(pendingPayMongoReceipt);
+                pendingPayMongoOrderId = 0;
+                return;
+            }
+            if (pendingPayMongoOrderId <= 0) return;
+            const completeButton = document.getElementById('paymongo-pos-complete');
+            completeButton.disabled = true;
+            document.getElementById('paymongo-pos-status').textContent = 'Completing transaction…';
+            try {
+                const response = await fetch(staffUrl('staff/api/paymongo_payment.php'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        action: 'complete_pos',
+                        subject_type: 'order',
+                        subject_id: pendingPayMongoOrderId,
+                        channel: 'pos',
+                        csrf_token: POS_CSRF_TOKEN
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success || !data.receipt) {
+                    throw new Error(data.message || 'The transaction could not be completed.');
+                }
+                if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
+                paymongoPollTimer = null;
+                pendingPayMongoReceipt = data.receipt;
+                pendingPayMongoPrintJob = data.print_job || null;
+                sessionStorage.removeItem('pos_paymongo_pending');
+                sessionStorage.removeItem('pos_paymongo_checkout_token');
+                closePayMongoPosModal();
+                openReceiptModal(data.receipt);
+                pendingPayMongoOrderId = 0;
+            } catch (error) {
+                completeButton.disabled = false;
+                document.getElementById('paymongo-pos-status').textContent = error.message;
+            }
         }
 
         function openNewCustomerModal() {
@@ -4272,6 +4954,8 @@ try {
                 titleEl.textContent = title;
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'none';
+                cancelBtn.disabled = false;
+                confirmBtn.disabled = false;
                 confirmBtn.textContent = 'OK';
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
@@ -4306,7 +4990,7 @@ try {
             });
         }
 
-        async function showPOSConfirm(title, message) {
+        async function showPOSConfirm(title, message, confirmLabel = 'Confirm') {
             return new Promise(resolve => {
                 const overlay = document.getElementById('pos-alert-overlay');
                 const box = document.getElementById('pos-alert-box');
@@ -4320,7 +5004,9 @@ try {
                 titleEl.textContent = title;
                 msgEl.innerHTML = (message || "").replace(/\n/g, '<br>');
                 cancelBtn.style.display = 'block';
-                confirmBtn.textContent = 'Confirm';
+                cancelBtn.disabled = false;
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = confirmLabel;
                 confirmBtn.style.background = 'var(--staff-pos-button-bg)';
 
                 iconCont.style.background = '#eef2ff';
@@ -4334,10 +5020,14 @@ try {
                 }, 10);
 
                 cancelBtn.onclick = () => {
+                    cancelBtn.disabled = true;
+                    confirmBtn.disabled = true;
                     closePOSAlert();
                     resolve(false);
                 };
                 confirmBtn.onclick = () => {
+                    confirmBtn.disabled = true;
+                    cancelBtn.disabled = true;
                     closePOSAlert();
                     resolve(true);
                 };

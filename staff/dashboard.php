@@ -23,6 +23,17 @@ $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
 // Some production databases may not have `orders.order_type` (older schema).
 $hasOrderType = function_exists('db_table_has_column') ? db_table_has_column('orders', 'order_type') : true;
+$hasOrderItemType = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'item_type') : false;
+$hasOrderItemServiceId = function_exists('db_table_has_column') ? db_table_has_column('order_items', 'service_id') : false;
+$dashboardProductJoinSql = $hasOrderItemType
+    ? "LEFT JOIN products p ON oi.product_id = p.product_id AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'"
+    : "LEFT JOIN products p ON oi.product_id = p.product_id";
+$dashboardProductInnerJoinSql = $hasOrderItemType
+    ? "JOIN products p ON oi.product_id = p.product_id AND COALESCE(NULLIF(oi.item_type, ''), 'product') = 'product'"
+    : "JOIN products p ON oi.product_id = p.product_id";
+$dashboardServiceJoinSql = $hasOrderItemServiceId
+    ? 'LEFT JOIN services s ON oi.service_id = s.service_id'
+    : 'LEFT JOIN services s ON oi.product_id = s.service_id';
 
 // --- 1. SET DATE RANGE & FILTERS ---
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -157,13 +168,13 @@ $completed_products_sql = $hasOrderType
         SELECT COUNT(DISTINCT o.order_id) as count 
         FROM orders o 
         JOIN order_items oi ON o.order_id = oi.order_id
-        JOIN products p ON oi.product_id = p.product_id
+        {$dashboardProductInnerJoinSql}
         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql} AND o.order_type = 'product'"
     : "
         SELECT COUNT(DISTINCT o.order_id) as count 
         FROM orders o 
         JOIN order_items oi ON o.order_id = oi.order_id
-        JOIN products p ON oi.product_id = p.product_id
+        {$dashboardProductInnerJoinSql}
         WHERE o.status = 'Completed' AND o.branch_id = ? AND {$staffOrderScopeSql}";
 $completed_products_types = 'i';
 $completed_products_params = [$staffBranchId];
@@ -181,7 +192,7 @@ $completed_custom_sql = "
     FROM orders o 
     JOIN order_items oi ON o.order_id = oi.order_id
     LEFT JOIN job_orders jo ON oi.order_item_id = jo.order_item_id
-    LEFT JOIN services s ON oi.product_id = s.service_id";
+    {$dashboardServiceJoinSql}";
 $completed_custom_types = 'i';
 $completed_custom_params = [$staffBranchId];
 $completed_custom_sql .= "
@@ -217,8 +228,8 @@ $top_services_sql = "
     SELECT COALESCE(p.name, s.name, 'Custom Product') as name, COUNT(*) as order_count
     FROM order_items oi
     JOIN orders o ON oi.order_id = o.order_id
-    LEFT JOIN products p ON oi.product_id = p.product_id
-    LEFT JOIN services s ON oi.product_id = s.service_id
+    {$dashboardProductJoinSql}
+    {$dashboardServiceJoinSql}
     WHERE o.branch_id = ?
       AND {$staffOrderScopeSql}
       AND (
@@ -270,7 +281,7 @@ $total_pages = ceil($total_rows / $limit);
 
 $recent_orders = db_query("
     SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-    (SELECT COALESCE(p.name, 'Custom Service') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) as service_type
+    (SELECT COALESCE(p.name, s.name, 'Custom Service') FROM order_items oi {$dashboardProductJoinSql} {$dashboardServiceJoinSql} WHERE oi.order_id = o.order_id LIMIT 1) as service_type
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
     $sql_cond
@@ -375,7 +386,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
         }
     </style>
 </head>
-<body>
+<body class="staff-dashboard-page">
 
 <div class="dashboard-container">
     <?php include __DIR__ . '/../includes/staff_sidebar.php'; ?>
@@ -444,7 +455,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <input type="hidden" id="filter-timeframe" :value="activeTimeframe">
 
                 <?php if (($staffAccessMeta['key'] ?? '') === 'pos'): ?>
-                <a href="pos.php" class="toolbar-btn" style="background: var(--staff-pos-button-bg); border: none; color:#fff; box-shadow: 0 4px 12px var(--staff-pos-button-shadow); font-weight: 700; height: 38px;">
+                <a href="pos.php" class="toolbar-btn toolbar-btn--primary" style="background: var(--staff-pos-button-bg); border: none; color:#fff; box-shadow: 0 4px 12px var(--staff-pos-button-shadow); font-weight: 700; height: 38px;">
                     <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width:2;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                     POS
                 </a>
@@ -506,7 +517,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <div class="card">
                     <div class="loading-progress"></div>
                     <div class="content-transition">
-                        <div id="chart-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;"><?php echo htmlspecialchars(staff_dashboard_chart_title($timeframe)); ?></div>
+                        <div id="chart-title" class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;"><?php echo htmlspecialchars(staff_dashboard_chart_title($timeframe)); ?></div>
                         <div class="chart-wrap" id="chart-pulse-wrap">
                             <canvas id="salesChart"></canvas>
                         </div>
@@ -515,7 +526,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                 <div class="card">
                     <div class="loading-progress"></div>
                     <div class="content-transition">
-                        <div id="top-sales-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Top Sales (<?php echo $short_label; ?>)</div>
+                        <div id="top-sales-title" class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Top Sales (<?php echo $short_label; ?>)</div>
                         <div style="margin-top: 10px;" id="top-services-list">
                             <?php if (!empty($top_services)): ?>
                                 <?php foreach ($top_services as $service): ?>
@@ -536,7 +547,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
             <div class="card">
                 <div class="loading-progress"></div>
                 <div class="content-transition">
-                    <div style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Recent Orders Activity</div>
+                    <div class="staff-dashboard-section-title" style="font-size: 16px; font-weight: 700; color: #013a3a; margin-bottom: 16px;">Recent Orders Activity</div>
                     
                     <div class="table-responsive">
                         <table style="width: 100%;">
@@ -734,6 +745,13 @@ function updateSalesChart(labels, values) {
     const canvas = document.getElementById('salesChart');
     if (!canvas) return;
 
+    if (typeof Chart !== 'undefined' && Chart.defaults) {
+        Chart.defaults.font.family = "'Inter', system-ui, -apple-system, sans-serif";
+        Chart.defaults.font.size = 11;
+        Chart.defaults.font.weight = '600';
+        Chart.defaults.color = '#64748b';
+    }
+
     if (salesChartInstance) {
         // Fluid transition: update data instead of destroy
         salesChartInstance.data.labels = labels;
@@ -785,10 +803,10 @@ function updateSalesChart(labels, values) {
                     grid: { color: 'rgba(0,0,0,0.04)', borderDash: [4, 4] },
                     ticks: {
                         callback: (v) => '₱' + v.toLocaleString(),
-                        font: { size: 10, weight: '600' }
+                        font: { family: "'Inter', system-ui, -apple-system, sans-serif", size: 11, weight: '600' }
                     }
                 },
-                x: { grid: { display: false }, ticks: { font: { size: 10, weight: '600' } } }
+                x: { grid: { display: false }, ticks: { font: { family: "'Inter', system-ui, -apple-system, sans-serif", size: 11, weight: '600' } } }
             }
         }
     });

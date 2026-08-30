@@ -10,6 +10,7 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
+require_once __DIR__ . '/revision_workflow.php';
 
 class JobOrderService {
     private static array $columnExistsCache = [];
@@ -550,8 +551,13 @@ class JobOrderService {
      */
     public static function createOrder($orderData, $materials = []) {
         global $conn;
-        
-        $conn->begin_transaction();
+
+        $wasInTransaction = function_exists('printflow_db_in_transaction')
+            ? printflow_db_in_transaction($conn)
+            : false;
+        if (!$wasInTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start job order transaction.');
+        }
         try {
             $branchId = self::resolveBranchIdForOrderData((array)$orderData) ?? (int)($_SESSION['branch_id'] ?? 0);
             $linkedOrderId = (int)($orderData['order_id'] ?? 0);
@@ -634,10 +640,14 @@ class JobOrderService {
                 $mStmt->close();
             }
 
-            $conn->commit();
+            if (!$wasInTransaction) {
+                $conn->commit();
+            }
             return $orderId;
         } catch (Throwable $e) {
-            $conn->rollback();
+            if (!$wasInTransaction && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
             throw $e;
         }
     }
@@ -1037,19 +1047,55 @@ class JobOrderService {
     /**
      * Set job order status and trigger logic.
      */
-    public static function updateStatus($orderId, $newStatus, $machineId = null, $reason = '', $silent = false) {
+    public static function updateStatus($orderId, $newStatus, $machineId = null, $reason = '', $silent = false, array $revisionMeta = []) {
         global $conn;
         
         $order = db_query("SELECT * FROM job_orders WHERE id = ?", 'i', [$orderId]);
         if (!$order) throw new Exception("Order not found.");
         $order = $order[0];
 
-        $wasInTransaction = $conn->in_transaction ?? false;
+        $normalizedNewStatus = self::normalizeWorkflowStatus((string)$newStatus);
+        if ($normalizedNewStatus === 'FOR_REVISION' && !printflow_revision_ensure_schema()) {
+            throw new Exception('Revision request storage is unavailable.');
+        }
+
+        $wasInTransaction = function_exists('printflow_db_in_transaction')
+            ? printflow_db_in_transaction($conn)
+            : false;
         if (!$wasInTransaction) {
             $conn->begin_transaction();
         }
         try {
-            $normalizedNewStatus = self::normalizeWorkflowStatus((string)$newStatus);
+            // Serialize status transitions and make repeated completion calls a
+            // no-op before deductions, notifications, or chat events run.
+            $lockedRows = db_query("SELECT * FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE", 'i', [$orderId]);
+            if (!$lockedRows) {
+                throw new Exception("Order not found.");
+            }
+            $order = $lockedRows[0];
+            $currentNormalizedStatus = self::normalizeWorkflowStatus((string)($order['status'] ?? ''));
+            if ($currentNormalizedStatus === $normalizedNewStatus) {
+                if (!$wasInTransaction) {
+                    $conn->commit();
+                }
+                return true;
+            }
+
+            if ($normalizedNewStatus === 'FOR_REVISION' && !empty($order['order_id'])) {
+                $revisionRequest = printflow_revision_create_request(
+                    (int) $order['order_id'],
+                    function_exists('get_user_id') ? (int) get_user_id() : 0,
+                    (string) ($revisionMeta['reason_code'] ?? $reason),
+                    (string) ($revisionMeta['instruction'] ?? $reason),
+                    is_array($revisionMeta['permitted_fields'] ?? null)
+                        ? $revisionMeta['permitted_fields']
+                        : [],
+                    (string)($revisionMeta['reason_label'] ?? $reason)
+                );
+                $reason = (string) $revisionRequest['legacy_reason'];
+            } elseif (!empty($order['order_id'])) {
+                printflow_revision_close_active((int)$order['order_id'], 'Closed - ' . (string)$newStatus);
+            }
             // Materials are now handled once the job is live in production.
             if (in_array($normalizedNewStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
                 // Deduct materials when moving to production
@@ -1057,17 +1103,22 @@ class JobOrderService {
             }
 
             if ($normalizedNewStatus === 'COMPLETED') {
-                // For POS orders (walk-in) or orders already in TO_RECEIVE status, skip payment check
-                $currentStatus = self::normalizeWorkflowStatus((string)($order['status'] ?? ''));
-                $isPOSOrder = !empty($order['order_id']) && db_query(
-                    "SELECT 1 FROM orders WHERE order_id = ? AND order_type = 'custom' AND payment_method IN ('Cash', 'GCash', 'Maya') LIMIT 1",
-                    'i',
-                    [$order['order_id']]
-                );
-                
-                // Allow completion if: already in TO_RECEIVE (Ready for Pickup), or is a POS order, or payment is PAID
-                $payment = strtoupper((string)($order['payment_status'] ?? ''));
-                $canComplete = ($currentStatus === 'TO_RECEIVE') || !empty($isPOSOrder) || ($payment === 'PAID');
+                // Completion always requires a canonical paid state. Manual
+                // GCash verification writes Paid/PAID and is accepted here;
+                // pending, submitted, partial, rejected, and unpaid are blocked.
+                $payment = strtoupper(trim((string)($order['payment_status'] ?? '')));
+                $storePayment = '';
+                if (!empty($order['order_id'])) {
+                    $storeRows = db_query(
+                        'SELECT payment_status FROM orders WHERE order_id = ? LIMIT 1',
+                        'i',
+                        [(int)$order['order_id']]
+                    ) ?: [];
+                    $storePayment = strtoupper(trim((string)($storeRows[0]['payment_status'] ?? '')));
+                }
+                $paidStates = ['PAID', 'FULLY PAID'];
+                $canComplete = in_array($payment, $paidStates, true)
+                    || in_array($storePayment, $paidStates, true);
                 
                 if (!$canComplete) {
                     throw new Exception('Cannot mark as Completed: payment must be Paid. Current payment status: ' . ($order['payment_status'] ?? 'Unpaid'));
@@ -1081,7 +1132,9 @@ class JobOrderService {
             }
 
             $sql = "UPDATE job_orders SET status = ?, machine_id = ? WHERE id = ?";
-            db_execute($sql, 'sii', [$newStatus, $machineId ?: $order['machine_id'], $orderId]);
+            if (!db_execute($sql, 'sii', [$newStatus, $machineId ?: $order['machine_id'], $orderId])) {
+                throw new RuntimeException('Failed to persist job order status.');
+            }
 
             // Sync status back to standard orders table
             if (!empty($order['order_id'])) {
@@ -1097,7 +1150,7 @@ class JobOrderService {
                     'TO_RECEIVE'    => 'Ready for Pickup',
                     'COMPLETED'     => 'Completed',
                     'CANCELLED'     => 'Cancelled',
-                    'FOR REVISION'  => 'For Revision',
+                    'FOR_REVISION'  => 'For Revision',
                 ];
                 $storeStatus = $order_status_map[$normalizedNewStatus] ?? $newStatus;
 
@@ -1111,7 +1164,7 @@ class JobOrderService {
                 }
 
                 // When revision is requested, store the reason on the order record
-                if (strtoupper($newStatus) === 'FOR REVISION' && !empty($reason)) {
+                if ($normalizedNewStatus === 'FOR_REVISION' && !empty($reason)) {
                     $sql_parts[] = "design_status = 'Revision Requested'";
                     $sql_parts[] = "revision_reason = ?";
                     $params[] = $reason;
@@ -1154,6 +1207,9 @@ class JobOrderService {
                 $chat_meta = [];
                 if ($notif_step === 'for_revision' && !empty($reason)) {
                     $chat_meta['reason'] = $reason;
+                    if (!empty($revisionRequest['permitted_fields']) && is_array($revisionRequest['permitted_fields'])) {
+                        $chat_meta['button_label'] = printflow_revision_action_label($revisionRequest['permitted_fields']);
+                    }
                 }
                 // Signature: printflow_send_order_update($order_id, $message, $action_type, $thumbnail, $action_url, $meta)
                 printflow_send_order_update((int)$order['order_id'], $notif_step, 'view_status', '', '', $chat_meta);
@@ -1164,7 +1220,7 @@ class JobOrderService {
             }
             return true;
         } catch (Throwable $e) {
-            if (!$wasInTransaction && ($conn->in_transaction ?? false)) {
+            if (!$wasInTransaction) {
                 $conn->rollback();
             }
             throw $e;
@@ -2012,7 +2068,15 @@ class JobOrderService {
             $mergedCustomization = is_array($item['customization'] ?? null) ? $item['customization'] : [];
             $serviceLike = trim((string)($mergedCustomization['service_type'] ?? '')) !== ''
                 || (int)($mergedCustomization['service_id'] ?? 0) > 0
-                || strtolower(trim((string)($mergedCustomization['source'] ?? ''))) === 'pos';
+                || strtolower(trim((string)($mergedCustomization['source'] ?? ''))) === 'pos'
+                || !empty($item['service_id'])
+                || !empty($resolved['service_id']);
+            $mergedCustomization = self::buildStaffCustomizationPayload(
+                $mergedCustomization,
+                max(1, (int)($item['quantity'] ?? 1))
+            );
+            $item['customization'] = $mergedCustomization;
+            $item['specifications'] = $mergedCustomization;
             if ($serviceLike) {
                 $resolvedName = trim((string)($resolved['product_name'] ?? ''));
                 if ($resolvedName !== '' && !customer_orders_is_generic_item_name($resolvedName)) {
@@ -2629,7 +2693,6 @@ class JobOrderService {
             // (Brochure, Stickers, Mugs, Poster, Raffle, Reflectorized, T-shirt) show
             // the same specs as the customer side. Only strip truly internal/temp keys.
             $customForPayload = self::buildStaffCustomizationPayload($custom, $quantity);
-            $customForPayload = printflow_overlay_nonempty_assoc($customForPayload, $orderItemCustomization);
 
             $serviceIdForImage = (int)($custom['service_id'] ?? 0);
             if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
@@ -2690,6 +2753,131 @@ class JobOrderService {
             'line_qty' => $total_qty,
             'customization_details' => $first_custom,
         ];
+    }
+
+    /**
+     * Batch-load the small subset of order-item data required by staff list rows.
+     *
+     * This deliberately never selects design_image and never returns raw
+     * customization/specification JSON. Full media and specifications belong to
+     * getStoreOrderItemsPayload()/getOrder(), which are called when View opens.
+     *
+     * @param  int[] $orderIds
+     * @return array<int, array{items:array,width_ft:string,height_ft:string,service_type:string,line_qty:int}>
+     */
+    public static function getStoreOrderItemSummariesBatch(array $orderIds, bool $serviceOnly = false): array {
+        $orderIds = array_values(array_filter(array_unique(array_map('intval', $orderIds))));
+        if ($orderIds === []) {
+            return [];
+        }
+
+        if (function_exists('printflow_ensure_order_items_specifications_column')) {
+            printflow_ensure_order_items_specifications_column();
+        }
+
+        $idsStr = implode(',', $orderIds);
+        $items = db_query(
+            "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
+                    p.name AS product_name, p.category, p.product_type,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.width')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.width')) END
+                    ) AS pf_width,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.height')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.height')) END
+                    ) AS pf_height,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.dimensions')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.dimensions')) END
+                    ) AS pf_dimensions,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.service_type')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')) END
+                    ) AS pf_service_type,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.source_page')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.source_page')) END
+                    ) AS pf_source_page,
+                    COALESCE(
+                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.form_type')) END,
+                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.form_type')) END
+                    ) AS pf_form_type
+             FROM order_items oi
+             LEFT JOIN products p ON p.product_id = oi.product_id
+             WHERE oi.order_id IN ({$idsStr})
+             ORDER BY oi.order_item_id ASC"
+        ) ?: [];
+
+        $itemsByOrder = [];
+        foreach ($items as $item) {
+            $itemsByOrder[(int)$item['order_id']][] = $item;
+        }
+
+        $payloads = [];
+        foreach ($orderIds as $orderId) {
+            $itemsOut = [];
+            $firstCustom = [];
+            $totalQty = 0;
+            $widthFt = '1';
+            $heightFt = '1';
+
+            foreach ($itemsByOrder[$orderId] ?? [] as $item) {
+                $custom = array_filter([
+                    'width' => $item['pf_width'] ?? null,
+                    'height' => $item['pf_height'] ?? null,
+                    'dimensions' => $item['pf_dimensions'] ?? null,
+                    'service_type' => $item['pf_service_type'] ?? null,
+                    'source_page' => $item['pf_source_page'] ?? null,
+                    'form_type' => $item['pf_form_type'] ?? null,
+                ], static fn($value): bool => $value !== null && trim((string)$value) !== '');
+                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                    continue;
+                }
+                if ($firstCustom === []) {
+                    $firstCustom = $custom;
+                }
+
+                $quantity = max(0, (int)($item['quantity'] ?? 0));
+                $totalQty += $quantity;
+                if (!empty($custom['width']) && !empty($custom['height'])) {
+                    $widthFt = (string)$custom['width'];
+                    $heightFt = (string)$custom['height'];
+                } elseif (!empty($custom['dimensions'])) {
+                    $dimensions = $custom['dimensions'];
+                    if (is_string($dimensions) && preg_match('/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/iu', $dimensions, $matches)) {
+                        $widthFt = $matches[1];
+                        $heightFt = $matches[2];
+                    }
+                }
+
+                $name = trim((string)($item['product_name'] ?? ''));
+                if ($name === '') {
+                    $name = get_service_name_from_customization($custom, 'Custom Order');
+                }
+
+                $itemsOut[] = [
+                    'order_item_id' => (int)($item['order_item_id'] ?? 0),
+                    'product_name' => $name,
+                    'product_type' => $item['product_type'] ?? 'custom',
+                    'quantity' => $quantity,
+                    'customization' => [],
+                ];
+            }
+
+            $serviceName = $itemsOut !== []
+                ? get_service_name_from_customization($firstCustom, $itemsOut[0]['product_name'] ?? 'Custom Order')
+                : '';
+            $payloads[$orderId] = [
+                'items' => $itemsOut,
+                'width_ft' => $widthFt,
+                'height_ft' => $heightFt,
+                'service_type' => $serviceName,
+                'line_qty' => $totalQty,
+            ];
+        }
+
+        return $payloads;
     }
 
     /**
@@ -2979,7 +3167,12 @@ class JobOrderService {
                 require_once __DIR__ . '/payment_verification.php';
                 $proof = payment_verification_resolve_proof($storeOid, (int)$id);
                 if ($proof) {
-                    $order['payment_proof_path'] = $proof['payment_proof_path'];
+                    $order['payment_proof_path'] = payment_verification_staff_proof_url(
+                        (int)($proof['submission_id'] ?? 0),
+                        $storeOid,
+                        (int)$id
+                    );
+                    $order['payment_proof_original_url'] = $order['payment_proof_path'];
                     $order['payment_submitted_amount'] = $proof['payment_submitted_amount'];
                     $order['payment_proof_uploaded_at'] = $proof['payment_proof_uploaded_at'];
                     $order['payment_submission_id'] = $proof['submission_id'];
@@ -2989,7 +3182,8 @@ class JobOrderService {
                 } else {
                     $proofRaw = $row['payment_proof_path'] ?? $row['payment_proof'] ?? '';
                     if ($proofRaw !== '' && $proofRaw !== null) {
-                        $order['payment_proof_path'] = $proofRaw;
+                        $order['payment_proof_path'] = payment_verification_staff_proof_url(0, $storeOid, (int)$id);
+                        $order['payment_proof_original_url'] = $order['payment_proof_path'];
                     }
                     $order['payment_submitted_amount'] = (float)($row['downpayment_amount'] ?? 0);
                     $order['payment_proof_uploaded_at'] = $row['payment_submitted_at'] ?? null;
@@ -3311,20 +3505,13 @@ class JobOrderService {
             return $quantity > 0 ? ['Quantity' => (string)$quantity] : [];
         }
 
-        $customerModalShape = function_exists('printflow_flatten_customization_for_customer_order_modal')
-            ? printflow_flatten_customization_for_customer_order_modal($custom, $quantity, true)
-            : [];
-        $staffFallbackShape = function_exists('printflow_modal_customization_fallback_flatten_for_staff')
-            ? printflow_modal_customization_fallback_flatten_for_staff($custom, $quantity)
-            : [];
-        if (is_array($customerModalShape) && is_array($staffFallbackShape) && $customerModalShape !== []) {
-            $mergedShape = printflow_overlay_nonempty_assoc($customerModalShape, $staffFallbackShape);
-            if ($mergedShape !== []) {
-                return $mergedShape;
-            }
-        }
-        if (is_array($staffFallbackShape) && $staffFallbackShape !== []) {
-            return $staffFallbackShape;
+        if (function_exists('printflow_customization_display_specs')) {
+            return printflow_customization_display_specs($custom, [
+                'include_service' => true,
+                'include_design' => false,
+                'include_notes' => false,
+                'include_quantity' => true,
+            ]);
         }
 
         // Keys that are purely internal/temp and must never be shown to staff.

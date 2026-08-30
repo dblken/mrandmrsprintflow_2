@@ -386,7 +386,7 @@ if (!function_exists('payment_verification_store_receipt')) {
             $message = match ($uploadError) {
                 UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'The receipt exceeds the server upload limit.',
                 UPLOAD_ERR_PARTIAL => 'The receipt upload was interrupted. Please try again.',
-                UPLOAD_ERR_NO_FILE => 'Please select a receipt image or PDF.',
+                UPLOAD_ERR_NO_FILE => 'Please select a receipt image.',
                 default => 'The receipt upload could not be completed.',
             };
             payment_verification_log('upload_failed', ['upload_error' => $uploadError]);
@@ -408,24 +408,16 @@ if (!function_exists('payment_verification_store_receipt')) {
             'image/jpeg' => 'jpg',
             'image/png' => 'png',
             'image/webp' => 'webp',
-            'application/pdf' => 'pdf',
         ];
         if (!isset($extensions[$mime])) {
             payment_verification_log('upload_failed', ['reason' => 'invalid_mime', 'mime' => $mime]);
-            return ['success' => false, 'error' => 'Only JPG, JPEG, PNG, WEBP, and PDF receipts are accepted.'];
+            return ['success' => false, 'error' => 'Only JPG, JPEG, PNG, and WEBP receipt images are accepted.'];
         }
 
-        if ($mime === 'application/pdf') {
-            $head = (string)@file_get_contents($tmp, false, null, 0, 5);
-            if ($head !== '%PDF-') {
-                return ['success' => false, 'error' => 'The uploaded PDF is not valid.'];
-            }
-        } else {
-            $info = @getimagesize($tmp);
-            $pixels = !empty($info[0]) && !empty($info[1]) ? ((int)$info[0] * (int)$info[1]) : 0;
-            if (!$info || $pixels <= 0 || $pixels > 40000000) {
-                return ['success' => false, 'error' => 'The receipt image is invalid or too large to process safely.'];
-            }
+        $info = @getimagesize($tmp);
+        $pixels = !empty($info[0]) && !empty($info[1]) ? ((int)$info[0] * (int)$info[1]) : 0;
+        if (!$info || $pixels <= 0 || $pixels > 40000000) {
+            return ['success' => false, 'error' => 'The receipt image is invalid or too large to process safely.'];
         }
 
         $directory = dirname(__DIR__) . '/uploads/secure_payments';
@@ -2203,6 +2195,29 @@ if (!function_exists('payment_verification_proof_url')) {
         if ($path === '') return '';
         $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
         return $base . '/api_view_proof.php?file=' . rawurlencode($path);
+    }
+}
+
+if (!function_exists('payment_verification_staff_proof_url')) {
+    function payment_verification_staff_proof_url(
+        int $submissionId = 0,
+        int $orderId = 0,
+        int $jobOrderId = 0,
+        string $variant = 'full'
+    ): string {
+        $base = defined('BASE_PATH') ? rtrim((string)BASE_PATH, '/') : '';
+        $query = [];
+        if ($submissionId > 0) {
+            $query['id'] = $submissionId;
+        } elseif ($jobOrderId > 0) {
+            $query['job_order_id'] = $jobOrderId;
+        } elseif ($orderId > 0) {
+            $query['order_id'] = $orderId;
+        } else {
+            return '';
+        }
+        if ($variant === 'thumbnail') $query['variant'] = 'thumbnail';
+        return $base . '/staff/api/payment_proof_image.php?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
     }
 }
 

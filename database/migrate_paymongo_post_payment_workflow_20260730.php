@@ -21,6 +21,8 @@ $columns = [
         ADD COLUMN provider_status VARCHAR(30) NOT NULL DEFAULT 'awaiting_payment' AFTER payment_status",
     'payment_method' => "ALTER TABLE provider_payments
         ADD COLUMN payment_method VARCHAR(30) DEFAULT NULL AFTER provider_payment_id",
+    'last_reconciled_at' => "ALTER TABLE provider_payments
+        ADD COLUMN last_reconciled_at DATETIME DEFAULT NULL AFTER paid_at",
 ];
 
 foreach ($columns as $column => $sql) {

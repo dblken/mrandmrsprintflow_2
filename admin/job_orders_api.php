@@ -72,6 +72,7 @@ require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/job_order_summary.php';
 
 if (!is_logged_in()) {
     jo_api_json_response(['success' => false, 'error' => 'Unauthorized'], 401);
@@ -94,6 +95,8 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
     $durationMs = max(0, (microtime(true) - (float)$joApiStartedAt) * 1000);
     header('Server-Timing: app;dur=' . number_format($durationMs, 1, '.', ''));
     header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store, max-age=0');
+    header('Vary: Cookie');
     if ($durationMs >= 2000) {
         $action = preg_replace('/[^a-z0-9_\-]/i', '', (string)($_GET['action'] ?? $_POST['action'] ?? 'unknown'));
         error_log(sprintf(
@@ -115,6 +118,10 @@ function jo_api_json_response(array $payload, int $statusCode = 200): never {
     }
     echo $json;
     exit;
+}
+
+function jo_api_revision_review(int $orderId): ?array {
+    return printflow_revision_review_payload($orderId, true);
 }
 
 /** Staff / Manager only see/manage job orders for their assigned branch. */
@@ -156,7 +163,7 @@ function jo_api_require_staff_branch(?int $staffBranch, int $jobId): void {
 }
 
 /**
- * Attach the latest PayMongo Test ledger row without exposing provider secrets.
+ * Attach the latest PayMongo ledger row without exposing provider secrets.
  * Paid customization rows stay in the Payment bucket until staff starts production.
  */
 function jo_api_attach_provider_payments(array &$rows): void {
@@ -192,9 +199,10 @@ function jo_api_attach_provider_payments(array &$rows): void {
 
     $payments = db_query(
         "SELECT * FROM provider_payments
-         WHERE provider = 'paymongo' AND mode = 'test'
-           AND (" . implode(' OR ', $conditions) . ')
-         ORDER BY id DESC'
+         WHERE provider = 'paymongo' AND mode IN ('test', 'live')
+           AND (" . implode(' OR ', $conditions) . ")
+         ORDER BY CASE WHEN status = 'paid' THEN 0 WHEN status = 'awaiting_payment' THEN 1 ELSE 2 END,
+                  id DESC"
     ) ?: [];
     $byOrder = [];
     $byJob = [];
@@ -230,7 +238,7 @@ function jo_api_attach_provider_payments(array &$rows): void {
         $row['provider_payment_status'] = (string)($public['status'] ?? '');
         if (($public['status'] ?? '') === 'paid') {
             $row['payment_status'] = 'PAID';
-            $row['amount_paid'] = ((int)($public['amount'] ?? 0)) / 100;
+            $row['amount_paid'] = ((int)($public['paid_amount_centavos'] ?? 0)) / 100;
             $normalizedStatus = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
             if (in_array($normalizedStatus, [
                 'PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'APPROVED',
@@ -314,6 +322,251 @@ function jo_api_require_staff_order_branch(?int $staffBranch, int $orderId): voi
     if (!printflow_order_in_branch($orderId, $staffBranch)) {
         throw new Exception('Unauthorized');
     }
+}
+
+class JoApiConflictException extends RuntimeException {}
+class JoApiPersistenceException extends RuntimeException {}
+
+/**
+ * Protect staff-side mutations without removing the customer read/create actions
+ * that intentionally share this legacy endpoint.
+ */
+function jo_api_require_staff_mutation(): void {
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+        jo_api_json_response([
+            'success' => false,
+            'error' => 'Method not allowed.',
+            'message' => 'Method not allowed.',
+        ], 405);
+    }
+    if (!has_role(['Admin', 'Manager', 'Staff'])) {
+        jo_api_json_response([
+            'success' => false,
+            'error' => 'Staff access is required.',
+            'message' => 'Staff access is required.',
+        ], 403);
+    }
+    if (!verify_csrf_token((string)($_POST['csrf_token'] ?? ''))) {
+        jo_api_json_response([
+            'success' => false,
+            'error' => 'Invalid security token.',
+            'message' => 'Invalid security token.',
+        ], 403);
+    }
+}
+
+/** Convert a staff-entered decimal amount to an exact two-decimal value. */
+function jo_api_parse_final_price($rawPrice): float {
+    $centavos = printflow_money_to_centavos($rawPrice);
+    if ($centavos < 100) {
+        throw new InvalidArgumentException('Price must be a valid amount of at least PHP 1.00 with no more than two decimal places.');
+    }
+    return $centavos / 100;
+}
+
+function jo_api_normalize_status_for_lock($status): string {
+    $normalized = strtoupper(trim((string)$status));
+    $normalized = str_replace(['-', ' '], '_', $normalized);
+    return trim((string)preg_replace('/_+/', '_', $normalized), '_');
+}
+
+function jo_api_provider_payment_table_ready(): bool {
+    static $ready = null;
+    if ($ready === null) {
+        $ready = !empty(db_query("SHOW TABLES LIKE 'provider_payments'") ?: []);
+    }
+    return $ready;
+}
+
+/** @return array<string,mixed> */
+function jo_api_lock_editable_order_price(int $orderId, int $jobOrderId = 0): array {
+    if ($orderId <= 0) {
+        throw new InvalidArgumentException('Order ID required.');
+    }
+
+    $exists = db_query('SELECT order_id FROM orders WHERE order_id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+    if (empty($exists)) {
+        throw new RuntimeException('Order not found.');
+    }
+
+    // Payment confirmation locks its provider ledger before touching the order.
+    // Use the same ordering here to avoid a provider<->order deadlock.
+    if (jo_api_provider_payment_table_ready()) {
+        $providerBlockingStatuses = printflow_paymongo_online_payment_enabled()
+            ? "'generating', 'awaiting_payment', 'paid'"
+            : "'paid'";
+        $conditions = ['order_id = ?', "(subject_type = 'order' AND subject_id = ?)"];
+        $params = [$orderId, $orderId];
+        $types = 'ii';
+        if ($jobOrderId > 0) {
+            $conditions[] = 'job_order_id = ?';
+            $conditions[] = "(subject_type = 'job_order' AND subject_id = ?)";
+            $params[] = $jobOrderId;
+            $params[] = $jobOrderId;
+            $types .= 'ii';
+        }
+        $providerRows = db_query(
+            "SELECT id, status FROM provider_payments
+             WHERE provider = 'paymongo'
+               AND (" . implode(' OR ', $conditions) . ")
+               AND status IN ({$providerBlockingStatuses})
+             ORDER BY id DESC LIMIT 1 FOR UPDATE",
+            $types,
+            $params
+        ) ?: [];
+        if (!empty($providerRows)) {
+            throw new JoApiConflictException('The final price cannot be changed after a PayMongo payment session has started.');
+        }
+    }
+
+    $rows = db_query(
+        'SELECT order_id, status, payment_status, total_amount, order_source, order_type,
+                payment_proof_path, payment_proof
+         FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
+        'i',
+        [$orderId]
+    ) ?: [];
+    if (empty($rows)) {
+        throw new RuntimeException('Order not found.');
+    }
+
+    $order = $rows[0];
+    $paymentStatus = jo_api_normalize_status_for_lock($order['payment_status'] ?? '');
+    if (in_array($paymentStatus, ['PAID', 'FULLY_PAID'], true)) {
+        throw new JoApiConflictException('The final price cannot be changed after payment has been confirmed.');
+    }
+    if (trim((string)($order['payment_proof_path'] ?? '')) !== ''
+        || trim((string)($order['payment_proof'] ?? '')) !== '') {
+        throw new JoApiConflictException('The final price cannot be changed after payment proof has been submitted.');
+    }
+
+    $lockedStatuses = [
+        'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED', 'TO_VERIFY', 'PAYMENT_CONFIRMED',
+        'PROCESSING', 'IN_PRODUCTION', 'PRINTING', 'TO_RECEIVE', 'READY_FOR_PICKUP',
+        'READY', 'READY_TO_COLLECT', 'READY_FOR_DELIVERY', 'COMPLETED', 'CANCELLED', 'REJECTED',
+    ];
+    if (in_array(jo_api_normalize_status_for_lock($order['status'] ?? ''), $lockedStatuses, true)) {
+        throw new JoApiConflictException('The final price cannot be changed after payment review or production has started, or after the order is closed.');
+    }
+
+    $linkedJobs = db_query(
+        'SELECT id, status, payment_status
+         FROM job_orders
+         WHERE order_id = ?
+         ORDER BY id ASC
+         FOR UPDATE',
+        'i',
+        [$orderId]
+    ) ?: [];
+    $lockedJobStatuses = [
+        'VERIFY_PAY', 'PAYMENT_CONFIRMED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING',
+        'TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_TO_COLLECT', 'READY_FOR_DELIVERY',
+        'COMPLETED', 'CANCELLED', 'REJECTED',
+    ];
+    foreach ($linkedJobs as $linkedJob) {
+        $jobPaymentStatus = jo_api_normalize_status_for_lock($linkedJob['payment_status'] ?? '');
+        if (in_array($jobPaymentStatus, ['PAID', 'FULLY_PAID', 'YES'], true)) {
+            throw new JoApiConflictException('The final price cannot be changed after payment has been confirmed.');
+        }
+        if (in_array(jo_api_normalize_status_for_lock($linkedJob['status'] ?? ''), $lockedJobStatuses, true)) {
+            throw new JoApiConflictException('The final price cannot be changed after payment review or production has started, or after the order is closed.');
+        }
+    }
+
+    return $order;
+}
+
+/** @return array<string,mixed> */
+function jo_api_lock_editable_job_price(int $jobId): array {
+    $probeRows = db_query(
+        'SELECT id, order_id FROM job_orders WHERE id = ? LIMIT 1',
+        'i',
+        [$jobId]
+    ) ?: [];
+    if (empty($probeRows)) {
+        throw new RuntimeException('Order not found.');
+    }
+
+    $linkedOrderId = (int)($probeRows[0]['order_id'] ?? 0);
+    if ($linkedOrderId > 0) {
+        // Always acquire the store-order lock before the job lock. This keeps
+        // lock ordering consistent with order-based price updates.
+        jo_api_lock_editable_order_price($linkedOrderId, $jobId);
+    } elseif (jo_api_provider_payment_table_ready()) {
+        // Keep the same provider-before-subject lock order for standalone jobs.
+        $providerBlockingStatuses = printflow_paymongo_online_payment_enabled()
+            ? "'generating', 'awaiting_payment', 'paid'"
+            : "'paid'";
+        $providerRows = db_query(
+            "SELECT id, status FROM provider_payments
+             WHERE provider = 'paymongo'
+               AND (job_order_id = ? OR (subject_type = 'job_order' AND subject_id = ?))
+               AND status IN ({$providerBlockingStatuses})
+             ORDER BY id DESC LIMIT 1 FOR UPDATE",
+            'ii',
+            [$jobId, $jobId]
+        ) ?: [];
+        if (!empty($providerRows)) {
+            throw new JoApiConflictException('The final price cannot be changed after a PayMongo payment session has started.');
+        }
+    }
+
+    $rows = db_query(
+        'SELECT id, order_id, status, payment_status FROM job_orders WHERE id = ? LIMIT 1 FOR UPDATE',
+        'i',
+        [$jobId]
+    ) ?: [];
+    if (empty($rows)) {
+        throw new RuntimeException('Order not found.');
+    }
+    $job = $rows[0];
+    if ((int)($job['order_id'] ?? 0) !== $linkedOrderId) {
+        throw new JoApiConflictException('The linked order changed while its price was being updated. Please retry.');
+    }
+
+    $paymentStatus = jo_api_normalize_status_for_lock($job['payment_status'] ?? '');
+    if (in_array($paymentStatus, ['PAID', 'FULLY_PAID', 'YES'], true)) {
+        throw new JoApiConflictException('The final price cannot be changed after payment has been confirmed.');
+    }
+    $lockedStatuses = [
+        'VERIFY_PAY', 'PAYMENT_CONFIRMED', 'IN_PRODUCTION', 'PROCESSING', 'PRINTING',
+        'TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_TO_COLLECT', 'READY_FOR_DELIVERY',
+        'COMPLETED', 'CANCELLED', 'REJECTED',
+    ];
+    if (in_array(jo_api_normalize_status_for_lock($job['status'] ?? ''), $lockedStatuses, true)) {
+        throw new JoApiConflictException('The final price cannot be changed after payment review or production has started, or after the order is closed.');
+    }
+
+    return $job;
+}
+
+function jo_api_require_db_write($result, string $message): void {
+    if ($result === false) {
+        throw new JoApiPersistenceException($message);
+    }
+}
+
+/**
+ * Persist the authoritative staff-approved order total. Optional audit columns
+ * are used only after their additive migration has been applied.
+ */
+function jo_api_store_order_final_price(int $orderId, float $price): void {
+    $sql = 'UPDATE orders SET total_amount = ?';
+    $types = 'd';
+    $params = [$price];
+    if (db_table_has_column('orders', 'price_finalized_at')
+        && db_table_has_column('orders', 'price_finalized_by')) {
+        $sql .= ', price_finalized_at = NOW(), price_finalized_by = ?';
+        $types .= 'i';
+        $params[] = (int)get_user_id();
+    }
+    $sql .= ' WHERE order_id = ?';
+    $types .= 'i';
+    $params[] = $orderId;
+    jo_api_require_db_write(
+        db_execute($sql, $types, $params),
+        'Unable to save the final order price.'
+    );
 }
 
 function jo_api_normalize_customer_type($customerType, $transactionCount = null): string {
@@ -654,9 +907,175 @@ if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET'
 
 try {
     switch ($action) {
+        case 'customization_counts':
+            if (!in_array(get_user_type() ?? '', ['Admin', 'Staff', 'Manager'], true)) {
+                jo_api_json_response(['success' => false, 'error' => 'Forbidden'], 403);
+            }
+            // Counts are intentionally computed from identifiers/statuses only.
+            // Full order items, specifications, designs and payment proofs never
+            // participate in this response.
+            $countRows = [];
+            $orderCountSql = "SELECT o.order_id AS id, o.order_id, o.status, o.updated_at,
+                                     'ORDER' AS order_type, COALESCE(o.order_source, 'customer') AS order_source,
+                                     LOWER(TRIM(COALESCE(c.email, ''))) AS customer_email
+                              FROM orders o
+                              LEFT JOIN customers c ON c.customer_id = o.customer_id
+                              WHERE o.order_type = 'custom'
+                                AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
+                                AND o.status IN (
+                                    'Pending', 'Pending Review', 'Pending Approval', 'For Revision',
+                                    'Approved', 'Design Approved', 'To Pay', 'Payment Confirmed',
+                                    'Downpayment Submitted', 'Pending Verification', 'To Verify',
+                                    'Processing', 'In Production', 'Printing', 'Paid – In Process',
+                                    'Paid - In Process', 'Ready for Pickup', 'Completed', 'Rejected', 'Cancelled'
+                                )";
+            $countTypes = '';
+            $countParams = [];
+            if ($joStaffBranch !== null) {
+                $orderCountSql .= ' AND o.branch_id = ?';
+                $countTypes .= 'i';
+                $countParams[] = $joStaffBranch;
+            }
+            $orderRows = db_query($orderCountSql, $countTypes ?: null, $countParams ?: null) ?: [];
+            foreach ($orderRows as $row) {
+                $source = strtolower(trim((string)($row['order_source'] ?? 'customer')));
+                if (($row['customer_email'] ?? '') === 'walkin@pos.local') {
+                    $source = 'pos';
+                }
+                if (jo_api_source_matches($source, $listSource)) {
+                    $row['_count_key'] = 'ORDER:' . (int)($row['order_id'] ?? 0);
+                    $countRows[] = $row;
+                }
+            }
+
+            // POS customizations are workflow mirrors of store orders and may
+            // carry a newer status. Include only their tiny identity/status
+            // projection, then de-duplicate by order below.
+            if ($listSource !== 'online') {
+                $customCountSql = "SELECT cust.customization_id AS id, cust.order_id, cust.status, cust.updated_at,
+                                          'CUSTOMIZATION' AS order_type, 'pos' AS order_source
+                                   FROM customizations cust
+                                   LEFT JOIN orders o ON o.order_id = cust.order_id
+                                   WHERE cust.order_id IS NOT NULL
+                                     AND cust.status IN (
+                                         'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
+                                         'Approved', 'To Pay', 'Payment Confirmed', 'Pending Verification',
+                                         'Downpayment Submitted', 'To Verify', 'Processing', 'In Production',
+                                         'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled'
+                                     )
+                                     AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')
+                                     AND (
+                                         LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
+                                         OR cust.customization_details LIKE '%\"source\":\"POS\"%'
+                                         OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                                     )";
+                $customCountTypes = '';
+                $customCountParams = [];
+                if ($joStaffBranch !== null) {
+                    $customCountSql .= ' AND o.branch_id = ?';
+                    $customCountTypes = 'i';
+                    $customCountParams[] = $joStaffBranch;
+                }
+                foreach (db_query($customCountSql, $customCountTypes ?: null, $customCountParams ?: null) ?: [] as $row) {
+                    $row['_count_key'] = 'ORDER:' . (int)($row['order_id'] ?? 0);
+                    $countRows[] = $row;
+                }
+            }
+
+            // Standalone production jobs have no store order to represent them.
+            $jobCountSql = "SELECT id, NULL AS order_id, status, updated_at, 'JOB' AS order_type
+                            FROM job_orders WHERE order_id IS NULL";
+            $jobCountTypes = '';
+            $jobCountParams = [];
+            if ($joStaffBranch !== null) {
+                $jobCountSql .= ' AND branch_id = ?';
+                $jobCountTypes = 'i';
+                $jobCountParams[] = $joStaffBranch;
+            }
+            if ($listSource !== 'pos') {
+                foreach (db_query($jobCountSql, $jobCountTypes ?: null, $jobCountParams ?: null) ?: [] as $row) {
+                    $row['_count_key'] = 'JOB:' . (int)($row['id'] ?? 0);
+                    $countRows[] = $row;
+                }
+            }
+
+            if ($listSource !== 'pos') {
+                service_order_ensure_tables();
+                $serviceCountSql = "SELECT id, id AS order_id, status, updated_at, 'SERVICE' AS order_type FROM service_orders
+                                    WHERE status IN (
+                                        'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
+                                        'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
+                                        'Completed', 'Rejected', 'Cancelled'
+                                    )";
+                $serviceCountTypes = '';
+                $serviceCountParams = [];
+                if ($joStaffBranch !== null) {
+                    $serviceCountSql .= ' AND branch_id = ?';
+                    $serviceCountTypes = 'i';
+                    $serviceCountParams[] = $joStaffBranch;
+                }
+                foreach (db_query($serviceCountSql, $serviceCountTypes ?: null, $serviceCountParams ?: null) ?: [] as $row) {
+                    $row['_count_key'] = 'SERVICE:' . (int)($row['id'] ?? 0);
+                    $countRows[] = $row;
+                }
+            }
+
+            $countRowsByKey = [];
+            foreach ($countRows as $row) {
+                $key = (string)($row['_count_key'] ?? '');
+                if ($key === '') continue;
+                $incomingTs = strtotime((string)($row['updated_at'] ?? '')) ?: 0;
+                $existingTs = isset($countRowsByKey[$key])
+                    ? (strtotime((string)($countRowsByKey[$key]['updated_at'] ?? '')) ?: 0)
+                    : -1;
+                if (!isset($countRowsByKey[$key]) || $incomingTs >= $existingTs) {
+                    $countRowsByKey[$key] = $row;
+                }
+            }
+            $countRows = array_values($countRowsByKey);
+            jo_api_attach_provider_payments($countRows);
+
+            $counts = [
+                'ALL' => 0, 'INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0,
+                'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CLOSED' => 0,
+                'PENDING' => 0, 'CANCELLED' => 0,
+            ];
+            foreach ($countRows as $row) {
+                $statusKey = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
+                $statusKey = str_replace(['–', '-'], '_', $statusKey);
+                $counts['ALL']++;
+                if (in_array($statusKey, ['REJECTED', 'CANCELLED'], true)) {
+                    $counts['CLOSED']++;
+                    $counts['CANCELLED']++;
+                } elseif ($statusKey === 'COMPLETED') {
+                    $counts['COMPLETED']++;
+                } elseif (in_array($statusKey, ['TO_RECEIVE', 'READY_FOR_PICKUP', 'READY_TO_COLLECT'], true)) {
+                    $counts['TO_RECEIVE']++;
+                    $counts['PENDING']++;
+                } elseif (in_array($statusKey, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'PAID___IN_PROCESS'], true)) {
+                    $counts['PRODUCTION']++;
+                    $counts['PENDING']++;
+                } elseif (in_array($statusKey, ['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'], true)) {
+                    $counts['PAYMENT']++;
+                    $counts['PENDING']++;
+                } else {
+                    $counts['INQUIRY']++;
+                    $counts['PENDING']++;
+                }
+            }
+            jo_api_json_response(['success' => true, 'data' => $counts]);
+            break;
+
         case 'list_orders':
             $status = sanitize($_GET['status'] ?? '');
-            $sql = "SELECT jo.*, c.first_name, c.last_name, c.customer_type, c.transaction_count,
+            $jobColumns = $summaryOnly
+                ? "jo.id, jo.order_id, jo.customer_id, jo.order_item_id, jo.branch_id,
+                   jo.job_title, jo.customer_name, jo.service_type, jo.status, jo.customer_type,
+                   jo.width_ft, jo.height_ft, jo.quantity, jo.estimated_total, jo.amount_paid,
+                   jo.required_payment, jo.payment_status, jo.due_date, jo.priority,
+                   jo.created_at, jo.updated_at, jo.payment_proof_status"
+                : 'jo.*';
+            $sql = "SELECT {$jobColumns}, c.first_name, c.last_name, c.customer_type, c.transaction_count,
                            c.profile_picture AS customer_profile_picture,
                            TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_address,
                            COALESCE(NULLIF(TRIM(c.contact_number), ''), NULLIF(TRIM(c.email), '')) AS customer_contact,
@@ -693,12 +1112,21 @@ try {
                     )
                 )";
             }
+            if ($listSource === 'pos') {
+                $sql .= " AND jo.order_id IS NOT NULL
+                          AND (LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
+                               OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local')";
+            } elseif ($listSource === 'online') {
+                $sql .= " AND (jo.order_id IS NULL
+                          OR (LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_draft', 'pos_merged')
+                              AND LOWER(TRIM(COALESCE(c.email, ''))) <> 'walkin@pos.local'))";
+            }
             
             // Pagination
             $page = max(1, (int)($_GET['page'] ?? 1));
             $per_page = isset($_GET['customer_id'])
                 ? 10
-                : min(500, max(1, (int)($_GET['per_page'] ?? 250)));
+                : min(500, max(1, (int)($_GET['per_page'] ?? ($summaryOnly ? 25 : 250))));
             $offset = ($page - 1) * $per_page;
             
             $includePagination = isset($_GET['customer_id'])
@@ -719,6 +1147,7 @@ try {
             $sql .= " ORDER BY jo.priority = 'HIGH' DESC, jo.due_date ASC, jo.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $per_page; $params[] = $offset; $types .= 'ii';
             $orders = db_query($sql, $types ?: null, $params ?: null) ?: [];
+            $fetchedOrderCount = count($orders);
 
             $orderSourceMap = jo_api_resolve_order_sources_batch($orders);
             if ($listSource !== 'all') {
@@ -798,7 +1227,9 @@ try {
                     }
                 }
                 
-                $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($jobOrderIds, $serviceOnly);
+                $payloads = $summaryOnly
+                    ? JobOrderService::getStoreOrderItemSummariesBatch($jobOrderIds, $serviceOnly)
+                    : JobOrderService::getStoreOrderItemsPayloadsBatch($jobOrderIds, $serviceOnly);
                 $orderCodes = jo_api_order_codes($jobOrderIds);
 
                 $visibleOrders = [];
@@ -855,6 +1286,9 @@ try {
                 $orders = $visibleOrders;
             }
             jo_api_attach_provider_payments($orders);
+            if ($summaryOnly) {
+                $orders = jo_api_summary_rows($orders);
+            }
             
             $response = ['success' => true, 'data' => $orders];
             if ($includePagination) {
@@ -862,7 +1296,8 @@ try {
                     'current_page' => $page,
                     'total_pages' => max(1, ceil($total_count / $per_page)),
                     'total_items' => $total_count,
-                    'per_page' => $per_page
+                    'per_page' => $per_page,
+                    'has_more' => $fetchedOrderCount === $per_page,
                 ];
             }
             
@@ -891,7 +1326,10 @@ try {
             break;
 
         case 'list_pending_orders':
-            $dashboardListLimit = min(500, max(50, (int)($_GET['per_page'] ?? 250)));
+            $dashboardListLimit = min(500, max(1, (int)($_GET['per_page'] ?? ($summaryOnly ? 25 : 250))));
+            $dashboardListPage = max(1, (int)($_GET['page'] ?? 1));
+            $dashboardListOffset = ($dashboardListPage - 1) * $dashboardListLimit;
+            $dashboardFetchLimit = min(500, $dashboardListOffset + $dashboardListLimit + 1);
             // Fetch regular product orders with pending status for staff customization dashboard
             $sql = "SELECT 
                         o.order_id as id,
@@ -937,7 +1375,7 @@ try {
                         NULL as priority,
                         o.total_amount as estimated_total,
                         (SELECT MIN(jo.id) FROM job_orders jo WHERE jo.order_id = o.order_id) AS job_order_id,
-                        o.payment_proof as payment_proof_path,
+                        " . ($summaryOnly ? "NULL" : "o.payment_proof") . " as payment_proof_path,
                         o.downpayment_amount as payment_submitted_amount,
                         COALESCE(o.order_source, 'customer') as order_source
                     FROM orders o
@@ -954,14 +1392,20 @@ try {
                         'Completed', 'Rejected', 'Cancelled'
                     )"
                     . ($serviceOnly ? " AND o.order_type = 'custom'" : "")
+                    . ($listSource === 'pos'
+                        ? " AND (LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in') OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local')"
+                        : ($listSource === 'online'
+                            ? " AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_draft', 'pos_merged') AND LOWER(TRIM(COALESCE(c.email, ''))) <> 'walkin@pos.local'"
+                            : ""))
                     . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                     GROUP BY o.order_id
                     ORDER BY o.order_date DESC
-                    LIMIT " . (int)$dashboardListLimit;
+                    LIMIT " . (int)$dashboardFetchLimit;
 
              $pending_orders = $joStaffBranch !== null
                  ? (db_query($sql, 'i', [$joStaffBranch]) ?: [])
                  : (db_query($sql) ?: []);
+             $pendingFetchedCount = count($pending_orders);
 
              $pendingSourceMap = jo_api_resolve_order_sources_batch($pending_orders);
              if ($listSource !== 'all') {
@@ -983,7 +1427,9 @@ try {
                  }
              }
 
-             $payloads = JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
+             $payloads = $summaryOnly
+                 ? JobOrderService::getStoreOrderItemSummariesBatch($pendingOrderIds, $serviceOnly)
+                 : JobOrderService::getStoreOrderItemsPayloadsBatch($pendingOrderIds, $serviceOnly);
              $pendingOrderCodes = jo_api_order_codes($pendingOrderIds);
 
              $visiblePendingOrders = [];
@@ -1003,7 +1449,10 @@ try {
                  }
                  $visiblePendingOrders[] = $order;
              }
-             $pending_orders = $visiblePendingOrders;
+            $pending_orders = $visiblePendingOrders;
+            // Use the pre-filter count so a page containing rows from the other
+            // staff source does not incorrectly terminate online/POS paging.
+            $pendingHasMore = $pendingFetchedCount === $dashboardFetchLimit;
 
             // Customizations from POS (customizations table).
             // Online service orders also create rows in customizations, but the complete
@@ -1064,7 +1513,7 @@ try {
                 )"
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
-                LIMIT " . (int)$dashboardListLimit;
+                LIMIT " . (int)$dashboardFetchLimit;
 
             $custom_orders = [];
             if ($listSource !== 'online') {
@@ -1090,6 +1539,7 @@ try {
                 }
             }
             unset($co);
+            $customHasMore = count($custom_orders) === $dashboardFetchLimit;
 
             // Service purchases (service_orders) — same dashboard shape; order_type SERVICE
             service_order_ensure_tables();
@@ -1134,17 +1584,23 @@ try {
                     'Pending Review', 'Pending', 'Pending Approval', 'For Revision',
                     'Approved', 'Processing', 'Ready for Pickup', 'Ready For Pickup',
                     'Completed', 'Rejected', 'Cancelled'
-                )
+                )"
+                . ($joStaffBranch !== null ? " AND so.branch_id = ?" : "") . "
                 ORDER BY so.created_at DESC
-                LIMIT " . (int)$dashboardListLimit;
+                LIMIT " . (int)$dashboardFetchLimit;
 
-            $svc_orders = $listSource === 'pos' ? [] : (db_query($svc_sql) ?: []);
+            $svc_orders = $listSource === 'pos'
+                ? []
+                : ($joStaffBranch !== null
+                    ? (db_query($svc_sql, 'i', [$joStaffBranch]) ?: [])
+                    : (db_query($svc_sql) ?: []));
             foreach ($svc_orders as &$so) {
                 $so['readiness'] = 'READY';
                 $so['estimated_cost'] = 0;
                 $so['order_code'] = 'SRV-' . str_pad((string)((int)($so['id'] ?? 0)), 5, '0', STR_PAD_LEFT);
             }
             unset($so);
+            $serviceHasMore = count($svc_orders) === $dashboardFetchLimit;
 
             $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
             jo_api_attach_provider_payments($merged);
@@ -1154,7 +1610,37 @@ try {
                 return $tb <=> $ta;
             });
 
-            jo_api_json_response(['success' => true, 'data' => $merged]);
+            // The three sources can mirror the same store order. Keep the newest
+            // representative before applying the combined server-side page.
+            $deduped = [];
+            $seenOrderKeys = [];
+            foreach ($merged as $row) {
+                $orderKey = (string)($row['order_id'] ?? $row['id'] ?? '');
+                if ($orderKey !== '' && isset($seenOrderKeys[$orderKey])) {
+                    continue;
+                }
+                if ($orderKey !== '') {
+                    $seenOrderKeys[$orderKey] = true;
+                }
+                $deduped[] = $row;
+            }
+            $mergedHasMore = count($deduped) > ($dashboardListOffset + $dashboardListLimit)
+                || $pendingHasMore || $customHasMore || $serviceHasMore;
+            $merged = array_slice($deduped, $dashboardListOffset, $dashboardListLimit);
+
+            if ($summaryOnly) {
+                $merged = jo_api_summary_rows($merged);
+            }
+
+            jo_api_json_response([
+                'success' => true,
+                'data' => $merged,
+                'pagination' => [
+                    'current_page' => $dashboardListPage,
+                    'per_page' => $dashboardListLimit,
+                    'has_more' => $mergedHasMore,
+                ],
+            ]);
             break;
 
         case 'list_machines':
@@ -1173,6 +1659,7 @@ try {
             if (is_array($order['items'] ?? null)) {
                 jo_api_hydrate_items_raw((int)($order['order_id'] ?? 0), $order['items']);
             }
+            $order['revision_review'] = jo_api_revision_review((int)($order['order_id'] ?? 0));
             $detailRows = [$order];
             jo_api_attach_provider_payments($detailRows);
             $order = $detailRows[0];
@@ -1181,12 +1668,12 @@ try {
             break;
 
         case 'update_customization':
-            if (!in_array($_SESSION['user_type'] ?? '', ['Admin', 'Staff', 'Manager'])) {
-                throw new Exception('Unauthorized');
-            }
+            jo_api_require_staff_mutation();
             $cust_id = (int)($_POST['id'] ?? 0);
             $raw_status = sanitize($_POST['status'] ?? '');
-            $price = isset($_POST['price']) ? (float)$_POST['price'] : null;
+            $price = array_key_exists('price', $_POST)
+                ? jo_api_parse_final_price($_POST['price'])
+                : null;
             if (!$cust_id || !$raw_status) throw new Exception('ID and status required.');
 
             // Normalize frontend enum values to DB-stored strings
@@ -1205,6 +1692,13 @@ try {
             ];
             $new_status = $status_to_db[$raw_status] ?? $raw_status;
             $rejection_reason = sanitize($_POST['reason'] ?? '');
+            $revision_reason_code = sanitize($_POST['revision_reason_code'] ?? '');
+            $revision_reason_label = sanitize($_POST['revision_reason_label'] ?? '');
+            $revision_instruction = trim((string)($_POST['revision_instruction'] ?? ''));
+            $revision_permitted_fields = $_POST['revision_permitted_fields'] ?? [];
+            if (!is_array($revision_permitted_fields)) {
+                $revision_permitted_fields = [$revision_permitted_fields];
+            }
 
             // Check if payment proof already exists for this customization's order
             $order_check = db_query(
@@ -1218,6 +1712,38 @@ try {
             $has_payment_proof = !empty($order_check) && !empty($order_check[0]['payment_proof_path']);
             $payment_amount    = !empty($order_check) ? (float)($order_check[0]['downpayment_amount'] ?? 0) : 0;
             $linked_order_id   = !empty($order_check) ? (int)$order_check[0]['order_id'] : null;
+            if (!$linked_order_id) {
+                throw new RuntimeException('Customization not found.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $linked_order_id);
+
+            if ($new_status === 'For Revision' && !printflow_revision_ensure_schema()) {
+                throw new Exception('Revision request storage is unavailable.');
+            }
+
+            $customizationTransactionStarted = !($conn->in_transaction ?? false);
+            if ($customizationTransactionStarted && !$conn->begin_transaction()) {
+                throw new JoApiPersistenceException('Unable to start the customization update transaction.');
+            }
+
+            if ($price !== null) {
+                jo_api_lock_editable_order_price($linked_order_id);
+                jo_api_require_staff_order_branch($joStaffBranch, $linked_order_id);
+            }
+
+            if ($new_status === 'For Revision' && $linked_order_id) {
+                $revision_request = printflow_revision_create_request(
+                    $linked_order_id,
+                    (int) get_user_id(),
+                    $revision_reason_code !== '' ? $revision_reason_code : $rejection_reason,
+                    $revision_instruction !== '' ? $revision_instruction : $rejection_reason,
+                    $revision_permitted_fields,
+                    $revision_reason_label !== '' ? $revision_reason_label : $rejection_reason
+                );
+                $rejection_reason = (string) $revision_request['legacy_reason'];
+            } elseif ($linked_order_id) {
+                printflow_revision_close_active($linked_order_id, 'Closed - ' . $new_status);
+            }
 
             // If TO_PAY but proof already uploaded, skip straight to verification
             if ($new_status === 'To Pay' && $has_payment_proof && $payment_amount > 0) {
@@ -1250,10 +1776,13 @@ try {
                 $targetJobStatus = $job_status_sync[$new_status];
                 foreach ($linked_job_ids as $jobId) {
                     if ($price !== null) {
-                        db_execute(
-                            "UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?",
-                            'ddi',
-                            [$price, $price, $jobId]
+                        jo_api_require_db_write(
+                            db_execute(
+                                "UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?",
+                                'ddi',
+                                [$price, $price, $jobId]
+                            ),
+                            'Unable to synchronize the linked production price.'
                         );
                     }
                     JobOrderService::updateStatus($jobId, $targetJobStatus);
@@ -1271,9 +1800,7 @@ try {
             }
 
             if ($price !== null && $linked_order_id) {
-                db_execute('UPDATE orders SET total_amount = ? WHERE order_id = ?', 'di', [$price, $linked_order_id]);
-                // Also update the order_items unit_price so POS cart reflects the correct price
-                db_execute('UPDATE order_items SET unit_price = ? WHERE order_id = ? LIMIT 1', 'di', [$price, $linked_order_id]);
+                jo_api_store_order_final_price($linked_order_id, $price);
             }
 
             // Sync orders.status for key transitions
@@ -1316,9 +1843,16 @@ try {
                     $additional_meta = [];
                     if ($new_status === 'For Revision' && !empty($rejection_reason)) {
                         $additional_meta['reason'] = $rejection_reason;
+                        if (!empty($revision_request['permitted_fields']) && is_array($revision_request['permitted_fields'])) {
+                            $additional_meta['button_label'] = printflow_revision_action_label($revision_request['permitted_fields']);
+                        }
                     }
                     printflow_send_order_update($linked_order_id, $chat_step_map[$new_status], 'view_status', '', '', $additional_meta);
                 }
+            }
+
+            if ($customizationTransactionStarted && !$conn->commit()) {
+                throw new JoApiPersistenceException('Unable to commit the customization update.');
             }
 
             jo_api_json_response(['success' => true]);
@@ -1458,14 +1992,10 @@ try {
                 $payment_proof_status = in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'])
                     ? 'VERIFIED' : 'SUBMITTED';
 
-                // Resolve path to URL
-                $raw_path = $cust['payment_proof_path'];
-                if (!preg_match('#^https?://#i', $raw_path)) {
-                    $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_path);
-                } else {
-                    $payment_proof_url = $raw_path;
-                }
+                $payment_proof_url = payment_verification_staff_proof_url(
+                    0,
+                    (int)($cust['order_id'] ?? 0)
+                );
             }
 
             // Use order total if set (price was already approved)
@@ -1500,7 +2030,9 @@ try {
             ]];
 
             // Check for revision design
-            if (!empty($cust['order_item_id'])) {
+            if (!empty($cust['order_item_id'])
+                && db_table_has_column('order_items', 'revision_design_name')
+                && db_table_has_column('order_items', 'revision_design_path')) {
                 $revisionDesignRow = db_query(
                     "SELECT revision_design_name, revision_design_path FROM order_items WHERE order_item_id = ? LIMIT 1",
                     'i',
@@ -1829,6 +2361,7 @@ try {
                 'materials'                => $linked_job_materials,
                 'ink_usage'                => $linked_job_ink_usage,
                 'customization_details'    => printflow_normalize_customization_for_modal($details),
+                'revision_review'          => jo_api_revision_review((int)($cust['order_id'] ?? 0)),
             ];
             if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
                 $data['_debug'] = [
@@ -1931,12 +2464,7 @@ try {
                     $payment_proof_status = 'VERIFIED';
                 }
 
-                if (!preg_match('#^https?://#i', $raw_pp)) {
-                    $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '/printflow';
-                    $payment_proof_url = $bp . '/api_view_proof.php?file=' . rawurlencode((string)$raw_pp);
-                } else {
-                    $payment_proof_url = $raw_pp;
-                }
+                $payment_proof_url = payment_verification_staff_proof_url(0, $order_id);
             }
 
             $payload = JobOrderService::getStoreOrderItemsPayload($order_id, $serviceOnly, true);
@@ -2056,6 +2584,7 @@ try {
                 'payment_status'       => 'NO',
                 'readiness'            => $linked_job['readiness'] ?? 'READY',
                 'order_source'         => jo_api_resolve_order_source($order_id, $o['order_source'] ?? null),
+                'revision_review'      => jo_api_revision_review($order_id),
                 'items'                => $items_out,
                 'customization_details'=> printflow_normalize_customization_for_modal($order_level_customization),
                 'materials'            => $linked_job_materials,
@@ -2076,38 +2605,50 @@ try {
             $status = sanitize($_POST['status'] ?? '');
             $machineId = isset($_POST['machine_id']) ? (int)$_POST['machine_id'] : null;
             $reason = sanitize($_POST['reason'] ?? '');
+            $revisionReasonCode = sanitize($_POST['revision_reason_code'] ?? '');
+            $revisionReasonLabel = sanitize($_POST['revision_reason_label'] ?? '');
+            $revisionInstruction = trim((string)($_POST['revision_instruction'] ?? ''));
+            $revisionPermittedFields = $_POST['revision_permitted_fields'] ?? [];
+            if (!is_array($revisionPermittedFields)) {
+                $revisionPermittedFields = [$revisionPermittedFields];
+            }
+            if ($status === 'For Revision' && $revisionInstruction !== '') {
+                $reason = trim($reason . ': ' . $revisionInstruction, ': ');
+            }
             if (!$id || !$status) throw new Exception("ID and status required.");
             jo_api_require_staff_branch($joStaffBranch, $id);
             
-            if ($status === 'For Revision' && $reason !== '') {
+            $revisionMeta = [];
+            if ($status === 'For Revision') {
+                $revisionMeta = [
+                    'reason_code' => $revisionReasonCode !== '' ? $revisionReasonCode : $reason,
+                    'reason_label' => $revisionReasonLabel !== '' ? $revisionReasonLabel : $reason,
+                    'instruction' => $revisionInstruction !== '' ? $revisionInstruction : $reason,
+                    'permitted_fields' => $revisionPermittedFields,
+                ];
+            }
+            $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);
+            if ($res && $status === 'For Revision' && $reason !== '') {
                 db_execute("UPDATE job_orders SET notes = CONCAT(IFNULL(notes, ''), '\n[REVISION REQUEST] ', ?) WHERE id = ?", 'si', [$reason, $id]);
             }
-
-            
-            $res = JobOrderService::updateStatus($id, $status, $machineId, $reason);
             jo_api_json_response(['success' => $res]);
             break;
 
         case 'update_order_price':
+            jo_api_require_staff_mutation();
             $order_id = (int)($_POST['order_id'] ?? 0);
-            $price = (float)($_POST['price'] ?? 0);
+            $price = jo_api_parse_final_price($_POST['price'] ?? '');
             if (!$order_id) throw new Exception("Order ID required.");
-            if ($joStaffBranch !== null && !printflow_order_in_branch($order_id, $joStaffBranch)) {
-                throw new Exception("Unauthorized");
-            }
-            $orderMetaRows = db_query(
-                "SELECT order_source, order_type, status
-                 FROM orders
-                 WHERE order_id = ?
-                 LIMIT 1",
-                'i',
-                [$order_id]
-            ) ?: [];
-            $orderMeta = $orderMetaRows[0] ?? [];
+            jo_api_require_staff_order_branch($joStaffBranch, $order_id);
 
-            $sql = "UPDATE orders SET total_amount = ? WHERE order_id = ?";
-            $res = db_execute($sql, 'di', [$price, $order_id]);
-            db_execute('UPDATE order_items SET unit_price = ? WHERE order_id = ? LIMIT 1', 'di', [$price, $order_id]);
+            $priceTransactionStarted = !($conn->in_transaction ?? false);
+            if ($priceTransactionStarted && !$conn->begin_transaction()) {
+                throw new JoApiPersistenceException('Unable to start the price update transaction.');
+            }
+            $orderMeta = jo_api_lock_editable_order_price($order_id);
+            jo_api_require_staff_order_branch($joStaffBranch, $order_id);
+
+            jo_api_store_order_final_price($order_id, $price);
 
             $linkedCustomizationRows = db_query(
                 "SELECT customization_id
@@ -2122,55 +2663,73 @@ try {
                 strtolower(trim((string)($orderMeta['order_source'] ?? ''))) === 'pos';
 
             if ($isPosCustomizationOrder) {
-                db_execute(
-                    "UPDATE customizations
-                     SET status = 'Approved', updated_at = NOW()
-                     WHERE order_id = ?
-                       AND status NOT IN ('Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')",
-                    'i',
-                    [$order_id]
+                jo_api_require_db_write(
+                    db_execute(
+                        "UPDATE customizations
+                         SET status = 'Approved', updated_at = NOW()
+                         WHERE order_id = ?
+                           AND status NOT IN ('Processing', 'In Production', 'Ready for Pickup', 'Ready For Pickup', 'Completed', 'Rejected', 'Cancelled')",
+                        'i',
+                        [$order_id]
+                    ),
+                    'Unable to synchronize the customization price status.'
                 );
 
-                db_execute(
-                    "UPDATE orders
-                     SET status = 'Approved'
-                     WHERE order_id = ?
-                       AND status NOT IN ('Processing', 'In Production', 'Printing', 'Ready for Pickup', 'Completed', 'Rejected', 'Cancelled')",
-                    'i',
-                    [$order_id]
+                jo_api_require_db_write(
+                    db_execute(
+                        "UPDATE orders
+                         SET status = 'Approved'
+                         WHERE order_id = ?
+                           AND status NOT IN ('Processing', 'In Production', 'Printing', 'Ready for Pickup', 'Completed', 'Rejected', 'Cancelled')",
+                        'i',
+                        [$order_id]
+                    ),
+                    'Unable to synchronize the order price status.'
                 );
 
                 JobOrderService::ensureJobsForStoreOrder($order_id);
-                $linkedJobs = db_query(
-                    "SELECT id, status
-                     FROM job_orders
-                     WHERE order_id = ?
-                       AND status NOT IN ('COMPLETED', 'CANCELLED')
-                     ORDER BY id ASC",
-                    'i',
-                    [$order_id]
-                ) ?: [];
+            }
 
-                foreach ($linkedJobs as $jobRow) {
-                    $jobId = (int)($jobRow['id'] ?? 0);
-                    if ($jobId <= 0) {
-                        continue;
-                    }
+            // Keep every existing linked production job on the same approved
+            // order amount. Do not invent a line-item allocation for the total.
+            $linkedJobs = db_query(
+                "SELECT id, status
+                 FROM job_orders
+                 WHERE order_id = ?
+                   AND status NOT IN ('COMPLETED', 'CANCELLED')
+                 ORDER BY id ASC",
+                'i',
+                [$order_id]
+            ) ?: [];
+            foreach ($linkedJobs as $jobRow) {
+                $jobId = (int)($jobRow['id'] ?? 0);
+                if ($jobId <= 0) {
+                    continue;
+                }
 
+                jo_api_require_db_write(
                     db_execute(
                         "UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?",
                         'ddi',
                         [$price, $price, $jobId]
-                    );
+                    ),
+                    'Unable to synchronize the linked production price.'
+                );
 
+                if ($isPosCustomizationOrder) {
                     $jobStatus = strtoupper(trim((string)($jobRow['status'] ?? '')));
                     if (!in_array($jobStatus, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CANCELLED'], true)) {
-                        JobOrderService::updateStatus($jobId, 'APPROVED');
+                        if (!JobOrderService::updateStatus($jobId, 'APPROVED')) {
+                            throw new JoApiPersistenceException('Unable to synchronize the linked production status.');
+                        }
                     }
                 }
             }
 
-            jo_api_json_response(['success' => $res]);
+            if ($priceTransactionStarted && !$conn->commit()) {
+                throw new JoApiPersistenceException('Unable to commit the price update.');
+            }
+            jo_api_json_response(['success' => true, 'price' => $price]);
             break;
 
         case 'create_order':
@@ -2219,10 +2778,10 @@ try {
             break;
 
         case 'set_price':
+            jo_api_require_staff_mutation();
             $id = (int)($_POST['id'] ?? 0);
-            $price = (float)($_POST['price'] ?? 0);
             if (!$id) throw new Exception("ID required.");
-            if (!is_finite($price) || $price <= 0) throw new Exception("Price must be greater than zero.");
+            $price = jo_api_parse_final_price($_POST['price'] ?? '');
             jo_api_require_staff_branch($joStaffBranch, $id);
             $assignmentErrors = printflow_job_production_assignment_errors($id);
             if (!empty($assignmentErrors)) {
@@ -2232,14 +2791,32 @@ try {
                     'errors' => $assignmentErrors,
                 ], 422);
             }
-            // Setting the price also means updating the required payment to match exactly
-            $res = db_execute("UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?", 'ddi', [$price, $price, $id]);
-            // Also update the orders table so the customer sees the correct price
-            $job = db_query("SELECT order_id FROM job_orders WHERE id = ?", 'i', [$id]);
-            if (!empty($job) && !empty($job[0]['order_id'])) {
-                db_execute("UPDATE orders SET total_amount = ? WHERE order_id = ?", 'di', [$price, $job[0]['order_id']]);
+
+            $jobPriceTransactionStarted = !($conn->in_transaction ?? false);
+            if ($jobPriceTransactionStarted && !$conn->begin_transaction()) {
+                throw new JoApiPersistenceException('Unable to start the price update transaction.');
             }
-            jo_api_json_response(['success' => (bool)$res]);
+            $job = jo_api_lock_editable_job_price($id);
+            jo_api_require_staff_branch($joStaffBranch, $id);
+
+            // Setting the price also means updating the required payment to match exactly
+            jo_api_require_db_write(
+                db_execute(
+                    "UPDATE job_orders SET estimated_total = ?, required_payment = ? WHERE id = ?",
+                    'ddi',
+                    [$price, $price, $id]
+                ),
+                'Unable to save the final production price.'
+            );
+            // Also update the orders table so the customer sees the correct price
+            $linkedOrderId = (int)($job['order_id'] ?? 0);
+            if ($linkedOrderId > 0) {
+                jo_api_store_order_final_price($linkedOrderId, $price);
+            }
+            if ($jobPriceTransactionStarted && !$conn->commit()) {
+                throw new JoApiPersistenceException('Unable to commit the price update.');
+            }
+            jo_api_json_response(['success' => true, 'price' => $price]);
             break;
 
         case 'add_material':
@@ -2305,13 +2882,29 @@ try {
             throw new Exception("Unknown action: $action");
     }
 } catch (Throwable $e) {
+    if (isset($conn) && $conn instanceof mysqli && ($conn->in_transaction ?? false)) {
+        $conn->rollback();
+    }
     ob_clean(); // Clear any partial output
     $message = trim($e->getMessage());
     if (strcasecmp($message, 'Unauthorized') === 0) {
-        jo_api_json_response(['success' => false, 'message' => 'Forbidden'], 403);
+        jo_api_json_response(['success' => false, 'error' => 'Forbidden', 'message' => 'Forbidden'], 403);
     }
     if (stripos($message, 'not found') !== false) {
-        jo_api_json_response(['success' => false, 'message' => $message], 404);
+        jo_api_json_response(['success' => false, 'error' => $message, 'message' => $message], 404);
+    }
+    if ($e instanceof JoApiConflictException) {
+        jo_api_json_response(['success' => false, 'error' => $message, 'message' => $message], 409);
+    }
+    if ($e instanceof JoApiPersistenceException) {
+        $debugId = uniqid('job_api_', true);
+        error_log('[job_orders_api] Persistence error [' . $debugId . ']: ' . $message);
+        jo_api_json_response([
+            'success' => false,
+            'error' => 'Internal server error',
+            'message' => 'Internal server error',
+            'debug_id' => $debugId,
+        ], 500);
     }
     if ($e instanceof PDOException || $e instanceof mysqli_sql_exception) {
         $debugId = uniqid('job_api_', true);
@@ -2322,7 +2915,7 @@ try {
             'debug_id' => $debugId,
         ], 500);
     }
-    jo_api_json_response(['success' => false, 'message' => $message], 400);
+    jo_api_json_response(['success' => false, 'error' => $message, 'message' => $message], 400);
 }
 
 // Flush clean JSON output

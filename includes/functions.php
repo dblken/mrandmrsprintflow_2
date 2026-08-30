@@ -7,6 +7,7 @@
 // Set Timezone – adjust this based on your location
 date_default_timezone_set('Asia/Manila');
 
+require_once __DIR__ . '/customization_normalizer.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -769,6 +770,31 @@ function printflow_notify_chat_message(int $order_id, string $senderRole, string
 /**
  * Target URL when a staff user opens a notification (dashboard, list, etc.).
  */
+function printflow_notification_is_revision_submission(array $notification): bool {
+    $dataId = (int)($notification['data_id'] ?? 0);
+    if ($dataId <= 0) {
+        return false;
+    }
+
+    $message = strtolower(trim((string)($notification['message'] ?? '')));
+    $revisionMarkers = [
+        'submitted revised details',
+        'submitted the requested updates',
+        'resubmitted revised details',
+        'resubmitted a revised design',
+        're-uploaded design',
+        'design re-upload',
+        'revision submitted',
+        'resubmitted for review',
+    ];
+    foreach ($revisionMarkers as $marker) {
+        if (str_contains($message, $marker)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function staff_notification_target_url(array $n): string {
     $base = printflow_notification_base_path();
     $msg = isset($n['message']) ? (string)$n['message'] : '';
@@ -777,6 +803,13 @@ function staff_notification_target_url(array $n): string {
     $data_id = isset($n['data_id']) && $n['data_id'] !== null && $n['data_id'] !== ''
         ? (int)$n['data_id']
         : 0;
+
+    // Revision messages often end in "Review is required". They are order
+    // review work, not customer product ratings, and must win this routing
+    // decision before the broad legacy "review" keyword check below.
+    if (printflow_notification_is_revision_submission($n)) {
+        return $base . '/staff/customizations.php?order_id=' . $data_id . '&job_type=ORDER&status=PENDING';
+    }
 
     $is_rating = (
         ((string)($n['type'] ?? '') === 'Rating') ||
@@ -2910,7 +2943,7 @@ function printflow_staff_order_management_url(int $orderId, bool $preferPendingS
     // POS / walk-in orders must always stay on the walk-in orders side.
     // This prevents POS custom transactions from being routed into the
     // online/customizations page just because they carry service data.
-    if (in_array($orderSource, ['pos', 'walk-in'], true)) {
+    if (in_array($orderSource, ['pos', 'walk-in', 'pos_merged'], true)) {
         return $base . '/staff/orders.php?order_id=' . $orderId;
     }
 
@@ -3828,12 +3861,17 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
         return !empty($hit) ? $sid : 0;
     };
 
-    $try = $validateServicePk((int)($custom_data['service_id'] ?? 0));
+    $explicitType = strtolower(trim((string)($item['item_type'] ?? $item['type'] ?? '')));
+    if (in_array($explicitType, ['product', 'catalog_product'], true)
+        || customer_orders_custom_order_is_catalog_product($custom_data)) {
+        return 0;
+    }
+
+    $try = $validateServicePk((int)($item['service_id'] ?? 0));
     if ($try > 0) {
         return $try;
     }
-
-    $try = $validateServicePk((int)($order['reference_id'] ?? 0));
+    $try = $validateServicePk((int)($custom_data['service_id'] ?? 0));
     if ($try > 0) {
         return $try;
     }
@@ -3846,10 +3884,6 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
     $hints[] = trim((string)($custom_data['service_type'] ?? ''));
     $hints[] = trim((string)($order['first_job_title'] ?? ''));
     $hints[] = trim((string)($order['first_job_service_type'] ?? ''));
-    if (!$souvenirLine) {
-        $hints[] = trim((string)($item['product_name'] ?? ''));
-    }
-
     foreach ($hints as $hint) {
         if ($hint === '') {
             continue;
@@ -3873,6 +3907,15 @@ function printflow_resolve_service_catalog_service_id_for_order_line(array $cust
         return printflow_resolve_service_catalog_service_id('Souvenirs');
     }
 
+    // reference_id is a last-resort legacy service reference. Never test the
+    // order line's product_id against services: the PK spaces overlap.
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) === 'custom') {
+        $try = $validateServicePk((int)($order['reference_id'] ?? 0));
+        if ($try > 0) {
+            return $try;
+        }
+    }
+
     return 0;
 }
 
@@ -3886,13 +3929,16 @@ function printflow_resolve_service_catalog_service_id_from_cart_line(array $item
         $custom = is_array($decoded) ? $decoded : [];
     }
 
+    if (customer_orders_custom_order_is_catalog_product($custom)
+        || strtolower(trim((string)($item['source_page'] ?? ''))) === 'products'
+        || strtolower(trim((string)($item['type'] ?? ''))) === 'product') {
+        return 0;
+    }
+
     $candidates = [
         (int)($custom['service_id'] ?? 0),
         (int)($item['service_id'] ?? 0),
     ];
-    if (!printflow_custom_order_line_looks_like_souvenir_cart($custom)) {
-        $candidates[] = (int)($item['product_id'] ?? 0);
-    }
     foreach ($candidates as $cand) {
         if ($cand > 0) {
             return $cand;
@@ -3944,6 +3990,165 @@ function customer_orders_custom_order_is_catalog_product(array $custom): bool {
         return true;
     }
     return false;
+}
+
+/**
+ * Resolve the immutable source of an order line without probing an overlapping
+ * products.product_id as a services.service_id. New rows use item_type and
+ * service_id; legacy rows are classified from their stored checkout metadata.
+ *
+ * @return array{item_type:string,product_id:int,service_id:int,display_name:string}
+ */
+function printflow_resolve_order_line_identity(array $order, array $item, array $custom = []): array {
+    if ($custom === []) {
+        $custom = printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+    }
+    if (!is_array($custom)) {
+        $custom = [];
+    }
+
+    $explicitType = strtolower(trim((string)($item['item_type'] ?? $item['type'] ?? '')));
+    $sourcePage = strtolower(trim((string)($custom['source_page'] ?? $item['source_page'] ?? '')));
+    $source = strtolower(trim((string)($custom['source'] ?? '')));
+    $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
+    $catalogProduct = customer_orders_custom_order_is_catalog_product($custom);
+
+    $isService = in_array($explicitType, ['service', 'custom_service'], true)
+        || (int)($item['service_id'] ?? 0) > 0
+        || in_array($sourcePage, ['service', 'services'], true)
+        || $source === 'service'
+        || ($orderType === 'custom' && !$catalogProduct);
+    if (in_array($explicitType, ['product', 'catalog_product'], true) || $catalogProduct) {
+        $isService = false;
+    }
+
+    if (!$isService) {
+        $productName = trim((string)($item['product_name'] ?? $item['name'] ?? ''));
+        return [
+            'item_type' => 'product',
+            'product_id' => max(0, (int)($item['product_id'] ?? 0)),
+            'service_id' => 0,
+            'display_name' => $productName !== '' ? $productName : 'Order Item',
+        ];
+    }
+
+    $validateService = static function (int $serviceId): array {
+        if ($serviceId <= 0 || !function_exists('db_query')) {
+            return [];
+        }
+        $rows = db_query(
+            "SELECT service_id, name FROM services
+             WHERE service_id = ? AND LOWER(TRIM(COALESCE(status, ''))) <> 'archived'
+             LIMIT 1",
+            'i',
+            [$serviceId]
+        ) ?: [];
+        return $rows[0] ?? [];
+    };
+
+    $service = [];
+    foreach ([(int)($item['service_id'] ?? 0), (int)($custom['service_id'] ?? 0)] as $candidate) {
+        $service = $validateService($candidate);
+        if ($service !== []) {
+            break;
+        }
+    }
+
+    // Names are authoritative for legacy service rows. This prevents a
+    // placeholder product_id (for example 3) from selecting service_id 3 or a
+    // same-numbered catalog product by accident.
+    if ($service === []) {
+        $nameHints = array_values(array_unique(array_filter([
+            trim((string)($custom['service_type'] ?? '')),
+            trim((string)($custom['product_type'] ?? '')),
+            trim((string)($order['first_job_service_type'] ?? '')),
+            trim((string)($order['first_job_title'] ?? '')),
+        ], static fn($value): bool => $value !== '')));
+        foreach ($nameHints as $hint) {
+            $candidate = function_exists('printflow_resolve_service_catalog_service_id')
+                ? printflow_resolve_service_catalog_service_id($hint)
+                : 0;
+            $service = $validateService($candidate);
+            if ($service !== []) {
+                break;
+            }
+        }
+    }
+
+    if ($service === [] && $orderType === 'custom') {
+        $service = $validateService((int)($order['reference_id'] ?? 0));
+    }
+
+    $fallbackName = trim((string)(
+        $custom['service_type']
+        ?? $custom['product_type']
+        ?? $order['first_job_service_type']
+        ?? $order['first_job_title']
+        ?? ''
+    ));
+    return [
+        'item_type' => 'service',
+        'product_id' => 0,
+        'service_id' => (int)($service['service_id'] ?? 0),
+        'display_name' => trim((string)($service['name'] ?? '')) ?: ($fallbackName ?: 'Service Order'),
+    ];
+}
+
+/** A positive order total is final only after an explicit or legacy pricing milestone. */
+function printflow_order_price_is_final(array $order, array $providerPayment = []): bool {
+    $total = (float)($order['total_amount'] ?? $order['estimated_total'] ?? 0);
+    if ($total <= 0) {
+        return false;
+    }
+    if (!empty($order['price_finalized_at'])) {
+        return true;
+    }
+    $providerStatus = strtolower(trim((string)($providerPayment['status'] ?? '')));
+    if (in_array($providerStatus, ['generating', 'awaiting_payment', 'paid'], true)) {
+        $providerAmount = (int)($providerPayment['amount_centavos'] ?? 0);
+        if ($providerAmount === (int)round($total * 100)) {
+            return true;
+        }
+    }
+    if (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0) {
+        return true;
+    }
+    $status = strtoupper(str_replace(' ', '_', trim((string)($order['order_status'] ?? $order['status'] ?? ''))));
+    return in_array($status, [
+        'TO_PAY', 'DOWNPAYMENT_SUBMITTED', 'TO_VERIFY', 'PENDING_VERIFICATION',
+        'PAYMENT_CONFIRMED', 'PROCESSING', 'IN_PRODUCTION', 'PRINTING',
+        'READY', 'READY_FOR_PICKUP', 'READY_FOR_DELIVERY', 'COMPLETED',
+    ], true);
+}
+
+/**
+ * One synchronized financial view for customer/staff rendering. Provider
+ * centavos win for paid metadata; orders.total_amount remains amount due.
+ */
+function printflow_order_financial_snapshot(array $order, array $providerPayment = []): array {
+    $due = max(0, (int)round((float)($order['total_amount'] ?? $order['estimated_total'] ?? 0) * 100));
+    $providerDue = max(0, (int)($providerPayment['amount_centavos'] ?? 0));
+    if ($providerDue > 0 && $due === 0) {
+        $due = $providerDue;
+    }
+    $paid = 0;
+    if (strtolower((string)($providerPayment['status'] ?? '')) === 'paid') {
+        $paid = (int)($providerPayment['paid_amount_centavos'] ?? 0);
+        if ($paid <= 0) {
+            $paid = $providerDue;
+        }
+    } elseif (strcasecmp((string)($order['payment_status'] ?? ''), 'Paid') === 0) {
+        $paid = $due;
+    } elseif (isset($order['amount_paid'])) {
+        $paid = max(0, (int)round((float)$order['amount_paid'] * 100));
+    }
+    return [
+        'price_is_final' => printflow_order_price_is_final($order, $providerPayment),
+        'amount_due_centavos' => $due,
+        'paid_amount_centavos' => min($due, max(0, $paid)),
+        'remaining_balance_centavos' => max(0, $due - $paid),
+        'provider_amount_matches' => $providerDue === 0 || $providerDue === $due,
+    ];
 }
 
 function customer_orders_primary_item_name(array $order): string {
@@ -4402,7 +4607,13 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
 
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
-    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, $is_staff);
+    $out = printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, $is_staff);
+    return printflow_customization_display_specs($out, [
+        'include_service' => $is_staff,
+        'include_design' => false,
+        'include_notes' => $is_staff,
+        'include_quantity' => false,
+    ]);
 }
 
 /**
@@ -4479,7 +4690,10 @@ function printflow_modal_customization_fallback_flatten_for_staff(array $custom,
 
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
-    return printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, true);
+    return printflow_customization_display_specs(
+        printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, true),
+        ['include_service' => true, 'include_design' => false, 'include_notes' => true, 'include_quantity' => false]
+    );
 }
 
 /**
@@ -5203,7 +5417,7 @@ function render_pagination($current_page, $total_pages, $extra_params = [], $pag
     if ($current_page > 1) {
         $params[$page_param] = $current_page - 1;
         $url = '?' . http_build_query($params);
-        $html .= '<a class="pagination-link pagination-prev" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>
+        $html .= '<a class="pagination-link pagination-prev" data-page="' . ($current_page - 1) . '" data-turbo="false" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
         </a>';
     }
@@ -5218,9 +5432,9 @@ function render_pagination($current_page, $total_pages, $extra_params = [], $pag
         $url = '?' . http_build_query($params);
 
         if ((int)$p === (int)$current_page) {
-            $html .= '<a class="pagination-link is-active" aria-current="page" href="' . htmlspecialchars($url) . '" style="' . $active_btn . '">' . $p . '</a>';
+            $html .= '<a class="pagination-link is-active" data-page="' . $p . '" data-turbo="false" aria-current="page" href="' . htmlspecialchars($url) . '" style="' . $active_btn . '">' . $p . '</a>';
         } else {
-            $html .= '<a class="pagination-link" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>' . $p . '</a>';
+            $html .= '<a class="pagination-link" data-page="' . $p . '" data-turbo="false" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>' . $p . '</a>';
         }
         $prev_page = $p;
     }
@@ -5228,7 +5442,7 @@ function render_pagination($current_page, $total_pages, $extra_params = [], $pag
     if ($current_page < $total_pages) {
         $params[$page_param] = $current_page + 1;
         $url = '?' . http_build_query($params);
-        $html .= '<a class="pagination-link pagination-next" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>
+        $html .= '<a class="pagination-link pagination-next" data-page="' . ($current_page + 1) . '" data-turbo="false" href="' . htmlspecialchars($url) . '" style="' . $base_btn . '"' . $hover . '>
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
         </a>';
     }
@@ -6698,8 +6912,9 @@ function printflow_send_order_update_legacy($order_id, $step, $custom_text = '',
         'for_revision' => [
             'message'      => "The staff has requested additional details regarding your customization request. Please review the request and submit the required information. Details: {reason}",
             'message_type' => 'order_card',
+            'button_label' => 'Update Requested Details',
             'action_type' => 'view_details',
-            'action_url'  => '',
+            'action_url'  => "{$base}/customer/edit_order.php?order_id={$order_id}",
         ],
 
         'ready_to_pickup' => [

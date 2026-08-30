@@ -23,7 +23,7 @@ header('X-Content-Type-Options: nosniff');
  */
 
 const BASE_PATH = '<?php echo $base_path; ?>';
-const CACHE_VERSION = 'v17';
+const CACHE_VERSION = 'v18';
 const SHELL_CACHE = 'printflow-shell-' + CACHE_VERSION;
 const PAGE_CACHE = 'printflow-pages-' + CACHE_VERSION;
 const IMG_CACHE = 'printflow-img-' + CACHE_VERSION;
@@ -190,8 +190,7 @@ self.addEventListener('fetch', (event) => {
     const { request } = event;
     const url = new URL(request.url);
     if (request.method !== 'GET') return;
-    if (!url.origin.includes(self.location.hostname) &&
-        !url.hostname.includes('localhost')) return;
+    if (url.origin !== self.location.origin) return;
 
     if (request.destination === 'video' || request.destination === 'audio' || url.pathname.match(/\.(mp4|webm|ogg|mp3|wav)$/i)) {
         return;
@@ -199,19 +198,14 @@ self.addEventListener('fetch', (event) => {
 
     if (url.pathname.includes('/api/') || url.pathname.includes('api_') || url.pathname.includes('ajax')) {
         event.respondWith(
-            fetch(request).catch(async () => {
-                try {
-                    const cached = await caches.match(request);
-                    return cached || new Response('Network unavailable', { status: 503 });
-                } catch (e) {
-                    return new Response('Network unavailable', { status: 503 });
-                }
-            })
+            fetch(request, { cache: 'no-store' }).catch(() =>
+                new Response('Network unavailable', { status: 503 })
+            )
         );
         return;
     }
 
-    if (isStaticAsset(url.pathname)) {
+    if (isTrustedStaticAsset(url)) {
         event.respondWith(cacheFirst(request, SHELL_CACHE));
         return;
     }
@@ -221,62 +215,28 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    event.respondWith(networkWithCacheFallback(request, SHELL_CACHE));
+    // Uploaded media, authenticated resources and unknown routes stay out of
+    // Cache Storage. Only the explicit public asset tree is cache eligible.
+    event.respondWith(networkOnlyResource(request));
 });
 
 async function cacheFirst(request, cacheName) {
-    const cached = await caches.match(request);
+    const cache = await caches.open(cacheName);
+    const cached = await cache.match(request);
     if (cached) return cached;
     try {
         const response = await fetch(request);
-        if (response.ok && response.status === 200) {
-            const cache = await caches.open(cacheName);
-            cache.put(request, response.clone()).catch(e => console.error('[SW] Cache First put error:', e));
+        if (isCachePutEligible(request, response)) {
+            try {
+                await cache.put(request, response.clone());
+            } catch (error) {
+                const path = new URL(request.url).pathname;
+                console.error('[SW] Cache First put error:', path, error);
+            }
         }
         return response;
     } catch {
         return new Response('Asset unavailable offline', { status: 503 });
-    }
-}
-
-async function staleWhileRevalidate(request, cacheName) {
-    const cache = await caches.open(cacheName);
-    const cached = await cache.match(request);
-
-    const fetchPromise = fetch(request).then((response) => {
-        if (response.ok && response.status === 200) {
-            cache.put(request, response.clone()).catch(e => console.error('[SW] SWR put error:', e));
-        }
-        return response;
-    }).catch(() => null);
-
-    if (cached) {
-        fetchPromise;
-        return cached;
-    }
-
-    const networkResponse = await fetchPromise;
-    if (networkResponse) return networkResponse;
-
-    const offline = await caches.match(BASE_PATH + '/public/offline.html');
-    return offline || new Response('<h1>Offline</h1>', {
-        headers: { 'Content-Type': 'text/html' }
-    });
-}
-
-async function networkWithCacheFallback(request, cacheName) {
-    try {
-        const response = await fetch(request);
-        const isRangeRequest = request.headers.has('range');
-        // Cache Storage does not support partial content (206) responses.
-        if (response.ok && response.status === 200 && !isRangeRequest) {
-            const cache = await caches.open(cacheName);
-            cache.put(request, response.clone()).catch(e => console.error('[SW] NWCF put error:', e));
-        }
-        return response;
-    } catch {
-        const cached = await caches.match(request);
-        return cached || new Response('Unavailable offline', { status: 503 });
     }
 }
 
@@ -292,8 +252,38 @@ async function networkOnlyDocument(request) {
     }
 }
 
-function isStaticAsset(pathname) {
-    return /\.(css|js|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot)$/i.test(pathname);
+async function networkOnlyResource(request) {
+    try {
+        return await fetch(request, { cache: 'no-store' });
+    } catch {
+        return new Response('Unavailable offline', { status: 503 });
+    }
+}
+
+function isTrustedStaticAsset(url) {
+    const assetRoot = (BASE_PATH || '') + '/public/assets/';
+    if (url.origin !== self.location.origin || !url.pathname.startsWith(assetRoot)) return false;
+    if (url.pathname.startsWith(assetRoot + 'uploads/')) return false;
+    return /\.(css|js|png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot)$/i.test(url.pathname);
+}
+
+function isCachePutEligible(request, response) {
+    if (request.method !== 'GET' || request.headers.has('range') || request.headers.has('authorization')) return false;
+    if (!response || !response.ok || response.status !== 200 || response.type === 'opaque') return false;
+    if (response.headers.has('content-range')) return false;
+
+    const cacheControl = String(response.headers.get('cache-control') || '').toLowerCase();
+    if (cacheControl.includes('no-store') || cacheControl.includes('private')) return false;
+    if (String(response.headers.get('vary') || '').trim() === '*') return false;
+
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!/^(text\/(css|javascript)|application\/(javascript|x-javascript|font-woff)|image\/|font\/|application\/vnd\.ms-fontobject)/.test(contentType)) {
+        return false;
+    }
+
+    const contentLengthHeader = response.headers.get('content-length');
+    const contentLength = Number(contentLengthHeader || 0);
+    return !contentLengthHeader || (Number.isFinite(contentLength) && contentLength <= 8 * 1024 * 1024);
 }
 
 self.addEventListener('push', (event) => {
