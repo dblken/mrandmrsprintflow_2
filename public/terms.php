@@ -65,6 +65,14 @@ $effective_date = 'August 30, 2026';
                 <p class="lp-card-text">Customers are responsible for the accuracy of their account information, contact details, order instructions, file uploads, and design approvals. Incorrect or incomplete information may affect communication, production, payment verification, pickup, or delivery.</p>
             </section>
             <section>
+                <h2 class="lp-card-title">Identity Verification</h2>
+                <p class="lp-card-text">Customers are required to complete identity verification before they can place an order through PrintFlow. Customers must upload a valid government-issued identification document through their customer profile for verification and review.</p>
+                <p class="lp-card-text">The submitted identification document will be reviewed by an authorized administrator. Customers may proceed with ordering only after their identity verification has been approved.</p>
+                <p class="lp-card-text">If the submitted identification document is pending review, rejected, missing, unreadable, or otherwise not approved, the customer may be unable to proceed with ordering until the verification requirement has been completed.</p>
+                <p class="lp-card-text">Customers are responsible for providing accurate and valid identification information and for ensuring that the uploaded document is clear and readable.</p>
+                <p class="lp-card-text">PrintFlow reserves the right to reject an identification submission if it cannot be adequately verified or does not meet the applicable verification requirements.</p>
+            </section>
+            <section>
                 <h2 class="lp-card-title">Prohibited Content</h2>
                 <p class="lp-card-text">Customers must not submit content that is illegal, harmful, fraudulent, abusive, or that they do not have permission to use. The shop may decline or cancel work that appears inappropriate or not suitable for production.</p>
             </section>
