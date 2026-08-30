@@ -117,6 +117,10 @@ if ($date_from_filter !== '')      $active_filters['date_from']      = $date_fro
 if ($date_to_filter !== '')        $active_filters['date_to']        = $date_to_filter;
 if ($customer_filter !== '')       $active_filters['customer']       = $customer_filter;
 if ($sort_by !== 'newest')         $active_filters['sort']           = $sort_by;
+$pagination_params = $active_filters;
+if (isset($_GET['status']) && in_array($status_filter, $valid_status_filters, true)) {
+    $pagination_params['status'] = $status_filter;
+}
 $active_filter_parts = [$customer_filter, $date_from_filter, $date_to_filter];
 if (!$is_pos_staff && $status_filter !== 'ALL') {
     $active_filter_parts[] = $status_filter;
@@ -336,11 +340,12 @@ $count_sql = "SELECT COUNT(*) as total FROM orders o LEFT JOIN customers c ON o.
 // Pagination settings
 $items_per_page = 15;
 $current_page = max(1, (int)($_GET['page'] ?? 1));
-$offset = ($current_page - 1) * $items_per_page;
 
 $total_result = db_query($count_sql, $types, $params);
 $total_items = $total_result[0]['total'] ?? 0;
-$total_pages = ceil($total_items / $items_per_page);
+$total_pages = (int)ceil($total_items / $items_per_page);
+$current_page = $total_pages > 0 ? min($current_page, $total_pages) : 1;
+$offset = ($current_page - 1) * $items_per_page;
 
 $sort_clause = match($sort_by) {
     'oldest' => " ORDER BY o.order_date ASC",
@@ -525,7 +530,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                 </td>
                 <?php endif; ?>
                 <td class="px-4 py-4 action-col-cell" data-label="Actions">
-                    <div class="action-cell<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
+                    <div class="action-cell orders-card-actions<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                         <button
                             onclick="event.stopPropagation(); window.openStaffOrderManage(<?php echo $order['order_id']; ?>, '<?php echo addslashes($order['status']); ?>');"
                             class="table-action-btn"
@@ -547,12 +552,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
         }
     }
     $tbody = ob_get_clean();
-    $pagination = render_pagination($current_page, $total_pages, $active_filters);
+    $pagination = render_pagination($current_page, $total_pages, $pagination_params);
     
     header('Content-Type: application/json');
     echo json_encode([
         'tbody'      => $tbody, 
         'pagination' => $pagination, 
+        'page'       => $current_page,
         'total'      => number_format($total_items),
         'counts'     => $all_counts,
         'badge'      => $active_filter_badge_count
@@ -1116,6 +1122,18 @@ $page_title = 'Orders - Staff';
             font-weight: 600;
             letter-spacing: 1px;
         }
+        .pagination-wrapper.is-loading .pagination-container {
+            opacity: 0.62;
+            transition: opacity 0.15s ease;
+        }
+        .pagination-wrapper.is-loading .pagination-link {
+            pointer-events: none !important;
+            cursor: wait !important;
+        }
+        .pagination-wrapper.is-loading .pagination-link.is-pending {
+            opacity: 1;
+            box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.16) !important;
+        }
         .order-info-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .order-id-wrap { font-weight: 500; color: #111827; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
         .order-id-wrap > span:first-child,
@@ -1515,17 +1533,23 @@ $page_title = 'Orders - Staff';
                 overflow: visible !important;
             }
             .orders-table tr.staff-order-row .action-col-cell::before { display: none !important; }
-            .orders-table tr.staff-order-row .action-cell {
+            .orders-table tr.staff-order-row .orders-card-actions {
                 display: grid !important;
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 8px !important;
                 width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
             }
-            .orders-table tr.staff-order-row .action-cell:has(> :only-child),
-            .orders-table tr.staff-order-row .action-cell--single { grid-template-columns: 1fr !important; }
-            .orders-table tr.staff-order-row .action-cell .table-action-btn {
+            .orders-table tr.staff-order-row .orders-card-actions:has(> :only-child),
+            .orders-table tr.staff-order-row .orders-card-actions.action-cell--single { grid-template-columns: 1fr !important; }
+            .orders-table tr.staff-order-row .orders-card-actions > .table-action-btn {
+                display: inline-flex !important;
+                flex: none !important;
+                justify-self: stretch !important;
                 width: 100% !important;
-                max-width: none !important;
+                max-width: 100% !important;
                 min-width: 0 !important;
                 height: 40px !important;
                 min-height: 40px !important;
@@ -1553,6 +1577,27 @@ $page_title = 'Orders - Staff';
                 grid-template-columns: 74px minmax(0, 1fr) !important;
                 padding-left: 10px !important;
                 padding-right: 10px !important;
+            }
+        }
+
+        /* Viewport fallback mirrors the card container rule so shared mobile
+           action styles cannot reintroduce unequal flex or max-width values. */
+        @media (max-width: 768px) {
+            html.printflow-staff .orders-table .orders-card-actions {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+            }
+            html.printflow-staff .orders-table .orders-card-actions > .table-action-btn {
+                flex: none !important;
+                justify-self: stretch !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
             }
         }
 
@@ -1832,8 +1877,8 @@ $page_title = 'Orders - Staff';
 
             container.innerHTML = data.tbody;
 
-            const pag = document.querySelector('.pagination-container');
-            if (pag && data.pagination) pag.outerHTML = data.pagination;
+            const paginationWrapper = document.querySelector('.pagination-wrapper');
+            if (paginationWrapper) paginationWrapper.innerHTML = data.pagination || '';
 
             const bc = document.getElementById('filterBadgeContainer');
             if (bc) bc.innerHTML = data.badge > 0 ? `<span class="filter-badge">${data.badge}</span>` : '';
@@ -1848,7 +1893,10 @@ $page_title = 'Orders - Staff';
 
             window.dispatchEvent(new CustomEvent('filter-badge-update', { detail: { badge: data.badge } }));
 
-            const displayUrl = buildFilterURL(overrides, false);
+            const resolvedOverrides = Object.assign({}, overrides, {
+                page: Math.max(1, parseInt(data.page || 1, 10))
+            });
+            const displayUrl = buildFilterURL(resolvedOverrides, false);
             window.history.replaceState({ path: displayUrl }, '', displayUrl);
         } catch (e) {
             if (e.name !== 'AbortError') {
@@ -1865,15 +1913,49 @@ $page_title = 'Orders - Staff';
         }
     }
 
+    function initOrdersPaginationNavigation() {
+        const wrapper = document.querySelector('.pagination-wrapper');
+        if (!wrapper || wrapper.dataset.paginationBound === '1') return;
+        wrapper.dataset.paginationBound = '1';
+
+        wrapper.addEventListener('click', function(event) {
+            const link = event.target.closest('a.pagination-link');
+            if (!link || !wrapper.contains(link)) return;
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+            if (wrapper.classList.contains('is-loading')) {
+                event.preventDefault();
+                return;
+            }
+
+            wrapper.classList.add('is-loading');
+            wrapper.setAttribute('aria-busy', 'true');
+            link.classList.add('is-pending');
+
+            if (ordersFetchController) {
+                ordersRequestSerial += 1;
+                ordersFetchController.abort();
+                ordersFetchController = null;
+            }
+
+            window.setTimeout(function() {
+                if (!document.documentElement.contains(wrapper)) return;
+                wrapper.classList.remove('is-loading');
+                wrapper.removeAttribute('aria-busy');
+                link.classList.remove('is-pending');
+            }, 8000);
+        });
+    }
+
     function applyFilters(resetAll = false) {
         if (resetAll) {
             window.location.href = window.location.pathname;
-        } else { fetchUpdatedTable(); }
+        } else { fetchUpdatedTable({ page: 1 }); }
     }
 
     function applySortFilter(sortKey) {
         window.dispatchEvent(new CustomEvent('sort-changed', { detail: { sortKey } }));
-        fetchUpdatedTable({ sort: sortKey });
+        fetchUpdatedTable({ sort: sortKey, page: 1 });
     }
 
     function resetFilterField(fields) {
@@ -1881,7 +1963,7 @@ $page_title = 'Orders - Staff';
             const el = document.getElementById('fp_' + f);
             if (el) el.value = '';
         });
-        fetchUpdatedTable();
+        fetchUpdatedTable({ page: 1 });
     }
 
     function ordersPage() {
@@ -2585,6 +2667,8 @@ $page_title = 'Orders - Staff';
 
     // ── DOMContentLoaded: event listeners & auto-open ────
     document.addEventListener('DOMContentLoaded', function() {
+        initOrdersPaginationNavigation();
+
         // Escape key closes modal
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') closeOrderModal();
@@ -2899,7 +2983,7 @@ $page_title = 'Orders - Staff';
                                     </td>
                                     <?php endif; ?>
                                     <td class="px-4 py-4 action-col-cell" data-label="Actions">
-                                        <div class="action-cell<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
+                                        <div class="action-cell orders-card-actions<?php echo $is_pos_staff ? ' action-cell--single' : ''; ?>">
                                             <button onclick="event.stopPropagation(); openOrderModal(<?php echo $order['order_id']; ?>)" 
                                                     class="table-action-btn">
                                                 View
@@ -2921,8 +3005,8 @@ $page_title = 'Orders - Staff';
             </div>
 
             <!-- Pagination -->
-            <div class="pagination-wrapper" style="padding: 24px 0; border-top: 1px solid #f3f4f6;">
-                <?php echo render_pagination($current_page, $total_pages, $active_filters); ?>
+            <div class="pagination-wrapper" data-turbo="false" style="padding: 24px 0; border-top: 1px solid #f3f4f6;">
+                <?php echo render_pagination($current_page, $total_pages, $pagination_params); ?>
             </div>
         </main>
     </div>
