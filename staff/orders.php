@@ -1087,21 +1087,21 @@ $page_title = 'Orders - Staff';
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }
         .pagination-wrapper .pagination-link:hover {
-            border-color: #06A1A1 !important;
-            color: #06A1A1 !important;
+            border-color: var(--staff-primary) !important;
+            color: var(--staff-primary) !important;
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(6, 161, 161, 0.1);
+            box-shadow: 0 4px 12px rgba(var(--staff-accent-rgb), 0.1);
         }
         .pagination-wrapper .pagination-link:focus-visible {
-            outline: 3px solid rgba(6, 161, 161, 0.24) !important;
+            outline: 3px solid rgba(var(--staff-accent-rgb), 0.24) !important;
             outline-offset: 2px !important;
         }
         .pagination-wrapper .pagination-link.is-active {
-            border-color: transparent !important;
-            background: linear-gradient(135deg, #06A1A1 0%, #047676 100%) !important;
+            border-color: var(--staff-pagination-active-border) !important;
+            background: var(--staff-pagination-active-bg) !important;
             color: #fff !important;
             font-weight: 700 !important;
-            box-shadow: 0 4px 12px rgba(6, 161, 161, 0.25) !important;
+            box-shadow: 0 4px 12px rgba(var(--staff-accent-rgb), 0.25) !important;
             transform: none;
         }
         .pagination-wrapper .pagination-prev,
@@ -1139,7 +1139,7 @@ $page_title = 'Orders - Staff';
         }
         .pagination-wrapper.is-loading .pagination-link.is-pending {
             opacity: 1;
-            box-shadow: 0 0 0 3px rgba(6, 161, 161, 0.16) !important;
+            box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.16) !important;
         }
         .order-info-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .order-id-wrap { font-weight: 500; color: #111827; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -3045,7 +3045,7 @@ $page_title = 'Orders - Staff';
             </div>
 
             <!-- Pagination -->
-            <div class="pagination-wrapper" data-turbo="false" style="padding: 24px 0; border-top: 1px solid #f3f4f6;">
+            <div class="pagination-wrapper staff-pagination-shell" data-turbo="false">
                 <?php echo render_pagination($current_page, $total_pages, $pagination_params); ?>
             </div>
         </main>

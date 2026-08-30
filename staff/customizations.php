@@ -1962,30 +1962,28 @@ $online_closed_count = 0;
                 </div>
 
                 <!-- Standardized Premium Pagination -->
-                <div x-show="totalPages > 1" class="pagination-container" style="display: flex !important; width: 100% !important; justify-content: center !important; align-items: center !important; padding: 24px 0; border-top: 1px solid #f3f4f6; margin-top: auto !important; clear: both !important;">
-                    <div style="display: flex !important; align-items: center !important; gap: 6px !important; justify-content: center !important;">
+                <div x-show="totalPages > 1" class="pagination-container staff-pagination-shell">
+                    <div class="staff-pagination__controls">
                         <!-- Previous Button -->
                         <button x-show="currentPage > 1"
                                 @click="goToOrdersPage(currentPage - 1)"
-                                style="display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;"
-                                onmouseover="this.style.borderColor='#06A1A1'; this.style.color='#06A1A1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(6, 161, 161, 0.1)';" 
-                                onmouseout="this.style.borderColor='#e2e8f0'; this.style.color='#64748b'; this.style.transform='none'; this.style.boxShadow='none';">
+                                class="staff-pagination__control staff-pagination__arrow"
+                                aria-label="Previous page">
                             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
                         </button>
 
                         <template x-for="(p, i) in pageNumbers" :key="i">
-                            <div style="display:flex; align-items:center;">
+                            <div class="staff-pagination__item">
                                 <template x-if="p === '...'">
-                                    <span style="width:38px; height:38px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; font-weight:600; font-size:14px; letter-spacing:1px;">...</span>
+                                    <span class="staff-pagination__ellipsis">...</span>
                                 </template>
                                 <template x-if="p !== '...'">
                                     <button @click="goToOrdersPage(p)"
-                                            :style="currentPage === p 
-                                                ? 'display:inline-flex; align-items:center; justify-content:center; min-width:38px; height:38px; padding:0 12px; border-radius:10px; border:none; background:linear-gradient(135deg, #06A1A1 0%, #047676 100%); color:white; font-size:14px; font-weight:700; box-shadow: 0 4px 12px rgba(6, 161, 161, 0.25); cursor:pointer;'
-                                                : 'display:inline-flex; align-items:center; justify-content:center; min-width:38px; height:38px; padding:0 12px; border-radius:10px; border:1px solid #e2e8f0; background:#fff; color:#64748b; font-size:14px; font-weight:600; transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;'"
+                                            class="staff-pagination__control"
+                                            :class="{ 'is-active': currentPage === p }"
+                                            :aria-current="currentPage === p ? 'page' : null"
                                             x-text="p"
-                                            @mouseover="if(currentPage !== p) { $el.style.borderColor='#06A1A1'; $el.style.color='#06A1A1'; $el.style.transform='translateY(-1px)'; $el.style.boxShadow='0 4px 12px rgba(6, 161, 161, 0.1)'; }"
-                                            @mouseout="if(currentPage !== p) { $el.style.borderColor='#e2e8f0'; $el.style.color='#64748b'; $el.style.transform='none'; $el.style.boxShadow='none'; }">
+                                            :aria-label="'Page ' + p">
                                     </button>
                                 </template>
                             </div>
@@ -1994,9 +1992,8 @@ $online_closed_count = 0;
                         <!-- Next Button -->
                         <button x-show="currentPage < totalPages"
                                 @click="goToOrdersPage(currentPage + 1)"
-                                style="display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; border-radius:10px; border:1px solid #e2e8f0; background:#fff; color:#64748b; transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor:pointer;"
-                                onmouseover="this.style.borderColor='#06A1A1'; this.style.color='#06A1A1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(6, 161, 161, 0.1)';" 
-                                onmouseout="this.style.borderColor='#e2e8f0'; this.style.color='#64748b'; this.style.transform='none'; this.style.boxShadow='none';">
+                                class="staff-pagination__control staff-pagination__arrow"
+                                aria-label="Next page">
                             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
                         </button>
                     </div>

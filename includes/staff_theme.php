@@ -490,6 +490,141 @@
         color: var(--staff-primary-strong);
     }
 
+    /* Shared Staff pagination geometry. The role-scoped tokens above keep
+       Online Operations teal and Counter/POS blue without page-local colors. */
+    html.printflow-staff .staff-pagination-shell {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+        border-top: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell > .pagination-container,
+    html.printflow-staff .staff-pagination-shell > .staff-pagination__controls {
+        display: flex !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        align-items: center !important;
+        justify-content: center !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        margin: 0 !important;
+        padding: 24px 12px !important;
+        border-top: 1px solid #f3f4f6 !important;
+        box-sizing: border-box !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-link,
+    html.printflow-staff .staff-pagination-shell .staff-pagination__control {
+        box-sizing: border-box !important;
+        display: inline-flex;
+        align-items: center !important;
+        justify-content: center !important;
+        min-width: 38px !important;
+        height: 38px !important;
+        padding: 0 12px !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 10px !important;
+        background: #fff !important;
+        color: #64748b !important;
+        font: inherit !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        line-height: 1 !important;
+        text-decoration: none !important;
+        cursor: pointer !important;
+        transition: border-color .2s ease, color .2s ease, box-shadow .2s ease, transform .2s ease !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-link:hover:not(.is-active),
+    html.printflow-staff .staff-pagination-shell .staff-pagination__control:hover:not(.is-active):not(:disabled) {
+        border-color: var(--staff-primary) !important;
+        color: var(--staff-primary) !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(var(--staff-accent-rgb), 0.1) !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-link:focus-visible,
+    html.printflow-staff .staff-pagination-shell .staff-pagination__control:focus-visible {
+        outline: 3px solid rgba(var(--staff-accent-rgb), 0.24) !important;
+        outline-offset: 2px !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-link.is-active,
+    html.printflow-staff .staff-pagination-shell .staff-pagination__control.is-active {
+        border-color: var(--staff-pagination-active-border) !important;
+        background: var(--staff-pagination-active-bg) !important;
+        color: #fff !important;
+        font-weight: 700 !important;
+        box-shadow: 0 4px 12px rgba(var(--staff-accent-rgb), 0.25) !important;
+        transform: none !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-prev,
+    html.printflow-staff .staff-pagination-shell .pagination-next,
+    html.printflow-staff .staff-pagination-shell .staff-pagination__arrow {
+        width: 38px !important;
+        min-width: 38px !important;
+        padding: 0 !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell svg {
+        width: 18px;
+        height: 18px;
+        stroke-width: 2.5;
+    }
+
+    html.printflow-staff .staff-pagination-shell .staff-pagination__item {
+        display: flex;
+        align-items: center;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-container > span,
+    html.printflow-staff .staff-pagination-shell .staff-pagination__ellipsis {
+        display: inline-flex !important;
+        width: 38px !important;
+        min-width: 38px !important;
+        height: 38px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        color: #94a3b8 !important;
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        letter-spacing: 1px !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-container > span {
+        font-size: 0 !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell .pagination-container > span::before {
+        content: '\2026';
+        font-size: 14px;
+    }
+
+    html.printflow-staff .staff-pagination-shell .staff-pagination__control:disabled {
+        opacity: .48;
+        cursor: not-allowed !important;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell.is-loading > .pagination-container {
+        opacity: .62;
+        transition: opacity .15s ease;
+    }
+
+    html.printflow-staff .staff-pagination-shell.is-loading .pagination-link {
+        pointer-events: none !important;
+        cursor: wait !important;
+    }
+
+    html.printflow-staff .staff-pagination-shell.is-loading .pagination-link.is-pending {
+        opacity: 1;
+        box-shadow: 0 0 0 3px rgba(var(--staff-accent-rgb), 0.16) !important;
+    }
+
     /* Form guard (sidebar portal) */
     html.printflow-staff .pf-fg-spinner {
         border-color: rgba(var(--staff-accent-rgb), 0.3);
