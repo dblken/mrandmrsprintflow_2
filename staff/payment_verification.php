@@ -13,6 +13,7 @@ require_role(['Admin', 'Staff']);
 printflow_require_staff_module('payment_verification');
 if (($_SESSION['user_type'] ?? '') === 'Staff') {
     require_once __DIR__ . '/../includes/staff_pending_check.php';
+    redirect(BASE_PATH . '/staff/orders.php');
 }
 
 // ──────────────────────────────────────────────────────────────────────────
