@@ -27,6 +27,12 @@ $assert(strpos($customizations, '@container customization-list (max-width: 960px
 $assert(strpos($customizations, '@container customization-list (max-width: 430px)') !== false, 'Customizations must compact labels for small phones');
 $assert(strpos($customizations, '.pf-staff-customizations-root .kpi-row') !== false, 'Customization KPI cards must retain responsive tablet rules');
 $assert(strpos($customizations, 'tr.customization-row') !== false, 'Customizations must reuse one semantic row for Online and Counter cards');
+$assert(strpos($customizations, 'class="customizations-mobile-list"') !== false, 'Narrow Customizations must use a block-card list outside desktop table geometry');
+$assert(strpos($customizations, '.pf-staff-customizations-root .customizations-table-scroll') !== false, 'The desktop table wrapper must be explicitly removed from the narrow layout path');
+$assert(strpos($customizations, 'class="customization-mobile-card"') !== false, 'Each narrow Customization record must be one viewport-width card');
+$assert(strpos($customizations, 'grid-template-columns: minmax(64px, auto) minmax(0, 1fr)') !== false, 'Mobile metadata values must be allowed to shrink without overflow');
+$assert(strpos($customizations, "? 'Loading...' : 'View Order'") !== false, 'The mobile View action must remain inside the card footer');
+$assert(preg_match('/\?>\s*\?>\s*<!DOCTYPE html>/', $customizations) !== 1, 'The page must not emit a literal stray PHP closing token');
 foreach (['Order', 'Details', 'Status', 'Customer', 'Created', 'Action'] as $label) {
     $assert(strpos($customizations, 'data-label="' . $label . '"') !== false, "Customization cards must expose {$label}");
 }

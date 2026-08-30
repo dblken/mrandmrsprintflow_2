@@ -106,9 +106,6 @@ $online_payment_count = 0;
 $online_production_count = 0;
 $online_closed_count = 0;
 ?>
-
-
-?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -695,6 +692,7 @@ $online_closed_count = 0;
         .customizations-data-table .col-customer { width: 18%; }
         .customizations-data-table .col-created { width: 14%; }
         .customizations-data-table .col-action { width: 10%; }
+        .customizations-mobile-list { display: none; }
 
         @media (max-width: 1100px) {
             .pf-staff-customizations-root .kpi-row {
@@ -1317,6 +1315,195 @@ $online_closed_count = 0;
                 padding-right: 10px !important;
             }
         }
+
+        /* Narrow customization records use native block cards. Keeping the
+           desktop table out of this layout path prevents its min-width,
+           colgroup and table-layout geometry from affecting mobile. */
+        @media (max-width: 1024px) {
+            .pf-staff-customizations-root,
+            .pf-staff-customizations-root main,
+            .pf-staff-customizations-root .pf-customizations-table-card {
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+            .pf-staff-customizations-root .customizations-table-scroll {
+                display: none !important;
+            }
+            .pf-staff-customizations-root .customizations-mobile-list {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+                gap: 12px;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                margin: 0;
+                padding: 0;
+                overflow: visible;
+                box-sizing: border-box;
+            }
+            .customization-mobile-card {
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                height: auto;
+                min-height: 0;
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                background: #fff;
+                box-sizing: border-box;
+            }
+            .customization-mobile-card,
+            .customization-mobile-card * {
+                min-width: 0;
+                box-sizing: border-box;
+            }
+            .customization-mobile-card__section {
+                width: 100%;
+                max-width: 100%;
+                padding: 10px 12px;
+                border-bottom: 1px solid #f1f5f9;
+            }
+            .customization-mobile-card__section--order {
+                position: relative;
+                padding-top: 11px;
+                background: #f8fafc;
+            }
+            .customization-mobile-card__label {
+                display: block;
+                margin: 0 0 4px;
+                color: #94a3b8;
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: .06em;
+                line-height: 1.2;
+                text-transform: uppercase;
+            }
+            .customization-mobile-card__order {
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                color: #111827;
+                font-size: 13px;
+                font-weight: 700;
+                line-height: 1.35;
+                white-space: normal;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+            }
+            .customization-mobile-card__details {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                width: 100%;
+                max-width: 100%;
+            }
+            .customization-mobile-card__details .table-text-main,
+            .customization-mobile-card__details .table-text-sub {
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+                overflow-wrap: anywhere;
+            }
+            .customization-mobile-card__meta {
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                max-width: 100%;
+            }
+            .customization-mobile-card__meta-row {
+                display: grid;
+                grid-template-columns: minmax(64px, auto) minmax(0, 1fr);
+                align-items: center;
+                gap: 10px;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                padding: 8px 12px;
+                border-bottom: 1px solid #f1f5f9;
+            }
+            .customization-mobile-card__meta-row .customization-mobile-card__label {
+                margin: 0;
+                white-space: nowrap;
+            }
+            .customization-mobile-card__value {
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                color: #374151;
+                font-size: 12px;
+                line-height: 1.35;
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+            .customization-mobile-card__status {
+                display: flex;
+                justify-content: flex-start;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+            }
+            .customization-mobile-card__status .status-badge-pill {
+                width: auto;
+                max-width: 100%;
+                min-width: 92px;
+                white-space: nowrap;
+            }
+            .customization-mobile-card__footer {
+                width: 100%;
+                max-width: 100%;
+                padding: 10px 12px;
+            }
+            .customization-mobile-card__footer .table-action-btn {
+                display: flex;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                min-height: 40px;
+                padding: 9px 12px;
+            }
+            .customizations-mobile-state {
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                padding: 28px 16px;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                background: #fff;
+                color: #64748b;
+                text-align: center;
+                box-sizing: border-box;
+            }
+        }
+
+        @media (max-width: 430px) {
+            .pf-staff-customizations-root .pf-customizations-table-card {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+            .customization-mobile-card__meta-row {
+                grid-template-columns: 68px minmax(0, 1fr);
+                gap: 8px;
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+            .customization-mobile-card__section,
+            .customization-mobile-card__footer {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+        }
         .production-field-invalid {
             border-color: #dc2626 !important;
             box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
@@ -1690,6 +1877,88 @@ $online_closed_count = 0;
                             </tr>
                         </tbody>
                     </table>
+                </div>
+
+                <div class="customizations-mobile-list" aria-label="Customization orders">
+                    <template x-for="jo in paginatedOrders" :key="'mobile-' + (jo.order_type || 'JOB') + '-' + jo.id">
+                        <article
+                            class="customization-mobile-card"
+                            @click="viewDetails(jo.id, jo.order_type || 'JOB')"
+                        >
+                            <div class="customization-mobile-card__section customization-mobile-card__section--order">
+                                <span class="customization-mobile-card__label">Order</span>
+                                <span
+                                    class="customization-mobile-card__order"
+                                    :title="getDisplayOrderCode(jo)"
+                                    x-text="getDisplayOrderCode(jo)"
+                                ></span>
+                            </div>
+
+                            <div class="customization-mobile-card__section">
+                                <span class="customization-mobile-card__label">Details</span>
+                                <div class="customization-mobile-card__details">
+                                    <span class="table-text-main" x-text="getRowDisplayName(jo)"></span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="jo.order_type !== 'SERVICE'">
+                                        <span x-text="jo.width_ft"></span>&prime;&times;<span x-text="jo.height_ft"></span>&prime; &bull; <span x-text="jo.quantity"></span> pcs
+                                    </span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="jo.order_type !== 'SERVICE'" x-text="formatCustomizationInfo(jo)"></span>
+                                    <span class="table-text-sub uppercase tracking-wider" x-show="jo.order_type === 'SERVICE'">Service purchase</span>
+                                </div>
+                            </div>
+
+                            <div class="customization-mobile-card__meta">
+                                <div class="customization-mobile-card__meta-row">
+                                    <span class="customization-mobile-card__label">Status</span>
+                                    <div class="customization-mobile-card__status">
+                                        <span :class="getStatusBadgeClass(jo)" class="pf-pill status-badge-pill" x-text="getStatusLabel(jo)"></span>
+                                    </div>
+                                </div>
+                                <div class="customization-mobile-card__meta-row">
+                                    <span class="customization-mobile-card__label">Customer</span>
+                                    <span
+                                        class="customization-mobile-card__value"
+                                        :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()"
+                                        x-text="jo.first_name + ' ' + (jo.last_name || '')"
+                                    ></span>
+                                </div>
+                                <div class="customization-mobile-card__meta-row">
+                                    <span class="customization-mobile-card__label">Created</span>
+                                    <span
+                                        class="customization-mobile-card__value"
+                                        :title="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                        x-text="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"
+                                    ></span>
+                                </div>
+                            </div>
+
+                            <div class="customization-mobile-card__footer">
+                                <button
+                                    type="button"
+                                    @click.stop="viewDetails(jo.id, jo.order_type || 'JOB')"
+                                    class="table-action-btn"
+                                    :disabled="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB')"
+                                    :style="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'opacity:0.65;cursor:wait;' : ''"
+                                    x-text="loadingDetailKey === detailKeyFor(jo.id, jo.order_type || 'JOB') ? 'Loading...' : 'View Order'"
+                                ></button>
+                            </div>
+                        </article>
+                    </template>
+
+                    <template x-for="rowIndex in (loadingOrders && orders.length === 0 ? 3 : 0)" :key="'mobile-skeleton-' + rowIndex">
+                        <div class="customizations-mobile-state" aria-hidden="true">
+                            <span class="pf-customization-skeleton medium"></span>
+                            <span class="pf-customization-skeleton" style="margin-top:10px;"></span>
+                            <span class="pf-customization-skeleton short" style="margin-top:10px;"></span>
+                        </div>
+                    </template>
+                    <div x-show="ordersError && orders.length === 0" x-cloak class="customizations-mobile-state">
+                        <div style="font-weight:700;color:#475569;">Unable to load customizations.</div>
+                        <div style="margin-top:6px;" x-text="ordersError"></div>
+                        <button type="button" @click="retryLoadOrders()" class="table-action-btn" style="width:100%;margin-top:12px;">Retry</button>
+                    </div>
+                    <div x-show="!loadingOrders && !ordersError && filteredOrders.length === 0" x-cloak class="customizations-mobile-state">
+                        No matching jobs in this stage
+                    </div>
                 </div>
 
                 <!-- Standardized Premium Pagination -->
