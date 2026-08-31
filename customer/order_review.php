@@ -1020,11 +1020,6 @@ require_once __DIR__ . '/../includes/header.php';
         font-family: inherit !important;
         color: #374151 !important;
     }
-    .review-policy-card {
-        margin-bottom: 1.5rem;
-    }
-    .review-policy-title { font-size: 0.82rem; font-weight: 700; color: #0c4a6e !important; margin-bottom: 3px; }
-    .review-policy-text { font-size: 0.75rem; color: #075985 !important; line-height: 1.5; margin: 0; }
     .order-review-page-header {
         display: flex;
         align-items: center;
@@ -1790,19 +1785,6 @@ require_once __DIR__ . '/../includes/header.php';
                         <textarea class="input-field review-input-disabled review-input-disabled-textarea" rows="2" disabled><?php echo htmlspecialchars($customer_address); ?></textarea>
                     </div>
                 </div>
-
-                <?php if (!$is_product_order): ?>
-                <!-- 3. Payment Policy Notice -->
-                <div class="review-info-note review-policy-card">
-                    <svg style="width:20px;height:20px;color:#0ea5e9;flex-shrink:0;margin-top:1px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/>
-                    </svg>
-                    <div>
-                        <div class="review-policy-title">Payment Policy</div>
-                        <div class="review-policy-text">The payment option (100% Full Payment) will become available once staff reviews your order and sets the price. You will receive a notification when your order is ready for payment.</div>
-                    </div>
-                </div>
-                <?php endif; ?>
 
                 <!-- 4. Final Actions -->
                 <div class="review-actions-bar">
