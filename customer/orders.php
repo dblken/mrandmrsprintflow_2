@@ -2385,7 +2385,6 @@ function buildReceiptHtml(receipt) {
     const company = receipt?.company || {};
     const customer = receipt?.customer || {};
     const payment = receipt?.payment || {};
-    const discount = receipt?.discount || {};
     const items = Array.isArray(receipt?.items) ? receipt.items : [];
     const materials = Array.isArray(receipt?.materials) ? receipt.materials : [];
     const contact = String(receipt?.customer_contact || customer.phone || '').trim();
@@ -2452,7 +2451,6 @@ function buildReceiptHtml(receipt) {
             <div class="receipt-section-title">Payment Summary</div>
             <div class="receipt-summary">
                 <div class="receipt-total-line"><span>Subtotal</span><strong>${formatMoney(receipt.subtotal || 0)}</strong></div>
-                <div class="receipt-total-line"><span>Discount</span><strong>${formatMoney(discount.amount || 0)}</strong></div>
                 <div class="receipt-total-line receipt-total-line--grand"><span>Total Paid</span><span>${formatMoney(receipt.total || 0)}</span></div>
             </div>
             <div class="receipt-payment-breakdown">

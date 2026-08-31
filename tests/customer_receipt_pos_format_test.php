@@ -137,6 +137,32 @@ receipt_format_check(
 );
 
 receipt_format_check(
+    !str_contains($pos, '<span>Discount</span>')
+        && !str_contains($pos, '<span>Discount Details</span>')
+        && !str_contains($pos, 'No discount')
+        && !str_contains($customer, '<span>Discount</span>')
+        && !str_contains($customer, '<span>Discount Details</span>')
+        && !str_contains($customer, 'No discount')
+        && !str_contains($receiptPrinter, "printflow_receipt_pair('Discount'"),
+    'POS preview, thermal/reprint, online receipt, and PDF source omit discount presentation'
+);
+
+receipt_format_check(
+    str_contains($pos, 'formatMoney(receipt.subtotal || 0)')
+        && str_contains($pos, 'formatMoney(receipt.total || 0)')
+        && str_contains($pos, 'formatMoney(payment.amount_paid || 0)')
+        && str_contains($pos, 'formatMoney(payment.change || 0)')
+        && str_contains($customer, 'formatMoney(receipt.subtotal || 0)')
+        && str_contains($customer, 'formatMoney(receipt.total || 0)')
+        && str_contains($customer, 'formatMoney(payment.amount_paid || receipt.total || 0)')
+        && str_contains($receiptPrinter, "printflow_receipt_pair('Subtotal'")
+        && str_contains($receiptPrinter, "printflow_receipt_pair('TOTAL'")
+        && str_contains($receiptPrinter, "printflow_receipt_pair('Amount Paid'")
+        && str_contains($receiptPrinter, "printflow_receipt_pair('Change'"),
+    'subtotal, total, amount paid, and change rendering remain intact'
+);
+
+receipt_format_check(
     str_contains($receiptPrinter, 'printflow_receipt_format_text')
         && str_contains($receiptPrinter, 'columns = 32')
         && str_contains($receiptPrinter, 'paper_width_mm'),

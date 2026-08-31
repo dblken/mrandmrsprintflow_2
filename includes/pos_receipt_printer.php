@@ -341,7 +341,6 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     $out = [];
     $company = $receipt['company'] ?? [];
     $payment = $receipt['payment'] ?? [];
-    $discount = $receipt['discount'] ?? [];
 
     $out[] = printflow_receipt_center('PrintFlow', $columns);
     if (!empty($company['branch_name'])) $out[] = printflow_receipt_center((string)$company['branch_name'], $columns);
@@ -378,7 +377,6 @@ function printflow_receipt_format_text(array $receipt, int $columns = 32): strin
     }
     $out[] = $line;
     $out[] = printflow_receipt_pair('Subtotal', printflow_receipt_money($receipt['subtotal'] ?? 0), $columns);
-    $out[] = printflow_receipt_pair('Discount', printflow_receipt_money($discount['amount'] ?? 0), $columns);
     $out[] = $line;
     $out[] = printflow_receipt_pair('TOTAL', printflow_receipt_money($receipt['total'] ?? 0), $columns);
     $out[] = $line;

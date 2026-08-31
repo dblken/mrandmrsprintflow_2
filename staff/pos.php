@@ -2223,7 +2223,6 @@ try {
         function buildReceiptHtml(receipt) {
             const company = receipt?.company || {};
             const customer = receipt?.customer || {};
-            const discount = receipt?.discount || {};
             const payment = receipt?.payment || {};
             const items = Array.isArray(receipt?.items) ? receipt.items : [];
             const receiptContact = cleanReceiptContact(customer);
@@ -2239,10 +2238,6 @@ try {
                     <td style="font-weight:800;color:#0f172a;">${formatMoney(item.line_total || 0)}</td>
                 </tr>
             `).join('');
-            const discountLabel = discount.code
-                ? `${escapeHtml(discount.code)}${discount.percent ? ` (${Number(discount.percent)}%)` : ''}`
-                : 'No discount';
-
             return `
                 <div class="receipt-header">
                     ${company.logo_url ? `<img src="${escapeHtml(company.logo_url)}" alt="${escapeHtml(company.name || 'Company')}" class="receipt-logo">` : ''}
@@ -2304,8 +2299,6 @@ try {
                     <div class="receipt-section-title">Payment Summary</div>
                     <div class="receipt-summary">
                         <div class="receipt-total-line"><span>Subtotal</span><strong>${formatMoney(receipt.subtotal || 0)}</strong></div>
-                        <div class="receipt-total-line"><span>Discount</span><strong>${formatMoney(discount.amount || 0)}</strong></div>
-                        ${discount.code || discount.description ? `<div class="receipt-total-line" style="font-size:11px;color:#64748b;"><span>Discount Details</span><span>${discountLabel}</span></div>` : ''}
                         <div class="receipt-total-line receipt-total-line--grand"><span>Total</span><span>${formatMoney(receipt.total || 0)}</span></div>
                     </div>
                     <div class="receipt-payment-breakdown">
