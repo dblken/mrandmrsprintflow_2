@@ -3,15 +3,15 @@ require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/branch_context.php';
 require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
+require_once __DIR__ . '/../../../includes/chat_http.php';
 
 ob_start();
 header('Content-Type: application/json');
 
-if (!is_logged_in()) {
-    ob_end_clean();
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit();
-}
+printflow_chat_require_login();
+printflow_chat_require_post();
+printflow_chat_require_csrf();
+printflow_chat_rate_limit('forward', 10, 10);
 
 $target_order_id = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
 $original_message_id = isset($_POST['message_id']) ? (int)$_POST['message_id'] : 0;
@@ -32,26 +32,10 @@ if (!$orig) {
     exit();
 }
 $orig = $orig[0];
+printflow_chat_authorize_order((int)$orig['order_id']);
 
 // 2. Access control for target order
-if ($user_type !== 'Customer') {
-    // Staff must have access to the target branch
-    try {
-        printflow_assert_order_branch_access($target_order_id);
-    } catch (Exception $e) {
-        ob_end_clean();
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
-        exit();
-    }
-} else {
-    // Customer must own the target order
-    $order_check = db_query("SELECT customer_id FROM orders WHERE order_id = ?", 'i', [$target_order_id]);
-    if (!$order_check || $order_check[0]['customer_id'] != $user_id) {
-        ob_end_clean();
-        echo json_encode(['success' => false, 'error' => 'Unauthorized access to target order']);
-        exit();
-    }
-}
+printflow_chat_authorize_order($target_order_id);
 
 // 3. Prepare the forwarded message
 $db_sender = ($user_type === 'Customer') ? 'Customer' : 'Staff';

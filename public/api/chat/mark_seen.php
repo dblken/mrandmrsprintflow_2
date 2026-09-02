@@ -11,15 +11,18 @@ printflow_chat_require_post();
 printflow_chat_require_csrf();
 
 $order_id = (int)($_POST['order_id'] ?? 0);
-$is_typing = !empty($_POST['is_typing']) ? 1 : 0;
-$user_id = (int)get_user_id();
-$user_type = get_user_type() === 'Customer' ? 'Customer' : 'Staff';
+$up_to_id = max(0, (int)($_POST['up_to_id'] ?? 0));
 printflow_chat_authorize_order($order_id);
 
-$ok = db_execute(
-    'INSERT INTO user_status (user_type, user_id, order_id, is_typing, last_activity) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE is_typing = VALUES(is_typing), last_activity = CURRENT_TIMESTAMP',
-    'siii',
-    [$user_type, $user_id, $order_id, $is_typing]
-);
+$target_sender = get_user_type() === 'Customer' ? 'Staff' : 'Customer';
+if ($up_to_id > 0) {
+    $ok = db_execute(
+        'UPDATE order_messages SET read_receipt = 2 WHERE order_id = ? AND sender = ? AND message_id <= ? AND read_receipt < 2',
+        'isi',
+        [$order_id, $target_sender, $up_to_id]
+    );
+} else {
+    $ok = true;
+}
 
-printflow_chat_json(['success' => (bool)$ok]);
+printflow_chat_json(['success' => (bool)$ok, 'up_to_id' => $up_to_id]);

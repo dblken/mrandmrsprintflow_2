@@ -3,163 +3,111 @@ require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/branch_context.php';
 require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
+require_once __DIR__ . '/../../../includes/chat_http.php';
 
-// Prevent accidental output (notices, etc.) from breaking JSON
 ob_start();
+printflow_chat_require_login();
+printflow_chat_require_post();
+printflow_chat_require_csrf();
+printflow_chat_rate_limit('send', 12, 10);
 
-header('Content-Type: application/json');
+$order_id = (int)($_POST['order_id'] ?? 0);
+$reply_id = (int)($_POST['reply_id'] ?? 0) ?: null;
+$message = trim((string)($_POST['message'] ?? ''));
+$user_id = (int)get_user_id();
+$db_sender = get_user_type() === 'Customer' ? 'Customer' : 'Staff';
 
-if (!is_logged_in()) {
-    ob_end_clean();
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit();
+printflow_chat_authorize_order($order_id);
+printflow_chat_validate_reply($reply_id, $order_id);
+
+if (mb_strlen($message) > 2000) {
+    printflow_chat_json(['success' => false, 'error' => 'Message cannot exceed 2,000 characters'], 422);
 }
 
-$order_id = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
-$reply_id = isset($_POST['reply_id']) && (int)$_POST['reply_id'] > 0 ? (int)$_POST['reply_id'] : null;
-$message = isset($_POST['message']) ? trim($_POST['message']) : '';
-$user_id = get_user_id();
-$user_type = get_user_type();
-
-if (!$order_id) {
-    echo json_encode(['success' => false, 'error' => 'Missing order ID']);
-    exit();
-}
-
-if ($user_type !== 'Customer') {
-    ob_end_clean();
-    ob_start();
-    printflow_assert_order_branch_access($order_id);
-}
-
-// Map Admin/Manager/Staff to 'Staff'
-$db_sender = ($user_type === 'Customer') ? 'Customer' : 'Staff';
-$messages_sent = 0;
-
-$file_signatures = [];
+$files = [];
 if (isset($_FILES['image'])) {
-    $files = $_FILES['image'];
-    $is_array = is_array($files['name']);
-    $count = $is_array ? count($files['name']) : 1;
-
+    $upload = $_FILES['image'];
+    $is_array = is_array($upload['name']);
+    $count = $is_array ? count($upload['name']) : 1;
+    if ($count > 4) {
+        printflow_chat_json(['success' => false, 'error' => 'You can send up to 4 images at a time'], 422);
+    }
     for ($i = 0; $i < $count; $i++) {
-        $error = $is_array ? $files['error'][$i] : $files['error'];
-        if ($error !== UPLOAD_ERR_OK) {
-            continue;
-        }
-
-        $file_signatures[] = [
-            'name' => (string)($is_array ? $files['name'][$i] : $files['name']),
-            'size' => (int)($is_array ? $files['size'][$i] : $files['size']),
+        $files[] = [
+            'name' => (string)($is_array ? $upload['name'][$i] : $upload['name']),
+            'tmp_name' => (string)($is_array ? $upload['tmp_name'][$i] : $upload['tmp_name']),
+            'error' => (int)($is_array ? $upload['error'][$i] : $upload['error']),
+            'size' => (int)($is_array ? $upload['size'][$i] : $upload['size']),
         ];
     }
 }
 
-$dedupe_payload = [
-    'order_id' => $order_id,
-    'sender' => $db_sender,
-    'sender_id' => (int)$user_id,
-    'reply_id' => $reply_id,
-    'message' => $message,
-    'files' => $file_signatures,
-];
-$dedupe_hash = hash('sha256', json_encode($dedupe_payload));
-$dedupe_guard = $_SESSION['chat_submit_guard'] ?? null;
-
-if (
-    is_array($dedupe_guard)
-    && ($dedupe_guard['hash'] ?? '') === $dedupe_hash
-    && isset($dedupe_guard['time'])
-    && (microtime(true) - (float)$dedupe_guard['time']) < 2.5
-) {
-    ob_end_clean();
-    echo json_encode([
-        'success' => true,
-        'messages_sent' => 0,
-        'duplicate_ignored' => true,
-    ]);
-    exit();
+if ($message === '' && $files === []) {
+    printflow_chat_json(['success' => false, 'error' => 'Enter a message or choose an image'], 422);
 }
 
-$_SESSION['chat_submit_guard'] = [
-    'hash' => $dedupe_hash,
-    'time' => microtime(true),
-];
-
-// 1. Handle text message
-if ($message !== '') {
-    $sql = "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt, reply_id)
-            VALUES (?, ?, ?, ?, 'text', 0, ?)";
-    if (db_execute($sql, 'isisi', [$order_id, $db_sender, $user_id, $message, $reply_id])) {
-        $messages_sent++;
+$client_token = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($_POST['client_token'] ?? ''));
+if ($client_token !== '') {
+    $dedupe_key = 'pf_chat_client_' . hash('sha256', $order_id . '|' . $db_sender . '|' . $user_id . '|' . $client_token);
+    $recent_tokens = array_filter(
+        (array)($_SESSION['pf_chat_client_tokens'] ?? []),
+        static fn($timestamp): bool => (int)$timestamp > time() - 300
+    );
+    if (!empty($recent_tokens[$dedupe_key])) {
+        printflow_chat_json(['success' => true, 'messages_sent' => 0, 'duplicate_ignored' => true]);
     }
+    $recent_tokens[$dedupe_key] = time();
+    $_SESSION['pf_chat_client_tokens'] = array_slice($recent_tokens, -100, null, true);
 }
 
-// 2. Handle multiple files (images/videos)
-if (isset($_FILES['image'])) {
-    $files = $_FILES['image'];
-    $is_array = is_array($files['name']);
-    $count = $is_array ? count($files['name']) : 1;
-
-    for ($i = 0; $i < $count; $i++) {
-        $error = $is_array ? $files['error'][$i] : $files['error'];
-        if ($error !== UPLOAD_ERR_OK) continue;
-
-        $name = $is_array ? $files['name'][$i] : $files['name'];
-        $single_file = [
-            'name'     => $name,
-            'type'     => $is_array ? $files['type'][$i] : $files['type'],
-            'tmp_name' => $is_array ? $files['tmp_name'][$i] : $files['tmp_name'],
-            'error'    => $error,
-            'size'     => $is_array ? $files['size'][$i] : $files['size'],
-        ];
-
-        // Process file (up to 50MB) 
-        // We use the 'chat' folder destination, let's keep allowed extensions explicit.
-        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        $is_video = in_array($ext, ['mp4', 'webm', 'mov']);
-        $file_type = $is_video ? 'video' : 'image';
-        $dest_folder = $is_video ? 'chat/videos' : 'chat/images';
-
-        $upload = upload_file($single_file, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov'], $dest_folder, null, 50 * 1024 * 1024);
-        if (!($upload['success'] ?? false)) continue;
-
-        $image_path = (string)$upload['file_path'];
-        $msg_type = $is_video ? 'video' : 'image';
-
-        $sql = "INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, image_path, file_type, file_path, message_file, file_name, file_size, read_receipt, reply_id)
-                VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, 0, ?)";
-        
-        if (db_execute($sql, 'isissssssii', [
-            $order_id, $db_sender, $user_id, 
-            $msg_type, 
-            $image_path, 
-            $file_type, 
-            $image_path, 
-            $image_path, 
-            $name, 
-            $single_file['size'], 
-            $reply_id
-        ])) {
-            $messages_sent++;
-        }
+$validated = [];
+foreach ($files as $file) {
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        printflow_chat_json(['success' => false, 'error' => 'An image could not be uploaded'], 422);
     }
+    if (!is_uploaded_file($file['tmp_name'])) {
+        printflow_chat_json(['success' => false, 'error' => 'Invalid upload'], 422);
+    }
+    $inspection = printflow_chat_inspect_image($file['tmp_name'], $file['size']);
+    if (!$inspection['success']) printflow_chat_json(['success' => false, 'error' => $inspection['error']], 422);
+    $validated[] = $file + ['extension' => $inspection['extension']];
 }
 
-if ($messages_sent === 0) {
-    echo json_encode(['success' => false, 'error' => 'No message or images were sent.']);
-    exit();
+$upload_dir = __DIR__ . '/../../../uploads/chat/images';
+if ($validated !== [] && !is_dir($upload_dir) && !mkdir($upload_dir, 0755, true) && !is_dir($upload_dir)) {
+    printflow_chat_json(['success' => false, 'error' => 'Image storage is unavailable'], 500);
 }
 
-// 3. Notify the opposite side so chat messages also trigger real notifications.
-$message_kind = 'message';
-if ($message === '' && isset($_FILES['image'])) {
-    $message_kind = 'attachment';
+$saved_paths = [];
+$inserted_ids = [];
+global $conn;
+try {
+    if ($conn) {
+        $conn->begin_transaction();
+    }
+    if ($message !== '') {
+        $ok = db_execute("INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, read_receipt, reply_id) VALUES (?, ?, ?, ?, 'text', 0, ?)", 'isisi', [$order_id, $db_sender, $user_id, $message, $reply_id]);
+        if (!$ok) throw new RuntimeException('Could not save message');
+        $inserted_ids[] = (int)$conn->insert_id;
+    }
+    $base_path = rtrim(defined('BASE_PATH') ? BASE_PATH : '', '/');
+    foreach ($validated as $file) {
+        $filename = bin2hex(random_bytes(20)) . '.' . $file['extension'];
+        $absolute_path = $upload_dir . '/' . $filename;
+        if (!move_uploaded_file($file['tmp_name'], $absolute_path)) throw new RuntimeException('Could not save image');
+        $saved_paths[] = $absolute_path;
+        $public_path = $base_path . '/uploads/chat/images/' . $filename;
+        $safe_original = mb_substr(basename($file['name']), 0, 190);
+        $ok = db_execute("INSERT INTO order_messages (order_id, sender, sender_id, message, message_type, image_path, file_type, file_path, message_file, file_name, file_size, read_receipt, reply_id) VALUES (?, ?, ?, '', 'image', ?, 'image', ?, ?, ?, ?, 0, ?)", 'isissssii', [$order_id, $db_sender, $user_id, $public_path, $public_path, $public_path, $safe_original, $file['size'], $reply_id]);
+        if (!$ok) throw new RuntimeException('Could not save image message');
+        $inserted_ids[] = (int)$conn->insert_id;
+    }
+    if ($conn) $conn->commit();
+} catch (Throwable $error) {
+    if ($conn) $conn->rollback();
+    foreach ($saved_paths as $path) if (is_file($path)) @unlink($path);
+    printflow_chat_json(['success' => false, 'error' => 'Message could not be sent'], 500);
 }
-printflow_notify_chat_message($order_id, $db_sender, $message_kind);
 
-
-// Clear accidental output before sending JSON
-ob_end_clean();
-echo json_encode(['success' => true, 'messages_sent' => $messages_sent]);
-?>
+printflow_notify_chat_message($order_id, $db_sender, $message === '' ? 'attachment' : 'message');
+printflow_chat_json(['success' => true, 'messages_sent' => count($inserted_ids), 'message_ids' => $inserted_ids]);

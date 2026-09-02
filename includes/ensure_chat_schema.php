@@ -40,10 +40,8 @@ if (!db_table_has_column('users', 'online_status')) {
     @$conn->query("ALTER TABLE users ADD COLUMN online_status ENUM('online', 'offline', 'in-call') DEFAULT 'offline'");
 }
 
-// 5. Ensure orders columns (is_archived, branch_id)
-if (!db_table_has_column('orders', 'is_archived')) {
-    @$conn->query("ALTER TABLE orders ADD COLUMN is_archived TINYINT(1) DEFAULT 0");
-}
+// 5. Ensure branch compatibility. Historical is_archived columns, when
+// present, are retained but no longer created or used to hide conversations.
 if (!db_table_has_column('orders', 'branch_id')) {
     @$conn->query("ALTER TABLE orders ADD COLUMN branch_id INT DEFAULT NULL");
 }

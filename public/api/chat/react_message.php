@@ -3,41 +3,30 @@ require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/branch_context.php';
 require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
+require_once __DIR__ . '/../../../includes/chat_http.php';
 
 // Prevent accidental output
 ob_start();
 
 header('Content-Type: application/json');
 
-if (!is_logged_in()) {
-    ob_end_clean();
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit();
-}
+printflow_chat_require_login();
+printflow_chat_require_post();
+printflow_chat_require_csrf();
+printflow_chat_rate_limit('reaction', 20, 10);
 
 $message_id = isset($_POST['message_id']) ? (int)$_POST['message_id'] : 0;
 $reaction_type = isset($_POST['reaction_type']) ? trim($_POST['reaction_type']) : '';
 $user_id = get_user_id();
 $user_type = get_user_type();
 
-if (!$message_id || !$reaction_type) {
-    echo json_encode(['success' => false, 'error' => 'Missing message ID or reaction']);
-    exit();
+if (!$message_id || !printflow_chat_reaction_allowed($reaction_type)) {
+    printflow_chat_json(['success' => false, 'error' => 'Invalid message or reaction'], 422);
 }
 
 $db_sender = ($user_type === 'Customer') ? 'Customer' : 'Staff';
 
-if ($user_type !== 'Customer') {
-    $messageRow = db_query('SELECT order_id FROM order_messages WHERE message_id = ? LIMIT 1', 'i', [$message_id]);
-    if (empty($messageRow)) {
-        ob_end_clean();
-        echo json_encode(['success' => false, 'error' => 'Message not found']);
-        exit();
-    }
-    ob_end_clean();
-    ob_start();
-    printflow_assert_order_branch_access((int)$messageRow[0]['order_id']);
-}
+printflow_chat_message_order($message_id);
 
 // Check if reaction exists
 $sql_check = "SELECT reaction_id, reaction_type FROM message_reactions WHERE message_id = ? AND sender = ? AND sender_id = ?";
@@ -56,6 +45,4 @@ if (!empty($existing)) {
     db_execute("INSERT INTO message_reactions (message_id, sender, sender_id, reaction_type) VALUES (?, ?, ?, ?)", 'isis', [$message_id, $db_sender, $user_id, $reaction_type]);
 }
 
-ob_end_clean();
-echo json_encode(['success' => true]);
-?>
+printflow_chat_json(['success' => true]);

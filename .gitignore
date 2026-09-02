@@ -46,6 +46,9 @@ yarn-error.log
 /uploads/*
 !/uploads/.gitkeep
 !/uploads/user.jpg
+!/uploads/chat/
+/uploads/chat/*
+!/uploads/chat/.htaccess
 
 # ===========================================
 # Test & Diagnostic Files

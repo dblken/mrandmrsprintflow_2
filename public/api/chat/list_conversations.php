@@ -20,8 +20,7 @@ if (!is_logged_in()) {
 
 $user_id = get_user_id();
 $user_type = get_user_type();
-$q = trim($_GET['q'] ?? '');
-$show_archived = (int)($_GET['archived'] ?? 0);
+$q = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 100);
 
 if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
@@ -50,14 +49,9 @@ try {
     }
 
     if ($user_type === 'Customer') {
-        // Check if is_archived column exists
-        $has_archived = db_table_has_column('orders', 'is_archived');
-        $archive_col = $has_archived ? "o.is_archived" : "0";
-
         $sql = "
-        SELECT o.order_id, o.status, o.order_date, $archive_col as is_archived,
+        SELECT o.order_id, o.status, o.order_date,
                (SELECT CASE 
-                    WHEN m.message_type = 'order_update' THEN (CASE WHEN JSON_VALID(m.message) THEN 'Order update' ELSE m.message END)
                     WHEN m.message_type = 'order_update' THEN (CASE WHEN JSON_VALID(m.message) THEN 'Order update' ELSE m.message END)
                     WHEN m.message != '' THEN m.message 
                     WHEN m.message_type = 'image' THEN (CASE WHEN m.file_type = 'video' THEN '🎥 Video' ELSE '📸 Photo' END)
@@ -67,6 +61,7 @@ try {
                 END FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message,
                (SELECT m.created_at FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message_at,
                (SELECT COUNT(*) FROM order_messages m WHERE m.order_id = o.order_id AND m.sender = 'Staff' AND m.read_receipt != 2) AS unread_count,
+               EXISTS(SELECT 1 FROM order_messages pm WHERE pm.order_id = o.order_id AND pm.is_pinned = 1) AS has_pinned,
                (SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')), p.name, 'Order') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) AS product_name,
                COALESCE(
                     (SELECT jo.assigned_to FROM job_orders jo WHERE jo.order_id = o.order_id AND jo.assigned_to IS NOT NULL ORDER BY jo.updated_at DESC LIMIT 1),
@@ -133,23 +128,23 @@ try {
                     'offline'
                ) AS staff_status
         FROM orders o
-        WHERE o.customer_id = ?" . ($has_archived ? " AND $archive_col = ?" : "") . " $search_clause
+        WHERE o.customer_id = ? $search_clause
         ORDER BY COALESCE((SELECT MAX(mx.created_at) FROM order_messages mx WHERE mx.order_id = o.order_id), o.order_date) DESC
+        LIMIT 100
     ";
 
-        $full_params = $has_archived ? array_merge([$user_id, ($show_archived ? 1 : 0)], $params) : array_merge([$user_id], $params);
-        $full_types = $has_archived ? "ii" . $types : "i" . $types;
+        $full_params = array_merge([$user_id], $params);
+        $full_types = "i" . $types;
         $rows = db_query($sql, $full_types, $full_params);
         if ($rows === false)
             throw new Exception("Database lookup failed on orders.");
     } else {
-        // Check if is_archived column exists
-        $has_archived = db_table_has_column('orders', 'is_archived');
-        $archive_col = $has_archived ? "o.is_archived" : "0";
         $has_activity = db_table_has_column('customers', 'last_activity');
         $activity_sel = $has_activity ? "c.last_activity as partner_last_activity," : "NULL as partner_last_activity,";
+        $branch_id = printflow_branch_filter_for_user();
+        $branch_clause = $branch_id ? ' AND o.branch_id = ?' : '';
         $sql = "
-        SELECT o.order_id, o.customer_id, o.status, o.order_date, $archive_col as is_archived,
+        SELECT o.order_id, o.customer_id, o.status, o.order_date,
                TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))) AS customer_name,
                c.profile_picture AS customer_avatar,
                c.online_status AS customer_status,
@@ -164,19 +159,21 @@ try {
                 END FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message,
                (SELECT m.created_at FROM order_messages m WHERE m.order_id = o.order_id ORDER BY m.message_id DESC LIMIT 1) AS last_message_at,
                (SELECT COUNT(*) FROM order_messages m WHERE m.order_id = o.order_id AND m.sender = 'Customer' AND m.read_receipt != 2) AS unread_count,
+               EXISTS(SELECT 1 FROM order_messages pm WHERE pm.order_id = o.order_id AND pm.is_pinned = 1) AS has_pinned,
                (SELECT COALESCE(JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')), p.name, 'Order') FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = o.order_id LIMIT 1) AS product_name
         FROM orders o
         LEFT JOIN customers c ON c.customer_id = o.customer_id
-        WHERE o.status != 'Cancelled'" . ($has_archived ? " AND $archive_col = ?" : "") . " $search_clause
+        WHERE 1 = 1 $branch_clause $search_clause
         AND (
             EXISTS (SELECT 1 FROM order_messages m WHERE m.order_id = o.order_id)
-            OR o.order_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+            OR (o.status != 'Cancelled' AND o.order_date >= DATE_SUB(NOW(), INTERVAL 90 DAY))
         )
         ORDER BY COALESCE((SELECT MAX(mx.created_at) FROM order_messages mx WHERE mx.order_id = o.order_id), o.order_date) DESC
+        LIMIT 100
     ";
 
-        $full_params = $has_archived ? array_merge([($show_archived ? 1 : 0)], $params) : $params;
-        $full_types = $has_archived ? "i" . $types : $types;
+        $full_params = $branch_id ? array_merge([$branch_id], $params) : $params;
+        $full_types = $branch_id ? "i" . $types : $types;
         $rows = db_query($sql, $full_types, $full_params);
         if ($rows === false)
             throw new Exception("Database lookup failed on staff view.");

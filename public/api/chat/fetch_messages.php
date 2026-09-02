@@ -22,8 +22,6 @@ try {
     }
 
     $order_id = isset($_GET['order_id']) ? (int) $_GET['order_id'] : 0;
-    $last_id = isset($_GET['last_id']) ? (int) $_GET['last_id'] : 0;
-    $is_active = isset($_GET['is_active']) && $_GET['is_active'] == 1; // Is the chat window currently open by the requester?
     $user_id = get_user_id();
     $user_type = get_user_type();
 
@@ -32,6 +30,12 @@ try {
         session_write_close();
     }
     require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
+    require_once __DIR__ . '/../../../includes/branch_context.php';
+    require_once __DIR__ . '/../../../includes/chat_http.php';
+    $pagination = printflow_chat_pagination($_GET);
+    $after_id = $pagination['after_id'];
+    $before_id = $pagination['before_id'];
+    $limit = $pagination['limit'];
 
     if (!$order_id) {
         ob_end_clean();
@@ -39,6 +43,7 @@ try {
         exit;
     }
 
+    printflow_chat_authorize_order($order_id);
     $current_user_type = ($user_type === 'Customer') ? 'customer' : 'staff';
     $base_path = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '';
     $default_order_thumbnail = ($base_path !== '' ? $base_path : '') . '/public/assets/images/services/default.png';
@@ -125,7 +130,26 @@ try {
         $order_state['payment_status'] = trim((string) ($order_state_raw[0]['payment_status'] ?? ''));
     }
 
-    // 1. Fetch new messages
+    // 1. Fetch a bounded initial window, older page, or incremental delta.
+    $where_sql = 'm.order_id = ?';
+    $query_types = 'i';
+    $query_params = [$order_id];
+    $descending = false;
+    if ($before_id > 0) {
+        $where_sql .= ' AND m.message_id < ?';
+        $query_types .= 'i';
+        $query_params[] = $before_id;
+        $descending = true;
+    } elseif ($after_id > 0) {
+        $where_sql .= ' AND m.message_id > ?';
+        $query_types .= 'i';
+        $query_params[] = $after_id;
+    } else {
+        $descending = true;
+    }
+    $query_types .= 'i';
+    $query_params[] = $limit;
+
     $sql = "SELECT m.*, 
         p.message AS reply_message, 
         p.image_path AS reply_image,
@@ -148,15 +172,19 @@ try {
         END as sender_avatar
         FROM order_messages m 
         LEFT JOIN order_messages p ON m.reply_id = p.message_id
-        WHERE m.order_id = ? AND m.message_id > ? 
-        ORDER BY m.message_id ASC";
-    $messages_raw = db_query($sql, 'ii', [$order_id, $last_id]);
+        WHERE $where_sql
+        ORDER BY m.message_id " . ($descending ? 'DESC' : 'ASC') . "
+        LIMIT ?";
+    $messages_raw = db_query($sql, $query_types, $query_params);
     if ($messages_raw === false) {
         global $conn;
         $db_err = $conn ? mysqli_error($conn) : 'Unknown DB error';
         throw new Exception("Could not fetch messages. Database returned an error: " . $db_err);
     }
 
+    if ($descending && is_array($messages_raw)) {
+        $messages_raw = array_reverse($messages_raw);
+    }
     $messages = [];
     if ($messages_raw) {
         foreach ($messages_raw as $msg) {
@@ -172,6 +200,12 @@ try {
                 } elseif ($bp !== '' && strpos($image_path, $bp . '/') !== 0) {
                     // Absolute but missing base prefix (localhost only)
                     $image_path = $bp . $image_path;
+                }
+            }
+
+            if (in_array(($msg['message_type'] ?? ''), ['image'], true) || ($msg['file_type'] ?? '') === 'image') {
+                if ($image_path !== '' && !preg_match('#^https?://#i', $image_path)) {
+                $image_path = $base_path . '/public/serve_chat_image.php?message_id=' . (int)$msg['message_id'];
                 }
             }
 
@@ -261,12 +295,10 @@ try {
             $raw_m_file = (string)($msg['message_file'] ?? '');
             if ($m_type === 'video' && $raw_m_file !== '' && !preg_match('#^https?://#i', $raw_m_file)) {
                 $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '';
-                $filename = basename($raw_m_file);
-                $raw_m_file = $bp . '/public/serve_chat_video.php?file=' . urlencode($filename);
+                $raw_m_file = $bp . '/public/serve_chat_video.php?message_id=' . (int)$msg['message_id'];
             } elseif ($m_type === 'voice' && $raw_m_file !== '' && !preg_match('#^https?://#i', $raw_m_file)) {
                 $bp = defined('BASE_PATH') ? rtrim(BASE_PATH, '/') : '';
-                $filename = basename($raw_m_file);
-                $raw_m_file = $bp . '/public/serve_chat_audio.php?file=' . urlencode($filename);
+                $raw_m_file = $bp . '/public/serve_chat_audio.php?message_id=' . (int)$msg['message_id'];
             }
 
             $thumbnail = $chat_public_url((string) ($msg['thumbnail'] ?? ''));
@@ -336,7 +368,17 @@ try {
         }
     }
 
-    // Fetch reactions for all messages in the order (efficient enough for polling limited chats)
+    // Fetch reaction state for this bounded page. Empty incremental polls still
+    // include only the latest 50 messages so reaction changes can propagate.
+    $visible_ids = array_map(static fn(array $message): int => (int)$message['id'], $messages);
+    $reaction_scope_ids = $visible_ids;
+    if ($reaction_scope_ids === []) {
+        $recent_rows = db_query('SELECT message_id FROM order_messages WHERE order_id = ? ORDER BY message_id DESC LIMIT 50', 'i', [$order_id]) ?: [];
+        $reaction_scope_ids = array_map(static fn(array $row): int => (int)$row['message_id'], $recent_rows);
+    }
+    $reaction_scope = $reaction_scope_ids
+        ? 'm.message_id IN (' . implode(',', $reaction_scope_ids) . ')'
+        : '1 = 0';
     $reactions_sql = "SELECT r.message_id, r.reaction_type, r.sender, r.sender_id,
             CASE 
                 WHEN r.sender = 'Customer' THEN (SELECT CONCAT(first_name, ' ', last_name) FROM customers WHERE customer_id = r.sender_id)
@@ -345,7 +387,7 @@ try {
             END as reactor_name
             FROM message_reactions r
             JOIN order_messages m ON r.message_id = m.message_id
-            WHERE m.order_id = ?";
+            WHERE m.order_id = ? AND $reaction_scope";
     $reactions_raw = db_query($reactions_sql, 'i', [$order_id]);
     if ($reactions_raw === false) {
         global $conn;
@@ -354,17 +396,8 @@ try {
     }
     $reactions = $reactions_raw ?: [];
 
-    // 2. Mark messages as seen/delivered
-    $target_sender = ($user_type === 'Customer') ? 'Staff' : 'Customer';
-    if ($is_active) {
-        // Current user has chat open -> Mark as SEEN
-        db_execute("UPDATE order_messages SET read_receipt = 2 WHERE order_id = ? AND sender = ? AND read_receipt < 2", 'is', [$order_id, $target_sender]);
-    } else {
-        // Current user just fetched updates (sidebar/background) -> Mark as DELIVERED
-        db_execute("UPDATE order_messages SET read_receipt = 1 WHERE order_id = ? AND sender = ? AND read_receipt = 0", 'is', [$order_id, $target_sender]);
-    }
-
-    // 3. Fetch partner online/typing status
+    // 2. Fetch partner online/typing status. Read state is written only by the
+    // authenticated POST mark_seen endpoint, never as a side effect of polling.
     $partner_type = ($user_type === 'Customer') ? 'Staff' : 'Customer';
     $partner_sql = "SELECT last_activity, is_typing,
                 CASE 
@@ -413,13 +446,6 @@ try {
 
     $partner['avatar'] = get_profile_image($partner['avatar'] ?? null);
 
-    // 4. Fetch order metadata (archive status)
-    $has_archived_col = db_table_has_column('orders', 'is_archived');
-    $order_meta = $has_archived_col
-        ? db_query("SELECT is_archived FROM orders WHERE order_id = ?", 'i', [$order_id])
-        : [];
-    $is_archived = !empty($order_meta) ? (bool) $order_meta[0]['is_archived'] : false;
-
     // 5. Fetch last seen message ID for the current authenticated user's sent messages
     $user_sender_type = ($user_type === 'Customer') ? 'Customer' : 'Staff';
     $last_seen_id = -1;
@@ -455,16 +481,30 @@ try {
         $pinned_messages[] = $pm;
     }
 
+    $first_message_id = $messages ? (int)$messages[0]['id'] : 0;
+    $last_message_id = $messages ? (int)$messages[count($messages) - 1]['id'] : $after_id;
+    $has_more_older = false;
+    if ($first_message_id > 0) {
+        $older = db_query('SELECT 1 FROM order_messages WHERE order_id = ? AND message_id < ? LIMIT 1', 'ii', [$order_id, $first_message_id]);
+        $has_more_older = !empty($older);
+    }
+
     ob_end_clean();
     echo json_encode([
         'success' => true,
         'current_user_type' => $current_user_type,
         'messages' => $messages,
         'reactions' => $reactions,
+        'reaction_message_ids' => $reaction_scope_ids,
         'partner' => $partner,
-        'is_archived' => $is_archived,
         'last_seen_message_id' => $last_seen_id,
-        'pinned_messages' => $pinned_messages
+        'pinned_messages' => $pinned_messages,
+        'pagination' => [
+            'limit' => $limit,
+            'first_id' => $first_message_id,
+            'last_id' => $last_message_id,
+            'has_more_older' => $has_more_older,
+        ],
     ]);
 
 } catch (Exception $e) {

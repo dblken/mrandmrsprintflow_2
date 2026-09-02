@@ -1,0 +1,10 @@
+Options -ExecCGI
+RemoveHandler .php .php3 .php4 .php5 .phtml .phar
+RemoveType .php .php3 .php4 .php5 .phtml .phar
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Deny from all
+</IfModule>

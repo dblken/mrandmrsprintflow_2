@@ -98,62 +98,7 @@ unset($__pf_admin_mobile_css_file, $__pf_admin_mobile_css_ver);
     <?php include __DIR__ . '/manager_theme.php'; ?>
 <?php endif; ?>
 
-<!-- PrintFlow Call & Signaling System (Global for Admin/Staff/Manager) -->
-<?php if (function_exists('is_logged_in') && is_logged_in()): ?>
-    <?php
-        require_once __DIR__ . '/realtime.php';
-        $__pf_realtime_enabled = printflow_realtime_available();
-        $__pf_realtime_url = printflow_realtime_url();
-        $__pf_call_css_file = __DIR__ . '/../public/assets/css/printflow_call.css';
-        $__pf_call_css_ver = is_file($__pf_call_css_file) ? (string) filemtime($__pf_call_css_file) : '1';
-        $__pf_call_js_file = __DIR__ . '/../public/assets/js/printflow_call.js';
-        $__pf_call_js_ver = is_file($__pf_call_js_file) ? (string) filemtime($__pf_call_js_file) : '1';
-    ?>
-    <?php if ($__pf_realtime_enabled): ?>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" defer></script>
-    <?php endif; ?>
-    <link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim($__pf_base_path, '/') . '/public/assets/css/printflow_call.css', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_css_ver; ?>">
-    <script src="<?php echo htmlspecialchars(rtrim($__pf_base_path, '/') . '/public/assets/js/printflow_call.js', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_js_ver; ?>" defer></script>
-
-
-
-    <script>
-        (function() {
-            function initPFCallGlobal() {
-                if (window.__PFCallBootstrapped) return;
-                if (window.PFCall && typeof window.PFCall.init === "function") {
-                    window.__PFCallBootstrapped = true;
-                    <?php 
-                        $uid = $_SESSION['user_id'] ?? null;
-                        $uname = $_SESSION['user_name'] ?? 'User';
-                        $utype = $_SESSION['user_type'] ?? null;
-                        $uavatar = $_SESSION['user_profile_picture'] ?? '';
-                        // Canonicalize Admin/Manager/Staff to 'Staff' for signaling
-                        $call_utype = ($utype === 'Customer') ? 'Customer' : 'Staff';
-                    ?>
-                    window.PFCall.init({
-                        userId: <?php echo json_encode($uid); ?>,
-                        userType: <?php echo json_encode($call_utype); ?>,
-                        userName: <?php echo json_encode($uname); ?>,
-                        userAvatar: <?php echo json_encode(function_exists('get_profile_image') ? get_profile_image($uavatar) : $uavatar); ?>,
-                        basePath: <?php echo json_encode($__pf_base_path); ?>,
-                        realtimeEnabled: <?php echo $__pf_realtime_enabled ? 'true' : 'false'; ?>,
-                        realtimeUrl: <?php echo json_encode($__pf_realtime_url); ?>
-                    });
-                } else {
-                    setTimeout(initPFCallGlobal, 500);
-                }
-            }
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initPFCallGlobal);
-            } else {
-                initPFCallGlobal();
-            }
-        })();
-    </script>
-<?php 
-unset($__pf_base_path, $__pf_asset_path, $__pf_output_css_file, $__pf_output_css_ver);
-endif; ?>
+<?php unset($__pf_base_path, $__pf_asset_path, $__pf_output_css_file, $__pf_output_css_ver); ?>
 <script>
     (function () {
         var root = document.documentElement;

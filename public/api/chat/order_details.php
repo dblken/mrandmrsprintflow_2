@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../../includes/auth.php';
 require_once __DIR__ . '/../../../includes/functions.php';
 require_once __DIR__ . '/../../../includes/branch_context.php';
 require_once __DIR__ . '/../../../includes/ensure_chat_schema.php';
+require_once __DIR__ . '/../../../includes/chat_http.php';
 
 // Prevent accidental output (notices, etc.) from breaking JSON
 ob_start();
@@ -28,12 +29,9 @@ if (!$order_id) {
     exit;
 }
 
-// Access control: Customer = own orders only; Staff/Manager = assigned branch only; Admin = any order
-if ($user_type === 'Customer') {
-    $order_result = db_query("SELECT * FROM orders WHERE order_id = ? AND customer_id = ?", 'ii', [$order_id, $user_id]);
-} else {
-    $order_result = db_query("SELECT * FROM orders WHERE order_id = ?", 'i', [$order_id]);
-}
+// Access control: Customer = own orders only; Staff/Manager = assigned branch only; Admin = any order.
+printflow_chat_authorize_order($order_id);
+$order_result = db_query("SELECT * FROM orders WHERE order_id = ?", 'i', [$order_id]);
 
 if (empty($order_result)) {
     echo json_encode(['success' => false, 'error' => 'Order not found']);

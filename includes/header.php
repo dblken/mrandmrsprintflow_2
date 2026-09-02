@@ -199,58 +199,6 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
         input:invalid, select:invalid, textarea:invalid { box-shadow: none !important; outline-color: initial !important; }
     </style>
     
-    <!-- PrintFlow Call & Signaling System (Global) -->
-    <?php if ($is_logged_in): ?>
-    <?php
-        require_once __DIR__ . '/realtime.php';
-        $__pf_realtime_enabled = printflow_realtime_available();
-        $__pf_realtime_url = printflow_realtime_url();
-        $__pf_call_css_file = __DIR__ . '/../public/assets/css/printflow_call.css';
-        $__pf_call_css_ver = is_file($__pf_call_css_file) ? (string) filemtime($__pf_call_css_file) : $ver;
-        $__pf_call_js_file = __DIR__ . '/../public/assets/js/printflow_call.js';
-        $__pf_call_js_ver = is_file($__pf_call_js_file) ? (string) filemtime($__pf_call_js_file) : $ver;
-    ?>
-    <script src="<?php echo htmlspecialchars(rtrim($asset_base, '/') . '/assets/js/pf-utils.js', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $ver; ?>" defer></script>
-    <?php if ($__pf_realtime_enabled): ?>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" defer></script>
-    <?php endif; ?>
-    <link rel="stylesheet" href="<?php echo htmlspecialchars(rtrim($asset_base, '/') . '/assets/css/printflow_call.css', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_css_ver; ?>">
-    <script src="<?php echo htmlspecialchars(rtrim($asset_base, '/') . '/assets/js/printflow_call.js', ENT_QUOTES, 'UTF-8'); ?>?v=<?php echo $__pf_call_js_ver; ?>" defer></script>
-        <script>
-        (function() {
-            function initPFCall() {
-                if (window.__PFCallBootstrapped) return;
-                if (window.PFCall && typeof window.PFCall.init === "function") {
-                    window.__PFCallBootstrapped = true;
-                    <?php 
-                        $uid = $_SESSION['user_id'] ?? null;
-                        $uname = $_SESSION['user_name'] ?? 'User';
-                        $utype = $_SESSION['user_type'] ?? null;
-                        $uavatar = $_SESSION['user_profile_picture'] ?? '';
-                        $call_utype = ($utype === 'Customer') ? 'Customer' : 'Staff';
-                    ?>
-                    window.PFCall.init({
-                        userId: <?php echo json_encode($uid); ?>,
-                        userType: <?php echo json_encode($call_utype); ?>,
-                        userName: <?php echo json_encode($uname); ?>,
-                        userAvatar: <?php echo json_encode(function_exists('get_profile_image') ? get_profile_image($uavatar) : $uavatar); ?>,
-                        basePath: <?php echo json_encode($base_path); ?>,
-                        realtimeEnabled: <?php echo $__pf_realtime_enabled ? 'true' : 'false'; ?>,
-                        realtimeUrl: <?php echo json_encode($__pf_realtime_url); ?>
-                    });
-                    document.dispatchEvent(new CustomEvent('PFCallGlobalReady'));
-                } else {
-                    setTimeout(initPFCall, 500);
-                }
-            }
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initPFCall);
-            } else {
-                initPFCall();
-            }
-        })();
-    </script>
-    <?php endif; ?>
 </head>
 <body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
     <!-- Skip to main content (accessibility) - hidden until focused -->

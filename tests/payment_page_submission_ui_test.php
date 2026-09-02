@@ -31,11 +31,6 @@ if (strpos($onloadBlock, 'finally {') === false || strpos($onloadBlock, 'resetPa
     $failures[] = 'XHR load handling must reset the submit button in finally.';
 }
 
-$socketSource = file_get_contents(__DIR__ . '/../public/assets/js/printflow_call.js');
-if (strpos($socketSource, 'reconnection: false') === false || strpos($socketSource, 'this.socket.io.opts.reconnection = false') === false) {
-    $failures[] = 'Unavailable Socket.IO signaling must enter fallback mode without repeated retries.';
-}
-
 if ($failures) {
     foreach ($failures as $failure) fwrite(STDERR, "FAIL: {$failure}\n");
     exit(1);
