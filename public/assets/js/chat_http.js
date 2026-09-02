@@ -26,7 +26,7 @@
         messageFlight: false, listFlight: false, sendFlight: false, seenFlight: false, lastMarkedSeen: 0,
         messageAbort: null, listAbort: null, messageTimer: null, listTimer: null,
         reply: null, files: [], messages: new Map(), reactions: new Map(), pinned: [], nearBottom: true,
-        initialHandled: false
+        initialHandled: false, listSignature: ''
     };
 
     const reactionEmoji = { like: '👍', love: '❤️', haha: '😂', wow: '😮', sad: '😢', angry: '😡' };
@@ -61,6 +61,55 @@
         if (/^https?:\/\//i.test(path)) return path;
         if (path.startsWith(base + '/')) return path;
         return base + '/' + path.replace(/^\/+/, '');
+    }
+
+    function resolvedAvatar(conversation) {
+        return isStaff
+            ? (conversation.customer_avatar_url || conversation.customer_avatar || '')
+            : (conversation.staff_avatar_url || conversation.staff_avatar || '');
+    }
+
+    function setAvatar(container, value, name, lazy = true) {
+        if (!container) return;
+        const source = safeUrl(value);
+        const initial = String(name || '?').trim().charAt(0).toUpperCase() || '?';
+        if (container.dataset.avatarUrl === source && container.dataset.avatarInitial === initial) return;
+        container.dataset.avatarUrl = source;
+        container.dataset.avatarInitial = initial;
+        container.replaceChildren();
+        if (!source) {
+            container.textContent = initial;
+            return;
+        }
+        const image = document.createElement('img');
+        image.src = source;
+        image.alt = '';
+        if (lazy) image.loading = 'lazy';
+        image.decoding = 'async';
+        image.addEventListener('error', () => {
+            if (container.contains(image)) {
+                container.dataset.avatarUrl = '';
+                container.replaceChildren();
+                container.textContent = initial;
+            }
+        }, { once: true });
+        container.appendChild(image);
+    }
+
+    function conversationListSignature(rows) {
+        return JSON.stringify(rows.map(row => ({
+            order_id: row.order_id,
+            customer_name: row.customer_name,
+            staff_name: row.staff_name,
+            customer_avatar_url: row.customer_avatar_url || row.customer_avatar || '',
+            staff_avatar_url: row.staff_avatar_url || row.staff_avatar || '',
+            last_message: row.last_message,
+            last_message_at: row.last_message_at,
+            order_date: row.order_date,
+            product_name: row.product_name,
+            has_pinned: row.has_pinned,
+            unread_count: row.unread_count
+        })));
     }
 
     function formatAgo(value) {
@@ -107,20 +156,13 @@
         const card = document.createElement('button');
         card.type = 'button';
         card.className = 'conv-card' + (Number(conversation.order_id) === state.activeId ? ' active' : '');
+        card.dataset.orderId = String(conversation.order_id || '');
         const name = isStaff ? (conversation.customer_name || 'Customer') : (conversation.staff_name || 'PrintFlow Team');
-        const avatarPath = isStaff ? conversation.customer_avatar : conversation.staff_avatar;
+        const avatarPath = resolvedAvatar(conversation);
 
         const avatar = document.createElement('div');
         avatar.className = isStaff ? 'conv-avatar' : 'conv-av';
-        if (avatarPath) {
-            const image = document.createElement('img');
-            image.src = safeUrl(avatarPath);
-            image.alt = '';
-            image.loading = 'lazy';
-            image.addEventListener('error', () => image.remove());
-            avatar.appendChild(image);
-        }
-        if (!avatar.firstChild) avatar.textContent = String(name).trim().charAt(0).toUpperCase() || '?';
+        setAvatar(avatar, avatarPath, name);
 
         const body = document.createElement('div');
         body.className = 'conv-info';
@@ -168,16 +210,21 @@
             const data = await request(`/public/api/chat/list_conversations.php?q=${search}`, { signal: controller.signal });
             const list = el('list');
             if (!list) return;
-            list.replaceChildren();
             const rows = data.conversations || [];
-            if (!rows.length) {
-                const empty = document.createElement('div');
-                empty.className = 'pf-empty';
-                empty.textContent = 'No conversations found.';
-                list.appendChild(empty);
-            } else {
-                rows.forEach(row => list.appendChild(createConversationCard(row)));
+            const signature = conversationListSignature(rows);
+            if (signature !== state.listSignature) {
+                state.listSignature = signature;
+                list.replaceChildren();
+                if (!rows.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'pf-empty';
+                    empty.textContent = 'No conversations found.';
+                    list.appendChild(empty);
+                } else {
+                    rows.forEach(row => list.appendChild(createConversationCard(row)));
+                }
             }
+            window.PrintFlowChatUnread?.set?.(Number(data.total_unread) || 0);
             if (!state.initialHandled && cfg.initialOrderId) {
                 state.initialHandled = true;
                 const match = rows.find(row => Number(row.order_id) === Number(cfg.initialOrderId));
@@ -232,21 +279,17 @@
         clearTimeout(state.messageTimer);
         cancelReply();
         renderPreviews();
+        document.querySelectorAll('.conv-card[data-order-id]').forEach(card => {
+            card.classList.toggle('active', Number(card.dataset.orderId) === orderId);
+        });
 
         const name = isStaff ? (conversation.customer_name || conversation.name || 'Customer') : (conversation.staff_name || conversation.name || 'PrintFlow Team');
         const meta = conversation.product_name || conversation.meta || `Order #${orderId}`;
         if (el('name')) el('name').textContent = name;
         if (el('meta')) el('meta').textContent = `${meta} · Order #${orderId}`;
         const avatar = el('avatar');
-        const avatarPath = isStaff ? conversation.customer_avatar : conversation.staff_avatar;
-        if (avatar) {
-            avatar.replaceChildren();
-            if (avatarPath) {
-                const image = document.createElement('img'); image.src = safeUrl(avatarPath); image.alt = ''; image.loading = 'lazy';
-                image.addEventListener('error', () => { avatar.textContent = name.charAt(0).toUpperCase(); });
-                avatar.appendChild(image);
-            } else avatar.textContent = name.charAt(0).toUpperCase();
-        }
+        const avatarPath = resolvedAvatar(conversation);
+        setAvatar(avatar, avatarPath, name, false);
         if (el('welcome')) el('welcome').style.display = 'none';
         if (el('chat')) el('chat').style.display = 'flex';
         const box = el('messages');
@@ -307,7 +350,12 @@
         const stack = document.createElement('div'); stack.className = 'pf-message-stack';
         const bubble = document.createElement('div'); bubble.className = 'pf-message-bubble';
         const quote = createReplyQuote(message); if (quote) bubble.appendChild(quote);
-        const media = createMedia(message); if (media) bubble.appendChild(media);
+        const media = createMedia(message);
+        if (media) {
+            bubble.classList.add('pf-media-message');
+            if (!message.message && !quote) bubble.classList.add('pf-media-only-message');
+            bubble.appendChild(media);
+        }
         if (message.message) {
             const text = document.createElement('div'); text.className = 'pf-message-text';
             text.textContent = String(message.message_type) === 'order_update' && String(message.message).trim().startsWith('{') ? 'Order update' : String(message.message);
@@ -401,6 +449,11 @@
         updatePinned(data.pinned_messages || []);
         renderSeen(data.last_seen_message_id);
         if (el('online')) el('online').style.display = data.partner?.is_online ? 'inline-block' : 'none';
+        if (data.partner) {
+            const partnerName = data.partner.name || el('name')?.textContent || (isStaff ? 'Customer' : 'PrintFlow Team');
+            if (data.partner.name && el('name')) el('name').textContent = data.partner.name;
+            setAvatar(el('avatar'), data.partner.avatar_url || data.partner.avatar || '', partnerName, false);
+        }
 
         if (mode === 'initial') requestAnimationFrame(() => scrollBottom(false));
         else if (mode === 'older') box.scrollTop = box.scrollHeight - oldHeight;
@@ -450,6 +503,7 @@
         try {
             await request('/public/api/chat/mark_seen.php', { method: 'POST', body });
             if (conversationId === state.activeId) state.lastMarkedSeen = upToId;
+            loadConversations(true);
         } catch (_) { /* next visible poll retries; no noisy console loop */ }
         finally { state.seenFlight = false; }
     }

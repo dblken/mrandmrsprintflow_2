@@ -34,6 +34,11 @@ if (file_exists(__DIR__ . '/../config.php')) {
 $base_url = defined('BASE_URL') ? BASE_URL : (defined('BASE_PATH') ? BASE_PATH : '');
 $base_path = defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : '');
 $asset_base = rtrim($base_url, '/') . '/public';
+$pf_customer_chat_unread = 0;
+if ($is_logged_in && $user_type === 'Customer') {
+    require_once __DIR__ . '/chat_http.php';
+    $pf_customer_chat_unread = printflow_chat_unread_count((int)get_user_id(), 'Customer');
+}
 
 // Stable asset versioning so pages can cache between navigations
 $ver_seed = __DIR__ . '/../public/assets/css/output.css';
@@ -77,6 +82,10 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
 
     <!-- Customer Burger Menu (Landing & Customer Pages) -->
     <script src="<?php echo $asset_base; ?>/assets/js/customer-burger.js" defer></script>
+    <?php if ($is_logged_in && $user_type === 'Customer'): ?>
+    <?php $chat_badge_ver = @filemtime(__DIR__ . '/../public/assets/js/chat_unread_badges.js') ?: '1'; ?>
+    <script src="<?php echo $asset_base; ?>/assets/js/chat_unread_badges.js?v=<?php echo $chat_badge_ver; ?>" data-base-url="<?php echo htmlspecialchars($base_url, ENT_QUOTES); ?>" data-initial-count="<?php echo (int)($pf_customer_chat_unread ?? 0); ?>" defer></script>
+    <?php endif; ?>
     
     <!-- Critical: base link/layout so page is never unstyled -->
     <style>

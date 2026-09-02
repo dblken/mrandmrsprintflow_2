@@ -25,6 +25,7 @@ if (!$is_pending && isset($_SESSION['user_type']) && $_SESSION['user_type'] === 
 // Unread notification count for badge
 if (!function_exists('db_query')) require_once __DIR__ . '/db.php';
 $_staff_unread_notif = 0;
+$_staff_unread_chat = 0;
 if (isset($_SESSION['user_id'])) {
     $_staff_unread_notif = get_unread_notification_count((int)$_SESSION['user_id'], 'Staff');
     $sidebar_user = db_query("SELECT profile_picture FROM users WHERE user_id = ?", 'i', [$_SESSION['user_id']]);
@@ -32,6 +33,10 @@ if (isset($_SESSION['user_id'])) {
         $sidebar_profile_pic = function_exists('get_profile_image')
             ? get_profile_image($sidebar_user[0]['profile_picture'])
             : $base_path . '/public/assets/uploads/profiles/' . basename($sidebar_user[0]['profile_picture']);
+    }
+    if ($is_online_staff) {
+        require_once __DIR__ . '/chat_http.php';
+        $_staff_unread_chat = printflow_chat_unread_count((int)$_SESSION['user_id'], 'Staff');
     }
 }
 ?>
@@ -105,6 +110,7 @@ if (isset($_SESSION['user_id'])) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                 </svg>
                 Chats
+                <span class="nav-badge nav-badge--sidebar-slot" data-chat-unread-badge data-chat-badge-mode="visibility" style="visibility:<?php echo $_staff_unread_chat > 0 ? 'visible' : 'hidden'; ?>;"><?php echo $_staff_unread_chat > 99 ? '99+' : ($_staff_unread_chat > 0 ? (int)$_staff_unread_chat : ''); ?></span>
             </a>
             <?php endif; ?>
             <a href="<?php echo $base_path; ?>/staff/customizations.php" class="nav-item menu-link <?php echo $current_page === 'customizations.php' ? 'active' : ''; ?>">
@@ -330,6 +336,8 @@ window.PFConfig = {
 </script>
 <?php $notif_js_ver = @filemtime(__DIR__ . '/../public/assets/js/notifications.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
+<?php $chat_badge_js_ver = @filemtime(__DIR__ . '/../public/assets/js/chat_unread_badges.js') ?: '1'; ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/chat_unread_badges.js?v=<?php echo $chat_badge_js_ver; ?>" data-base-url="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" data-initial-count="<?php echo (int)$_staff_unread_chat; ?>" defer></script>
 <script src="<?php echo $base_path; ?>/public/assets/js/inactivity_logout.js" defer></script>
 <?php $receipt_scanner_ver = @filemtime(__DIR__ . '/../public/assets/js/receipt-scanner.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/receipt-scanner.js?v=<?php echo $receipt_scanner_ver; ?>" data-base-path="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" defer></script>

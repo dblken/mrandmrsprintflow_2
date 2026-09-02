@@ -35,6 +35,13 @@ if ($is_logged_in) {
 $first = trim((string)($current_user['first_name'] ?? ''));
 $last = trim((string)($current_user['last_name'] ?? ''));
 $pf_customer_notif_theme = $is_logged_in && function_exists('is_customer') && is_customer();
+if (!isset($pf_customer_chat_unread)) {
+    $pf_customer_chat_unread = 0;
+    if ($is_logged_in && function_exists('is_customer') && is_customer()) {
+        require_once __DIR__ . '/chat_http.php';
+        $pf_customer_chat_unread = printflow_chat_unread_count((int)get_user_id(), 'Customer');
+    }
+}
 $initials = '';
 if ($first !== '') {
     $initials .= mb_strtoupper(mb_substr($first, 0, 1));
@@ -146,6 +153,9 @@ if ($initials === '') {
             flex: 0 0 14px;
             opacity: .72;
         }
+        .pf-chat-unread-badge { flex: 0 0 auto; min-width: 19px; height: 19px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; line-height: 1; }
+        #main-header .pf-dropdown-link .pf-chat-unread-badge { margin-left: auto; }
+        .pf-burger-link .pf-chat-unread-badge { margin-left: 8px; }
         #main-header .pf-burger-btn {
             width: 2.55rem;
             height: 2.55rem;
@@ -773,6 +783,7 @@ if ($initials === '') {
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8m-8 4h5m-7 6h12a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"></path>
                                 </svg>
                                 Messages
+                                <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:<?php echo $pf_customer_chat_unread > 0 ? 'inline-flex' : 'none'; ?>;"><?php echo $pf_customer_chat_unread > 99 ? '99+' : ($pf_customer_chat_unread > 0 ? (int)$pf_customer_chat_unread : ''); ?></span>
                             </a>
                             <?php endif; ?>
                             <a href="<?php echo $base_url; ?>/<?php echo strtolower($user_type); ?>/profile.php"
@@ -832,7 +843,7 @@ if ($initials === '') {
             <a href="<?php echo $base_url; ?>/customer/products.php" class="pf-burger-link" onclick="closeBurgerMenu()">Products</a>
             <a href="<?php echo $base_url; ?>/customer/cart.php" class="pf-burger-link" onclick="closeBurgerMenu()">My Cart</a>
             <a href="<?php echo $base_url; ?>/customer/orders.php" class="pf-burger-link" onclick="closeBurgerMenu()">Orders</a>
-            <a href="<?php echo $base_url; ?>/customer/messages.php" class="pf-burger-link" onclick="closeBurgerMenu()">Messages</a>
+            <a href="<?php echo $base_url; ?>/customer/messages.php" class="pf-burger-link" onclick="closeBurgerMenu()">Messages <span class="pf-chat-unread-badge" data-chat-unread-badge style="display:<?php echo $pf_customer_chat_unread > 0 ? 'inline-flex' : 'none'; ?>;"><?php echo $pf_customer_chat_unread > 99 ? '99+' : ($pf_customer_chat_unread > 0 ? (int)$pf_customer_chat_unread : ''); ?></span></a>
             <a href="<?php echo $base_url; ?>/customer/notifications.php" class="pf-burger-link" onclick="closeBurgerMenu()">Notifications</a>
             <a href="<?php echo $base_url; ?>/customer/profile.php" class="pf-burger-link" onclick="closeBurgerMenu()">Profile</a>
         </nav>

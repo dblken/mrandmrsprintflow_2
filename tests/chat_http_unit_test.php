@@ -5,6 +5,46 @@ function is_logged_in(): bool { return true; }
 function get_user_id(): int { return 1; }
 function get_user_type(): string { return 'Customer'; }
 function verify_csrf_token($token): bool { return $token === 'valid'; }
+function pf_default_profile_image_url(): string { return '/public/assets/uploads/profiles/default.png'; }
+function get_profile_image($image): string {
+    $known = [
+        'staff_6_1777689842.jpg' => '/public/assets/uploads/profiles/staff_6_1777689842.jpg',
+        'customer_25_1774758162.jpg' => '/public/assets/uploads/profiles/customer_25_1774758162.jpg',
+        '/public/assets/uploads/profiles/staff_6_1777689842.jpg' => '/public/assets/uploads/profiles/staff_6_1777689842.jpg',
+    ];
+    return $known[(string)$image] ?? pf_default_profile_image_url();
+}
+function printflow_branch_filter_for_user(): ?int { global $fixtureBranchId; return $fixtureBranchId; }
+$fixtureBranchId = 3;
+$fixtureOrders = [101 => ['customer_id' => 7, 'branch_id' => 3], 102 => ['customer_id' => 7, 'branch_id' => 3], 201 => ['customer_id' => 8, 'branch_id' => 3], 301 => ['customer_id' => 9, 'branch_id' => 4]];
+$fixtureMessages = [
+    ['order_id' => 101, 'sender' => 'Staff', 'read_receipt' => 0],
+    ['order_id' => 102, 'sender' => 'Staff', 'read_receipt' => 1],
+    ['order_id' => 101, 'sender' => 'Staff', 'read_receipt' => 2],
+    ['order_id' => 101, 'sender' => 'Customer', 'read_receipt' => 0],
+    ['order_id' => 102, 'sender' => 'Customer', 'read_receipt' => 0],
+    ['order_id' => 201, 'sender' => 'Customer', 'read_receipt' => 1],
+    ['order_id' => 201, 'sender' => 'Customer', 'read_receipt' => 2],
+    ['order_id' => 201, 'sender' => 'Staff', 'read_receipt' => 0],
+    ['order_id' => 301, 'sender' => 'Customer', 'read_receipt' => 0],
+];
+$lastDbQuery = [];
+function db_query(string $sql, string $types = '', array $params = []): array {
+    global $lastDbQuery, $fixtureOrders, $fixtureMessages;
+    $lastDbQuery = compact('sql', 'types', 'params');
+    $sender = str_contains($sql, "m.sender = 'Staff'") ? 'Staff' : 'Customer';
+    $customerId = str_contains($sql, 'o.customer_id = ?') ? (int)($params[0] ?? 0) : null;
+    $branchId = str_contains($sql, 'o.branch_id = ?') ? (int)($params[0] ?? 0) : null;
+    $count = 0;
+    foreach ($fixtureMessages as $message) {
+        $order = $fixtureOrders[$message['order_id']] ?? null;
+        if (!$order || $message['sender'] !== $sender || $message['read_receipt'] >= 2) continue;
+        if ($customerId !== null && $order['customer_id'] !== $customerId) continue;
+        if ($branchId !== null && $order['branch_id'] !== $branchId) continue;
+        $count++;
+    }
+    return [['unread_count' => $count]];
+}
 
 require dirname(__DIR__) . '/includes/chat_http.php';
 
@@ -24,6 +64,31 @@ foreach (['like', 'love', 'haha', 'wow', 'sad', 'angry'] as $reaction) {
     $expect(printflow_chat_reaction_allowed($reaction), "Allowed reaction {$reaction} was rejected.");
 }
 $expect(!printflow_chat_reaction_allowed('script'), 'Unknown reactions must be rejected.');
+
+$expect(
+    printflow_chat_profile_image_url('staff_6_1777689842.jpg') === '/public/assets/uploads/profiles/staff_6_1777689842.jpg',
+    'Stored profile filenames must resolve through the canonical profile-image helper.'
+);
+$expect(
+    printflow_chat_profile_image_url('customer_25_1774758162.jpg') === '/public/assets/uploads/profiles/customer_25_1774758162.jpg',
+    'Customer profile filenames must resolve through the same canonical profile-image helper.'
+);
+$expect(
+    printflow_chat_profile_image_url('/public/assets/uploads/profiles/staff_6_1777689842.jpg') === '/public/assets/uploads/profiles/staff_6_1777689842.jpg',
+    'Already resolved application profile paths must remain stable.'
+);
+$expect(printflow_chat_profile_image_url('staff_6_1777689842.jpg') !== '/staff_6_1777689842.jpg', 'Profile filenames must never become domain-root image URLs.');
+$expect(printflow_chat_profile_image_url('missing.jpg') === '', 'Missing profile files must use initials instead of a broken/default image URL.');
+$expect(printflow_chat_profile_image_url('') === '', 'Empty profile values must use initials without issuing an image request.');
+
+$expect(printflow_chat_unread_count(7, 'Customer') === 2, 'Customer total must sum incoming unread staff messages across conversations only.');
+$expect(str_contains($lastDbQuery['sql'], "m.sender = 'Staff'") && $lastDbQuery['params'] === [7], 'Customer unread query must be scoped to the authenticated customer.');
+$expect(printflow_chat_unread_count(9, 'Staff') === 3, 'Staff total must sum unread customer messages across permitted conversations only.');
+$expect(str_contains($lastDbQuery['sql'], "m.sender = 'Customer'") && str_contains($lastDbQuery['sql'], 'o.branch_id = ?') && $lastDbQuery['params'] === [3], 'Staff unread query must exclude own messages and enforce the staff branch filter.');
+$fixtureMessages[3]['read_receipt'] = 2;
+$fixtureMessages[4]['read_receipt'] = 2;
+$expect(printflow_chat_unread_count(9, 'Staff') === 1, 'Reading one conversation must reduce the staff total without clearing another conversation.');
+$expect(printflow_chat_unread_count(8, 'Customer') === 1, 'Each customer unread total must remain isolated to that customer account.');
 
 $png = tempnam(sys_get_temp_dir(), 'pf-chat-png-');
 $text = tempnam(sys_get_temp_dir(), 'pf-chat-text-');

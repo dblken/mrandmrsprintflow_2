@@ -133,9 +133,7 @@ if ($customer_id) {
             'full_name' => trim(($c['first_name'] ?? '') . ' ' . ($c['middle_name'] ?? '') . ' ' . ($c['last_name'] ?? '')),
             'contact_number' => $c['contact_number'] ?? '',
             'email' => $c['email'] ?? '',
-            'profile_picture' => !empty($c['profile_picture'])
-                ? pf_chat_order_public_url('/public/assets/uploads/profiles/' . ltrim((string)$c['profile_picture'], '/'))
-                : null,
+            'profile_picture' => printflow_chat_profile_image_url($c['profile_picture'] ?? ''),
         ];
         if (isset($c['address']) && trim((string)$c['address']) !== '') {
             $customer['address'] = trim($c['address']);

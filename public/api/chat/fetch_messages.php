@@ -444,7 +444,8 @@ try {
         }
     }
 
-    $partner['avatar'] = get_profile_image($partner['avatar'] ?? null);
+    $partner['avatar_url'] = printflow_chat_profile_image_url($partner['avatar'] ?? null);
+    $partner['avatar'] = $partner['avatar_url'];
 
     // 5. Fetch last seen message ID for the current authenticated user's sent messages
     $user_sender_type = ($user_type === 'Customer') ? 'Customer' : 'Staff';

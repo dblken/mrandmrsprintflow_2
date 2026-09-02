@@ -142,6 +142,60 @@ if (!function_exists('printflow_chat_reaction_allowed')) {
     }
 }
 
+if (!function_exists('printflow_chat_profile_image_url')) {
+    /**
+     * Resolve a stored profile picture through the application's canonical
+     * resolver while keeping initials as the chat fallback for missing files.
+     */
+    function printflow_chat_profile_image_url($stored_image): string
+    {
+        $stored_image = trim((string)$stored_image);
+        if ($stored_image === '' || in_array(strtolower($stored_image), ['null', 'undefined'], true)) {
+            return '';
+        }
+
+        $resolved = get_profile_image($stored_image);
+        return $resolved === pf_default_profile_image_url() ? '' : $resolved;
+    }
+}
+
+if (!function_exists('printflow_chat_unread_count')) {
+    /** Count unread messages sent by the other chat participant. */
+    function printflow_chat_unread_count(int $user_id, string $user_type): int
+    {
+        if ($user_id <= 0) return 0;
+
+        if ($user_type === 'Customer') {
+            $rows = db_query(
+                "SELECT COUNT(*) AS unread_count
+                 FROM order_messages m
+                 JOIN orders o ON o.order_id = m.order_id
+                 WHERE o.customer_id = ?
+                   AND m.sender = 'Staff'
+                   AND m.read_receipt < 2",
+                'i',
+                [$user_id]
+            );
+        } else {
+            $branch_id = function_exists('printflow_branch_filter_for_user')
+                ? printflow_branch_filter_for_user()
+                : null;
+            $branch_clause = $branch_id ? ' AND o.branch_id = ?' : '';
+            $rows = db_query(
+                "SELECT COUNT(*) AS unread_count
+                 FROM order_messages m
+                 JOIN orders o ON o.order_id = m.order_id
+                 WHERE m.sender = 'Customer'
+                   AND m.read_receipt < 2{$branch_clause}",
+                $branch_id ? 'i' : '',
+                $branch_id ? [$branch_id] : []
+            );
+        }
+
+        return max(0, (int)($rows[0]['unread_count'] ?? 0));
+    }
+}
+
 if (!function_exists('printflow_chat_inspect_image')) {
     function printflow_chat_inspect_image(string $path, int $size): array
     {
