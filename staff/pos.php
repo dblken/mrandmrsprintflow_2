@@ -1186,6 +1186,18 @@ try {
         .receipt-qr-wrap canvas, .receipt-qr-wrap img { display:block; width:116px !important; height:116px !important; }
         .receipt-qr-caption { margin-top:4px; color:#64748b; font-size:9px; }
 
+        .receipt-online-store {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed #111827;
+            text-align: center;
+            overflow: hidden;
+        }
+
+        .receipt-online-store .receipt-qr-wrap { margin: 6px auto; }
+        .receipt-online-store-title { font-size: 10px; font-weight: 800; color: #00232b; }
+        .receipt-online-store-url { margin-top: 2px; font-size: 9px; color: #0f172a; overflow-wrap: anywhere; }
+
         .receipt-info-card {
             display: flex;
             justify-content: space-between;
@@ -2315,6 +2327,13 @@ try {
                     <strong>Thank you for choosing PrintFlow!</strong>
                     <p>Please keep this receipt for your records.</p>
                 </div>
+
+                <div class="receipt-online-store">
+                    <div class="receipt-online-store-title">Visit our Online Store</div>
+                    <div class="receipt-qr-wrap"><div id="pos-online-store-qr"></div></div>
+                    <div class="receipt-qr-caption">Scan the QR code to order online</div>
+                    <div class="receipt-online-store-url">mrandmrsprintflow.com</div>
+                </div>
             `;
         }
 
@@ -2345,6 +2364,7 @@ try {
             setPosReceiptPrintState('No physical receipt has been printed yet.');
             printArea.innerHTML = buildReceiptHtml(activePosReceipt);
             renderPosReceiptQr(receipt?.qr_payload);
+            renderPosOnlineStoreQr();
             overlay.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
@@ -2354,6 +2374,14 @@ try {
             if (!target || !payload || typeof QRCode === 'undefined') return;
             target.innerHTML = '';
             new QRCode(target, { text: String(payload), width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
+        }
+
+        function renderPosOnlineStoreQr() {
+            const target = document.getElementById('pos-online-store-qr');
+            const onlineStoreUrl = 'https://mrandmrsprintflow.com/';
+            if (!target || typeof QRCode === 'undefined') return;
+            target.innerHTML = '';
+            new QRCode(target, { text: onlineStoreUrl, width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
         }
 
         function closeReceiptModal() {

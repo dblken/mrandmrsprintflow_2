@@ -9,6 +9,10 @@ function printflow_receipt_qr_payload(int $orderId): string {
     return $orderId > 0 ? 'PF1:ORDER:' . $orderId : '';
 }
 
+function printflow_pos_online_store_url(): string {
+    return 'https://mrandmrsprintflow.com/';
+}
+
 function printflow_receipt_format_datetime($value): string {
     $timezoneName = date_default_timezone_get() ?: 'Asia/Manila';
     try {
@@ -61,7 +65,11 @@ function printflow_receipt_escpos_qr_commands(string $payload, int $moduleSize =
         . "\x1Ba\x00";
 }
 
-function printflow_receipt_escpos_base64(string $text, string $qrPayload = ''): string {
+function printflow_receipt_escpos_base64(
+    string $text,
+    string $qrPayload = '',
+    string $onlineStoreUrl = ''
+): string {
     $body = '';
     $qrInserted = false;
     foreach (explode("\n", $text) as $line) {
@@ -71,6 +79,14 @@ function printflow_receipt_escpos_base64(string $text, string $qrPayload = ''): 
             $body .= "\x1Ba\x01Scan for order details\n\x1Ba\x00";
             $qrInserted = true;
         }
+    }
+    if ($onlineStoreUrl !== '') {
+        $body .= "\x1Ba\x01--------------------------------\n";
+        $body .= "Visit our Online Store\n";
+        $body .= printflow_receipt_escpos_qr_commands($onlineStoreUrl);
+        $body .= "\x1Ba\x01Scan the QR code to order online\n";
+        $body .= "mrandmrsprintflow.com\n";
+        $body .= "--------------------------------\n\x1Ba\x00";
     }
     $raw = "\x1B@" . "\x1Ba\x00" . $body . "\n" . "\x1DV\x00";
     return base64_encode($raw);

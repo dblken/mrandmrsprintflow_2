@@ -555,7 +555,11 @@ function printflow_receipt_enqueue_order_print(
             $columns,
             (string)$payloadJson,
             $text,
-            printflow_receipt_escpos_base64($text, (string)($receipt['qr_payload'] ?? ''))
+            printflow_receipt_escpos_base64(
+                $text,
+                (string)($receipt['qr_payload'] ?? ''),
+                printflow_pos_online_store_url()
+            )
         ]
     );
 

@@ -19,7 +19,7 @@ $assert(count($dateLines32) === 1 && $dateLines32[0] === 'Date/Time  Aug 16, 202
 $dateLines42 = printflow_receipt_labeled_value_lines('Date/Time', 'Aug 16, 2026 09:50 AM', 42);
 $assert(count($dateLines42) === 1 && str_ends_with($dateLines42[0], 'Aug 16, 2026 09:50 AM'), 'wider receipt keeps the full timestamp on one line');
 
-$text = "        RECEIPT INFO        \nReceipt No.          POS-011280\nDate/Time Aug 16, 2026 09:50 AM\n";
+$text = "        RECEIPT INFO        \nReceipt No.          POS-011280\nDate/Time Aug 16, 2026 09:50 AM\nThank you!\nPlease keep this receipt.\n";
 $raw = base64_decode(printflow_receipt_escpos_base64($text, 'PF1:ORDER:11280'), true);
 $assert(is_string($raw), 'ESC/POS output is valid base64');
 $assert(str_contains($raw, "\x1D(k\x04\x00\x31\x41\x32\x00"), 'native ESC/POS QR model command is present');
@@ -31,6 +31,16 @@ $assert(str_contains($raw, 'PF1:ORDER:11280'), 'QR payload is stored in the ESC/
 $assert(strpos($raw, 'RECEIPT INFO') < strpos($raw, 'PF1:ORDER:11280'), 'QR follows the RECEIPT INFO heading');
 $assert(strpos($raw, 'PF1:ORDER:11280') < strpos($raw, 'Receipt No.'), 'QR precedes visible receipt details');
 $assert(str_contains($text, 'Receipt No.') && str_contains($text, 'POS-011280'), 'visible Receipt No. is preserved in the text stream');
+
+$onlineStoreUrl = printflow_pos_online_store_url();
+$websiteRaw = base64_decode(printflow_receipt_escpos_base64($text, 'PF1:ORDER:11280', $onlineStoreUrl), true);
+$assert($onlineStoreUrl === 'https://mrandmrsprintflow.com/', 'POS website QR helper returns the exact production URL with trailing slash');
+$assert(is_string($websiteRaw) && substr_count($websiteRaw, $onlineStoreUrl) === 1, 'website URL is encoded exactly once in the ESC/POS QR command stream');
+$assert(substr_count($websiteRaw, 'PF1:ORDER:11280') === 1, 'existing order QR payload remains unchanged when website QR is added');
+$assert(strpos($websiteRaw, 'Please keep this receipt.') < strpos($websiteRaw, 'Visit our Online Store'), 'website QR section follows the existing receipt footer');
+$assert(strpos($websiteRaw, 'Visit our Online Store') < strpos($websiteRaw, $onlineStoreUrl), 'website QR follows its distinct online-store heading');
+$assert(strpos($websiteRaw, $onlineStoreUrl) < strpos($websiteRaw, 'Scan the QR code to order online'), 'website caption follows the website QR');
+$assert(str_contains($websiteRaw, 'mrandmrsprintflow.com'), 'website section includes the display-friendly domain');
 
 $assert(printflow_order_lookup_normalize_identifier("PF1:\nORDER:11280") === '', 'control characters are rejected');
 $assert(printflow_order_lookup_normalize_identifier(' pf1:order:11280 ') === 'PF1:ORDER:11280', 'scanner input is normalized');

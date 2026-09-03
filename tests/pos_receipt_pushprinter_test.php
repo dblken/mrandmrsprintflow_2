@@ -32,6 +32,8 @@ $assert(str_contains($printer, 'wordwrap('), 'long receipt text is wrapped');
 $assert(str_contains($printer, 'escpos_base64'), 'queue stores ESC/POS output');
 $assert(str_contains($format, 'printflow_receipt_escpos_qr_commands'), 'receipt output supports native ESC/POS QR commands');
 $assert(str_contains($format, "'PF1:ORDER:' . \$orderId"), 'receipt QR uses the canonical unique orders primary key payload');
+$assert(str_contains($format, "return 'https://mrandmrsprintflow.com/';"), 'POS website QR uses the exact production online-store URL');
+$assert(str_contains($printer, 'printflow_pos_online_store_url()'), 'initial print and reprint share the POS website QR helper');
 $assert(str_contains($printer, "'printer_type' => 'escpos'"), 'PushPrinter notification requests ESC/POS');
 $assert(str_contains($printer, "'order_number' => \$orderNumber"), 'PushPrinter notification includes its required order_number field');
 $assert(str_contains($printer, "status IN ('pending', 'failed')"), 'pending or failed receipt jobs can be retried without recreating a sale');
@@ -61,6 +63,9 @@ $assert(str_contains($customerOrders, 'Download Receipt'), 'customer receipt kee
 $assert(str_contains($customerItems, 'printflow_receipt_qr_payload($orderId)'), 'online and POS receipts share the canonical QR payload helper');
 $assert(str_contains($format, 'Scan for order details'), 'thermal QR includes the order details caption');
 $assert(str_contains($pos, 'Scan for order details') && str_contains($customerOrders, 'Scan for order details'), 'POS and online previews include the QR caption');
+$assert(str_contains($pos, "const onlineStoreUrl = 'https://mrandmrsprintflow.com/';"), 'POS preview website QR uses the exact production URL');
+$assert(str_contains($pos, 'Visit our Online Store') && str_contains($pos, 'Scan the QR code to order online'), 'POS preview identifies the separate online-store QR');
+$assert(!str_contains($customerOrders, 'Visit our Online Store'), 'online customer receipts do not receive the POS website section');
 $assert(!str_contains($pos, "showPosScanToast("), 'receipt monitoring uses an existing defined notification function');
 $assert(str_contains($printerApi, "\$action === 'diagnostics'"), 'printer API exposes authenticated receipt diagnostics');
 $assert(str_contains($printerApi, "\$action === 'adopt-retry'"), 'printer API can safely adopt and retry an existing receipt job');
