@@ -112,6 +112,44 @@ $expect(str_contains($run('forbidden'), 'Conversation access denied'), 'A custom
 $expect(str_contains($run('branch'), 'BRANCH_CHECKED:42') && str_contains($run('branch'), 'AUTHORIZED:42'), 'Staff authorization must enforce branch access.');
 $expect(str_contains($run('bad_reply'), 'Reply must reference a message in this conversation'), 'Cross-conversation or missing reply IDs must be rejected.');
 
+$root = dirname(__DIR__);
+$chatCss = (string)file_get_contents($root . '/public/assets/css/chat_http.css');
+$chatJs = (string)file_get_contents($root . '/public/assets/js/chat_http.js');
+$fetchMessages = (string)file_get_contents($root . '/public/api/chat/fetch_messages.php');
+$sendMessage = (string)file_get_contents($root . '/public/api/chat/send_message.php');
+$chatSchema = (string)file_get_contents($root . '/includes/ensure_order_messages.php');
+$expect(
+    str_contains($chatJs, "row.className = `pf-message-row \${message.is_self ? 'self' : 'other'}`"),
+    'Every message type uses the same server-owned is_self row classification.'
+);
+$expect(
+    str_contains($fetchMessages, "\$is_self = \$sender_type !== null ? (\$sender_type === \$current_user_type) : false;")
+        && str_contains($fetchMessages, "if (\$sender === 'Customer')")
+        && str_contains($fetchMessages, "if (\$sender === 'Staff')"),
+    'Message ownership is derived server-side from the canonical authenticated participant type.'
+);
+$expect(
+    substr_count($sendMessage, "\$db_sender, \$user_id") >= 2
+        && str_contains($chatSchema, "ENUM('Customer','Staff','System')"),
+    'Current text/image inserts and historical schema use the same canonical sender identity fields.'
+);
+$expect(
+    str_contains($chatCss, '.pf-message-row.self .pf-message-bubble.pf-media-only-message { justify-content: flex-end; }')
+        && str_contains($chatCss, '.pf-message-row.other .pf-message-bubble.pf-media-only-message { justify-content: flex-start; }'),
+    'Intrinsic image space aligns to the sender edge for both self and incoming media-only messages.'
+);
+$expect(
+    str_contains($chatCss, 'display: flex; width: fit-content; flex: 0 1 auto; padding: 0;')
+        && str_contains($chatCss, 'background: transparent; border: 0;')
+        && str_contains($chatCss, 'width: auto; height: auto;')
+        && str_contains($chatCss, 'object-fit: contain;'),
+    'Media-only wrappers remain transparent and responsive images retain their aspect ratio.'
+);
+$expect(
+    str_contains($chatCss, '.pf-message-row.self .pf-reply-text { color: #fff; opacity: 1; }'),
+    'Outgoing reply contrast remains protected.'
+);
+
 if ($failures) {
     fwrite(STDERR, "Chat HTTP unit test failed:\n- " . implode("\n- ", $failures) . "\n");
     exit(1);
