@@ -9,7 +9,6 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
-require_once __DIR__ . '/../includes/runtime_config.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 
 $posPayMongoMode = printflow_paymongo_mode();
@@ -17,16 +16,6 @@ $posPayMongoAvailable = in_array($posPayMongoMode, ['test', 'live'], true)
     && printflow_paymongo_secret_key_for_mode($posPayMongoMode) !== '';
 $posPayMongoQrphAvailable = $posPayMongoAvailable
     && in_array('qrph', printflow_paymongo_enabled_methods($posPayMongoMode), true);
-
-// Load GCash QR from admin payment settings
-$_pos_payment_cfg = printflow_load_runtime_config('payment_methods');
-$_pos_gcash_qr = '';
-foreach ($_pos_payment_cfg as $_pm) {
-    if (strcasecmp(trim((string)($_pm['provider'] ?? '')), 'gcash') === 0 && !empty($_pm['file']) && !empty($_pm['enabled'])) {
-        $_pos_gcash_qr = BASE_PATH . '/public/assets/uploads/qr/' . htmlspecialchars($_pm['file']);
-        break;
-    }
-}
 
 // Require staff or admin role
 require_role(['Admin', 'Staff']);
@@ -1832,9 +1821,7 @@ try {
                                     style="min-width: 140px; text-align: right; padding: 10px;"
                                     onchange="toggleReferenceField()">
                                     <option value="Cash">Cash</option>
-                                    <option value="GCash">GCash</option>
                                     <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">PayMongo QR Ph</option><?php endif; ?>
-                                    <?php if ($posPayMongoAvailable): ?><option value="PayMongo Checkout">PayMongo Checkout</option><?php endif; ?>
                                 </select>
                             </div>
 
@@ -1870,18 +1857,6 @@ try {
         </div>
     </div>
 
-    <!-- GCash QR Modal -->
-    <?php if (!empty($_pos_gcash_qr)): ?>
-    <div id="gcash-qr-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
-        <div style="background:#fff; border-radius:20px; padding:28px 24px; text-align:center; box-shadow:0 25px 50px -12px rgba(0,0,0,0.25); position:relative; max-width:320px; width:90%;">
-            <button onclick="closeGcashQr()" style="position:absolute; top:12px; right:14px; background:none; border:none; font-size:22px; cursor:pointer; color:#94a3b8; line-height:1;" onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
-            <div style="font-size:13px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:14px;">GCash QR Code</div>
-            <img src="<?php echo $_pos_gcash_qr; ?>" alt="GCash QR" style="width:220px; height:220px; object-fit:contain; border:1px solid #e2e8f0; border-radius:12px; display:block; margin:0 auto 16px;">
-            <button onclick="closeGcashQr()" style="width:100%; padding:11px; background:#00232b; color:#fff; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Close</button>
-        </div>
-    </div>
-    <?php endif; ?>
-
     <div id="paymongo-pos-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:10020;align-items:center;justify-content:center;padding:16px;">
         <div style="background:#fff;width:min(360px,100%);padding:24px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.28);">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
@@ -1893,7 +1868,6 @@ try {
             <div id="paymongo-pos-countdown" style="font-size:12px;font-weight:800;color:#0f766e;margin-bottom:8px;min-height:18px;"></div>
             <div id="paymongo-pos-status" style="font-size:13px;color:#475569;margin-bottom:14px;">Waiting for payment confirmation.</div>
             <div id="paymongo-pos-reference" style="font-size:12px;color:#0f766e;font-weight:700;margin-bottom:14px;min-height:16px;"></div>
-            <a id="paymongo-pos-open" href="#" target="_blank" rel="noopener noreferrer" style="display:block;padding:11px;background:#00232b;color:#fff;text-decoration:none;font-weight:800;margin-bottom:9px;">Open Checkout</a>
             <button id="paymongo-pos-retry" type="button" onclick="retryPayMongoPosQr()" style="display:none;width:100%;padding:11px;border:1px solid #0f766e;background:#fff;color:#0f766e;font-weight:800;margin-bottom:9px;">Generate New QR</button>
             <button id="paymongo-pos-complete" type="button" onclick="completePayMongoPosTransaction()" disabled style="width:100%;padding:11px;border:0;background:#94a3b8;color:#fff;font-weight:800;margin-bottom:9px;cursor:not-allowed;">Complete Transaction</button>
             <button type="button" onclick="closePayMongoPosModal()" style="width:100%;padding:10px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;">Close</button>
@@ -4333,30 +4307,14 @@ try {
 
         function toggleReferenceField() {
             const pm = document.getElementById('pos-payment-method').value;
-            // Show GCash QR modal when GCash is selected
-            if (pm === 'GCash') {
-                const qrModal = document.getElementById('gcash-qr-modal');
-                if (qrModal) qrModal.style.display = 'flex';
-            }
             const isPayMongo = isPayMongoPaymentMethod(pm);
             document.getElementById('tender-group').style.display = isPayMongo ? 'none' : '';
             document.getElementById('change-group').style.display = isPayMongo ? 'none' : '';
             updateCheckoutState();
         }
 
-        /** Cash and GCash complete without a transaction reference (QR / over-the-counter flow). */
-        function posPaymentNeedsRefNumber(pm) {
-            const v = (pm || '').trim();
-            return v !== 'Cash' && v !== 'GCash' && !isPayMongoPaymentMethod(v);
-        }
-
         function isPayMongoPaymentMethod(method) {
-            return ['PayMongo QRPh', 'PayMongo Checkout', 'PayMongo Test'].includes(String(method || '').trim());
-        }
-
-        function closeGcashQr() {
-            const qrModal = document.getElementById('gcash-qr-modal');
-            if (qrModal) qrModal.style.display = 'none';
+            return String(method || '').trim() === 'PayMongo QRPh';
         }
 
         function calculateChange() {
@@ -4417,12 +4375,6 @@ try {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const ref = (document.getElementById('pos-payment-ref')?.value || '').trim();
-
-            if (posPaymentNeedsRefNumber(pm) && !ref) {
-                canCheckout = false;
-                message = 'Enter Ref Number';
-            }
 
             // Regular products require payment
             const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
@@ -4454,12 +4406,6 @@ try {
             }
 
             const pm = document.getElementById('pos-payment-method').value;
-            const ref = (document.getElementById('pos-payment-ref')?.value || '').trim();
-            if (posPaymentNeedsRefNumber(pm) && !ref) {
-                await showPOSAlert('Reference Required', "Reference number is required for " + pm, 'warning');
-                return;
-            }
-
             const tendered = parseFloat(document.getElementById('pos-tendered').value) || 0;
 
             if (!isPayMongoPaymentMethod(pm) && (tendered < currentTotal || tendered > 1000000)) {
@@ -4469,7 +4415,7 @@ try {
 
             const changeAmount = isPayMongoPaymentMethod(pm) ? 0 : tendered - currentTotal;
             const confirmMsg = isPayMongoPaymentMethod(pm)
-                ? `Create a ${pm === 'PayMongo QRPh' ? 'Dynamic QR Ph payment' : 'PayMongo checkout'} for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
+                ? `Create a Dynamic QR Ph payment for ${formatMoney(currentTotal)}? The sale remains unpaid until PayMongo confirms it.`
                 : `Confirm sale of ${formatMoney(currentTotal)} using ${pm}?\nChange due: ${formatMoney(changeAmount)}`;
 
             posCheckoutConfirmOpen = true;
@@ -4491,7 +4437,7 @@ try {
                 action: 'walkin_checkout',
                 customer_id: $('#pos-customer').val(),
                 payment_method: pm,
-                reference_number: (document.getElementById('pos-payment-ref')?.value || '').trim(),
+                reference_number: '',
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
@@ -4537,8 +4483,6 @@ try {
                     posPayMongoCheckoutPending = false;
                     document.getElementById('pos-payment-method').value = 'Cash';
                     document.getElementById('pos-tendered').value = '';
-                    const refInput = document.getElementById('pos-payment-ref');
-                    if (refInput) refInput.value = '';
                     toggleReferenceField();
                     calculateChange();
                     updateCheckoutState();
@@ -4613,12 +4557,9 @@ try {
             const qrImage = document.getElementById('paymongo-pos-qr');
             qrImage.style.display = isQr && payment?.qr_image_url ? 'block' : 'none';
             if (isQr && payment?.qr_image_url) qrImage.src = payment.qr_image_url;
-            document.getElementById('paymongo-pos-title').textContent = isQr ? 'Dynamic QR Ph' : 'PayMongo Checkout';
+            document.getElementById('paymongo-pos-title').textContent = 'Dynamic QR Ph';
             document.getElementById('paymongo-pos-order').textContent =
                 `Order #${pendingPayMongoOrderId} - ${formatMoney(Number(payment?.amount || 0) / 100)}`;
-            const checkoutLink = document.getElementById('paymongo-pos-open');
-            checkoutLink.style.display = payment?.checkout_url ? 'block' : 'none';
-            if (payment?.checkout_url) checkoutLink.href = payment.checkout_url;
             const referenceLabel = document.getElementById('paymongo-pos-reference');
             const reference = payment?.reference_number || payment?.payment_reference || '';
             referenceLabel.textContent = reference ? 'Reference Number: ' + reference : '';
@@ -4629,7 +4570,7 @@ try {
             if (status === 'failed') statusLabel.textContent = 'Payment was not completed. Generate a new QR to try again.';
             else if (status === 'expired') statusLabel.textContent = 'QR code expired. Generate a new QR to continue.';
             else if (status === 'paid') statusLabel.textContent = 'Payment confirmed. Complete the transaction to continue.';
-            else statusLabel.textContent = isQr ? 'Waiting for payment confirmation.' : 'Waiting for secure checkout payment.';
+            else statusLabel.textContent = 'Waiting for payment confirmation.';
 
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
             const countdown = document.getElementById('paymongo-pos-countdown');

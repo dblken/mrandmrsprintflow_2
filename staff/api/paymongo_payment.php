@@ -48,7 +48,8 @@ $directMethods = in_array($mode, ['test', 'live'], true)
     : [];
 $availableFlows = [
     'qrph' => in_array('qrph', $directMethods, true),
-    'payment_link' => in_array($mode, ['test', 'live'], true)
+    'payment_link' => $channel !== 'pos'
+        && in_array($mode, ['test', 'live'], true)
         && printflow_paymongo_secret_key_for_mode($mode) !== '',
 ];
 
@@ -114,7 +115,16 @@ if ($method === 'POST') {
         ], JSON_UNESCAPED_SLASHES);
         exit;
     }
-    $action = strtolower(trim((string)($input['action'] ?? 'create_link')));
+    $action = strtolower(trim((string)($input['action'] ?? 'create_qrph')));
+    if ($channel === 'pos' && $action === 'create_link') {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'code' => 'unsupported_pos_payment_method',
+            'message' => 'PayMongo Checkout is not available for new POS transactions.',
+        ]);
+        exit;
+    }
     if ($action === 'create_qrph' && !$availableFlows['qrph']) {
         http_response_code(409);
         echo json_encode([

@@ -1030,14 +1030,18 @@ $amount_tendered = (float)($data['amount_tendered'] ?? 0);
 $items = $data['items'];
 
 $pm_lc = strtolower(trim($payment_method));
-$isPayMongoQrph = $pm_lc === 'paymongo qrph';
-$isPayMongoLink = in_array($pm_lc, ['paymongo checkout', 'paymongo test'], true);
-$isPayMongo = $isPayMongoQrph || $isPayMongoLink;
-$reference_required = ($pm_lc !== 'cash' && $pm_lc !== 'gcash' && !$isPayMongo);
-if ($reference_required && $reference_number === '') {
-    echo json_encode(['success' => false, 'message' => "Reference number is required for $payment_method."]);
+$allowedPosPaymentMethods = [
+    'cash' => 'Cash',
+    'paymongo qrph' => 'PayMongo QRPh',
+];
+if (!isset($allowedPosPaymentMethods[$pm_lc])) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'message' => 'Unsupported POS payment method.']);
     exit;
 }
+$payment_method = $allowedPosPaymentMethods[$pm_lc];
+$isPayMongoQrph = $pm_lc === 'paymongo qrph';
+$isPayMongo = $isPayMongoQrph;
 if ($amount_tendered > 1000000) {
     echo json_encode(['success' => false, 'message' => 'Amount paid exceeds maximum limit of ₱1,000,000.']);
     exit;
@@ -1067,9 +1071,12 @@ if ($isPayMongo && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) 
     if (!$preparedOrder['ok']) {
         unset($_SESSION['pos_paymongo_checkouts'][$checkoutToken]);
     } else {
-        $existingResult = $isPayMongoQrph
-            ? printflow_provider_payment_create_qrph('order', $existingOrderId, 'pos', (int)get_user_id())
-            : printflow_provider_payment_create_link('order', $existingOrderId, 'pos', (int)get_user_id());
+        $existingResult = printflow_provider_payment_create_qrph(
+            'order',
+            $existingOrderId,
+            'pos',
+            (int)get_user_id()
+        );
         http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
         echo json_encode([
             'success' => !empty($existingResult['ok']),
@@ -1472,9 +1479,12 @@ try {
     if ($isPayMongo) {
         $_SESSION['pos_paymongo_checkouts'] = [];
         $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = (int)$order_id;
-        $providerResult = $isPayMongoQrph
-            ? printflow_provider_payment_create_qrph('order', (int)$order_id, 'pos', (int)get_user_id())
-            : printflow_provider_payment_create_link('order', (int)$order_id, 'pos', (int)get_user_id());
+        $providerResult = printflow_provider_payment_create_qrph(
+            'order',
+            (int)$order_id,
+            'pos',
+            (int)get_user_id()
+        );
         if (empty($providerResult['ok'])) {
             http_response_code((int)($providerResult['http_status'] ?? 502));
             echo json_encode([
