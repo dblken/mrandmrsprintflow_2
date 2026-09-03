@@ -93,7 +93,14 @@ try {
                 } else { $item['roll_equivalent'] = null; }
             }
             unset($item);
-            echo json_encode(['success' => true, 'data' => $items]);
+            $materialRules = db_query(
+                "SELECT r.service_type, r.item_id, r.rule_type, r.qty_multiplier
+                 FROM service_material_rules r
+                 JOIN inv_items i ON i.id = r.item_id
+                 WHERE i.status = 'ACTIVE'
+                 ORDER BY r.service_type ASC, r.rule_type DESC, r.item_id ASC"
+            ) ?: [];
+            echo json_encode(['success' => true, 'data' => $items, 'material_rules' => $materialRules]);
             break;
 
         case 'create_item':

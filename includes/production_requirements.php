@@ -1,7 +1,55 @@
 <?php
 
+if (!function_exists('printflow_material_ink_requirement_from_names')) {
+    /**
+     * Resolve ink guidance from manually assigned core materials.
+     * null preserves the configured legacy service behavior for unknown materials.
+     */
+    function printflow_material_ink_requirement_from_names(array $materialNames): ?bool {
+        $hasVerifiedNoInkCore = false;
+        foreach ($materialNames as $rawName) {
+            $name = strtoupper(trim((string)$rawName));
+            $name = preg_replace('/[^A-Z0-9]+/', ' ', $name);
+            $name = trim((string)preg_replace('/\s+/', ' ', $name));
+
+            if (
+                $name === 'MUG'
+                || in_array($name, ['NEXJET', 'PP STKR MATTE 98', 'HOLOGRAM', 'TRANSPARENT'], true)
+                || preg_match('/^[34567] ?FT TARPAULIN$/', $name)
+            ) {
+                return true;
+            }
+
+            if (
+                preg_match('/^VINYL (?:BLACK|BLUE|GREEN|ORANGE|PINK|RED|WHITE|YELLOW)$/', $name)
+                || preg_match('/^STICKER (?:BLACK|BLUE|GOLD|GREEN|RED|SILVER|WHITE|YELLOW)$/', $name)
+                || preg_match('/^(?:AC|SP) (?:EURO|HOME|MC|NMC|PH|THAI)$/', $name)
+                || $name === '3M REFLECTIVE'
+            ) {
+                $hasVerifiedNoInkCore = true;
+            }
+        }
+        return $hasVerifiedNoInkCore ? false : null;
+    }
+}
+
 if (!function_exists('printflow_job_requires_ink')) {
     function printflow_job_requires_ink(int $jobId): bool {
+        if ($jobId > 0) {
+            $assignedMaterials = db_query(
+                "SELECT i.name
+                 FROM job_order_materials jom
+                 JOIN inv_items i ON i.id = jom.item_id
+                 WHERE jom.job_order_id = ? AND jom.quantity > 0",
+                'i',
+                [$jobId]
+            ) ?: [];
+            $materialDecision = printflow_material_ink_requirement_from_names(
+                array_column($assignedMaterials, 'name')
+            );
+            if ($materialDecision !== null) return $materialDecision;
+        }
+
         if ($jobId <= 0 || !db_table_has_column('services', 'requires_ink')) {
             return true;
         }

@@ -1558,6 +1558,82 @@ $online_closed_count = 0;
             background: #ccfbf1;
             color: #115e59;
         }
+        .production-material-results {
+            max-height: 260px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            border: 1px solid #dbe3ea;
+            border-radius: 10px;
+            background: #fff;
+        }
+        .production-material-option {
+            width: 100%;
+            min-width: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            border: 0;
+            border-bottom: 1px solid #eef2f7;
+            background: #fff;
+            color: #334155;
+            text-align: left;
+            cursor: pointer;
+        }
+        .production-material-option:last-child { border-bottom: 0; }
+        .production-material-option:hover,
+        .production-material-option.is-active { background: #f0fdfa; }
+        .production-material-option:focus-visible {
+            position: relative;
+            z-index: 1;
+            outline: 3px solid rgba(15, 118, 110, .24);
+            outline-offset: -3px;
+        }
+        .production-material-option.is-recommended { background: #f0fdfa; }
+        .production-material-option.is-unrelated,
+        .production-material-option:disabled {
+            background: #f8fafc;
+            color: #64748b;
+            cursor: not-allowed;
+        }
+        .production-material-option__main { min-width: 0; }
+        .production-material-option__name {
+            display: block;
+            overflow-wrap: anywhere;
+            font-size: 12px;
+            font-weight: 800;
+            color: inherit;
+        }
+        .production-material-option__meta {
+            display: block;
+            margin-top: 3px;
+            overflow-wrap: anywhere;
+            font-size: 10px;
+            line-height: 1.35;
+            color: #64748b;
+        }
+        .production-material-option__status {
+            flex: 0 0 auto;
+            max-width: 42%;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1.3;
+            text-align: right;
+            color: #0f766e;
+        }
+        .production-material-option.is-unrelated .production-material-option__status { color: #64748b; }
+        .production-material-empty {
+            padding: 14px 12px;
+            color: #64748b;
+            font-size: 11px;
+            line-height: 1.45;
+            text-align: center;
+        }
+        @media (max-width: 430px) {
+            .production-material-option { align-items: flex-start; padding: 10px; }
+            .production-material-option__status { max-width: 46%; }
+        }
     </style>
 </head>
 <body data-base-url="<?php echo htmlspecialchars(BASE_URL); ?>" data-csrf="<?php echo htmlspecialchars(generate_csrf_token()); ?>" data-user-type="<?php echo htmlspecialchars($_SESSION['user_type'] ?? 'Staff'); ?>">
@@ -2354,17 +2430,44 @@ $online_closed_count = 0;
                                         <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials <span style="color:#dc2626;">*</span></label>
                                         
                                         <!-- Searchable Selection -->
-                                        <div style="position:relative;">
-                                            <input type="text" x-model="materialSearch" placeholder="Search materials (e.g. tarpaulin, vinyl...)" 
+                                        <div style="position:relative; min-width:0;">
+                                            <input type="search" x-model="materialSearch" x-ref="materialSearchInput"
+                                                   @input="materialListActiveIndex = 0"
+                                                   @keydown.arrow-down.prevent="moveMaterialListFocus(1)"
+                                                   @keydown.arrow-up.prevent="moveMaterialListFocus(-1)"
+                                                   @keydown.enter.prevent="selectActiveMaterialCandidate()"
+                                                   @keydown.escape.prevent="materialSearch = ''; materialListActiveIndex = 0; $el.blur()"
+                                                   placeholder="Search materials..." aria-label="Search production materials" aria-controls="production-material-results"
                                                    style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
-                                            
-                                            <select x-model="newMaterialId" @change="handleMaterialSelection($event.target.value); productionErrors.material = ''"
-                                                    style="width:100%; padding:10px; border:1px solid #e5e7eb; border-radius:8px; font-size:13px; background:white; cursor:pointer;">
-                                                <option value="">-- Choose Material --</option>
-                                                <template x-for="item in availableMaterialsForCurrentOrder" :key="item.id">
-                                                    <option :value="item.id" x-text="`${item.name} (${item.current_stock} ${item.unit_of_measure})`"></option>
+
+                                            <div id="production-material-results" class="production-material-results" role="listbox" aria-label="Production materials">
+                                                <template x-for="(item, index) in availableMaterialsForCurrentOrder" :key="item.id">
+                                                    <button type="button" role="option"
+                                                            class="production-material-option"
+                                                            :class="{
+                                                                'is-recommended': item.compatibility.tier === 'recommended',
+                                                                'is-unrelated': !item.compatibility.selectable,
+                                                                'is-active': index === materialListActiveIndex
+                                                            }"
+                                                            :disabled="!item.compatibility.selectable"
+                                                            :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
+                                                            :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
+                                                            @mouseenter="materialListActiveIndex = index"
+                                                            @click="selectMaterialCandidate(item)">
+                                                        <span class="production-material-option__main">
+                                                            <span class="production-material-option__name" x-text="item.name"></span>
+                                                            <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
+                                                        </span>
+                                                        <span class="production-material-option__status" x-text="materialStatusLabel(item)"></span>
+                                                    </button>
                                                 </template>
-                                            </select>
+                                                <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
+                                                    No materials match this search.
+                                                </div>
+                                            </div>
+                                            <div x-show="materialCompatibilityContext.serviceKind === 'unknown'" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
+                                                No verified material suggestions are configured for this service.
+                                            </div>
                                         </div>
 
                                         <template x-if="newMaterialId">
@@ -2393,7 +2496,7 @@ $online_closed_count = 0;
                                                     </div>
                                                     <div style="display:flex; align-items:center; gap:12px;">
                                                         <span style="color:#64748b;" x-text="pm.qty + ' ' + pm.uom"></span>
-                                                        <button @click="pendingMaterials.splice(idx,1)" style="color:#ef4444; border:none; background:none; cursor:pointer; font-weight:700;">✕</button>
+                                                        <button @click="removePendingMaterial(idx)" style="color:#ef4444; border:none; background:none; cursor:pointer; font-weight:700;">✕</button>
                                                     </div>
                                                 </div>
                                             </template>
@@ -2407,17 +2510,20 @@ $online_closed_count = 0;
                                             <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options <span x-show="requiresInk" style="color:#dc2626;">*</span></label>
                                         </div>
 
+                                        <div x-show="inkSelectionMode === 'pending'" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
+                                            Select a core material first to see compatible ink options.
+                                        </div>
                                         <div x-show="requiresInk" x-transition
                                              :style="productionErrors.ink_set ? 'padding:16px;border:1px solid #dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12);border-radius:12px;background:#f9fafb;' : 'padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f9fafb;'">
                                             <label style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:10px; display:block;">Select Ink Set</label>
                                             <div class="ink-set-options" role="radiogroup" aria-label="Ink set">
-                                                <template x-for="type in availableInkOptionsForService" :key="type">
-                                                    <button type="button" @click="inkCategorySelected = type; productionErrors.ink_set = ''"
+                                                <template x-for="option in availableInkOptionsForService" :key="option.key">
+                                                    <button type="button" @click="inkCategorySelected = option.key; useInk = true; productionErrors.ink_set = ''"
                                                             class="ink-set-option"
-                                                            :class="{ 'is-selected': inkCategorySelected === type }"
+                                                            :class="{ 'is-selected': inkCategorySelected === option.key }"
                                                             role="radio"
-                                                            :aria-checked="inkCategorySelected === type ? 'true' : 'false'"
-                                                            x-text="type"></button>
+                                                            :aria-checked="inkCategorySelected === option.key ? 'true' : 'false'"
+                                                            x-text="option.label"></button>
                                                 </template>
                                             </div>
 
@@ -2481,8 +2587,7 @@ $online_closed_count = 0;
                                             </template>
                                             <div x-show="productionErrors.ink_set" x-text="productionErrors.ink_set" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                         </div>
-                                        <div x-show="!requiresInk" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
-                                            This service is configured as non-ink production.
+                                        <div x-show="inkSelectionMode === 'none'" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;" x-text="noInkGuidanceText">
                                         </div>
                                     </div>
                                 </div>
@@ -2492,8 +2597,8 @@ $online_closed_count = 0;
                             <div style="padding:16px; border-radius:14px; border:1px solid #99f6e4; background:#f0fdfa;">
                                 <div style="margin-bottom:20px;">
                                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-                                        <svg width="16" height="16" fill="none" stroke="#0f766e" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                        <label style="font-size:11px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">[2] Set Final Price</label>
+                                        <span aria-hidden="true" style="font-size:16px; font-weight:900; color:#0f766e; line-height:1;">₱</span>
+                                        <label style="font-size:11px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">[3] Set Final Price</label>
                                     </div>
                                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:10px 12px; border-radius:10px; border:1px solid #99f6e4; background:#ffffff;">
                                         <div style="font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">Estimated Price</div>
@@ -2524,14 +2629,12 @@ $online_closed_count = 0;
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
-                                    <div style="font-size:11px; color:#0f766e; margin-top:8px; line-height:1.45;">Set the final amount, then continue to POS to receive payment.</div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
                                     <template x-for="(issue, idx) in approvalStockErrors" :key="idx">
                                         <div x-text="issue"></div>
                                     </template>
                                 </div>
-                                <div style="font-size:11px; color:#0f766e; margin-top:8px; line-height:1.45;">Saving here keeps the item in the POS cart so staff can continue payment on the walk-in POS page.</div>
                             </div>
                         </div>
                     </template>
@@ -3016,6 +3119,7 @@ $online_closed_count = 0;
 </div><!-- /.dashboard-container -->
 
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/staff_service_order_modal.js'); ?>"></script>
+<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/production_material_picker.js'); ?>"></script>
 <?php
 $preloaded_customization_rows_json = json_encode(
     $preloaded_customization_rows,
@@ -3042,13 +3146,10 @@ window.pfCustomizationPreloadedOrders = (() => {
 })();
 </script>
 <script>
-    console.info('[Customizations] script loaded');
     (function registerStaffCustomizationManager() {
         let registered = false;
 
-        console.info('[Customizations] reached joManager definition');
         function createJoManager(defaultStatus) {
-            console.info('[Customizations] joManager created');
             defaultStatus = defaultStatus || 'ALL';
             let ordersAbortController = null;
             let countsAbortController = null;
@@ -3117,6 +3218,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             deepLinkSourceOrderId: '',
             availableRolls: {},
             allInventoryItems: [],
+            materialRules: [],
+            materialListActiveIndex: 0,
             inventoryPollMs: 20000,
             ordersPollMs: 30000,
             newMaterialId: '',
@@ -3438,8 +3541,12 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return row;
             },
             get requiresInk() {
-                const value = this.currentJo ? this.currentJo.requires_ink : true;
-                return value !== false && value !== 0 && value !== '0';
+                if (this.inkSelectionMode === 'standard' || this.inkSelectionMode === 'tarp') return true;
+                if (this.inkSelectionMode === 'legacy') {
+                    const value = this.currentJo ? this.currentJo.requires_ink : true;
+                    return value !== false && value !== 0 && value !== '0';
+                }
+                return false;
             },
             clearDeepLinkParams() {
                 try {
@@ -4618,54 +4725,138 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return s === 'TO_PAY';
             },
 
+            get materialCompatibilityContext() {
+                const jo = this.currentJo || {};
+                const itemContexts = Array.isArray(jo.items) ? jo.items.map(item => ({
+                    product_type: item && item.product_type,
+                    product_name: item && item.product_name,
+                    customization: item && item.customization,
+                    customization_data: this.parseSpecsObject(item && item.customization_data)
+                })) : [];
+                return {
+                    serviceType: String(jo.service_type || jo.job_title || this.getCorrectServiceType(jo) || '').trim(),
+                    serviceLabel: String(this.getCorrectServiceType(jo) || jo.service_type || jo.job_title || 'this service').trim(),
+                    productType: jo.product_type || '',
+                    souvenirType: jo.souvenir_type || '',
+                    stickerType: jo.sticker_type || '',
+                    cutType: jo.cut_type || '',
+                    customization: [jo.customization_details || {}, ...itemContexts],
+                    serviceKind: window.PrintFlowProductionMaterials.classifyService({
+                        serviceType: String(jo.service_type || jo.job_title || this.getCorrectServiceType(jo) || '').trim(),
+                        serviceLabel: String(this.getCorrectServiceType(jo) || '').trim(),
+                        productType: jo.product_type || '',
+                        souvenirType: jo.souvenir_type || '',
+                        stickerType: jo.sticker_type || '',
+                        cutType: jo.cut_type || '',
+                        customization: [jo.customization_details || {}, ...itemContexts]
+                    })
+                };
+            },
             get availableMaterialsForCurrentOrder() {
-                if (!this.currentJo || !this.allInventoryItems) return [];
-                
-                const serviceRaw = String(this.currentJo.service_type || this.currentJo.job_title || '').toUpperCase();
-                let allowedCats = [];
-
-                // Detect matching service from mapping
-                for (const [key, map] of Object.entries(this.serviceMapping)) {
-                    if (serviceRaw.includes(key)) {
-                        allowedCats = map.categories;
-                        break;
+                if (!this.currentJo || !Array.isArray(this.allInventoryItems) || !window.PrintFlowProductionMaterials) return [];
+                return window.PrintFlowProductionMaterials.rankItems(
+                    this.allInventoryItems,
+                    this.materialCompatibilityContext,
+                    this.materialRules,
+                    this.materialSearch
+                );
+            },
+            materialClassification(item) {
+                if (!item || !window.PrintFlowProductionMaterials) return { tier: 'unrelated', selectable: false };
+                return window.PrintFlowProductionMaterials.classifyItem(item, this.materialCompatibilityContext, this.materialRules);
+            },
+            materialMetaLabel(item) {
+                const category = String(item.category_name || 'Uncategorized');
+                const stock = Number.parseFloat(item.current_stock || 0);
+                const available = Number.isFinite(stock) ? stock : 0;
+                return `${category} · Available: ${available} ${item.unit_of_measure || 'pcs'}`;
+            },
+            materialStatusLabel(item) {
+                const state = item.compatibility || this.materialClassification(item);
+                if (!state.inStock && state.tier !== 'unrelated') return 'Out of stock';
+                if (state.tier === 'recommended') return 'Recommended';
+                if (state.tier === 'optional') return 'Optional';
+                return state.reason || 'Not applicable';
+            },
+            selectMaterialCandidate(item) {
+                const state = item && (item.compatibility || this.materialClassification(item));
+                if (!item || !state || !state.selectable) return;
+                this.handleMaterialSelection(String(item.id));
+                this.productionErrors.material = '';
+                this.syncInkSelectionWithMaterial();
+            },
+            moveMaterialListFocus(direction) {
+                const items = this.availableMaterialsForCurrentOrder;
+                if (!items.length) return;
+                let index = Number.isInteger(this.materialListActiveIndex) ? this.materialListActiveIndex : -1;
+                for (let attempts = 0; attempts < items.length; attempts += 1) {
+                    index = (index + direction + items.length) % items.length;
+                    if (items[index].compatibility.selectable) {
+                        this.materialListActiveIndex = index;
+                        return;
                     }
                 }
-
-                return this.allInventoryItems.filter(item => {
-                    // MUST HAVE STOCK > 0
-                    const stock = parseFloat(item.current_stock || 0);
-                    if (stock <= 0) return false;
-
-                    // If we found specific categories for this service, filter by them
-                    if (allowedCats.length > 0) {
-                        if (!allowedCats.includes(Number(item.category_id))) return false;
+            },
+            selectActiveMaterialCandidate() {
+                const item = this.availableMaterialsForCurrentOrder[this.materialListActiveIndex];
+                if (item) this.selectMaterialCandidate(item);
+            },
+            get selectedCoreMaterial() {
+                if (this.newMaterialId) {
+                    const currentSelection = this.getInventoryItem(this.newMaterialId);
+                    if (currentSelection && this.materialClassification(currentSelection).tier === 'recommended') {
+                        return currentSelection;
                     }
-
-                    // Search filter
-                    if (this.materialSearch && !item.name.toUpperCase().includes(this.materialSearch.toUpperCase())) {
-                        return false;
-                    }
-
-                    return true;
-                });
+                }
+                const candidateIds = [];
+                this.pendingMaterials.forEach(material => candidateIds.push(material.item_id));
+                (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
+                    .forEach(material => candidateIds.push(material.item_id));
+                for (let index = candidateIds.length - 1; index >= 0; index -= 1) {
+                    const item = this.getInventoryItem(candidateIds[index]);
+                    if (item && this.materialClassification(item).tier === 'recommended') return item;
+                }
+                return null;
+            },
+            get inkSelectionMode() {
+                const core = this.selectedCoreMaterial;
+                if (!core) return 'pending';
+                const mode = window.PrintFlowProductionMaterials.inkModeFor(core);
+                return mode === 'unknown' ? 'legacy' : mode;
+            },
+            get noInkGuidanceText() {
+                const kind = this.materialCompatibilityContext.serviceKind;
+                if (kind === 'plate') return 'No standard printer ink is suggested for this plate setup.';
+                if (kind === 'tshirt') return 'No printer ink required for this cut heat-transfer material.';
+                return 'No printer ink is required for this cut-only material.';
+            },
+            syncInkSelectionWithMaterial() {
+                const allowed = this.availableInkOptionsForService.map(option => option.key);
+                if (!allowed.includes(this.inkCategorySelected)) this.resetInkForm();
             },
 
             get availableInkOptionsForService() {
-                if (!this.currentJo) return [];
-                const serviceRaw = String(this.currentJo.service_type || this.currentJo.job_title || '').toUpperCase();
-                for (const [key, map] of Object.entries(this.serviceMapping)) {
-                    if (serviceRaw.includes(key)) {
-                        return Array.isArray(map.ink) ? map.ink : [map.ink];
+                if (this.inkSelectionMode === 'tarp') return [{ key: 'TARP', label: 'INK TARP' }];
+                if (this.inkSelectionMode === 'standard') {
+                    return [
+                        { key: 'L120', label: 'L120 — Standard' },
+                        { key: 'L130', label: 'L130 — Higher Quality' }
+                    ];
+                }
+                if (this.inkSelectionMode === 'legacy') {
+                    const serviceRaw = String(this.currentJo.service_type || this.currentJo.job_title || '').toUpperCase();
+                    for (const [key, map] of Object.entries(this.serviceMapping)) {
+                        if (!serviceRaw.includes(key)) continue;
+                        const values = Array.isArray(map.ink) ? map.ink : [map.ink];
+                        return values.map(value => ({ key: value, label: value === 'TARP' ? 'INK TARP' : value }));
                     }
                 }
-                return ['L120', 'L130']; // Default
+                return [];
             },
 
             async init() {
                 if (this._initialized) return;
                 this._initialized = true;
-                console.info('[Customizations] init started');
                 if (Array.isArray(window.pfCustomizationPreloadedOrders) && window.pfCustomizationPreloadedOrders.length > 0) {
                     const preloadedRows = this.prepareOrderRows(window.pfCustomizationPreloadedOrders);
                     this.orders = <?php echo $showLatestCustomizationOnly ? 'preloadedRows.slice(0, 1)' : 'preloadedRows'; ?>;
@@ -5445,6 +5636,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.detailRetryPayload = { id, orderType };
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';
+                this.resetMaterialForm();
+                this.resetInkForm();
                 this.primeDetailsShell(order, orderType, id);
 
                 const cachedDetail = this.modalCache[cacheKey] || null;
@@ -5886,6 +6079,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (!this.newMaterialId) return;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return;
+                if (!this.materialClassification(item).selectable) {
+                    this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
+                    return;
+                }
                 const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
                 if (normalizedQty < 1) {
                     this.showStaffAlert('Invalid Quantity', 'Material quantity must be at least 1.');
@@ -5925,6 +6122,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Reset form
                 this.resetMaterialForm();
             },
+            removePendingMaterial(index) {
+                this.pendingMaterials.splice(index, 1);
+                this.syncInkSelectionWithMaterial();
+            },
             buildCurrentMaterialPayload() {
                 if (!this.newMaterialId) return null;
                 const normalizedQty = this.normalizeMaterialQtyValue(this.newMaterialQty, 1);
@@ -5932,6 +6133,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.newMaterialQty = normalizedQty;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return null;
+                if (!this.materialClassification(item).selectable) return null;
 
                 let meta = {};
                 if (this.isTarpaulin(this.newMaterialId)) {
@@ -6146,13 +6348,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.schedulePayMongoPolling();
             },
             async submitToPay() {
-                console.log('submitToPay called');
-                console.log('jobPriceInput value:', this.jobPriceInput);
-                console.log('jobPriceInput type:', typeof this.jobPriceInput);
                 if (this.currentJo.order_type === 'CUSTOMIZATION') {
                     const priceValue = parseFloat(this.jobPriceInput);
-                    console.log('Parsed price value:', priceValue);
-                    console.log('Is NaN?', isNaN(priceValue));
                     if (!priceValue || priceValue <= 0 || isNaN(priceValue)) {
                         this.setFooterActionError('Please enter a valid final price before approving.');
                         return;
@@ -6281,7 +6478,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 const jid = target.jobId;
                 const userEnteredPrice = parseFloat(this.jobPriceInput);
-                console.log('User entered price (captured early):', userEnteredPrice);
                 if (!Number.isFinite(userEnteredPrice) || userEnteredPrice <= 0) {
                     this.setFooterActionError('Please enter a valid final price before submitting.');
                     return;
@@ -6330,7 +6526,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                     }
                 }
                 await this.refreshMaterials();
-                console.log('Price before materials check:', userEnteredPrice);
                 if (!userEnteredPrice || userEnteredPrice <= 0 || isNaN(userEnteredPrice)) {
                     this.setFooterActionError('Please enter a valid final price before submitting.');
                     return;
@@ -6399,7 +6594,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (res.success) {
                     // Drop roll cache so any newly issued/received roll deductions become visible.
                     this.availableRolls = {};
-                    this.allInventoryItems = res.data;
+                    this.allInventoryItems = (Array.isArray(res.data) ? res.data : []).filter(item => Number(item.id) !== 63);
+                    this.materialRules = Array.isArray(res.material_rules) ? res.material_rules : [];
                     this.laminationItemsList = this.allInventoryItems.filter(i => i.name.toUpperCase().includes('LAMINATE'));
                 }
             },
@@ -6473,7 +6669,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                    }
                    this.currentJo.total_amount = price;
                    this.currentJo.final_price = price;
-                   console.log('Price updated successfully to:', price);
                    return true;
                 } else if (this.currentJo.order_type === 'CUSTOMIZATION') {
                    const fd = new FormData();
@@ -6488,13 +6683,11 @@ window.pfCustomizationPreloadedOrders = (() => {
                        return false;
                    }
                    this.currentJo.final_price = price;
-                   console.log('Customization price updated successfully to:', price);
                    return true;
                 } else {
                     const success = await this.setJobPrice(jid);
                     if (success !== false) {
                         this.currentJo.final_price = price;
-                        console.log('Job price updated successfully to:', price);
                         return true;
                     }
                     return false;
@@ -6514,7 +6707,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if (res.success) {
                     this.currentJo.final_price = price;
-                    console.log('Job price set to:', price);
                     return true;
                 } else {
                     this.showStaffAlert('Error', 'Error setting price: ' + res.error);
@@ -6666,6 +6858,10 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 const jid = target.jobId;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
+                if (!item || !this.materialClassification(item).selectable) {
+                    this.showStaffAlert('Material Unavailable', 'This material is not available for a new assignment on the current service.');
+                    return;
+                }
                 const fd = new FormData();
                 fd.append('action', 'add_material');
                 fd.append('order_id', target.orderId);
@@ -6710,6 +6906,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.newMaterialRollId = '';
                 this.newMaterialNotes = '';
                 this.materialSearch = '';
+                this.materialListActiveIndex = 0;
                 this.availableLamRollsList = [];
                 this.newMaterialMetadata = {
                     lamination: '',
@@ -6917,7 +7114,6 @@ window.pfCustomizationPreloadedOrders = (() => {
         function boot() {
             if (registered || typeof Alpine === 'undefined') return;
             registered = true;
-            console.info('[Customizations] Alpine init received');
             Alpine.data('joManager', window.joManager);
         }
 

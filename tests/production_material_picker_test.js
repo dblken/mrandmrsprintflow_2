@@ -1,0 +1,100 @@
+'use strict';
+
+const assert = require('assert');
+const picker = require('../public/assets/js/production_material_picker.js');
+
+let nextId = 1;
+const item = (name, stock = 10, extra = {}) => ({
+    id: nextId++, name, current_stock: stock, unit_of_measure: 'pcs', category_name: 'MATERIALS', ...extra
+});
+
+const inventory = [
+    item('MUG'), item('BOX MUG'), item('3ft Tarpaulin'), item('4ft Tarpaulin', 0),
+    item('VINYL BLACK'), item('VINYL WHITE'), item('NEXJET'), item('PP STKR MATTE 98'),
+    item('HOLOGRAM'), item('TRANSPARENT'), item('GLOSS LAMINATE'), item('MATTE LAMINATE'),
+    item('STICKER BLACK'), item('STICKER SILVER'), item('3M Reflective'), item('AC EURO'),
+    item('SP HOME'), item('PVC ID'), item('Unmapped Supply'),
+    item('INK L120 BLUE', 10, { category_name: 'INK L120' }),
+    { id: 63, name: 'test garbage nonsense material', current_stock: 99, unit_of_measure: 'pcs', category_name: 'TEST' }
+];
+
+function context(serviceType, customization = {}) {
+    return { serviceType, serviceLabel: serviceType, customization };
+}
+
+function byName(rows, name) {
+    return rows.find(row => row.name === name);
+}
+
+const mugRows = picker.rankItems(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), [], '');
+assert.strictEqual(mugRows[0].name, 'MUG');
+assert.strictEqual(byName(mugRows, 'MUG').compatibility.tier, 'recommended');
+assert.strictEqual(byName(mugRows, 'BOX MUG').compatibility.tier, 'optional');
+assert.strictEqual(byName(mugRows, '3ft Tarpaulin').compatibility.selectable, false);
+assert.strictEqual(byName(mugRows, 'PVC ID').compatibility.tier, 'unrelated');
+assert.strictEqual(byName(mugRows, 'test garbage nonsense material'), undefined);
+assert.strictEqual(byName(mugRows, 'INK L120 BLUE'), undefined);
+
+const tarpRows = picker.rankItems(inventory, context('Tarpaulin Printing'), [], '');
+assert.strictEqual(byName(tarpRows, '3ft Tarpaulin').compatibility.tier, 'recommended');
+assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.selectable, false);
+assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.reason, 'Out of stock');
+assert.strictEqual(picker.inkModeFor(byName(tarpRows, '3ft Tarpaulin')), 'tarp');
+
+const shirtRows = picker.rankItems(inventory, context('T-Shirt Printing'), [], '');
+assert.strictEqual(byName(shirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');
+assert.strictEqual(byName(shirtRows, 'STICKER BLACK').compatibility.selectable, false);
+assert.strictEqual(picker.inkModeFor(byName(shirtRows, 'VINYL BLACK')), 'none');
+
+const printedRows = picker.rankItems(inventory, context('Decals/Stickers (Print/Cut)'), [], '');
+['NEXJET', 'PP STKR MATTE 98', 'HOLOGRAM', 'TRANSPARENT'].forEach(name => {
+    assert.strictEqual(byName(printedRows, name).compatibility.tier, 'recommended');
+});
+['GLOSS LAMINATE', 'MATTE LAMINATE'].forEach(name => {
+    assert.strictEqual(byName(printedRows, name).compatibility.tier, 'optional');
+});
+assert.strictEqual(picker.inkModeFor(byName(printedRows, 'NEXJET')), 'standard');
+
+const cutRows = picker.rankItems(inventory, context('Cut Sticker'), [], '');
+assert.strictEqual(byName(cutRows, 'STICKER BLACK').compatibility.tier, 'recommended');
+assert.strictEqual(picker.inkModeFor(byName(cutRows, 'STICKER BLACK')), 'none');
+
+const plateRows = picker.rankItems(inventory, context('Reflectorized', { product_type: 'Plate Number / Temporary Plate' }), [], '');
+assert.strictEqual(byName(plateRows, 'AC EURO').compatibility.tier, 'recommended');
+assert.strictEqual(byName(plateRows, 'SP HOME').compatibility.tier, 'recommended');
+assert.strictEqual(byName(plateRows, '3M Reflective').compatibility.tier, 'optional');
+assert.strictEqual(byName(plateRows, 'STICKER SILVER').compatibility.tier, 'optional');
+assert.strictEqual(byName(plateRows, 'VINYL BLACK').compatibility.selectable, false);
+assert.strictEqual(picker.inkModeFor(byName(plateRows, 'AC EURO')), 'none');
+
+const fuzzyCases = {
+    tarpolin: '3ft Tarpaulin',
+    nexjt: 'NEXJET',
+    'mug bx': 'BOX MUG',
+    reflect: '3M Reflective',
+    'pp matte': 'PP STKR MATTE 98',
+    'sp home': 'SP HOME'
+};
+Object.entries(fuzzyCases).forEach(([query, expected]) => {
+    const rows = picker.rankItems(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), [], query);
+    assert.strictEqual(rows[0].name, expected, `${query} should rank ${expected} first`);
+});
+const unrelatedSearch = picker.rankItems(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), [], 'tarpaulin');
+assert.strictEqual(unrelatedSearch[0].name, '3ft Tarpaulin');
+assert.strictEqual(unrelatedSearch[0].compatibility.selectable, false);
+
+const unknown = context('Verified Legacy Service');
+const rules = [{ service_type: 'Verified Legacy Service', item_id: inventory[18].id, rule_type: 'REQUIRED' }];
+assert.strictEqual(picker.classifyItem(inventory[18], unknown, rules).tier, 'recommended');
+assert.strictEqual(picker.classifyItem(item('Random Active Material'), context('Unmapped Service'), []).selectable, false);
+
+['AC EURO', 'AC HOME', 'AC MC', 'AC NMC', 'AC PH', 'AC THAI', 'SP EURO', 'SP HOME', 'SP MC', 'SP NMC', 'SP PH', 'SP THAI']
+    .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'plate'));
+['VINYL BLACK', 'VINYL BLUE', 'VINYL GREEN', 'VINYL ORANGE', 'VINYL PINK', 'VINYL RED', 'VINYL WHITE', 'VINYL YELLOW']
+    .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'heat_vinyl'));
+['STICKER BLACK', 'STICKER BLUE', 'STICKER GOLD', 'STICKER GREEN', 'STICKER RED', 'STICKER SILVER', 'STICKER WHITE', 'STICKER YELLOW']
+    .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'colored_sticker'));
+['3ft Tarpaulin', '4ft Tarpaulin', '5FT Tarpaulin', '6FT Tarpaulin', '7ft Tarpaulin']
+    .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'tarpaulin'));
+
+process.stdout.write('production_material_picker_test: PASS\n');
