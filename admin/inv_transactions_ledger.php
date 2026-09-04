@@ -129,6 +129,7 @@ $productKindExpr = $hasProductIdColumn
 $productRefExpr = "NULLIF(TRIM(p_ref.name), '')";
 $legacyProductKindExpr = "(UPPER(t.ref_type) IN ('ORDER', 'PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT') AND p_item.product_id IS NOT NULL)";
 $itemNameSql = "COALESCE({$productNameExpr}, {$legacyProductNameExpr}, {$productRefExpr}, i.name, CASE WHEN {$productKindExpr} OR {$legacyProductKindExpr} OR UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER') THEN CONCAT('Product #', COALESCE(NULLIF(t.product_id, 0), NULLIF(t.ref_id, 0), NULLIF(t.item_id, 0))) ELSE CONCAT('Item #', t.item_id) END)";
+$ledgerBranchExpr = "COALESCE(CASE WHEN UPPER(t.ref_type) IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT') AND t.ref_id >= 10000000 THEN FLOOR(t.ref_id / 10000000) ELSE NULL END, NULLIF(t.branch_id, 0), NULLIF(u.branch_id, 0))";
 
 $sql = "SELECT t.*, 
                {$itemNameSql} as item_name, 
@@ -162,9 +163,9 @@ $types = '';
 if ($branchId > 0) {
     if (!$is_manager && InventoryManager::isMainBranch($branchId)) {
         // Admin main branch view includes legacy rows that were saved before branch_id was enforced.
-        $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL)";
+        $sql .= " AND ({$ledgerBranchExpr} = ? OR {$ledgerBranchExpr} IS NULL)";
     } else {
-        $sql .= " AND t.branch_id = ?";
+        $sql .= " AND {$ledgerBranchExpr} = ?";
     }
     $types .= 'i';
     $params[] = $branchId;

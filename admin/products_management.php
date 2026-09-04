@@ -23,6 +23,13 @@ if (!isset($base_path)) {
     $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 }
 
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
+    $postedBranchId = trim((string)$_POST['branch_id']);
+    if ($postedBranchId === 'all' || (int)$postedBranchId > 0) {
+        $_GET['branch_id'] = $postedBranchId;
+    }
+}
 $current_user = get_logged_in_user();
 $is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
 $branchCtx = init_branch_context(true);
@@ -2623,6 +2630,7 @@ if (isset($_GET['ajax'])) {
         <div class="modal-body">
             <form method="POST" id="product-form" action="" enctype="multipart/form-data" novalidate data-turbo="false" data-pf-skip-validation="true">
                 <?php echo csrf_field(); ?>
+                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars((string)$selectedStockBranchId, ENT_QUOTES, 'UTF-8'); ?>">
                 <?php /* Managers never create products: always POST update_product so server runs branch-stock handler even if JS fails after form.reset() */ ?>
                 <input type="hidden" id="modal-mode-input" name="<?php echo $is_manager ? 'update_product' : 'create_product'; ?>" value="1">
                 <input type="hidden" id="modal-product-id" name="product_id" value="">
