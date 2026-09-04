@@ -19,6 +19,7 @@ if (!isset($base_path)) {
 }
 
 $current_user = get_logged_in_user();
+$can_verify_customer_ids = (($_SESSION['user_type'] ?? '') === 'Admin');
 $viewerBranch = printflow_branch_filter_for_user();
 $branchId = $viewerBranch ?? 'all';
 
@@ -198,7 +199,9 @@ if (isset($_GET['ajax'])) {
                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
+                            <?php if ($can_verify_customer_ids): ?>
                             <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
+                            <?php endif; ?>
                             <button type="button" onclick="event.stopPropagation();openTransactionModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action teal">Transactions</button>
                         </td>
                     </tr>
@@ -1160,7 +1163,9 @@ $page_title = 'Customers Management - Admin';
                                         <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
-                                            <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
+                                            <?php if ($can_verify_customer_ids): ?>
+                                                <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=<?php echo (int)$customer['customer_id']; ?>'" class="btn-action amber">Verify</button>
+                                            <?php endif; ?>
                                             <button type="button" onclick="event.stopPropagation();openTransactionModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action teal">Transactions</button>
                                         </td>
                                     </tr>
@@ -1290,9 +1295,11 @@ $page_title = 'Customers Management - Admin';
                         <p x-show="customer?.id_reject_reason" style="font-size:12px;color:#dc2626;margin:0 0 12px;">Rejection reason: <span x-text="customer?.id_reject_reason"></span></p>
 
                         <p x-show="customer?.id_status === 'Verified'" style="font-size:12px;color:#16a34a;font-weight:600;margin:8px 0 0;">&#10003; ID Verified</p>
+                        <?php if ($can_verify_customer_ids): ?>
                         <div style="margin-top:12px;">
                             <a :href="'<?php echo $base_path; ?>/admin/customer_verification.php?open_customer=' + (customer?.customer_id || '')" class="btn-action amber" style="display:inline-flex;">Manage verification</a>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
