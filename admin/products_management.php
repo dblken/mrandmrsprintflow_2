@@ -2135,7 +2135,7 @@ if (isset($_GET['ajax'])) {
         .orders-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .orders-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .orders-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; }
-        .orders-table .product-sku-cell { color: #111827 !important; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-weight: 600; min-width: 110px; white-space: nowrap; }
+        .orders-table .product-sku-cell { color: #374151 !important; font-family: inherit; font-weight: inherit; min-width: 110px; white-space: nowrap; }
         .orders-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .orders-table tbody tr:hover { background: #f9fafb; }
         .orders-table tbody tr:last-child td { border-bottom: none; }
@@ -2889,7 +2889,6 @@ if (isset($_GET['ajax'])) {
             <div id="view-product-actions" style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:24px;display:none;gap:10px;flex-wrap:wrap;justify-content:center;">
                 <button type="button" id="view-product-receive-btn" onclick="openProductStockFromView('receive')" class="btn-action teal" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Receive IN</button>
                 <button type="button" id="view-product-issue-btn" onclick="openProductStockFromView('issue')" class="btn-action red" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Issue OUT</button>
-                <button type="button" id="view-product-print-barcode-btn" onclick="printProductBarcode()" class="btn-action blue" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Print Barcode</button>
                 <button type="button" id="view-product-download-barcode-btn" onclick="downloadProductBarcodePng()" class="btn-action gray" style="flex:1;min-width:160px;height:40px;font-size:14px;border-radius:10px;">Download Barcode (PNG)</button>
             </div>
             <div style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:16px;display:flex;justify-content:flex-end;">
@@ -2934,6 +2933,7 @@ if (isset($_GET['ajax'])) {
 window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
 window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_modal_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_PRODUCTS_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCTS_BARCODE_API = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api_product_barcode.php', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
 function pfSuggestReorderLevel(qty) {
     qty = parseInt(qty, 10) || 0;
@@ -3389,7 +3389,8 @@ function pfVisibilityStatusStyle(st) {
     return 'background:#fef9c3;color:#854d0e;';
 }
 function pfProductBarcodeUrl(sku) {
-    return 'api_product_barcode.php?sku=' + encodeURIComponent(String(sku || '').trim());
+    var api = window.PF_PRODUCTS_BARCODE_API || 'api_product_barcode.php';
+    return api + '?sku=' + encodeURIComponent(String(sku || '').trim());
 }
 
 function pfSetBarcodePreview(prefix, sku) {
