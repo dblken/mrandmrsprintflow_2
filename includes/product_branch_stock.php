@@ -288,10 +288,33 @@ function printflow_record_product_inventory_transaction(
     }
 
     if ($branchId === null || $branchId <= 0) {
+        if (function_exists('printflow_branch_filter_for_user')) {
+            $lockedBranchId = printflow_branch_filter_for_user();
+            if ($lockedBranchId !== null && (int)$lockedBranchId > 0) {
+                $branchId = (int)$lockedBranchId;
+            }
+        }
+    }
+
+    if ($branchId === null || $branchId <= 0) {
+        $selectedBranchId = $_SESSION['selected_branch_id'] ?? null;
+        if ($selectedBranchId !== null && $selectedBranchId !== 'all' && (int)$selectedBranchId > 0) {
+            $branchId = (int)$selectedBranchId;
+        }
+    }
+
+    if ($branchId === null || $branchId <= 0) {
+        $sessionBranchId = (int)($_SESSION['branch_id'] ?? 0);
+        if ($sessionBranchId > 0) {
+            $branchId = $sessionBranchId;
+        }
+    }
+
+    if ($branchId === null || $branchId <= 0) {
         if (function_exists('printflow_get_default_admin_branch_id')) {
             $branchId = (int)printflow_get_default_admin_branch_id();
         } else {
-            $branchId = (int)($_SESSION['branch_id'] ?? 0);
+            $branchId = 1;
         }
     }
     // Never omit branch_id: NULL branch hid catalog movements on branch-filtered ledger views (Products / POS).

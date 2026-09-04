@@ -24,11 +24,24 @@ if (!isset($base_path)) {
 }
 
 $current_user = get_logged_in_user();
-$is_manager = (get_user_type() === 'Manager');
+$is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
 $branchCtx = init_branch_context(true);
 $selectedStockBranchId = (int)($branchCtx['selected_branch_id'] ?? 0);
 $mgr_branch_id = $is_manager ? $selectedStockBranchId : 0;
 $product_stock_branch_id = $selectedStockBranchId;
+
+if ($is_manager) {
+    $managerAssignedBranchId = (int)($current_user['branch_id'] ?? ($_SESSION['branch_id'] ?? 0));
+    if ($managerAssignedBranchId > 0) {
+        $selectedStockBranchId = $managerAssignedBranchId;
+        $mgr_branch_id = $managerAssignedBranchId;
+        $product_stock_branch_id = $managerAssignedBranchId;
+        $branchCtx['selected_branch_id'] = $managerAssignedBranchId;
+        $_SESSION['selected_branch_id'] = $managerAssignedBranchId;
+        $_GET['branch_id'] = $managerAssignedBranchId;
+    }
+}
+
 $product_stock_uses_base = printflow_product_branch_uses_base_stock($product_stock_branch_id);
 printflow_ensure_product_branch_stock_table();
 printflow_ensure_products_threshold_schema();
