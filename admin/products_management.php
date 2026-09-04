@@ -1404,7 +1404,11 @@ if (isset($_GET['ajax'])) {
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo $product['status']; ?></span>
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-                            <button class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
+                            <?php if ($is_manager): ?>
+                                <button type="button" class="btn-action blue" onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manager</button>
+                            <?php else: ?>
+                                <button type="button" class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Edit</button>
+                            <?php endif; ?>
                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                     <?php echo csrf_field(); ?>
@@ -2492,8 +2496,13 @@ if (isset($_GET['ajax'])) {
                                             </span>
                                         </td>
                                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-                                            <button class="btn-action blue"
-                                                onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
+                                            <?php if ($is_manager): ?>
+                                                <button type="button" class="btn-action blue"
+                                                    onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manager</button>
+                                            <?php else: ?>
+                                                <button type="button" class="btn-action blue"
+                                                    onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Edit</button>
+                                            <?php endif; ?>
                                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                                     <?php echo csrf_field(); ?>
