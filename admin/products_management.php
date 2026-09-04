@@ -24,14 +24,22 @@ if (!isset($base_path)) {
 }
 
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
-    $postedBranchId = trim((string)$_POST['branch_id']);
-    if ($postedBranchId === 'all' || (int)$postedBranchId > 0) {
-        $_GET['branch_id'] = $postedBranchId;
-    }
-}
 $current_user = get_logged_in_user();
 $is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
+
+if ($is_manager && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
+    $postedBranchId = trim((string)$_POST['branch_id']);
+    if ((int)$postedBranchId > 0) {
+        $_GET['branch_id'] = $postedBranchId;
+    }
+} elseif (!$is_manager) {
+    $adminMainBranchId = function_exists('printflow_get_default_admin_branch_id')
+        ? (int)printflow_get_default_admin_branch_id()
+        : 1;
+    $_GET['branch_id'] = $adminMainBranchId;
+    $_SESSION['selected_branch_id'] = $adminMainBranchId;
+}
+
 $branchCtx = init_branch_context(true);
 $selectedStockBranchId = (int)($branchCtx['selected_branch_id'] ?? 0);
 $mgr_branch_id = $is_manager ? $selectedStockBranchId : 0;
@@ -48,7 +56,6 @@ if ($is_manager) {
         $_GET['branch_id'] = $managerAssignedBranchId;
     }
 }
-
 $product_stock_uses_base = printflow_product_branch_uses_base_stock($product_stock_branch_id);
 printflow_ensure_product_branch_stock_table();
 printflow_ensure_products_threshold_schema();
