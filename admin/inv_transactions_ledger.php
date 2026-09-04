@@ -17,6 +17,19 @@ $selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCur
 $selectedBranchParam = ($selectedBranchId === 'all') ? 'all' : (string)(int)$selectedBranchId;
 $branchId = ($selectedBranchId === 'all') ? 0 : (int)$selectedBranchId;
 $is_manager = (($current_user['role'] ?? '') === 'Manager');
+
+if ($is_manager) {
+    $managerAssignedBranchId = (int)($current_user['branch_id'] ?? ($_SESSION['branch_id'] ?? 0));
+    if ($managerAssignedBranchId > 0) {
+        $selectedBranchId = $managerAssignedBranchId;
+        $selectedBranchParam = (string)$managerAssignedBranchId;
+        $branchId = $managerAssignedBranchId;
+        $branchCtx['selected_branch_id'] = $managerAssignedBranchId;
+        $_SESSION['selected_branch_id'] = $managerAssignedBranchId;
+        $_GET['branch_id'] = $managerAssignedBranchId;
+    }
+}
+
 $page_title = $is_manager ? 'Inventory Ledger - Manager' : 'Inventory Ledger - Admin';
 
 /** Safe JSON for onclick="viewTransaction(...)" — never emit empty / broken JS */
@@ -147,9 +160,8 @@ $sql = "SELECT t.*,
 $params = [];
 $types = '';
 if ($branchId > 0) {
-    if (InventoryManager::isMainBranch($branchId)) {
-        // Include rows with branch_id matching main OR unset branch_id. Omitting unset branch_id
-        // hid ORDER/ORDER_PRODUCT lines (still affecting stock); product #40 matched that path.
+    if (!$is_manager && InventoryManager::isMainBranch($branchId)) {
+        // Admin main branch view includes legacy rows that were saved before branch_id was enforced.
         $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL)";
     } else {
         $sql .= " AND t.branch_id = ?";
