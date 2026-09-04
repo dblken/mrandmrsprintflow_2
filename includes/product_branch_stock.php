@@ -337,7 +337,7 @@ function printflow_record_product_inventory_transaction(
     }
 
     $fields = [
-        'item_id'          => ['type' => 'i', 'val' => 0],
+        'item_id'          => ['type' => 'i', 'val' => $productId],
         'direction'        => ['type' => 's', 'val' => $direction],
         'quantity'         => ['type' => 's', 'val' => (string)$qty],
         'uom'              => ['type' => 's', 'val' => 'pcs'],
