@@ -1391,7 +1391,7 @@ if (isset($_GET['ajax'])) {
                     ?>
                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
-                        <td><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
+                        <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
@@ -1405,7 +1405,7 @@ if (isset($_GET['ajax'])) {
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                             <?php if ($is_manager): ?>
-                                <button type="button" class="btn-action blue" onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manager</button>
+                                <button type="button" class="btn-action blue" onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manage</button>
                             <?php else: ?>
                                 <button type="button" class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Edit</button>
                             <?php endif; ?>
@@ -2135,6 +2135,7 @@ if (isset($_GET['ajax'])) {
         .orders-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .orders-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .orders-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; }
+        .orders-table .product-sku-cell { color: #111827 !important; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-weight: 600; min-width: 110px; white-space: nowrap; }
         .orders-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .orders-table tbody tr:hover { background: #f9fafb; }
         .orders-table tbody tr:last-child td { border-bottom: none; }
@@ -2474,7 +2475,7 @@ if (isset($_GET['ajax'])) {
                                     ?>
                                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
                                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
-                                        <td><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
+                                        <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
                                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
@@ -2498,7 +2499,7 @@ if (isset($_GET['ajax'])) {
                                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
                                             <?php if ($is_manager): ?>
                                                 <button type="button" class="btn-action blue"
-                                                    onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manager</button>
+                                                    onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manage</button>
                                             <?php else: ?>
                                                 <button type="button" class="btn-action blue"
                                                     onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Edit</button>
