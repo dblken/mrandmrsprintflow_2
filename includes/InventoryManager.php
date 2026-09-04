@@ -94,7 +94,7 @@ class InventoryManager {
         }
 
         if (self::isMainBranch($resolvedBranchId)) {
-            return [" AND ({$column} = ? OR {$column} IS NULL)", 'i', [$resolvedBranchId]];
+            return [" AND ({$column} = ? OR {$column} IS NULL OR {$column} <= 0)", 'i', [$resolvedBranchId]];
         }
 
         return [" AND {$column} = ?", 'i', [$resolvedBranchId]];

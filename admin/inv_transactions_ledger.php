@@ -162,7 +162,7 @@ $types = '';
 if ($branchId > 0) {
     if (!$is_manager && InventoryManager::isMainBranch($branchId)) {
         // Admin main branch view includes legacy rows that were saved before branch_id was enforced.
-        $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL)";
+        $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL OR t.branch_id <= 0)";
     } else {
         $sql .= " AND t.branch_id = ?";
     }
