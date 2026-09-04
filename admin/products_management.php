@@ -1931,6 +1931,24 @@ if (isset($_GET['ajax'])) {
             -webkit-appearance: none;
             -moz-appearance: none;
         }
+        #product-modal #pf-stock-only input:disabled,
+        #product-modal #pf-stock-only input[readonly],
+        #product-modal #pf-manager-only input:disabled,
+        #product-modal #pf-manager-only input[readonly] {
+            background: #f3f4f6 !important;
+            color: #6b7280 !important;
+            border-color: #e5e7eb !important;
+            cursor: not-allowed !important;
+            opacity: 1 !important;
+            -webkit-text-fill-color: #6b7280 !important;
+        }
+        #product-modal #pf-stock-only input:not(:disabled):not([readonly]),
+        #product-modal #pf-manager-only input:not(:disabled):not([readonly]) {
+            background: #ffffff !important;
+            color: #111827 !important;
+            border-color: #94a3b8 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08);
+        }
         #product-modal .pf-field-auto,
         #product-modal input.pf-field-auto[readonly],
         #product-modal select.pf-field-auto:disabled {
@@ -3145,7 +3163,7 @@ function pfStockOnlyModalSetActive(active, product, stockMode) {
             addQty.name = isIssue ? 'deduct_stock_quantity' : 'add_stock_quantity';
         }
         if (lowLevel) {
-            lowLevel.disabled = !isIssue;
+            lowLevel.disabled = true;
             lowLevel.removeAttribute('name');
         }
         if (qtyLabel) {
