@@ -36,7 +36,7 @@ function pf_format_id_type_display(?string $id_type, bool $has_id = true): strin
 {
     $decoded = pf_decode_display_text((string)($id_type ?? ''));
     if ($decoded === '') {
-        return $has_id ? 'Not specified' : '—';
+        return $has_id ? 'Not specified' : '-';
     }
 
     return $decoded;
@@ -64,7 +64,7 @@ function pf_customer_id_profile_status_display(array $customer): array
     $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
     if (!$has_id) {
         return [
-            'label' => '—',
+            'label' => '-',
             'color' => '#64748b',
             'bg' => '#f1f5f9',
             'status' => 'None',
@@ -109,7 +109,7 @@ function pf_admin_id_verification_status_display(array $customer): array
     $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
     if (!$has_id) {
         return [
-            'label' => '—',
+            'label' => '-',
             'style' => 'background:#f3f4f6;color:#6b7280;',
             'status' => 'none',
             'has_id' => false,
@@ -594,7 +594,7 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
         $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
         $uploaded_label = !empty($customer['id_uploaded_at'])
             ? format_date($customer['id_uploaded_at'])
-            : '—';
+            : '-';
         $row_class = 'verification-row';
         if ($has_id) {
             $row_class .= match ($id_status) {
@@ -604,7 +604,7 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
             };
         }
         $name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
-        $name = $name !== '' ? $name : '�';
+        $name = $name !== '' ? $name : '-';
         $email = strtolower((string)($customer['email'] ?? ''));
         $cid = (int)($customer['customer_id'] ?? 0);
         ?>

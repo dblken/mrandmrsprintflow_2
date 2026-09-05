@@ -169,7 +169,7 @@ if (isset($_GET['ajax'])) {
                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                     $sign_in = pf_admin_customer_sign_in_label($customer);
                     $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
-                    $customer_name = $customer_name !== '' ? $customer_name : '—';
+                    $customer_name = $customer_name !== '' ? $customer_name : '-';
                     $status_style = $status_display['style'];
                     $status_label = $status_display['label'];
                 ?>
@@ -1135,7 +1135,7 @@ $page_title = 'Customers Management - Admin';
                                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                                     $sign_in = pf_admin_customer_sign_in_label($customer);
                                     $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
-                                    $customer_name = $customer_name !== '' ? $customer_name : '—';
+                                    $customer_name = $customer_name !== '' ? $customer_name : '-';
                                     $status_style = $status_display['style'];
                                     $status_label = $status_display['label'];
                                 ?>
@@ -1273,7 +1273,7 @@ $page_title = 'Customers Management - Admin';
                         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;">ID Verification</label>
                             <template x-if="customer">
-                                <span :style="!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'))" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 16px;border-radius:9999px;font-size:12px;font-weight:500;line-height:1;border:none;box-shadow:none;" x-text="customer?.id_status_label || 'â€”'"></span>
+                                <span :style="!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'))" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 16px;border-radius:9999px;font-size:12px;font-weight:500;line-height:1;border:none;box-shadow:none;" x-text="customer?.id_status_label || '-'"></span>
                             </template>
                         </div>
 
@@ -1284,7 +1284,7 @@ $page_title = 'Customers Management - Admin';
                             </div>
                             <div>
                                 <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Current Status</p>
-                                <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.id_status_label || 'â€”'"></p>
+                                <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.id_status_label || '-'"></p>
                             </div>
                         </div>
 
