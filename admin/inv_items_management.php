@@ -2288,8 +2288,8 @@ if (isset($_GET['ajax'])) {
         selectedItemForStockCard = item;
         
         const stock = parseFloat(item.current_stock || 0);
-        const reorder = parseFloat(item.reorder_level || 0);
-        const critical = parseFloat(item.critical_level || 0);
+        const reorder = pfSuggestReorderLevel(stock);
+        const critical = pfSuggestCriticalLevel(stock);
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
