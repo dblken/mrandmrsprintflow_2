@@ -24,6 +24,15 @@ if (is_admin() || is_manager()) {
     $branchCtx = init_branch_context(true);
     $selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCurrentBranchId();
     $branchId = ($selectedBranchId === 'all') ? 0 : (int)$selectedBranchId;
+    if (is_manager()) {
+        $user = get_logged_in_user();
+        $managerAssignedBranchId = (int)($user['branch_id'] ?? ($_SESSION['branch_id'] ?? 0));
+        if ($managerAssignedBranchId > 0) {
+            $branchId = $managerAssignedBranchId;
+            $_SESSION['selected_branch_id'] = $managerAssignedBranchId;
+            $_GET['branch_id'] = $managerAssignedBranchId;
+        }
+    }
 } elseif (is_staff()) {
     $branchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 0);
 }
@@ -183,6 +192,9 @@ try {
                 ]);
             } else {
                 $starting_stock = max(0, (float)($_POST['starting_stock'] ?? 0));
+                if ($starting_stock > 0 && $branchId <= 0) {
+                    throw new Exception('Please select a specific branch before creating an item with starting stock.');
+                }
                 $thresholds = printflow_thresholds_for_quantity($starting_stock);
                 $min_stock = $thresholds['reorder'];
                 $critical_stock = $thresholds['critical'];

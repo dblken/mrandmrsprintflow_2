@@ -20,6 +20,18 @@ $branchCtx = init_branch_context(false);
 $selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCurrentBranchId();
 $branchId = ($selectedBranchId === 'all') ? 0 : (int)$selectedBranchId;
 $is_manager = (($user['role'] ?? '') === 'Manager');
+if ($is_manager) {
+    $managerAssignedBranchId = (int)($user['branch_id'] ?? ($_SESSION['branch_id'] ?? 0));
+    if ($managerAssignedBranchId <= 0) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'No branch is assigned to your account.']);
+        exit;
+    }
+    $selectedBranchId = $managerAssignedBranchId;
+    $branchId = $managerAssignedBranchId;
+    $_SESSION['selected_branch_id'] = $managerAssignedBranchId;
+    $_GET['branch_id'] = $managerAssignedBranchId;
+}
 $inventory_branch_read_only = (($user['role'] ?? '') === 'Admin') && $branchId > 0 && !InventoryManager::isMainBranch($branchId);
 
 try {
@@ -152,6 +164,11 @@ try {
                 echo json_encode(['success' => false, 'error' => 'This branch is view-only. Stock changes are not allowed here.']);
                 exit;
             }
+            if ($branchId <= 0) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Please select a specific branch before recording a stock transaction.']);
+                exit;
+            }
             // Extract POST data (form sends: item_id, transaction_type, transaction_date, quantity, reference_type, reference_id, notes)
             $item_id = (int)($_POST['item_id'] ?? 0);
             $type = sanitize($_POST['transaction_type'] ?? '');
@@ -236,7 +253,8 @@ try {
                     $notes,
                     false,
                     false,
-                    $branchId
+                    $branchId,
+                    $transaction_date
                 );
                 
                 // issueStock returns an array of roll deductions for roll items, or a transaction ID for non-roll
