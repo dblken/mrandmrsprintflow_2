@@ -157,6 +157,15 @@ function printflow_ensure_product_inventory_transaction_schema(): void {
             // Non-fatal. Reads can still work without this index.
         }
 
+        try {
+            $itemCols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'item_id'") ?: [];
+            if (!empty($itemCols) && strtoupper((string)($itemCols[0]['Null'] ?? '')) !== 'YES') {
+                db_execute("ALTER TABLE inventory_transactions MODIFY item_id INT NULL");
+            }
+        } catch (Throwable $e) {
+            // Non-fatal: product audit writer has a fallback for schemas that still require item_id.
+        }
+
         $ddlDone = true;
     }
 
@@ -167,6 +176,31 @@ function printflow_ensure_product_inventory_transaction_schema(): void {
  * Older catalog ledger rows skipped branch_id while still updating stock — they disappear on branch-filtered ledger views (e.g. only product #40).
  * Runs at most once per request; skips when nothing is orphaned (COUNT probe).
  */
+function printflow_inventory_transactions_item_id_allows_null(): bool {
+    static $allowsNull = null;
+    if ($allowsNull !== null) {
+        return $allowsNull;
+    }
+    try {
+        $cols = db_query("SHOW COLUMNS FROM inventory_transactions LIKE 'item_id'") ?: [];
+        $allowsNull = !empty($cols) && strtoupper((string)($cols[0]['Null'] ?? '')) === 'YES';
+    } catch (Throwable $e) {
+        $allowsNull = false;
+    }
+    return $allowsNull;
+}
+
+function printflow_product_inventory_placeholder_item_id(int $productId): int {
+    if ($productId > 0) {
+        $sameId = db_query('SELECT id FROM inv_items WHERE id = ? LIMIT 1', 'i', [$productId]) ?: [];
+        if (!empty($sameId)) {
+            return (int)$sameId[0]['id'];
+        }
+    }
+    $row = db_query('SELECT id FROM inv_items ORDER BY id ASC LIMIT 1') ?: [];
+    return (int)($row[0]['id'] ?? max(1, $productId));
+}
+
 function printflow_repair_orphan_catalog_inventory_branches(): void {
     static $ranThisRequest = false;
     if ($ranThisRequest) {
@@ -339,7 +373,6 @@ function printflow_record_product_inventory_transaction(
     }
 
     $fields = [
-        'item_id'          => ['type' => 'i', 'val' => $productId],
         'transaction_id'   => ['type' => 's', 'val' => $productTransactionId],
         'direction'        => ['type' => 's', 'val' => $direction],
         'quantity'         => ['type' => 's', 'val' => (string)$qty],
@@ -351,6 +384,11 @@ function printflow_record_product_inventory_transaction(
 
     if ($hasProductIdColumn) {
         $fields['product_id'] = ['type' => 'i', 'val' => $productId];
+        if (!printflow_inventory_transactions_item_id_allows_null()) {
+            $fields = ['item_id' => ['type' => 'i', 'val' => printflow_product_inventory_placeholder_item_id($productId)]] + $fields;
+        }
+    } else {
+        $fields = ['item_id' => ['type' => 'i', 'val' => $productId]] + $fields;
     }
 
     $fields['branch_id'] = ['type' => 'i', 'val' => $branchId];
@@ -384,7 +422,7 @@ function printflow_record_product_inventory_transaction(
     // Compatibility fallback for older/live ledger schemas that still expect
     // product rows to use item_id = product_id, as in the older ledger fetch.
     $legacyFields = [
-        'item_id'          => ['type' => 'i', 'val' => $productId],
+        'item_id'          => ['type' => 'i', 'val' => printflow_product_inventory_placeholder_item_id($productId)],
         'transaction_id'   => ['type' => 's', 'val' => $productTransactionId],
         'direction'        => ['type' => 's', 'val' => $direction],
         'quantity'         => ['type' => 's', 'val' => (string)$qty],
