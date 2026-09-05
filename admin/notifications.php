@@ -60,7 +60,29 @@ if (isset($_GET['action'])) {
     }
     
     if ($action === 'mark_all_read') {
-        db_execute("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0", 'i', [$admin_id]);
+        if ($viewer_role === 'Manager' && $viewer_branch_id > 0) {
+            $rows = db_query(
+                "SELECT * FROM notifications WHERE user_id = ? AND type != 'Message' AND is_read = 0",
+                'i',
+                [$admin_id]
+            ) ?: [];
+            $visibleIds = [];
+            foreach ($rows as $row) {
+                if (printflow_admin_notification_visible($row, $viewer_branch_id, 'Manager')) {
+                    $visibleIds[] = (int)$row['notification_id'];
+                }
+            }
+            if (!empty($visibleIds)) {
+                $placeholders = implode(',', array_fill(0, count($visibleIds), '?'));
+                db_execute(
+                    "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0 AND notification_id IN ($placeholders)",
+                    'i' . str_repeat('i', count($visibleIds)),
+                    array_merge([$admin_id], $visibleIds)
+                );
+            }
+        } else {
+            db_execute("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0", 'i', [$admin_id]);
+        }
         $redirect_base = $viewer_role === 'Manager'
             ? $base_url . '/manager/notifications.php'
             : $base_url . '/admin/notifications.php';
@@ -440,14 +462,12 @@ $page_title = 'Notifications - Admin';
                     </svg>
                     Refresh
                 </button>
-                <?php if ($unread_count > 0): ?>
                 <a href="?action=mark_all_read" class="notif-header-primary">
                     <svg class="mobile-hidden" width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                     </svg>
-                    Mark All Read
+                    Mark all as read
                 </a>
-                <?php endif; ?>
             </div>
         </header>
 
