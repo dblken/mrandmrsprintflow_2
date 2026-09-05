@@ -302,9 +302,16 @@ if (isset($_GET['ajax'])) {
         .filter-group input, .filter-group select { padding: 10px 16px; border: 1px solid #e5e7eb; border-radius: 10px; font-size: 14px; transition: all 0.2s; background: #fff; }
         .filter-group input:focus, .filter-group select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
         
-        .inv-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
+        .inv-table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
         .inv-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .inv-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .inv-table th:nth-child(1), .inv-table td:nth-child(1) { width: 24%; }
+        .inv-table th:nth-child(2), .inv-table td:nth-child(2) { width: 20%; }
+        .inv-table th:nth-child(3), .inv-table td:nth-child(3) { width: 12%; }
+        .inv-table th:nth-child(4), .inv-table td:nth-child(4) { width: 12%; }
+        .inv-table th:nth-child(5), .inv-table td:nth-child(5) { width: 10%; }
+        .inv-table th:nth-child(6), .inv-table td:nth-child(6) { width: 8%; }
+        .inv-table th:nth-child(7), .inv-table td:nth-child(7) { width: 14%; text-align: right; }
         .no-truncate { max-width: none !important; overflow: visible !important; white-space: nowrap !important; text-overflow: clip !important; }
         .inv-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .inv-table tbody tr:hover td { background: #f9fafb; }
