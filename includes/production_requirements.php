@@ -14,8 +14,11 @@ if (!function_exists('printflow_material_ink_requirement_from_names')) {
 
             if (
                 $name === 'MUG'
-                || in_array($name, ['NEXJET', 'PP STKR MATTE 98', 'HOLOGRAM', 'TRANSPARENT'], true)
-                || preg_match('/^[34567] ?FT TARPAULIN$/', $name)
+                || in_array($name, [
+                    'NEXJET', 'PP STKR MATTE 98', 'HOLOGRAM', 'TRANSPARENT', 'STICKER PAPER',
+                    'C2S BOARD', 'C2S SPECIAL PAPER', 'SUBLI PAPER', 'PHOTO PAPER',
+                ], true)
+                || preg_match('/^(?:\d+(?:\.\d+)? ?FT )?TARPAULIN(?: ROLL)?$/', $name)
             ) {
                 return true;
             }
@@ -25,6 +28,14 @@ if (!function_exists('printflow_material_ink_requirement_from_names')) {
                 || preg_match('/^STICKER (?:BLACK|BLUE|GOLD|GREEN|RED|SILVER|WHITE|YELLOW)$/', $name)
                 || preg_match('/^(?:AC|SP) (?:EURO|HOME|MC|NMC|PH|THAI)$/', $name)
                 || $name === '3M REFLECTIVE'
+                || in_array($name, ['SINTRA 3MM 32', 'SINTRA 5MM'], true)
+                || in_array($name, [
+                    'HOLOGRAPHIC', 'MATTE BLACK', 'MAROON', 'CREAM', 'BROWN', 'DARK BROWN',
+                    'GOLD CHROME', 'GOLD', 'SILVER CHROME', 'SILVER', 'GRAY', 'RASPBERRY',
+                    'LIGHT VIOLET', 'VIOLET', 'LIGHT PINK', 'YELLOW GREEN', 'VIVID GREEN',
+                    'MINT GREEN', 'GOLDEN YELLOW', 'LIGHT YELLOW', 'LIGHT BLUE', 'ROYAL BLUE',
+                    'RED', 'PINK', 'BLACK', 'WHITE', 'ORANGE', 'GREEN', 'YELLOW', 'BLUE',
+                ], true)
             ) {
                 $hasVerifiedNoInkCore = true;
             }
