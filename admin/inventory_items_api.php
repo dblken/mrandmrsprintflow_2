@@ -63,6 +63,7 @@ try {
             $dir      = strtoupper(sanitize($_GET['dir'] ?? 'ASC')) === 'DESC' ? 'DESC' : 'ASC';
             $active_only     = (int)($_GET['active_only'] ?? 0);
             $include_inactive = (int)($_GET['include_inactive'] ?? 1);
+            $production_picker = (int)($_GET['production_picker'] ?? 0);
 
             $sort_cols = [
                 'name'          => 'i.name',
@@ -82,6 +83,9 @@ try {
             $types  = '';
 
             if ($active_only) { $sql .= " AND i.status = 'ACTIVE'"; }
+            if ($production_picker) {
+                $sql .= " AND i.name NOT LIKE '%(Archived)%' AND i.name NOT LIKE '%(Legacy)%'";
+            }
             if ($cat_id) {
                 $sql .= " AND i.category_id = ?";
                 $params[] = $cat_id;
@@ -97,19 +101,34 @@ try {
             $items = db_query($sql, $types ?: null, $params ?: null) ?: [];
             foreach ($items as &$item) {
                 $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
+                $stockStatus = printflow_item_stock_status($item, (float)$item['current_stock']);
+                $item['stock_status'] = $stockStatus['status'];
                 if ($item['track_by_roll'] && $item['default_roll_length_ft'] > 0) {
                     $item['roll_equivalent'] = round($item['current_stock'] / $item['default_roll_length_ft'], 2);
                 } else { $item['roll_equivalent'] = null; }
             }
             unset($item);
             $materialRules = db_query(
-                "SELECT r.service_type, r.item_id, r.rule_type, r.qty_multiplier
+                "SELECT r.service_type, r.item_id, r.rule_type, r.qty_multiplier,
+                        i.name AS item_name, c.name AS category_name
                  FROM service_material_rules r
                  JOIN inv_items i ON i.id = r.item_id
+                 LEFT JOIN inv_categories c ON c.id = i.category_id
                  WHERE i.status = 'ACTIVE'
                  ORDER BY r.service_type ASC, r.rule_type DESC, r.item_id ASC"
             ) ?: [];
-            echo json_encode(['success' => true, 'data' => $items, 'material_rules' => $materialRules]);
+            $activeServices = db_query(
+                "SELECT service_id, name, category
+                 FROM services
+                 WHERE status = 'Activated'
+                 ORDER BY name ASC"
+            ) ?: [];
+            echo json_encode([
+                'success' => true,
+                'data' => $items,
+                'material_rules' => $materialRules,
+                'active_services' => $activeServices,
+            ]);
             break;
 
         case 'create_item':

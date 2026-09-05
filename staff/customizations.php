@@ -1591,10 +1591,17 @@ $online_closed_count = 0;
             outline-offset: -3px;
         }
         .production-material-option.is-recommended { background: #f0fdfa; }
-        .production-material-option.is-unrelated,
-        .production-material-option:disabled {
+        .production-material-option.is-unrelated {
             background: #f8fafc;
             color: #64748b;
+            cursor: default;
+        }
+        .production-material-option.is-unrelated:hover,
+        .production-material-option.is-unrelated.is-active { background: #f8fafc; }
+        .production-material-option.is-out-of-stock,
+        .production-material-option:disabled {
+            background: #f8fafc;
+            color: #94a3b8;
             cursor: not-allowed;
         }
         .production-material-option__main { min-width: 0; }
@@ -2446,26 +2453,33 @@ $online_closed_count = 0;
                                                             class="production-material-option"
                                                             :class="{
                                                                 'is-recommended': item.compatibility.tier === 'recommended',
-                                                                'is-unrelated': !item.compatibility.selectable,
+                                                                'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
+                                                                'is-out-of-stock': !item.compatibility.inStock,
                                                                 'is-active': index === materialListActiveIndex
                                                             }"
                                                             :disabled="!item.compatibility.selectable"
                                                             :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
                                                             :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
+                                                            :aria-describedby="'production-material-status-' + item.id"
+                                                            :data-compatibility="item.compatibility.tier"
+                                                            :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
                                                             @mouseenter="materialListActiveIndex = index"
-                                                            @click="selectMaterialCandidate(item)">
+                                                            @click="selectMaterialCandidate(item)"
+                                                            @dblclick="requestMaterialOverride(item)"
+                                                            @keydown.enter.stop.prevent="selectMaterialCandidate(item, true)"
+                                                            @keydown.space.stop.prevent="selectMaterialCandidate(item, true)">
                                                         <span class="production-material-option__main">
                                                             <span class="production-material-option__name" x-text="item.name"></span>
                                                             <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
                                                         </span>
-                                                        <span class="production-material-option__status" x-text="materialStatusLabel(item)"></span>
+                                                        <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
                                                     </button>
                                                 </template>
                                                 <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
                                                     No materials match this search.
                                                 </div>
                                             </div>
-                                            <div x-show="materialCompatibilityContext.serviceKind === 'unknown'" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
+                                            <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
                                                 No verified material suggestions are configured for this service.
                                             </div>
                                         </div>
@@ -2925,6 +2939,21 @@ $online_closed_count = 0;
         </div>
 </div>
 
+<template x-if="showMaterialOverrideModal">
+    <div @keydown.escape.window.stop.prevent="cancelMaterialOverride()">
+        <div x-show="showMaterialOverrideModal" x-cloak @click="cancelMaterialOverride()" style="position:fixed; inset:0; z-index:11020; background:rgba(15,23,42,.45);"></div>
+        <div x-show="showMaterialOverrideModal" x-cloak role="dialog" aria-modal="true" aria-labelledby="material-override-title" aria-describedby="material-override-description" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:11021; width:min(420px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border:1px solid #dbe3ea; border-radius:12px; box-shadow:0 20px 50px rgba(15,23,42,.25); padding:20px;">
+            <h3 id="material-override-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;" x-text="materialOverrideTitle"></h3>
+            <p style="margin:12px 0 0; color:#334155; font-size:13px; line-height:1.5;" x-text="materialOverrideLead"></p>
+            <p id="material-override-description" style="margin:8px 0 0; color:#64748b; font-size:12px; line-height:1.5;" x-text="materialOverrideGuidance"></p>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+                <button x-ref="materialOverrideCancel" type="button" @click="cancelMaterialOverride()" class="btn-secondary">Cancel</button>
+                <button type="button" @click="confirmMaterialOverride()" class="btn-staff-action btn-staff-action-indigo" style="padding:8px 14px; font-size:12px; font-weight:700;">Use Material</button>
+            </div>
+        </div>
+    </div>
+</template>
+
 <template x-if="showPosCompleteConfirmModal">
     <div>
         <div x-show="showPosCompleteConfirmModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(0,0,0,0.45);" @click="closePosCompleteConfirm()"></div>
@@ -3119,7 +3148,7 @@ $online_closed_count = 0;
 </div><!-- /.dashboard-container -->
 
 <script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/staff_service_order_modal.js'); ?>"></script>
-<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/production_material_picker.js'); ?>"></script>
+<script src="<?php echo htmlspecialchars((defined('BASE_URL') ? BASE_URL : '/printflow') . '/public/assets/js/production_material_picker.js?v=' . (int) @filemtime(__DIR__ . '/../public/assets/js/production_material_picker.js')); ?>"></script>
 <?php
 $preloaded_customization_rows_json = json_encode(
     $preloaded_customization_rows,
@@ -3191,6 +3220,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             posCompleteConfirmTarget: null,
             showPosCancelConfirmModal: false,
             posCancelConfirmTarget: null,
+            showMaterialOverrideModal: false,
+            materialOverrideCandidate: null,
             ordersVersion: 0,
             sortOrder: 'newest',
             sortOpen: false,
@@ -3219,6 +3250,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             availableRolls: {},
             allInventoryItems: [],
             materialRules: [],
+            activeProductionServices: [],
             materialListActiveIndex: 0,
             inventoryPollMs: 20000,
             ordersPollMs: 30000,
@@ -4761,6 +4793,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.materialSearch
                 );
             },
+            get hasVerifiedMaterialSuggestions() {
+                if (!this.currentJo || !Array.isArray(this.allInventoryItems) || !window.PrintFlowProductionMaterials) return false;
+                return this.allInventoryItems
+                    .filter(item => Number(item.id) !== 63)
+                    .some(item => {
+                        const state = this.materialClassification(item);
+                        return state.tier === 'recommended' || state.tier === 'optional';
+                    });
+            },
             materialClassification(item) {
                 if (!item || !window.PrintFlowProductionMaterials) return { tier: 'unrelated', selectable: false };
                 return window.PrintFlowProductionMaterials.classifyItem(item, this.materialCompatibilityContext, this.materialRules);
@@ -4769,21 +4810,70 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const category = String(item.category_name || 'Uncategorized');
                 const stock = Number.parseFloat(item.current_stock || 0);
                 const available = Number.isFinite(stock) ? stock : 0;
-                return `${category} · Available: ${available} ${item.unit_of_measure || 'pcs'}`;
+                const description = window.PrintFlowProductionMaterials.descriptionFor(item);
+                return [description, category, `Available: ${available} ${item.unit_of_measure || 'pcs'}`].filter(Boolean).join(' · ');
             },
             materialStatusLabel(item) {
                 const state = item.compatibility || this.materialClassification(item);
-                if (!state.inStock && state.tier !== 'unrelated') return 'Out of stock';
-                if (state.tier === 'recommended') return 'Recommended';
-                if (state.tier === 'optional') return 'Optional';
+                if (!state.inStock) return 'Out of stock';
+                const stockStatus = item.stock_status && String(item.stock_status.label || '').trim();
+                const stockSuffix = stockStatus && !['In Stock', 'Out of Stock'].includes(stockStatus) ? ` · ${stockStatus}` : '';
+                if (state.tier === 'recommended') return `Recommended${stockSuffix}`;
+                if (state.tier === 'optional') return `Optional${stockSuffix}`;
+                if (state.tier === 'unverified') return 'Usage not verified';
                 return state.reason || 'Not applicable';
             },
-            selectMaterialCandidate(item) {
+            selectMaterialCandidate(item, deliberateKeyboardAction = false) {
                 const state = item && (item.compatibility || this.materialClassification(item));
                 if (!item || !state || !state.selectable) return;
+                if (!state.directSelectable) {
+                    if (deliberateKeyboardAction) this.requestMaterialOverride(item);
+                    return;
+                }
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
                 this.syncInkSelectionWithMaterial();
+            },
+            requestMaterialOverride(item) {
+                const state = item && (item.compatibility || this.materialClassification(item));
+                if (!item || !state || !state.overrideable || !state.inStock) return;
+                this.materialOverrideCandidate = item;
+                this.showMaterialOverrideModal = true;
+                this.$nextTick(() => this.$refs.materialOverrideCancel && this.$refs.materialOverrideCancel.focus());
+            },
+            cancelMaterialOverride() {
+                this.showMaterialOverrideModal = false;
+                this.materialOverrideCandidate = null;
+            },
+            confirmMaterialOverride() {
+                const item = this.materialOverrideCandidate;
+                const state = item && this.materialClassification(item);
+                if (!item || !state || !state.overrideable || !state.inStock) {
+                    this.cancelMaterialOverride();
+                    return;
+                }
+                this.handleMaterialSelection(String(item.id));
+                this.productionErrors.material = '';
+                this.syncInkSelectionWithMaterial();
+                this.cancelMaterialOverride();
+            },
+            get materialOverrideTitle() {
+                const state = this.materialOverrideCandidate && this.materialClassification(this.materialOverrideCandidate);
+                return state && state.tier === 'unverified' ? 'Use unverified material?' : 'Use non-suggested material?';
+            },
+            get materialOverrideLead() {
+                const item = this.materialOverrideCandidate || {};
+                const state = this.materialClassification(item);
+                const service = this.materialCompatibilityContext.serviceLabel || 'this service';
+                return state.tier === 'unverified'
+                    ? `"${item.name || 'This material'}" does not have a verified production usage for ${service}.`
+                    : `"${item.name || 'This material'}" is not suggested for ${service}.`;
+            },
+            get materialOverrideGuidance() {
+                const state = this.materialOverrideCandidate && this.materialClassification(this.materialOverrideCandidate);
+                return state && state.tier === 'unverified'
+                    ? 'Please confirm that this material is intentionally required for this job.'
+                    : 'This material does not match the recommended materials for this service. Use it only if you have confirmed it is needed for this job.';
             },
             moveMaterialListFocus(direction) {
                 const items = this.availableMaterialsForCurrentOrder;
@@ -4799,7 +4889,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             selectActiveMaterialCandidate() {
                 const item = this.availableMaterialsForCurrentOrder[this.materialListActiveIndex];
-                if (item) this.selectMaterialCandidate(item);
+                if (item) this.selectMaterialCandidate(item, true);
             },
             get selectedCoreMaterial() {
                 if (this.newMaterialId) {
@@ -4827,6 +4917,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             get noInkGuidanceText() {
                 const kind = this.materialCompatibilityContext.serviceKind;
                 if (kind === 'plate') return 'No standard printer ink is suggested for this plate setup.';
+                if (kind === 'sintraboard') return 'No standard ink set is configured for this Sintraboard setup.';
+                if (kind === 'reflectorized_signage') return 'No printer ink is required for this cut/reflective setup.';
                 if (kind === 'tshirt') return 'No printer ink required for this cut heat-transfer material.';
                 return 'No printer ink is required for this cut-only material.';
             },
@@ -6589,13 +6681,14 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             async loadAllInventoryItems() {
                 const res = await this.parseJsonResponse(
-                    await fetch('../admin/inventory_items_api.php?action=get_items&active_only=1')
+                    await fetch('../admin/inventory_items_api.php?action=get_items&active_only=1&production_picker=1')
                 );
                 if (res.success) {
                     // Drop roll cache so any newly issued/received roll deductions become visible.
                     this.availableRolls = {};
                     this.allInventoryItems = (Array.isArray(res.data) ? res.data : []).filter(item => Number(item.id) !== 63);
                     this.materialRules = Array.isArray(res.material_rules) ? res.material_rules : [];
+                    this.activeProductionServices = Array.isArray(res.active_services) ? res.active_services : [];
                     this.laminationItemsList = this.allInventoryItems.filter(i => i.name.toUpperCase().includes('LAMINATE'));
                 }
             },
