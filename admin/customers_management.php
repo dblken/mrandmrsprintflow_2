@@ -199,7 +199,7 @@ if (isset($_GET['ajax'])) {
                             <?php endif; ?>
                         </td>
                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
+                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                             <?php if ($can_verify_customer_ids): ?>
@@ -1140,6 +1140,7 @@ $page_title = 'Customers Management - Admin';
                                     $customer_name_title = $customer_name !== '' ? htmlspecialchars($customer_name) : '-';
                                     $status_style = $status_display['style'];
                                     $status_label = $status_display['label'];
+                                    $status_label_html = $status_label === '-' ? '&mdash;' : htmlspecialchars($status_label);
                                 ?>
                                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
@@ -1166,7 +1167,7 @@ $page_title = 'Customers Management - Admin';
                                             <?php endif; ?>
                                         </td>
                                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
+                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                                             <?php if ($can_verify_customer_ids): ?>
