@@ -123,7 +123,12 @@
 
     function classifyItem(item, context, rules) {
         const family = familyFor(item);
-        if (family === 'excluded' || family === 'ink') return { tier: 'excluded', family, selectable: false, reason: '' };
+        if (family === 'excluded' || family === 'ink') {
+            return {
+                tier: 'excluded', family, selectable: false, directSelectable: false,
+                overrideable: false, inStock: false, reason: ''
+            };
+        }
 
         const serviceKind = classifyService(context || {});
         let tier = 'unrelated';
@@ -176,16 +181,18 @@
 
         const stock = Number.parseFloat(item && item.current_stock);
         const inStock = Number.isFinite(stock) && stock > 0;
-        const selectable = (tier === 'recommended' || tier === 'optional') && inStock;
+        const directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
+        const overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
+        const selectable = directSelectable || overrideable;
         const serviceLabel = String((context && (context.serviceLabel || context.serviceType)) || 'this service').trim();
-        const reason = tier === 'unverified'
-            ? 'Usage not verified'
-            : !inStock && (tier === 'recommended' || tier === 'optional')
-                ? 'Out of stock'
+        const reason = !inStock
+            ? 'Out of stock'
+            : tier === 'unverified'
+                ? 'Usage not verified'
             : tier === 'unrelated'
-                ? 'Not applicable to ' + serviceLabel
+                ? 'Not suggested for ' + serviceLabel
                 : tier === 'optional' ? 'Optional / related material' : 'Recommended for this job';
-        return { tier, family, selectable, inStock, reason, serviceKind };
+        return { tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind };
     }
 
     function descriptionFor(item) {
