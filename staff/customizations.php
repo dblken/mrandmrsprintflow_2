@@ -3219,6 +3219,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             availableRolls: {},
             allInventoryItems: [],
             materialRules: [],
+            activeProductionServices: [],
             materialListActiveIndex: 0,
             inventoryPollMs: 20000,
             ordersPollMs: 30000,
@@ -4769,13 +4770,17 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const category = String(item.category_name || 'Uncategorized');
                 const stock = Number.parseFloat(item.current_stock || 0);
                 const available = Number.isFinite(stock) ? stock : 0;
-                return `${category} · Available: ${available} ${item.unit_of_measure || 'pcs'}`;
+                const description = window.PrintFlowProductionMaterials.descriptionFor(item);
+                return [description, category, `Available: ${available} ${item.unit_of_measure || 'pcs'}`].filter(Boolean).join(' · ');
             },
             materialStatusLabel(item) {
                 const state = item.compatibility || this.materialClassification(item);
-                if (!state.inStock && state.tier !== 'unrelated') return 'Out of stock';
-                if (state.tier === 'recommended') return 'Recommended';
-                if (state.tier === 'optional') return 'Optional';
+                if (!state.inStock && (state.tier === 'recommended' || state.tier === 'optional')) return 'Out of stock';
+                const stockStatus = item.stock_status && String(item.stock_status.label || '').trim();
+                const stockSuffix = stockStatus && !['In Stock', 'Out of Stock'].includes(stockStatus) ? ` · ${stockStatus}` : '';
+                if (state.tier === 'recommended') return `Recommended${stockSuffix}`;
+                if (state.tier === 'optional') return `Optional${stockSuffix}`;
+                if (state.tier === 'unverified') return 'Usage not verified';
                 return state.reason || 'Not applicable';
             },
             selectMaterialCandidate(item) {
@@ -4827,6 +4832,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             get noInkGuidanceText() {
                 const kind = this.materialCompatibilityContext.serviceKind;
                 if (kind === 'plate') return 'No standard printer ink is suggested for this plate setup.';
+                if (kind === 'sintraboard') return 'No standard ink set is configured for this Sintraboard setup.';
+                if (kind === 'reflectorized_signage') return 'No printer ink is required for this cut/reflective setup.';
                 if (kind === 'tshirt') return 'No printer ink required for this cut heat-transfer material.';
                 return 'No printer ink is required for this cut-only material.';
             },
@@ -6589,13 +6596,14 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             async loadAllInventoryItems() {
                 const res = await this.parseJsonResponse(
-                    await fetch('../admin/inventory_items_api.php?action=get_items&active_only=1')
+                    await fetch('../admin/inventory_items_api.php?action=get_items&active_only=1&production_picker=1')
                 );
                 if (res.success) {
                     // Drop roll cache so any newly issued/received roll deductions become visible.
                     this.availableRolls = {};
                     this.allInventoryItems = (Array.isArray(res.data) ? res.data : []).filter(item => Number(item.id) !== 63);
                     this.materialRules = Array.isArray(res.material_rules) ? res.material_rules : [];
+                    this.activeProductionServices = Array.isArray(res.active_services) ? res.active_services : [];
                     this.laminationItemsList = this.allInventoryItems.filter(i => i.name.toUpperCase().includes('LAMINATE'));
                 }
             },
