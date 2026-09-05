@@ -1527,14 +1527,19 @@ if (isset($_GET['ajax'])) {
         return (!isNaN(n) && n > 0) ? n : PF_DEFAULT_ROLL_LENGTH_FT;
     }
 
-    function pfSuggestReorderLevel(qty) {
+    function pfFormatSuggestedThreshold(qty, rate, roundWhole) {
         var q = Math.max(0, Number(qty) || 0);
-        return q <= 0 ? 0 : Math.ceil(q * 0.20);
+        if (q <= 0) return 0;
+        var raw = q * rate;
+        return roundWhole === false ? Math.round(raw * 100) / 100 : Math.ceil(raw);
     }
 
-    function pfSuggestCriticalLevel(qty) {
-        var q = Math.max(0, Number(qty) || 0);
-        return q <= 0 ? 0 : Math.ceil(q * 0.05);
+    function pfSuggestReorderLevel(qty, roundWhole) {
+        return pfFormatSuggestedThreshold(qty, 0.20, roundWhole);
+    }
+
+    function pfSuggestCriticalLevel(qty, roundWhole) {
+        return pfFormatSuggestedThreshold(qty, 0.05, roundWhole);
     }
 
     function pfConfigureThresholdFieldsForMode(isEdit) {
@@ -2288,11 +2293,11 @@ if (isset($_GET['ajax'])) {
         selectedItemForStockCard = item;
         
         const stock = parseFloat(item.current_stock || 0);
-        const reorder = pfSuggestReorderLevel(stock);
-        const critical = pfSuggestCriticalLevel(stock);
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
+        const reorder = pfSuggestReorderLevel(stock, isPcs);
+        const critical = pfSuggestCriticalLevel(stock, isPcs);
         const status = pfResolveStockStatus(stock, reorder, critical, false);
         
         document.getElementById('scName').textContent = item.name;
