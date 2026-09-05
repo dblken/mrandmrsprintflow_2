@@ -1275,9 +1275,6 @@ $page_title = 'Customers Management - Admin';
                     <div style="margin-top:20px;padding-top:20px;border-top:1px solid #f3f4f6;">
                         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;">ID Verification</label>
-                            <template x-if="customer">
-                                <span :style="!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'))" style="display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;line-height:1;border:none;box-shadow:none;" x-text="customer?.id_status_label || '-'"></span>
-                            </template>
                         </div>
 
                         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 12px;">
@@ -1287,7 +1284,7 @@ $page_title = 'Customers Management - Admin';
                             </div>
                             <div>
                                 <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Current Status</p>
-                                <span :style="!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'))" style="display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;line-height:1;border:none;box-shadow:none;" x-text="customer?.id_status_label || '-'"></span>
+                                <span :style="'display:inline-flex;align-items:center;justify-content:center;padding:4px 12px;border-radius:9999px;font-size:13px;font-weight:600;line-height:1;border:none;box-shadow:none;' + (!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;')))" x-text="customer?.id_status_label || '-'"></span>
                             </div>
                         </div>
 
