@@ -445,7 +445,7 @@ function pf_admin_service_row_json(array $svc): string {
 function render_services_table_rows(array $services): void {
     $readonly = defined('MANAGER_PANEL') && MANAGER_PANEL;
     ?>
-    <table class="orders-table">
+    <table class="orders-table service-list-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -463,7 +463,7 @@ function render_services_table_rows(array $services): void {
                     <?php $svc_row_json = htmlspecialchars(pf_admin_service_row_json($svc), ENT_QUOTES, 'UTF-8'); ?>
                     <tr data-pf-service="<?php echo $svc_row_json; ?>">
                         <td style="color:#1f2937;"><?php echo (int)$svc['service_id']; ?></td>
-                        <td style="font-weight:500;color:#1f2937;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($svc['name']); ?></td>
+                        <td style="font-weight:500;color:#1f2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($svc['name']); ?></td>
                         <td><?php echo htmlspecialchars($svc['category'] ?? '—'); ?></td>
                         <td>
                             <?php
@@ -626,6 +626,8 @@ if (isset($_GET['ajax'])) {
         .orders-table th:nth-child(3), .orders-table td:nth-child(3) { width:18%; }
         .orders-table th:nth-child(4), .orders-table td:nth-child(4) { width:14%; }
         .orders-table th:nth-child(5), .orders-table td:nth-child(5) { width:auto; text-align:right; }
+        .service-list-table th:nth-child(n), .service-list-table td:nth-child(n) { width:20%; }
+        .service-list-table th:nth-child(5), .service-list-table td:nth-child(5) { text-align:right; }
         .orders-table td:nth-child(5) { text-align:right; }
         .orders-table tbody tr { cursor:pointer; transition:background 0.1s; }
         .orders-table tbody tr:hover { background:#f9fafb; }
