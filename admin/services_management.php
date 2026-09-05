@@ -624,7 +624,7 @@ if (isset($_GET['ajax'])) {
         .orders-table th:nth-child(1), .orders-table td:nth-child(1) { width:72px; }
         .orders-table th:nth-child(2), .orders-table td:nth-child(2) { width:28%; }
         .orders-table th:nth-child(3), .orders-table td:nth-child(3) { width:18%; }
-        .orders-table th:nth-child(4), .orders-table td:nth-child(4) { width:16%; text-align:right; padding-right:28px; }
+        .orders-table th:nth-child(4), .orders-table td:nth-child(4) { width:16%; text-align:center; padding-left:16px; padding-right:16px; }
         .orders-table th:nth-child(5), .orders-table td:nth-child(5) { width:340px; text-align:right; }
         .orders-table td:nth-child(5) { text-align:right; }
         .orders-table tbody tr { cursor:pointer; transition:background 0.1s; }
