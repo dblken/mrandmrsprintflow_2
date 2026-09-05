@@ -603,7 +603,8 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
                 default => ' verification-row--pending',
             };
         }
-        $name = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
+        $name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
+        $name = $name !== '' ? $name : '—';
         $email = strtolower((string)($customer['email'] ?? ''));
         $cid = (int)($customer['customer_id'] ?? 0);
         ?>

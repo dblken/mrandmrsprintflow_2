@@ -168,14 +168,16 @@ if (isset($_GET['ajax'])) {
                     $status_display = pf_admin_id_verification_status_display($customer);
                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                     $sign_in = pf_admin_customer_sign_in_label($customer);
+                    $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
+                    $customer_name = $customer_name !== '' ? $customer_name : '—';
                     $status_style = $status_display['style'];
                     $status_label = $status_display['label'];
                 ?>
                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
                         <td style="font-weight:500;color:#1f2937;" class="name-cell">
-                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>">
-                                <?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>
+                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer_name); ?>">
+                                <?php echo htmlspecialchars($customer_name); ?>
                             </div>
                         </td>
                         <td class="email-cell" style="text-transform:lowercase;">
@@ -1132,14 +1134,16 @@ $page_title = 'Customers Management - Admin';
                                     $status_display = pf_admin_id_verification_status_display($customer);
                                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                                     $sign_in = pf_admin_customer_sign_in_label($customer);
+                                    $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
+                                    $customer_name = $customer_name !== '' ? $customer_name : '—';
                                     $status_style = $status_display['style'];
                                     $status_label = $status_display['label'];
                                 ?>
                                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
                                         <td style="font-weight:500;color:#1f2937;" class="name-cell">
-                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>">
-                                                <?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>
+                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer_name); ?>">
+                                                <?php echo htmlspecialchars($customer_name); ?>
                                             </div>
                                         </td>
                                         <td class="email-cell" style="text-transform:lowercase;">
