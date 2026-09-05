@@ -2941,8 +2941,8 @@ $online_closed_count = 0;
 
 <template x-if="showMaterialOverrideModal">
     <div @keydown.escape.window.stop.prevent="cancelMaterialOverride()">
-        <div x-show="showMaterialOverrideModal" x-cloak @click="cancelMaterialOverride()" style="position:fixed; inset:0; z-index:10002; background:rgba(15,23,42,.45);"></div>
-        <div x-show="showMaterialOverrideModal" x-cloak role="dialog" aria-modal="true" aria-labelledby="material-override-title" aria-describedby="material-override-description" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10003; width:min(420px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border:1px solid #dbe3ea; border-radius:12px; box-shadow:0 20px 50px rgba(15,23,42,.25); padding:20px;">
+        <div x-show="showMaterialOverrideModal" x-cloak @click="cancelMaterialOverride()" style="position:fixed; inset:0; z-index:11020; background:rgba(15,23,42,.45);"></div>
+        <div x-show="showMaterialOverrideModal" x-cloak role="dialog" aria-modal="true" aria-labelledby="material-override-title" aria-describedby="material-override-description" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:11021; width:min(420px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border:1px solid #dbe3ea; border-radius:12px; box-shadow:0 20px 50px rgba(15,23,42,.25); padding:20px;">
             <h3 id="material-override-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;" x-text="materialOverrideTitle"></h3>
             <p style="margin:12px 0 0; color:#334155; font-size:13px; line-height:1.5;" x-text="materialOverrideLead"></p>
             <p id="material-override-description" style="margin:8px 0 0; color:#64748b; font-size:12px; line-height:1.5;" x-text="materialOverrideGuidance"></p>

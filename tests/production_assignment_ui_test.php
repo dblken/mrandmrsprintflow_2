@@ -19,6 +19,7 @@ $assertions = [
     'unverified material state is visible and manually overrideable' => str_contains($source, "state.tier === 'unverified'") && str_contains($source, 'Usage not verified') && str_contains($source, 'Use unverified material?'),
     'manual override requires deliberate activation' => str_contains($source, '@dblclick="requestMaterialOverride(item)"') && str_contains($source, 'deliberateKeyboardAction'),
     'manual override has explicit cancel and confirm actions' => str_contains($source, 'cancelMaterialOverride()') && str_contains($source, 'confirmMaterialOverride()') && str_contains($source, '>Use Material</button>'),
+    'manual override renders above the production detail modal' => str_contains($source, 'z-index:11020') && str_contains($source, 'z-index:11021'),
     'single click cannot open manual override' => str_contains($source, '@click="selectMaterialCandidate(item)"') && !str_contains($source, '@click="requestMaterialOverride(item)"'),
     'picker asset is cache busted' => str_contains($source, 'production_material_picker.js?v=') && str_contains($source, 'filemtime'),
     'price helper copy is removed' => !str_contains($source, 'Set the final amount, then continue to POS to receive payment.'),
