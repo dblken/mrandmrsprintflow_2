@@ -123,7 +123,12 @@
 
     function classifyItem(item, context, rules) {
         const family = familyFor(item);
-        if (family === 'excluded' || family === 'ink') return { tier: 'excluded', family, selectable: false, reason: '' };
+        if (family === 'excluded' || family === 'ink') {
+            return {
+                tier: 'excluded', family, selectable: false, directSelectable: false,
+                overrideable: false, inStock: false, reason: ''
+            };
+        }
 
         const serviceKind = classifyService(context || {});
         let tier = 'unrelated';
@@ -176,16 +181,51 @@
 
         const stock = Number.parseFloat(item && item.current_stock);
         const inStock = Number.isFinite(stock) && stock > 0;
+<<<<<<< HEAD
         const selectable = (tier === 'recommended' || tier === 'optional') && inStock;
         const serviceLabel = String((context && (context.serviceLabel || context.serviceType)) || 'this service').trim();
         const reason = tier === 'unverified'
             ? 'Usage not verified'
             : !inStock && (tier === 'recommended' || tier === 'optional')
                 ? 'Out of stock'
+=======
+        const directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
+        const overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
+        const selectable = directSelectable || overrideable;
+        const serviceLabel = String((context && (context.serviceLabel || context.serviceType)) || 'this service').trim();
+        const reason = !inStock
+            ? 'Out of stock'
+            : tier === 'unverified'
+                ? 'Usage not verified'
+>>>>>>> 8e1ac733c2dcb311e13b849ac13da14fd52e1b80
             : tier === 'unrelated'
-                ? 'Not applicable to ' + serviceLabel
+                ? 'Not suggested for ' + serviceLabel
                 : tier === 'optional' ? 'Optional / related material' : 'Recommended for this job';
-        return { tier, family, selectable, inStock, reason, serviceKind };
+        return { tier, family, selectable, directSelectable, overrideable, inStock, reason, serviceKind };
+    }
+
+    function descriptionFor(item) {
+        const family = familyFor(item);
+        const labels = {
+            plate: 'Plate material',
+            sintra: 'Sintraboard material',
+            c2s_board: 'C2S board stock',
+            c2s_special_paper: 'C2S special paper',
+            subli_paper: 'Sublimation transfer paper',
+            photo_paper: 'Photo paper alternative',
+            printed_sticker: 'Printed sticker material',
+            colored_sticker: 'Colored cut sticker',
+            reflective: 'Reflective cut material',
+            laminate: 'Optional sticker finishing',
+            heat_vinyl: 'T-shirt heat-transfer material',
+            tarpaulin: 'Tarpaulin material',
+            eyelet: '4 standard eyelets included; add only extras',
+            mug: 'Blank mug',
+            mug_box: 'Optional mug packaging',
+            pvc_id: 'PVC ID material',
+            unverified: 'Usage not verified'
+        };
+        return labels[family] || '';
     }
 
     function descriptionFor(item) {

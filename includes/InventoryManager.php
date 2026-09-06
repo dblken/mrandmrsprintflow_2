@@ -146,6 +146,9 @@ class InventoryManager {
                 VALUES (" . implode(', ', $placeholders) . ")";
 
         $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            throw new Exception("Ledger prepare failed: " . $conn->error);
+        }
         $stmt->bind_param($types, ...$values);
         
         try {
@@ -154,14 +157,24 @@ class InventoryManager {
                 $stmt->close();
                 return $id;
             }
+
+            $error = $stmt->error ?: $conn->error;
+            $errno = $stmt->errno ?: $conn->errno;
+            $stmt->close();
+            if ($errno == 1062) {
+                return true;
+            }
+            throw new Exception("Ledger insert failed: " . $error);
         } catch (Exception $e) {
+            if (isset($stmt) && $stmt instanceof mysqli_stmt) {
+                @$stmt->close();
+            }
             // Error 1062 is Duplicate Entry
             if (isset($conn->errno) && $conn->errno == 1062) {
                 return true; 
             }
             throw new Exception("Ledger recording failed: " . $e->getMessage());
         }
-        return false;
     }
 
     /**
@@ -217,7 +230,7 @@ class InventoryManager {
      * For roll-tracked items, uses FIFO deduction across rolls automatically.
      * For non-roll items, records a simple OUT transaction.
      */
-    public static function issueStock($itemId, $quantity, $uom = null, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $ignoreRollCheck = false, $allowNegativeBypass = false, $branchId = null) {
+    public static function issueStock($itemId, $quantity, $uom = null, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $ignoreRollCheck = false, $allowNegativeBypass = false, $branchId = null, $transactionDate = null) {
         self::ensureBranchScopedSchema();
 
         $item = self::getItem($itemId);
@@ -227,7 +240,7 @@ class InventoryManager {
         // For roll-tracked items, route through FIFO deduction
         if ($item['track_by_roll'] && !$ignoreRollCheck) {
             require_once __DIR__ . '/RollService.php';
-            $result = RollService::deductFIFO($itemId, $quantity, $refType, $refId, $notes, $branchId);
+            $result = RollService::deductFIFO($itemId, $quantity, $refType, $refId, $notes, $branchId, $transactionDate);
             if ($result) {
                 self::notifyStockLevelIfNeeded($item, $itemId, $branchId);
             }
@@ -241,7 +254,7 @@ class InventoryManager {
             throw new Exception("Insufficient stock for '{$item['name']}'. Have: $soh, Need: $quantity");
         }
 
-        $result = self::recordTransaction($itemId, 'OUT', $quantity, $uom ?: $item['unit_of_measure'], $refType, $refId, null, $notes, null, null, $branchId);
+        $result = self::recordTransaction($itemId, 'OUT', $quantity, $uom ?: $item['unit_of_measure'], $refType, $refId, null, $notes, null, $transactionDate, $branchId);
 
         if ($result) {
             self::notifyStockLevelIfNeeded($item, $itemId, $branchId);

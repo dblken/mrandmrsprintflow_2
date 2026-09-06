@@ -34,10 +34,32 @@ function admin_customization_order_code(array $row): string {
     return 'N/A';
 }
 
+function admin_customization_paid_states(): array {
+    return ['PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
+}
+
+function admin_customization_payment_bucket(?string $status): string {
+    $status = strtoupper(trim((string)$status));
+    return in_array($status, admin_customization_paid_states(), true) ? 'PAID' : 'UNPAID';
+}
+
+function admin_customization_payment_badge_html(?string $status, string $size = '12px'): string {
+    $bucket = admin_customization_payment_bucket($status);
+    $style = $bucket === 'PAID' ? 'background:#dcfce7;color:#166534;' : 'background:#fee2e2;color:#991b1b;';
+    $label = $bucket === 'PAID' ? 'Paid' : 'Unpaid';
+    return '<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:' . $size . ';font-weight:500;' . $style . '">' . $label . '</span>';
+}
+
 // Filters
 $search         = trim($_GET['search'] ?? '');
 $status_filter  = $_GET['status'] ?? '';
 $payment_filter = $_GET['payment'] ?? '';
+$payment_filter = strtoupper(trim((string)$payment_filter));
+if (in_array($payment_filter, ['PARTIAL', 'PENDING_VERIFICATION'], true)) {
+    $payment_filter = 'PAID';
+} elseif (!in_array($payment_filter, ['PAID', 'UNPAID'], true)) {
+    $payment_filter = '';
+}
 $date_from      = $_GET['date_from'] ?? '';
 $date_to        = $_GET['date_to'] ?? '';
 $sort_by        = $_GET['sort'] ?? 'newest';
@@ -96,10 +118,15 @@ if (!empty($status_filter)) {
     $types .= 's';
 }
 
-if (!empty($payment_filter)) {
-    $sql .= " AND jo.payment_status = ?";
-    $params[] = $payment_filter;
-    $types .= 's';
+if ($payment_filter === 'PAID') {
+    $paidStates = admin_customization_paid_states();
+    $sql .= " AND jo.payment_status IN (" . implode(',', array_fill(0, count($paidStates), '?')) . ")";
+    $params = array_merge($params, $paidStates);
+    $types .= str_repeat('s', count($paidStates));
+} elseif ($payment_filter === 'UNPAID') {
+    $sql .= " AND (jo.payment_status IS NULL OR jo.payment_status = '' OR jo.payment_status NOT IN (" . implode(',', array_fill(0, count(admin_customization_paid_states()), '?')) . "))";
+    $params = array_merge($params, admin_customization_paid_states());
+    $types .= str_repeat('s', count(admin_customization_paid_states()));
 }
 
 if (!empty($date_from)) {
@@ -201,18 +228,7 @@ if (isset($_GET['ajax'])) {
                             <?php echo $jo['estimated_total'] ? '₱' . number_format($jo['estimated_total'], 2) : '<span class="text-gray-400 text-xs">Pending</span>'; ?>
                         </td>
                         <td class="py-3 text-center">
-                            <?php
-                                $pc = match($jo['payment_status']) {
-                                    'UNPAID'               => 'background:#fee2e2;color:#991b1b;',
-                                    'PENDING_VERIFICATION' => 'background:#fef9c3;color:#854d0e;',
-                                    'PARTIAL'              => 'background:#fef3c7;color:#b45309;',
-                                    'PAID'                 => 'background:#dcfce7;color:#166534;',
-                                    default                => 'background:#fef9c3;color:#854d0e;'
-                                };
-                            ?>
-                            <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;<?php echo $pc; ?>">
-                                <?php echo ucwords(strtolower(str_replace('_',' ',$jo['payment_status']))); ?>
-                            </span>
+                            <?php echo admin_customization_payment_badge_html($jo['payment_status'], '12px'); ?>
                         </td>
                         <td class="py-3 text-center">
                             <?php
@@ -292,14 +308,7 @@ function custom_status_badge($status) {
 }
 
 function custom_payment_badge($status) {
-    $map = [
-        'UNPAID'               => ['bg:#fee2e2;color:#991b1b', 'Unpaid'],
-        'PENDING_VERIFICATION' => ['bg:#fef9c3;color:#92400e', 'Verifying'],
-        'PARTIAL'              => ['bg:#fef3c7;color:#b45309', 'Partial'],
-        'PAID'                 => ['bg:#d1fae5;color:#065f46', 'Paid'],
-    ];
-    [$style, $label] = $map[$status] ?? ['bg:#f3f4f6;color:#6b7280', $status];
-    return "<span style=\"display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;$style\">$label</span>";
+    return admin_customization_payment_badge_html($status, '11px');
 }
 ?>
 <!DOCTYPE html>
@@ -780,15 +789,11 @@ function custom_payment_badge($status) {
                 },
 
                 paymentBadge(status) {
-                    const map = {
-                        UNPAID:               'background:#fee2e2;color:#991b1b',
-                        PENDING_VERIFICATION: 'background:#fef9c3;color:#92400e',
-                        PARTIAL:              'background:#fef3c7;color:#b45309',
-                        PAID:                 'background:#d1fae5;color:#065f46',
-                    };
-                    const labels = {UNPAID:'Unpaid',PENDING_VERIFICATION:'Verifying',PARTIAL:'Partial',PAID:'Paid'};
-                    const s = map[status] || 'background:#f3f4f6;color:#6b7280';
-                    return `<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;${s}">${labels[status] || status}</span>`;
+                    const paidStates = ['PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
+                    const bucket = paidStates.includes(String(status || '').toUpperCase()) ? 'PAID' : 'UNPAID';
+                    const s = bucket === 'PAID' ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b';
+                    const label = bucket === 'PAID' ? 'Paid' : 'Unpaid';
+                    return `<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;${s}">${label}</span>`;
                 },
 
                 viewImage(url) {
@@ -1031,8 +1036,6 @@ function custom_payment_badge($status) {
                                     <select id="fp_payment" class="filter-select" @change="applyFilters()">
                                         <option value="">All payments</option>
                                         <option value="UNPAID" <?php echo $payment_filter === 'UNPAID' ? 'selected' : ''; ?>>Unpaid</option>
-                                        <option value="PENDING_VERIFICATION" <?php echo $payment_filter === 'PENDING_VERIFICATION' ? 'selected' : ''; ?>>Verifying</option>
-                                        <option value="PARTIAL" <?php echo $payment_filter === 'PARTIAL' ? 'selected' : ''; ?>>Partial</option>
                                         <option value="PAID" <?php echo $payment_filter === 'PAID' ? 'selected' : ''; ?>>Paid</option>
                                     </select>
                                 </div>
@@ -1149,18 +1152,7 @@ function custom_payment_badge($status) {
                                             <?php echo $jo['estimated_total'] ? '₱' . number_format($jo['estimated_total'], 2) : '<span class="text-gray-400 text-xs">Pending</span>'; ?>
                                         </td>
                                         <td class="py-3 text-center">
-                                            <?php
-                                                $pc = match($jo['payment_status']) {
-                                                    'UNPAID'               => 'background:#fee2e2;color:#991b1b;',
-                                                    'PENDING_VERIFICATION' => 'background:#fef9c3;color:#854d0e;',
-                                                    'PARTIAL'              => 'background:#fef3c7;color:#b45309;',
-                                                    'PAID'                 => 'background:#dcfce7;color:#166534;',
-                                                    default                => 'background:#fef9c3;color:#854d0e;'
-                                                };
-                                            ?>
-                                            <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;<?php echo $pc; ?>">
-                                                <?php echo ucwords(strtolower(str_replace('_',' ',$jo['payment_status']))); ?>
-                                            </span>
+                                            <?php echo admin_customization_payment_badge_html($jo['payment_status'], '12px'); ?>
                                         </td>
                                         <td class="py-3 text-center">
                                             <?php

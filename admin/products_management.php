@@ -896,6 +896,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $category = sanitize($_POST['category'] ?? '');
         $description = sanitize($_POST['description'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
+        $posted_stock_quantity = max(0, (int)($_POST['stock_quantity'] ?? 0));
         $thresholds = printflow_product_thresholds_from_post(0);
         $low_stock_level = $thresholds['reorder'];
         $critical_level = $thresholds['critical'];
@@ -915,6 +916,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $error = 'Description must not exceed 500 characters.';
         } elseif ($price < 1.00 || $price > 1000000) {
             $error = $price <= 0 ? 'Price is required and must be greater than 0.' : 'Price must be between ₱1.00 and ₱1,000,000.00.';
+        } elseif ($posted_stock_quantity > 99999) {
+            $error = 'Stock quantity must not exceed 5 digits.';
         } elseif ($thresholdErr = printflow_validate_item_thresholds((float)$low_stock_level, (float)$critical_level)) {
             $error = $thresholdErr;
         } elseif (empty($category) || $category === '-- Select Category --') {
@@ -939,10 +942,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 [$product_id]
             );
             $oldProduct = $existingProduct[0] ?? null;
-            $stock_quantity = $product_stock_uses_base
+            $oldStockQuantity = $product_stock_uses_base
                 ? (int)($oldProduct['stock_quantity'] ?? 0)
                 : (int)(printflow_product_effective_stock($product_id, $product_stock_branch_id)[0] ?? 0);
-            $oldStockQuantity = $stock_quantity;
+            $stock_quantity = $posted_stock_quantity;
 
             // Handle photo upload (only if a new file is provided)
             $photo_path = handle_product_photo_upload($_FILES['photo'] ?? null);
@@ -982,7 +985,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     printflow_product_branch_stock_upsert($product_id, $product_stock_branch_id, $stock_quantity, $low_stock_level, $critical_level);
                 }
                 if ($oldProduct) {
-                    $delta = 0;
+                    $delta = $stock_quantity - $oldStockQuantity;
                     if ($delta !== 0) {
                         $direction = $delta > 0 ? 'IN' : 'OUT';
                         $qtyMoved = abs($delta);

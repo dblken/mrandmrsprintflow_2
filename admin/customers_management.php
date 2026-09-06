@@ -168,14 +168,17 @@ if (isset($_GET['ajax'])) {
                     $status_display = pf_admin_id_verification_status_display($customer);
                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                     $sign_in = pf_admin_customer_sign_in_label($customer);
+                    $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
+                    $customer_name_html = $customer_name !== '' ? htmlspecialchars($customer_name) : '&mdash;';
+                    $customer_name_title = $customer_name !== '' ? htmlspecialchars($customer_name) : '-';
                     $status_style = $status_display['style'];
                     $status_label = $status_display['label'];
                 ?>
                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
                         <td style="font-weight:500;color:#1f2937;" class="name-cell">
-                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>">
-                                <?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>
+                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo $customer_name_title; ?>">
+                                <?php echo $customer_name_html; ?>
                             </div>
                         </td>
                         <td class="email-cell" style="text-transform:lowercase;">
@@ -196,7 +199,7 @@ if (isset($_GET['ajax'])) {
                             <?php endif; ?>
                         </td>
                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
+                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                             <?php if ($can_verify_customer_ids): ?>
@@ -1132,14 +1135,18 @@ $page_title = 'Customers Management - Admin';
                                     $status_display = pf_admin_id_verification_status_display($customer);
                                     $customer_payload_attr = pf_customer_payload_attr($customer, $base_path);
                                     $sign_in = pf_admin_customer_sign_in_label($customer);
+                                    $customer_name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
+                                    $customer_name_html = $customer_name !== '' ? htmlspecialchars($customer_name) : '&mdash;';
+                                    $customer_name_title = $customer_name !== '' ? htmlspecialchars($customer_name) : '-';
                                     $status_style = $status_display['style'];
                                     $status_label = $status_display['label'];
+                                    $status_label_html = $status_label === '-' ? '&mdash;' : htmlspecialchars($status_label);
                                 ?>
                                     <tr class="customer-row" data-customer-id="<?php echo (int)$customer['customer_id']; ?>" data-customer="<?php echo $customer_payload_attr; ?>" onclick="openModal(<?php echo $customer['customer_id']; ?>, this)">
                                         <td style="color:#1f2937;"><?php echo $customer['customer_id']; ?></td>
                                         <td style="font-weight:500;color:#1f2937;" class="name-cell">
-                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>">
-                                                <?php echo htmlspecialchars($customer['first_name'] . ' ' . $customer['last_name']); ?>
+                                            <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo $customer_name_title; ?>">
+                                                <?php echo $customer_name_html; ?>
                                             </div>
                                         </td>
                                         <td class="email-cell" style="text-transform:lowercase;">
@@ -1160,7 +1167,7 @@ $page_title = 'Customers Management - Admin';
                                             <?php endif; ?>
                                         </td>
                                         <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
+                                        <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
                                         <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                                             <button type="button" onclick="event.stopPropagation();openModal(<?php echo $customer['customer_id']; ?>, this.closest('tr'))" class="btn-action blue">Profile</button>
                                             <?php if ($can_verify_customer_ids): ?>
@@ -1268,9 +1275,6 @@ $page_title = 'Customers Management - Admin';
                     <div style="margin-top:20px;padding-top:20px;border-top:1px solid #f3f4f6;">
                         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                             <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;">ID Verification</label>
-                            <template x-if="customer">
-                                <span :style="!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;'))" style="display:inline-flex;align-items:center;justify-content:center;padding:7px 16px;border-radius:9999px;font-size:12px;font-weight:500;line-height:1;border:none;box-shadow:none;" x-text="customer?.id_status_label || '—'"></span>
-                            </template>
                         </div>
 
                         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 12px;">
@@ -1280,7 +1284,7 @@ $page_title = 'Customers Management - Admin';
                             </div>
                             <div>
                                 <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin:0 0 4px;">Current Status</p>
-                                <p style="font-size:13px;color:#1f2937;font-weight:600;margin:0;" x-text="customer?.id_status_label || '—'"></p>
+                                <span :style="'display:inline-flex;align-items:center;justify-content:center;padding:4px 12px;border-radius:9999px;font-size:13px;font-weight:600;line-height:1;border:none;box-shadow:none;' + (!customer?.id_image ? 'background:#f3f4f6;color:#6b7280;' : ((customer.id_status === 'Verified') ? 'background:#dcfce7;color:#166534;' : ((customer.id_status === 'Rejected') ? 'background:#fee2e2;color:#991b1b;' : 'background:#fef3c7;color:#92400e;')))" x-text="customer?.id_status_label || '-'"></span>
                             </div>
                         </div>
 

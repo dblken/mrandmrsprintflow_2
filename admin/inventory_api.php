@@ -7,12 +7,28 @@
 
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
+require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role(['Admin', 'Manager']);
 
 header('Content-Type: application/json');
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+$user = get_logged_in_user();
+$branchCtx = init_branch_context(false);
+$selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCurrentBranchId();
+$branchId = ($selectedBranchId === 'all') ? 0 : (int)$selectedBranchId;
+if (($user['role'] ?? '') === 'Manager') {
+    $managerAssignedBranchId = (int)($user['branch_id'] ?? ($_SESSION['branch_id'] ?? 0));
+    if ($managerAssignedBranchId <= 0) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'No branch is assigned to your account.']);
+        exit;
+    }
+    $branchId = $managerAssignedBranchId;
+    $_SESSION['selected_branch_id'] = $managerAssignedBranchId;
+    $_GET['branch_id'] = $managerAssignedBranchId;
+}
 
 try {
     switch ($action) {
@@ -144,6 +160,9 @@ try {
 
         // ─── Save Movement (Upsert) ──────────────────────
         case 'save_movement':
+            if ($branchId <= 0) {
+                throw new Exception('Please select a specific branch before saving an inventory movement.');
+            }
             $mid   = (int)($_POST['material_id'] ?? 0);
             $date  = $_POST['movement_date'] ?? '';
             $qty   = (float)($_POST['quantity_change'] ?? 0);
@@ -158,8 +177,8 @@ try {
                 // Not strictly supported by ledger to just 'delete' a movement, 
                 // but we can delete the manual adjustment for that date
                 db_execute(
-                    "DELETE FROM inventory_transactions WHERE item_id = ? AND transaction_date = ? AND ref_type = 'adjustment_manual'",
-                    'is', [$mid, $date]
+                    "DELETE FROM inventory_transactions WHERE item_id = ? AND transaction_date = ? AND ref_type = 'adjustment_manual' AND branch_id = ?",
+                    'isi', [$mid, $date, $branchId]
                 );
             } else {
                 // Record via InventoryManager
@@ -168,16 +187,16 @@ try {
                 $abs_qty = abs($qty);
                 
                 // Idempotency: try to update existing manual adjustment for that day or insert new
-                $existing = db_query("SELECT id FROM inventory_transactions WHERE item_id = ? AND transaction_date = ? AND ref_type = 'adjustment_manual'", 'is', [$mid, $date]);
+                $existing = db_query("SELECT id FROM inventory_transactions WHERE item_id = ? AND transaction_date = ? AND ref_type = 'adjustment_manual' AND branch_id = ?", 'isi', [$mid, $date, $branchId]);
                 
                 if (!empty($existing)) {
-                    db_execute("UPDATE inventory_transactions SET quantity = ?, direction = ? WHERE id = ?", 'dsi', [$abs_qty, $direction, $existing[0]['id']]);
+                    db_execute("UPDATE inventory_transactions SET quantity = ?, direction = ?, notes = ? WHERE id = ?", 'dssi', [$abs_qty, $direction, $notes, $existing[0]['id']]);
                 } else {
-                    InventoryManager::recordTransaction($mid, $direction, $abs_qty, null, 'adjustment_manual', null, null, $notes, null, $date);
+                    InventoryManager::recordTransaction($mid, $direction, $abs_qty, null, 'adjustment_manual', null, null, $notes, null, $date, $branchId);
                 }
             }
 
-            $new_stock = InventoryManager::getStockOnHand($mid);
+            $new_stock = InventoryManager::getStockOnHand($mid, $branchId);
             echo json_encode(['success' => true, 'new_total' => $new_stock]);
             break;
 

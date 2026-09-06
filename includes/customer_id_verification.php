@@ -36,7 +36,7 @@ function pf_format_id_type_display(?string $id_type, bool $has_id = true): strin
 {
     $decoded = pf_decode_display_text((string)($id_type ?? ''));
     if ($decoded === '') {
-        return $has_id ? 'Not specified' : '—';
+        return $has_id ? 'Not specified' : '-';
     }
 
     return $decoded;
@@ -64,7 +64,7 @@ function pf_customer_id_profile_status_display(array $customer): array
     $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
     if (!$has_id) {
         return [
-            'label' => '—',
+            'label' => '-',
             'color' => '#64748b',
             'bg' => '#f1f5f9',
             'status' => 'None',
@@ -109,7 +109,7 @@ function pf_admin_id_verification_status_display(array $customer): array
     $has_id = trim((string)($customer['id_image'] ?? '')) !== '';
     if (!$has_id) {
         return [
-            'label' => '—',
+            'label' => '-',
             'style' => 'background:#f3f4f6;color:#6b7280;',
             'status' => 'none',
             'has_id' => false,
@@ -591,10 +591,11 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
         $id_status = $status_display['status'] === 'none' ? 'Pending' : $status_display['status'];
         $status_style = $status_display['style'];
         $status_label = $status_display['label'];
+        $status_label_html = $status_label === '-' ? '&mdash;' : htmlspecialchars($status_label);
         $payload_attr = pf_customer_verification_payload_attr($customer, $base_path);
-        $uploaded_label = !empty($customer['id_uploaded_at'])
-            ? format_date($customer['id_uploaded_at'])
-            : '—';
+        $uploaded_label_html = !empty($customer['id_uploaded_at'])
+            ? htmlspecialchars(format_date($customer['id_uploaded_at']))
+            : '&mdash;';
         $row_class = 'verification-row';
         if ($has_id) {
             $row_class .= match ($id_status) {
@@ -603,15 +604,19 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
                 default => ' verification-row--pending',
             };
         }
-        $name = trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''));
+        $name = trim(preg_replace('/\s+/', ' ', trim((string)($customer['first_name'] ?? '') . ' ' . (string)($customer['last_name'] ?? ''))));
+        $name_html = $name !== '' ? htmlspecialchars($name) : '&mdash;';
+        $name_title = $name !== '' ? htmlspecialchars($name) : '-';
         $email = strtolower((string)($customer['email'] ?? ''));
+        $id_type_label = pf_format_id_type_display($customer['id_type'] ?? '', $has_id);
+        $id_type_html = $id_type_label === '-' ? '&mdash;' : htmlspecialchars($id_type_label);
         $cid = (int)($customer['customer_id'] ?? 0);
         ?>
         <tr class="<?php echo $row_class; ?>" data-customer-id="<?php echo $cid; ?>" data-customer="<?php echo $payload_attr; ?>" onclick="openVerificationModal(<?php echo $cid; ?>, this)">
             <td style="color:#1f2937;"><?php echo $cid; ?></td>
             <td style="font-weight:500;color:#1f2937;">
-                <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo htmlspecialchars($name); ?>">
-                    <?php echo htmlspecialchars($name); ?>
+                <div style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo $name_title; ?>">
+                    <?php echo $name_html; ?>
                 </div>
             </td>
             <td style="text-transform:lowercase;">
@@ -619,10 +624,10 @@ function pf_render_verification_table_rows(array $customers, string $base_path):
                     <?php echo htmlspecialchars($email); ?>
                 </div>
             </td>
-            <td><?php echo htmlspecialchars(pf_format_id_type_display($customer['id_type'] ?? '', $has_id)); ?></td>
-            <td style="color:#6b7280;font-size:12px;"><?php echo htmlspecialchars($uploaded_label); ?></td>
+            <td><?php echo $id_type_html; ?></td>
+            <td style="color:#6b7280;font-size:12px;"><?php echo $uploaded_label_html; ?></td>
             <td style="color:#6b7280;font-size:12px;"><?php echo format_date($customer['created_at']); ?></td>
-            <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo htmlspecialchars($status_label); ?></span></td>
+            <td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $status_style; ?>"><?php echo $status_label_html; ?></span></td>
             <td style="text-align:right;" class="no-print actions" onclick="event.stopPropagation()">
                 <button type="button" onclick="event.stopPropagation();openVerificationModal(<?php echo $cid; ?>, this.closest('tr'))" class="btn-action blue">Verify</button>
                 <button type="button" onclick="event.stopPropagation();window.location.href='<?php echo $base_path; ?>/admin/customers_management.php?open_customer=<?php echo $cid; ?>'" class="btn-action teal">Profile</button>

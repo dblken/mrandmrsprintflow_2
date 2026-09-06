@@ -126,7 +126,7 @@ class RollService {
      * @return array Details of deductions made from each roll
      * @throws Exception If insufficient roll inventory
      */
-    public static function deductFIFO($itemId, $totalLength, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $branchId = null) {
+    public static function deductFIFO($itemId, $totalLength, $refType = 'ADJUSTMENT', $refId = null, $notes = '', $branchId = null, $transactionDate = null) {
         global $conn;
 
         $totalLength = abs((float)$totalLength);
@@ -208,7 +208,7 @@ class RollService {
                     $rollId,
                     $ledgerNote,
                     null,
-                    null,
+                    $transactionDate,
                     $branchId
                 );
 
