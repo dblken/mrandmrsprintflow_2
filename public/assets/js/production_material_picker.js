@@ -181,14 +181,6 @@
 
         const stock = Number.parseFloat(item && item.current_stock);
         const inStock = Number.isFinite(stock) && stock > 0;
-<<<<<<< HEAD
-        const selectable = (tier === 'recommended' || tier === 'optional') && inStock;
-        const serviceLabel = String((context && (context.serviceLabel || context.serviceType)) || 'this service').trim();
-        const reason = tier === 'unverified'
-            ? 'Usage not verified'
-            : !inStock && (tier === 'recommended' || tier === 'optional')
-                ? 'Out of stock'
-=======
         const directSelectable = (tier === 'recommended' || tier === 'optional') && inStock;
         const overrideable = (tier === 'unrelated' || tier === 'unverified') && inStock;
         const selectable = directSelectable || overrideable;
@@ -197,7 +189,6 @@
             ? 'Out of stock'
             : tier === 'unverified'
                 ? 'Usage not verified'
->>>>>>> 8e1ac733c2dcb311e13b849ac13da14fd52e1b80
             : tier === 'unrelated'
                 ? 'Not suggested for ' + serviceLabel
                 : tier === 'optional' ? 'Optional / related material' : 'Recommended for this job';

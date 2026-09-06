@@ -4815,11 +4815,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             materialStatusLabel(item) {
                 const state = item.compatibility || this.materialClassification(item);
-<<<<<<< HEAD
                 if (!state.inStock && (state.tier === 'recommended' || state.tier === 'optional')) return 'Out of stock';
-=======
-                if (!state.inStock) return 'Out of stock';
->>>>>>> 8e1ac733c2dcb311e13b849ac13da14fd52e1b80
                 const stockStatus = item.stock_status && String(item.stock_status.label || '').trim();
                 const stockSuffix = stockStatus && !['In Stock', 'Out of Stock'].includes(stockStatus) ? ` · ${stockStatus}` : '';
                 if (state.tier === 'recommended') return `Recommended${stockSuffix}`;
