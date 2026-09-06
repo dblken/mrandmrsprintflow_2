@@ -94,7 +94,7 @@ class InventoryManager {
         }
 
         if (self::isMainBranch($resolvedBranchId)) {
-            return [" AND ({$column} = ? OR {$column} IS NULL)", 'i', [$resolvedBranchId]];
+            return [" AND ({$column} = ? OR {$column} IS NULL OR {$column} <= 0)", 'i', [$resolvedBranchId]];
         }
 
         return [" AND {$column} = ?", 'i', [$resolvedBranchId]];
@@ -271,7 +271,7 @@ class InventoryManager {
         } else {
             // Stock is the sum of IN - sum of OUT transactions
             [$branchSql, $branchTypes, $branchParams] = self::branchClause('branch_id', $branchId);
-            $sql = "SELECT SUM(IF(direction='IN', quantity, -quantity)) as soh FROM inventory_transactions WHERE item_id = ?{$branchSql}";
+            $sql = "SELECT SUM(IF(direction='IN', quantity, -quantity)) as soh FROM inventory_transactions WHERE item_id = ? AND UPPER(COALESCE(ref_type, '')) NOT IN ('PRODUCT_CREATE', 'PRODUCT_ADJUSTMENT', 'ORDER_PRODUCT', 'ORDER'){$branchSql}";
             $res = db_query($sql, 'i' . $branchTypes, array_merge([$itemId], $branchParams));
             return (float)($res[0]['soh'] ?? 0);
         }

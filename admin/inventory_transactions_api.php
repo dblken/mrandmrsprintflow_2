@@ -19,6 +19,7 @@ $user = get_logged_in_user();
 $branchCtx = init_branch_context(false);
 $selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCurrentBranchId();
 $branchId = ($selectedBranchId === 'all') ? 0 : (int)$selectedBranchId;
+$is_manager = (($user['role'] ?? '') === 'Manager');
 $inventory_branch_read_only = (($user['role'] ?? '') === 'Admin') && $branchId > 0 && !InventoryManager::isMainBranch($branchId);
 
 try {
@@ -71,8 +72,8 @@ try {
             $params = [];
             $types = '';
             if ($branchId > 0) {
-                if (InventoryManager::isMainBranch($branchId)) {
-                    $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL)";
+                if (!$is_manager && InventoryManager::isMainBranch($branchId)) {
+                    $sql .= " AND (t.branch_id = ? OR t.branch_id IS NULL OR t.branch_id <= 0)";
                 } else {
                     $sql .= " AND t.branch_id = ?";
                 }

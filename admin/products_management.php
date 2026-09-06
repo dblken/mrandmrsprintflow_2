@@ -23,12 +23,39 @@ if (!isset($base_path)) {
     $base_path = defined('BASE_PATH') ? BASE_PATH : '/printflow';
 }
 
+
 $current_user = get_logged_in_user();
-$is_manager = (get_user_type() === 'Manager');
+$is_manager = (get_user_type() === 'Manager' || (($current_user['role'] ?? '') === 'Manager'));
+
+if ($is_manager && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['branch_id']) && !isset($_GET['branch_id'])) {
+    $postedBranchId = trim((string)$_POST['branch_id']);
+    if ((int)$postedBranchId > 0) {
+        $_GET['branch_id'] = $postedBranchId;
+    }
+} elseif (!$is_manager) {
+    $adminMainBranchId = function_exists('printflow_get_default_admin_branch_id')
+        ? (int)printflow_get_default_admin_branch_id()
+        : 1;
+    $_GET['branch_id'] = $adminMainBranchId;
+    $_SESSION['selected_branch_id'] = $adminMainBranchId;
+}
+
 $branchCtx = init_branch_context(true);
 $selectedStockBranchId = (int)($branchCtx['selected_branch_id'] ?? 0);
 $mgr_branch_id = $is_manager ? $selectedStockBranchId : 0;
 $product_stock_branch_id = $selectedStockBranchId;
+
+if ($is_manager) {
+    $managerAssignedBranchId = (int)($current_user['branch_id'] ?? ($_SESSION['branch_id'] ?? 0));
+    if ($managerAssignedBranchId > 0) {
+        $selectedStockBranchId = $managerAssignedBranchId;
+        $mgr_branch_id = $managerAssignedBranchId;
+        $product_stock_branch_id = $managerAssignedBranchId;
+        $branchCtx['selected_branch_id'] = $managerAssignedBranchId;
+        $_SESSION['selected_branch_id'] = $managerAssignedBranchId;
+        $_GET['branch_id'] = $managerAssignedBranchId;
+    }
+}
 $product_stock_uses_base = printflow_product_branch_uses_base_stock($product_stock_branch_id);
 printflow_ensure_product_branch_stock_table();
 printflow_ensure_products_threshold_schema();
@@ -1391,7 +1418,7 @@ if (isset($_GET['ajax'])) {
                     ?>
                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
-                        <td><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
+                        <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
@@ -1404,7 +1431,11 @@ if (isset($_GET['ajax'])) {
                             <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $sc; ?>"><?php echo $product['status']; ?></span>
                         </td>
                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-                            <button class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
+                            <?php if ($is_manager): ?>
+                                <button type="button" class="btn-action blue" onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manage</button>
+                            <?php else: ?>
+                                <button type="button" class="btn-action blue" onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Edit</button>
+                            <?php endif; ?>
                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                     <?php echo csrf_field(); ?>
@@ -1927,6 +1958,24 @@ if (isset($_GET['ajax'])) {
             -webkit-appearance: none;
             -moz-appearance: none;
         }
+        #product-modal #pf-stock-only input:disabled,
+        #product-modal #pf-stock-only input[readonly],
+        #product-modal #pf-manager-only input:disabled,
+        #product-modal #pf-manager-only input[readonly] {
+            background: #f3f4f6 !important;
+            color: #6b7280 !important;
+            border-color: #e5e7eb !important;
+            cursor: not-allowed !important;
+            opacity: 1 !important;
+            -webkit-text-fill-color: #6b7280 !important;
+        }
+        #product-modal #pf-stock-only input:not(:disabled):not([readonly]),
+        #product-modal #pf-manager-only input:not(:disabled):not([readonly]) {
+            background: #ffffff !important;
+            color: #111827 !important;
+            border-color: #94a3b8 !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08);
+        }
         #product-modal .pf-field-auto,
         #product-modal input.pf-field-auto[readonly],
         #product-modal select.pf-field-auto:disabled {
@@ -2131,6 +2180,7 @@ if (isset($_GET['ajax'])) {
         .orders-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
         .orders-table th { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
         .orders-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; color: #374151; }
+        .orders-table .product-sku-cell { color: #374151 !important; font-family: inherit; font-weight: inherit; min-width: 110px; white-space: nowrap; }
         .orders-table tbody tr { cursor: pointer; transition: background 0.1s; }
         .orders-table tbody tr:hover { background: #f9fafb; }
         .orders-table tbody tr:last-child td { border-bottom: none; }
@@ -2470,7 +2520,7 @@ if (isset($_GET['ajax'])) {
                                     ?>
                                     <tr class="<?php echo htmlspecialchars(trim($stockStatusMeta['row_class']), ENT_QUOTES); ?>" onclick="openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)">
                                         <td style="color:#1f2937;"><?php echo $product['product_id']; ?></td>
-                                        <td><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
+                                        <td class="product-sku-cell"><?php echo htmlspecialchars($product['sku'] ?? '—'); ?></td>
                                         <td style="font-weight:500;color:#1f2937;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($product['name']); ?></td>
                                         <td><?php echo htmlspecialchars($product['category'] ?? '—'); ?></td>
                                         <td style="font-weight:600;color:#1f2937;white-space:nowrap;">₱<?php echo number_format($product['price'], 2); ?></td>
@@ -2492,8 +2542,13 @@ if (isset($_GET['ajax'])) {
                                             </span>
                                         </td>
                                         <td style="text-align:right;white-space:nowrap;" onclick="event.stopPropagation();">
-                                            <button class="btn-action blue"
-                                                onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'><?php echo $is_manager ? 'Stock' : 'Edit'; ?></button>
+                                            <?php if ($is_manager): ?>
+                                                <button type="button" class="btn-action blue"
+                                                    onclick='openViewModal(<?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Manage</button>
+                                            <?php else: ?>
+                                                <button type="button" class="btn-action blue"
+                                                    onclick='openProductModal("edit", <?php echo htmlspecialchars(json_encode($product), ENT_QUOTES); ?>)'>Edit</button>
+                                            <?php endif; ?>
                                             <?php if (!$is_manager && $isSystemDeletedProduct): ?>
                                                 <form method="POST" class="inline product-status-form" data-pf-skip-guard data-action="Auto Recover" data-product-name="<?php echo htmlspecialchars($product['name'], ENT_QUOTES); ?>" onsubmit="showProductStatusModal(event, this);return false;">
                                                     <?php echo csrf_field(); ?>
@@ -2582,6 +2637,7 @@ if (isset($_GET['ajax'])) {
         <div class="modal-body">
             <form method="POST" id="product-form" action="" enctype="multipart/form-data" novalidate data-turbo="false" data-pf-skip-validation="true">
                 <?php echo csrf_field(); ?>
+                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars((string)$selectedStockBranchId, ENT_QUOTES, 'UTF-8'); ?>">
                 <?php /* Managers never create products: always POST update_product so server runs branch-stock handler even if JS fails after form.reset() */ ?>
                 <input type="hidden" id="modal-mode-input" name="<?php echo $is_manager ? 'update_product' : 'create_product'; ?>" value="1">
                 <input type="hidden" id="modal-product-id" name="product_id" value="">
@@ -2879,7 +2935,6 @@ if (isset($_GET['ajax'])) {
             <div id="view-product-actions" style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:24px;display:none;gap:10px;flex-wrap:wrap;justify-content:center;">
                 <button type="button" id="view-product-receive-btn" onclick="openProductStockFromView('receive')" class="btn-action teal" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Receive IN</button>
                 <button type="button" id="view-product-issue-btn" onclick="openProductStockFromView('issue')" class="btn-action red" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Issue OUT</button>
-                <button type="button" id="view-product-print-barcode-btn" onclick="printProductBarcode()" class="btn-action blue" style="flex:1;min-width:140px;height:40px;font-size:14px;border-radius:10px;">Print Barcode</button>
                 <button type="button" id="view-product-download-barcode-btn" onclick="downloadProductBarcodePng()" class="btn-action gray" style="flex:1;min-width:160px;height:40px;font-size:14px;border-radius:10px;">Download Barcode (PNG)</button>
             </div>
             <div style="padding:16px 0 0;border-top:1px solid #f3f4f6;margin-top:16px;display:flex;justify-content:flex-end;">
@@ -2924,6 +2979,7 @@ if (isset($_GET['ajax'])) {
 window.PF_PRODUCTS_IS_MANAGER = <?php echo $is_manager ? 'true' : 'false'; ?>;
 window.PF_PRODUCT_CATEGORY_ALLOWLIST = <?php echo json_encode(printflow_product_modal_categories(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 window.PF_PRODUCTS_CSRF = <?php echo json_encode(generate_csrf_token(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+window.PF_PRODUCTS_BARCODE_API = <?php echo json_encode(rtrim($base_path, '/') . '/admin/api_product_barcode.php', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
 function pfSuggestReorderLevel(qty) {
     qty = parseInt(qty, 10) || 0;
@@ -3135,7 +3191,7 @@ function pfStockOnlyModalSetActive(active, product, stockMode) {
             addQty.name = isIssue ? 'deduct_stock_quantity' : 'add_stock_quantity';
         }
         if (lowLevel) {
-            lowLevel.disabled = !isIssue;
+            lowLevel.disabled = true;
             lowLevel.removeAttribute('name');
         }
         if (qtyLabel) {
@@ -3379,7 +3435,8 @@ function pfVisibilityStatusStyle(st) {
     return 'background:#fef9c3;color:#854d0e;';
 }
 function pfProductBarcodeUrl(sku) {
-    return 'api_product_barcode.php?sku=' + encodeURIComponent(String(sku || '').trim());
+    var api = window.PF_PRODUCTS_BARCODE_API || 'api_product_barcode.php';
+    return api + '?sku=' + encodeURIComponent(String(sku || '').trim());
 }
 
 function pfSetBarcodePreview(prefix, sku) {

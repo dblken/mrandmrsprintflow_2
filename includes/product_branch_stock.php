@@ -277,6 +277,7 @@ function printflow_record_product_inventory_transaction(
     $qty = abs((float)$quantity);
     $normalizedRefType = strtoupper(trim($refType ?: 'PRODUCT'));
     $hasProductIdColumn = db_table_has_column('inventory_transactions', 'product_id');
+    $hasTransactionIdColumn = db_table_has_column('inventory_transactions', 'transaction_id');
 
     if (($branchId === null || $branchId <= 0) && $normalizedRefType === 'ORDER' && $refId !== null && $refId > 0) {
         $orderBranch = db_query(
@@ -288,14 +289,38 @@ function printflow_record_product_inventory_transaction(
     }
 
     if ($branchId === null || $branchId <= 0) {
+        if (function_exists('printflow_branch_filter_for_user')) {
+            $lockedBranchId = printflow_branch_filter_for_user();
+            if ($lockedBranchId !== null && (int)$lockedBranchId > 0) {
+                $branchId = (int)$lockedBranchId;
+            }
+        }
+    }
+
+    if ($branchId === null || $branchId <= 0) {
+        $selectedBranchId = $_SESSION['selected_branch_id'] ?? null;
+        if ($selectedBranchId !== null && $selectedBranchId !== 'all' && (int)$selectedBranchId > 0) {
+            $branchId = (int)$selectedBranchId;
+        }
+    }
+
+    if ($branchId === null || $branchId <= 0) {
+        $sessionBranchId = (int)($_SESSION['branch_id'] ?? 0);
+        if ($sessionBranchId > 0) {
+            $branchId = $sessionBranchId;
+        }
+    }
+
+    if ($branchId === null || $branchId <= 0) {
         if (function_exists('printflow_get_default_admin_branch_id')) {
             $branchId = (int)printflow_get_default_admin_branch_id();
         } else {
-            $branchId = (int)($_SESSION['branch_id'] ?? 0);
+            $branchId = 1;
         }
     }
     // Never omit branch_id: NULL branch hid catalog movements on branch-filtered ledger views (Products / POS).
     $branchId = max(1, (int)$branchId);
+    $productTransactionId = 'PRD-' . date('YmdHis') . '-' . $branchId . '-' . $productId . '-' . random_int(1000, 9999);
 
     $storedRefType = $normalizedRefType;
     $storedRefId = $refId;
@@ -314,7 +339,8 @@ function printflow_record_product_inventory_transaction(
     }
 
     $fields = [
-        'item_id'          => ['type' => 'i', 'val' => 0],
+        'item_id'          => ['type' => 'i', 'val' => $productId],
+        'transaction_id'   => ['type' => 's', 'val' => $productTransactionId],
         'direction'        => ['type' => 's', 'val' => $direction],
         'quantity'         => ['type' => 's', 'val' => (string)$qty],
         'uom'              => ['type' => 's', 'val' => 'pcs'],
@@ -333,6 +359,10 @@ function printflow_record_product_inventory_transaction(
     }
     if ($userId > 0) {
         $fields['created_by'] = ['type' => 'i', 'val' => $userId];
+    }
+
+    if (!$hasTransactionIdColumn) {
+        unset($fields['transaction_id']);
     }
 
     $cols = array_keys($fields);
@@ -355,6 +385,7 @@ function printflow_record_product_inventory_transaction(
     // product rows to use item_id = product_id, as in the older ledger fetch.
     $legacyFields = [
         'item_id'          => ['type' => 'i', 'val' => $productId],
+        'transaction_id'   => ['type' => 's', 'val' => $productTransactionId],
         'direction'        => ['type' => 's', 'val' => $direction],
         'quantity'         => ['type' => 's', 'val' => (string)$qty],
         'uom'              => ['type' => 's', 'val' => 'pcs'],
@@ -371,6 +402,10 @@ function printflow_record_product_inventory_transaction(
     }
     if ($userId > 0) {
         $legacyFields['created_by'] = ['type' => 'i', 'val' => $userId];
+    }
+
+    if (!$hasTransactionIdColumn) {
+        unset($legacyFields['transaction_id']);
     }
 
     $legacyCols = array_keys($legacyFields);
