@@ -560,7 +560,7 @@ $online_closed_count = 0;
             max-width: 100%;
         }
         .action-col-cell {
-            text-align: right;
+            text-align: center;
             white-space: nowrap;
         }
         .status-badge-pill {
@@ -653,7 +653,7 @@ $online_closed_count = 0;
 
         .action-btn-group {
             display: flex;
-            justify-content: flex-end;
+            justify-content: center;
             align-items: center;
             gap: 8px;
             flex-wrap: nowrap;
@@ -686,15 +686,12 @@ $online_closed_count = 0;
             scrollbar-gutter: stable;
         }
         .customizations-data-table { min-width: 940px; }
-        .customizations-data-table .col-order { width: 17%; }
-        .customizations-data-table .col-info { width: 24%; }
-        .customizations-data-table .col-status { width: 14%; }
+        .customizations-data-table .col-order { width: 14%; }
+        .customizations-data-table .col-info { width: 28%; }
+        .customizations-data-table .col-status { width: 16%; }
         .customizations-data-table .col-customer { width: 18%; }
-        .customizations-data-table .col-created { width: 15%; }
-        .customizations-data-table .col-action { width: 12%; }
-        .customizations-data-table .created-cell { text-align: left; }
-        .customizations-data-table .action-col-cell { text-align: right; padding-left: 1rem; padding-right: 1.5rem; }
-        .customizations-data-table thead th:last-child { text-align: right; padding-left: 1rem; padding-right: 1.5rem; }
+        .customizations-data-table .col-created { width: 14%; }
+        .customizations-data-table .col-action { width: 10%; }
         .customizations-mobile-list { display: none; }
 
         @media (max-width: 1100px) {
@@ -1888,12 +1885,12 @@ $online_closed_count = 0;
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[17%]' : 'w-[17%]'; ?> border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[24%]' : 'w-[24%]'; ?> border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[14%]'; ?> border-b border-gray-100 text-center">Status</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[18%]' : 'w-[18%]'; ?> border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[15%]' : 'w-[15%]'; ?> border-b border-gray-100 text-left">Created</th>
-                                <th class="pl-4 pr-6 py-4 <?php echo $isPosCustomizationView ? 'w-[12%]' : 'w-[12%]'; ?> border-b border-gray-100 text-right uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[25%]' : 'w-[28%]'; ?> border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[18%]'; ?> border-b border-gray-100 text-center">Status</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[16%]' : 'w-[20%]'; ?> border-b border-gray-100">Customer</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[10%]' : 'w-[10%]'; ?> border-b border-gray-100 text-right">Created</th>
+                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[20%]' : 'w-[10%]'; ?> border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -1923,7 +1920,7 @@ $online_closed_count = 0;
                                     <td class="px-4 py-4 customer-cell" data-label="Customer">
                                         <div class="table-text-main truncate-ellipsis" :title="(jo.first_name + ' ' + (jo.last_name || '')).trim()" x-text="jo.first_name + ' ' + (jo.last_name || '')"></div>
                                     </td>
-                                    <td class="px-4 py-4 text-left created-cell" data-label="Created">
+                                    <td class="px-4 py-4 text-right created-cell" data-label="Created">
                                         <div class="table-text-main truncate-ellipsis" :title="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''" x-text="jo.created_at ? new Date(jo.created_at).toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'}) : ''"></div>
                                         <div class="table-text-sub uppercase truncate-ellipsis" :title="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''" x-text="jo.due_date ? 'Due ' + new Date(jo.due_date).toLocaleDateString() : ''"></div>
                                     </td>
@@ -1946,7 +1943,7 @@ $online_closed_count = 0;
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
-                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 0 0 auto;"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                 </tr>
                             </template>
                             <tr x-show="ordersError && orders.length === 0" x-cloak>
