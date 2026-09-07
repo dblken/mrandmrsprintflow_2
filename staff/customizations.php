@@ -686,12 +686,12 @@ $online_closed_count = 0;
             scrollbar-gutter: stable;
         }
         .customizations-data-table { min-width: 940px; }
-        .customizations-data-table .col-order { width: 14%; }
-        .customizations-data-table .col-info { width: 28%; }
-        .customizations-data-table .col-status { width: 16%; }
-        .customizations-data-table .col-customer { width: 18%; }
-        .customizations-data-table .col-created { width: 14%; }
-        .customizations-data-table .col-action { width: 10%; }
+        .customizations-data-table .col-order { width: 16%; }
+        .customizations-data-table .col-info { width: 22%; }
+        .customizations-data-table .col-status { width: 15%; }
+        .customizations-data-table .col-customer { width: 16%; }
+        .customizations-data-table .col-created { width: 18%; }
+        .customizations-data-table .col-action { width: 13%; }
         .customizations-mobile-list { display: none; }
 
         @media (max-width: 1100px) {
