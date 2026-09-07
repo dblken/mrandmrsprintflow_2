@@ -1010,7 +1010,7 @@ $page_title = 'Orders - Staff';
         .orders-card-actions {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 6px;
+            gap: 10px;
             width: 100%;
             min-width: 0;
         }
@@ -1193,7 +1193,7 @@ $page_title = 'Orders - Staff';
                 padding-right: 7px;
                 font-size: 10px;
             }
-            .orders-table .orders-card-actions { gap: 6px; }
+            .orders-table .orders-card-actions { gap: 8px; }
             .orders-table .orders-card-actions .table-action-btn {
                 min-width: 0;
                 width: 100%;
