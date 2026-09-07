@@ -1010,7 +1010,7 @@ $page_title = 'Orders - Staff';
         .orders-card-actions {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
+            gap: 14px;
             width: 100%;
             min-width: 0;
         }
@@ -1193,7 +1193,7 @@ $page_title = 'Orders - Staff';
                 padding-right: 7px;
                 font-size: 10px;
             }
-            .orders-table .orders-card-actions { gap: 10px; }
+            .orders-table .orders-card-actions { gap: 12px; }
             .orders-table .orders-card-actions .table-action-btn {
                 min-width: 0;
                 width: 100%;
@@ -1408,7 +1408,7 @@ $page_title = 'Orders - Staff';
                 display: grid !important;
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 width: 100% !important;
-                gap: 10px !important;
+                gap: 12px !important;
             }
             
             /* High specificity to force View + Message onto one line equally */
