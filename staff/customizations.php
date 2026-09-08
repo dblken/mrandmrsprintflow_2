@@ -685,7 +685,11 @@ $online_closed_count = 0;
             overscroll-behavior-inline: contain;
             scrollbar-gutter: stable;
         }
-        .customizations-data-table { min-width: 940px; table-layout: fixed; }
+        .customizations-data-table {
+            width: 100%;
+            min-width: 940px;
+            table-layout: fixed;
+        }
         .customizations-data-table th,
         .customizations-data-table td {
             padding-left: 18px !important;
@@ -693,32 +697,21 @@ $online_closed_count = 0;
             box-sizing: border-box;
             vertical-align: middle;
         }
-        .customizations-data-table .col-order,
-        .customizations-data-table th:nth-child(1),
-        .customizations-data-table td:nth-child(1) { width: 15% !important; }
-        .customizations-data-table .col-info,
-        .customizations-data-table th:nth-child(2),
-        .customizations-data-table td:nth-child(2) { width: 23% !important; }
-        .customizations-data-table .col-status,
+        .customizations-data-table .col-order { width: 16%; }
+        .customizations-data-table .col-info { width: 22%; }
+        .customizations-data-table .col-status { width: 14%; }
+        .customizations-data-table .col-customer { width: 16%; }
+        .customizations-data-table .col-created { width: 18%; }
+        .customizations-data-table .col-action { width: 14%; }
         .customizations-data-table th:nth-child(3),
-        .customizations-data-table td:nth-child(3) {
-            width: 14% !important;
-            text-align: center !important;
-        }
-        .customizations-data-table .col-customer,
-        .customizations-data-table th:nth-child(4),
-        .customizations-data-table td:nth-child(4) { width: 16% !important; }
-        .customizations-data-table .col-created,
-        .customizations-data-table th:nth-child(5),
-        .customizations-data-table td:nth-child(5) {
-            width: 18% !important;
-            text-align: left !important;
-        }
-        .customizations-data-table .col-action,
+        .customizations-data-table td:nth-child(3),
         .customizations-data-table th:nth-child(6),
         .customizations-data-table td:nth-child(6) {
-            width: 14% !important;
             text-align: center !important;
+        }
+        .customizations-data-table th:nth-child(5),
+        .customizations-data-table td:nth-child(5) {
+            text-align: left !important;
         }
         .customizations-data-table .status-col-inner,
         .customizations-data-table .action-btn-group {
@@ -1913,19 +1906,19 @@ $online_closed_count = 0;
                 </div>
 
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
-                    <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table" style="table-layout:fixed;">
+                    <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
                             <col class="col-order"><col class="col-info"><col class="col-status">
                             <col class="col-customer"><col class="col-created"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[25%]' : 'w-[28%]'; ?> border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[18%]'; ?> border-b border-gray-100 text-center">Status</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[16%]' : 'w-[20%]'; ?> border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[10%]' : 'w-[10%]'; ?> border-b border-gray-100 text-right">Created</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[20%]' : 'w-[10%]'; ?> border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Customer</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Created</th>
+                                <th class="px-4 py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
