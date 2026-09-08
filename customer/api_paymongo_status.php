@@ -155,7 +155,7 @@ if ($method === 'POST') {
         ? $result['payment']
         : [];
     $responseStatus = !empty($result['ok']) ? 200 : (int)($result['http_status'] ?? 500);
-    $responseStatus = in_array($responseStatus, [400, 401, 403, 404, 409, 422, 500, 502, 503], true)
+    $responseStatus = in_array($responseStatus, [200, 400, 401, 403, 404, 409, 422, 500, 502, 503], true)
         ? $responseStatus
         : 500;
     printflow_customer_paymongo_respond(

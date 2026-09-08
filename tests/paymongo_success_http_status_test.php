@@ -83,7 +83,7 @@ success_status_check(
     '10. a genuine conflict returns HTTP 409 with success=false'
 );
 success_status_check(
-    str_contains($api, '[400, 401, 403, 404, 409, 422, 500, 502, 503]')
+    str_contains($api, '[200, 400, 401, 403, 404, 409, 422, 500, 502, 503]')
         && str_contains($provider, "'http_status' => 503")
         && str_contains($provider, '? 502'),
     '11. provider failures retain structured 502/503 responses with success=false'
