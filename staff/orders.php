@@ -107,7 +107,7 @@ if (!$is_pos_staff && $status_filter === 'TO_VERIFY') {
 }
 $valid_status_filters = $is_pos_staff
     ? ['COMPLETED']
-    : ['ALL', 'PAYMENT', 'TO_PICK_UP', 'COMPLETED', 'CANCELLED'];
+    : ['ALL', 'PAYMENT', 'COMPLETED'];
 if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
     $status_filter = $is_pos_staff ? 'COMPLETED' : 'ALL';
 }
@@ -280,7 +280,7 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
  * manual payments only.
  */
 function staff_orders_sql_payment_bucket(string $oAlias = 'o'): string {
-    $legacy = "{$oAlias}.status IN ('To Pay', 'Payment Confirmed', 'To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted', 'Payment Rejected', 'Rejected')";
+    $legacy = "{$oAlias}.status IN ('To Pay', 'Payment Confirmed', 'To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted', 'Payment Rejected', 'Rejected', 'Processing')";
     if (!printflow_provider_payments_ready()) {
         return '(' . $legacy . ')';
     }
@@ -295,6 +295,40 @@ function staff_orders_sql_payment_bucket(string $oAlias = 'o'): string {
           AND pp.status IN ('generating', 'awaiting_payment', 'paid', 'failed', 'expired', 'cancelled'))";
     $notFulfilled = "{$oAlias}.status NOT IN ('Ready for Pickup', 'To Pickup', 'To Pick Up', 'Completed', 'Cancelled')";
     return '(' . $legacy . ' OR (' . $notFulfilled . ' AND ' . $provider . '))';
+}
+
+/** Online product orders that are not yet paid (including expired QR attempts). */
+function staff_orders_sql_awaiting_payment_bucket(string $oAlias = 'o'): string {
+    $legacy = "{$oAlias}.status IN ('To Pay', 'To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted', 'Payment Rejected', 'Rejected', 'Processing')";
+    if (!printflow_provider_payments_ready()) {
+        return '(' . $legacy . ')';
+    }
+
+    $mode = printflow_paymongo_mode();
+    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
+        ? " AND pp.mode = '{$mode}'"
+        : '';
+    return '(' . $legacy . " OR EXISTS (SELECT 1 FROM provider_payments pp
+        WHERE pp.subject_type = 'order' AND pp.subject_id = {$oAlias}.order_id
+          AND pp.channel = 'online' AND pp.provider = 'paymongo'{$modeSql}
+          AND pp.status IN ('generating', 'awaiting_payment', 'failed', 'expired', 'cancelled')))";
+}
+
+/** Online product orders confirmed paid and awaiting physical claim. */
+function staff_orders_sql_paid_bucket(string $oAlias = 'o'): string {
+    $legacy = "{$oAlias}.status = 'Payment Confirmed'";
+    if (!printflow_provider_payments_ready()) {
+        return '(' . $legacy . ')';
+    }
+
+    $mode = printflow_paymongo_mode();
+    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
+        ? " AND pp.mode = '{$mode}'"
+        : '';
+    return '(' . $legacy . " OR EXISTS (SELECT 1 FROM provider_payments pp
+        WHERE pp.subject_type = 'order' AND pp.subject_id = {$oAlias}.order_id
+          AND pp.channel = 'online' AND pp.provider = 'paymongo'{$modeSql}
+          AND pp.status = 'paid'))";
 }
 
 /** Attach the current environment's online PayMongo state to rendered rows. */
@@ -338,13 +372,11 @@ $types = '';
 if ($status_filter !== 'ALL') {
     if ($status_filter === 'PAYMENT') {
         $sql_conditions .= ' AND ' . staff_orders_sql_payment_bucket('o');
-    } elseif ($status_filter === 'TO_PICK_UP') {
-        $sql_conditions .= " AND o.status IN ('Ready for Pickup', 'To Pickup', 'To Pick Up')";
     } elseif ($status_filter === 'COMPLETED') {
         $sql_conditions .= " AND o.status = 'Completed'";
-    } elseif ($status_filter === 'CANCELLED') {
-        $sql_conditions .= " AND o.status = 'Cancelled'";
     }
+} elseif (!$is_pos_staff) {
+    $sql_conditions .= " AND o.status <> 'Cancelled'";
 }
 $order_code_search_sql = "CONCAT(
     COALESCE(NULLIF((
@@ -441,17 +473,17 @@ $kpi_params = [];
 $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
 $all_counts = [
-    'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status <> 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'PAYMENT' => db_query("SELECT COUNT(*) as count FROM orders o WHERE " . staff_orders_sql_payment_bucket('o') . " {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'TO_PICK_UP' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('Ready for Pickup', 'To Pickup', 'To Pick Up') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'AWAITING_PAYMENT' => db_query("SELECT COUNT(*) as count FROM orders o WHERE " . staff_orders_sql_awaiting_payment_bucket('o') . " AND o.status NOT IN ('Completed', 'Cancelled') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'PAID' => db_query("SELECT COUNT(*) as count FROM orders o WHERE " . staff_orders_sql_paid_bucket('o') . " AND o.status NOT IN ('Completed', 'Cancelled') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'CANCELLED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
 ];
 $total_count = $all_counts['ALL'];
 $payment_count = $all_counts['PAYMENT'];
-$to_pick_up_count = $all_counts['TO_PICK_UP'];
+$awaiting_payment_count = $all_counts['AWAITING_PAYMENT'];
+$paid_count = $all_counts['PAID'];
 $completed_count = $all_counts['COMPLETED'];
-$cancelled_count = $all_counts['CANCELLED'];
 $total_revenue = db_query(
     "SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}",
     $kpi_types ?: null,
@@ -2113,9 +2145,7 @@ $page_title = 'Orders - Staff';
                 <?php if (!$is_pos_staff): ?>
                 'ALL': 'ALL',
                 'PAYMENT': 'PAYMENT',
-                'TO_PICK_UP': 'TO PICK UP',
-                'COMPLETED': 'COMPLETED',
-                'CANCELLED': 'CANCELLED'
+                'COMPLETED': 'COMPLETED'
                 <?php endif; ?>
             },
             getProfileImage(image) {
@@ -2660,10 +2690,12 @@ $page_title = 'Orders - Staff';
                     '</div>' +
                     '<button class="btn-primary" onclick="setOrderPrice(' + d.order_id + ')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Save Price</button>' +
                     '</div>';
-            } else {
+            } else if (providerStatus === 'paid') {
                 actionsHTML = '<div style="margin-top:28px;">' +
                     '<button class="btn-primary" onclick="markOrderCompleted(' + d.order_id + ', \'' + csrf + '\')" style="width:100%; background:#06A1A1; color:white; border:none; padding:12px; border-radius:10px; font-weight:700; cursor:pointer; font-size:14px;">Mark as Completed</button>' +
                     '</div>';
+            } else {
+                actionsHTML = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f8fafc; color:#475569; font-size:13px;">Completion is available after PayMongo verifies this payment as paid and the customer claims the order.</div>';
             }
         }
 
@@ -2936,16 +2968,16 @@ $page_title = 'Orders - Staff';
                     </div>
                     <div class="kpi-card amber">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Payment</span>
-                            <span class="kpi-value"><?php echo number_format($payment_count); ?></span>
-                            <span class="kpi-sub">Provider and legacy payment states</span>
+                            <span class="kpi-label">Awaiting Payment</span>
+                            <span class="kpi-value"><?php echo number_format($awaiting_payment_count); ?></span>
+                            <span class="kpi-sub">Unpaid, processing, or expired</span>
                         </span>
                     </div>
                     <div class="kpi-card emerald">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">To Pick Up</span>
-                            <span class="kpi-value"><?php echo number_format($to_pick_up_count); ?></span>
-                            <span class="kpi-sub">Ready for release</span>
+                            <span class="kpi-label">Paid</span>
+                            <span class="kpi-value"><?php echo number_format($paid_count); ?></span>
+                            <span class="kpi-sub">Awaiting customer claim</span>
                         </span>
                     </div>
                     <div class="kpi-card blue">

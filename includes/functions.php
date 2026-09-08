@@ -5477,10 +5477,72 @@ function is_customer_id_verified($customer_id = null) {
 }
 
 /**
+ * Ready-made product orders use the PayMongo payment-and-claim workflow.
+ * Service orders are deliberately excluded: their existing production and
+ * revision workflow continues to own their cancellation rules.
+ */
+function printflow_is_ready_made_product_order(array $order): bool {
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) !== 'product') {
+        return false;
+    }
+
+    $orderId = (int)($order['order_id'] ?? 0);
+    if ($orderId <= 0) {
+        return false;
+    }
+
+    $itemColumns = ['customization_data'];
+    if (db_table_has_column('order_items', 'item_type')) {
+        $itemColumns[] = 'item_type';
+    }
+    if (db_table_has_column('order_items', 'service_id')) {
+        $itemColumns[] = 'service_id';
+    }
+    $items = db_query(
+        'SELECT ' . implode(', ', $itemColumns) . ' FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC',
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    foreach ($items as $item) {
+        $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+        $itemType = strtolower(trim((string)($item['item_type'] ?? '')));
+        $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
+        if (in_array($itemType, ['service', 'custom_service'], true)
+            || (int)($item['service_id'] ?? 0) > 0
+            || !empty($custom['service_type'])
+            || (int)($custom['service_id'] ?? 0) > 0
+            || in_array($sourcePage, ['service', 'services'], true)
+            || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($custom))) {
+            return false;
+        }
+    }
+
+    // A legacy service checkout can retain order_type=product while using a
+    // service reference. Do not route it into the ready-made workflow.
+    if ((int)($order['reference_id'] ?? 0) > 0 && $items !== []) {
+        $firstCustom = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
+        if (!customer_orders_custom_order_is_catalog_product($firstCustom)) {
+            return false;
+        }
+    }
+
+    if ((int)($order['reference_id'] ?? 0) > 0 && $items === []) {
+        $service = db_query('SELECT 1 FROM services WHERE service_id = ? LIMIT 1', 'i', [(int)$order['reference_id']]) ?: [];
+        if ($service !== []) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Determine if a customer can cancel an order based on its status.
  */
 function can_customer_cancel_order($order) {
     if (!$order) return false;
+    if (printflow_is_ready_made_product_order($order)) return false;
     $status = strtoupper(trim((string)($order['status'] ?? '')));
     // Customers can still cancel before production starts, including To Pay.
     $allowed_statuses = ['PENDING', 'TO PAY', 'TO_PAY', 'FOR REVISION', 'PENDING VERIFICATION', 'PENDING_VERIFICATION'];
