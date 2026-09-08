@@ -2177,12 +2177,13 @@ window.addEventListener('DOMContentLoaded', () => {
         try { localStorage.removeItem('pf_order_success_msg'); } catch (e) {}
     }
     const params = new URLSearchParams(window.location.search);
-    const highlightIdRaw = params.get('highlight');
+    const highlightIdRaw = params.get('receipt_order_id') || params.get('highlight');
     const highlightId = highlightIdRaw ? parseInt(highlightIdRaw, 10) : 0;
+    const openReceiptOnLoad = params.get('receipt_order_id') === String(highlightId);
     if (highlightId > 0) {
         // Open the details modal immediately for maximum responsiveness
         if (typeof openItemsModal === 'function') {
-            openItemsModal(highlightId);
+            openItemsModal(highlightId, null, { openReceiptOnLoad });
         }
 
         const card = document.querySelector(`[data-order-id="${highlightId}"]`);
@@ -2243,7 +2244,7 @@ window.addEventListener('DOMContentLoaded', () => {
         <div class="receipt-modal-header">
             <div>
                 <div class="receipt-modal-title">Order Receipt</div>
-                <div class="receipt-modal-subtitle">View or download your completed order receipt.</div>
+                <div class="receipt-modal-subtitle">Download your paid ready-made order receipt.</div>
             </div>
             <div class="receipt-modal-actions">
                 <button type="button" class="receipt-action-btn receipt-action-btn--primary" onclick="downloadReceiptPdf()">Download Receipt</button>
@@ -2442,6 +2443,16 @@ function buildReceiptHtml(receipt) {
         </div>
 
         <div class="receipt-section">
+            <div class="receipt-section-title">Payment</div>
+            <div class="receipt-payment-breakdown">
+                <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
+                <div class="receipt-total-line"><span>Payment Status</span><strong style="color:#0f766e;">${receiptEscape(payment.status || 'Paid')}</strong></div>
+                <div class="receipt-total-line"><span>Claim Status</span><strong style="color:#0f766e;">Ready to Claim</strong></div>
+                ${payment.reference ? `<div class="receipt-total-line"><span>Payment Reference</span><span>${receiptEscape(payment.reference)}</span></div>` : ''}
+            </div>
+        </div>
+
+        <div class="receipt-section">
             <div class="receipt-section-title">Items</div>
             <div class="receipt-line-items">${itemRows}</div>
             ${materials.length ? `<div class="receipt-item-meta" style="margin-top:12px;"><strong>Materials used:</strong> ${receiptEscape(materials.join(', '))}</div>` : ''}
@@ -2455,15 +2466,14 @@ function buildReceiptHtml(receipt) {
             </div>
             <div class="receipt-payment-breakdown">
                 <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
-                <div class="receipt-total-line"><span>Payment Status</span><strong style="color:#0f766e;">${receiptEscape(payment.status || 'Paid')}</strong></div>
                 <div class="receipt-total-line"><span>Amount Paid</span><strong>${formatMoney(payment.amount_paid || receipt.total || 0)}</strong></div>
-                ${payment.reference ? `<div class="receipt-total-line"><span>Reference</span><span>${receiptEscape(payment.reference)}</span></div>` : ''}
             </div>
         </div>
 
         <div class="receipt-footer">
             <strong>Thank you for choosing PrintFlow!</strong>
-            <p>Please keep this receipt for your records.</p>
+            <p>Please present this receipt when claiming your order.</p>
+            <p>Keep this receipt for your records.</p>
         </div>
     `;
 }
@@ -2917,7 +2927,7 @@ function renderItemsModalErrorState(message) {
     document.getElementById('imBody').innerHTML = `<p class="text-red-500 font-bold text-center">${escIM(message || 'Unable to load order details right now.')}</p>`;
 }
 
-function openItemsModal(orderId, event) {
+function openItemsModal(orderId, event, options = {}) {
     if (event) {
         event.preventDefault();
         event.stopPropagation();
@@ -2984,6 +2994,9 @@ function openItemsModal(orderId, event) {
         }
 
         document.getElementById('imSubtitle').textContent = data.order_code + ' • Order placed on ' + data.order_date;
+        if (options.openReceiptOnLoad && data.receipt_available && data.receipt) {
+            openReceiptModal(data.receipt);
+        }
 
         // Safety check for items
         const itemsList = Array.isArray(data.items) ? data.items : [];

@@ -932,7 +932,7 @@ if (!function_exists('pf_payment_qr_url')) {
                                 <div class="payment-detail"><span class="paymongo-label">Order Status</span><strong class="payment-detail-value"><?php echo $is_ready_made_product ? 'Paid' : 'Awaiting Production'; ?></strong></div>
                             </div>
                             <p style="color:#52666d;font-size:.82rem;line-height:1.55;margin:1rem auto 0;max-width:34rem;"><?php echo $is_ready_made_product ? 'Your payment has been received successfully. Please present your order reference when you claim your order.' : 'Payment has been received. Production will begin after staff confirmation.'; ?></p>
-                            <div class="payment-confirmed-actions"><span class="payment-status-badge"><?php echo $is_ready_made_product ? 'Paid' : 'Awaiting Production'; ?></span><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
+                            <div class="payment-confirmed-actions"><span class="payment-status-badge"><?php echo $is_ready_made_product ? 'Paid' : 'Awaiting Production'; ?></span><?php if ($is_ready_made_product): ?><a href="<?php echo 'orders.php?receipt_order_id=' . $order_id; ?>" class="paymongo-action paymongo-action-secondary">Download Receipt</a><?php endif; ?><a href="<?php echo !$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'; ?>" class="paymongo-action paymongo-action-secondary">View Order Details</a></div>
                         <?php else: ?>
                             <div style="font-size:1.45rem;font-weight:900;color:#eaf6fb;margin:10px 0;">Amount Paid: <?php echo format_currency($total_amount); ?></div>
                             <p style="color:#9fc4d4;font-size:.875rem;margin-bottom:6px;">Payment method: <?php echo htmlspecialchars((string)($order['payment_method'] ?? 'GCash')); ?></p>
@@ -1218,6 +1218,14 @@ if (!function_exists('pf_payment_qr_url')) {
             statusBadge.className = 'payment-status-badge';
             statusBadge.textContent = isReadyMadeProductOrder ? 'Paid' : 'Awaiting Production';
             actions.appendChild(statusBadge);
+
+            if (isReadyMadeProductOrder) {
+                const receiptLink = document.createElement('a');
+                receiptLink.href = <?php echo json_encode('orders.php?receipt_order_id=' . $order_id); ?>;
+                receiptLink.textContent = 'Download Receipt';
+                receiptLink.className = 'paymongo-action paymongo-action-secondary';
+                actions.appendChild(receiptLink);
+            }
 
             const orderLink = document.createElement('a');
             orderLink.href = <?php echo json_encode(!$is_job_order ? 'orders.php?highlight=' . $order_id : 'services.php'); ?>;
