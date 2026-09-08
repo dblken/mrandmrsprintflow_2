@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role('Staff');
 printflow_require_staff_module('orders');
@@ -100,9 +101,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
 // Get filter parameters
 $status_filter = trim((string)($_GET['status'] ?? ($is_pos_staff ? 'COMPLETED' : 'ALL')));
+// Preserve old bookmarked URLs while presenting the provider-backed workflow.
+if (!$is_pos_staff && $status_filter === 'TO_VERIFY') {
+    $status_filter = 'PAYMENT';
+}
 $valid_status_filters = $is_pos_staff
     ? ['COMPLETED']
-    : ['ALL', 'TO_VERIFY', 'TO_PICK_UP', 'COMPLETED', 'CANCELLED'];
+    : ['ALL', 'PAYMENT', 'TO_PICK_UP', 'COMPLETED', 'CANCELLED'];
 if ($status_filter === '' || !in_array($status_filter, $valid_status_filters, true)) {
     $status_filter = $is_pos_staff ? 'COMPLETED' : 'ALL';
 }
@@ -269,12 +274,70 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
     unset($row);
 }
 
+/**
+ * SQL predicate for orders that are still in the payment stage. PayMongo rows
+ * remain authoritative; legacy proof-review statuses stay visible for old and
+ * manual payments only.
+ */
+function staff_orders_sql_payment_bucket(string $oAlias = 'o'): string {
+    $legacy = "{$oAlias}.status IN ('To Pay', 'Payment Confirmed', 'To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted', 'Payment Rejected', 'Rejected')";
+    if (!printflow_provider_payments_ready()) {
+        return '(' . $legacy . ')';
+    }
+
+    $mode = printflow_paymongo_mode();
+    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
+        ? " AND pp.mode = '{$mode}'"
+        : '';
+    $provider = "EXISTS (SELECT 1 FROM provider_payments pp
+        WHERE pp.subject_type = 'order' AND pp.subject_id = {$oAlias}.order_id
+          AND pp.channel = 'online' AND pp.provider = 'paymongo'{$modeSql}
+          AND pp.status IN ('generating', 'awaiting_payment', 'paid', 'failed', 'expired', 'cancelled'))";
+    $notFulfilled = "{$oAlias}.status NOT IN ('Ready for Pickup', 'To Pickup', 'To Pick Up', 'Completed', 'Cancelled')";
+    return '(' . $legacy . ' OR (' . $notFulfilled . ' AND ' . $provider . '))';
+}
+
+/** Attach the current environment's online PayMongo state to rendered rows. */
+function staff_orders_attach_provider_payments(array &$orders): void {
+    if ($orders === [] || !printflow_provider_payments_ready()) {
+        return;
+    }
+    $ids = [];
+    foreach ($orders as $order) {
+        $id = (int)($order['order_id'] ?? 0);
+        if ($id > 0) $ids[$id] = $id;
+    }
+    if ($ids === []) return;
+
+    $mode = printflow_paymongo_mode();
+    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
+        ? " AND mode = '{$mode}'"
+        : '';
+    $rows = db_query(
+        "SELECT * FROM provider_payments
+         WHERE subject_type = 'order' AND subject_id IN (" . implode(',', $ids) . ")
+           AND channel = 'online' AND provider = 'paymongo'{$modeSql}
+         ORDER BY CASE WHEN status = 'paid' THEN 0 WHEN status = 'awaiting_payment' THEN 1 ELSE 2 END,
+                  id DESC"
+    ) ?: [];
+    $byOrder = [];
+    foreach ($rows as $row) {
+        $id = (int)($row['subject_id'] ?? 0);
+        if ($id > 0 && !isset($byOrder[$id])) $byOrder[$id] = $row;
+    }
+    foreach ($orders as &$order) {
+        $payment = $byOrder[(int)($order['order_id'] ?? 0)] ?? [];
+        $order['provider_payment'] = $payment === [] ? null : printflow_provider_payment_public($payment);
+    }
+    unset($order);
+}
+
 $sql_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $params = [];
 $types = '';
 if ($status_filter !== 'ALL') {
-    if ($status_filter === 'TO_VERIFY') {
-        $sql_conditions .= " AND o.status IN ('To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted')";
+    if ($status_filter === 'PAYMENT') {
+        $sql_conditions .= ' AND ' . staff_orders_sql_payment_bucket('o');
     } elseif ($status_filter === 'TO_PICK_UP') {
         $sql_conditions .= " AND o.status IN ('Ready for Pickup', 'To Pickup', 'To Pick Up')";
     } elseif ($status_filter === 'COMPLETED') {
@@ -364,6 +427,7 @@ if (!is_array($orders)) {
     $orders = [];
 }
 staff_orders_attach_payment_rejected_flags($orders);
+staff_orders_attach_provider_payments($orders);
 foreach ($orders as &$order) {
     $order['order_code'] = printflow_format_order_code($order['order_id'] ?? 0, $order['order_sku'] ?? '');
 }
@@ -378,13 +442,13 @@ $kpi_conditions .= branch_where('o', $staffBranchId, $kpi_types, $kpi_params);
 
 $all_counts = [
     'ALL' => db_query("SELECT COUNT(*) as count FROM orders o WHERE 1=1 {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
-    'TO_VERIFY' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
+    'PAYMENT' => db_query("SELECT COUNT(*) as count FROM orders o WHERE " . staff_orders_sql_payment_bucket('o') . " {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'TO_PICK_UP' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status IN ('Ready for Pickup', 'To Pickup', 'To Pick Up') {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'COMPLETED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
     'CANCELLED' => db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = 'Cancelled' {$kpi_conditions}", $kpi_types ?: null, $kpi_params ?: null)[0]['count'] ?? 0,
 ];
 $total_count = $all_counts['ALL'];
-$to_verify_count = $all_counts['TO_VERIFY'];
+$payment_count = $all_counts['PAYMENT'];
 $to_pick_up_count = $all_counts['TO_PICK_UP'];
 $completed_count = $all_counts['COMPLETED'];
 $cancelled_count = $all_counts['CANCELLED'];
@@ -395,8 +459,27 @@ $total_revenue = db_query(
 )[0]['total'] ?? 0;
 $average_sale_value = $completed_count > 0 ? ((float)$total_revenue / (float)$completed_count) : 0;
 
-function staff_orders_display_status(string $status): string {
+function staff_orders_display_status(string $status, ?array $providerPayment = null): string {
     $status = trim($status);
+    if (in_array($status, ['Completed', 'Cancelled', 'To Pickup', 'To Pick Up', 'Ready for Pickup'], true)) {
+        return $status;
+    }
+    if ($providerPayment !== null) {
+        return match (strtolower(trim((string)($providerPayment['status'] ?? '')))) {
+            'generating' => 'Processing',
+            'awaiting_payment' => 'Awaiting Payment',
+            'paid' => 'Paid',
+            'failed' => 'Payment Failed',
+            'expired' => 'Expired',
+            'cancelled' => 'Payment Cancelled',
+            default => 'Processing',
+        };
+    }
+    if (in_array($status, ['To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted'], true)) {
+        return 'Manual Review';
+    }
+    if ($status === 'To Pay') return 'Awaiting Payment';
+    if ($status === 'Payment Confirmed') return 'Paid';
     $knownStatuses = [
         'Completed',
         'Cancelled',
@@ -423,6 +506,11 @@ function staff_orders_status_pill_style(string $displayStatus): string {
         'VERIFY PAY' => 'background:#fef9c3;color:#92400e;',
         'APPROVED' => 'background:#dbeafe;color:#1e40af;',
         'PAYMENT REJECTED' => 'background:#ffe4e6;color:#9f1239;border:1px solid #fecdd3;',
+        'PAYMENT FAILED', 'EXPIRED', 'PAYMENT CANCELLED' => 'background:#fee2e2;color:#991b1b;border:1px solid #fecaca;',
+        'MANUAL REVIEW' => 'background:#fef9c3;color:#92400e;',
+        'PROCESSING' => 'background:#dbeafe;color:#1e40af;',
+        'AWAITING PAYMENT' => 'background:#fef3c7;color:#b45309;',
+        'PAID' => 'background:#dcfce7;color:#166534;',
         'TO PAY' => 'background:#fef3c7;color:#b45309;',
         'TO PICK UP' => 'background:#ede9fe;color:#5b21b6;',
         'READY FOR PICKUP' => 'background:#dcfce7;color:#15803d;',
@@ -517,7 +605,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == '1') {
                 <td class="px-4 py-4 status-col-cell order-status-cell" data-label="Status">
                     <?php
                     // Counter staff uses a simplified Pending/Completed display.
-                    $display_order_status = staff_orders_display_status((string)$order['status']);
+                    $display_order_status = staff_orders_display_status(
+                        (string)$order['status'],
+                        is_array($order['provider_payment'] ?? null) ? $order['provider_payment'] : null
+                    );
                     ?>
                     <div class="status-col-inner">
                         <?php echo staff_orders_status_pill_html($display_order_status); ?>
@@ -1771,6 +1862,10 @@ $page_title = 'Orders - Staff';
             'Downpayment Submitted': 'background: #fce7f3; color: #be185d;',
             'Pending Verification':  'background: #fef9c3; color: #854d0e;',
             'Processing':            'background: #e0e7ff; color: #4338ca;',
+            'Awaiting Payment':      'background: #fef3c7; color: #92400e;',
+            'Payment Failed':        'background: #fee2e2; color: #991b1b;',
+            'Expired':               'background: #fee2e2; color: #991b1b;',
+            'Payment Cancelled':     'background: #fee2e2; color: #991b1b;',
             'In Production':         'background: #cffafe; color: #0891b2;',
             'Printing':              'background: #cffafe; color: #0891b2;',
             'For Revision':          'background: #ffe4e6; color: #b91c1c;',
@@ -2017,7 +2112,7 @@ $page_title = 'Orders - Staff';
             statusTabs: {
                 <?php if (!$is_pos_staff): ?>
                 'ALL': 'ALL',
-                'TO_VERIFY': 'TO VERIFY',
+                'PAYMENT': 'PAYMENT',
                 'TO_PICK_UP': 'TO PICK UP',
                 'COMPLETED': 'COMPLETED',
                 'CANCELLED': 'CANCELLED'
@@ -2505,8 +2600,26 @@ $page_title = 'Orders - Staff';
             '</div>' : '';
 
         var payBlock = '';
+        var providerPayment = d.provider_payment && typeof d.provider_payment === 'object' ? d.provider_payment : null;
+        var providerStatusLabels = {
+            generating: 'Processing',
+            awaiting_payment: 'Awaiting Payment',
+            paid: 'Paid',
+            failed: 'Payment Failed',
+            expired: 'Expired',
+            cancelled: 'Payment Cancelled'
+        };
+        var providerStatus = providerPayment ? String(providerPayment.status || '').toLowerCase() : '';
+        var providerStatusLabel = providerStatusLabels[providerStatus] || 'Processing';
+        if (providerPayment) {
+            payBlock = '<div style="margin-top:20px;padding:16px;border-radius:12px;border:1px solid #bfdbfe;background:#eff6ff;">' +
+                '<label style="font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;display:block;margin-bottom:8px;">PayMongo Payment Status</label>' +
+                '<div style="font-size:14px;font-weight:700;color:#1e3a8a;">' + esc(providerStatusLabel) + '</div>' +
+                '<div style="font-size:12px;color:#475569;margin-top:5px;">Verified automatically from the payment provider. No receipt approval is required.</div>' +
+                '</div>';
+        }
         if (d.payment_proof && d.payment_proof !== 'null' && d.payment_proof !== 'undefined') {
-            payBlock = '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f0fdf4;">' +
+            payBlock += '<div style="margin-top:20px; padding:16px; border-radius:12px; border:1px solid #e2e8f0; background:#f0fdf4;">' +
                 '<label style="font-size:11px;font-weight:700;color:#15803d;text-transform:uppercase;display:block;margin-bottom:12px;">Payment Proof</label>' +
                 '<a href="' + d.payment_proof + '" target="_blank" style="display:block;border-radius:10px;overflow:hidden;border:2px solid #bbf7d0;background:#fff;">' +
                 '<img src="' + d.payment_proof + '" alt="Payment Proof" style="width:100%;height:auto;display:block;max-height:400px;object-fit:contain;"></a></div>';
@@ -2518,7 +2631,7 @@ $page_title = 'Orders - Staff';
         var actionsHTML = '';
         var isViewOnlyStatus = ['Completed', 'Cancelled', 'Rejected', 'COMPLETED', 'CANCELLED', 'REJECTED'].includes(d.status);
         var verifyStatuses = ['To Verify', 'Pending Verification', 'Verify Pay'];
-        var isVerifyStatus = verifyStatuses.includes(d.status);
+        var isVerifyStatus = !providerPayment && verifyStatuses.includes(d.status);
         var canVerifyPayment = isVerifyStatus && d.payment_proof && d.payment_proof !== 'null' && d.payment_proof !== 'undefined';
         var isCompletedWalkIn = d.status === 'COMPLETED'
             && String(d.payment_status || '').toLowerCase() === 'paid'
@@ -2576,7 +2689,7 @@ $page_title = 'Orders - Staff';
             '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">' +
                 '<div>' +
                     '<div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:4px;">Status</div>' +
-                    '<div>' + statusBadge(d.status) + '</div>' +
+                    '<div>' + statusBadge(providerPayment ? providerStatusLabel : d.status) + '</div>' +
                 '</div>' +
                 '<div>' +
                     '<div style="font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:4px;">Grand Total</div>' +
@@ -2823,9 +2936,9 @@ $page_title = 'Orders - Staff';
                     </div>
                     <div class="kpi-card amber">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">To Verify</span>
-                            <span class="kpi-value"><?php echo number_format($to_verify_count); ?></span>
-                            <span class="kpi-sub">Awaiting payment check</span>
+                            <span class="kpi-label">Payment</span>
+                            <span class="kpi-value"><?php echo number_format($payment_count); ?></span>
+                            <span class="kpi-sub">Provider and legacy payment states</span>
                         </span>
                     </div>
                     <div class="kpi-card emerald">
@@ -3011,7 +3124,12 @@ $page_title = 'Orders - Staff';
                                     </td>
                                     <?php if (!$is_pos_staff): ?>
                                     <td class="px-4 py-4 status-col-cell order-status-cell" data-label="Status">
-                                        <?php $display_order_status2 = staff_orders_display_status((string)$order['status']); ?>
+                                        <?php
+                                        $display_order_status2 = staff_orders_display_status(
+                                            (string)$order['status'],
+                                            is_array($order['provider_payment'] ?? null) ? $order['provider_payment'] : null
+                                        );
+                                        ?>
                                         <div class="status-col-inner">
                                             <?php echo staff_orders_status_pill_html($display_order_status2); ?>
                                             <?php if (($order['design_status'] ?? '') === 'Revision Submitted'): ?>

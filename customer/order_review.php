@@ -1423,15 +1423,22 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .order-review-page .review-order-entry .order-item-content {
         display: grid !important;
-        grid-template-columns: minmax(80px, 0.9fr) minmax(86px, auto) minmax(185px, 1.15fr) !important;
+        grid-template-columns:
+            minmax(76px, 1.15fr)
+            minmax(76px, 0.8fr)
+            minmax(48px, 0.42fr)
+            minmax(82px, 0.68fr)
+            minmax(100px, 0.78fr) !important;
         align-items: center !important;
         align-self: center !important;
-        gap: 0.75rem !important;
-        overflow: visible !important;
+        gap: 0.5rem !important;
+        min-width: 0 !important;
     }
     .order-review-page .review-order-entry .order-item-content h3 {
         margin: 0 !important;
         color: #ffffff !important;
+        min-width: 0 !important;
+        overflow-wrap: anywhere !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge {
         display: flex !important;
@@ -1446,7 +1453,8 @@ require_once __DIR__ . '/../includes/header.php';
         color: #53c5e0 !important;
         text-transform: uppercase !important;
         line-height: 1.15 !important;
-        white-space: nowrap !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge::before {
         content: "Category:";
@@ -1459,14 +1467,7 @@ require_once __DIR__ . '/../includes/header.php';
         text-transform: uppercase !important;
     }
     .order-review-page .review-order-entry .order-item-details {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        gap: 0.9rem !important;
-        margin: 0 !important;
-        flex-wrap: nowrap !important;
-        min-width: 0 !important;
-        overflow: visible !important;
+        display: contents !important;
     }
     .order-review-page .review-order-entry .review-detail-row,
     .order-review-page .review-order-entry .review-total-row {
@@ -1479,10 +1480,11 @@ require_once __DIR__ . '/../includes/header.php';
         align-self: center !important;
     }
     .order-review-page .review-order-entry .review-detail-row {
-        min-width: 52px !important;
+        min-width: 0 !important;
     }
     .order-review-page .review-order-entry .review-total-row {
-        min-width: 112px !important;
+        min-width: 0 !important;
+        grid-column: 5 !important;
     }
     .order-review-page .review-order-entry .review-detail-label,
     .order-review-page .review-order-entry .review-total-label {
