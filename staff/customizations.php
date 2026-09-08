@@ -692,17 +692,17 @@ $online_closed_count = 0;
         }
         .customizations-data-table th,
         .customizations-data-table td {
-            padding-left: 18px !important;
-            padding-right: 18px !important;
+            padding-left: 16px !important;
+            padding-right: 16px !important;
             box-sizing: border-box;
             vertical-align: middle;
         }
         .customizations-data-table .col-order { width: 16%; }
-        .customizations-data-table .col-info { width: 22%; }
+        .customizations-data-table .col-info { width: 24%; }
         .customizations-data-table .col-status { width: 14%; }
         .customizations-data-table .col-customer { width: 16%; }
         .customizations-data-table .col-created { width: 18%; }
-        .customizations-data-table .col-action { width: 14%; }
+        .customizations-data-table .col-action { width: 12%; }
         .customizations-data-table th:nth-child(3),
         .customizations-data-table td:nth-child(3),
         .customizations-data-table th:nth-child(6),
@@ -712,6 +712,7 @@ $online_closed_count = 0;
         .customizations-data-table th:nth-child(5),
         .customizations-data-table td:nth-child(5) {
             text-align: left !important;
+            white-space: nowrap;
         }
         .customizations-data-table .status-col-inner,
         .customizations-data-table .action-btn-group {
