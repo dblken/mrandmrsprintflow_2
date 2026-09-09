@@ -2073,15 +2073,44 @@ try {
                 if (!empty($items[0]['customization']) && is_array($items[0]['customization'])) {
                     $details = printflow_overlay_nonempty_assoc($items[0]['customization'], $details);
                 }
-                if (!empty($storeLinePayload['service_type'])) {
-                    $summary['service_type'] = $storeLinePayload['service_type'];
-                    $summary['job_title'] = $storeLinePayload['service_type'];
+
+                // Root-cause fix (Counter/POS path): getStoreOrderItemsPayload() aggregates
+                // the WHOLE store order and returns service_type/width/height derived from
+                // the FIRST line item. This customization row (`$cust`) is linked to one
+                // SPECIFIC order_item_id; for orders with multiple, differently-serviced
+                // items that aggregate leaks the wrong service into this modal (e.g. a
+                // Tarpaulin customization showing "T-Shirt Printing"). Prefer the matching
+                // item's own data when the order has more than one line item.
+                $ownOrderItemIdForService = (int)($cust['order_item_id'] ?? 0);
+                $ownServiceItem = null;
+                if ($ownOrderItemIdForService > 0 && count($items) > 1) {
+                    foreach ($items as $candidateItem) {
+                        if ((int)($candidateItem['order_item_id'] ?? 0) === $ownOrderItemIdForService) {
+                            $ownServiceItem = $candidateItem;
+                            break;
+                        }
+                    }
                 }
-                if (!empty($storeLinePayload['width_ft'])) {
-                    $summary['width_ft'] = $storeLinePayload['width_ft'];
+                $resolvedServiceType = $ownServiceItem !== null
+                    ? trim((string)($ownServiceItem['product_name'] ?? ''))
+                    : (string)($storeLinePayload['service_type'] ?? '');
+                if ($resolvedServiceType !== '') {
+                    $summary['service_type'] = $resolvedServiceType;
+                    $summary['job_title'] = $resolvedServiceType;
                 }
-                if (!empty($storeLinePayload['height_ft'])) {
-                    $summary['height_ft'] = $storeLinePayload['height_ft'];
+                $ownServiceCustom = ($ownServiceItem !== null && is_array($ownServiceItem['customization'] ?? null))
+                    ? $ownServiceItem['customization']
+                    : null;
+                if ($ownServiceCustom !== null && !empty($ownServiceCustom['width']) && !empty($ownServiceCustom['height'])) {
+                    $summary['width_ft'] = (string)$ownServiceCustom['width'];
+                    $summary['height_ft'] = (string)$ownServiceCustom['height'];
+                } else {
+                    if (!empty($storeLinePayload['width_ft'])) {
+                        $summary['width_ft'] = $storeLinePayload['width_ft'];
+                    }
+                    if (!empty($storeLinePayload['height_ft'])) {
+                        $summary['height_ft'] = $storeLinePayload['height_ft'];
+                    }
                 }
                 if (isset($storeLinePayload['line_qty']) && (int)$storeLinePayload['line_qty'] > 0) {
                     $summary['quantity'] = (int)$storeLinePayload['line_qty'];
