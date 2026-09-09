@@ -94,7 +94,7 @@ $has_product_image = !empty(db_query("SHOW COLUMNS FROM products LIKE 'product_i
 $has_photo_path = !empty(db_query("SHOW COLUMNS FROM products LIKE 'photo_path'"));
 $first_product_image_expr = "''";
 if ($has_product_image && $has_photo_path) {
-    $first_product_image_expr = "COALESCE(p.photo_path, p.product_image)";
+    $first_product_image_expr = "COALESCE(NULLIF(TRIM(p.photo_path), ''), NULLIF(TRIM(p.product_image), ''))";
 } elseif ($has_product_image) {
     $first_product_image_expr = "p.product_image";
 } elseif ($has_photo_path) {

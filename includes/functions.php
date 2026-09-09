@@ -405,7 +405,7 @@ function notify_shop_users(string $message, string $type = 'System', bool $send_
 
     $placeholders = implode(',', array_fill(0, count($roles), '?'));
     $users = db_query(
-        "SELECT user_id, role, branch_id FROM users WHERE role IN ($placeholders) AND status = 'Activated'",
+        "SELECT user_id, role, branch_id, position FROM users WHERE role IN ($placeholders) AND status = 'Activated'",
         str_repeat('s', count($roles)),
         $roles
     );
@@ -427,6 +427,23 @@ function notify_shop_users(string $message, string $type = 'System', bool $send_
 
         if ($targetBranchId !== null && in_array($role, ['Staff', 'Manager'], true)) {
             if ((int)($u['branch_id'] ?? 0) !== $targetBranchId) {
+                continue;
+            }
+        }
+
+        // A shared branch is not a notification audience. Staff notifications
+        // linked to an order follow that order's canonical source so Counter/POS
+        // users do not receive online events (and vice versa).
+        if ($role === 'Staff' && $data_id !== null && (int)$data_id > 0
+            && function_exists('printflow_notification_source_for_staff_scope')
+            && function_exists('printflow_staff_role_can_access_order_source')
+            && function_exists('printflow_resolve_staff_access_role_from_user')) {
+            $orderSource = printflow_notification_source_for_staff_scope($type, (int)$data_id);
+            if ($orderSource !== null
+                && !printflow_staff_role_can_access_order_source(
+                    printflow_resolve_staff_access_role_from_user($u),
+                    $orderSource
+                )) {
                 continue;
             }
         }
@@ -493,6 +510,39 @@ function printflow_notification_branch_id(array $notification): ?int {
 }
 
 /**
+ * Resolve the canonical order source for a staff-scoped notification.
+ *
+ * A notification stores only its type and related identifier, so this is the
+ * single translation point used both when creating notifications and when
+ * filtering historical rows. Null means the event has no order channel and
+ * retains its existing audience rules.
+ */
+function printflow_notification_source_for_staff_scope(string $type, int $dataId): ?string {
+    $type = trim($type);
+    $dataId = (int)$dataId;
+    if ($dataId <= 0) {
+        return null;
+    }
+
+    $sourceScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue', 'Message', 'Status', 'Rating', 'Review'];
+    if (!in_array($type, $sourceScopedTypes, true)) {
+        return null;
+    }
+
+    if ($type === 'Payment') {
+        $paymentContext = printflow_payment_submission_notification_context($dataId);
+        if (!empty($paymentContext)) {
+            $source = strtolower(trim((string)($paymentContext['order_source'] ?? 'customer')));
+            return $source !== '' ? $source : 'customer';
+        }
+    }
+
+    $source = printflow_resolve_order_source_for_staff_scope($dataId, $type);
+    $source = strtolower(trim((string)$source));
+    return $source !== '' ? $source : 'customer';
+}
+
+/**
  * True when a notification should be visible to the given staff/manager branch.
  */
 function printflow_staff_notification_visible(array $notification, ?int $branchId): bool {
@@ -525,16 +575,8 @@ function printflow_staff_notification_visible(array $notification, ?int $branchI
 
     $type = (string)($notification['type'] ?? '');
     $dataId = (int)($notification['data_id'] ?? 0);
-    $sourceScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue', 'Message', 'Status'];
-    if ($dataId > 0 && in_array($type, $sourceScopedTypes, true)) {
-        if ($type === 'Payment') {
-            $paymentContext = printflow_payment_submission_notification_context($dataId);
-            if (!empty($paymentContext)) {
-                $orderSource = strtolower(trim((string)($paymentContext['order_source'] ?? 'customer')));
-                return printflow_staff_role_can_access_order_source($staffRole, $orderSource !== '' ? $orderSource : 'customer');
-            }
-        }
-        $orderSource = printflow_resolve_order_source_for_staff_scope($dataId, $type);
+    $orderSource = printflow_notification_source_for_staff_scope($type, $dataId);
+    if ($orderSource !== null) {
         return printflow_staff_role_can_access_order_source($staffRole, $orderSource);
     }
 
@@ -6313,6 +6355,19 @@ function printflow_resolve_active_service_catalog_id(string $serviceName): int {
 function printflow_order_list_thumbnail_url(array $order, string $displayName = ''): string {
     $appBase = pf_app_base_path();
     $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
+
+    // Ready-made orders already select the first catalog image in
+    // customer/orders.php. Prefer that trusted product value before the
+    // service-art resolver below, which cannot identify a catalog product.
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) === 'product') {
+        $productImage = trim((string)($order['first_product_image'] ?? ''));
+        if ($productImage !== '' && function_exists('pf_order_ui_asset_url')) {
+            $productUrl = pf_order_ui_asset_url($productImage);
+            if ($productUrl !== null && $productUrl !== '') {
+                return $productUrl;
+            }
+        }
+    }
 
     $custom = function_exists('customer_orders_primary_customization')
         ? customer_orders_primary_customization($order)
