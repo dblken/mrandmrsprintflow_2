@@ -1639,6 +1639,32 @@ $online_closed_count = 0;
             .production-material-option { align-items: flex-start; padding: 10px; }
             .production-material-option__status { max-width: 46%; }
         }
+        /* Shared soft confirmation-modal buttons (destructive vs. deliberate action). */
+        .pf-confirm-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 38px;
+            padding: 0 18px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: pointer;
+            transition: filter 0.15s ease, transform 0.15s ease;
+        }
+        .pf-confirm-btn:hover { filter: brightness(0.97); }
+        .pf-confirm-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+        .pf-confirm-btn-red {
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+        .pf-confirm-btn-green {
+            background: #f0fdf4;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
+        }
     </style>
 </head>
 <body data-base-url="<?php echo htmlspecialchars(BASE_URL); ?>" data-csrf="<?php echo htmlspecialchars(generate_csrf_token()); ?>" data-user-type="<?php echo htmlspecialchars($_SESSION['user_type'] ?? 'Staff'); ?>">
@@ -2573,6 +2599,7 @@ $online_closed_count = 0;
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
+                                    <div x-show="priceBelowEstimateLabel" x-cloak x-text="priceBelowEstimateLabel" style="margin-top:6px; font-size:11px; font-weight:700; color:#b45309;"></div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
                                     <template x-for="(issue, idx) in approvalStockErrors" :key="idx">
@@ -2876,9 +2903,30 @@ $online_closed_count = 0;
             <h3 id="material-override-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;" x-text="materialOverrideTitle"></h3>
             <p style="margin:12px 0 0; color:#334155; font-size:13px; line-height:1.5;" x-text="materialOverrideLead"></p>
             <p id="material-override-description" style="margin:8px 0 0; color:#64748b; font-size:12px; line-height:1.5;" x-text="materialOverrideGuidance"></p>
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
-                <button x-ref="materialOverrideCancel" type="button" @click="cancelMaterialOverride()" class="btn-secondary">Cancel</button>
-                <button type="button" @click="confirmMaterialOverride()" class="btn-staff-action btn-staff-action-indigo" style="padding:8px 14px; font-size:12px; font-weight:700;">Use Material</button>
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap;">
+                <button x-ref="materialOverrideCancel" type="button" @click="cancelMaterialOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-red">Cancel</button>
+                <button type="button" @click="confirmMaterialOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-green">Use Material</button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template x-if="showPriceOverrideModal">
+    <div @keydown.escape.window.stop.prevent="cancelPriceOverride()">
+        <div x-show="showPriceOverrideModal" x-cloak @click="cancelPriceOverride()" style="position:fixed; inset:0; z-index:11020; background:rgba(15,23,42,.45);"></div>
+        <div x-show="showPriceOverrideModal" x-cloak role="dialog" aria-modal="true" aria-labelledby="price-override-title" aria-describedby="price-override-description" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:11021; width:min(420px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border:1px solid #dbe3ea; border-radius:12px; box-shadow:0 20px 50px rgba(15,23,42,.25); padding:20px;">
+            <h3 id="price-override-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;">Price below estimate</h3>
+            <p id="price-override-description" style="margin:12px 0 0; color:#334155; font-size:13px; line-height:1.5;">
+                The final price is <strong x-text="'₱' + Number(priceOverrideDiff).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong> below the estimated price.
+                Please confirm that this adjustment is intentional.
+            </p>
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap;">
+                <button type="button" @click="cancelPriceOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-red">Cancel</button>
+                <button type="button" @click="confirmPriceOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-green">Confirm Lower Price</button>
             </div>
         </div>
     </div>
@@ -3200,6 +3248,12 @@ window.pfCustomizationPreloadedOrders = (() => {
             search: '',
             jobPriceInput: 0,
             loadingModalAssignments: false,
+            // ── Below-estimate Final Price override confirmation ─────────
+            showPriceOverrideModal: false,
+            priceOverrideAmount: 0,
+            priceOverrideDiff: 0,
+            priceOverrideResolve: null,
+            lastPriceOverrideConfirmed: false,
             
             // ── Profile Image Fallback ───────────────────────────────────
             getProfileImage(image) {
@@ -3575,9 +3629,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.schedulePayMongoPolling();
-                this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
-                    ? this.currentJo.final_price
-                    : '';
+                if (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0) {
+                    // Preserve an already-entered/saved valid Final Price as-is.
+                    this.jobPriceInput = this.currentJo.final_price;
+                } else {
+                    // No valid Final Price yet: default to the Estimated Price so staff
+                    // aren't forced to retype the recommended price from scratch.
+                    const defaultEstimate = Number(this.currentJo.estimated_price || this.currentJo.estimated_total || 0);
+                    this.jobPriceInput = defaultEstimate > 0 ? defaultEstimate : '';
+                }
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
@@ -6093,6 +6153,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             async setJobPrice(id) {
                 if(this.jobPriceInput < 0) return;
+                const priceValue = parseFloat(this.jobPriceInput);
+                if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                 let jid = id != null ? id : await this.resolveEffectiveJobId();
                 if (!jid) {
                     this.showStaffAlert('Error', 'No linked production job.');
@@ -6103,11 +6165,58 @@ window.pfCustomizationPreloadedOrders = (() => {
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
                 fd.append('price', this.jobPriceInput);
+                if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if(!res.success) {
                     this.showStaffAlert('Error', res.error);
                     throw new Error(res.error);
                 }
+            },
+            // Returns the current Estimated Price for the open job/order, or 0 if unknown.
+            get currentEstimatedPrice() {
+                if (!this.currentJo) return 0;
+                return Number(this.currentJo.estimated_price || this.currentJo.estimated_total || 0) || 0;
+            },
+            // Inline "₱X.XX below estimated price" indicator for the Final Price field.
+            get priceBelowEstimateLabel() {
+                const estimate = this.currentEstimatedPrice;
+                const entered = parseFloat(this.jobPriceInput);
+                if (!(estimate > 0) || !Number.isFinite(entered) || !(entered < estimate)) return '';
+                const diff = estimate - entered;
+                return `₱${diff.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} below estimated price`;
+            },
+            /**
+             * Deterministic, non-blocking safeguard for Issue 3: if the price being
+             * saved is below the job's Estimated Price, show a confirmation modal
+             * (never a browser alert()) and wait for staff's explicit decision.
+             * Resolves true when it is safe to proceed with saving `price`, false
+             * when staff cancelled. Always resolves true when no override is needed.
+             */
+            confirmFinalPriceIfBelowEstimate(price) {
+                const estimate = this.currentEstimatedPrice;
+                if (!(estimate > 0) || !Number.isFinite(price) || !(price < estimate)) {
+                    this.lastPriceOverrideConfirmed = false;
+                    return Promise.resolve(true);
+                }
+                // Avoid re-prompting when this exact override was already confirmed
+                // earlier in the same save action (e.g. submitToPay() -> updatePrice()).
+                if (this.lastPriceOverrideConfirmed && Number(this.priceOverrideAmount) === Number(price)) {
+                    return Promise.resolve(true);
+                }
+                this.priceOverrideAmount = price;
+                this.priceOverrideDiff = estimate - price;
+                this.showPriceOverrideModal = true;
+                return new Promise(resolve => { this.priceOverrideResolve = resolve; });
+            },
+            cancelPriceOverride() {
+                this.showPriceOverrideModal = false;
+                this.lastPriceOverrideConfirmed = false;
+                if (this.priceOverrideResolve) { this.priceOverrideResolve(false); this.priceOverrideResolve = null; }
+            },
+            confirmPriceOverride() {
+                this.showPriceOverrideModal = false;
+                this.lastPriceOverrideConfirmed = true;
+                if (this.priceOverrideResolve) { this.priceOverrideResolve(true); this.priceOverrideResolve = null; }
             },
 
             addMaterialToQueue() {
@@ -6376,6 +6485,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.setFooterActionError('Please enter a valid final price before approving.');
                         return;
                     }
+                    if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                     const target = await this.getProductionAssignmentTarget();
                     if (!target.jobId) {
                         this.setFooterActionError('No linked production job was found for this customization.');
@@ -6474,6 +6584,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('id', this.currentJo.id);
                         fd.append('status', 'TO_PAY');
                         fd.append('price', this.jobPriceInput);
+                        if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                         const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
                         if (res.success) {
                             const hasPaymentProof = this.currentJo.payment_proof_path || this.currentJo.payment_proof;
@@ -6504,6 +6615,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.setFooterActionError('Please enter a valid final price before submitting.');
                     return;
                 }
+                if (!await this.confirmFinalPriceIfBelowEstimate(userEnteredPrice)) return;
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
                 const fromPOS = this.isPosPricingMode()
@@ -6678,13 +6790,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.showStaffAlert('Invalid Price', 'Please enter a valid price greater than 0.');
                     return false;
                 }
-                
+                if (!await this.confirmFinalPriceIfBelowEstimate(price)) return false;
+                const priceOverrideFlag = this.lastPriceOverrideConfirmed;
+
                 if (this.currentJo.order_type === 'ORDER') {
                    const fd = new FormData();
                    fd.append('action', 'update_order_price');
                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                    fd.append('order_id', oid);
                    fd.append('price', price);
+                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                    const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                    if (!res.success) {
                        this.showStaffAlert('Error', 'Failed to update price: ' + res.error);
@@ -6700,6 +6815,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                    fd.append('id', oid);
                    fd.append('status', 'APPROVED');
                    fd.append('price', price);
+                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                    const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                    if (!res.success) {
                        this.showStaffAlert('Error', 'Failed to update customization price: ' + res.error);

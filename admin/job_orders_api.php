@@ -1674,6 +1674,7 @@ try {
             $price = array_key_exists('price', $_POST)
                 ? jo_api_parse_final_price($_POST['price'])
                 : null;
+            $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             if (!$cust_id || !$raw_status) throw new Exception('ID and status required.');
 
             // Normalize frontend enum values to DB-stored strings
@@ -1702,7 +1703,7 @@ try {
 
             // Check if payment proof already exists for this customization's order
             $order_check = db_query(
-                "SELECT o.order_id, o.payment_proof_path, o.downpayment_amount
+                "SELECT o.order_id, o.payment_proof_path, o.downpayment_amount, o.estimated_price
                  FROM orders o
                  JOIN customizations c ON o.order_id = c.order_id
                  WHERE c.customization_id = ? LIMIT 1",
@@ -1712,10 +1713,23 @@ try {
             $has_payment_proof = !empty($order_check) && !empty($order_check[0]['payment_proof_path']);
             $payment_amount    = !empty($order_check) ? (float)($order_check[0]['downpayment_amount'] ?? 0) : 0;
             $linked_order_id   = !empty($order_check) ? (int)$order_check[0]['order_id'] : null;
+            $linked_order_estimate = !empty($order_check) ? (float)($order_check[0]['estimated_price'] ?? 0) : 0.0;
             if (!$linked_order_id) {
                 throw new RuntimeException('Customization not found.');
             }
             jo_api_require_staff_order_branch($joStaffBranch, $linked_order_id);
+
+            // Deliberate-override safeguard: a Final Price below the order's Estimated
+            // Price must be explicitly confirmed (the UI shows a warning modal). This
+            // server-side check prevents bypassing that confirmation via a raw request.
+            if ($price !== null && $linked_order_estimate > 0 && $price < $linked_order_estimate && !$priceOverrideConfirmed) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => 'The final price is below the estimated price. Please confirm this adjustment is intentional.',
+                    'requires_price_override_confirmation' => true,
+                    'estimated_price' => $linked_order_estimate,
+                ], 422);
+            }
 
             if ($new_status === 'For Revision' && !printflow_revision_ensure_schema()) {
                 throw new Exception('Revision request storage is unavailable.');
@@ -2638,8 +2652,23 @@ try {
             jo_api_require_staff_mutation();
             $order_id = (int)($_POST['order_id'] ?? 0);
             $price = jo_api_parse_final_price($_POST['price'] ?? '');
+            $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             if (!$order_id) throw new Exception("Order ID required.");
             jo_api_require_staff_order_branch($joStaffBranch, $order_id);
+
+            // Deliberate-override safeguard: a Final Price below the order's Estimated
+            // Price must be explicitly confirmed (the UI shows a warning modal). This
+            // server-side check prevents bypassing that confirmation via a raw request.
+            $orderEstimateRow = db_query('SELECT estimated_price FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+            $orderEstimateForCheck = (float)($orderEstimateRow[0]['estimated_price'] ?? 0);
+            if ($orderEstimateForCheck > 0 && $price < $orderEstimateForCheck && !$priceOverrideConfirmed) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => 'The final price is below the estimated price. Please confirm this adjustment is intentional.',
+                    'requires_price_override_confirmation' => true,
+                    'estimated_price' => $orderEstimateForCheck,
+                ], 422);
+            }
 
             $priceTransactionStarted = !($conn->in_transaction ?? false);
             if ($priceTransactionStarted && !$conn->begin_transaction()) {
@@ -2782,6 +2811,7 @@ try {
             $id = (int)($_POST['id'] ?? 0);
             if (!$id) throw new Exception("ID required.");
             $price = jo_api_parse_final_price($_POST['price'] ?? '');
+            $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             jo_api_require_staff_branch($joStaffBranch, $id);
             $assignmentErrors = printflow_job_production_assignment_errors($id);
             if (!empty($assignmentErrors)) {
@@ -2798,6 +2828,27 @@ try {
             }
             $job = jo_api_lock_editable_job_price($id);
             jo_api_require_staff_branch($joStaffBranch, $id);
+
+            // Deliberate-override safeguard: a Final Price below the order's Estimated
+            // Price must be explicitly confirmed (the UI shows a warning modal). This
+            // server-side check prevents bypassing that confirmation via a raw request.
+            $estimateForOverrideCheck = 0.0;
+            $jobOrderIdForEstimate = (int)($job['order_id'] ?? 0);
+            if ($jobOrderIdForEstimate > 0) {
+                $estimateRow = db_query('SELECT estimated_price FROM orders WHERE order_id = ? LIMIT 1', 'i', [$jobOrderIdForEstimate]) ?: [];
+                $estimateForOverrideCheck = (float)($estimateRow[0]['estimated_price'] ?? 0);
+            }
+            if ($estimateForOverrideCheck > 0 && $price < $estimateForOverrideCheck && !$priceOverrideConfirmed) {
+                if ($jobPriceTransactionStarted && printflow_db_in_transaction($conn)) {
+                    $conn->rollback();
+                }
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => 'The final price is below the estimated price. Please confirm this adjustment is intentional.',
+                    'requires_price_override_confirmation' => true,
+                    'estimated_price' => $estimateForOverrideCheck,
+                ], 422);
+            }
 
             // Setting the price also means updating the required payment to match exactly
             jo_api_require_db_write(

@@ -3148,6 +3148,37 @@ class JobOrderService {
             } elseif (empty($order['order_item_id']) && !empty($order['joined_order_item_id'])) {
                 $order['order_item_id'] = (int)$order['joined_order_item_id'];
             }
+
+            // Root-cause fix: getStoreOrderItemsPayload() aggregates the WHOLE store
+            // order and derives service_type/items/customization_details from the
+            // FIRST line item. For mixed-service, multi-item orders that leaks a
+            // different item's service (e.g. a Tarpaulin job showing "not suggested
+            // for T-Shirt Printing"). Re-anchor to the order_item this job actually
+            // belongs to when the order has more than one line item.
+            $ownItemId = (int)($order['order_item_id'] ?? 0);
+            if ($ownItemId > 0 && !empty($payload['items']) && is_array($payload['items']) && count($payload['items']) > 1) {
+                foreach ($payload['items'] as $candidateItem) {
+                    if ((int)($candidateItem['order_item_id'] ?? 0) !== $ownItemId) {
+                        continue;
+                    }
+                    $ownServiceType = trim((string)($candidateItem['product_name'] ?? ''));
+                    if ($ownServiceType !== '' && strcasecmp($ownServiceType, 'Custom Order') !== 0) {
+                        $order['service_type'] = $ownServiceType;
+                        $order['job_title'] = $ownServiceType;
+                    }
+                    $order['items'] = [$candidateItem];
+                    $ownCustom = is_array($candidateItem['customization'] ?? null) ? $candidateItem['customization'] : [];
+                    if (!empty($ownCustom)) {
+                        $order['customization_details'] = $ownCustom;
+                    }
+                    if (!empty($ownCustom['width']) && !empty($ownCustom['height'])) {
+                        $order['width_ft'] = (string)$ownCustom['width'];
+                        $order['height_ft'] = (string)$ownCustom['height'];
+                    }
+                    $order['quantity'] = max(1, (int)($candidateItem['quantity'] ?? ($order['quantity'] ?? 1)));
+                    break;
+                }
+            }
             self::cleanupLegacyAutoAssignedMaterials((int)$id, $storeOid, (string)($payload['service_type'] ?? $order['service_type'] ?? ''));
             $st = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$storeOid]);
             if (!empty($st)) {
