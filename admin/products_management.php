@@ -407,15 +407,13 @@ function printflow_fixed_low_stock_level(int $stockQuantity): int {
 }
 
 function printflow_product_thresholds_from_post(int $stockQuantity): array {
-    return [
-        'reorder' => max(0, (int)printflow_suggest_reorder_level((float)$stockQuantity)),
-        'critical' => max(0, (int)printflow_suggest_critical_level((float)$stockQuantity)),
-    ];
-}
-
-function printflow_product_sync_thresholds_for_stock(int $productId, int $stockQuantity, int $branchId, bool $usesBaseStock): array {
-    $branchForThreshold = ($branchId > 0 && !$usesBaseStock) ? $branchId : 0;
-    return printflow_apply_suggested_product_thresholds($productId, max(0, $stockQuantity), $branchForThreshold);
+    $reorder = isset($_POST['low_stock_level']) && $_POST['low_stock_level'] !== ''
+        ? (int)$_POST['low_stock_level']
+        : (int)printflow_suggest_reorder_level((float)$stockQuantity);
+    $critical = isset($_POST['critical_level']) && $_POST['critical_level'] !== ''
+        ? (int)$_POST['critical_level']
+        : (int)printflow_suggest_critical_level((float)$stockQuantity);
+    return ['reorder' => max(0, $reorder), 'critical' => max(0, $critical)];
 }
 
 function printflow_products_variant_stock_payload(int $productId, int $branchId): ?array {
@@ -627,7 +625,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             } else {
                                 printflow_product_branch_stock_set_quantity($product_id, $product_stock_branch_id, $totalStock);
                             }
-                            printflow_product_sync_thresholds_for_stock($product_id, $totalStock, $product_stock_branch_id, $product_stock_uses_base);
                             $success = 'Variant stock added successfully.';
                         } elseif ($error === '' && !$savedAny) {
                             $error = 'Please add stock to at least one size or variant.';
@@ -665,7 +662,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             date('Y-m-d'),
                             $product_stock_branch_id
                         );
-                        printflow_product_sync_thresholds_for_stock($product_id, $newStockQuantity, $product_stock_branch_id, $product_stock_uses_base);
                         $success = 'Stock added successfully.';
                     } else {
                         global $conn;
@@ -791,7 +787,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                             } else {
                                 printflow_product_branch_stock_set_quantity($product_id, $product_stock_branch_id, $totalStock);
                             }
-                            printflow_product_sync_thresholds_for_stock($product_id, $totalStock, $product_stock_branch_id, $product_stock_uses_base);
                             $success = 'Variant stock issued successfully.';
                         } elseif ($error === '' && !$savedAny) {
                             $error = 'Please issue stock from at least one size or variant.';
@@ -832,7 +827,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                                 date('Y-m-d'),
                                 $product_stock_branch_id
                             );
-                            printflow_product_sync_thresholds_for_stock($product_id, $newStockQuantity, $product_stock_branch_id, $product_stock_uses_base);
                             $success = 'Stock issued successfully.';
                         } else {
                             global $conn;
@@ -857,9 +851,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $existingProduct = db_query("SELECT product_id, name, COALESCE(low_stock_level, 10) AS low_stock_level, COALESCE(critical_level, 0) AS critical_level FROM products WHERE product_id = ? AND status != 'Archived' LIMIT 1", 'i', [$product_id]);
                 $existingStock = printflow_product_effective_stock($product_id, $mgr_branch_id);
                 $oldStockQuantity = (int)($existingStock[0] ?? 0);
-                $suggestedThresholds = printflow_thresholds_for_quantity((float)$stock_quantity);
-                $low_stock_level = (int)$suggestedThresholds['reorder'];
-                $critical_level = (int)$suggestedThresholds['critical'];
+                $low_stock_level = (int)($existingStock[1] ?? printflow_product_stored_reorder_level($existingProduct[0] ?? []));
+                $pbsRow = db_query(
+                    'SELECT COALESCE(critical_level, 0) AS critical_level FROM product_branch_stock WHERE product_id = ? AND branch_id = ? LIMIT 1',
+                    'ii',
+                    [$product_id, $mgr_branch_id]
+                );
+                $critical_level = !empty($pbsRow)
+                    ? (int)($pbsRow[0]['critical_level'] ?? 0)
+                    : printflow_product_stored_critical_level($existingProduct[0] ?? []);
                 if ($existingProduct === false) {
                     $error = 'Database error while verifying product.';
                 } elseif (count($existingProduct) === 0) {
@@ -1259,17 +1259,19 @@ if ($cat_filter !== '') {
 
 $branchJoin = '';
 $stockExpr  = 'p.stock_quantity';
+$lowExpr    = 'COALESCE(p.low_stock_level, 10)';
+$criticalExpr = 'COALESCE(p.critical_level, 0)';
 $sqlParams  = [];
 $sqlTypes   = '';
 
 if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
     $branchJoin = ' LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ? ';
     $stockExpr  = 'COALESCE(pbs.stock_quantity, 0)';
+    $lowExpr    = 'COALESCE(pbs.low_stock_level, p.low_stock_level, 10)';
+    $criticalExpr = 'COALESCE(pbs.critical_level, p.critical_level, 0)';
     $sqlParams[] = $product_stock_branch_id;
     $sqlTypes   .= 'i';
 }
-$lowExpr = "GREATEST(0, CEIL(({$stockExpr}) * 0.20))";
-$criticalExpr = "GREATEST(0, CEIL(({$stockExpr}) * 0.05))";
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($success !== '') {
         printflow_products_page_redirect_with_flash($success, 'success');
@@ -1341,12 +1343,14 @@ foreach ($products as &$pfProduct) {
         $product_stock_branch_id > 0 ? $product_stock_branch_id : 1
     );
     $pfProduct['stock_quantity'] = (int)$effectiveStock['stock_quantity'];
-    $pfProduct['low_stock_level'] = printflow_product_live_reorder_level((int)$pfProduct['stock_quantity']);
+    $pfProduct['low_stock_level'] = (int)$effectiveStock['low_stock_level'];
     $pfProduct['variant_stock_field_key'] = $effectiveStock['variant_stock_field_key'];
     $pfProduct['variant_stock_field_label'] = $effectiveStock['variant_stock_field_label'];
     $pfProduct['variant_stock_options'] = $effectiveStock['variant_stock_options'];
     $pfProduct['has_variant_stock'] = (bool)$effectiveStock['has_variant_stock'];
-    $pfProduct['critical_level'] = printflow_product_live_critical_level((int)$pfProduct['stock_quantity']);
+    $pfProduct['critical_level'] = $product_stock_branch_id > 0 && !$product_stock_uses_base
+        ? (int)($pfProduct['eff_critical'] ?? $pfProduct['critical_level'] ?? 0)
+        : (int)($pfProduct['critical_level'] ?? 0);
     unset($pfProduct['eff_stock_qty'], $pfProduct['eff_low_stock'], $pfProduct['eff_critical']);
 }
 unset($pfProduct);
@@ -1362,14 +1366,13 @@ if ($product_stock_branch_id > 0 && !$product_stock_uses_base) {
         "SELECT COUNT(*) as c FROM products p
          LEFT JOIN product_branch_stock pbs ON pbs.product_id = p.product_id AND pbs.branch_id = ?
          WHERE p.status != 'Archived'
-         AND COALESCE(pbs.stock_quantity, 0) <= GREATEST(0, CEIL(COALESCE(pbs.stock_quantity, 0) * 0.20))",
+         AND COALESCE(pbs.stock_quantity, 0) <= COALESCE(pbs.low_stock_level, p.low_stock_level, 10)",
         'i',
         [$product_stock_branch_id]
     )[0]['c'] ?? 0;
 } else {
-    $stat_low_stock = db_query("SELECT COUNT(*) as c FROM products WHERE status != 'Archived' AND stock_quantity <= GREATEST(0, CEIL(stock_quantity * 0.20))")[0]['c'] ?? 0;
+    $stat_low_stock = db_query("SELECT COUNT(*) as c FROM products WHERE status != 'Archived' AND stock_quantity <= COALESCE(low_stock_level, 10)")[0]['c'] ?? 0;
 }
-
 // Filter dropdown: categories that exist on at least one non-archived product
 $categories = [];
 foreach ($product_filter_category_map as $c) {

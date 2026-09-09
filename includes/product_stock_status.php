@@ -83,19 +83,10 @@ function printflow_product_resolve_stock_status(int $quantity, int $reorderLevel
     return printflow_resolve_stock_status((float)$quantity, (float)$reorderLevel, (float)$criticalLevel, false);
 }
 
-function printflow_product_live_reorder_level(int $currentStock): int {
-    return (int)printflow_suggest_reorder_level((float)$currentStock);
-}
-
-function printflow_product_live_critical_level(int $currentStock): int {
-    return (int)printflow_suggest_critical_level((float)$currentStock);
-}
-
 function printflow_product_display_stock_status(array $product): array {
-    $stock = max(0, (int)($product['stock_quantity'] ?? 0));
     return printflow_product_resolve_stock_status(
-        $stock,
-        printflow_product_live_reorder_level($stock),
-        printflow_product_live_critical_level($stock)
+        (int)($product['stock_quantity'] ?? 0),
+        (int)($product['low_stock_level'] ?? 10),
+        (int)($product['critical_level'] ?? 0)
     );
 }
