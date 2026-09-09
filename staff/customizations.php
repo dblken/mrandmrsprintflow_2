@@ -2434,58 +2434,67 @@ $online_closed_count = 0;
                                     <div style="display:flex; flex-direction:column; gap:12px;">
                                         <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials <span style="color:#dc2626;">*</span></label>
                                         
-                                        <!-- Searchable Selection -->
-                                        <div style="position:relative; min-width:0;">
-                                            <input type="search" x-model="materialSearch" x-ref="materialSearchInput"
-                                                   @input="materialListActiveIndex = 0"
-                                                   @keydown.arrow-down.prevent="moveMaterialListFocus(1)"
-                                                   @keydown.arrow-up.prevent="moveMaterialListFocus(-1)"
-                                                   @keydown.enter.prevent="selectActiveMaterialCandidate()"
-                                                   @keydown.escape.prevent="materialSearch = ''; materialListActiveIndex = 0; $el.blur()"
-                                                   placeholder="Search materials..." aria-label="Search production materials" aria-controls="production-material-results"
-                                                   style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
+                                        <!-- Searchable Selection (collapsible) -->
+                                        <div style="min-width:0;">
+                                            <button type="button" @click="materialListExpanded = !materialListExpanded"
+                                                    :aria-expanded="materialListExpanded ? 'true' : 'false'" aria-controls="available-materials-panel"
+                                                    style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:8px; background:#f9fafb; font-size:12px; font-weight:700; color:#374151; cursor:pointer;">
+                                                <span x-text="materialListExpanded ? 'Available Materials' : 'Show Available Materials'"></span>
+                                                <svg :style="'width:14px;height:14px;transition:transform .15s ease;' + (materialListExpanded ? 'transform:rotate(180deg);' : '')" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                            </button>
 
-                                            <div id="production-material-results" class="production-material-results" role="listbox" aria-label="Production materials">
-                                                <template x-for="(item, index) in availableMaterialsForCurrentOrder" :key="item.id">
-                                                    <button type="button" role="option"
-                                                            class="production-material-option"
-                                                            :class="{
-                                                                'is-recommended': item.compatibility.tier === 'recommended',
-                                                                'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
-                                                                'is-out-of-stock': !item.compatibility.inStock,
-                                                                'is-active': index === materialListActiveIndex
-                                                            }"
-                                                            :disabled="!item.compatibility.selectable"
-                                                            :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
-                                                            :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
-                                                            :aria-describedby="'production-material-status-' + item.id"
-                                                            :data-compatibility="item.compatibility.tier"
-                                                            :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
-                                                            @mouseenter="materialListActiveIndex = index"
-                                                            @click="selectMaterialCandidate(item)"
-                                                            @dblclick="requestMaterialOverride(item)"
-                                                            @keydown.enter.stop.prevent="selectMaterialCandidate(item, true)"
-                                                            @keydown.space.stop.prevent="selectMaterialCandidate(item, true)">
-                                                        <span class="production-material-option__main">
-                                                            <span class="production-material-option__name" x-text="item.name"></span>
-                                                            <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
-                                                        </span>
-                                                        <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
-                                                    </button>
-                                                </template>
-                                                <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
-                                                    No materials match this search.
+                                            <div id="available-materials-panel" x-show="materialListExpanded" x-cloak style="position:relative; margin-top:8px;">
+                                                <input type="search" x-model="materialSearch" x-ref="materialSearchInput"
+                                                       @input="materialListActiveIndex = 0"
+                                                       @keydown.arrow-down.prevent="moveMaterialListFocus(1)"
+                                                       @keydown.arrow-up.prevent="moveMaterialListFocus(-1)"
+                                                       @keydown.enter.prevent="selectActiveMaterialCandidate()"
+                                                       @keydown.escape.prevent="materialSearch = ''; materialListActiveIndex = 0; $el.blur()"
+                                                       placeholder="Search materials..." aria-label="Search production materials" aria-controls="production-material-results"
+                                                       style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
+
+                                                <div id="production-material-results" class="production-material-results" role="listbox" aria-label="Production materials">
+                                                    <template x-for="(item, index) in availableMaterialsForCurrentOrder" :key="item.id">
+                                                        <button type="button" role="option"
+                                                                class="production-material-option"
+                                                                :class="{
+                                                                    'is-recommended': item.compatibility.tier === 'recommended',
+                                                                    'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
+                                                                    'is-out-of-stock': !item.compatibility.inStock,
+                                                                    'is-active': index === materialListActiveIndex
+                                                                }"
+                                                                :disabled="!item.compatibility.selectable"
+                                                                :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
+                                                                :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
+                                                                :aria-describedby="'production-material-status-' + item.id"
+                                                                :data-compatibility="item.compatibility.tier"
+                                                                :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
+                                                                @mouseenter="materialListActiveIndex = index"
+                                                                @click="selectMaterialCandidate(item)"
+                                                                @dblclick="requestMaterialOverride(item)"
+                                                                @keydown.enter.stop.prevent="selectMaterialCandidate(item, true)"
+                                                                @keydown.space.stop.prevent="selectMaterialCandidate(item, true)">
+                                                            <span class="production-material-option__main">
+                                                                <span class="production-material-option__name" x-text="item.name"></span>
+                                                                <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
+                                                            </span>
+                                                            <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
+                                                        </button>
+                                                    </template>
+                                                    <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
+                                                        No materials match this search.
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
-                                                No verified material suggestions are configured for this service.
+                                                <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
+                                                    No verified material suggestions are configured for this service.
+                                                </div>
                                             </div>
                                         </div>
 
                                         <template x-if="newMaterialId">
                                             <div style="padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                                                 <div style="grid-column: span 2;">
-                                                    <label style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Qty / Length</label>
+                                                    <label style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;" x-text="isTarpaulin(newMaterialId) ? 'Width (ft)' : 'Qty / Length'"></label>
                                                     <input type="number" x-model.number="newMaterialQty" min="1" step="any" @input="handleMaterialQtyInput($event.target.value)" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
                                                 </div>
                                                 <template x-if="isTarpaulin(newMaterialId)">
@@ -2501,15 +2510,24 @@ $online_closed_count = 0;
 
                                         <div x-show="pendingMaterials.length > 0" style="display:flex; flex-direction:column; gap:6px;">
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
-                                                <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0;">
-                                                    <div>
-                                                        <span style="font-weight:600; color:#1e293b;" x-text="pm.name"></span>
-                                                        <span x-show="pm.qty > 0" style="margin-left:4px; font-weight:800; color:#06A1A1;" x-text="'x' + pm.qty"></span>
+                                                <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
+                                                    <div style="min-width:0;">
+                                                        <div style="font-weight:600; color:#1e293b;" x-text="pm.name"></div>
+                                                        <template x-if="isTarpaulin(pm.item_id)">
+                                                            <div style="color:#64748b; font-size:11px; margin-top:2px;">
+                                                                <span>Width used: <strong x-text="Number(pm.qty) + ' ft'"></strong></span>
+                                                                <span style="margin-left:8px;">Height: <strong x-text="Number((pm.metadata && pm.metadata.height_ft) || 0) + ' ft'"></strong></span>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="!isTarpaulin(pm.item_id)">
+                                                            <div style="color:#64748b; font-size:11px; margin-top:2px;">Qty: <strong x-text="Number(pm.qty) + ' ' + pm.uom"></strong></div>
+                                                        </template>
                                                     </div>
-                                                    <div style="display:flex; align-items:center; gap:12px;">
-                                                        <span style="color:#64748b;" x-text="pm.qty + ' ' + pm.uom"></span>
-                                                        <button @click="removePendingMaterial(idx)" style="color:#ef4444; border:none; background:none; cursor:pointer; font-weight:700;">✕</button>
-                                                    </div>
+                                                    <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
+                                                            style="flex-shrink:0; display:flex; align-items:center; gap:4px; color:#b91c1c; border:1px solid #fecaca; background:#fff5f5; border-radius:6px; padding:5px 9px; cursor:pointer; font-weight:700; font-size:11px;">
+                                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+                                                        Remove
+                                                    </button>
                                                 </div>
                                             </template>
                                         </div>
@@ -3164,6 +3182,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             materialRules: [],
             activeProductionServices: [],
             materialListActiveIndex: 0,
+            materialListExpanded: true,
             inventoryPollMs: 20000,
             ordersPollMs: 30000,
             newMaterialId: '',
@@ -3284,6 +3303,27 @@ window.pfCustomizationPreloadedOrders = (() => {
             getDefaultMaterialQty(itemId) {
                 if (!this.isPcsMaterial(itemId)) return 1;
                 return this.normalizeMaterialQtyValue(this.currentJo && this.currentJo.quantity ? this.currentJo.quantity : 1, 1);
+            },
+            /**
+             * Deterministic auto-select: when there is exactly one unambiguous, in-stock,
+             * canonically-mapped material match for this job's specs, pre-fill it into the
+             * selected-material queue. Staff can still remove/change it before saving.
+             * No-op if materials are already assigned/queued, or if no safe match exists.
+             */
+            maybeApplyAutoMaterialSuggestion() {
+                if (!this.currentJo) return;
+                if (this.modalWorkflowStatus(this.currentJo) !== 'APPROVED') return;
+                if (Array.isArray(this.currentJo.materials) && this.currentJo.materials.length > 0) return;
+                if (this.pendingMaterials.length > 0) return;
+                if (!window.PrintFlowProductionMaterials || !Array.isArray(this.allInventoryItems) || !this.allInventoryItems.length) return;
+                const match = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
+                    this.allInventoryItems, this.materialCompatibilityContext, this.materialRules
+                );
+                if (!match) return;
+                this.handleMaterialSelection(match.id);
+                if (!this.selectedMaterialStockError) {
+                    this.addMaterialToQueue();
+                }
             },
             handleMaterialSelection(selectedId) {
                 this.newMaterialId = selectedId;
@@ -3574,6 +3614,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.currentJo = merged;
                     this.paymongoPayment = merged.provider_payment || this.paymongoPayment || null;
                     this.restoreSavedInkUsage();
+                    this.maybeApplyAutoMaterialSuggestion();
                     this.modalCache[cacheKey] = merged;
                     this.modalCacheLoadedAt[cacheKey] = Date.now();
                 } catch (e) {
@@ -4680,6 +4721,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                     stickerType: jo.sticker_type || '',
                     cutType: jo.cut_type || '',
                     customization: [jo.customization_details || {}, ...itemContexts],
+                    customerWidth: parseFloat(jo.width_ft || 0) || 0,
+                    customerHeight: parseFloat(jo.height_ft || 0) || 0,
+                    customerQuantity: parseFloat(jo.quantity || 0) || 0,
                     serviceKind: window.PrintFlowProductionMaterials.classifyService({
                         serviceType: String(jo.service_type || jo.job_title || this.getCorrectServiceType(jo) || '').trim(),
                         serviceLabel: String(this.getCorrectServiceType(jo) || '').trim(),
@@ -5627,6 +5671,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.footerActionError = '';
                 this.resetMaterialForm();
                 this.resetInkForm();
+                this.materialListExpanded = true;
                 this.primeDetailsShell(order, orderType, id);
 
                 const cachedDetail = this.modalCache[cacheKey] || null;
@@ -5729,6 +5774,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             for (const m of this.currentJo.materials || []) {
                                 if (m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
                             }
+                            this.maybeApplyAutoMaterialSuggestion();
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         } else {
@@ -6110,6 +6156,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 });
                 // Reset form
                 this.resetMaterialForm();
+                this.materialListExpanded = false;
             },
             removePendingMaterial(index) {
                 this.pendingMaterials.splice(index, 1);

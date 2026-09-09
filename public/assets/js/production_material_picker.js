@@ -53,7 +53,7 @@
         if (new RegExp('^(?:AC|SP) ' + PLATE_VARIANTS + '$').test(name)) return 'plate';
         if (new RegExp('^VINYL ' + COLORS + '$').test(name) || HTV_NAMES.has(name) || /\bHTV\b/.test(name)) return 'heat_vinyl';
         if (new RegExp('^STICKER ' + COLORS + '$').test(name)) return 'colored_sticker';
-        if (/^(?:\d+(?:\.\d+)? ?FT )?TARPAULIN(?: ROLL)?$/.test(name)) return 'tarpaulin';
+        if (category === 'TARPAULIN' || /\bTARPAULIN\b/.test(name) || /\bTARP\b/.test(name)) return 'tarpaulin';
         if (name === '3M REFLECTIVE') return 'reflective';
         if (['NEXJET', 'PP STKR MATTE 98', 'HOLOGRAM', 'TRANSPARENT', 'STICKER PAPER'].includes(name)) return 'printed_sticker';
         if (['GLOSS LAMINATE', 'MATTE LAMINATE'].includes(name)) return 'laminate';
@@ -313,6 +313,76 @@
             });
     }
 
+    /**
+     * Extracts the roll/finished width (in ft) encoded in a tarpaulin item's name,
+     * e.g. "4ft Tarpaulin" / "TARPAULIN 4FT" / "4FT TARP" -> 4.
+     * Returns null when no numeric width can be determined.
+     */
+    function tarpaulinRollWidthFor(item) {
+        const name = normalize(item && item.name);
+        const match = name.match(/(\d+(?:\.\d+)?)\s*FT/);
+        if (!match) return null;
+        const width = parseFloat(match[1]);
+        return Number.isFinite(width) && width > 0 ? width : null;
+    }
+
+    /**
+     * Deterministically ranks in-stock tarpaulin candidates against the customer's
+     * finished width/height. Production can rotate artwork, so either finished
+     * dimension may be placed across the roll width; the other dimension is fed
+     * along the roll's length (no fixed ceiling, but it is the material actually
+     * consumed). Preferring the orientation that fits the LARGER finished
+     * dimension across the width minimizes length consumed (least waste); only
+     * when no roll is wide enough for that do we fall back to fitting the
+     * smaller dimension (which consumes more length). Smallest matching width
+     * within a tier is ranked first.
+     */
+    function rankTarpaulinRolls(candidates, customerWidth, customerHeight) {
+        const dims = [Number.parseFloat(customerWidth) || 0, Number.parseFloat(customerHeight) || 0].filter(dim => dim > 0);
+        if (!dims.length) return [];
+        const primaryDim = Math.max(...dims);
+        const secondaryDim = Math.min(...dims);
+        return candidates
+            .map(item => ({ item, rollWidth: tarpaulinRollWidthFor(item) }))
+            .filter(candidate => Number.isFinite(candidate.rollWidth) && candidate.rollWidth > 0)
+            .map(candidate => {
+                if (candidate.rollWidth >= primaryDim) {
+                    return { ...candidate, fits: true, tier: 0, waste: candidate.rollWidth - primaryDim };
+                }
+                if (candidate.rollWidth >= secondaryDim) {
+                    return { ...candidate, fits: true, tier: 1, waste: candidate.rollWidth - secondaryDim };
+                }
+                return { ...candidate, fits: false, tier: 2, waste: Infinity };
+            })
+            .filter(candidate => candidate.fits)
+            .sort((a, b) => a.tier - b.tier || a.rollWidth - b.rollWidth || a.waste - b.waste);
+    }
+
+    /**
+     * Deterministic, explainable single-material auto-select rule (no ML/AI):
+     * - Tarpaulin: pick the smallest in-stock roll width that fits either finished
+     *   dimension; only auto-select when it is an unambiguous (strictly smallest) winner.
+     * - Other services: auto-select only when exactly one recommended, in-stock
+     *   material exists (canonical service/material mapping already resolved it).
+     * Returns the matching item, or null when no safe/unambiguous match exists.
+     */
+    function getAutoSelectCandidate(items, context, rules) {
+        const recommended = rankItems(items, context, rules, '')
+            .filter(item => item.compatibility.tier === 'recommended' && item.compatibility.directSelectable);
+        if (!recommended.length) return null;
+
+        const serviceKind = classifyService(context || {});
+        if (serviceKind === 'tarpaulin') {
+            const fitted = rankTarpaulinRolls(recommended, context && context.customerWidth, context && context.customerHeight);
+            if (!fitted.length) return null;
+            if (fitted.length === 1) return fitted[0].item;
+            const isClearWinner = fitted[0].tier < fitted[1].tier || fitted[0].rollWidth < fitted[1].rollWidth;
+            return isClearWinner ? fitted[0].item : null;
+        }
+
+        return recommended.length === 1 ? recommended[0] : null;
+    }
+
     function inkModeFor(item) {
         const family = familyFor(item);
         if (family === 'tarpaulin') return 'tarp';
@@ -321,5 +391,8 @@
         return 'unknown';
     }
 
-    return { normalize, familyFor, classifyService, classifyItem, descriptionFor, searchScore, rankItems, inkModeFor };
+    return {
+        normalize, familyFor, classifyService, classifyItem, descriptionFor, searchScore, rankItems, inkModeFor,
+        tarpaulinRollWidthFor, getAutoSelectCandidate
+    };
 });
