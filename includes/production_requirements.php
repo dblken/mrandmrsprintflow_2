@@ -1,5 +1,20 @@
 <?php
 
+if (!function_exists('printflow_is_manual_production_ink_category')) {
+    /**
+     * Printer ink is retained in inventory and historical usage reports, but
+     * is no longer a staff-selectable production material.  These are the
+     * canonical live inventory categories; do not infer ink from colour names.
+     */
+    function printflow_is_manual_production_ink_category($categoryName): bool {
+        return in_array(
+            strtoupper(trim((string)$categoryName)),
+            ['INK TARP', 'INK L120', 'INK L130'],
+            true
+        );
+    }
+}
+
 if (!function_exists('printflow_material_ink_requirement_from_names')) {
     /**
      * Resolve ink guidance from manually assigned core materials.
@@ -46,42 +61,10 @@ if (!function_exists('printflow_material_ink_requirement_from_names')) {
 
 if (!function_exists('printflow_job_requires_ink')) {
     function printflow_job_requires_ink(int $jobId): bool {
-        if ($jobId > 0) {
-            $assignedMaterials = db_query(
-                "SELECT i.name
-                 FROM job_order_materials jom
-                 JOIN inv_items i ON i.id = jom.item_id
-                 WHERE jom.job_order_id = ? AND jom.quantity > 0",
-                'i',
-                [$jobId]
-            ) ?: [];
-            $materialDecision = printflow_material_ink_requirement_from_names(
-                array_column($assignedMaterials, 'name')
-            );
-            if ($materialDecision !== null) return $materialDecision;
-        }
-
-        if ($jobId <= 0 || !db_table_has_column('services', 'requires_ink')) {
-            return true;
-        }
-
-        $rows = db_query(
-            "SELECT s.requires_ink
-             FROM job_orders jo
-             JOIN services s
-               ON LOWER(TRIM(s.name)) IN (LOWER(TRIM(jo.service_type)), LOWER(TRIM(jo.job_title)))
-             WHERE jo.id = ?
-             ORDER BY (LOWER(TRIM(s.name)) = LOWER(TRIM(jo.service_type))) DESC
-             LIMIT 1",
-            'i',
-            [$jobId]
-        );
-        if (!empty($rows)) {
-            return (int)$rows[0]['requires_ink'] === 1;
-        }
-
-        // Existing services remain ink-required until explicitly configured otherwise.
-        return true;
+        // Ink consumption is not estimable per job and is no longer manually
+        // assigned. Existing job_order_ink_usage rows remain readable and are
+        // intentionally not changed here.
+        return false;
     }
 }
 

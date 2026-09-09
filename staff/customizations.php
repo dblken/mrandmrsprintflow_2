@@ -3602,11 +3602,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return row;
             },
             get requiresInk() {
-                if (this.inkSelectionMode === 'standard' || this.inkSelectionMode === 'tarp') return true;
-                if (this.inkSelectionMode === 'legacy') {
-                    const value = this.currentJo ? this.currentJo.requires_ink : true;
-                    return value !== false && value !== 0 && value !== '0';
-                }
                 return false;
             },
             clearDeepLinkParams() {
@@ -4938,10 +4933,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return null;
             },
             get inkSelectionMode() {
-                const core = this.selectedCoreMaterial;
-                if (!core) return 'pending';
-                const mode = window.PrintFlowProductionMaterials.inkModeFor(core);
-                return mode === 'unknown' ? 'legacy' : mode;
+                // Ink is inventory-managed globally, not estimated per job.
+                return 'none';
             },
             get noInkGuidanceText() {
                 const kind = this.materialCompatibilityContext.serviceKind;
@@ -4949,7 +4942,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 if (kind === 'sintraboard') return 'No standard ink set is configured for this Sintraboard setup.';
                 if (kind === 'reflectorized_signage') return 'No printer ink is required for this cut/reflective setup.';
                 if (kind === 'tshirt') return 'No printer ink required for this cut heat-transfer material.';
-                return 'No printer ink is required for this cut-only material.';
+                return 'Printer ink is no longer selected or recorded per order.';
             },
             syncInkSelectionWithMaterial() {
                 const allowed = this.availableInkOptionsForService.map(option => option.key);
@@ -6280,14 +6273,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
             buildInkPayload() {
-                if (!this.requiresInk || !this.inkCategorySelected || !this.inkTypes[this.inkCategorySelected]) return [];
-                const mappedInks = this.inkTypes[this.inkCategorySelected];
-                const inkPayload = [];
-                if (this.inkBlue > 0) inkPayload.push({ item_id: mappedInks['BLUE'], color: 'BLUE', quantity: this.inkBlue });
-                if (this.inkRed > 0) inkPayload.push({ item_id: mappedInks['RED'], color: 'RED', quantity: this.inkRed });
-                if (this.inkBlack > 0) inkPayload.push({ item_id: mappedInks['BLACK'], color: 'BLACK', quantity: this.inkBlack });
-                if (this.inkYellow > 0) inkPayload.push({ item_id: mappedInks['YELLOW'], color: 'YELLOW', quantity: this.inkYellow });
-                return inkPayload;
+                return [];
             },
             restoreSavedInkUsage() {
                 const saved = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];

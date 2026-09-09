@@ -2831,6 +2831,14 @@ try {
             
             if (!$orderId || !$itemId) throw new Exception("Incomplete material data.");
             if ($qty < 1) throw new Exception("Material quantity must be at least 1.");
+            $materialCategory = db_query(
+                'SELECT c.name AS category_name FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id WHERE i.id = ? LIMIT 1',
+                'i',
+                [$itemId]
+            );
+            if (printflow_is_manual_production_ink_category($materialCategory[0]['category_name'] ?? '')) {
+                throw new Exception('Printer ink cannot be assigned manually as a production material.');
+            }
             if (strtoupper((string)$orderType) === 'ORDER') {
                 jo_api_require_staff_order_branch($joStaffBranch, $orderId);
             } else {
@@ -2841,26 +2849,7 @@ try {
             break;
 
         case 'save_ink_usage':
-            $orderId = (int)($_POST['order_id'] ?? 0);
-            $orderType = isset($_POST['order_type']) ? sanitize($_POST['order_type']) : null;
-            $inkData = isset($_POST['ink_data']) ? json_decode($_POST['ink_data'], true) : [];
-            
-            if (!$orderId) throw new Exception("Order ID required.");
-            if (!is_array($inkData)) throw new Exception("Invalid ink usage data.");
-            foreach ($inkData as $ink) {
-                $quantity = filter_var($ink['quantity'] ?? null, FILTER_VALIDATE_FLOAT);
-                if ($quantity === false || $quantity < 0) {
-                    throw new Exception("Ink consumption cannot be negative.");
-                }
-            }
-            if (strtoupper((string)$orderType) === 'ORDER') {
-                jo_api_require_staff_order_branch($joStaffBranch, $orderId);
-            } else {
-                jo_api_require_staff_branch($joStaffBranch, $orderId);
-            }
-            $res = JobOrderService::saveInkUsage($orderId, $inkData, $orderType);
-            jo_api_json_response(['success' => true]);
-            break;
+            throw new Exception('Printer ink usage is no longer recorded manually per order.');
 
         case 'preview_impact':
             $itemId = (int)($_GET['item_id'] ?? 0);
