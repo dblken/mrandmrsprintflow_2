@@ -685,13 +685,42 @@ $online_closed_count = 0;
             overscroll-behavior-inline: contain;
             scrollbar-gutter: stable;
         }
-        .customizations-data-table { min-width: 940px; }
-        .customizations-data-table .col-order { width: 14%; }
-        .customizations-data-table .col-info { width: 28%; }
-        .customizations-data-table .col-status { width: 16%; }
-        .customizations-data-table .col-customer { width: 18%; }
-        .customizations-data-table .col-created { width: 14%; }
-        .customizations-data-table .col-action { width: 10%; }
+        .customizations-data-table {
+            width: 100%;
+            min-width: 940px;
+            table-layout: fixed;
+        }
+        .customizations-data-table th,
+        .customizations-data-table td {
+            padding-left: 16px !important;
+            padding-right: 16px !important;
+            box-sizing: border-box;
+            vertical-align: middle;
+        }
+        .customizations-data-table .col-order { width: 16%; }
+        .customizations-data-table .col-info { width: 24%; }
+        .customizations-data-table .col-status { width: 14%; }
+        .customizations-data-table .col-customer { width: 16%; }
+        .customizations-data-table .col-created { width: 18%; }
+        .customizations-data-table .col-action { width: 12%; }
+        .customizations-data-table th:nth-child(3),
+        .customizations-data-table td:nth-child(3),
+        .customizations-data-table th:nth-child(6),
+        .customizations-data-table td:nth-child(6) {
+            text-align: center !important;
+        }
+        .customizations-data-table th:nth-child(5),
+        .customizations-data-table td:nth-child(5) {
+            text-align: left !important;
+            white-space: nowrap;
+        }
+        .customizations-data-table .status-col-inner,
+        .customizations-data-table .action-btn-group {
+            margin-left: 0;
+            margin-right: 0;
+            padding-left: 0;
+            padding-right: 0;
+        }
         .customizations-mobile-list { display: none; }
 
         @media (max-width: 1100px) {
@@ -1527,37 +1556,6 @@ $online_closed_count = 0;
             image-rendering: auto;
             mix-blend-mode: normal;
         }
-        .ink-set-options {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        .ink-set-option {
-            min-width: 88px;
-            padding: 10px 18px;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            background: #fff;
-            color: #475569;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: border-color .15s ease, background-color .15s ease, color .15s ease;
-        }
-        .ink-set-option:hover {
-            border-color: #0f766e;
-            background: #f0fdfa;
-        }
-        .ink-set-option:focus-visible {
-            outline: 3px solid rgba(15, 118, 110, .22);
-            outline-offset: 2px;
-        }
-        .ink-set-option.is-selected {
-            border-color: #0f766e;
-            background: #ccfbf1;
-            color: #115e59;
-        }
         .production-material-results {
             max-height: 260px;
             overflow-y: auto;
@@ -1640,6 +1638,32 @@ $online_closed_count = 0;
         @media (max-width: 430px) {
             .production-material-option { align-items: flex-start; padding: 10px; }
             .production-material-option__status { max-width: 46%; }
+        }
+        /* Shared soft confirmation-modal buttons (destructive vs. deliberate action). */
+        .pf-confirm-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 38px;
+            padding: 0 18px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: pointer;
+            transition: filter 0.15s ease, transform 0.15s ease;
+        }
+        .pf-confirm-btn:hover { filter: brightness(0.97); }
+        .pf-confirm-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+        .pf-confirm-btn-red {
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+        .pf-confirm-btn-green {
+            background: #f0fdf4;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
         }
     </style>
 </head>
@@ -1878,19 +1902,19 @@ $online_closed_count = 0;
                 </div>
 
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
-                    <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table" style="table-layout:fixed;">
+                    <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
                             <col class="col-order"><col class="col-info"><col class="col-status">
                             <col class="col-customer"><col class="col-created"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
-                                <th class="pl-6 pr-4 py-4 <?php echo $isPosCustomizationView ? 'w-[11%]' : 'w-[12%]'; ?> border-b border-gray-100">Order Code</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[25%]' : 'w-[28%]'; ?> border-b border-gray-100">Customization Info</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[14%]' : 'w-[18%]'; ?> border-b border-gray-100 text-center">Status</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[16%]' : 'w-[20%]'; ?> border-b border-gray-100">Customer</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[10%]' : 'w-[10%]'; ?> border-b border-gray-100 text-right">Created</th>
-                                <th class="px-4 py-4 <?php echo $isPosCustomizationView ? 'w-[20%]' : 'w-[10%]'; ?> border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
+                                <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Customer</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Created</th>
+                                <th class="px-4 py-4 border-b border-gray-100 text-center uppercase tracking-widest text-[10px]">Action</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -2436,58 +2460,67 @@ $online_closed_count = 0;
                                     <div style="display:flex; flex-direction:column; gap:12px;">
                                         <label style="font-size:12px; font-weight:700; color:#374151;">[1] Core Materials <span style="color:#dc2626;">*</span></label>
                                         
-                                        <!-- Searchable Selection -->
-                                        <div style="position:relative; min-width:0;">
-                                            <input type="search" x-model="materialSearch" x-ref="materialSearchInput"
-                                                   @input="materialListActiveIndex = 0"
-                                                   @keydown.arrow-down.prevent="moveMaterialListFocus(1)"
-                                                   @keydown.arrow-up.prevent="moveMaterialListFocus(-1)"
-                                                   @keydown.enter.prevent="selectActiveMaterialCandidate()"
-                                                   @keydown.escape.prevent="materialSearch = ''; materialListActiveIndex = 0; $el.blur()"
-                                                   placeholder="Search materials..." aria-label="Search production materials" aria-controls="production-material-results"
-                                                   style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
+                                        <!-- Searchable Selection (collapsible) -->
+                                        <div style="min-width:0;">
+                                            <button type="button" @click="materialListExpanded = !materialListExpanded"
+                                                    :aria-expanded="materialListExpanded ? 'true' : 'false'" aria-controls="available-materials-panel"
+                                                    style="display:flex; align-items:center; justify-content:space-between; width:100%; padding:9px 12px; border:1px solid #d1d5db; border-radius:8px; background:#f9fafb; font-size:12px; font-weight:700; color:#374151; cursor:pointer;">
+                                                <span x-text="materialListExpanded ? 'Available Materials' : 'Show Available Materials'"></span>
+                                                <svg :style="'width:14px;height:14px;transition:transform .15s ease;' + (materialListExpanded ? 'transform:rotate(180deg);' : '')" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                            </button>
 
-                                            <div id="production-material-results" class="production-material-results" role="listbox" aria-label="Production materials">
-                                                <template x-for="(item, index) in availableMaterialsForCurrentOrder" :key="item.id">
-                                                    <button type="button" role="option"
-                                                            class="production-material-option"
-                                                            :class="{
-                                                                'is-recommended': item.compatibility.tier === 'recommended',
-                                                                'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
-                                                                'is-out-of-stock': !item.compatibility.inStock,
-                                                                'is-active': index === materialListActiveIndex
-                                                            }"
-                                                            :disabled="!item.compatibility.selectable"
-                                                            :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
-                                                            :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
-                                                            :aria-describedby="'production-material-status-' + item.id"
-                                                            :data-compatibility="item.compatibility.tier"
-                                                            :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
-                                                            @mouseenter="materialListActiveIndex = index"
-                                                            @click="selectMaterialCandidate(item)"
-                                                            @dblclick="requestMaterialOverride(item)"
-                                                            @keydown.enter.stop.prevent="selectMaterialCandidate(item, true)"
-                                                            @keydown.space.stop.prevent="selectMaterialCandidate(item, true)">
-                                                        <span class="production-material-option__main">
-                                                            <span class="production-material-option__name" x-text="item.name"></span>
-                                                            <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
-                                                        </span>
-                                                        <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
-                                                    </button>
-                                                </template>
-                                                <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
-                                                    No materials match this search.
+                                            <div id="available-materials-panel" x-show="materialListExpanded" x-cloak style="position:relative; margin-top:8px;">
+                                                <input type="search" x-model="materialSearch" x-ref="materialSearchInput"
+                                                       @input="materialListActiveIndex = 0"
+                                                       @keydown.arrow-down.prevent="moveMaterialListFocus(1)"
+                                                       @keydown.arrow-up.prevent="moveMaterialListFocus(-1)"
+                                                       @keydown.enter.prevent="selectActiveMaterialCandidate()"
+                                                       @keydown.escape.prevent="materialSearch = ''; materialListActiveIndex = 0; $el.blur()"
+                                                       placeholder="Search materials..." aria-label="Search production materials" aria-controls="production-material-results"
+                                                       style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; margin-bottom:8px;">
+
+                                                <div id="production-material-results" class="production-material-results" role="listbox" aria-label="Production materials">
+                                                    <template x-for="(item, index) in availableMaterialsForCurrentOrder" :key="item.id">
+                                                        <button type="button" role="option"
+                                                                class="production-material-option"
+                                                                :class="{
+                                                                    'is-recommended': item.compatibility.tier === 'recommended',
+                                                                    'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
+                                                                    'is-out-of-stock': !item.compatibility.inStock,
+                                                                    'is-active': index === materialListActiveIndex
+                                                                }"
+                                                                :disabled="!item.compatibility.selectable"
+                                                                :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
+                                                                :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
+                                                                :aria-describedby="'production-material-status-' + item.id"
+                                                                :data-compatibility="item.compatibility.tier"
+                                                                :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
+                                                                @mouseenter="materialListActiveIndex = index"
+                                                                @click="selectMaterialCandidate(item)"
+                                                                @dblclick="requestMaterialOverride(item)"
+                                                                @keydown.enter.stop.prevent="selectMaterialCandidate(item, true)"
+                                                                @keydown.space.stop.prevent="selectMaterialCandidate(item, true)">
+                                                            <span class="production-material-option__main">
+                                                                <span class="production-material-option__name" x-text="item.name"></span>
+                                                                <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
+                                                            </span>
+                                                            <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
+                                                        </button>
+                                                    </template>
+                                                    <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
+                                                        No materials match this search.
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
-                                                No verified material suggestions are configured for this service.
+                                                <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
+                                                    No verified material suggestions are configured for this service.
+                                                </div>
                                             </div>
                                         </div>
 
                                         <template x-if="newMaterialId">
                                             <div style="padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                                                 <div style="grid-column: span 2;">
-                                                    <label style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Qty / Length</label>
+                                                    <label style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;" x-text="isTarpaulin(newMaterialId) ? 'Width (ft)' : 'Qty / Length'"></label>
                                                     <input type="number" x-model.number="newMaterialQty" min="1" step="any" @input="handleMaterialQtyInput($event.target.value)" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
                                                 </div>
                                                 <template x-if="isTarpaulin(newMaterialId)">
@@ -2503,107 +2536,30 @@ $online_closed_count = 0;
 
                                         <div x-show="pendingMaterials.length > 0" style="display:flex; flex-direction:column; gap:6px;">
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
-                                                <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0;">
-                                                    <div>
-                                                        <span style="font-weight:600; color:#1e293b;" x-text="pm.name"></span>
-                                                        <span x-show="pm.qty > 0" style="margin-left:4px; font-weight:800; color:#06A1A1;" x-text="'x' + pm.qty"></span>
+                                                <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
+                                                    <div style="min-width:0;">
+                                                        <div style="font-weight:600; color:#1e293b;" x-text="pm.name"></div>
+                                                        <template x-if="isTarpaulin(pm.item_id)">
+                                                            <div style="color:#64748b; font-size:11px; margin-top:2px;">
+                                                                <span>Width used: <strong x-text="Number(pm.qty) + ' ft'"></strong></span>
+                                                                <span style="margin-left:8px;">Height: <strong x-text="Number((pm.metadata && pm.metadata.height_ft) || 0) + ' ft'"></strong></span>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="!isTarpaulin(pm.item_id)">
+                                                            <div style="color:#64748b; font-size:11px; margin-top:2px;">Qty: <strong x-text="Number(pm.qty) + ' ' + pm.uom"></strong></div>
+                                                        </template>
                                                     </div>
-                                                    <div style="display:flex; align-items:center; gap:12px;">
-                                                        <span style="color:#64748b;" x-text="pm.qty + ' ' + pm.uom"></span>
-                                                        <button @click="removePendingMaterial(idx)" style="color:#ef4444; border:none; background:none; cursor:pointer; font-weight:700;">✕</button>
-                                                    </div>
+                                                    <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
+                                                            style="flex-shrink:0; display:flex; align-items:center; gap:4px; color:#b91c1c; border:1px solid #fecaca; background:#fff5f5; border-radius:6px; padding:5px 9px; cursor:pointer; font-weight:700; font-size:11px;">
+                                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+                                                        Remove
+                                                    </button>
                                                 </div>
                                             </template>
                                         </div>
                                         <div x-show="productionErrors.material" x-text="productionErrors.material" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                     </div>
 
-                                    <!-- B. Ink Options -->
-                                    <div style="display:flex; flex-direction:column; gap:12px;">
-                                        <div style="display:flex; align-items:center; justify-content:space-between;">
-                                            <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options <span x-show="requiresInk" style="color:#dc2626;">*</span></label>
-                                        </div>
-
-                                        <div x-show="inkSelectionMode === 'pending'" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
-                                            Select a core material first to see compatible ink options.
-                                        </div>
-                                        <div x-show="requiresInk" x-transition
-                                             :style="productionErrors.ink_set ? 'padding:16px;border:1px solid #dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12);border-radius:12px;background:#f9fafb;' : 'padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f9fafb;'">
-                                            <label style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:10px; display:block;">Select Ink Set</label>
-                                            <div class="ink-set-options" role="radiogroup" aria-label="Ink set">
-                                                <template x-for="option in availableInkOptionsForService" :key="option.key">
-                                                    <button type="button" @click="inkCategorySelected = option.key; useInk = true; productionErrors.ink_set = ''"
-                                                            class="ink-set-option"
-                                                            :class="{ 'is-selected': inkCategorySelected === option.key }"
-                                                            role="radio"
-                                                            :aria-checked="inkCategorySelected === option.key ? 'true' : 'false'"
-                                                            x-text="option.label"></button>
-                                                </template>
-                                            </div>
-
-                                            <template x-if="inkCategorySelected">
-                                                <div>
-                                                    <div style="background:#fff; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-                                                        <div style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
-                                                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                                            Ink Consumption (ml)
-                                                        </div>
-                                                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#ef4444; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#ef4444; border-radius:50%; display:inline-block;"></span>
-                                                                    RED
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkRed" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#3b82f6; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#3b82f6; border-radius:50%; display:inline-block;"></span>
-                                                                    BLUE
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkBlue" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#1f2937; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#1f2937; border-radius:50%; display:inline-block;"></span>
-                                                                    BLACK
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkBlack" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#eab308; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#eab308; border-radius:50%; display:inline-block;"></span>
-                                                                    YELLOW
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkYellow" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div x-show="inkStockIssues.length > 0" style="margin-top:12px; padding:10px 12px; border-radius:8px; border:1px solid #fecaca; background:#fef2f2; color:#b91c1c; font-size:11px; font-weight:700; line-height:1.45;">
-                                                            <template x-for="(issue, idx) in inkStockIssues" :key="idx">
-                                                                <div x-text="issue"></div>
-                                                            </template>
-                                                        </div>
-                                                        <div x-show="productionErrors.ink_consumption" x-text="productionErrors.ink_consumption" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                            <div x-show="productionErrors.ink_set" x-text="productionErrors.ink_set" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
-                                        </div>
-                                        <div x-show="inkSelectionMode === 'none'" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;" x-text="noInkGuidanceText">
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
 
@@ -2612,7 +2568,7 @@ $online_closed_count = 0;
                                 <div style="margin-bottom:20px;">
                                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
                                         <span aria-hidden="true" style="font-size:16px; font-weight:900; color:#0f766e; line-height:1;">₱</span>
-                                        <label style="font-size:11px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">[3] Set Final Price</label>
+                                        <label style="font-size:11px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">[2] Set Final Price</label>
                                     </div>
                                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:10px 12px; border-radius:10px; border:1px solid #99f6e4; background:#ffffff;">
                                         <div style="font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">Estimated Price</div>
@@ -2643,6 +2599,7 @@ $online_closed_count = 0;
                                                onfocus="this.style.borderColor='#0d9488'; this.style.boxShadow='0 0 0 3px rgba(6, 161, 161, 0.08)'"
                                                onblur="this.style.borderColor='#5eead4'; this.style.boxShadow='none'">
                                     </div>
+                                    <div x-show="priceBelowEstimateLabel" x-cloak x-text="priceBelowEstimateLabel" style="margin-top:6px; font-size:11px; font-weight:700; color:#b45309;"></div>
                                 </div>
                                 <div x-show="approvalStockErrors.length > 0" style="margin-bottom:12px; padding:12px 14px; border-radius:10px; border:1px solid #fecaca; background:#fff1f2; color:#b91c1c; font-size:12px; font-weight:700; line-height:1.5;">
                                     <template x-for="(issue, idx) in approvalStockErrors" :key="idx">
@@ -2946,9 +2903,30 @@ $online_closed_count = 0;
             <h3 id="material-override-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;" x-text="materialOverrideTitle"></h3>
             <p style="margin:12px 0 0; color:#334155; font-size:13px; line-height:1.5;" x-text="materialOverrideLead"></p>
             <p id="material-override-description" style="margin:8px 0 0; color:#64748b; font-size:12px; line-height:1.5;" x-text="materialOverrideGuidance"></p>
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
-                <button x-ref="materialOverrideCancel" type="button" @click="cancelMaterialOverride()" class="btn-secondary">Cancel</button>
-                <button type="button" @click="confirmMaterialOverride()" class="btn-staff-action btn-staff-action-indigo" style="padding:8px 14px; font-size:12px; font-weight:700;">Use Material</button>
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap;">
+                <button x-ref="materialOverrideCancel" type="button" @click="cancelMaterialOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-red">Cancel</button>
+                <button type="button" @click="confirmMaterialOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-green">Use Material</button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<template x-if="showPriceOverrideModal">
+    <div @keydown.escape.window.stop.prevent="cancelPriceOverride()">
+        <div x-show="showPriceOverrideModal" x-cloak @click="cancelPriceOverride()" style="position:fixed; inset:0; z-index:11020; background:rgba(15,23,42,.45);"></div>
+        <div x-show="showPriceOverrideModal" x-cloak role="dialog" aria-modal="true" aria-labelledby="price-override-title" aria-describedby="price-override-description" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:11021; width:min(420px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border:1px solid #dbe3ea; border-radius:12px; box-shadow:0 20px 50px rgba(15,23,42,.25); padding:20px;">
+            <h3 id="price-override-title" style="margin:0; font-size:18px; font-weight:700; color:#1f2937;">Price below estimate</h3>
+            <p id="price-override-description" style="margin:12px 0 0; color:#334155; font-size:13px; line-height:1.5;">
+                The final price is <strong x-text="'₱' + Number(priceOverrideDiff).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong> below the estimated price.
+                Please confirm that this adjustment is intentional.
+            </p>
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:20px; flex-wrap:wrap;">
+                <button type="button" @click="cancelPriceOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-red">Cancel</button>
+                <button type="button" @click="confirmPriceOverride()"
+                        class="pf-confirm-btn pf-confirm-btn-green">Confirm Lower Price</button>
             </div>
         </div>
     </div>
@@ -3252,6 +3230,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             materialRules: [],
             activeProductionServices: [],
             materialListActiveIndex: 0,
+            materialListExpanded: true,
             inventoryPollMs: 20000,
             ordersPollMs: 30000,
             newMaterialId: '',
@@ -3269,6 +3248,12 @@ window.pfCustomizationPreloadedOrders = (() => {
             search: '',
             jobPriceInput: 0,
             loadingModalAssignments: false,
+            // ── Below-estimate Final Price override confirmation ─────────
+            showPriceOverrideModal: false,
+            priceOverrideAmount: 0,
+            priceOverrideDiff: 0,
+            priceOverrideResolve: null,
+            lastPriceOverrideConfirmed: false,
             
             // ── Profile Image Fallback ───────────────────────────────────
             getProfileImage(image) {
@@ -3372,6 +3357,27 @@ window.pfCustomizationPreloadedOrders = (() => {
             getDefaultMaterialQty(itemId) {
                 if (!this.isPcsMaterial(itemId)) return 1;
                 return this.normalizeMaterialQtyValue(this.currentJo && this.currentJo.quantity ? this.currentJo.quantity : 1, 1);
+            },
+            /**
+             * Deterministic auto-select: when there is exactly one unambiguous, in-stock,
+             * canonically-mapped material match for this job's specs, pre-fill it into the
+             * selected-material queue. Staff can still remove/change it before saving.
+             * No-op if materials are already assigned/queued, or if no safe match exists.
+             */
+            maybeApplyAutoMaterialSuggestion() {
+                if (!this.currentJo) return;
+                if (this.modalWorkflowStatus(this.currentJo) !== 'APPROVED') return;
+                if (Array.isArray(this.currentJo.materials) && this.currentJo.materials.length > 0) return;
+                if (this.pendingMaterials.length > 0) return;
+                if (!window.PrintFlowProductionMaterials || !Array.isArray(this.allInventoryItems) || !this.allInventoryItems.length) return;
+                const match = window.PrintFlowProductionMaterials.getAutoSelectCandidate(
+                    this.allInventoryItems, this.materialCompatibilityContext, this.materialRules
+                );
+                if (!match) return;
+                this.handleMaterialSelection(match.id);
+                if (!this.selectedMaterialStockError) {
+                    this.addMaterialToQueue();
+                }
             },
             handleMaterialSelection(selectedId) {
                 this.newMaterialId = selectedId;
@@ -3573,11 +3579,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return row;
             },
             get requiresInk() {
-                if (this.inkSelectionMode === 'standard' || this.inkSelectionMode === 'tarp') return true;
-                if (this.inkSelectionMode === 'legacy') {
-                    const value = this.currentJo ? this.currentJo.requires_ink : true;
-                    return value !== false && value !== 0 && value !== '0';
-                }
                 return false;
             },
             clearDeepLinkParams() {
@@ -3628,9 +3629,15 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.currentJo.customer_profile_picture = this.currentJo.customer_profile_picture || this.currentJo.profile_picture || this.currentJo.customer_picture || '';
                 this.paymongoPayment = this.currentJo.provider_payment || null;
                 this.schedulePayMongoPolling();
-                this.jobPriceInput = (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0)
-                    ? this.currentJo.final_price
-                    : '';
+                if (this.currentJo.final_price !== null && this.currentJo.final_price !== undefined && String(this.currentJo.final_price).trim() !== '' && Number(this.currentJo.final_price) > 0) {
+                    // Preserve an already-entered/saved valid Final Price as-is.
+                    this.jobPriceInput = this.currentJo.final_price;
+                } else {
+                    // No valid Final Price yet: default to the Estimated Price so staff
+                    // aren't forced to retype the recommended price from scratch.
+                    const defaultEstimate = Number(this.currentJo.estimated_price || this.currentJo.estimated_total || 0);
+                    this.jobPriceInput = defaultEstimate > 0 ? defaultEstimate : '';
+                }
                 this.productionErrors = { material: '', ink_set: '', ink_consumption: '' };
                 this.restoreSavedInkUsage();
                 this.modalCache[cacheKey] = this.currentJo;
@@ -3667,6 +3674,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.currentJo = merged;
                     this.paymongoPayment = merged.provider_payment || this.paymongoPayment || null;
                     this.restoreSavedInkUsage();
+                    this.maybeApplyAutoMaterialSuggestion();
                     this.modalCache[cacheKey] = merged;
                     this.modalCacheLoadedAt[cacheKey] = Date.now();
                 } catch (e) {
@@ -4773,6 +4781,9 @@ window.pfCustomizationPreloadedOrders = (() => {
                     stickerType: jo.sticker_type || '',
                     cutType: jo.cut_type || '',
                     customization: [jo.customization_details || {}, ...itemContexts],
+                    customerWidth: parseFloat(jo.width_ft || 0) || 0,
+                    customerHeight: parseFloat(jo.height_ft || 0) || 0,
+                    customerQuantity: parseFloat(jo.quantity || 0) || 0,
                     serviceKind: window.PrintFlowProductionMaterials.classifyService({
                         serviceType: String(jo.service_type || jo.job_title || this.getCorrectServiceType(jo) || '').trim(),
                         serviceLabel: String(this.getCorrectServiceType(jo) || '').trim(),
@@ -4815,7 +4826,7 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             materialStatusLabel(item) {
                 const state = item.compatibility || this.materialClassification(item);
-                if (!state.inStock) return 'Out of stock';
+                if (!state.inStock && (state.tier === 'recommended' || state.tier === 'optional')) return 'Out of stock';
                 const stockStatus = item.stock_status && String(item.stock_status.label || '').trim();
                 const stockSuffix = stockStatus && !['In Stock', 'Out of Stock'].includes(stockStatus) ? ` · ${stockStatus}` : '';
                 if (state.tier === 'recommended') return `Recommended${stockSuffix}`;
@@ -4909,18 +4920,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return null;
             },
             get inkSelectionMode() {
-                const core = this.selectedCoreMaterial;
-                if (!core) return 'pending';
-                const mode = window.PrintFlowProductionMaterials.inkModeFor(core);
-                return mode === 'unknown' ? 'legacy' : mode;
-            },
-            get noInkGuidanceText() {
-                const kind = this.materialCompatibilityContext.serviceKind;
-                if (kind === 'plate') return 'No standard printer ink is suggested for this plate setup.';
-                if (kind === 'sintraboard') return 'No standard ink set is configured for this Sintraboard setup.';
-                if (kind === 'reflectorized_signage') return 'No printer ink is required for this cut/reflective setup.';
-                if (kind === 'tshirt') return 'No printer ink required for this cut heat-transfer material.';
-                return 'No printer ink is required for this cut-only material.';
+                // Ink is inventory-managed globally, not estimated per job.
+                return 'none';
             },
             syncInkSelectionWithMaterial() {
                 const allowed = this.availableInkOptionsForService.map(option => option.key);
@@ -5730,6 +5731,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 this.footerActionError = '';
                 this.resetMaterialForm();
                 this.resetInkForm();
+                this.materialListExpanded = true;
                 this.primeDetailsShell(order, orderType, id);
 
                 const cachedDetail = this.modalCache[cacheKey] || null;
@@ -5832,6 +5834,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                             for (const m of this.currentJo.materials || []) {
                                 if (m.track_by_roll == 1) this.loadAvailableRolls(m.item_id);
                             }
+                            this.maybeApplyAutoMaterialSuggestion();
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                         } else {
@@ -6150,6 +6153,8 @@ window.pfCustomizationPreloadedOrders = (() => {
             },
             async setJobPrice(id) {
                 if(this.jobPriceInput < 0) return;
+                const priceValue = parseFloat(this.jobPriceInput);
+                if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                 let jid = id != null ? id : await this.resolveEffectiveJobId();
                 if (!jid) {
                     this.showStaffAlert('Error', 'No linked production job.');
@@ -6160,11 +6165,58 @@ window.pfCustomizationPreloadedOrders = (() => {
                 fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                 fd.append('id', jid);
                 fd.append('price', this.jobPriceInput);
+                if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                 const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                 if(!res.success) {
                     this.showStaffAlert('Error', res.error);
                     throw new Error(res.error);
                 }
+            },
+            // Returns the current Estimated Price for the open job/order, or 0 if unknown.
+            get currentEstimatedPrice() {
+                if (!this.currentJo) return 0;
+                return Number(this.currentJo.estimated_price || this.currentJo.estimated_total || 0) || 0;
+            },
+            // Inline "₱X.XX below estimated price" indicator for the Final Price field.
+            get priceBelowEstimateLabel() {
+                const estimate = this.currentEstimatedPrice;
+                const entered = parseFloat(this.jobPriceInput);
+                if (!(estimate > 0) || !Number.isFinite(entered) || !(entered < estimate)) return '';
+                const diff = estimate - entered;
+                return `₱${diff.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} below estimated price`;
+            },
+            /**
+             * Deterministic, non-blocking safeguard for Issue 3: if the price being
+             * saved is below the job's Estimated Price, show a confirmation modal
+             * (never a browser alert()) and wait for staff's explicit decision.
+             * Resolves true when it is safe to proceed with saving `price`, false
+             * when staff cancelled. Always resolves true when no override is needed.
+             */
+            confirmFinalPriceIfBelowEstimate(price) {
+                const estimate = this.currentEstimatedPrice;
+                if (!(estimate > 0) || !Number.isFinite(price) || !(price < estimate)) {
+                    this.lastPriceOverrideConfirmed = false;
+                    return Promise.resolve(true);
+                }
+                // Avoid re-prompting when this exact override was already confirmed
+                // earlier in the same save action (e.g. submitToPay() -> updatePrice()).
+                if (this.lastPriceOverrideConfirmed && Number(this.priceOverrideAmount) === Number(price)) {
+                    return Promise.resolve(true);
+                }
+                this.priceOverrideAmount = price;
+                this.priceOverrideDiff = estimate - price;
+                this.showPriceOverrideModal = true;
+                return new Promise(resolve => { this.priceOverrideResolve = resolve; });
+            },
+            cancelPriceOverride() {
+                this.showPriceOverrideModal = false;
+                this.lastPriceOverrideConfirmed = false;
+                if (this.priceOverrideResolve) { this.priceOverrideResolve(false); this.priceOverrideResolve = null; }
+            },
+            confirmPriceOverride() {
+                this.showPriceOverrideModal = false;
+                this.lastPriceOverrideConfirmed = true;
+                if (this.priceOverrideResolve) { this.priceOverrideResolve(true); this.priceOverrideResolve = null; }
             },
 
             addMaterialToQueue() {
@@ -6213,6 +6265,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 });
                 // Reset form
                 this.resetMaterialForm();
+                this.materialListExpanded = false;
             },
             removePendingMaterial(index) {
                 this.pendingMaterials.splice(index, 1);
@@ -6251,14 +6304,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                 };
             },
             buildInkPayload() {
-                if (!this.requiresInk || !this.inkCategorySelected || !this.inkTypes[this.inkCategorySelected]) return [];
-                const mappedInks = this.inkTypes[this.inkCategorySelected];
-                const inkPayload = [];
-                if (this.inkBlue > 0) inkPayload.push({ item_id: mappedInks['BLUE'], color: 'BLUE', quantity: this.inkBlue });
-                if (this.inkRed > 0) inkPayload.push({ item_id: mappedInks['RED'], color: 'RED', quantity: this.inkRed });
-                if (this.inkBlack > 0) inkPayload.push({ item_id: mappedInks['BLACK'], color: 'BLACK', quantity: this.inkBlack });
-                if (this.inkYellow > 0) inkPayload.push({ item_id: mappedInks['YELLOW'], color: 'YELLOW', quantity: this.inkYellow });
-                return inkPayload;
+                return [];
             },
             restoreSavedInkUsage() {
                 const saved = Array.isArray(this.currentJo.ink_usage) ? this.currentJo.ink_usage : [];
@@ -6338,13 +6384,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const materials = Array.isArray(target.materials) ? target.materials : [];
                 if (!materials.some(material => Number(material.quantity || material.computed_required_length_ft || 0) > 0)) {
                     errors.material = 'Please select and add a material.';
-                }
-                const requiresInk = target.requires_ink !== false
-                    && target.requires_ink !== 0
-                    && target.requires_ink !== '0';
-                const inks = Array.isArray(target.ink_usage) ? target.ink_usage : [];
-                if (requiresInk && !inks.some(ink => Number(ink.quantity_used || ink.quantity || 0) > 0)) {
-                    errors.ink_consumption = 'Please select an ink set and enter the required ink consumption.';
                 }
                 const status = String(target.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(status)) {
@@ -6446,6 +6485,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         this.setFooterActionError('Please enter a valid final price before approving.');
                         return;
                     }
+                    if (!await this.confirmFinalPriceIfBelowEstimate(priceValue)) return;
                     const target = await this.getProductionAssignmentTarget();
                     if (!target.jobId) {
                         this.setFooterActionError('No linked production job was found for this customization.');
@@ -6544,6 +6584,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                         fd.append('id', this.currentJo.id);
                         fd.append('status', 'TO_PAY');
                         fd.append('price', this.jobPriceInput);
+                        if (this.lastPriceOverrideConfirmed) fd.append('price_override_confirmed', '1');
                         const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
                         if (res.success) {
                             const hasPaymentProof = this.currentJo.payment_proof_path || this.currentJo.payment_proof;
@@ -6574,6 +6615,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.setFooterActionError('Please enter a valid final price before submitting.');
                     return;
                 }
+                if (!await this.confirmFinalPriceIfBelowEstimate(userEnteredPrice)) return;
                 const urlParams = new URLSearchParams(window.location.search);
                 const returnToPOS = urlParams.get('return_to_pos') === '1';
                 const fromPOS = this.isPosPricingMode()
@@ -6748,13 +6790,16 @@ window.pfCustomizationPreloadedOrders = (() => {
                     this.showStaffAlert('Invalid Price', 'Please enter a valid price greater than 0.');
                     return false;
                 }
-                
+                if (!await this.confirmFinalPriceIfBelowEstimate(price)) return false;
+                const priceOverrideFlag = this.lastPriceOverrideConfirmed;
+
                 if (this.currentJo.order_type === 'ORDER') {
                    const fd = new FormData();
                    fd.append('action', 'update_order_price');
                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                    fd.append('order_id', oid);
                    fd.append('price', price);
+                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                    const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                    if (!res.success) {
                        this.showStaffAlert('Error', 'Failed to update price: ' + res.error);
@@ -6770,6 +6815,7 @@ window.pfCustomizationPreloadedOrders = (() => {
                    fd.append('id', oid);
                    fd.append('status', 'APPROVED');
                    fd.append('price', price);
+                   if (priceOverrideFlag) fd.append('price_override_confirmed', '1');
                    const res = await (await fetch('../admin/job_orders_api.php', { method: 'POST', body: fd })).json();
                    if (!res.success) {
                        this.showStaffAlert('Error', 'Failed to update customization price: ' + res.error);

@@ -30,6 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['staff_cancel'])) {
         redirect("order_details.php?id=$order_id");
     }
 
+    $orderRows = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+    if ($orderRows === [] || printflow_is_ready_made_product_order($orderRows[0])) {
+        $_SESSION['error'] = 'Ready-made online product orders cannot be cancelled through the normal workflow.';
+        redirect("order_details.php?id=$order_id");
+    }
+
     // Use the central update function
     if (update_order_status($order_id, 'Cancelled', get_user_id(), $full_reason)) {
         // Find customer for notification

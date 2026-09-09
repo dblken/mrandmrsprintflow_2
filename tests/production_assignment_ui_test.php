@@ -24,7 +24,9 @@ $assertions = [
     'picker asset is cache busted' => str_contains($source, 'production_material_picker.js?v=') && str_contains($source, 'filemtime'),
     'price helper copy is removed' => !str_contains($source, 'Set the final amount, then continue to POS to receive payment.'),
     'POS helper copy is removed' => !str_contains($source, 'Saving here keeps the item in the POS cart so staff can continue payment on the walk-in POS page.'),
-    'price step uses peso display' => str_contains($source, '[3] Set Final Price') && str_contains($source, "x-text=\"'₱' + Number(currentJo.estimated_price"),
+    'price step uses peso display' => str_contains($source, '[2] Set Final Price') && str_contains($source, "x-text=\"'₱' + Number(currentJo.estimated_price"),
+    'obsolete ink options step is removed' => !str_contains($source, 'Ink Options') && !str_contains($source, 'SELECT INK SET') && !str_contains($source, 'Select Ink Set'),
+    'obsolete ink guidance copy is removed' => !str_contains($source, 'No printer ink required') && !str_contains($source, 'Printer ink is no longer selected or recorded per order.'),
     'modal shell size was not redefined by picker CSS' => !preg_match('/\.production-material-results\s*\{[^}]*\bwidth\s*:\s*(?:[5-9]\d{2}|\d{4,})px/i', $source),
 ];
 

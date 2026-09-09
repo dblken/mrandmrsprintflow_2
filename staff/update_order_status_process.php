@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/product_option_stock.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/JobOrderService.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 if (!is_logged_in()) {
     printflow_json_response(['success' => false, 'error' => 'Authentication required.'], 401);
@@ -62,7 +63,7 @@ try {
     }
 
     $rows = db_query(
-        'SELECT status, payment_status, branch_id, customer_id, order_type FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
+        'SELECT status, payment_status, branch_id, customer_id, order_type, order_source, reference_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE',
         'i',
         [$orderId]
     ) ?: [];
@@ -77,6 +78,12 @@ try {
     $orderType = strtolower(trim((string)($order['order_type'] ?? '')));
     $isProductOrder = $orderType === 'product';
     $isServiceOrder = $orderType === 'custom';
+    $isReadyMadeProductOrder = $isProductOrder && printflow_is_ready_made_product_order($order);
+
+    if ($isReadyMadeProductOrder && $newStatus !== 'Completed') {
+        if ($transactionStarted) $conn->rollback();
+        printflow_json_response(['success' => false, 'error' => 'Ready-made online products can only be completed after verified payment and customer claim.'], 409);
+    }
 
     if (strcasecmp($oldStatus, $newStatus) === 0) {
         if ($transactionStarted) $conn->commit();
@@ -99,6 +106,13 @@ try {
                 'error' => 'Cannot mark as Completed: payment must be Paid.',
                 'payment_status' => (string)($order['payment_status'] ?? 'Unpaid'),
             ], 409);
+        }
+        if ($isReadyMadeProductOrder) {
+            $providerPayment = printflow_provider_payment_find('order', $orderId, 'online', printflow_paymongo_mode());
+            if (($providerPayment['status'] ?? '') !== 'paid') {
+                if ($transactionStarted) $conn->rollback();
+                printflow_json_response(['success' => false, 'error' => 'Cannot mark as Completed: PayMongo has not verified this payment as paid.'], 409);
+            }
         }
     }
 

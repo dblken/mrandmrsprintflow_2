@@ -961,6 +961,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <style>
     .order-container { max-width: 650px; margin: 0 auto; }
+    .order-container--product { max-width: 900px; }
     .compact-section { margin-bottom: 1.25rem; }
     .compact-card { padding: 1.25rem !important; }
     .review-title { text-align: center; margin-bottom: 2rem; color: #1f2937 !important; }
@@ -1423,15 +1424,22 @@ require_once __DIR__ . '/../includes/header.php';
     }
     .order-review-page .review-order-entry .order-item-content {
         display: grid !important;
-        grid-template-columns: minmax(80px, 0.9fr) minmax(86px, auto) minmax(185px, 1.15fr) !important;
+        grid-template-columns:
+            minmax(76px, 1.15fr)
+            minmax(76px, 0.8fr)
+            minmax(48px, 0.42fr)
+            minmax(82px, 0.68fr)
+            minmax(100px, 0.78fr) !important;
         align-items: center !important;
         align-self: center !important;
-        gap: 0.75rem !important;
-        overflow: visible !important;
+        gap: 0.5rem !important;
+        min-width: 0 !important;
     }
     .order-review-page .review-order-entry .order-item-content h3 {
         margin: 0 !important;
         color: #ffffff !important;
+        min-width: 0 !important;
+        overflow-wrap: anywhere !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge {
         display: flex !important;
@@ -1446,7 +1454,8 @@ require_once __DIR__ . '/../includes/header.php';
         color: #53c5e0 !important;
         text-transform: uppercase !important;
         line-height: 1.15 !important;
-        white-space: nowrap !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
     }
     .order-review-page .review-order-entry .order-item-category-badge::before {
         content: "Category:";
@@ -1459,14 +1468,7 @@ require_once __DIR__ . '/../includes/header.php';
         text-transform: uppercase !important;
     }
     .order-review-page .review-order-entry .order-item-details {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        gap: 0.9rem !important;
-        margin: 0 !important;
-        flex-wrap: nowrap !important;
-        min-width: 0 !important;
-        overflow: visible !important;
+        display: contents !important;
     }
     .order-review-page .review-order-entry .review-detail-row,
     .order-review-page .review-order-entry .review-total-row {
@@ -1479,10 +1481,11 @@ require_once __DIR__ . '/../includes/header.php';
         align-self: center !important;
     }
     .order-review-page .review-order-entry .review-detail-row {
-        min-width: 52px !important;
+        min-width: 0 !important;
     }
     .order-review-page .review-order-entry .review-total-row {
-        min-width: 112px !important;
+        min-width: 0 !important;
+        grid-column: 5 !important;
     }
     .order-review-page .review-order-entry .review-detail-label,
     .order-review-page .review-order-entry .review-total-label {
@@ -1497,6 +1500,33 @@ require_once __DIR__ . '/../includes/header.php';
         color: #53c5e0 !important;
         font-size: 1.1rem !important;
         white-space: nowrap;
+    }
+    .order-review-page .review-order-entry--product .order-item-content {
+        grid-template-columns: minmax(210px, 1.9fr) minmax(90px, 0.8fr) minmax(54px, 0.45fr) minmax(96px, 0.75fr) minmax(104px, 0.8fr) !important;
+        gap: 1rem !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+    }
+    .order-review-page .review-order-entry--product .order-item-content h3 {
+        min-width: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .order-review-page .review-order-entry--product .order-item-category-badge {
+        min-width: 0 !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+    }
+    .order-review-page .review-order-entry--product .order-item-details {
+        display: contents !important;
+    }
+    .order-review-page .review-order-entry--product .review-detail-row,
+    .order-review-page .review-order-entry--product .review-total-row {
+        min-width: 0 !important;
+    }
+    .order-review-page .review-order-entry--product .review-total-row {
+        grid-column: 5 !important;
     }
     .order-review-page .review-order-entry .order-item-spec-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
@@ -1530,6 +1560,33 @@ require_once __DIR__ . '/../includes/header.php';
         border: 1px solid rgba(83, 197, 224, 0.22) !important;
         border-radius: 8px !important;
         background: rgba(0, 0, 0, 0.25) !important;
+    }
+
+    @media (max-width: 900px) {
+        .order-review-page .review-order-entry--product .order-item-content {
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            gap: 0.65rem 1rem !important;
+            overflow: visible !important;
+        }
+        .order-review-page .review-order-entry--product .order-item-content h3 {
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            overflow-wrap: anywhere !important;
+        }
+        .order-review-page .review-order-entry--product .order-item-details {
+            grid-column: 1 / -1 !important;
+            display: flex !important;
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            gap: 1.5rem !important;
+            padding-top: 0.65rem !important;
+            border-top: 1px solid rgba(83, 197, 224, 0.12) !important;
+            flex-wrap: wrap !important;
+        }
+        .order-review-page .review-order-entry--product .review-total-row {
+            grid-column: auto !important;
+        }
     }
 
     @media (max-width: 640px) {
@@ -1671,7 +1728,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <div class="min-h-screen py-8 order-review-page">
     <?php if (!isset($order_placed_id)): ?>
-    <div class="container mx-auto px-4 order-container">
+    <div class="container mx-auto px-4 order-container<?php echo $is_product_order ? ' order-container--product' : ''; ?>">
         <div class="order-review-page-header">
             <a href="cart.php" class="order-review-back-link" onmouseover="this.style.color='#111827'" onmouseout="this.style.color='#374151'">
                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
@@ -1702,7 +1759,7 @@ require_once __DIR__ . '/../includes/header.php';
                     $review_snapshot = pf_order_ui_normalize_review_customization(review_item_customization($item), $item, true);
                     $review_snapshot_json = printflow_encode_customization_payload($review_snapshot);
                 ?>
-                <div class="review-order-item review-order-entry <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
+                <div class="review-order-item review-order-entry <?php echo review_item_is_product($item) ? 'review-order-entry--product' : 'review-order-entry--service'; ?> <?php echo $is_hidden ? 'items-hidden' : ''; ?>" style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; <?php echo $key !== array_key_last($items_to_review) ? 'border-bottom: 1px solid #e5e7eb;' : ''; ?>">
                     <input type="hidden" name="spec_snapshot[<?php echo htmlspecialchars((string)$key, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($review_snapshot_json, ENT_QUOTES, 'UTF-8'); ?>">
                     <?php
                     try {
@@ -1738,8 +1795,13 @@ require_once __DIR__ . '/../includes/header.php';
                 <div class="review-info-note" style="margin-bottom: 2rem;">
                     <span style="font-size:1.25rem; flex-shrink:0;">ℹ️</span>
                     <div>
+                        <?php if ($is_product_order): ?>
+                        <div class="review-info-note-title">Order Information</div>
+                        <div class="review-info-note-text">Ready-made product orders are for pickup only. Once your order is placed, it can no longer be cancelled. If you have questions or special concerns, you may message our staff after checkout.</div>
+                        <?php else: ?>
                         <div class="review-info-note-title">Order Review Process</div>
                         <div class="review-info-note-text">Your order will be reviewed by our team. You'll receive a notification when it's ready for payment or pickup.</div>
+                        <?php endif; ?>
                     </div>
                 </div>
 

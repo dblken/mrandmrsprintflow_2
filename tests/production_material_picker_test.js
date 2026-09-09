@@ -57,6 +57,16 @@ assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.overrideable,
 assert.strictEqual(byName(tarpRows, '4ft Tarpaulin').compatibility.reason, 'Out of stock');
 assert.strictEqual(picker.inkModeFor(byName(tarpRows, '3ft Tarpaulin')), 'tarp');
 
+// Regression: shorthand "TARP" naming and category-based naming must still be recognized
+// as tarpaulin material (root cause of the "Not suggested" bug).
+const tarpShorthandRows = picker.rankItems(
+    [item('4FT TARP'), item('TARPAULIN 5FT'), item('Tarp Roll', 10, { category_name: 'TARPAULIN' })],
+    context('Tarpaulin Printing'), [], ''
+);
+assert.strictEqual(byName(tarpShorthandRows, '4FT TARP').compatibility.tier, 'recommended');
+assert.strictEqual(byName(tarpShorthandRows, 'TARPAULIN 5FT').compatibility.tier, 'recommended');
+assert.strictEqual(byName(tarpShorthandRows, 'Tarp Roll').compatibility.tier, 'recommended');
+
 const shirtRows = picker.rankItems(inventory, context('T-Shirt Printing'), [], '');
 assert.strictEqual(byName(shirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');
 assert.strictEqual(byName(shirtRows, 'Holographic').compatibility.tier, 'recommended');
@@ -184,5 +194,34 @@ assert.strictEqual(picker.classifyItem(byName(inventory, 'AC EURO'), context('Pl
     .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'colored_sticker'));
 ['3ft Tarpaulin', '4ft Tarpaulin', '5FT Tarpaulin', '6FT Tarpaulin', '7ft Tarpaulin']
     .forEach(name => assert.strictEqual(picker.familyFor(item(name)), 'tarpaulin'));
+
+// --- Deterministic tarpaulin width matching / auto-select (no AI/ML) ---
+const tarpInventory = [item('3ft Tarpaulin'), item('4ft Tarpaulin'), item('5ft Tarpaulin'), item('6ft Tarpaulin')];
+assert.strictEqual(picker.tarpaulinRollWidthFor(byName(tarpInventory, '4ft Tarpaulin')), 4);
+assert.strictEqual(picker.tarpaulinRollWidthFor(item('TARPAULIN 5FT')), 5);
+assert.strictEqual(picker.tarpaulinRollWidthFor(item('MUG')), null);
+
+// Customer 2ft x 4ft: the 4ft roll fits one finished dimension exactly and is the
+// smallest such roll, so it must be the unambiguous auto-select.
+const tarpContext = context('Tarpaulin Printing');
+tarpContext.customerWidth = 2;
+tarpContext.customerHeight = 4;
+const tarpAutoSelect = picker.getAutoSelectCandidate(tarpInventory, tarpContext, []);
+assert.strictEqual(tarpAutoSelect && tarpAutoSelect.name, '4ft Tarpaulin');
+
+// Ambiguous case: two rolls of the same smallest fitting width -> do not auto-select.
+const ambiguousTarpInventory = [item('4ft Tarpaulin A'), item('4ft Tarpaulin B'), item('6ft Tarpaulin')];
+const ambiguousAutoSelect = picker.getAutoSelectCandidate(ambiguousTarpInventory, tarpContext, []);
+assert.strictEqual(ambiguousAutoSelect, null);
+
+// No stock -> no auto-select.
+const outOfStockInventory = [item('4ft Tarpaulin', 0), item('6ft Tarpaulin', 0)];
+assert.strictEqual(picker.getAutoSelectCandidate(outOfStockInventory, tarpContext, []), null);
+
+// Single unambiguous recommended material for a non-tarpaulin service should still auto-select.
+const mugAutoSelect = picker.getAutoSelectCandidate(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), []);
+assert.strictEqual(mugAutoSelect, null); // MUG and Subli Paper are both recommended -> ambiguous, must not guess
+const soleMugInventory = [item('MUG')];
+assert.strictEqual(picker.getAutoSelectCandidate(soleMugInventory, context('Souvenirs', { souvenir_type: 'Mug' }), []).name, 'MUG');
 
 process.stdout.write('production_material_picker_test: PASS\n');

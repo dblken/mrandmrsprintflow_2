@@ -405,7 +405,7 @@ function notify_shop_users(string $message, string $type = 'System', bool $send_
 
     $placeholders = implode(',', array_fill(0, count($roles), '?'));
     $users = db_query(
-        "SELECT user_id, role, branch_id FROM users WHERE role IN ($placeholders) AND status = 'Activated'",
+        "SELECT user_id, role, branch_id, position FROM users WHERE role IN ($placeholders) AND status = 'Activated'",
         str_repeat('s', count($roles)),
         $roles
     );
@@ -427,6 +427,23 @@ function notify_shop_users(string $message, string $type = 'System', bool $send_
 
         if ($targetBranchId !== null && in_array($role, ['Staff', 'Manager'], true)) {
             if ((int)($u['branch_id'] ?? 0) !== $targetBranchId) {
+                continue;
+            }
+        }
+
+        // A shared branch is not a notification audience. Staff notifications
+        // linked to an order follow that order's canonical source so Counter/POS
+        // users do not receive online events (and vice versa).
+        if ($role === 'Staff' && $data_id !== null && (int)$data_id > 0
+            && function_exists('printflow_notification_source_for_staff_scope')
+            && function_exists('printflow_staff_role_can_access_order_source')
+            && function_exists('printflow_resolve_staff_access_role_from_user')) {
+            $orderSource = printflow_notification_source_for_staff_scope($type, (int)$data_id);
+            if ($orderSource !== null
+                && !printflow_staff_role_can_access_order_source(
+                    printflow_resolve_staff_access_role_from_user($u),
+                    $orderSource
+                )) {
                 continue;
             }
         }
@@ -493,6 +510,39 @@ function printflow_notification_branch_id(array $notification): ?int {
 }
 
 /**
+ * Resolve the canonical order source for a staff-scoped notification.
+ *
+ * A notification stores only its type and related identifier, so this is the
+ * single translation point used both when creating notifications and when
+ * filtering historical rows. Null means the event has no order channel and
+ * retains its existing audience rules.
+ */
+function printflow_notification_source_for_staff_scope(string $type, int $dataId): ?string {
+    $type = trim($type);
+    $dataId = (int)$dataId;
+    if ($dataId <= 0) {
+        return null;
+    }
+
+    $sourceScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue', 'Message', 'Status', 'Rating', 'Review'];
+    if (!in_array($type, $sourceScopedTypes, true)) {
+        return null;
+    }
+
+    if ($type === 'Payment') {
+        $paymentContext = printflow_payment_submission_notification_context($dataId);
+        if (!empty($paymentContext)) {
+            $source = strtolower(trim((string)($paymentContext['order_source'] ?? 'customer')));
+            return $source !== '' ? $source : 'customer';
+        }
+    }
+
+    $source = printflow_resolve_order_source_for_staff_scope($dataId, $type);
+    $source = strtolower(trim((string)$source));
+    return $source !== '' ? $source : 'customer';
+}
+
+/**
  * True when a notification should be visible to the given staff/manager branch.
  */
 function printflow_staff_notification_visible(array $notification, ?int $branchId): bool {
@@ -525,16 +575,8 @@ function printflow_staff_notification_visible(array $notification, ?int $branchI
 
     $type = (string)($notification['type'] ?? '');
     $dataId = (int)($notification['data_id'] ?? 0);
-    $sourceScopedTypes = ['Order', 'Payment', 'Design', 'Job Order', 'Payment Issue', 'Message', 'Status'];
-    if ($dataId > 0 && in_array($type, $sourceScopedTypes, true)) {
-        if ($type === 'Payment') {
-            $paymentContext = printflow_payment_submission_notification_context($dataId);
-            if (!empty($paymentContext)) {
-                $orderSource = strtolower(trim((string)($paymentContext['order_source'] ?? 'customer')));
-                return printflow_staff_role_can_access_order_source($staffRole, $orderSource !== '' ? $orderSource : 'customer');
-            }
-        }
-        $orderSource = printflow_resolve_order_source_for_staff_scope($dataId, $type);
+    $orderSource = printflow_notification_source_for_staff_scope($type, $dataId);
+    if ($orderSource !== null) {
         return printflow_staff_role_can_access_order_source($staffRole, $orderSource);
     }
 
@@ -5477,10 +5519,72 @@ function is_customer_id_verified($customer_id = null) {
 }
 
 /**
+ * Ready-made product orders use the PayMongo payment-and-claim workflow.
+ * Service orders are deliberately excluded: their existing production and
+ * revision workflow continues to own their cancellation rules.
+ */
+function printflow_is_ready_made_product_order(array $order): bool {
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) !== 'product') {
+        return false;
+    }
+
+    $orderId = (int)($order['order_id'] ?? 0);
+    if ($orderId <= 0) {
+        return false;
+    }
+
+    $itemColumns = ['customization_data'];
+    if (db_table_has_column('order_items', 'item_type')) {
+        $itemColumns[] = 'item_type';
+    }
+    if (db_table_has_column('order_items', 'service_id')) {
+        $itemColumns[] = 'service_id';
+    }
+    $items = db_query(
+        'SELECT ' . implode(', ', $itemColumns) . ' FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC',
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    foreach ($items as $item) {
+        $custom = printflow_decode_modal_customization_payload((string)($item['customization_data'] ?? ''));
+        $itemType = strtolower(trim((string)($item['item_type'] ?? '')));
+        $sourcePage = strtolower(trim((string)($custom['source_page'] ?? '')));
+        if (in_array($itemType, ['service', 'custom_service'], true)
+            || (int)($item['service_id'] ?? 0) > 0
+            || !empty($custom['service_type'])
+            || (int)($custom['service_id'] ?? 0) > 0
+            || in_array($sourcePage, ['service', 'services'], true)
+            || (function_exists('printflow_order_item_has_service_marker') && printflow_order_item_has_service_marker($custom))) {
+            return false;
+        }
+    }
+
+    // A legacy service checkout can retain order_type=product while using a
+    // service reference. Do not route it into the ready-made workflow.
+    if ((int)($order['reference_id'] ?? 0) > 0 && $items !== []) {
+        $firstCustom = printflow_decode_modal_customization_payload((string)($items[0]['customization_data'] ?? ''));
+        if (!customer_orders_custom_order_is_catalog_product($firstCustom)) {
+            return false;
+        }
+    }
+
+    if ((int)($order['reference_id'] ?? 0) > 0 && $items === []) {
+        $service = db_query('SELECT 1 FROM services WHERE service_id = ? LIMIT 1', 'i', [(int)$order['reference_id']]) ?: [];
+        if ($service !== []) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Determine if a customer can cancel an order based on its status.
  */
 function can_customer_cancel_order($order) {
     if (!$order) return false;
+    if (printflow_is_ready_made_product_order($order)) return false;
     $status = strtoupper(trim((string)($order['status'] ?? '')));
     // Customers can still cancel before production starts, including To Pay.
     $allowed_statuses = ['PENDING', 'TO PAY', 'TO_PAY', 'FOR REVISION', 'PENDING VERIFICATION', 'PENDING_VERIFICATION'];
@@ -6251,6 +6355,19 @@ function printflow_resolve_active_service_catalog_id(string $serviceName): int {
 function printflow_order_list_thumbnail_url(array $order, string $displayName = ''): string {
     $appBase = pf_app_base_path();
     $defaultImg = rtrim($appBase, '/') . '/public/assets/images/services/default.png';
+
+    // Ready-made orders already select the first catalog image in
+    // customer/orders.php. Prefer that trusted product value before the
+    // service-art resolver below, which cannot identify a catalog product.
+    if (strtolower(trim((string)($order['order_type'] ?? ''))) === 'product') {
+        $productImage = trim((string)($order['first_product_image'] ?? ''));
+        if ($productImage !== '' && function_exists('pf_order_ui_asset_url')) {
+            $productUrl = pf_order_ui_asset_url($productImage);
+            if ($productUrl !== null && $productUrl !== '') {
+                return $productUrl;
+            }
+        }
+    }
 
     $custom = function_exists('customer_orders_primary_customization')
         ? customer_orders_primary_customization($order)

@@ -99,14 +99,48 @@ if ($service_name === '') {
 }
 
 $linked_job_id = 0;
+$linked_job_order_item_id = 0;
 $linkedJobRows = db_query(
-    "SELECT id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
+    "SELECT id, order_item_id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
     'i',
     [$order_id]
 ) ?: [];
 $linked_job_id = (int)($linkedJobRows[0]['id'] ?? 0);
+$linked_job_order_item_id = (int)($linkedJobRows[0]['order_item_id'] ?? 0);
 if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
     $linked_job_id = (int)(JobOrderService::ensureJobsForStoreOrder($order_id) ?? 0);
+    if ($linked_job_id > 0) {
+        $ensuredJobRow = db_query("SELECT order_item_id FROM job_orders WHERE id = ? LIMIT 1", 'i', [$linked_job_id]) ?: [];
+        $linked_job_order_item_id = (int)($ensuredJobRow[0]['order_item_id'] ?? 0);
+    }
+}
+
+// Root-cause fix: getStoreOrderItemsPayload() aggregates the WHOLE store order and
+// derives service_type/width/height from the FIRST line item. For mixed-service,
+// multi-item orders that produces the wrong recommendation context (e.g. a
+// Tarpaulin job showing "not suggested for T-Shirt Printing"). Re-anchor the
+// service/dimensions to the specific order_item this job is actually linked to.
+$job_item_title = '';
+if ($linked_job_order_item_id > 0 && count($items_out) > 1) {
+    foreach ($items_out as $candidateItem) {
+        if ((int)($candidateItem['order_item_id'] ?? 0) !== $linked_job_order_item_id) {
+            continue;
+        }
+        $ownName = trim((string)($candidateItem['product_name'] ?? ''));
+        if ($ownName !== '' && strcasecmp($ownName, 'Custom Order') !== 0) {
+            $service_name = $ownName;
+            $job_item_title = $ownName . ' - ' . max(1, (int)($candidateItem['quantity'] ?? 0)) . 'pcs';
+        }
+        $ownCustom = is_array($candidateItem['customization'] ?? null) ? $candidateItem['customization'] : [];
+        if (!empty($ownCustom['width']) && !empty($ownCustom['height'])) {
+            $width_ft = (string)$ownCustom['width'];
+            $height_ft = (string)$ownCustom['height'];
+        }
+        if (!empty($ownCustom)) {
+            $first_custom = $ownCustom;
+        }
+        break;
+    }
 }
 
 $materials = [];
@@ -269,7 +303,7 @@ $data = [
     'customer_contact' => $o['customer_contact'] ?? '',
     'customer_type' => ((int)($o['transaction_count'] ?? 0) < 3 ? 'NEW' : 'REGULAR'),
     'service_type' => $service_name,
-    'job_title' => implode(', ', array_map(static function ($i) {
+    'job_title' => $job_item_title !== '' ? $job_item_title : implode(', ', array_map(static function ($i) {
         return (string)($i['product_name'] ?? 'Order Item') . ' - ' . max(1, (int)($i['quantity'] ?? 0)) . 'pcs';
     }, $items_out)),
     'width_ft' => $width_ft,

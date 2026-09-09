@@ -40,6 +40,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             $_SESSION['error'] = 'You cannot update orders from another branch.';
             redirect("order_details.php?id=$order_id");
         }
+        $postedOrder = db_query('SELECT * FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+        if ($postedOrder !== [] && printflow_is_ready_made_product_order($postedOrder[0])) {
+            $_SESSION['error'] = 'Manage ready-made product completion from Orders Management after verified PayMongo payment.';
+            redirect("order_details.php?id=$order_id");
+        }
         $new_status = $_POST['status'];
         if (update_order_status($order_id, $new_status)) {
             $_SESSION['success'] = "Order status has been successfully updated to '{$new_status}'.";
@@ -69,6 +74,7 @@ if (empty($order_result)) {
     redirect(BASE_PATH . '/staff/orders.php');
 }
 $order = $order_result[0];
+$is_ready_made_product = printflow_is_ready_made_product_order($order);
 
 $customManagementUrl = printflow_staff_order_management_url($order_id, false);
 if (strpos($customManagementUrl, '/staff/customizations_v2.php') !== false) {
@@ -253,6 +259,13 @@ $page_title = "Order #{$order_id} - Staff";
                 <div class="card">
                     <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Order Management</h3>
                     <div style="display:flex; flex-direction:column; gap:12px;">
+                        <?php if ($is_ready_made_product): ?>
+                            <?php if ($order['status'] !== 'Completed' && in_array(strtolower(trim((string)($order['payment_status'] ?? ''))), ['paid', 'fully paid'], true)): ?>
+                                <a href="orders.php?order_id=<?php echo $order_id; ?>" class="btn-primary" style="text-align:center;text-decoration:none;">Mark as Completed</a>
+                            <?php elseif ($order['status'] !== 'Completed'): ?>
+                                <p style="margin:0;color:#64748b;font-size:13px;">Awaiting verified PayMongo payment before this ready-made product can be completed.</p>
+                            <?php endif; ?>
+                        <?php else: ?>
                         <form method="POST" style="display:flex; flex-direction:column; gap:10px;">
                             <?php echo csrf_field(); ?>
                             <input type="hidden" name="update_status" value="1">
@@ -274,6 +287,7 @@ $page_title = "Order #{$order_id} - Staff";
                                     ✕ Cancel Order
                                 </button>
                             </div>
+                        <?php endif; ?>
                         <?php endif; ?>
                     </div>
 

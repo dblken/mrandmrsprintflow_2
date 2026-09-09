@@ -1674,6 +1674,7 @@ try {
             $price = array_key_exists('price', $_POST)
                 ? jo_api_parse_final_price($_POST['price'])
                 : null;
+            $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             if (!$cust_id || !$raw_status) throw new Exception('ID and status required.');
 
             // Normalize frontend enum values to DB-stored strings
@@ -1702,7 +1703,7 @@ try {
 
             // Check if payment proof already exists for this customization's order
             $order_check = db_query(
-                "SELECT o.order_id, o.payment_proof_path, o.downpayment_amount
+                "SELECT o.order_id, o.payment_proof_path, o.downpayment_amount, o.estimated_price
                  FROM orders o
                  JOIN customizations c ON o.order_id = c.order_id
                  WHERE c.customization_id = ? LIMIT 1",
@@ -1712,10 +1713,23 @@ try {
             $has_payment_proof = !empty($order_check) && !empty($order_check[0]['payment_proof_path']);
             $payment_amount    = !empty($order_check) ? (float)($order_check[0]['downpayment_amount'] ?? 0) : 0;
             $linked_order_id   = !empty($order_check) ? (int)$order_check[0]['order_id'] : null;
+            $linked_order_estimate = !empty($order_check) ? (float)($order_check[0]['estimated_price'] ?? 0) : 0.0;
             if (!$linked_order_id) {
                 throw new RuntimeException('Customization not found.');
             }
             jo_api_require_staff_order_branch($joStaffBranch, $linked_order_id);
+
+            // Deliberate-override safeguard: a Final Price below the order's Estimated
+            // Price must be explicitly confirmed (the UI shows a warning modal). This
+            // server-side check prevents bypassing that confirmation via a raw request.
+            if ($price !== null && $linked_order_estimate > 0 && $price < $linked_order_estimate && !$priceOverrideConfirmed) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => 'The final price is below the estimated price. Please confirm this adjustment is intentional.',
+                    'requires_price_override_confirmation' => true,
+                    'estimated_price' => $linked_order_estimate,
+                ], 422);
+            }
 
             if ($new_status === 'For Revision' && !printflow_revision_ensure_schema()) {
                 throw new Exception('Revision request storage is unavailable.');
@@ -2059,15 +2073,44 @@ try {
                 if (!empty($items[0]['customization']) && is_array($items[0]['customization'])) {
                     $details = printflow_overlay_nonempty_assoc($items[0]['customization'], $details);
                 }
-                if (!empty($storeLinePayload['service_type'])) {
-                    $summary['service_type'] = $storeLinePayload['service_type'];
-                    $summary['job_title'] = $storeLinePayload['service_type'];
+
+                // Root-cause fix (Counter/POS path): getStoreOrderItemsPayload() aggregates
+                // the WHOLE store order and returns service_type/width/height derived from
+                // the FIRST line item. This customization row (`$cust`) is linked to one
+                // SPECIFIC order_item_id; for orders with multiple, differently-serviced
+                // items that aggregate leaks the wrong service into this modal (e.g. a
+                // Tarpaulin customization showing "T-Shirt Printing"). Prefer the matching
+                // item's own data when the order has more than one line item.
+                $ownOrderItemIdForService = (int)($cust['order_item_id'] ?? 0);
+                $ownServiceItem = null;
+                if ($ownOrderItemIdForService > 0 && count($items) > 1) {
+                    foreach ($items as $candidateItem) {
+                        if ((int)($candidateItem['order_item_id'] ?? 0) === $ownOrderItemIdForService) {
+                            $ownServiceItem = $candidateItem;
+                            break;
+                        }
+                    }
                 }
-                if (!empty($storeLinePayload['width_ft'])) {
-                    $summary['width_ft'] = $storeLinePayload['width_ft'];
+                $resolvedServiceType = $ownServiceItem !== null
+                    ? trim((string)($ownServiceItem['product_name'] ?? ''))
+                    : (string)($storeLinePayload['service_type'] ?? '');
+                if ($resolvedServiceType !== '') {
+                    $summary['service_type'] = $resolvedServiceType;
+                    $summary['job_title'] = $resolvedServiceType;
                 }
-                if (!empty($storeLinePayload['height_ft'])) {
-                    $summary['height_ft'] = $storeLinePayload['height_ft'];
+                $ownServiceCustom = ($ownServiceItem !== null && is_array($ownServiceItem['customization'] ?? null))
+                    ? $ownServiceItem['customization']
+                    : null;
+                if ($ownServiceCustom !== null && !empty($ownServiceCustom['width']) && !empty($ownServiceCustom['height'])) {
+                    $summary['width_ft'] = (string)$ownServiceCustom['width'];
+                    $summary['height_ft'] = (string)$ownServiceCustom['height'];
+                } else {
+                    if (!empty($storeLinePayload['width_ft'])) {
+                        $summary['width_ft'] = $storeLinePayload['width_ft'];
+                    }
+                    if (!empty($storeLinePayload['height_ft'])) {
+                        $summary['height_ft'] = $storeLinePayload['height_ft'];
+                    }
                 }
                 if (isset($storeLinePayload['line_qty']) && (int)$storeLinePayload['line_qty'] > 0) {
                     $summary['quantity'] = (int)$storeLinePayload['line_qty'];
@@ -2638,8 +2681,23 @@ try {
             jo_api_require_staff_mutation();
             $order_id = (int)($_POST['order_id'] ?? 0);
             $price = jo_api_parse_final_price($_POST['price'] ?? '');
+            $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             if (!$order_id) throw new Exception("Order ID required.");
             jo_api_require_staff_order_branch($joStaffBranch, $order_id);
+
+            // Deliberate-override safeguard: a Final Price below the order's Estimated
+            // Price must be explicitly confirmed (the UI shows a warning modal). This
+            // server-side check prevents bypassing that confirmation via a raw request.
+            $orderEstimateRow = db_query('SELECT estimated_price FROM orders WHERE order_id = ? LIMIT 1', 'i', [$order_id]) ?: [];
+            $orderEstimateForCheck = (float)($orderEstimateRow[0]['estimated_price'] ?? 0);
+            if ($orderEstimateForCheck > 0 && $price < $orderEstimateForCheck && !$priceOverrideConfirmed) {
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => 'The final price is below the estimated price. Please confirm this adjustment is intentional.',
+                    'requires_price_override_confirmation' => true,
+                    'estimated_price' => $orderEstimateForCheck,
+                ], 422);
+            }
 
             $priceTransactionStarted = !($conn->in_transaction ?? false);
             if ($priceTransactionStarted && !$conn->begin_transaction()) {
@@ -2782,6 +2840,7 @@ try {
             $id = (int)($_POST['id'] ?? 0);
             if (!$id) throw new Exception("ID required.");
             $price = jo_api_parse_final_price($_POST['price'] ?? '');
+            $priceOverrideConfirmed = !empty($_POST['price_override_confirmed']);
             jo_api_require_staff_branch($joStaffBranch, $id);
             $assignmentErrors = printflow_job_production_assignment_errors($id);
             if (!empty($assignmentErrors)) {
@@ -2798,6 +2857,27 @@ try {
             }
             $job = jo_api_lock_editable_job_price($id);
             jo_api_require_staff_branch($joStaffBranch, $id);
+
+            // Deliberate-override safeguard: a Final Price below the order's Estimated
+            // Price must be explicitly confirmed (the UI shows a warning modal). This
+            // server-side check prevents bypassing that confirmation via a raw request.
+            $estimateForOverrideCheck = 0.0;
+            $jobOrderIdForEstimate = (int)($job['order_id'] ?? 0);
+            if ($jobOrderIdForEstimate > 0) {
+                $estimateRow = db_query('SELECT estimated_price FROM orders WHERE order_id = ? LIMIT 1', 'i', [$jobOrderIdForEstimate]) ?: [];
+                $estimateForOverrideCheck = (float)($estimateRow[0]['estimated_price'] ?? 0);
+            }
+            if ($estimateForOverrideCheck > 0 && $price < $estimateForOverrideCheck && !$priceOverrideConfirmed) {
+                if ($jobPriceTransactionStarted && printflow_db_in_transaction($conn)) {
+                    $conn->rollback();
+                }
+                jo_api_json_response([
+                    'success' => false,
+                    'error' => 'The final price is below the estimated price. Please confirm this adjustment is intentional.',
+                    'requires_price_override_confirmation' => true,
+                    'estimated_price' => $estimateForOverrideCheck,
+                ], 422);
+            }
 
             // Setting the price also means updating the required payment to match exactly
             jo_api_require_db_write(
@@ -2831,6 +2911,14 @@ try {
             
             if (!$orderId || !$itemId) throw new Exception("Incomplete material data.");
             if ($qty < 1) throw new Exception("Material quantity must be at least 1.");
+            $materialCategory = db_query(
+                'SELECT c.name AS category_name FROM inv_items i LEFT JOIN inv_categories c ON c.id = i.category_id WHERE i.id = ? LIMIT 1',
+                'i',
+                [$itemId]
+            );
+            if (printflow_is_manual_production_ink_category($materialCategory[0]['category_name'] ?? '')) {
+                throw new Exception('Printer ink cannot be assigned manually as a production material.');
+            }
             if (strtoupper((string)$orderType) === 'ORDER') {
                 jo_api_require_staff_order_branch($joStaffBranch, $orderId);
             } else {
@@ -2841,26 +2929,7 @@ try {
             break;
 
         case 'save_ink_usage':
-            $orderId = (int)($_POST['order_id'] ?? 0);
-            $orderType = isset($_POST['order_type']) ? sanitize($_POST['order_type']) : null;
-            $inkData = isset($_POST['ink_data']) ? json_decode($_POST['ink_data'], true) : [];
-            
-            if (!$orderId) throw new Exception("Order ID required.");
-            if (!is_array($inkData)) throw new Exception("Invalid ink usage data.");
-            foreach ($inkData as $ink) {
-                $quantity = filter_var($ink['quantity'] ?? null, FILTER_VALIDATE_FLOAT);
-                if ($quantity === false || $quantity < 0) {
-                    throw new Exception("Ink consumption cannot be negative.");
-                }
-            }
-            if (strtoupper((string)$orderType) === 'ORDER') {
-                jo_api_require_staff_order_branch($joStaffBranch, $orderId);
-            } else {
-                jo_api_require_staff_branch($joStaffBranch, $orderId);
-            }
-            $res = JobOrderService::saveInkUsage($orderId, $inkData, $orderType);
-            jo_api_json_response(['success' => true]);
-            break;
+            throw new Exception('Printer ink usage is no longer recorded manually per order.');
 
         case 'preview_impact':
             $itemId = (int)($_GET['item_id'] ?? 0);

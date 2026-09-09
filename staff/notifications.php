@@ -65,6 +65,7 @@ if (isset($_GET['action'])) {
             [$staff_id]
         ) ?: [];
         $visibleRows = printflow_filter_notifications_for_user($rows, 'Staff', is_int($staffBranchId) ? $staffBranchId : null);
+        $visibleRows = printflow_dedupe_notifications($visibleRows, 300);
         $count = 0;
         $latestId = 0;
         foreach ($visibleRows as $row) {
@@ -83,7 +84,28 @@ if (isset($_GET['action'])) {
     }
 
     if ($action === 'mark_all_read') {
-        db_execute("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0", 'i', [$staff_id]);
+        $unreadRows = db_query(
+            "SELECT notification_id, user_id, message, type, data_id, is_read, created_at
+             FROM notifications
+             WHERE user_id = ? AND is_read = 0
+             ORDER BY created_at DESC, notification_id DESC",
+            'i',
+            [$staff_id]
+        ) ?: [];
+        $visibleUnreadRows = printflow_filter_notifications_for_user($unreadRows, 'Staff', is_int($staffBranchId) ? $staffBranchId : null);
+        $visibleUnreadRows = printflow_dedupe_notifications($visibleUnreadRows, 300);
+        $visibleIds = array_values(array_filter(array_map(
+            static fn(array $row): int => (int)($row['notification_id'] ?? 0),
+            $visibleUnreadRows
+        )));
+        if ($visibleIds !== []) {
+            $idPlaceholders = implode(',', array_fill(0, count($visibleIds), '?'));
+            db_execute(
+                "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND notification_id IN ({$idPlaceholders})",
+                'i' . str_repeat('i', count($visibleIds)),
+                array_merge([$staff_id], $visibleIds)
+            );
+        }
         redirect(BASE_PATH . '/staff/notifications.php?success=All notifications marked as read');
     }
 
@@ -127,6 +149,7 @@ $all_notifications = db_query(
     $params
 ) ?: [];
 $filtered_notifications = printflow_filter_notifications_for_user($all_notifications, 'Staff', is_int($staffBranchId) ? $staffBranchId : null);
+$filtered_notifications = printflow_dedupe_notifications($filtered_notifications, 300);
 
 $total_count = count($filtered_notifications);
 $total_pages = max(1, (int)ceil(max(1, $total_count) / $per_page));
@@ -147,6 +170,7 @@ if ($filter === 'all' && $search === '') {
         [$staff_id]
     ) ?: [];
     $filtered_staff_rows = printflow_filter_notifications_for_user($all_staff_rows, 'Staff', is_int($staffBranchId) ? $staffBranchId : null);
+    $filtered_staff_rows = printflow_dedupe_notifications($filtered_staff_rows, 300);
 }
 $unread_count = 0;
 $latest_notification_id = 0;

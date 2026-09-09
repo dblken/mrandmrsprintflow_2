@@ -66,6 +66,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
+require_once __DIR__ . '/../includes/provider_payments.php';
 
 function staff_order_data_columns($table) {
     static $cache = [];
@@ -321,6 +322,17 @@ if (($order['order_type'] ?? '') === 'product') {
 }
 
 $payment_proof_path = staff_order_data_payment_proof_url($order);
+$provider_payment = null;
+if (printflow_provider_payments_ready()) {
+    $provider_row = printflow_provider_payment_for_customer(
+        (int)($order['customer_id'] ?? 0),
+        'order',
+        $order_id
+    );
+    if ($provider_row !== []) {
+        $provider_payment = printflow_provider_payment_public($provider_row);
+    }
+}
 
 staff_order_data_json([
     'order_id'            => $order['order_id'],
@@ -350,6 +362,7 @@ staff_order_data_json([
     'cust_address'        => $order['cust_address'] ?? '',
     'cust_profile_picture'=> staff_order_data_profile_image($order['cust_profile_picture'] ?? null),
     'payment_proof'       => $payment_proof_path,
+    'provider_payment'    => $provider_payment,
     'payment_submitted_at'=> !empty($order['payment_submitted_at']) ? format_datetime($order['payment_submitted_at']) : '',
     'revision_count'      => (int)($order['revision_count'] ?? 0),
     'revision_reason'     => $order['revision_reason'] ?? '',

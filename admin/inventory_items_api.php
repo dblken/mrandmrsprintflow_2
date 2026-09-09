@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/inventory_stock_status.php';
+require_once __DIR__ . '/../includes/production_requirements.php';
 
 printflow_ensure_inv_items_threshold_schema();
 
@@ -85,6 +86,9 @@ try {
             if ($active_only) { $sql .= " AND i.status = 'ACTIVE'"; }
             if ($production_picker) {
                 $sql .= " AND i.name NOT LIKE '%(Archived)%' AND i.name NOT LIKE '%(Legacy)%'";
+                // Keep printer ink in inventory/history, but never expose it
+                // to the shared online/POS production-material picker.
+                $sql .= " AND UPPER(TRIM(COALESCE(c.name, ''))) NOT IN ('INK TARP', 'INK L120', 'INK L130')";
             }
             if ($cat_id) {
                 $sql .= " AND i.category_id = ?";
@@ -115,7 +119,12 @@ try {
                  JOIN inv_items i ON i.id = r.item_id
                  LEFT JOIN inv_categories c ON c.id = i.category_id
                  WHERE i.status = 'ACTIVE'
+                   AND (
+                       ? = 0
+                       OR UPPER(TRIM(COALESCE(c.name, ''))) NOT IN ('INK TARP', 'INK L120', 'INK L130')
+                   )
                  ORDER BY r.service_type ASC, r.rule_type DESC, r.item_id ASC"
+                , 'i', [$production_picker]
             ) ?: [];
             $activeServices = db_query(
                 "SELECT service_id, name, category
