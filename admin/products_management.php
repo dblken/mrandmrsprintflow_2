@@ -2815,7 +2815,7 @@ if (isset($_GET['ajax'])) {
                     <div id="pf-product-threshold-reset-row" class="pf-product-edit-only" style="display:none;margin-bottom:12px;">
                         <button type="button" id="btnResetProductThresholds" class="btn-reset-thresholds">Reset to Suggested Values</button>
                     </div>
-                    <p class="pf-product-edit-only" id="pf-product-threshold-edit-hint" style="display:none;font-size:11px;color:#6b7280;margin:0 0 12px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed until you edit them or use Reset to Suggested Values.</p>
+                    <p class="pf-product-edit-only" id="pf-product-threshold-edit-hint" style="display:none;font-size:11px;color:#6b7280;margin:0 0 12px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed unless you use Reset to Suggested Values.</p>
                     <div class="form-row pf-product-edit-only" id="pf-product-status-row" style="display:none;">
                         <div class="form-group" id="fg-status">
                             <label for="modal-status">Status</label>
@@ -3000,22 +3000,20 @@ function pfConfigureProductThresholdFields(isEdit) {
     if (!reorderEl || !criticalEl) return;
 
     if (isEdit) {
-        reorderEl.type = 'number';
-        criticalEl.type = 'number';
-        reorderEl.step = '1';
-        criticalEl.step = '1';
-        reorderEl.min = '0';
-        criticalEl.min = '0';
-        reorderEl.readOnly = false;
-        criticalEl.readOnly = false;
-        reorderEl.removeAttribute('aria-readonly');
-        criticalEl.removeAttribute('aria-readonly');
-        reorderEl.tabIndex = 0;
-        criticalEl.tabIndex = 0;
-        reorderEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
-        criticalEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
-        if (reorderHint) reorderHint.textContent = '(Configurable)';
-        if (criticalHint) criticalHint.textContent = '(Configurable)';
+        reorderEl.type = 'text';
+        criticalEl.type = 'text';
+        reorderEl.readOnly = true;
+        criticalEl.readOnly = true;
+        reorderEl.setAttribute('aria-readonly', 'true');
+        criticalEl.setAttribute('aria-readonly', 'true');
+        reorderEl.tabIndex = -1;
+        criticalEl.tabIndex = -1;
+        reorderEl.classList.add('threshold-readonly', 'pf-field-auto');
+        criticalEl.classList.add('threshold-readonly', 'pf-field-auto');
+        reorderEl.classList.remove('threshold-unset');
+        criticalEl.classList.remove('threshold-unset');
+        if (reorderHint) reorderHint.textContent = '(Fixed)';
+        if (criticalHint) criticalHint.textContent = '(Fixed)';
     } else {
         reorderEl.type = 'text';
         criticalEl.type = 'text';
