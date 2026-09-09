@@ -103,8 +103,8 @@ function printflow_item_reorder_level(array $item): float {
  * @return array{reorder:float,critical:float,status:array}
  */
 function printflow_item_stock_status(array $item, float $currentStock, bool $isNewItemWithoutStock = false): array {
-    $reorder = printflow_item_live_reorder_level($currentStock);
-    $critical = printflow_item_live_critical_level($currentStock);
+    $reorder = printflow_item_stored_reorder_level($item);
+    $critical = printflow_item_stored_critical_level($item);
     $status = printflow_resolve_stock_status(
         $currentStock,
         $reorder,
@@ -142,11 +142,10 @@ function printflow_apply_suggested_item_thresholds(int $itemId, float $reference
     return $thresholds;
 }
 
-/** Persist computed thresholds after quantity changes (cache for reporting). */
+/** Deprecated: stock movements must not change configured threshold policy. */
 function printflow_sync_item_thresholds(int $itemId, float $quantity): void {
-    printflow_apply_suggested_item_thresholds($itemId, $quantity);
+    return;
 }
-
 /** Notification copy for stock alert tiers. */
 function printflow_stock_alert_message(array $item, string $statusKey): string {
     $name = trim((string)($item['name'] ?? 'Material'));

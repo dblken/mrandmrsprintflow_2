@@ -160,8 +160,8 @@ if ($stock_status) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
         
         $stock = (float)$item['current_stock'];
-        $reorder = printflow_item_live_reorder_level($stock);
-        $critical = printflow_item_live_critical_level($stock);
+        $reorder = printflow_item_stored_reorder_level($item);
+        $critical = printflow_item_stored_critical_level($item);
         $status = printflow_resolve_stock_status($stock, $reorder, $critical);
         if (!printflow_stock_matches_filter($status, $stock_status)) {
             continue;
@@ -222,8 +222,8 @@ if (isset($_GET['ajax'])) {
     <?php else: 
         foreach ($items as $item): 
             $stock = (float)$item['current_stock'];
-            $reorder = printflow_item_live_reorder_level($stock);
-            $critical = printflow_item_live_critical_level($stock);
+            $reorder = printflow_item_stored_reorder_level($item);
+            $critical = printflow_item_stored_critical_level($item);
             $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             $stockColor = $status['text_color'];
             
@@ -919,8 +919,8 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($items as $item): 
                                     $stock = (float)$item['current_stock'];
-                                    $reorder = printflow_item_live_reorder_level($stock);
-                                    $critical = printflow_item_live_critical_level($stock);
+                                    $reorder = printflow_item_stored_reorder_level($item);
+                                    $critical = printflow_item_stored_critical_level($item);
                                     $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
@@ -1365,7 +1365,7 @@ if (isset($_GET['ajax'])) {
                         <span id="err-itemCriticalStock" class="field-error"></span>
                     </div>
                 </div>
-                <p id="itemThresholdCreateHint" class="item-modal-create-only field-hint" style="margin:-4px 0 12px;">Thresholds are automatically calculated and can be adjusted later.</p>
+                <p id="itemThresholdCreateHint" class="item-modal-create-only field-hint" style="margin:-4px 0 12px;">Thresholds are automatically calculated from the initial stock.</p>
                 <div id="itemThresholdResetRow" class="item-modal-edit-only">
                     <button type="button" id="btnResetSuggestedThresholds" onclick="resetSuggestedThresholds()">Reset to Suggested Values</button>
                 </div>
@@ -1380,7 +1380,7 @@ if (isset($_GET['ajax'])) {
             <!-- Alerts Section (edit only) -->
             <div id="reorderAlertsGroup" class="modal-section" style="margin-bottom: 20px;">
                 <div class="form-col-full">
-                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed until you edit them or use Reset to Suggested Values.</p>
+                    <p style="font-size:11px; color:#6b7280; margin-bottom:8px;">Reorder warns when stock needs restocking. Critical requires urgent replenishment. Thresholds remain fixed unless you use Reset to Suggested Values.</p>
                     <div id="editModalThresholdExceedWarn" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; margin-bottom:8px;">The configured stock thresholds exceed the current stock quantity. This material will immediately be classified according to the configured thresholds.</div>
                     <div id="editModalReorderWarnHigh" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a;">&#9888;&#65039; This may mark your stock as low immediately</div>
                     <div id="editModalReorderWarnLow" style="display:none; font-size:11px; color:#854d0e; background:#fef9c3; padding:8px 12px; border-radius:8px; border:1px solid #fde68a; margin-top:8px;">&#9888;&#65039; You may run out of stock before being warned</div>
@@ -1553,22 +1553,20 @@ if (isset($_GET['ajax'])) {
         if (!reorderEl || !criticalEl) return;
 
         if (isEdit) {
-            reorderEl.type = 'number';
-            criticalEl.type = 'number';
-            reorderEl.step = '0.01';
-            criticalEl.step = '0.01';
-            reorderEl.min = '0';
-            criticalEl.min = '0';
-            reorderEl.readOnly = false;
-            criticalEl.readOnly = false;
-            reorderEl.removeAttribute('aria-readonly');
-            criticalEl.removeAttribute('aria-readonly');
-            reorderEl.tabIndex = 0;
-            criticalEl.tabIndex = 0;
-            reorderEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
-            criticalEl.classList.remove('threshold-readonly', 'threshold-unset', 'pf-field-auto');
-            if (reorderHint) reorderHint.textContent = '(Configurable)';
-            if (criticalHint) criticalHint.textContent = '(Configurable)';
+            reorderEl.type = 'text';
+            criticalEl.type = 'text';
+            reorderEl.readOnly = true;
+            criticalEl.readOnly = true;
+            reorderEl.setAttribute('aria-readonly', 'true');
+            criticalEl.setAttribute('aria-readonly', 'true');
+            reorderEl.tabIndex = -1;
+            criticalEl.tabIndex = -1;
+            reorderEl.classList.add('threshold-readonly', 'pf-field-auto');
+            criticalEl.classList.add('threshold-readonly', 'pf-field-auto');
+            reorderEl.classList.remove('threshold-unset');
+            criticalEl.classList.remove('threshold-unset');
+            if (reorderHint) reorderHint.textContent = '(Fixed)';
+            if (criticalHint) criticalHint.textContent = '(Fixed)';
         } else {
             reorderEl.type = 'text';
             criticalEl.type = 'text';
@@ -1651,8 +1649,8 @@ if (isset($_GET['ajax'])) {
         applyLocked(uomEl, true);
         applyLocked(trackEl, true);
         applyLocked(catEl, isEdit);
-        if (minEl) minEl.classList.toggle('pf-field-auto', !isEdit);
-        if (critEl) critEl.classList.toggle('pf-field-auto', !isEdit);
+        if (minEl) minEl.classList.add('pf-field-auto');
+        if (critEl) critEl.classList.add('pf-field-auto');
     }
 
     function pfGetThresholdValues() {
@@ -2299,8 +2297,8 @@ if (isset($_GET['ajax'])) {
         const normalizedUom = normalizeInventoryUomValue(item.unit_of_measure, item.category_name);
         const uom = normalizedUom.toUpperCase();
         const isPcs = normalizedUom === 'pcs';
-        const reorder = pfSuggestReorderLevel(stock, isPcs);
-        const critical = pfSuggestCriticalLevel(stock, isPcs);
+        const reorder = Math.max(0, Number(item.reorder_level) || 0);
+        const critical = Math.max(0, Number(item.critical_level) || 0);
         const status = pfResolveStockStatus(stock, reorder, critical, false);
         
         document.getElementById('scName').textContent = item.name;
