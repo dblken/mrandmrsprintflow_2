@@ -1024,12 +1024,14 @@ if (isset($_GET['ajax'])) {
                            inputmode="decimal"
                            autocomplete="off"
                            onkeydown="handleAddStockQtyKeyDown(event)"
-                           onpaste="handleAddStockQtyPaste(event)">
+                           onpaste="handleAddStockQtyPaste(event)"
+                           oninput="updateAddStockUI()"
+                           onchange="updateAddStockUI()">
                     <div id="addStockQtyError" style="display:none; font-size:12px; color:#dc2626; margin-top:4px;">Please enter a valid quantity</div>
                     <div id="addStockPreview" style="font-size:13px; font-weight:600; color:#059669; margin-top:6px;">New Stock After Adding: &mdash;</div>
                     
                     <label for="addStockUnitCost" style="margin-top:12px;">Unit Cost (&#8369;) *</label>
-                    <input type="number" step="0.01" min="0" id="addStockUnitCost" placeholder="e.g. 500.00" inputmode="decimal">
+                    <input type="number" step="0.01" min="0" id="addStockUnitCost" placeholder="e.g. 500.00" inputmode="decimal" oninput="updateAddStockUI()" onchange="updateAddStockUI()">
                     <div id="err-addStockUnitCost" class="field-error" style="display:none;"></div>
                     <div id="addStockUnitCostPreview" style="font-size:12px; color:#6b7280; font-weight:600; margin-top:6px;">New Estimated Unit Cost: &mdash;</div>
 
@@ -3526,7 +3528,10 @@ if (isset($_GET['ajax'])) {
 
     /* Toolbar: turbo-init initTree(.main-content). Table rows are plain onclick; fetchUpdatedTable initTree(tbody) after AJAX. */
     function ensureInvItemsAlpineBoot() {}
-    window.printflowInitInvItemsPage = ensureInvItemsAlpineBoot;
+    window.printflowInitInvItemsPage = function () {
+        printflowInitInvItemsBindings();
+        ensureInvItemsAlpineBoot();
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
