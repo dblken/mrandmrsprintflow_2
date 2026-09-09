@@ -1556,37 +1556,6 @@ $online_closed_count = 0;
             image-rendering: auto;
             mix-blend-mode: normal;
         }
-        .ink-set-options {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        .ink-set-option {
-            min-width: 88px;
-            padding: 10px 18px;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            background: #fff;
-            color: #475569;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: border-color .15s ease, background-color .15s ease, color .15s ease;
-        }
-        .ink-set-option:hover {
-            border-color: #0f766e;
-            background: #f0fdfa;
-        }
-        .ink-set-option:focus-visible {
-            outline: 3px solid rgba(15, 118, 110, .22);
-            outline-offset: 2px;
-        }
-        .ink-set-option.is-selected {
-            border-color: #0f766e;
-            background: #ccfbf1;
-            color: #115e59;
-        }
         .production-material-results {
             max-height: 260px;
             overflow-y: auto;
@@ -2547,92 +2516,6 @@ $online_closed_count = 0;
                                         <div x-show="productionErrors.material" x-text="productionErrors.material" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                     </div>
 
-                                    <!-- B. Ink Options -->
-                                    <div style="display:flex; flex-direction:column; gap:12px;">
-                                        <div style="display:flex; align-items:center; justify-content:space-between;">
-                                            <label style="font-size:12px; font-weight:700; color:#374151;">[2] Ink Options <span x-show="requiresInk" style="color:#dc2626;">*</span></label>
-                                        </div>
-
-                                        <div x-show="inkSelectionMode === 'pending'" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;">
-                                            Select a core material first to see compatible ink options.
-                                        </div>
-                                        <div x-show="requiresInk" x-transition
-                                             :style="productionErrors.ink_set ? 'padding:16px;border:1px solid #dc2626;box-shadow:0 0 0 3px rgba(220,38,38,.12);border-radius:12px;background:#f9fafb;' : 'padding:16px;border:1px solid #cbd5e1;border-radius:12px;background:#f9fafb;'">
-                                            <label style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:10px; display:block;">Select Ink Set</label>
-                                            <div class="ink-set-options" role="radiogroup" aria-label="Ink set">
-                                                <template x-for="option in availableInkOptionsForService" :key="option.key">
-                                                    <button type="button" @click="inkCategorySelected = option.key; useInk = true; productionErrors.ink_set = ''"
-                                                            class="ink-set-option"
-                                                            :class="{ 'is-selected': inkCategorySelected === option.key }"
-                                                            role="radio"
-                                                            :aria-checked="inkCategorySelected === option.key ? 'true' : 'false'"
-                                                            x-text="option.label"></button>
-                                                </template>
-                                            </div>
-
-                                            <template x-if="inkCategorySelected">
-                                                <div>
-                                                    <div style="background:#fff; padding:16px; border-radius:10px; border:1px solid #e2e8f0;">
-                                                        <div style="font-size:11px; font-weight:700; color:#374151; text-transform:uppercase; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
-                                                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                                            Ink Consumption (ml)
-                                                        </div>
-                                                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#ef4444; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#ef4444; border-radius:50%; display:inline-block;"></span>
-                                                                    RED
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkRed" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#3b82f6; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#3b82f6; border-radius:50%; display:inline-block;"></span>
-                                                                    BLUE
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkBlue" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#1f2937; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#1f2937; border-radius:50%; display:inline-block;"></span>
-                                                                    BLACK
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkBlack" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <label style="font-size:10px; font-weight:700; color:#eab308; text-transform:uppercase; display:flex; align-items:center; gap:4px; margin-bottom:6px;">
-                                                                    <span style="width:12px; height:12px; background:#eab308; border-radius:50%; display:inline-block;"></span>
-                                                                    YELLOW
-                                                                </label>
-                                                                <div style="position:relative;">
-                                                            <input type="number" x-model.number="inkYellow" @input="productionErrors.ink_consumption = ''" :class="productionErrors.ink_consumption ? 'production-field-invalid' : ''" step="0.1" min="0" placeholder="0.0" style="width:100%; padding:10px 32px 10px 12px; border:2px solid #e5e7eb; border-radius:8px; font-size:14px; font-weight:600; transition:border-color 0.2s;">
-                                                                    <span style="position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:11px; color:#9ca3af; font-weight:600;">ml</span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div x-show="inkStockIssues.length > 0" style="margin-top:12px; padding:10px 12px; border-radius:8px; border:1px solid #fecaca; background:#fef2f2; color:#b91c1c; font-size:11px; font-weight:700; line-height:1.45;">
-                                                            <template x-for="(issue, idx) in inkStockIssues" :key="idx">
-                                                                <div x-text="issue"></div>
-                                                            </template>
-                                                        </div>
-                                                        <div x-show="productionErrors.ink_consumption" x-text="productionErrors.ink_consumption" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
-                                                    </div>
-                                                </div>
-                                            </template>
-                                            <div x-show="productionErrors.ink_set" x-text="productionErrors.ink_set" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
-                                        </div>
-                                        <div x-show="inkSelectionMode === 'none'" style="font-size:12px; color:#64748b; text-align:center; padding:16px; background:#f9fafb; border-radius:8px; border:1px dashed #e2e8f0;" x-text="noInkGuidanceText">
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
 
@@ -2641,7 +2524,7 @@ $online_closed_count = 0;
                                 <div style="margin-bottom:20px;">
                                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
                                         <span aria-hidden="true" style="font-size:16px; font-weight:900; color:#0f766e; line-height:1;">₱</span>
-                                        <label style="font-size:11px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">[3] Set Final Price</label>
+                                        <label style="font-size:11px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">[2] Set Final Price</label>
                                     </div>
                                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:10px 12px; border-radius:10px; border:1px solid #99f6e4; background:#ffffff;">
                                         <div style="font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:0.04em;">Estimated Price</div>
@@ -4936,14 +4819,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 // Ink is inventory-managed globally, not estimated per job.
                 return 'none';
             },
-            get noInkGuidanceText() {
-                const kind = this.materialCompatibilityContext.serviceKind;
-                if (kind === 'plate') return 'No standard printer ink is suggested for this plate setup.';
-                if (kind === 'sintraboard') return 'No standard ink set is configured for this Sintraboard setup.';
-                if (kind === 'reflectorized_signage') return 'No printer ink is required for this cut/reflective setup.';
-                if (kind === 'tshirt') return 'No printer ink required for this cut heat-transfer material.';
-                return 'Printer ink is no longer selected or recorded per order.';
-            },
             syncInkSelectionWithMaterial() {
                 const allowed = this.availableInkOptionsForService.map(option => option.key);
                 if (!allowed.includes(this.inkCategorySelected)) this.resetInkForm();
@@ -6353,13 +6228,6 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const materials = Array.isArray(target.materials) ? target.materials : [];
                 if (!materials.some(material => Number(material.quantity || material.computed_required_length_ft || 0) > 0)) {
                     errors.material = 'Please select and add a material.';
-                }
-                const requiresInk = target.requires_ink !== false
-                    && target.requires_ink !== 0
-                    && target.requires_ink !== '0';
-                const inks = Array.isArray(target.ink_usage) ? target.ink_usage : [];
-                if (requiresInk && !inks.some(ink => Number(ink.quantity_used || ink.quantity || 0) > 0)) {
-                    errors.ink_consumption = 'Please select an ink set and enter the required ink consumption.';
                 }
                 const status = String(target.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (['CANCELLED', 'REJECTED', 'COMPLETED'].includes(status)) {

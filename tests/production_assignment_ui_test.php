@@ -16,19 +16,17 @@ $assertions = [
     'active service rules are returned' => str_contains($api, "WHERE i.status = 'ACTIVE'") && str_contains($api, "'material_rules' => \$materialRules"),
     'activated service catalog remains authoritative' => str_contains($api, "WHERE status = 'Activated'") && str_contains($api, "'active_services' => \$activeServices"),
     'existing stock status policy is returned' => str_contains($api, 'printflow_item_stock_status') && str_contains($source, "item.stock_status.label"),
-<<<<<<< HEAD
-    'unverified material state is visible and disabled' => str_contains($source, "state.tier === 'unverified'") && str_contains($source, 'Usage not verified'),
-=======
     'unverified material state is visible and manually overrideable' => str_contains($source, "state.tier === 'unverified'") && str_contains($source, 'Usage not verified') && str_contains($source, 'Use unverified material?'),
     'manual override requires deliberate activation' => str_contains($source, '@dblclick="requestMaterialOverride(item)"') && str_contains($source, 'deliberateKeyboardAction'),
     'manual override has explicit cancel and confirm actions' => str_contains($source, 'cancelMaterialOverride()') && str_contains($source, 'confirmMaterialOverride()') && str_contains($source, '>Use Material</button>'),
     'manual override renders above the production detail modal' => str_contains($source, 'z-index:11020') && str_contains($source, 'z-index:11021'),
     'single click cannot open manual override' => str_contains($source, '@click="selectMaterialCandidate(item)"') && !str_contains($source, '@click="requestMaterialOverride(item)"'),
     'picker asset is cache busted' => str_contains($source, 'production_material_picker.js?v=') && str_contains($source, 'filemtime'),
->>>>>>> 8e1ac733c2dcb311e13b849ac13da14fd52e1b80
     'price helper copy is removed' => !str_contains($source, 'Set the final amount, then continue to POS to receive payment.'),
     'POS helper copy is removed' => !str_contains($source, 'Saving here keeps the item in the POS cart so staff can continue payment on the walk-in POS page.'),
-    'price step uses peso display' => str_contains($source, '[3] Set Final Price') && str_contains($source, "x-text=\"'₱' + Number(currentJo.estimated_price"),
+    'price step uses peso display' => str_contains($source, '[2] Set Final Price') && str_contains($source, "x-text=\"'₱' + Number(currentJo.estimated_price"),
+    'obsolete ink options step is removed' => !str_contains($source, 'Ink Options') && !str_contains($source, 'SELECT INK SET') && !str_contains($source, 'Select Ink Set'),
+    'obsolete ink guidance copy is removed' => !str_contains($source, 'No printer ink required') && !str_contains($source, 'Printer ink is no longer selected or recorded per order.'),
     'modal shell size was not redefined by picker CSS' => !preg_match('/\.production-material-results\s*\{[^}]*\bwidth\s*:\s*(?:[5-9]\d{2}|\d{4,})px/i', $source),
 ];
 

@@ -55,9 +55,9 @@ $assert(
 );
 $assert(strpos($customizations, '.payment-proof-preview') !== false, 'Payment proof preview should use scoped clarity styles.');
 $assert(strpos($customizations, 'payment_proof_original_url') !== false, 'Customizations should prefer the original secure proof URL.');
-$assert(strpos($customizations, '.ink-set-options') !== false, 'Ink set selector should use scoped component styles.');
-$assert(strpos($customizations, 'role="radiogroup"') !== false, 'Ink set selector should expose a radio group.');
-$assert(strpos($customizations, ':aria-checked=') !== false, 'Ink set options should expose selected state accessibly.');
+$assert(strpos($customizations, '.ink-set-options') === false, 'Obsolete ink set selector styles should be removed.');
+$assert(strpos($customizations, 'Ink Options') === false, 'Obsolete Ink Options step should not render.');
+$assert(strpos($customizations, 'Select Ink Set') === false, 'Obsolete ink set picker should not render.');
 $assert(strpos($customizations, 'Download Image') !== false, 'Image lightbox should use the Download Image label.');
 $assert(strpos($customizations, 'Download Artwork') === false, 'The old Download Artwork label should be removed.');
 $assert(strpos($servicesPage, '>Customize Now</a>') !== false, 'Service cards should use the Customize Now action.');
