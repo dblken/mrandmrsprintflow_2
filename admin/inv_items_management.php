@@ -160,8 +160,8 @@ if ($stock_status) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
         
         $stock = (float)$item['current_stock'];
-        $reorder = printflow_item_stored_reorder_level($item);
-        $critical = printflow_item_stored_critical_level($item);
+        $reorder = printflow_item_live_reorder_level($stock);
+        $critical = printflow_item_live_critical_level($stock);
         $status = printflow_resolve_stock_status($stock, $reorder, $critical);
         if (!printflow_stock_matches_filter($status, $stock_status)) {
             continue;
@@ -222,8 +222,8 @@ if (isset($_GET['ajax'])) {
     <?php else: 
         foreach ($items as $item): 
             $stock = (float)$item['current_stock'];
-            $reorder = printflow_item_stored_reorder_level($item);
-            $critical = printflow_item_stored_critical_level($item);
+            $reorder = printflow_item_live_reorder_level($stock);
+            $critical = printflow_item_live_critical_level($stock);
             $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             $stockColor = $status['text_color'];
             
@@ -919,8 +919,8 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($items as $item): 
                                     $stock = (float)$item['current_stock'];
-                                    $reorder = printflow_item_stored_reorder_level($item);
-                                    $critical = printflow_item_stored_critical_level($item);
+                                    $reorder = printflow_item_live_reorder_level($stock);
+                                    $critical = printflow_item_live_critical_level($stock);
                                     $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
@@ -1531,7 +1531,10 @@ if (isset($_GET['ajax'])) {
         var q = Math.max(0, Number(qty) || 0);
         if (q <= 0) return 0;
         var raw = q * rate;
-        return roundWhole === false ? Math.round(raw * 100) / 100 : Math.ceil(raw);
+        var shouldRoundWhole = (roundWhole === undefined || roundWhole === null)
+            ? Math.abs(q - Math.round(q)) < 0.000001
+            : roundWhole !== false;
+        return shouldRoundWhole ? Math.ceil(raw) : Math.round(raw * 100) / 100;
     }
 
     function pfSuggestReorderLevel(qty, roundWhole) {

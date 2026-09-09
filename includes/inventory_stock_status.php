@@ -39,20 +39,24 @@ function printflow_ensure_inv_items_threshold_schema(): void {
     }
 }
 
-function printflow_suggest_reorder_level(float $quantity): int {
+function printflow_format_suggested_threshold(float $quantity, float $rate): float {
     $qty = max(0, $quantity);
     if ($qty <= 0) {
-        return 0;
+        return 0.0;
     }
-    return (int)ceil($qty * 0.20);
+    $raw = $qty * $rate;
+
+    return abs($qty - round($qty)) < 0.000001
+        ? (float)ceil($raw)
+        : round($raw, 2);
 }
 
-function printflow_suggest_critical_level(float $quantity): int {
-    $qty = max(0, $quantity);
-    if ($qty <= 0) {
-        return 0;
-    }
-    return (int)ceil($qty * 0.05);
+function printflow_suggest_reorder_level(float $quantity): float {
+    return printflow_format_suggested_threshold($quantity, 0.20);
+}
+
+function printflow_suggest_critical_level(float $quantity): float {
+    return printflow_format_suggested_threshold($quantity, 0.05);
 }
 
 /**
@@ -77,6 +81,14 @@ function printflow_item_stored_critical_level(array $item): float {
     return max(0, (float)($item['critical_level'] ?? 0));
 }
 
+function printflow_item_live_reorder_level(float $currentStock): float {
+    return printflow_suggest_reorder_level($currentStock);
+}
+
+function printflow_item_live_critical_level(float $currentStock): float {
+    return printflow_suggest_critical_level($currentStock);
+}
+
 /** @deprecated Use printflow_item_stored_critical_level() for policy evaluation. */
 function printflow_item_critical_level(array $item): float {
     return printflow_item_stored_critical_level($item);
@@ -91,8 +103,8 @@ function printflow_item_reorder_level(array $item): float {
  * @return array{reorder:float,critical:float,status:array}
  */
 function printflow_item_stock_status(array $item, float $currentStock, bool $isNewItemWithoutStock = false): array {
-    $reorder = printflow_item_stored_reorder_level($item);
-    $critical = printflow_item_stored_critical_level($item);
+    $reorder = printflow_item_live_reorder_level($currentStock);
+    $critical = printflow_item_live_critical_level($currentStock);
     $status = printflow_resolve_stock_status(
         $currentStock,
         $reorder,
