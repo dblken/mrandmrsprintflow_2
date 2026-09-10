@@ -162,15 +162,9 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobRevenue = pf_reports_job_order_revenue_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
-    $hasStoreAmountPaid = function_exists('db_table_has_column')
-        ? db_table_has_column('orders', 'amount_paid')
-        : pf_reports_table_has_column('orders', 'amount_paid');
-    $hasStorePaymentMethod = function_exists('db_table_has_column')
-        ? db_table_has_column('orders', 'payment_method')
-        : pf_reports_table_has_column('orders', 'payment_method');
-    $hasJobPaymentMethod = function_exists('db_table_has_column')
-        ? db_table_has_column('job_orders', 'payment_method')
-        : pf_reports_table_has_column('job_orders', 'payment_method');
+    $hasStoreAmountPaid = pf_reports_table_has_column('orders', 'amount_paid');
+    $hasStorePaymentMethod = pf_reports_table_has_column('orders', 'payment_method');
+    $hasJobPaymentMethod = pf_reports_table_has_column('job_orders', 'payment_method');
     $storePaymentMethod = $hasStorePaymentMethod
         ? "CASE WHEN LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
         : "'QR Ph'";
