@@ -2265,72 +2265,56 @@ $online_closed_count = 0;
                                             </div>
                                         </template>
                                     </div>
-                                    <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
+                                    <template x-if="staffShouldRenderDesignSection(item)">
                                         <div style="margin-top:12px;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
-                                            <div style="display:flex; align-items:flex-end; gap:12px;">
-                                                <img :src="staffEffectiveDesignOpenUrl(item)" 
-                                                     @click="previewFile = staffEffectiveDesignOpenUrl(item)"
-                                                     loading="lazy"
-                                                     decoding="async"
-                                                     width="160"
-                                                     height="160"
-                                                     style="width:160px; max-height:160px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); background:#f8fafc;" 
-                                                     onerror="this.style.display='none';">
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-if="!staffEffectiveDesignOpenUrl(item) && staffItemHasStoredDesign(item)">
-                                        <div style="margin-top:12px;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
-                                            <a :href="staffOrderItemDesignServeUrl(item)"
-                                               target="_blank"
-                                               rel="noopener noreferrer"
-                                               style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                <span style="font-size:14px;">FILE</span>
-                                                <span x-text="item.design_name || item.design_image_name || 'Open uploaded design'"></span>
-                                            </a>
-                                        </div>
-                                    </template>
-                                    <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
-                                        <div style="margin-top:12px;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Preview</div>
-                                            <div style="font-size:12px; color:#6b7280; font-style:italic;">No design uploaded.</div>
-                                        </div>
-                                    </template>
-                                    <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
-                                        <div style="margin-top:12px;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
-                                            <a :href="staffEffectiveDesignOpenUrl(item)"
-                                               target="_blank"
-                                               rel="noopener noreferrer"
-                                               style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                <span style="font-size:14px;">FILE</span>
-                                                <span x-text="item.design_name || 'Open uploaded design'"></span>
-                                            </a>
-                                        </div>
-                                    </template>
-                                    <template x-if="!staffEffectiveDesignOpenUrl(item) && item.design_name">
-                                        <div style="margin-top:12px;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded Design</div>
-                                            <div style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere;">
-                                                <template x-if="staffFilenameLooksLikePdf(item.design_name)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                        <polyline points="14 2 14 8 20 8"></polyline>
-                                                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                        <polyline points="10 9 9 9 8 9"></polyline>
-                                                    </svg>
-                                                </template>
-                                                <template x-if="!staffFilenameLooksLikePdf(item.design_name)">
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;" x-text="staffDesignSectionLabel(item)"></div>
+                                            <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
+                                                <div style="display:flex; align-items:flex-end; gap:12px;">
+                                                    <img :src="staffEffectiveDesignOpenUrl(item)"
+                                                         @click="previewFile = staffEffectiveDesignOpenUrl(item)"
+                                                         loading="lazy"
+                                                         decoding="async"
+                                                         width="160"
+                                                         height="160"
+                                                         style="width:160px; max-height:160px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); background:#f8fafc;"
+                                                         onerror="this.style.display='none';">
+                                                </div>
+                                            </template>
+                                            <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
+                                                <a :href="staffEffectiveDesignOpenUrl(item)"
+                                                   target="_blank"
+                                                   rel="noopener noreferrer"
+                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
+                                                    <template x-if="staffFilenameLooksLikePdf(item.design_name)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                                            <polyline points="14 2 14 8 20 8"></polyline>
+                                                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                            <polyline points="10 9 9 9 8 9"></polyline>
+                                                        </svg>
+                                                    </template>
+                                                    <template x-if="!staffFilenameLooksLikePdf(item.design_name)">
+                                                        <span style="font-size:14px;">FILE</span>
+                                                    </template>
+                                                    <span x-text="item.design_name || 'Open uploaded design'"></span>
+                                                    <template x-if="staffFilenameLooksLikePdf(item.design_name)">
+                                                        <span style="font-size:10px;color:#6b7280;">(PDF)</span>
+                                                    </template>
+                                                </a>
+                                            </template>
+                                            <template x-if="!staffEffectiveDesignOpenUrl(item) && staffItemHasStoredDesign(item)">
+                                                <a :href="staffOrderItemDesignServeUrl(item)"
+                                                   target="_blank"
+                                                   rel="noopener noreferrer"
+                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
                                                     <span style="font-size:14px;">FILE</span>
-                                                </template>
-                                                <span x-text="item.design_name"></span>
-                                                <template x-if="staffFilenameLooksLikePdf(item.design_name)">
-                                                    <span style="font-size:10px;color:#6b7280;">(PDF)</span>
-                                                </template>
-                                            </div>
+                                                    <span x-text="item.design_name || item.design_image_name || 'Open uploaded design'"></span>
+                                                </a>
+                                            </template>
+                                            <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
+                                                <div style="font-size:12px; color:#6b7280; font-style:italic;">No design uploaded.</div>
+                                            </template>
                                         </div>
                                     </template>
                                     <template x-if="item.reference_open_url && (item.reference_is_image || staffFilenameLooksLikeImage(item.reference_name))">
@@ -3136,8 +3120,46 @@ if ($preloaded_customization_rows_json === false) {
     $preloaded_customization_rows_json = '[]';
 }
 $preloaded_customization_rows_b64 = base64_encode($preloaded_customization_rows_json);
+
+// Canonical POS/online service form definitions (service_field_configs) for modal spec whitelisting.
+$pf_service_field_catalog = [];
+$config_rows = db_query(
+    "SELECT service_id, field_key, field_label, field_type, display_order
+     FROM service_field_configs
+     WHERE is_visible = 1
+     ORDER BY service_id ASC, display_order ASC"
+) ?: [];
+foreach ($config_rows as $config_row) {
+    $service_id = (int)($config_row['service_id'] ?? 0);
+    if ($service_id <= 0) {
+        continue;
+    }
+    if (!isset($pf_service_field_catalog[$service_id])) {
+        $pf_service_field_catalog[$service_id] = ['fields' => []];
+    }
+    $field_key = trim((string)($config_row['field_key'] ?? ''));
+    if ($field_key === '') {
+        continue;
+    }
+    $field_label = trim((string)($config_row['field_label'] ?? ''));
+    $pf_service_field_catalog[$service_id]['fields'][] = [
+        'key' => $field_key,
+        'label' => $field_label !== '' ? $field_label : $field_key,
+        'type' => trim((string)($config_row['field_type'] ?? 'text')),
+        'order' => (int)($config_row['display_order'] ?? 0),
+    ];
+}
+$pf_service_field_catalog_json = json_encode(
+    $pf_service_field_catalog,
+    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+);
+if ($pf_service_field_catalog_json === false) {
+    $pf_service_field_catalog_json = '{}';
+}
+$pf_service_field_catalog_b64 = base64_encode($pf_service_field_catalog_json);
 ?>
 <script id="pf-customization-preloaded" type="application/json"><?php echo htmlspecialchars($preloaded_customization_rows_b64, ENT_QUOTES, 'UTF-8'); ?></script>
+<script id="pf-service-field-catalog" type="application/json"><?php echo htmlspecialchars($pf_service_field_catalog_b64, ENT_QUOTES, 'UTF-8'); ?></script>
 <script>
 window.pfCustomizationPreloadedOrders = (() => {
     try {
@@ -3149,6 +3171,19 @@ window.pfCustomizationPreloadedOrders = (() => {
     } catch (e) {
         console.error('Failed to parse preloaded customization data', e);
         return [];
+    }
+})();
+window.pfServiceFieldCatalog = (() => {
+    try {
+        const el = document.getElementById('pf-service-field-catalog');
+        if (!el) return {};
+        const encoded = (el.textContent || '').trim();
+        if (!encoded) return {};
+        const parsed = JSON.parse(atob(encoded));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (e) {
+        console.error('Failed to parse service field catalog', e);
+        return {};
     }
 })();
 </script>
@@ -4242,62 +4277,415 @@ window.pfCustomizationPreloadedOrders = (() => {
                 const clean = String(path).split('?')[0].replace(/\\/g, '/');
                 return clean.split('/').filter(Boolean).pop() || '';
             },
-            /**
-             * Collapse aliased customization keys into a single canonical display key.
-             * - needed_date / Needed_Date / due_date  → "Needed Date"
-             * - branch_name / pickup_branch            → "Branch"
-             * The first non-empty value encountered for each alias group wins.
-             */
-            normalizeSpecAliases(obj) {
-                if (!obj || typeof obj !== 'object') return obj;
-
-                const token = (k) => String(k || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-                const alias = (k) => {
-                    const kl = token(k);
-                    if (['neededdate', 'duedate', 'dateneeded', 'needdate'].includes(kl)) return 'Needed Date';
-                    if (['layout', 'layoutoption', 'selectedlayout', 'layoutselected'].includes(kl)) return 'Layout';
-                    if (['quantity', 'qty'].includes(kl)) return 'Quantity';
-                    if (['width', 'widthft'].includes(kl)) return 'Width';
-                    if (['height', 'heightft'].includes(kl)) return 'Height';
-                    if (['totalsqft', 'totalsquarefeet', 'totalarea', 'areasqft'].includes(kl)) return 'Total Area';
-                    if (['size', 'sizes', 'dimension', 'dimensions', 'dimensionft', 'dimensionsft', 'tarpsize'].includes(kl)) return 'Size';
-                    if (kl === 'branchname' || kl === 'pickupbranch') return 'Branch';
-                    return null;
-                };
-
-                // Internal-only keys that should never appear in the specs grid
-                const INTERNAL = new Set([
-                    'branchid', 'sourcepage', 'source', 'productid', 'producttype', 'serviceid',
-                    // Note fields - handled separately in yellow Order Notes box
-                    'notes', 'additionalnotes', 'jobnotes', 'customernotes',
-                    // Design fields - only show as Uploaded Design, not as specs
-                    'designupload', 'designuploadpath', 'designfile', 'designtmppath',
-                    'referenceupload', 'referenceuploadpath', 'referencefile', 'referencetmppath',
-                    'designmime', 'referencemime',
-                    // Design type/template fields - removed to avoid redundancy
-                    'designtype', 'template', 'design',
+            staffCustomizationKeyToken(key) {
+                return String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+            },
+            staffCustomizationValueText(value) {
+                if (value === true) return 'Yes';
+                if (value === false) return 'No';
+                if (Array.isArray(value)) {
+                    return value
+                        .filter((entry) => entry !== null && entry !== undefined && String(entry).trim() !== '')
+                        .map((entry) => String(entry).trim())
+                        .join(', ');
+                }
+                return value === null || value === undefined ? '' : String(value).trim();
+            },
+            staffCustomizationValueFingerprint(value) {
+                return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            },
+            staffCustomizationSemanticValueFingerprint(group, value) {
+                let fingerprint = this.staffCustomizationValueFingerprint(value);
+                if (group === 'width' || group === 'height') {
+                    fingerprint = fingerprint.replace(/\s*(?:ft|feet|foot)\.?$/i, '').trim();
+                } else if (group === 'total_area') {
+                    fingerprint = fingerprint.replace(/\s*(?:sq\.?\s*ft|sqft|square\s*feet)\.?$/i, '').trim();
+                } else if (group === 'quantity') {
+                    fingerprint = fingerprint.replace(/\s*(?:pcs?|pieces?)\.?$/i, '').trim();
+                } else if (group === 'dimensions') {
+                    fingerprint = fingerprint.replace(/[×*]/g, 'x');
+                    fingerprint = fingerprint.replace(/\s*x\s*/gi, 'x');
+                    fingerprint = fingerprint.replace(/\s*(?:feet|foot)\.?$/i, ' ft');
+                }
+                if (/^-?\d+(?:\.\d+)?$/.test(fingerprint)) {
+                    fingerprint = String(parseFloat(fingerprint)).replace(/\.?0+$/, '');
+                }
+                return fingerprint;
+            },
+            staffValueLooksLikeUploadFilename(value) {
+                const text = this.staffCustomizationValueText(value);
+                if (!text) return false;
+                if (/^(xs|s|m|l|xl|xxl|xxxl|2xl|3xl)$/i.test(text)) return false;
+                return /\.(jpe?g|png|gif|webp|bmp|svg|avif|pdf|ai|eps|psd)$/i.test(text)
+                    || (/^(data|blob):/i.test(text) && text.includes('base64'));
+            },
+            staffCustomizationFieldMeta(key) {
+                const token = this.staffCustomizationKeyToken(key);
+                const hiddenExact = new Set([
+                    'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch',
+                    'service_id', 'customization_id', 'order_id', 'order_item_id', 'product_id', 'config_id',
+                    'source', 'source_page', 'form_type', 'cart_key',
+                    'design_upload_path', 'design_file', 'design_mime', 'design_upload_mime',
+                    'design_image', 'design_image_path', 'reference_upload', 'reference_upload_name',
+                    'upload_reference', 'reference_upload_path', 'reference_file', 'reference_mime',
+                    'reference_upload_mime', 'design_data', 'reference_data', 'design_blob', 'reference_blob',
+                    'design_upload_data', 'reference_upload_data', 'design_tmp_path', 'reference_tmp_path',
+                    'designtype', 'template'
                 ]);
+                const looksInternal = token.endsWith('_id')
+                    || token.includes('_mime')
+                    || token.includes('_blob')
+                    || token.includes('_tmp_path')
+                    || token.endsWith('_path');
+                if (!token || token[0] === '_' || looksInternal || hiddenExact.has(token)) {
+                    return { group: token, label: '', priority: 999, hidden: true, design: false };
+                }
+                if (
+                    token.includes('uploaddesign')
+                    || token.includes('uploadeddesign')
+                    || token === 'designfile'
+                    || token === 'designupload'
+                    || token === 'uploaddesign'
+                    || (token.includes('upload') && (token.includes('design') || token.includes('desing')))
+                    || (token.includes('reference') && token.includes('upload'))
+                ) {
+                    return { group: 'uploaded_design', label: 'Uploaded Design', priority: 60, hidden: false, design: true };
+                }
+                const map = {
+                    service_type: ['service', 'Service', 10],
+                    product_type: ['service', 'Service', 10],
+                    layout: ['layout', 'Layout', 20],
+                    layout_option: ['layout', 'Layout', 20],
+                    layoutoption: ['layout', 'Layout', 20],
+                    selected_layout: ['layout', 'Layout', 20],
+                    selectedlayout: ['layout', 'Layout', 20],
+                    layout_selected: ['layout', 'Layout', 20],
+                    width: ['width', 'Width', 30],
+                    width_ft: ['width', 'Width', 30],
+                    widthft: ['width', 'Width', 30],
+                    height: ['height', 'Height', 31],
+                    height_ft: ['height', 'Height', 31],
+                    heightft: ['height', 'Height', 31],
+                    size: ['dimensions', 'Size', 32],
+                    sizes: ['dimensions', 'Size', 32],
+                    dimension: ['dimensions', 'Size', 32],
+                    dimensions: ['dimensions', 'Size', 32],
+                    dimensions_ft: ['dimensions', 'Size', 32],
+                    dimensionsft: ['dimensions', 'Size', 32],
+                    dimension_ft: ['dimensions', 'Size', 32],
+                    tarp_size: ['dimensions', 'Size', 32],
+                    total_sqft: ['total_area', 'Total Area', 33],
+                    totalsqft: ['total_area', 'Total Area', 33],
+                    total_sq_ft: ['total_area', 'Total Area', 33],
+                    total_area: ['total_area', 'Total Area', 33],
+                    area_sqft: ['total_area', 'Total Area', 33],
+                    areasqft: ['total_area', 'Total Area', 33],
+                    needed_date: ['needed_date', 'Needed Date', 40],
+                    neededdate: ['needed_date', 'Needed Date', 40],
+                    date_needed: ['needed_date', 'Needed Date', 40],
+                    dateneeded: ['needed_date', 'Needed Date', 40],
+                    need_date: ['needed_date', 'Needed Date', 40],
+                    due_date: ['needed_date', 'Needed Date', 40],
+                    notes: ['notes', 'Notes', 50],
+                    additional_notes: ['notes', 'Notes', 50],
+                    special_instructions: ['notes', 'Notes', 50],
+                    material: ['material', 'Material', 25],
+                    material_type: ['material', 'Material', 25],
+                    temp_plate_material: ['material', 'Material', 25],
+                    material_selection: ['material', 'Material', 25],
+                    design_upload: ['uploaded_design', 'Uploaded Design', 60],
+                    design_upload_name: ['uploaded_design', 'Uploaded Design', 60],
+                    upload_design: ['uploaded_design', 'Uploaded Design', 60],
+                    upload_design_name: ['uploaded_design', 'Uploaded Design', 60],
+                    design_filename: ['uploaded_design', 'Uploaded Design', 60],
+                    design_file_name: ['uploaded_design', 'Uploaded Design', 60],
+                    uploaded_design_name: ['uploaded_design', 'Uploaded Design', 60],
+                    uploaded_design: ['uploaded_design', 'Uploaded Design', 60],
+                    quantity: ['quantity', 'Quantity', 5],
+                    qty: ['quantity', 'Quantity', 5],
+                    print_type: ['print_type', 'Print Type', 45],
+                    printed_type: ['print_type', 'Print Type', 45],
+                    printtype: ['print_type', 'Print Type', 45],
+                    printedtype: ['print_type', 'Print Type', 45]
+                };
+                if (map[token]) {
+                    const [group, label, priority] = map[token];
+                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' };
+                }
+                const label = String(key || '')
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (char) => char.toUpperCase());
+                return { group: token, label, priority: 100, hidden: false, design: false };
+            },
+            staffServiceFieldAliasTokens(fieldKey) {
+                const token = this.staffCustomizationKeyToken(fieldKey);
+                const aliasMap = {
+                    dimensions: ['dimensions', 'dimension', 'size', 'sizes', 'exact_size', 'tarpsize', 'poster_size', 'print_size'],
+                    size: ['size', 'sizes', 'dimensions', 'dimension'],
+                    sizes: ['sizes', 'size', 'dimensions', 'dimension'],
+                    lamination: ['lamination', 'laminate_option', 'laminate'],
+                    eyelets: ['eyelets', 'with_eyelets'],
+                    shirt_color: ['shirt_color', 'tshirt_color', 'color'],
+                    print_type: ['print_type', 'printed_type', 'printtype', 'printedtype'],
+                    printed_type: ['print_type', 'printed_type', 'printtype', 'printedtype'],
+                    layout: ['layout', 'layout_option', 'selected_layout', 'layoutoption', 'selectedlayout'],
+                    needed_date: ['needed_date', 'neededdate', 'date_needed', 'dateneeded', 'need_date', 'due_date'],
+                    quantity: ['quantity', 'qty'],
+                    notes: ['notes', 'additional_notes', 'special_instructions', 'job_notes'],
+                    design_file: ['design_file', 'design_upload', 'upload_design', 'upload_design_name', 'design_upload_name'],
+                    reference_file: ['reference_file', 'reference_upload', 'upload_reference']
+                };
+                const aliases = aliasMap[token] || [token];
+                const out = new Set([token]);
+                aliases.forEach((alias) => {
+                    const normalized = this.staffCustomizationKeyToken(alias);
+                    if (normalized) out.add(normalized);
+                });
+                return Array.from(out);
+            },
+            staffResolveItemServiceId(item) {
+                if (!item || typeof item !== 'object') return 0;
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                const raw = this.parseSpecsObject(item.customization_data);
+                const candidates = [
+                    item.service_id,
+                    custom.service_id,
+                    raw.service_id,
+                    this.currentJo && this.currentJo.reference_id
+                ];
+                for (const candidate of candidates) {
+                    const id = parseInt(candidate, 10);
+                    if (id > 0) return id;
+                }
+                return 0;
+            },
+            staffGetServiceSpecProfile(serviceId) {
+                const sid = parseInt(serviceId, 10) || 0;
+                if (sid <= 0) return null;
+                if (!this.staffServiceSpecProfileCache) {
+                    this.staffServiceSpecProfileCache = {};
+                }
+                if (this.staffServiceSpecProfileCache[sid]) {
+                    return this.staffServiceSpecProfileCache[sid];
+                }
+
+                const catalog = (window.pfServiceFieldCatalog && window.pfServiceFieldCatalog[sid]) || null;
+                if (!catalog || !Array.isArray(catalog.fields) || catalog.fields.length === 0) {
+                    this.staffServiceSpecProfileCache[sid] = null;
+                    return null;
+                }
+
+                const allowedGroups = new Set();
+                const allowedTokenNorms = new Set();
+                const allowedLabelNorms = new Set();
+                const designField = { hasDesign: false, label: 'Uploaded Design' };
+                const fields = catalog.fields.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+
+                fields.forEach((field) => {
+                    const fieldKey = String(field.key || '').trim();
+                    if (!fieldKey) return;
+                    const fieldLabel = String(field.label || fieldKey).trim();
+                    const fieldType = String(field.type || 'text').trim().toLowerCase();
+                    const fieldToken = this.staffCustomizationKeyToken(fieldKey);
+                    const labelToken = this.staffCustomizationKeyToken(fieldLabel);
+
+                    if (fieldType === 'file') {
+                        const isDesign = fieldToken.includes('design')
+                            || labelToken.includes('design')
+                            || fieldKey === 'design_file';
+                        const isReference = !isDesign && (
+                            fieldToken.includes('reference')
+                            || labelToken.includes('reference')
+                            || fieldKey === 'reference_file'
+                        );
+                        if (isDesign) {
+                            designField.hasDesign = true;
+                            designField.label = fieldLabel || 'Uploaded Design';
+                        }
+                        if (!isReference) {
+                            this.staffServiceFieldAliasTokens(fieldKey).forEach((alias) => allowedTokenNorms.add(alias));
+                            if (labelToken) allowedLabelNorms.add(labelToken);
+                        }
+                        return;
+                    }
+
+                    const meta = this.staffCustomizationFieldMeta(fieldKey);
+                    if (meta.group) allowedGroups.add(meta.group);
+                    this.staffServiceFieldAliasTokens(fieldKey).forEach((alias) => allowedTokenNorms.add(alias));
+                    if (labelToken) allowedLabelNorms.add(labelToken);
+                    if (fieldToken) allowedTokenNorms.add(fieldToken);
+                });
+
+                const profile = {
+                    serviceId: sid,
+                    fields,
+                    allowedGroups,
+                    allowedTokenNorms,
+                    allowedLabelNorms,
+                    designField
+                };
+                this.staffServiceSpecProfileCache[sid] = profile;
+                return profile;
+            },
+            staffMeaningfulSpecValue(value) {
+                const text = this.staffCustomizationValueText(value);
+                if (!text) return false;
+                const lowered = text.toLowerCase();
+                if (['none', 'no', 'n/a', 'na', '-', '—', 'null', 'undefined'].includes(lowered)) return false;
+                if (/^0+(?:\.0+)?$/.test(text)) return false;
+                return true;
+            },
+            staffSpecAllowedForServiceProfile(label, profile) {
+                if (!profile) return true;
+                const meta = this.staffCustomizationFieldMeta(label);
+                if (meta.hidden || meta.design) return false;
+
+                const labelToken = this.staffCustomizationKeyToken(label);
+                if (profile.allowedGroups.has(meta.group)) return true;
+                if (profile.allowedTokenNorms.has(labelToken)) return true;
+                if (profile.allowedLabelNorms.has(labelToken)) return true;
+
+                return false;
+            },
+            staffFilterSpecsByServiceForm(specs, item) {
+                if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return {};
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (!profile) return specs;
 
                 const out = {};
-                const seenCanonical = {};
-                const sourceTokens = new Set(Object.keys(obj).filter(k => obj[k] !== null && obj[k] !== undefined && obj[k] !== '').map(token));
-                const hasSeparateDimensions = (sourceTokens.has('width') || sourceTokens.has('widthft'))
-                    && (sourceTokens.has('height') || sourceTokens.has('heightft'));
+                Object.entries(specs).forEach(([label, value]) => {
+                    if (!this.staffMeaningfulSpecValue(value)) return;
+                    if (!this.staffSpecAllowedForServiceProfile(label, profile)) return;
+                    if (this.staffCustomizationFieldMeta(label).design) return;
+                    out[label] = value;
+                });
+                return out;
+            },
+            staffShouldRenderDesignSection(item) {
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile) {
+                    return profile.designField.hasDesign === true;
+                }
+                return !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
+            },
+            staffDesignSectionLabel(item) {
+                if (this.staffEffectiveDesignOpenUrl(item) && this.staffDesignShowsAsImage(item)) {
+                    return 'Design Preview';
+                }
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && profile.designField.label) {
+                    return profile.designField.label;
+                }
+                return 'Uploaded Design';
+            },
+            /**
+             * Canonical staff/customer specification rows — mirrors includes/customization_normalizer.php.
+             */
+            staffCustomizationDisplaySpecs(obj, options = {}) {
+                const includeService = options.includeService !== false;
+                const includeDesign = options.includeDesign === true;
+                const includeNotes = options.includeNotes === true;
+                const includeQuantity = options.includeQuantity !== false;
+                if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
 
-                for (const [k, v] of Object.entries(obj)) {
-                    if (v === null || v === undefined || v === '') continue;
-                    if (INTERNAL.has(token(k))) continue;
-
-                    const canonical = alias(k) || k;
-                    if (canonical === 'Size' && hasSeparateDimensions) continue;
-
-                    if (!seenCanonical[canonical]) {
-                        out[canonical] = v;
-                        seenCanonical[canonical] = true;
+                const presentGroups = {};
+                for (const [key, value] of Object.entries(obj)) {
+                    if (typeof key !== 'string') continue;
+                    const probeText = this.staffCustomizationValueText(value);
+                    if (!probeText) continue;
+                    const probe = this.staffCustomizationFieldMeta(key);
+                    if (['width', 'height', 'total_area'].includes(probe.group) && /^-?\d+(?:\.\d+)?$/.test(probeText) && Math.abs(parseFloat(probeText)) < 0.000001) {
+                        continue;
                     }
-                    // If canonical already exists, keep the existing value (first non-empty wins).
+                    presentGroups[probe.group] = true;
+                }
+
+                const rows = {};
+                const seen = {};
+                let position = 0;
+                for (const [key, value] of Object.entries(obj)) {
+                    if (typeof key !== 'string') continue;
+                    const meta = this.staffCustomizationFieldMeta(key);
+                    if (meta.hidden) continue;
+                    if (meta.group === 'service' && !includeService) continue;
+                    if (meta.group === 'notes' && !includeNotes) continue;
+                    if (meta.group === 'quantity' && !includeQuantity) continue;
+                    if (meta.design && !includeDesign) continue;
+                    if (meta.group === 'dimensions' && presentGroups.width && presentGroups.height) continue;
+
+                    let text = this.staffCustomizationValueText(value);
+                    if (!text || /^data:/i.test(text) || ['none', 'no'].includes(text.toLowerCase())) continue;
+                    if (['width', 'height', 'total_area'].includes(meta.group) && /^-?\d+(?:\.\d+)?$/.test(text) && Math.abs(parseFloat(text)) < 0.000001) {
+                        continue;
+                    }
+                    if (meta.group === 'dimensions' && this.staffValueLooksLikeUploadFilename(text)) continue;
+                    if (meta.design) text = this.staffBasename(text);
+
+                    const token = this.staffCustomizationKeyToken(key);
+                    if (['width', 'height', 'total_area'].includes(meta.group) && /^-?\d+(?:\.\d+)?$/.test(text)) {
+                        text = String(parseFloat(text)).replace(/\.?0+$/, '');
+                    }
+                    if (['width_ft', 'widthft', 'height_ft', 'heightft'].includes(token) && /^-?\d+(?:\.\d+)?$/.test(text)) {
+                        text += ' ft';
+                    }
+                    if (['total_sqft', 'totalsqft', 'total_sq_ft', 'area_sqft', 'areasqft'].includes(token) && /^-?\d+(?:\.\d+)?$/.test(text)) {
+                        text += ' sq ft';
+                    }
+                    if (meta.group === 'needed_date' && /^\d{4}-\d{2}-\d{2}/.test(text)) {
+                        const stamp = Date.parse(text.slice(0, 10));
+                        if (!Number.isNaN(stamp)) {
+                            text = new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                        }
+                    }
+
+                    const fingerprint = meta.group + '|' + this.staffCustomizationSemanticValueFingerprint(meta.group, text);
+                    if (seen[fingerprint]) {
+                        const existingLabel = seen[fingerprint];
+                        if (rows[existingLabel] && (token.endsWith('_ft') || token.endsWith('ft') || token.includes('sqft'))) {
+                            rows[existingLabel].value = text;
+                        }
+                        continue;
+                    }
+
+                    let label = meta.label;
+                    if (
+                        rows[label]
+                        && this.staffCustomizationSemanticValueFingerprint(meta.group, rows[label].value)
+                            !== this.staffCustomizationSemanticValueFingerprint(meta.group, text)
+                    ) {
+                        label = String(key || '')
+                            .replace(/_/g, ' ')
+                            .replace(/\b\w/g, (char) => char.toUpperCase());
+                        if (rows[label]) label += ' 2';
+                    }
+
+                    rows[label] = { value: text, priority: meta.priority, position: position++ };
+                    seen[fingerprint] = label;
+                }
+
+                const sorted = Object.entries(rows).sort((a, b) => {
+                    const left = a[1];
+                    const right = b[1];
+                    return left.priority - right.priority || left.position - right.position;
+                });
+                const out = {};
+                for (const [label, row] of sorted) {
+                    out[label] = row.value;
                 }
                 return out;
+            },
+            /**
+             * Collapse aliased customization keys into canonical display labels.
+             */
+            normalizeSpecAliases(obj) {
+                return this.staffCustomizationDisplaySpecs(obj, {
+                    includeService: true,
+                    includeDesign: false,
+                    includeNotes: false,
+                    includeQuantity: true
+                });
             },
             normalizeStaffOrderDetail(order) {
                 if (!order || typeof order !== 'object') return order;
@@ -4352,11 +4740,11 @@ window.pfCustomizationPreloadedOrders = (() => {
             getDisplayableCustom(custom, item = null) {
                 let sourceCustom = this.parseSpecsObject(custom);
                 if (Object.keys(sourceCustom).length === 0 && custom && typeof custom === 'object' && !Array.isArray(custom)) {
-                    sourceCustom = custom;
+                    sourceCustom = { ...custom };
                 }
                 const canonicalItemSpecs = item ? this.parseSpecsObject(item.specifications) : {};
                 if (Object.keys(sourceCustom).length === 0 && Object.keys(canonicalItemSpecs).length > 0) {
-                    sourceCustom = canonicalItemSpecs;
+                    sourceCustom = { ...canonicalItemSpecs };
                 }
                 const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
                     ? this.currentJo.customization_details
@@ -4364,7 +4752,7 @@ window.pfCustomizationPreloadedOrders = (() => {
 
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0) {
                     if (fallbackCustom && !Array.isArray(fallbackCustom) && Object.keys(fallbackCustom).length > 0) {
-                        sourceCustom = fallbackCustom;
+                        sourceCustom = { ...fallbackCustom };
                     }
                 }
                 if (
@@ -4376,53 +4764,19 @@ window.pfCustomizationPreloadedOrders = (() => {
                 }
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
 
-                const noteFields = ['notes', 'Notes', 'NOTES', 'additional_notes', 'job_notes', 'jobnotes', 'customer_notes', 'customernotes', 'Job_Notes', 'JobNotes', 'Customer_Notes', 'CustomerNotes'];
-                for (const noteField of noteFields) {
-                    delete sourceCustom[noteField];
-                }
-
-                const sizeFields = ['width', 'height', 'width_ft', 'height_ft', 'size', 'sizes', 'sizeft', 'sizesft', 'dimensions', 'dimensionsft', 'dimension', 'size_ft'];
-                for (const sizeField of sizeFields) {
-                    delete sourceCustom[sizeField];
-                }
-
-                const designFields = ['design_type', 'template', 'design', 'Design', 'DESIGN'];
-                for (const designField of designFields) {
-                    delete sourceCustom[designField];
-                }
-
-                const branchFields = ['branch', 'Branch', 'BRANCH', 'branch_name', 'Branch_Name', 'BranchName'];
-                for (const branchField of branchFields) {
-                    delete sourceCustom[branchField];
-                }
-
-                const uploadFields = ['design_upload', 'design_upload_path', 'design_file', 'reference_upload', 'reference_upload_path', 'reference_file'];
-                for (const uploadField of uploadFields) {
-                    delete sourceCustom[uploadField];
-                }
-
                 const isDetail = !!this.showDetailsModal;
-                const skip = isDetail
-                    ? [
-                        'design_tmp_path', 'reference_tmp_path', 'design_mime', 'reference_mime',
-                        'cart_key', '_cart_key', 'config_id', 'form_type', 'layout_file', 'reference_file',
-                        'source_page', 'source', 'branch_id', 'Branch_ID',
-                        'product_id', 'product_type',
-                        'service_type', 'service_id',
-                      ]
-                    : this.customFieldSkip;
+                const normalized = this.staffCustomizationDisplaySpecs(sourceCustom, {
+                    includeService: !isDetail,
+                    includeDesign: false,
+                    includeNotes: false,
+                    includeQuantity: true
+                });
+                const specs = this.staffFilterSpecsByServiceForm(normalized, item);
 
-                return Object.entries(sourceCustom).filter(([k, v]) => {
+                return Object.entries(specs).filter(([k, v]) => {
                     if (v === '' || v == null) return false;
-                    if (skip.includes(k)) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
-                        const lkDesign = String(k).toLowerCase().replace(/\s+/g, '_');
-                        const isDesignSpecKey = ['design_upload', 'design_upload_path', 'upload_design', 'upload_design_path', 'design_file'].includes(lkDesign)
-                            || (lkDesign.includes('upload') && lkDesign.includes('design'));
-                        if (isDesignSpecKey && this.staffEffectiveDesignOpenUrl(item)) {
-                            return false;
-                        }
                         const lk = String(k).toLowerCase().replace(/\s+/g, '_');
                         if ((lk.includes('payment') && lk.includes('proof')) || ['payment_proof', 'payment_upload', 'proof_of_payment'].includes(lk)) {
                             if (this.staffPaymentProofSrc(this.currentJo)) return false;
@@ -4571,19 +4925,8 @@ window.pfCustomizationPreloadedOrders = (() => {
                 return text.split('/').pop().split('\\').pop();
             },
             staffFieldLooksLikeDesignUpload(key, value) {
-                const normalizedKey = String(key || '').toLowerCase().replace(/\s+/g, '_');
-                const normalizedValue = String(value || '').trim().toLowerCase();
-                const isDesignKey = normalizedKey === 'design_upload'
-                    || normalizedKey === 'design_upload_name'
-                    || normalizedKey === 'design_upload_path'
-                    || normalizedKey === 'design_file'
-                    || normalizedKey === 'desing_upload'
-                    || normalizedKey === 'desing_upload_name'
-                    || normalizedKey === 'desing_upload_path'
-                    || normalizedKey === 'desing_file'
-                    || normalizedKey.includes('upload') && normalizedKey.includes('design');
-                const looksLikeDesignFile = /\.(jpe?g|png|gif|webp|bmp|svg|avif|pdf)$/i.test(normalizedValue);
-                return (isDesignKey || looksLikeDesignFile) && value != null && String(value).trim() !== '';
+                if (value == null || String(value).trim() === '') return false;
+                return this.staffCustomizationFieldMeta(key).design === true;
             },
             staffFieldUploadIsImage(key, value) {
                 if (!this.staffFieldLooksLikeDesignUpload(key, value)) return false;
