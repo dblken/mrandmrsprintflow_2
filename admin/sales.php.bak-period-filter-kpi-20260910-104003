@@ -41,7 +41,7 @@ if ($is_manager) {
 
 $sales_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php';
 function sales_page_query(array $overrides = []): string {
-    $keys = ['from', 'to', 'branch_id', 'sales_period', 'type', 'payment', 'item'];
+    $keys = ['from', 'to', 'branch_id', 'sales_period'];
     $q = [];
     foreach ($keys as $key) {
         if (array_key_exists($key, $overrides)) {
@@ -59,20 +59,6 @@ function sales_type_pill_class(?string $type): string {
     return strtolower(trim((string)$type)) === 'service'
         ? ' sales-breakdown-pill-service'
         : ' sales-breakdown-pill-product';
-}
-
-function sales_format_label(?string $value): string {
-    $value = trim((string)$value);
-    if ($value === '') return '—';
-    return ucwords(strtolower(str_replace(['_', '-'], ' ', $value)));
-}
-
-function sales_payment_filter_key(?string $value): string {
-    return strtolower(trim((string)$value));
-}
-
-function sales_payment_display_allowed(?string $value): bool {
-    return in_array(sales_payment_filter_key($value), ['paid', 'fully paid'], true);
 }
 
 $sales_period = $_GET['sales_period'] ?? 'today';
@@ -109,74 +95,12 @@ if ($sales_period === 'custom' && $valid_from !== '' && $valid_to !== '') {
 }
 $sales_to_end = $sales_to . ' 23:59:59';
 
-$salesTypeFilter = strtolower(trim((string)($_GET['type'] ?? 'all')));
-if (!in_array($salesTypeFilter, ['all', 'product', 'service'], true)) {
-    $salesTypeFilter = 'all';
-}
-$salesPaymentFilter = strtolower(trim((string)($_GET['payment'] ?? 'all')));
-if (!in_array($salesPaymentFilter, ['all', 'paid', 'fully paid'], true)) {
-    $salesPaymentFilter = 'all';
-}
-$salesItemFilter = trim((string)($_GET['item'] ?? ''));
-
 $branchEmpty = !pf_reports_branch_has_activity($branchId);
 $salesData = !$branchEmpty
-    ? pf_reports_official_sales_breakdown($sales_from, $sales_to_end, $branchId, 5000)
+    ? pf_reports_official_sales_breakdown($sales_from, $sales_to_end, $branchId, 100)
     : ['summary' => [], 'by_branch' => [], 'by_item' => [], 'transactions' => []];
-
-$allItems = $salesData['by_item'] ?? [];
-$salesData['transactions'] = array_values(array_filter($salesData['transactions'] ?? [], static function ($row) use ($salesTypeFilter, $salesPaymentFilter, $salesItemFilter): bool {
-    $type = strtolower(trim((string)($row['type'] ?? '')));
-    $payment = sales_payment_filter_key($row['payment_status'] ?? '');
-    if (!sales_payment_display_allowed($row['payment_status'] ?? '')) return false;
-    if ($salesTypeFilter !== 'all' && $type !== $salesTypeFilter) return false;
-    if ($salesPaymentFilter !== 'all' && $payment !== $salesPaymentFilter) return false;
-    if ($salesItemFilter !== '') {
-        $itemKey = $type . '|' . trim((string)($row['item_name'] ?? ''));
-        if ($itemKey !== $salesItemFilter) return false;
-    }
-    return true;
-}));
-$itemTotals = [];
-foreach ($salesData['transactions'] as $row) {
-    $typeLabel = strtolower(trim((string)($row['type'] ?? ''))) === 'service' ? 'Service' : 'Product';
-    $itemName = trim((string)($row['item_name'] ?? '')) ?: ($typeLabel === 'Service' ? 'Customization' : 'Product Order');
-    $key = strtolower($typeLabel) . '|' . $itemName;
-    if (!isset($itemTotals[$key])) {
-        $itemTotals[$key] = ['type' => $typeLabel, 'item_name' => $itemName, 'quantity' => 0, 'revenue' => 0.0];
-    }
-    $itemTotals[$key]['quantity'] += 1;
-    $itemTotals[$key]['revenue'] += (float)($row['amount'] ?? 0);
-}
-foreach ($itemTotals as &$itemRow) {
-    $itemRow['revenue'] = round((float)$itemRow['revenue'], 2);
-}
-unset($itemRow);
-$salesData['by_item'] = array_values($itemTotals);
-usort($salesData['by_item'], static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
-
-$salesSummary = ['total_sales' => 0.0, 'transaction_count' => 0, 'product_sales' => 0.0, 'service_sales' => 0.0];
-$branchTotals = [];
-foreach ($salesData['transactions'] as $row) {
-    $amount = (float)($row['amount'] ?? 0);
-    $type = strtolower(trim((string)($row['type'] ?? '')));
-    $salesSummary['total_sales'] += $amount;
-    $salesSummary['transaction_count']++;
-    if ($type === 'service') $salesSummary['service_sales'] += $amount; else $salesSummary['product_sales'] += $amount;
-    $branch = trim((string)($row['branch_name'] ?? '')) ?: '—';
-    if (!isset($branchTotals[$branch])) $branchTotals[$branch] = ['branch_name' => $branch, 'transaction_count' => 0, 'total_sales' => 0.0];
-    $branchTotals[$branch]['transaction_count']++;
-    $branchTotals[$branch]['total_sales'] += $amount;
-}
-foreach ($branchTotals as &$branchRow) {
-    $branchRow['total_sales'] = round((float)$branchRow['total_sales'], 2);
-}
-unset($branchRow);
-$salesData['by_branch'] = array_values($branchTotals);
-$salesSummary['total_sales'] = round((float)$salesSummary['total_sales'], 2);
-$salesSummary['product_sales'] = round((float)$salesSummary['product_sales'], 2);
-$salesSummary['service_sales'] = round((float)$salesSummary['service_sales'], 2);
-$salesFilterCount = (int)($sales_period === 'custom') + (int)($salesTypeFilter !== 'all') + (int)($salesPaymentFilter !== 'all') + (int)($salesItemFilter !== '');
+$salesSummary = $salesData['summary'] ?? [];
+$salesFilterCount = ($sales_period === 'custom' && ($sales_from !== '' || $sales_to !== '')) ? 1 : 0;
 $salesBranchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
 
 $page_title = 'Sales Breakdown - Admin';
@@ -204,18 +128,6 @@ $page_title = 'Sales Breakdown - Admin';
 .toolbar-btn:hover { border-color:#9ca3af; background:#f9fafb; }
 .toolbar-btn.active { border-color:#00232b; color:#00232b; background:#ecf8fb; }
 .sales-page-subhead { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:13px; color:#6b7280; margin-top:-10px; }
-.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; align-items:stretch!important; margin-bottom:20px; }
-.kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:20px 22px; position:relative; overflow:hidden; transition:all .2s; box-shadow:0 1px 3px rgba(0,0,0,.04); height:100%!important; display:flex; flex-direction:column; }
-.kpi-card:hover { box-shadow:0 4px 14px rgba(0,0,0,.08); }
-.kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
-.kpi-ind::before { background:linear-gradient(90deg,#00232b,#53C5E0); }
-.kpi-em::before { background:linear-gradient(90deg,#059669,#34d399); }
-.kpi-amb::before { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
-.kpi-vio::before { background:linear-gradient(90deg,#7c3aed,#a78bfa); }
-.kpi-lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:6px; }
-.kpi-val { font-size:26px; font-weight:800; color:#111827; line-height:1.15; margin-bottom:6px; }
-.kpi-sub { font-size:12px; color:#6b7280; display:flex; align-items:center; gap:4px; flex-wrap:wrap; line-height:1.4; margin-top:auto; }
-@media(max-width:900px){ .kpi-row{ grid-template-columns:repeat(2,1fr); } }
 .sales-breakdown-tabs { display:flex; flex-wrap:wrap; gap:8px; }
 .sales-breakdown-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin-bottom:20px; }
 .sales-breakdown-metric { border:1px solid #e5e7eb; border-radius:10px; padding:20px 22px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.04); }
@@ -272,20 +184,10 @@ $page_title = 'Sales Breakdown - Admin';
                 <div class="sales-page-subhead">
                     <span><?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_from))); ?><?php if ($sales_from !== $sales_to): ?> - <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_to))); ?><?php endif; ?></span>
                     <div class="sales-page-actions no-print">
-                        <a class="toolbar-btn" style="height:38px;text-decoration:none;" href="<?php echo htmlspecialchars(rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php?' . sales_page_query(['sales_period' => null, 'type' => null, 'payment' => null, 'item' => null]), ENT_QUOTES, 'UTF-8'); ?>">
+                        <a class="toolbar-btn" style="height:38px;text-decoration:none;" href="<?php echo htmlspecialchars(rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php?' . sales_page_query(['sales_period' => null]), ENT_QUOTES, 'UTF-8'); ?>">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
                             Back to Reports
                         </a>
-                    </div>
-                </div>
-                <div class="ana-card">
-                <div class="ana-hd">
-                    <h3 class="chart-title-nowrap">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/></svg>
-                        Sales Breakdown
-                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;"><?php echo htmlspecialchars($sales_label); ?></span>
-                    </h3>
-                                        <div class="sales-page-actions no-print">
                         <div style="position:relative;">
                             <button type="button" class="toolbar-btn <?php echo $salesFilterCount > 0 ? 'active' : ''; ?>" id="salesFilterToggle" style="height:38px;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -301,15 +203,7 @@ $page_title = 'Sales Breakdown - Admin';
                                 </div>
                                 <form method="GET" id="salesFilterForm">
                                     <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($salesBranchParam); ?>">
-                                    <input type="hidden" name="sales_period" id="salesPeriodInput" value="<?php echo htmlspecialchars($sales_period); ?>">
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
-                                        <div class="fp-preset-grid">
-                                            <button type="button" class="fp-preset-btn <?php echo $sales_period === 'today' ? 'active' : ''; ?>" data-period="today">Today</button>
-                                            <button type="button" class="fp-preset-btn <?php echo $sales_period === 'week' ? 'active' : ''; ?>" data-period="week">This Week</button>
-                                            <button type="button" class="fp-preset-btn <?php echo $sales_period === 'month' ? 'active' : ''; ?>" data-period="month">This Month</button>
-                                        </div>
-                                    </div>
+                                    <input type="hidden" name="sales_period" value="custom">
                                     <div class="filter-section">
                                         <div class="filter-section-head">
                                             <span class="filter-section-label">Date range</span>
@@ -337,31 +231,6 @@ $page_title = 'Sales Breakdown - Admin';
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Sales type</span></div>
-                                        <select name="type" class="filter-input" onchange="this.form.submit()">
-                                            <option value="all" <?php echo $salesTypeFilter === 'all' ? 'selected' : ''; ?>>All types</option>
-                                            <option value="product" <?php echo $salesTypeFilter === 'product' ? 'selected' : ''; ?>>Product</option>
-                                            <option value="service" <?php echo $salesTypeFilter === 'service' ? 'selected' : ''; ?>>Service</option>
-                                        </select>
-                                    </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Product / Service</span></div>
-                                        <select name="item" class="filter-input" onchange="this.form.submit()">
-                                            <option value="" <?php echo $salesItemFilter === '' ? 'selected' : ''; ?>>All products/services</option>
-                                            <?php foreach ($allItems as $itemRow): $itemKey = strtolower(trim((string)($itemRow['type'] ?? ''))) . '|' . trim((string)($itemRow['item_name'] ?? '')); ?>
-                                                <option value="<?php echo htmlspecialchars($itemKey); ?>" <?php echo $salesItemFilter === $itemKey ? 'selected' : ''; ?>><?php echo htmlspecialchars((string)$itemRow['type'] . ' - ' . (string)$itemRow['item_name']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Payment</span></div>
-                                        <select name="payment" class="filter-input" onchange="this.form.submit()">
-                                            <option value="all" <?php echo $salesPaymentFilter === 'all' ? 'selected' : ''; ?>>Paid and Fully Paid</option>
-                                            <option value="paid" <?php echo $salesPaymentFilter === 'paid' ? 'selected' : ''; ?>>Paid</option>
-                                            <option value="fully paid" <?php echo $salesPaymentFilter === 'fully paid' ? 'selected' : ''; ?>>Fully Paid</option>
-                                        </select>
-                                    </div>
                                     <div class="filter-actions">
                                         <button type="button" class="filter-btn-reset" id="salesResetFilter">Reset</button>
                                     </div>
@@ -370,12 +239,27 @@ $page_title = 'Sales Breakdown - Admin';
                         </div>
                     </div>
                 </div>
+                <div class="ana-card">
+                <div class="ana-hd">
+                    <h3 class="chart-title-nowrap">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/></svg>
+                        Sales Breakdown
+                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;"><?php echo htmlspecialchars($sales_label); ?></span>
+                    </h3>
+                    <div class="sales-breakdown-tabs no-print">
+                        <?php foreach (["today" => "Today", "week" => "This Week", "month" => "This Month"] as $periodKey => $periodLabel): ?>
+                            <a class="toolbar-btn <?php echo $sales_period === $periodKey ? 'active' : ''; ?>" style="height:32px;padding:0 12px;font-size:12px;text-decoration:none;" href="<?php echo htmlspecialchars($sales_href_base . '?' . sales_page_query(['sales_period' => $periodKey, 'from' => null, 'to' => null]), ENT_QUOTES, 'UTF-8'); ?>">
+                                <?php echo htmlspecialchars($periodLabel); ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
                 <div class="ana-bd">
-                    <div class="kpi-row">
-                        <div class="kpi-card kpi-ind"><div class="kpi-lbl">Total Sales</div><div class="kpi-val">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></div><div class="kpi-sub"><?php echo htmlspecialchars($sales_label); ?> sales revenue</div></div>
-                        <div class="kpi-card kpi-em"><div class="kpi-lbl">Sales Transactions</div><div class="kpi-val"><?php echo number_format((int)($salesSummary['transaction_count'] ?? 0)); ?></div><div class="kpi-sub">Paid transactions only</div></div>
-                        <div class="kpi-card kpi-amb"><div class="kpi-lbl">Product Sales</div><div class="kpi-val">&#8369;<?php echo number_format((float)($salesSummary['product_sales'] ?? 0), 2); ?></div><div class="kpi-sub">Store product revenue</div></div>
-                        <div class="kpi-card kpi-vio"><div class="kpi-lbl">Service/Custom Sales</div><div class="kpi-val">&#8369;<?php echo number_format((float)($salesSummary['service_sales'] ?? 0), 2); ?></div><div class="kpi-sub">Customization revenue</div></div>
+                    <div class="sales-breakdown-grid">
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Total Sales</div><div class="sales-breakdown-metric-value">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></div></div>
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Sales Transactions</div><div class="sales-breakdown-metric-value"><?php echo number_format((int)($salesSummary['transaction_count'] ?? 0)); ?></div></div>
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Product Sales</div><div class="sales-breakdown-metric-value">&#8369;<?php echo number_format((float)($salesSummary['product_sales'] ?? 0), 2); ?></div></div>
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Service/Custom Sales</div><div class="sales-breakdown-metric-value">&#8369;<?php echo number_format((float)($salesSummary['service_sales'] ?? 0), 2); ?></div></div>
                     </div>
                     <div class="sales-breakdown-split">
                         <div class="sales-breakdown-panel">
@@ -410,23 +294,22 @@ $page_title = 'Sales Breakdown - Admin';
                     <?php else: ?>
                         <div style="overflow-x:auto;">
                             <table class="sales-breakdown-table">
-                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Status</th><th class="num">Amount</th></tr></thead>
+                                <thead><tr><th>Date</th><th>Type</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Status</th><th class="num">Amount</th></tr></thead>
                                 <tbody>
                                 <?php foreach ($salesData['transactions'] as $row): ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
                                         <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
-                                        <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
                                         <td>#<?php echo (int)$row['id']; ?></td>
                                         <td><?php echo htmlspecialchars((string)$row['customer_name']); ?></td>
                                         <td><?php echo htmlspecialchars((string)$row['branch_name']); ?></td>
-                                        <td><?php echo htmlspecialchars(sales_format_label($row['payment_status'] ?? '')); ?></td>
-                                        <td><?php echo htmlspecialchars(sales_format_label($row['status'] ?? '')); ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['payment_status']); ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['status']); ?></td>
                                         <td class="num">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                                 </tbody>
-                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="8">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
+                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="7">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
                             </table>
                         </div>
                     <?php endif; ?>
@@ -445,15 +328,13 @@ document.addEventListener('DOMContentLoaded', function () {
     const from = document.getElementById('salesFilterFrom');
     const to = document.getElementById('salesFilterTo');
     const resetDates = document.getElementById('salesResetDates');
-    const periodInput = document.getElementById('salesPeriodInput');
     const resetFilter = document.getElementById('salesResetFilter');
     if (!toggle || !panel || !form || !from || !to) return;
 
     const pad = n => String(n).padStart(2, '0');
     const ymd = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     const submit = () => form.submit();
-    const submitCustom = () => { if (periodInput) periodInput.value = 'custom'; submit(); };
-    const setRange = (start, end) => { from.value = ymd(start); to.value = ymd(end); if (periodInput) periodInput.value = 'custom'; submit(); };
+    const setRange = (start, end) => { from.value = ymd(start); to.value = ymd(end); submit(); };
 
     toggle.addEventListener('click', function (event) {
         event.stopPropagation();
@@ -465,13 +346,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     panel.addEventListener('click', function (event) { event.stopPropagation(); });
 
-    from.addEventListener('change', submitCustom);
-    to.addEventListener('change', submitCustom);
-    document.querySelectorAll('[data-period]').forEach(function (button) {
-        button.addEventListener('click', function () {
-            const url = new URL(window.location.href); url.searchParams.set('sales_period', button.getAttribute('data-period')); url.searchParams.delete('from'); url.searchParams.delete('to'); window.location.href = url.toString();
-        });
-    });
+    from.addEventListener('change', submit);
+    to.addEventListener('change', submit);
     document.querySelectorAll('[data-preset]').forEach(function (button) {
         button.addEventListener('click', function () {
             const today = new Date();
@@ -499,7 +375,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     resetDates?.addEventListener('click', function () { setRange(new Date(), new Date()); });
     resetFilter?.addEventListener('click', function () {
-        window.location.href = '<?php echo htmlspecialchars($sales_href_base . '?' . sales_page_query(['sales_period' => 'today', 'from' => null, 'to' => null, 'type' => null, 'payment' => null, 'item' => null]), ENT_QUOTES, 'UTF-8'); ?>';
+        window.location.href = '<?php echo htmlspecialchars($sales_href_base . '?' . sales_page_query(['sales_period' => 'today', 'from' => null, 'to' => null]), ENT_QUOTES, 'UTF-8'); ?>';
     });
 });
 </script>
