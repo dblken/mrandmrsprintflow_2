@@ -95,9 +95,19 @@ const reflectiveStickerRows = picker.rankItems(inventory, context('Stickers Deca
 assert.strictEqual(byName(reflectiveStickerRows, '3M Reflective').compatibility.tier, 'recommended');
 assert.strictEqual(byName(reflectiveStickerRows, 'STICKER BLACK').compatibility.tier, 'optional');
 const unmappedStickerRows = picker.rankItems(inventory, context('Stickers Decals'), [], '');
-assert.strictEqual(byName(unmappedStickerRows, 'NEXJET').compatibility.tier, 'unverified');
-assert.strictEqual(byName(unmappedStickerRows, 'NEXJET').compatibility.directSelectable, false);
-assert.strictEqual(byName(unmappedStickerRows, 'NEXJET').compatibility.overrideable, true);
+assert.strictEqual(byName(unmappedStickerRows, 'NEXJET').compatibility.tier, 'recommended');
+assert.strictEqual(byName(unmappedStickerRows, 'STICKER BLACK').compatibility.tier, 'recommended');
+assert.strictEqual(byName(unmappedStickerRows, 'NEXJET').compatibility.directSelectable, true);
+assert.strictEqual(byName(unmappedStickerRows, 'GLOSS LAMINATE').compatibility.tier, 'optional');
+
+const metadataStickerRows = picker.rankItems([
+    item('BLACK', 10, { category_name: 'STICKER (Colored)', description: 'Colored cut sticker' }),
+    item('Adhesive White', 10, { category_name: 'Sticker Vinyl', material_type: 'adhesive sticker' }),
+    item('Generic Vinyl', 10, { category_name: 'MATERIALS' })
+], { serviceType: 'Stickers Decals', serviceLabel: 'Stickers Decals / Stickers', serviceCategory: 'Stickers' }, [], '');
+assert.strictEqual(byName(metadataStickerRows, 'BLACK').compatibility.tier, 'recommended');
+assert.strictEqual(byName(metadataStickerRows, 'Adhesive White').compatibility.tier, 'recommended');
+assert.notStrictEqual(byName(metadataStickerRows, 'Generic Vinyl').compatibility.tier, 'recommended');
 
 const sintraRows = picker.rankItems(inventory, context('Sintraboard Standees'), [], '');
 assert.strictEqual(byName(sintraRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');
@@ -182,8 +192,8 @@ assert.strictEqual(picker.searchScore(byName(inventory, 'HOLOGRAM'), 'holographi
 assert.strictEqual(picker.inkModeFor(byName(inventory, 'C2s Board')), 'standard');
 assert.strictEqual(picker.inkModeFor(byName(inventory, 'Holographic')), 'none');
 const conflictingPlateRule = [{ service_type: 'Plates', item_id: byName(inventory, 'Sintra 3mm 32').id, rule_type: 'REQUIRED' }];
-assert.strictEqual(picker.classifyItem(byName(inventory, 'Sintra 3mm 32'), context('Plates'), conflictingPlateRule).directSelectable, false);
-assert.strictEqual(picker.classifyItem(byName(inventory, 'Sintra 3mm 32'), context('Plates'), conflictingPlateRule).overrideable, true);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'Sintra 3mm 32'), context('Plates'), conflictingPlateRule).directSelectable, true);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'Sintra 3mm 32'), context('Plates'), conflictingPlateRule).tier, 'recommended');
 assert.strictEqual(picker.classifyItem(byName(inventory, 'AC EURO'), context('Plates'), []).tier, 'recommended');
 
 ['AC EURO', 'AC HOME', 'AC MC', 'AC NMC', 'AC PH', 'AC THAI', 'SP EURO', 'SP HOME', 'SP MC', 'SP NMC', 'SP PH', 'SP THAI']
@@ -242,7 +252,10 @@ const adminTshirtRows = picker.rankItems(inventory, categoryContext('T-Shirt', '
 assert.strictEqual(byName(adminTshirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');
 
 const adminStickerRows = picker.rankItems(inventory, categoryContext('Stickers', 'Decals/Stickers'), [], '');
-assert.strictEqual(byName(adminStickerRows, 'NEXJET').compatibility.tier, 'unverified');
+assert.strictEqual(byName(adminStickerRows, 'NEXJET').compatibility.tier, 'recommended');
+['STICKER BLACK', 'STICKER SILVER'].forEach(name => {
+    assert.strictEqual(byName(adminStickerRows, name).compatibility.tier, 'recommended');
+});
 
 const adminSignageRows = picker.rankItems(inventory, categoryContext('Signage', 'Custom Signage'), [], '');
 assert.strictEqual(byName(adminSignageRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');
@@ -254,5 +267,17 @@ assert.strictEqual(byName(adminPrintRows, 'Photo Paper').compatibility.tier, 'op
 
 assert.strictEqual(picker.canonicalCategoryKind('Tarpaulin'), 'tarpaulin');
 assert.strictEqual(picker.classifyService(categoryContext('Tarpaulin', 'T-Shirt Printing')), 'tarpaulin');
+assert.strictEqual(picker.canonicalCategoryKind('Sticker Media'), 'stickers');
+
+// Classification is pure per modal context; switching orders cannot retain the prior category.
+[
+    ['T-Shirt', 'T-Shirt Printing', 'tshirt'],
+    ['Stickers', 'Stickers Decals', 'sticker_unknown'],
+    ['Tarpaulin', 'Tarpaulin Printing', 'tarpaulin'],
+    ['Print', 'Document Print', 'print'],
+    ['Stickers', 'Stickers Decals', 'sticker_unknown']
+].forEach(([category, serviceType, expected]) => {
+    assert.strictEqual(picker.classifyService(categoryContext(category, serviceType)), expected);
+});
 
 process.stdout.write('production_material_picker_test: PASS\n');

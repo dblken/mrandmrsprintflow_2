@@ -44,19 +44,35 @@
             .replace(/\s+/g, ' ');
     }
 
+    function materialText(item) {
+        return normalize([
+            item && item.name,
+            item && item.category_name,
+            item && item.material_type,
+            item && item.type,
+            item && item.description,
+            item && item.sku
+        ].filter(Boolean).join(' '));
+    }
+
     function familyFor(item) {
         const name = normalize(item && item.name);
         const category = normalize(item && item.category_name);
+        const metadata = materialText(item);
         if (Number(item && item.id) === 63) return 'excluded';
         if (name === 'CYNO') return 'unverified';
         if (category.startsWith('INK ') || /^INK (?:L120|L130|TARP)\b/.test(name)) return 'ink';
         if (new RegExp('^(?:AC|SP) ' + PLATE_VARIANTS + '$').test(name)) return 'plate';
-        if (new RegExp('^VINYL ' + COLORS + '$').test(name) || HTV_NAMES.has(name) || /\bHTV\b/.test(name)) return 'heat_vinyl';
-        if (new RegExp('^STICKER ' + COLORS + '$').test(name)) return 'colored_sticker';
         if (category === 'TARPAULIN' || /\bTARPAULIN\b/.test(name) || /\bTARP\b/.test(name)) return 'tarpaulin';
-        if (name === '3M REFLECTIVE') return 'reflective';
+        if (name === '3M REFLECTIVE' || (/\bREFLECT(?:IVE|ORIZED)?\b/.test(metadata) && /\bSTICKER\b/.test(metadata))) return 'reflective';
+        if (new RegExp('^STICKER ' + COLORS + '$').test(name)
+            || (/\bSTICKERS?\b/.test(metadata) && /\b(?:COLOU?RED|COLORS?|CUT)\b/.test(metadata))) return 'colored_sticker';
         if (['NEXJET', 'PP STKR MATTE 98', 'HOLOGRAM', 'TRANSPARENT', 'STICKER PAPER'].includes(name)) return 'printed_sticker';
+        if (/\bSTICKERS?\b/.test(metadata)
+            && /\b(?:PRINTABLE|PRINTED|PAPER|ADHESIVE|INKJET|NEXJET|PP)\b/.test(metadata)) return 'printed_sticker';
         if (['GLOSS LAMINATE', 'MATTE LAMINATE'].includes(name)) return 'laminate';
+        if (/\bSTICKERS?\b/.test(metadata)) return 'sticker_media';
+        if (new RegExp('^VINYL ' + COLORS + '$').test(name) || HTV_NAMES.has(name) || /\bHTV\b/.test(name)) return 'heat_vinyl';
         if (['SINTRA 3MM 32', 'SINTRA 5MM'].includes(name)) return 'sintra';
         if (name === 'C2S BOARD') return 'c2s_board';
         if (name === 'C2S SPECIAL PAPER') return 'c2s_special_paper';
@@ -69,6 +85,41 @@
         return 'other';
     }
 
+    const CATEGORY_COMPATIBILITY = {
+        tarpaulin: {
+            recommended: new Set(['tarpaulin']),
+            optional: new Set(['eyelet'])
+        },
+        tshirt: {
+            recommended: new Set(['heat_vinyl']),
+            optional: new Set([])
+        },
+        stickers: {
+            recommended: new Set(['colored_sticker', 'printed_sticker', 'sticker_media']),
+            optional: new Set(['reflective', 'laminate'])
+        },
+        signage: {
+            recommended: new Set(['sintra']),
+            optional: new Set(['reflective', 'colored_sticker', 'sticker_media'])
+        },
+        print: {
+            recommended: new Set(['c2s_board', 'c2s_special_paper']),
+            optional: new Set(['photo_paper'])
+        },
+        sintraboard: {
+            recommended: new Set(['sintra']),
+            optional: new Set([])
+        }
+    };
+
+    function tierForCategory(categoryKind, family) {
+        const compatibility = CATEGORY_COMPATIBILITY[categoryKind];
+        if (!compatibility) return null;
+        if (compatibility.recommended.has(family)) return 'recommended';
+        if (compatibility.optional.has(family)) return 'optional';
+        return 'unrelated';
+    }
+
     function flattenStructuredValues(value, output, depth) {
         if (depth > 4 || value === null || value === undefined) return;
         if (Array.isArray(value)) {
@@ -78,7 +129,7 @@
         if (typeof value === 'object') {
             Object.entries(value).forEach(([key, entry]) => {
                 const normalizedKey = normalize(key);
-                if (['PRODUCT TYPE', 'SOUVENIR TYPE', 'STICKER TYPE', 'CUT TYPE', 'MATERIAL TYPE', 'TYPE'].includes(normalizedKey)) {
+                if (['PRODUCT TYPE', 'SOUVENIR TYPE', 'STICKER TYPE', 'STICKERS TYPE', 'STICKER TYPE SIZE', 'STICKERS TYPE SIZE', 'CUT TYPE', 'MATERIAL TYPE', 'TYPE'].includes(normalizedKey)) {
                     output.push(normalize(entry));
                 }
                 flattenStructuredValues(entry, output, depth + 1);
@@ -90,17 +141,26 @@
         'plate', 'reflective_cut', 'mug', 'brochure', 'raffle', 'poster', 'reflectorized_signage',
         'reflective_sticker', 'cut_sticker', 'printed_sticker', 'sintraboard'
     ]);
+    const CATEGORY_CONCEPT_ALIASES = {
+        tarpaulin: ['TARPAULIN', 'TARP'],
+        tshirt: ['T SHIRT', 'TSHIRT', 'SHIRT PRINTING', 'TEXTILE TRANSFER'],
+        stickers: ['STICKER', 'DECAL', 'ADHESIVE LABEL'],
+        signage: ['SIGNAGE', 'SIGN BOARD'],
+        print: ['PRINT', 'PAPER PRINT', 'PRINT MEDIA'],
+        sintraboard: ['SINTRABOARD STANDEE', 'SINTRA BOARD STANDEE'],
+        merchandise: ['MERCHANDISE', 'SOUVENIR']
+    };
 
     function canonicalCategoryKind(category) {
         const normalized = normalize(category);
         if (!normalized) return 'unknown';
-        if (normalized === 'TARPAULIN') return 'tarpaulin';
-        if (normalized === 'T SHIRT') return 'tshirt';
-        if (normalized === 'STICKERS') return 'stickers';
-        if (normalized === 'SIGNAGE') return 'signage';
-        if (normalized === 'PRINT') return 'print';
-        if (normalized === 'SINTRABOARD STANDEES') return 'sintraboard';
-        if (normalized === 'MERCHANDISE') return 'merchandise';
+        for (const [kind, aliases] of Object.entries(CATEGORY_CONCEPT_ALIASES)) {
+            if (aliases.some(alias => {
+                const token = normalize(alias);
+                const singular = normalized.replace(/\bSTICKERS\b/g, 'STICKER').replace(/\bSTANDEES\b/g, 'STANDEE');
+                return singular === token || new RegExp('(?:^| )' + token.replace(/ /g, ' +') + '(?: |$)').test(singular);
+            })) return kind;
+        }
         return 'unknown';
     }
 
@@ -124,7 +184,7 @@
         if (/REFLECTORIZED SIGNAGE/.test(service)) return 'reflectorized_signage';
         if (/^PLATES?$|PLATE NUMBER|TEMPORARY PLATE/.test(service)) return 'plate';
         if ((/REFLECT/.test(structuredText) || /REFLECTIVE STICKER/.test(service)) && /STICKER|DECAL/.test(service)) return 'reflective_sticker';
-        if ((/COLORED|CUT ONLY|CUT STICKER|PLOTTER/.test(structuredText) || /COLORED CUT STICKER|CUT STICKER/.test(service)) && /STICKER|DECAL/.test(service)) return 'cut_sticker';
+        if ((/COLORED|CUT ONLY|CUT OUT|CUT STICKER|PLOTTER/.test(structuredText) || /COLORED CUT STICKER|CUT STICKER/.test(service)) && /STICKER|DECAL/.test(service)) return 'cut_sticker';
         if ((/PRINTED|PRINTABLE|STICKER PAPER|NEXJET|PP STKR|HOLOGRAM|TRANSPARENT/.test(structuredText) || /PRINTED STICKER/.test(service)) && /STICKER|DECAL/.test(service)) return 'printed_sticker';
         if (/TRANSPARENT STICKER|GLASS .*STICKER|WALL .*STICKER/.test(service)) return 'printed_sticker';
         if (/STICKER|DECAL/.test(service)) return 'sticker_unknown';
@@ -162,6 +222,20 @@
         ) || null;
     }
 
+    function matchingContextRule(item, context, rules) {
+        const candidates = [
+            context && context.serviceType,
+            context && context.serviceName,
+            context && context.serviceLabel,
+            context && context.serviceCategory
+        ].map(normalize).filter(Boolean);
+        for (const candidate of candidates) {
+            const rule = matchingRule(item, candidate, rules);
+            if (rule) return rule;
+        }
+        return null;
+    }
+
     function classifyItem(item, context, rules) {
         const family = familyFor(item);
         if (family === 'excluded' || family === 'ink') {
@@ -173,7 +247,13 @@
 
         const serviceKind = classifyService(context || {});
         let tier = 'unrelated';
-        if (serviceKind === 'sintraboard' && family === 'sintra') {
+        const exactRule = matchingContextRule(item, context || {}, rules);
+        const exactRuleType = normalize(exactRule && exactRule.rule_type);
+        if (exactRuleType === 'REQUIRED') {
+            tier = 'recommended';
+        } else if (exactRuleType === 'OPTIONAL') {
+            tier = 'optional';
+        } else if (serviceKind === 'sintraboard' && family === 'sintra') {
             tier = 'recommended';
         } else if (serviceKind === 'brochure' && family === 'c2s_special_paper') {
             tier = 'recommended';
@@ -209,20 +289,15 @@
             if (family === 'plate') tier = 'recommended';
             if (family === 'colored_sticker' || family === 'reflective') tier = 'optional';
         } else if (serviceKind === 'sticker_unknown') {
-            if (['printed_sticker', 'colored_sticker', 'reflective', 'laminate'].includes(family)) tier = 'unverified';
+            tier = tierForCategory('stickers', family);
         } else if (serviceKind === 'signage') {
-            if (family === 'sintra') tier = 'recommended';
-            if (family === 'reflective' || family === 'colored_sticker') tier = 'optional';
+            tier = tierForCategory('signage', family);
         } else if (serviceKind === 'print') {
-            if (family === 'c2s_board' || family === 'c2s_special_paper') tier = 'recommended';
-            if (family === 'photo_paper') tier = 'optional';
+            tier = tierForCategory('print', family);
         } else if (serviceKind === 'stickers') {
-            if (['printed_sticker', 'colored_sticker', 'reflective', 'laminate'].includes(family)) tier = 'unverified';
+            tier = tierForCategory('stickers', family);
         } else if (serviceKind === 'unknown') {
-            const rule = matchingRule(item, context && context.serviceType, rules);
-            if (rule && normalize(rule.rule_type) === 'REQUIRED') tier = 'recommended';
-            if (rule && normalize(rule.rule_type) === 'OPTIONAL') tier = 'optional';
-            if (!rule) tier = 'unverified';
+            tier = exactRule ? tier : 'unverified';
         }
 
         if (family === 'unverified' || (family === 'other' && tier === 'unrelated')) tier = 'unverified';
@@ -255,30 +330,7 @@
             photo_paper: 'Photo paper alternative',
             printed_sticker: 'Printed sticker material',
             colored_sticker: 'Colored cut sticker',
-            reflective: 'Reflective cut material',
-            laminate: 'Optional sticker finishing',
-            heat_vinyl: 'T-shirt heat-transfer material',
-            tarpaulin: 'Tarpaulin material',
-            eyelet: '4 standard eyelets included; add only extras',
-            mug: 'Blank mug',
-            mug_box: 'Optional mug packaging',
-            pvc_id: 'PVC ID material',
-            unverified: 'Usage not verified'
-        };
-        return labels[family] || '';
-    }
-
-    function descriptionFor(item) {
-        const family = familyFor(item);
-        const labels = {
-            plate: 'Plate material',
-            sintra: 'Sintraboard material',
-            c2s_board: 'C2S board stock',
-            c2s_special_paper: 'C2S special paper',
-            subli_paper: 'Sublimation transfer paper',
-            photo_paper: 'Photo paper alternative',
-            printed_sticker: 'Printed sticker material',
-            colored_sticker: 'Colored cut sticker',
+            sticker_media: 'Sticker / adhesive material',
             reflective: 'Reflective cut material',
             laminate: 'Optional sticker finishing',
             heat_vinyl: 'T-shirt heat-transfer material',
@@ -441,7 +493,7 @@
     }
 
     return {
-        normalize, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem,
+        normalize, materialText, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem,
         descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, getAutoSelectCandidate
     };
 });

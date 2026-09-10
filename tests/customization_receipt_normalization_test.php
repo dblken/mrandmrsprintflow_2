@@ -52,6 +52,24 @@ expect_true(!in_array('/private/path/poster-final.png', $specs, true), 'raw uplo
 $distinct = printflow_customization_display_specs(['size' => 'A4', 'dimensions' => '8x10 in']);
 expect_true(count($distinct) === 2, 'different values in one semantic group are preserved');
 
+$duplicateStickerChoice = printflow_customization_display_specs([
+    'stickers_type' => 'Sticker Cut Out (0.5ft X 0.5ft)',
+    'stickers_type_size' => 'Sticker Cut Out (0.5ft x 0.5ft)',
+]);
+expect_true(
+    $duplicateStickerChoice === ['Sticker Type' => 'Sticker Cut Out (0.5ft X 0.5ft)'],
+    'related sticker type/size aliases with the same semantic value render once'
+);
+$distinctStickerChoice = printflow_customization_display_specs([
+    'stickers_type' => 'Sticker Cut Out',
+    'stickers_type_size' => '0.5ft x 0.5ft',
+]);
+expect_true(
+    ($distinctStickerChoice['Sticker Type'] ?? '') === 'Sticker Cut Out'
+        && ($distinctStickerChoice['Sticker Size'] ?? '') === '0.5ft x 0.5ft',
+    'genuinely distinct sticker type and size values are both preserved'
+);
+
 $productionAliases = [
     'layout' => 'Without Layout',
     'Layout' => 'Without Layout',

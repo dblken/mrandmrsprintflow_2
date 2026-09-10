@@ -141,6 +141,14 @@ function printflow_customization_field_meta(string $key): array {
         'uploaded_design' => ['uploaded_design', 'Uploaded Design', 60],
         'quantity' => ['quantity', 'Quantity', 5],
         'qty' => ['quantity', 'Quantity', 5],
+        'print_type' => ['print_type', 'Print Type', 45],
+        'printed_type' => ['print_type', 'Print Type', 45],
+        'printtype' => ['print_type', 'Print Type', 45],
+        'printedtype' => ['print_type', 'Print Type', 45],
+        'sticker_type' => ['sticker_type', 'Sticker Type', 21],
+        'stickers_type' => ['sticker_type', 'Sticker Type', 21],
+        'sticker_type_size' => ['sticker_size', 'Sticker Size', 22],
+        'stickers_type_size' => ['sticker_size', 'Sticker Size', 22],
     ];
     if (isset($map[$token])) {
         [$group, $label, $priority] = $map[$token];
@@ -161,6 +169,7 @@ function printflow_customization_display_specs(array $customization, array $opti
     $includeQuantity = (bool)($options['include_quantity'] ?? false);
     $rows = [];
     $seen = [];
+    $seenValues = [];
     $presentGroups = [];
     foreach ($customization as $key => $value) {
         if (!is_string($key)) continue;
@@ -202,6 +211,24 @@ function printflow_customization_display_specs(array $customization, array $opti
             }
             continue;
         }
+        $valueFingerprint = str_replace(['×', '*'], 'x', printflow_customization_value_fingerprint($text));
+        $valueFingerprint = (string)preg_replace('/\s*x\s*/i', 'x', $valueFingerprint);
+        $relationToken = (string)preg_replace('/(^|_)stickers(?=_|$)/', '$1sticker', $token);
+        $relationToken = (string)preg_replace('/_(?:selected|selection|option|value|label)$/', '', $relationToken);
+        $relatedDuplicate = false;
+        foreach ($seenValues[$valueFingerprint] ?? [] as $previousToken) {
+            $previousRelation = (string)preg_replace('/(^|_)stickers(?=_|$)/', '$1sticker', $previousToken);
+            $previousRelation = (string)preg_replace('/_(?:selected|selection|option|value|label)$/', '', $previousRelation);
+            if (
+                $relationToken === $previousRelation
+                || str_starts_with($relationToken, $previousRelation . '_')
+                || str_starts_with($previousRelation, $relationToken . '_')
+            ) {
+                $relatedDuplicate = true;
+                break;
+            }
+        }
+        if ($relatedDuplicate) continue;
         $label = $meta['label'];
         if (isset($rows[$label]) && printflow_customization_semantic_value_fingerprint($meta['group'], $rows[$label]['value']) !== printflow_customization_semantic_value_fingerprint($meta['group'], $text)) {
             $label = ucwords(str_replace('_', ' ', printflow_customization_key_token($key)));
@@ -209,6 +236,7 @@ function printflow_customization_display_specs(array $customization, array $opti
         }
         $rows[$label] = ['value' => $text, 'priority' => $meta['priority'], 'position' => count($rows)];
         $seen[$fingerprint] = $label;
+        $seenValues[$valueFingerprint][] = $token;
     }
 
     uasort($rows, static fn($a, $b) => [$a['priority'], $a['position']] <=> [$b['priority'], $b['position']]);

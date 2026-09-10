@@ -2470,7 +2470,7 @@ $online_closed_count = 0;
                             <div style="padding:20px; border-radius:16px; border:1px solid #e2e8f0; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                                     <h3 style="font-size:14px; font-weight:700; color:#1f2937; text-transform:uppercase; letter-spacing:0.025em; margin:0;">Production Assignment</h3>
-                                    <span style="font-size:11px; background:#f3f4f6; color:#6b7280; padding:4px 10px; border-radius:100px; font-weight:600;" x-text="getCorrectServiceType(currentJo)"></span>
+                                    <span style="font-size:11px; background:#f3f4f6; color:#6b7280; padding:4px 10px; border-radius:100px; font-weight:600;" x-text="materialCompatibilityContext.serviceLabel"></span>
                                 </div>
 
                                 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:20px;">
@@ -2507,11 +2507,11 @@ $online_closed_count = 0;
                                                                     'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
                                                                     'is-out-of-stock': !item.compatibility.inStock,
                                                                     'is-active': index === materialListActiveIndex,
-                                                                    'is-selected': String(newMaterialId) === String(item.id)
+                                                                    'is-selected': isMaterialSelected(item.id)
                                                                 }"
                                                                 :disabled="!item.compatibility.selectable"
                                                                 :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
-                                                                :aria-selected="String(newMaterialId) === String(item.id) ? 'true' : 'false'"
+                                                                :aria-selected="isMaterialSelected(item.id) ? 'true' : 'false'"
                                                                 :aria-describedby="'production-material-status-' + item.id"
                                                                 :data-compatibility="item.compatibility.tier"
                                                                 :title="item.compatibility.overrideable ? 'Double-click, or focus and press Enter or Space, to review this manual override.' : item.compatibility.reason"
@@ -2523,7 +2523,7 @@ $online_closed_count = 0;
                                                             <span class="production-material-option__main">
                                                                 <span class="production-material-option__name" x-text="item.name"></span>
                                                                 <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
-                                                                <span class="production-material-option__selected-badge" x-show="String(newMaterialId) === String(item.id)" aria-hidden="true">
+                                                                <span class="production-material-option__selected-badge" x-show="isMaterialSelected(item.id)">
                                                                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>
                                                                     Selected
                                                                 </span>
@@ -2541,36 +2541,29 @@ $online_closed_count = 0;
                                             </div>
                                         </div>
 
-                                        <template x-if="newMaterialId">
-                                            <div style="padding:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                                                <div style="grid-column: span 2;">
-                                                    <label style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;" x-text="isTarpaulin(newMaterialId) ? 'Width (ft)' : 'Qty / Length'"></label>
-                                                    <input type="number" x-model.number="newMaterialQty" min="1" step="any" @input="handleMaterialQtyInput($event.target.value)" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-                                                </div>
-                                                <template x-if="isTarpaulin(newMaterialId)">
-                                                    <div style="grid-column: span 2;">
-                                                        <label style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; display:block; margin-bottom:4px;">Height (ft)</label>
-                                                        <input type="number" x-model.number="newMaterialHeight" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
-                                                    </div>
-                                                </template>
-                                                <div x-show="selectedMaterialStockError" style="grid-column: span 2; padding:8px 10px; border-radius:8px; border:1px solid #fecaca; background:#fef2f2; color:#b91c1c; font-size:11px; font-weight:700; line-height:1.4;" x-text="selectedMaterialStockError"></div>
-                                                <button @click="addMaterialToQueue()" :disabled="!!selectedMaterialStockError" class="btn-staff-action btn-staff-action-indigo" :style="selectedMaterialStockError ? 'grid-column: span 2; padding:8px; font-size:12px; font-weight:600; opacity:0.55; cursor:not-allowed;' : 'grid-column: span 2; padding:8px; font-size:12px; font-weight:600;'">Add to Order Content</button>
-                                            </div>
-                                        </template>
-
                                         <div x-show="pendingMaterials.length > 0" style="display:flex; flex-direction:column; gap:6px;">
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name"></div>
                                                         <template x-if="isTarpaulin(pm.item_id)">
-                                                            <div style="color:#64748b; font-size:11px; margin-top:2px;">
-                                                                <span>Width used: <strong x-text="Number(pm.qty) + ' ft'"></strong></span>
-                                                                <span style="margin-left:8px;">Height: <strong x-text="Number((pm.metadata && pm.metadata.height_ft) || 0) + ' ft'"></strong></span>
+                                                            <div style="display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:11px;margin-top:5px;">
+                                                                <label>Width used:
+                                                                    <input type="number" min="1" step="any" x-model.number="pm.qty" aria-label="Material width used"
+                                                                           style="width:72px;margin-left:3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                                </label>
+                                                                <label>Height:
+                                                                    <input type="number" min="0" step="any" x-model.number="pm.metadata.height_ft" aria-label="Material height"
+                                                                           style="width:72px;margin-left:3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                                </label>
                                                             </div>
                                                         </template>
                                                         <template x-if="!isTarpaulin(pm.item_id)">
-                                                            <div style="color:#64748b; font-size:11px; margin-top:2px;">Qty: <strong x-text="Number(pm.qty) + ' ' + pm.uom"></strong></div>
+                                                            <label style="display:block;color:#64748b;font-size:11px;margin-top:5px;">Qty:
+                                                                <input type="number" min="1" step="any" x-model.number="pm.qty" aria-label="Material quantity"
+                                                                       style="width:72px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                                                                <span x-text="pm.uom"></span>
+                                                            </label>
                                                         </template>
                                                     </div>
                                                     <button type="button" @click="removePendingMaterial(idx)" title="Remove material" aria-label="Remove material"
@@ -4446,7 +4439,11 @@ window.pfServiceFieldCatalog = (() => {
                     print_type: ['print_type', 'Print Type', 45],
                     printed_type: ['print_type', 'Print Type', 45],
                     printtype: ['print_type', 'Print Type', 45],
-                    printedtype: ['print_type', 'Print Type', 45]
+                    printedtype: ['print_type', 'Print Type', 45],
+                    sticker_type: ['sticker_type', 'Sticker Type', 21],
+                    stickers_type: ['sticker_type', 'Sticker Type', 21],
+                    sticker_type_size: ['sticker_size', 'Sticker Size', 22],
+                    stickers_type_size: ['sticker_size', 'Sticker Size', 22]
                 };
                 if (map[token]) {
                     const [group, label, priority] = map[token];
@@ -4468,6 +4465,10 @@ window.pfServiceFieldCatalog = (() => {
                     shirt_color: ['shirt_color', 'tshirt_color', 'color'],
                     print_type: ['print_type', 'printed_type', 'printtype', 'printedtype'],
                     printed_type: ['print_type', 'printed_type', 'printtype', 'printedtype'],
+                    sticker_type: ['sticker_type', 'stickers_type'],
+                    stickers_type: ['sticker_type', 'stickers_type'],
+                    sticker_type_size: ['sticker_type_size', 'stickers_type_size'],
+                    stickers_type_size: ['sticker_type_size', 'stickers_type_size'],
                     layout: ['layout', 'layout_option', 'selected_layout', 'layoutoption', 'selectedlayout'],
                     needed_date: ['needed_date', 'neededdate', 'date_needed', 'dateneeded', 'need_date', 'due_date'],
                     quantity: ['quantity', 'qty'],
@@ -4727,6 +4728,7 @@ window.pfServiceFieldCatalog = (() => {
 
                 const rows = {};
                 const seen = {};
+                const seenValues = {};
                 let position = 0;
                 for (const [key, value] of Object.entries(obj)) {
                     if (typeof key !== 'string') continue;
@@ -4771,6 +4773,20 @@ window.pfServiceFieldCatalog = (() => {
                         }
                         continue;
                     }
+                    const valueFingerprint = this.staffCustomizationValueFingerprint(text)
+                        .replace(/[×*]/g, 'x')
+                        .replace(/\s*x\s*/gi, 'x');
+                    const relatedDuplicate = (seenValues[valueFingerprint] || []).find((entry) => {
+                        const normalizeRelationToken = (value) => String(value || '')
+                            .replace(/(^|_)stickers(?=_|$)/g, '$1sticker')
+                            .replace(/_(?:selected|selection|option|value|label)$/g, '');
+                        const current = normalizeRelationToken(token);
+                        const previous = normalizeRelationToken(entry.token);
+                        return current === previous
+                            || current.startsWith(previous + '_')
+                            || previous.startsWith(current + '_');
+                    });
+                    if (relatedDuplicate) continue;
 
                     let label = meta.label;
                     if (
@@ -4786,6 +4802,8 @@ window.pfServiceFieldCatalog = (() => {
 
                     rows[label] = { value: text, priority: meta.priority, position: position++ };
                     seen[fingerprint] = label;
+                    if (!seenValues[valueFingerprint]) seenValues[valueFingerprint] = [];
+                    seenValues[valueFingerprint].push({ token, label });
                 }
 
                 const sorted = Object.entries(rows).sort((a, b) => {
@@ -5278,8 +5296,11 @@ window.pfServiceFieldCatalog = (() => {
                         items: primaryItem ? [primaryItem] : (order.items || [])
                     }) || '').trim();
                 }
-                const serviceLabel = serviceCategory
-                    || serviceName
+                const serviceLabel = serviceName && serviceCategory
+                    && this.staffCustomizationKeyToken(serviceName) !== this.staffCustomizationKeyToken(serviceCategory)
+                    ? `${serviceName} / ${serviceCategory}`
+                    : serviceName
+                    || serviceCategory
                     || String(order.service_type || order.job_title || 'this service').trim();
 
                 return {
@@ -5304,7 +5325,15 @@ window.pfServiceFieldCatalog = (() => {
                     serviceLabel: materialService.serviceLabel || 'this service',
                     productType: jo.product_type || primaryCustom.product_type || rawCustom.product_type || '',
                     souvenirType: jo.souvenir_type || primaryCustom.souvenir_type || rawCustom.souvenir_type || '',
-                    stickerType: jo.sticker_type || primaryCustom.sticker_type || rawCustom.sticker_type || primaryCustom['Sticker Type'] || '',
+                    stickerType: jo.sticker_type
+                        || primaryCustom.sticker_type
+                        || primaryCustom.stickers_type
+                        || primaryCustom.sticker_type_size
+                        || primaryCustom.stickers_type_size
+                        || rawCustom.sticker_type
+                        || rawCustom.stickers_type
+                        || primaryCustom['Sticker Type']
+                        || '',
                     cutType: jo.cut_type || primaryCustom.cut_type || rawCustom.cut_type || primaryCustom['Cut Type'] || '',
                     customization: [primaryCustom],
                     customerWidth: parseFloat(jo.width_ft || primaryCustom.width || primaryCustom.width_ft || 0) || 0,
@@ -5353,6 +5382,14 @@ window.pfServiceFieldCatalog = (() => {
                 if (state.tier === 'unverified') return 'Usage not verified';
                 return state.reason || 'Not applicable';
             },
+            isMaterialSelected(itemId) {
+                const id = String(itemId || '');
+                if (!id) return false;
+                if (String(this.newMaterialId || '') === id) return true;
+                if (this.pendingMaterials.some(material => String(material.item_id || '') === id)) return true;
+                return (Array.isArray(this.currentJo && this.currentJo.materials) ? this.currentJo.materials : [])
+                    .some(material => String(material.item_id || '') === id);
+            },
             selectMaterialCandidate(item, deliberateKeyboardAction = false) {
                 const state = item && (item.compatibility || this.materialClassification(item));
                 if (!item || !state || !state.selectable) return;
@@ -5360,9 +5397,11 @@ window.pfServiceFieldCatalog = (() => {
                     if (deliberateKeyboardAction) this.requestMaterialOverride(item);
                     return;
                 }
+                if (this.isMaterialSelected(item.id)) return;
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
                 this.syncInkSelectionWithMaterial();
+                this.addMaterialToQueue({ keepListOpen: true, allowQuantityAdjustment: true });
             },
             requestMaterialOverride(item) {
                 const state = item && (item.compatibility || this.materialClassification(item));
@@ -5385,6 +5424,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.handleMaterialSelection(String(item.id));
                 this.productionErrors.material = '';
                 this.syncInkSelectionWithMaterial();
+                this.addMaterialToQueue({ keepListOpen: true, allowQuantityAdjustment: true });
                 this.cancelMaterialOverride();
             },
             get materialOverrideTitle() {
@@ -6248,6 +6288,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.detailRetryPayload = { id, orderType };
                 this.loadingModalAssignments = false;
                 this.footerActionError = '';
+                this.pendingMaterials = [];
                 this.resetMaterialForm();
                 this.resetInkForm();
                 this.materialListExpanded = true;
@@ -6738,7 +6779,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.priceOverrideResolve) { this.priceOverrideResolve(true); this.priceOverrideResolve = null; }
             },
 
-            addMaterialToQueue() {
+            addMaterialToQueue(options = {}) {
                 if (!this.newMaterialId) return;
                 const item = this.allInventoryItems.find(i => i.id == this.newMaterialId);
                 if (!item) return;
@@ -6752,7 +6793,7 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 this.newMaterialQty = normalizedQty;
-                if (this.selectedMaterialStockError) {
+                if (this.selectedMaterialStockError && !options.allowQuantityAdjustment) {
                     this.showStaffAlert('Insufficient Stock', this.selectedMaterialStockError);
                     return;
                 }
@@ -6784,7 +6825,7 @@ window.pfServiceFieldCatalog = (() => {
                 });
                 // Reset form
                 this.resetMaterialForm();
-                this.materialListExpanded = false;
+                if (!options.keepListOpen) this.materialListExpanded = false;
             },
             removePendingMaterial(index) {
                 this.pendingMaterials.splice(index, 1);
