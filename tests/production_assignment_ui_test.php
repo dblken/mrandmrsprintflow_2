@@ -42,6 +42,10 @@ $assertions = [
     'modal specs resolve from raw customization payload' => str_contains($source, 'staffResolveItemCustomizationSource') && str_contains($source, 'customization_data'),
     'modal keeps submitted specs without profile over-filtering' => str_contains($source, 'const specs = isDetail') && str_contains($source, '? normalized'),
     'item customization payload is preserved for fulfillment logic' => str_contains($source, 'const customization = merged') && !str_contains($source, 'const customization = this.normalizeSpecAliases(merged)'),
+    'spec rendering uses one normalization pipeline' => str_contains($source, 'staffBuildItemDisplaySpecs') && str_contains($source, 'staffEnrichDimensionSpecs'),
+    'canonical dimensions label is never suppressed by width height aliases' => str_contains($source, "key !== 'Dimensions'") && str_contains($source, "key !== 'Size / Dimensions'"),
+    'order notes box is hidden when item specs already include the same note' => str_contains($source, 'staffOrderNotesRenderedInItemSpecs') && str_contains($source, '!staffOrderNotesRenderedInItemSpecs()') && str_contains($source, 'orderFingerprint'),
+    'notes aliases collapse to one Notes label' => str_contains($source, "meta.group === 'notes' ? 'Notes' : meta.label"),
 ];
 
 $failed = array_keys(array_filter($assertions, static fn($passed) => !$passed));

@@ -127,6 +127,12 @@ function printflow_customization_field_meta(string $key): array {
         'notes' => ['notes', 'Notes', 50],
         'additional_notes' => ['notes', 'Notes', 50],
         'special_instructions' => ['notes', 'Notes', 50],
+        'job_notes' => ['notes', 'Notes', 50],
+        'jobnotes' => ['notes', 'Notes', 50],
+        'order_notes' => ['notes', 'Notes', 50],
+        'ordernotes' => ['notes', 'Notes', 50],
+        'customer_notes' => ['notes', 'Notes', 50],
+        'customernotes' => ['notes', 'Notes', 50],
         'material' => ['material', 'Material', 25],
         'material_type' => ['material', 'Material', 25],
         'temp_plate_material' => ['material', 'Material', 25],
@@ -188,7 +194,14 @@ function printflow_customization_display_specs(array $customization, array $opti
         if ($meta['group'] === 'notes' && !$includeNotes) continue;
         if ($meta['group'] === 'quantity' && !$includeQuantity) continue;
         if ($meta['design'] && !$includeDesign) continue;
-        if ($meta['group'] === 'dimensions' && !empty($presentGroups['width']) && !empty($presentGroups['height'])) continue;
+        if (
+            $meta['group'] === 'dimensions'
+            && !empty($presentGroups['width'])
+            && !empty($presentGroups['height'])
+            && $key !== 'Dimensions'
+            && $key !== 'Size / Dimensions'
+        ) continue;
+        if ($meta['group'] === 'total_area' && (!empty($presentGroups['dimensions']) || (!empty($presentGroups['width']) && !empty($presentGroups['height'])))) continue;
         $text = printflow_customization_value_text($value);
         if ($text === '' || stripos($text, 'data:') === 0 || in_array(strtolower($text), ['none', 'no'], true)) continue;
         if (in_array($meta['group'], ['width', 'height', 'total_area'], true) && is_numeric($text) && abs((float)$text) < 0.000001) continue;
@@ -229,7 +242,7 @@ function printflow_customization_display_specs(array $customization, array $opti
             }
         }
         if ($relatedDuplicate) continue;
-        $label = $meta['label'];
+        $label = $meta['group'] === 'notes' ? 'Notes' : $meta['label'];
         if (isset($rows[$label]) && printflow_customization_semantic_value_fingerprint($meta['group'], $rows[$label]['value']) !== printflow_customization_semantic_value_fingerprint($meta['group'], $text)) {
             $label = ucwords(str_replace('_', ' ', printflow_customization_key_token($key)));
             if (isset($rows[$label])) $label .= ' 2';

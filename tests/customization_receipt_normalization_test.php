@@ -93,10 +93,18 @@ $productionAliases = [
 $productionSpecs = printflow_customization_display_specs($productionAliases, [
     'include_service' => true, 'include_design' => false, 'include_notes' => false, 'include_quantity' => true,
 ]);
-expect_true(array_keys($productionSpecs) === ['Quantity', 'Layout', 'Width', 'Height', 'Total Area', 'Needed Date'], 'production aliases collapse into the canonical specification order');
+expect_true(array_keys($productionSpecs) === ['Quantity', 'Layout', 'Width', 'Height', 'Needed Date'], 'production aliases collapse into the canonical specification order');
 expect_true($productionSpecs['Width'] === '15 ft' && $productionSpecs['Height'] === '5 ft', 'feet dimensions render as one width and one height');
-expect_true($productionSpecs['Total Area'] === '75 sq ft', 'derived total area renders once with units');
+expect_true(!isset($productionSpecs['Total Area']), 'derived total area stays internal when width and height are present');
 expect_true(!isset($productionSpecs['Size']), 'redundant dimensions summary is suppressed when width and height exist');
+
+$noteAliases = printflow_customization_display_specs([
+    'notes' => 'Handle with care',
+    'job_notes' => 'Handle with care',
+    'order_notes' => 'Handle with care',
+], ['include_notes' => true, 'include_quantity' => false]);
+expect_true(array_keys($noteAliases) === ['Notes'], 'note aliases collapse to one canonical Notes label');
+expect_true(($noteAliases['Notes'] ?? '') === 'Handle with care', 'canonical Notes keeps the submitted value');
 $placeholderSpecs = printflow_customization_display_specs(['dimensions_ft' => '8 x 10 in', 'width_ft' => '0', 'height_ft' => '0', 'total_sqft' => '0']);
 expect_true(($placeholderSpecs['Size'] ?? '') === '8 x 10 in' && count($placeholderSpecs) === 1, 'zero job-order placeholders do not hide a real dimensions specification');
 

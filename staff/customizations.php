@@ -2393,8 +2393,8 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
-                    <!-- Notes -->
-                    <div style="margin-bottom:20px;" x-show="combinedCustomerNotes().trim() !== '' && combinedCustomerNotes() !== 'No specific instructions.'">
+                    <!-- Notes (order-level only when not already shown in item specification grid) -->
+                    <div style="margin-bottom:20px;" x-show="combinedCustomerNotes().trim() !== '' && combinedCustomerNotes() !== 'No specific instructions.' && !staffOrderNotesRenderedInItemSpecs()">
                         <label style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;display:block;margin-bottom:6px;">Order Notes</label>
                         <div style="font-size:13px;color:#6b7280;background:#fffbeb;border:1px solid #fef3c7;padding:10px 14px;border-radius:8px;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;" x-text="combinedCustomerNotes()"></div>
                     </div>
@@ -4401,8 +4401,12 @@ window.pfServiceFieldCatalog = (() => {
                     notes: ['notes', 'Notes', 50],
                     additional_notes: ['notes', 'Notes', 50],
                     special_instructions: ['notes', 'Notes', 50],
-                    job_notes: ['notes', 'Job Notes', 50],
-                    jobnotes: ['notes', 'Job Notes', 50],
+                    job_notes: ['notes', 'Notes', 50],
+                    jobnotes: ['notes', 'Notes', 50],
+                    order_notes: ['notes', 'Notes', 50],
+                    ordernotes: ['notes', 'Notes', 50],
+                    customer_notes: ['notes', 'Notes', 50],
+                    customernotes: ['notes', 'Notes', 50],
                     material: ['material', 'Material', 25],
                     material_type: ['material', 'Material', 25],
                     temp_plate_material: ['material', 'Material', 25],
@@ -4689,7 +4693,10 @@ window.pfServiceFieldCatalog = (() => {
                 const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
                 const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
                 const out = { ...specs };
-                const parts = this.staffExtractDimensionParts(out, dimensionField);
+                let parts = this.staffExtractDimensionParts(out, dimensionField);
+                if (!parts) {
+                    parts = this.staffExtractDimensionParts(out, null);
+                }
                 if (!parts) return out;
 
                 const displayLabel = 'Dimensions';
@@ -4704,8 +4711,14 @@ window.pfServiceFieldCatalog = (() => {
                     fieldKey + '_height',
                     ...this.staffDimensionDisplayStripKeys()
                 ]);
-                stripKeys.forEach((key) => {
-                    if (Object.prototype.hasOwnProperty.call(out, key) && key !== displayLabel) {
+                Object.keys(out).forEach((key) => {
+                    if (key === displayLabel) return;
+                    const meta = this.staffCustomizationFieldMeta(key);
+                    if (meta.group === 'width' || meta.group === 'height' || meta.group === 'total_area') {
+                        delete out[key];
+                        return;
+                    }
+                    if (meta.group === 'dimensions' || stripKeys.has(key)) {
                         delete out[key];
                     }
                 });
@@ -4807,7 +4820,13 @@ window.pfServiceFieldCatalog = (() => {
                     if (meta.group === 'quantity' && !includeQuantity) continue;
                     if (meta.design && !includeDesign) continue;
                     if (meta.group === 'total_area' && (presentGroups.dimensions || (presentGroups.width && presentGroups.height))) continue;
-                    if (meta.group === 'dimensions' && presentGroups.width && presentGroups.height) continue;
+                    if (
+                        meta.group === 'dimensions'
+                        && presentGroups.width
+                        && presentGroups.height
+                        && key !== 'Dimensions'
+                        && key !== 'Size / Dimensions'
+                    ) continue;
                     if ((meta.group === 'width' || meta.group === 'height') && presentGroups.dimensions) continue;
                     if ((token.endsWith('_width') || token.endsWith('_height')) && presentGroups.dimensions) continue;
 
@@ -4859,7 +4878,7 @@ window.pfServiceFieldCatalog = (() => {
                     });
                     if (relatedDuplicate) continue;
 
-                    let label = meta.label;
+                    let label = meta.group === 'notes' ? 'Notes' : meta.label;
                     if (
                         rows[label]
                         && this.staffCustomizationSemanticValueFingerprint(meta.group, rows[label].value)
@@ -4971,23 +4990,25 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return sourceCustom;
             },
-            getDisplayableCustom(custom, item = null) {
+            staffBuildItemDisplaySpecs(custom, item = null, options = {}) {
                 const sourceCustom = this.staffResolveItemCustomizationSource(custom, item);
-                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
+                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) {
+                    return { source: {}, enriched: {}, normalized: {}, entries: [] };
+                }
 
+                const isDetail = options.isDetail === true || !!this.showDetailsModal;
                 const enrichedCustom = this.staffEnrichDimensionSpecs({ ...sourceCustom }, item);
-                const isDetail = !!this.showDetailsModal;
                 const normalized = this.staffCustomizationDisplaySpecs(enrichedCustom, {
-                    includeService: !isDetail,
-                    includeDesign: false,
-                    includeNotes: isDetail,
-                    includeQuantity: true
+                    includeService: options.includeService !== undefined ? options.includeService : !isDetail,
+                    includeDesign: options.includeDesign === true,
+                    includeNotes: options.includeNotes !== undefined ? options.includeNotes : isDetail,
+                    includeQuantity: options.includeQuantity !== undefined ? options.includeQuantity : true
                 });
-                const specs = isDetail
+                const specs = isDetail || options.skipServiceFilter === true
                     ? normalized
                     : this.staffFilterSpecsByServiceForm(normalized, item);
 
-                return Object.entries(specs).filter(([k, v]) => {
+                const entries = Object.entries(specs).filter(([k, v]) => {
                     if (v === '' || v == null) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
@@ -4999,6 +5020,30 @@ window.pfServiceFieldCatalog = (() => {
                         }
                     }
                     return true;
+                });
+
+                return { source: sourceCustom, enriched: enrichedCustom, normalized: specs, entries };
+            },
+            getDisplayableCustom(custom, item = null) {
+                return this.staffBuildItemDisplaySpecs(custom, item).entries;
+            },
+            staffOrderNotesRenderedInItemSpecs() {
+                const orderNote = this.combinedCustomerNotes().trim();
+                if (!orderNote || orderNote === 'No specific instructions.') return false;
+                if (!this.showDetailsModal || !this.currentJo || !Array.isArray(this.currentJo.items)) return false;
+                const orderFingerprint = this.staffCustomizationValueFingerprint(orderNote);
+                return this.currentJo.items.some((item) => {
+                    const built = this.staffBuildItemDisplaySpecs(item.customization, item, {
+                        isDetail: true,
+                        includeService: false,
+                        includeNotes: true,
+                        includeQuantity: false,
+                        skipServiceFilter: true
+                    });
+                    return built.entries.some(([label, value]) => {
+                        if (label !== 'Notes') return false;
+                        return this.staffCustomizationValueFingerprint(value) === orderFingerprint;
+                    });
                 });
             },
             staffDesignDisplayFilename(item) {
@@ -5036,21 +5081,21 @@ window.pfServiceFieldCatalog = (() => {
             staffSpecIsRedundantDimensionPart(key, specs, item) {
                 if (key === 'Dimensions' || key === 'Size / Dimensions') return false;
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return false;
-                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
-                const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
-                const parts = this.staffExtractDimensionParts(specs, dimensionField);
-                if (!parts || !parts.width || !parts.height) return false;
+                const hasCanonicalDimensions = this.staffMeaningfulSpecValue(specs.Dimensions)
+                    || this.staffMeaningfulSpecValue(specs['Size / Dimensions']);
+                if (!hasCanonicalDimensions) return false;
 
                 const meta = this.staffCustomizationFieldMeta(key);
                 const token = this.staffCustomizationKeyToken(key);
                 if (meta.group === 'dimensions') return false;
                 if (meta.group === 'width' || meta.group === 'height') return true;
                 if (token.endsWith('_width') || token.endsWith('_height')) return true;
-                if (['width', 'height', 'width_ft', 'height_ft'].includes(token)) return true;
+                if (['width', 'height', 'width_ft', 'height_ft', 'widthft', 'heightft'].includes(token)) return true;
                 return false;
             },
             getCustomLabel(k) {
                 if (k === 'Dimensions' || k === 'Size / Dimensions') return 'Dimensions';
+                if (k === 'Notes') return 'Notes';
                 return this.customFieldLabels[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             },
             formatRevisionAuditValue(value) {
