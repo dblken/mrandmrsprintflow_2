@@ -2711,7 +2711,7 @@ $dashData = [
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
                             <?php echo htmlspecialchars($dash_period_label); ?>
                         </div>
-                        <a class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;text-decoration:none;" href="<?php echo htmlspecialchars(rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php?' . reports_page_query([]), ENT_QUOTES, 'UTF-8'); ?>" title="View detailed sales report">
+                        <a class="toolbar-btn no-ajax" style="height:32px;padding:0 10px;font-size:11px;text-decoration:none;" href="<?php echo htmlspecialchars(rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php?' . reports_page_query(['chart_sort' => null, 'trend_metric' => null, 'txn_pay' => null, 'txn_page' => null, 'heatmap_year' => null]), ENT_QUOTES, 'UTF-8'); ?>" title="View detailed sales report">
                             View Detailed Sales &rarr;
                         </a>
                         <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"branch_perf"]), $je); ?>)' title="Print Sales Revenue by Branch Report">
