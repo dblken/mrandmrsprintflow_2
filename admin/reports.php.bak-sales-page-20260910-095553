@@ -149,10 +149,35 @@ $txn_payment_filter = $_GET['txn_pay'] ?? 'all';
 $txn_pay_valid = ['all','paid','unpaid','pending'];
 if (!in_array($txn_payment_filter, $txn_pay_valid)) $txn_payment_filter = 'all';
 
+// Sales Breakdown quick period selector.
+$sales_breakdown_period = $_GET['sales_period'] ?? 'today';
+$sales_breakdown_valid_periods = ['today', 'week', 'month'];
+if (!in_array($sales_breakdown_period, $sales_breakdown_valid_periods, true)) {
+    $sales_breakdown_period = 'today';
+}
+$todayYmd = date('Y-m-d');
+if ($sales_breakdown_period === 'week') {
+    $sales_breakdown_from = date('Y-m-d', strtotime('monday this week'));
+    $sales_breakdown_to = $todayYmd;
+    $sales_breakdown_label = 'This Week';
+} elseif ($sales_breakdown_period === 'month') {
+    $sales_breakdown_from = date('Y-m-01');
+    $sales_breakdown_to = $todayYmd;
+    $sales_breakdown_label = 'This Month';
+} else {
+    $sales_breakdown_from = $todayYmd;
+    $sales_breakdown_to = $todayYmd;
+    $sales_breakdown_label = 'Today';
+}
+$sales_breakdown_to_end = $sales_breakdown_to . ' 23:59:59';
 
 // ── 1. Branch empty check (orders + customization jobs) ───────────────────────
 $branch_empty = !pf_reports_branch_has_activity($branchId);
 $gaBranchEmpty = !pf_reports_branch_has_activity($globalAnalyticsBranchId);
+$sales_breakdown_data = !$gaBranchEmpty
+    ? pf_reports_official_sales_breakdown($sales_breakdown_from, $sales_breakdown_to_end, $globalAnalyticsBranchId, 50)
+    : ['summary' => [], 'by_branch' => [], 'by_item' => [], 'transactions' => []];
+$sales_breakdown_summary = $sales_breakdown_data['summary'] ?? [];
 
 // ── Heatmap year list (only years with real data; never future years) ─────────
 if (!$gaBranchEmpty) {
@@ -2120,6 +2145,19 @@ a.export-dd-link:hover { background: #f9fafb; }
 .print-report-header, .print-report-footer { display:none; }
 
 /* ── Print-optimized layout ───────────────────────────────────────────────── */
+.sales-breakdown-tabs { display:flex; flex-wrap:wrap; gap:8px; }
+.sales-breakdown-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+.sales-breakdown-metric { border:1px solid #e5e7eb; border-radius:10px; padding:14px; background:#fff; }
+.sales-breakdown-metric-label { font-size:11px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:.04em; }
+.sales-breakdown-metric-value { margin-top:6px; font-size:22px; line-height:1.1; font-weight:900; color:#0f172a; }
+.sales-breakdown-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; }
+.sales-breakdown-table { width:100%; border-collapse:collapse; font-size:13px; }
+.sales-breakdown-table th { text-align:left; color:#64748b; font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:10px 8px; border-bottom:1px solid #e5e7eb; }
+.sales-breakdown-table td { padding:11px 8px; border-bottom:1px solid #f1f5f9; color:#1f2937; vertical-align:middle; }
+.sales-breakdown-table .num { text-align:right; font-weight:800; color:#0f172a; }
+.sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:4px 9px; border-radius:999px; font-size:11px; font-weight:800; background:#ecfdf5; color:#047857; }
+.sales-breakdown-empty { min-height:90px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; }
+@media(max-width:960px){ .sales-breakdown-grid,.sales-breakdown-split{ grid-template-columns:1fr; } }
 @media print {
     .sidebar,.mobile-header,header,.no-print,.branch-context-banner{ display:none !important; }
     .main-content{ margin-left:0 !important; padding:0 !important; }
@@ -2699,6 +2737,84 @@ $dashData = [
                 </div>
             </div>
 <!-- ══ SALES REVENUE (From Dashboard) ═════════════════════════════ -->
+            <div class="ana-card print-hide">
+                <div class="ana-hd">
+                    <h3 class="chart-title-nowrap">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/></svg>
+                        Sales Breakdown
+                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;"><?php echo htmlspecialchars($sales_breakdown_label); ?></span>
+                    </h3>
+                    <div class="sales-breakdown-tabs no-print">
+                        <?php foreach (["today" => "Today", "week" => "This Week", "month" => "This Month"] as $periodKey => $periodLabel): ?>
+                            <a class="toolbar-btn <?php echo $sales_breakdown_period === $periodKey ? 'active' : ''; ?>" style="height:32px;padding:0 12px;font-size:12px;text-decoration:none;" href="<?php echo htmlspecialchars($reports_href_base . '?' . reports_page_query(['sales_period' => $periodKey]), ENT_QUOTES, 'UTF-8'); ?>">
+                                <?php echo htmlspecialchars($periodLabel); ?>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <div class="ana-bd">
+                    <div style="font-size:12px;color:#64748b;margin-bottom:14px;">
+                        <?php echo htmlspecialchars(date('M j, Y', strtotime($sales_breakdown_from))); ?><?php if ($sales_breakdown_from !== $sales_breakdown_to): ?> - <?php echo htmlspecialchars(date('M j, Y', strtotime($sales_breakdown_to))); ?><?php endif; ?>
+                        &middot; <?php echo htmlspecialchars($branchName); ?>
+                    </div>
+                    <div class="sales-breakdown-grid">
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Total Sales</div><div class="sales-breakdown-metric-value">&#8369;<?php echo number_format((float)($sales_breakdown_summary['total_sales'] ?? 0), 2); ?></div></div>
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Sales Transactions</div><div class="sales-breakdown-metric-value"><?php echo number_format((int)($sales_breakdown_summary['transaction_count'] ?? 0)); ?></div></div>
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Product Sales</div><div class="sales-breakdown-metric-value">&#8369;<?php echo number_format((float)($sales_breakdown_summary['product_sales'] ?? 0), 2); ?></div></div>
+                        <div class="sales-breakdown-metric"><div class="sales-breakdown-metric-label">Service/Custom Sales</div><div class="sales-breakdown-metric-value">&#8369;<?php echo number_format((float)($sales_breakdown_summary['service_sales'] ?? 0), 2); ?></div></div>
+                    </div>
+                    <div class="sales-breakdown-split" style="margin-bottom:16px;">
+                        <div>
+                            <h4 class="pf-branch-section-title" style="margin-bottom:8px;">Sales by Branch</h4>
+                            <?php if (empty($sales_breakdown_data['by_branch'])): ?>
+                                <div class="sales-breakdown-empty">No branch sales for this period.</div>
+                            <?php else: ?>
+                                <table class="sales-breakdown-table"><thead><tr><th>Branch</th><th class="num">Transactions</th><th class="num">Sales</th></tr></thead><tbody>
+                                <?php foreach ($sales_breakdown_data['by_branch'] as $row): ?>
+                                    <tr><td><?php echo htmlspecialchars((string)$row['branch_name']); ?></td><td class="num"><?php echo number_format((int)$row['transaction_count']); ?></td><td class="num">&#8369;<?php echo number_format((float)$row['total_sales'], 2); ?></td></tr>
+                                <?php endforeach; ?>
+                                </tbody></table>
+                            <?php endif; ?>
+                        </div>
+                        <div>
+                            <h4 class="pf-branch-section-title" style="margin-bottom:8px;">Sales by Product/Service</h4>
+                            <?php if (empty($sales_breakdown_data['by_item'])): ?>
+                                <div class="sales-breakdown-empty">No product or service sales for this period.</div>
+                            <?php else: ?>
+                                <table class="sales-breakdown-table"><thead><tr><th>Type</th><th>Item</th><th class="num">Sales</th></tr></thead><tbody>
+                                <?php foreach (array_slice($sales_breakdown_data['by_item'], 0, 8) as $row): ?>
+                                    <tr><td><span class="sales-breakdown-pill"><?php echo htmlspecialchars((string)$row['type']); ?></span></td><td><?php echo htmlspecialchars((string)$row['item_name']); ?></td><td class="num">&#8369;<?php echo number_format((float)$row['revenue'], 2); ?></td></tr>
+                                <?php endforeach; ?>
+                                </tbody></table>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <h4 class="pf-branch-section-title" style="margin-bottom:8px;">Transaction Details</h4>
+                    <?php if (empty($sales_breakdown_data['transactions'])): ?>
+                        <div class="sales-breakdown-empty">No sales transactions for this period.</div>
+                    <?php else: ?>
+                        <div style="overflow-x:auto;">
+                            <table class="sales-breakdown-table">
+                                <thead><tr><th>Date</th><th>Type</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Status</th><th class="num">Amount</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($sales_breakdown_data['transactions'] as $row): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
+                                        <td><span class="sales-breakdown-pill"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
+                                        <td>#<?php echo (int)$row['id']; ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['customer_name']); ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['branch_name']); ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['payment_status']); ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['status']); ?></td>
+                                        <td class="num">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
             <div class="ana-card">
                 <div class="ana-hd">
                     <h3 class="chart-title-nowrap">
@@ -2711,7 +2827,7 @@ $dashData = [
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/></svg>
                             <?php echo htmlspecialchars($dash_period_label); ?>
                         </div>
-                        <a class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;text-decoration:none;" href="<?php echo htmlspecialchars(rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php?' . reports_page_query([]), ENT_QUOTES, 'UTF-8'); ?>" title="View detailed sales report">
+                        <a class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;text-decoration:none;" href="<?php echo htmlspecialchars($reports_href_base . '?' . reports_page_query(['report' => 'sales']), ENT_QUOTES, 'UTF-8'); ?>" title="View detailed sales report">
                             View Detailed Sales &rarr;
                         </a>
                         <button type="button" class="toolbar-btn" style="height:32px;padding:0 10px;font-size:11px;" onclick='reportsPrintInPlace(<?php echo json_encode($pfRptUrl("reports_print.php", ["report"=>"branch_perf"]), $je); ?>)' title="Print Sales Revenue by Branch Report">
