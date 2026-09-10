@@ -4378,6 +4378,7 @@ window.pfServiceFieldCatalog = (() => {
                     dimensions_ft: ['dimensions', 'Size / Dimensions', 32],
                     dimensionsft: ['dimensions', 'Size / Dimensions', 32],
                     dimension_ft: ['dimensions', 'Size / Dimensions', 32],
+                    size_dimensions: ['dimensions', 'Size / Dimensions', 32],
                     dimensions_width: ['width', 'Width', 30],
                     dimensions_height: ['height', 'Height', 31],
                     dimension_width: ['width', 'Width', 30],
@@ -4400,6 +4401,8 @@ window.pfServiceFieldCatalog = (() => {
                     notes: ['notes', 'Notes', 50],
                     additional_notes: ['notes', 'Notes', 50],
                     special_instructions: ['notes', 'Notes', 50],
+                    job_notes: ['notes', 'Job Notes', 50],
+                    jobnotes: ['notes', 'Job Notes', 50],
                     material: ['material', 'Material', 25],
                     material_type: ['material', 'Material', 25],
                     temp_plate_material: ['material', 'Material', 25],
@@ -4681,9 +4684,25 @@ window.pfServiceFieldCatalog = (() => {
                 if (meta.hidden || meta.design) return false;
 
                 const labelToken = this.staffCustomizationKeyToken(label);
+                if (label === 'Size / Dimensions' || meta.group === 'dimensions') {
+                    return profile.allowedGroups.has('dimensions')
+                        || profile.allowedGroups.has('width')
+                        || profile.allowedGroups.has('height')
+                        || !!profile.dimensionField;
+                }
                 if (profile.allowedGroups.has(meta.group)) return true;
                 if (profile.allowedTokenNorms.has(labelToken)) return true;
                 if (profile.allowedLabelNorms.has(labelToken)) return true;
+
+                if (Array.isArray(profile.fields)) {
+                    const matchesCatalog = profile.fields.some((field) => {
+                        const fieldLabelToken = this.staffCustomizationKeyToken(field && field.label ? field.label : '');
+                        const fieldKeyToken = this.staffCustomizationKeyToken(field && field.key ? field.key : '');
+                        return (fieldLabelToken && fieldLabelToken === labelToken)
+                            || (fieldKeyToken && fieldKeyToken === labelToken);
+                    });
+                    if (matchesCatalog) return true;
+                }
 
                 return false;
             },
@@ -4786,6 +4805,7 @@ window.pfServiceFieldCatalog = (() => {
                         .replace(/[×*]/g, 'x')
                         .replace(/\s*x\s*/gi, 'x');
                     const relatedDuplicate = (seenValues[valueFingerprint] || []).find((entry) => {
+                        if (entry.group !== meta.group) return false;
                         const normalizeRelationToken = (value) => String(value || '')
                             .replace(/(^|_)stickers(?=_|$)/g, '$1sticker')
                             .replace(/_(?:selected|selection|option|value|label)$/g, '');
@@ -4812,7 +4832,7 @@ window.pfServiceFieldCatalog = (() => {
                     rows[label] = { value: text, priority: meta.priority, position: position++ };
                     seen[fingerprint] = label;
                     if (!seenValues[valueFingerprint]) seenValues[valueFingerprint] = [];
-                    seenValues[valueFingerprint].push({ token, label });
+                    seenValues[valueFingerprint].push({ token, label, group: meta.group });
                 }
 
                 const sorted = Object.entries(rows).sort((a, b) => {
@@ -4852,12 +4872,14 @@ window.pfServiceFieldCatalog = (() => {
                         ? item.customization
                         : {};
 
-                    const merged = Object.keys(existingCustomization).length > 0
-                        ? existingCustomization
-                        : rawDecoded;
+                    const merged = {
+                        ...rawDecoded,
+                        ...(Object.keys(existingCustomization).length > 0 ? existingCustomization : {})
+                    };
 
-                    // Collapse aliased keys into their canonical display form.
-                    const customization = this.normalizeSpecAliases(merged);
+                    // Keep the full submitted payload for fulfillment logic; display
+                    // normalization happens only inside getDisplayableCustom().
+                    const customization = merged;
 
                     const customizationDesignPath = (existingCustomization.design_upload_path || rawDecoded.design_upload_path || '').trim();
                     const customizationDesignName = (existingCustomization.design_upload_name || rawDecoded.design_upload_name || existingCustomization.design_upload || rawDecoded.design_upload || '').trim();
@@ -4887,42 +4909,41 @@ window.pfServiceFieldCatalog = (() => {
 
                 return normalized;
             },
-            getDisplayableCustom(custom, item = null) {
-                let sourceCustom = this.parseSpecsObject(custom);
-                if (Object.keys(sourceCustom).length === 0 && custom && typeof custom === 'object' && !Array.isArray(custom)) {
-                    sourceCustom = { ...custom };
+            staffResolveItemCustomizationSource(custom, item = null) {
+                const rawDecoded = item ? this.parseSpecsObject(item.customization_data) : {};
+                let fromCustom = this.parseSpecsObject(custom);
+                if (Object.keys(fromCustom).length === 0 && custom && typeof custom === 'object' && !Array.isArray(custom)) {
+                    fromCustom = { ...custom };
                 }
                 const canonicalItemSpecs = item ? this.parseSpecsObject(item.specifications) : {};
-                if (Object.keys(sourceCustom).length === 0 && Object.keys(canonicalItemSpecs).length > 0) {
-                    sourceCustom = { ...canonicalItemSpecs };
-                }
+                let sourceCustom = { ...canonicalItemSpecs, ...fromCustom, ...rawDecoded };
+
                 const fallbackCustom = this.currentJo && this.currentJo.customization_details && typeof this.currentJo.customization_details === 'object'
                     ? this.currentJo.customization_details
                     : null;
-
-                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0) {
-                    if (fallbackCustom && !Array.isArray(fallbackCustom) && Object.keys(fallbackCustom).length > 0) {
-                        sourceCustom = { ...fallbackCustom };
-                    }
+                if (fallbackCustom && !Array.isArray(fallbackCustom)) {
+                    sourceCustom = { ...fallbackCustom, ...sourceCustom };
                 }
-                if (
-                    (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom) || Object.keys(sourceCustom).length === 0)
-                    && item
-                    && item.quantity
-                ) {
-                    sourceCustom = { Quantity: item.quantity };
+                if (item && item.quantity && !this.staffMeaningfulSpecValue(sourceCustom.quantity) && !this.staffMeaningfulSpecValue(sourceCustom.qty)) {
+                    sourceCustom.quantity = item.quantity;
                 }
+                return sourceCustom;
+            },
+            getDisplayableCustom(custom, item = null) {
+                const sourceCustom = this.staffResolveItemCustomizationSource(custom, item);
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
 
-                const enrichedCustom = this.staffEnrichDimensionSpecs(sourceCustom, item);
+                const enrichedCustom = this.staffEnrichDimensionSpecs({ ...sourceCustom }, item);
                 const isDetail = !!this.showDetailsModal;
                 const normalized = this.staffCustomizationDisplaySpecs(enrichedCustom, {
                     includeService: !isDetail,
                     includeDesign: false,
-                    includeNotes: false,
+                    includeNotes: isDetail,
                     includeQuantity: true
                 });
-                const specs = this.staffFilterSpecsByServiceForm(normalized, item);
+                const specs = isDetail
+                    ? normalized
+                    : this.staffFilterSpecsByServiceForm(normalized, item);
 
                 return Object.entries(specs).filter(([k, v]) => {
                     if (v === '' || v == null) return false;
@@ -4962,15 +4983,16 @@ window.pfServiceFieldCatalog = (() => {
                 if (!item || !this.staffShouldRenderDesignSection(item)) return false;
                 const filename = this.staffDesignDisplayFilename(item);
                 const valueText = this.staffCustomizationValueText(value);
-                if (filename && valueText && this.staffCustomizationValueFingerprint(filename) === this.staffCustomizationValueFingerprint(valueText)) {
-                    return true;
+                if (!filename || !valueText) return false;
+                if (this.staffCustomizationValueFingerprint(filename) !== this.staffCustomizationValueFingerprint(valueText)) {
+                    return false;
                 }
-                if (this.staffFieldUploadUrl(value) && (this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item))) {
-                    return true;
-                }
-                return false;
+                return meta.design
+                    || meta.group === 'uploaded_design'
+                    || token.includes('design');
             },
             staffSpecIsRedundantDimensionPart(key, specs, item) {
+                if (key === 'Size / Dimensions') return false;
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return false;
                 const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
                 const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
@@ -4979,6 +5001,7 @@ window.pfServiceFieldCatalog = (() => {
 
                 const meta = this.staffCustomizationFieldMeta(key);
                 const token = this.staffCustomizationKeyToken(key);
+                if (meta.group === 'dimensions') return false;
                 if (meta.group === 'width' || meta.group === 'height') return true;
                 if (token.endsWith('_width') || token.endsWith('_height')) return true;
                 if (['width', 'height', 'width_ft', 'height_ft'].includes(token)) return true;

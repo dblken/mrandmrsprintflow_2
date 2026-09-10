@@ -37,6 +37,9 @@ $assertions = [
     'modal design uses one combined section' => str_contains($source, '>Design</div>') && str_contains($source, 'staffDesignDisplayFilename(item)') && !str_contains($source, 'Design Preview'),
     'modal dimensions use one combined label' => str_contains($source, "const displayLabel = 'Size / Dimensions'") && str_contains($source, 'staffSpecIsRedundantDimensionPart'),
     'design uploads are excluded from spec grid cards' => str_contains($source, 'staffSpecIsDesignDisplayField(k, v, item)'),
+    'modal specs resolve from raw customization payload' => str_contains($source, 'staffResolveItemCustomizationSource') && str_contains($source, 'customization_data'),
+    'modal keeps submitted specs without profile over-filtering' => str_contains($source, 'const specs = isDetail') && str_contains($source, '? normalized'),
+    'item customization payload is preserved for fulfillment logic' => str_contains($source, 'const customization = merged') && !str_contains($source, 'const customization = this.normalizeSpecAliases(merged)'),
 ];
 
 $failed = array_keys(array_filter($assertions, static fn($passed) => !$passed));
