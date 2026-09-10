@@ -63,10 +63,11 @@ function pf_reports_sql_alias(string $alias, string $fallback): string {
 /** Store order (orders table) counts as paid/completed for revenue exports. */
 function pf_reports_store_order_paid_completed_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
-    return pf_reports_store_order_sales_expr($alias);
+    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
+             OR {$alias}.status = 'Completed')";
 }
 
-/** Store order with confirmed payment only (legacy/detail filter). */
+/** Store order with confirmed payment only (sales detail exports). */
 function pf_reports_store_order_paid_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
     return "LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')";
@@ -75,7 +76,8 @@ function pf_reports_store_order_paid_expr(string $alias = 'o'): string {
 /** Customization / job order counts as paid/completed for revenue exports. */
 function pf_reports_job_order_paid_completed_expr(string $alias = 'jo'): string {
     $alias = pf_reports_sql_alias($alias, 'jo');
-    return pf_reports_job_order_sales_expr($alias);
+    return "(UPPER(TRIM(COALESCE({$alias}.payment_status, ''))) = 'PAID'
+             OR UPPER(TRIM(COALESCE({$alias}.status, ''))) = 'COMPLETED')";
 }
 
 /** Service order counts as completed for revenue exports. */
@@ -84,178 +86,6 @@ function pf_reports_service_order_completed_expr(string $alias = 'so'): string {
     return "{$alias}.status = 'Completed'";
 }
 
-/** Official product/store sales inclusion rule for all reports. */
-function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
-    $alias = pf_reports_sql_alias($alias, 'o');
-    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
-             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed')";
-}
-
-/** Official product/store revenue amount. Uses amount_paid when the column exists. */
-function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
-    $alias = pf_reports_sql_alias($alias, 'o');
-    $hasAmountPaid = function_exists('pf_reports_table_has_column')
-        ? pf_reports_table_has_column('orders', 'amount_paid')
-        : false;
-    return $hasAmountPaid
-        ? "COALESCE(NULLIF({$alias}.amount_paid, 0), {$alias}.total_amount, 0)"
-        : "COALESCE({$alias}.total_amount, 0)";
-}
-
-/** Official customization/job-order sales inclusion rule for all reports. */
-function pf_reports_job_order_sales_expr(string $alias = 'jo'): string {
-    $alias = pf_reports_sql_alias($alias, 'jo');
-    return "(LOWER(TRIM(COALESCE({$alias}.payment_status, ''))) IN ('paid', 'fully paid')
-             OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed')";
-}
-
-/** Official customization/job-order revenue amount. */
-function pf_reports_job_order_revenue_expr(string $alias = 'jo'): string {
-    $alias = pf_reports_sql_alias($alias, 'jo');
-    return "COALESCE(NULLIF({$alias}.amount_paid, 0), {$alias}.estimated_total, 0)";
-}
-
-/** Official customization/job-order sales date. */
-function pf_reports_job_order_sales_date_expr(string $alias = 'jo'): string {
-    $alias = pf_reports_sql_alias($alias, 'jo');
-    return "COALESCE({$alias}.payment_verified_at, {$alias}.created_at)";
-}
-
-/**
- * Date-range SQL for a trusted expression. Caller provides only internal SQL.
- *
- * @return array{0:string,1:string,2:array<int,string>}
- */
-function pf_reports_date_expr_where(string $expr, string $from, string $toEnd): array {
-    if ($from !== '' && $toEnd !== '') {
-        return [" AND {$expr} BETWEEN ? AND ?", 'ss', [$from, $toEnd]];
-    }
-    if ($from !== '') {
-        return [" AND {$expr} >= ?", 's', [$from]];
-    }
-    if ($toEnd !== '') {
-        return [" AND {$expr} <= ?", 's', [$toEnd]];
-    }
-    return ['', '', []];
-}
-
-/**
- * Shared official sales dataset used by dashboard, breakdown, print, CSV, and Excel.
- *
- * @return array{summary:array<string,mixed>,by_branch:list<array<string,mixed>>,by_item:list<array<string,mixed>>,transactions:list<array<string,mixed>>}
- */
-function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branchId, int $transactionLimit = 100): array {
-    $summary = [
-        'total_sales' => 0.0,
-        'transaction_count' => 0,
-        'product_sales' => 0.0,
-        'product_transactions' => 0,
-        'service_sales' => 0.0,
-        'service_transactions' => 0,
-    ];
-    $byBranch = [];
-    $byItem = [];
-    $transactions = [];
-
-    $storeSales = pf_reports_store_order_sales_expr('o');
-    $storeRevenue = pf_reports_store_order_revenue_expr('o');
-    $jobSales = pf_reports_job_order_sales_expr('jo');
-    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
-    $jobDate = pf_reports_job_order_sales_date_expr('jo');
-
-    try {
-        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
-        [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $row = db_query("SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev FROM orders o WHERE {$storeSales}{$do}{$bo}", $dto . $bto, array_merge($dpo, $bpo))[0] ?? [];
-        $summary['product_transactions'] = (int)($row['cnt'] ?? 0);
-        $summary['product_sales'] = (float)($row['rev'] ?? 0);
-    } catch (Throwable $e) {}
-
-    try {
-        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $row = db_query("SELECT COUNT(*) AS cnt, COALESCE(SUM({$jobRevenue}), 0) AS rev FROM job_orders jo WHERE {$jobSales}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj))[0] ?? [];
-        $summary['service_transactions'] = (int)($row['cnt'] ?? 0);
-        $summary['service_sales'] = (float)($row['rev'] ?? 0);
-    } catch (Throwable $e) {}
-
-    $summary['total_sales'] = round((float)$summary['product_sales'] + (float)$summary['service_sales'], 2);
-    $summary['transaction_count'] = (int)$summary['product_transactions'] + (int)$summary['service_transactions'];
-    $summary['product_sales'] = round((float)$summary['product_sales'], 2);
-    $summary['service_sales'] = round((float)$summary['service_sales'], 2);
-
-    try {
-        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
-        [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $rows = db_query("SELECT o.branch_id, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COUNT(*) AS product_transactions, COALESCE(SUM({$storeRevenue}), 0) AS product_sales FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.branch_id, b.branch_name", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
-        foreach ($rows as $r) {
-            $key = (int)($r['branch_id'] ?? 0);
-            $byBranch[$key] = ['branch_id' => $key, 'branch_name' => (string)($r['branch_name'] ?? ('Branch #' . $key)), 'product_sales' => (float)($r['product_sales'] ?? 0), 'service_sales' => 0.0, 'product_transactions' => (int)($r['product_transactions'] ?? 0), 'service_transactions' => 0];
-        }
-    } catch (Throwable $e) {}
-
-    try {
-        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $rows = db_query("SELECT jo.branch_id, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COUNT(*) AS service_transactions, COALESCE(SUM({$jobRevenue}), 0) AS service_sales FROM job_orders jo LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$dj}{$bj} GROUP BY jo.branch_id, b.branch_name", $dtj . $btj, array_merge($dpj, $bpj)) ?: [];
-        foreach ($rows as $r) {
-            $key = (int)($r['branch_id'] ?? 0);
-            if (!isset($byBranch[$key])) {
-                $byBranch[$key] = ['branch_id' => $key, 'branch_name' => (string)($r['branch_name'] ?? ('Branch #' . $key)), 'product_sales' => 0.0, 'service_sales' => 0.0, 'product_transactions' => 0, 'service_transactions' => 0];
-            }
-            $byBranch[$key]['service_sales'] += (float)($r['service_sales'] ?? 0);
-            $byBranch[$key]['service_transactions'] += (int)($r['service_transactions'] ?? 0);
-        }
-    } catch (Throwable $e) {}
-
-    foreach ($byBranch as &$branch) {
-        $branch['total_sales'] = round((float)$branch['product_sales'] + (float)$branch['service_sales'], 2);
-        $branch['transaction_count'] = (int)$branch['product_transactions'] + (int)$branch['service_transactions'];
-        $branch['product_sales'] = round((float)$branch['product_sales'], 2);
-        $branch['service_sales'] = round((float)$branch['service_sales'], 2);
-    }
-    unset($branch);
-    $byBranch = array_values($byBranch);
-    usort($byBranch, static fn($a, $b) => (($b['total_sales'] ?? 0) <=> ($a['total_sales'] ?? 0)));
-
-    try {
-        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
-        [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $rows = db_query("SELECT 'Product' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
-        foreach ($rows as $r) {
-            $byItem[] = ['type' => 'Product', 'item_name' => (string)($r['item_name'] ?? 'Product Order'), 'quantity' => (float)($r['quantity'] ?? 0), 'revenue' => round((float)($r['revenue'] ?? 0), 2)];
-        }
-    } catch (Throwable $e) {}
-
-    try {
-        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $rows = db_query("SELECT 'Service' AS type, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name, COALESCE(SUM(COALESCE(jo.quantity, 1)), 0) AS quantity, COALESCE(SUM({$jobRevenue}), 0) AS revenue FROM job_orders jo WHERE {$jobSales}{$dj}{$bj} GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization')", $dtj . $btj, array_merge($dpj, $bpj)) ?: [];
-        foreach ($rows as $r) {
-            $byItem[] = ['type' => 'Service', 'item_name' => (string)($r['item_name'] ?? 'Customization'), 'quantity' => (float)($r['quantity'] ?? 0), 'revenue' => round((float)($r['revenue'] ?? 0), 2)];
-        }
-    } catch (Throwable $e) {}
-    usort($byItem, static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
-
-    $limit = max(1, min(500, $transactionLimit));
-    $txnRows = [];
-    try {
-        [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
-        [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, o.order_id AS id, o.order_date AS sales_date, {$storeRevenue} AS amount, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id WHERE {$storeSales}{$do}{$bo}", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
-    } catch (Throwable $e) {}
-    try {
-        [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
-        [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, jo.id AS id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
-    } catch (Throwable $e) {}
-    usort($txnRows, static fn($a, $b) => strcmp((string)($b['sales_date'] ?? ''), (string)($a['sales_date'] ?? '')));
-    foreach (array_slice($txnRows, 0, $limit) as $row) {
-        $transactions[] = ['type' => (string)($row['type'] ?? ''), 'id' => (int)($row['id'] ?? 0), 'sales_date' => (string)($row['sales_date'] ?? ''), 'amount' => round((float)($row['amount'] ?? 0), 2), 'payment_status' => (string)($row['payment_status'] ?? ''), 'status' => (string)($row['status'] ?? ''), 'branch_name' => (string)($row['branch_name'] ?? ''), 'customer_name' => (string)($row['customer_name'] ?? '')];
-    }
-
-    return ['summary' => $summary, 'by_branch' => $byBranch, 'by_item' => $byItem, 'transactions' => $transactions];
-}
 /** Resolved sold-item label for product-category charts when no live category exists. */
 function pf_product_sales_chart_item_label_sql(
     string $productAlias = 'p',
@@ -974,16 +804,13 @@ function pf_reports_fold_demo_service_categories(array $rows, array $exactNames)
  */
 function pf_reports_heatmap_available_years($branchId): array {
     $years = [];
-    $storeSales = pf_reports_store_order_sales_expr('o');
-    $jobSales = pf_reports_job_order_sales_expr('jo');
-    $jobDate = pf_reports_job_order_sales_date_expr('jo');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $rows = db_query(
             "SELECT DISTINCT YEAR(o.order_date) AS y
              FROM orders o
              INNER JOIN order_items oi ON oi.order_id = o.order_id
-             WHERE {$storeSales}
+             WHERE o.payment_status = 'Paid'
                AND YEAR(o.order_date) <= YEAR(CURDATE())$b",
             $bt ?: null,
             $bp ?: null
@@ -996,10 +823,9 @@ function pf_reports_heatmap_available_years($branchId): array {
     try {
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
         $jrows = db_query(
-            "SELECT DISTINCT YEAR({$jobDate}) AS y
+            "SELECT DISTINCT YEAR(jo.created_at) AS y
              FROM job_orders jo
-             WHERE {$jobSales}
-               AND YEAR({$jobDate}) <= YEAR(CURDATE())$bj",
+             WHERE YEAR(jo.created_at) <= YEAR(CURDATE())$bj",
             $btj ?: null,
             $bpj ?: null
         ) ?: [];
@@ -1021,9 +847,6 @@ function pf_reports_heatmap_available_years($branchId): array {
  */
 function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
     $heatmap_products = [];
-    $storeSales = pf_reports_store_order_sales_expr('o');
-    $jobSales = pf_reports_job_order_sales_expr('jo');
-    $jobDate = pf_reports_job_order_sales_date_expr('jo');
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
         $hmTypes = 'i' . $bt;
@@ -1034,7 +857,7 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
              JOIN products p ON oi.product_id = p.product_id
              JOIN orders o ON oi.order_id = o.order_id
              WHERE YEAR(o.order_date) = ?
-               AND {$storeSales}
+               AND o.payment_status = 'Paid'
                AND (
                  YEAR(o.order_date) < YEAR(CURDATE())
                  OR MONTH(o.order_date) <= MONTH(CURDATE())
@@ -1060,16 +883,15 @@ function pf_reports_heatmap_sums_for_year(int $heatmap_year, $branchId): array {
         $jParams = array_merge([$heatmap_year], $bpj);
         $jobRaw = db_query(
             "SELECT COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization') AS product,
-                    MONTH({$jobDate}) AS mo,
+                    MONTH(jo.created_at) AS mo,
                     SUM(COALESCE(jo.quantity, 1)) AS qty
              FROM job_orders jo
-             WHERE {$jobSales}
-               AND YEAR({$jobDate}) = ?
+             WHERE YEAR(jo.created_at) = ?
                AND (
-                 YEAR({$jobDate}) < YEAR(CURDATE())
-                 OR MONTH({$jobDate}) <= MONTH(CURDATE())
+                 YEAR(jo.created_at) < YEAR(CURDATE())
+                 OR MONTH(jo.created_at) <= MONTH(CURDATE())
                )$bj
-             GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization'), MONTH({$jobDate})
+             GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization'), MONTH(jo.created_at)
              ORDER BY product, mo",
             $jTypes,
             $jParams
@@ -1141,10 +963,6 @@ function pf_reports_heatmap_matrix(int $heatmap_year, $branchId): array {
  */
 function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, int $limit = 10): array {
     $agg = [];
-    $storeSales = pf_reports_store_order_sales_expr('o');
-    $jobSales = pf_reports_job_order_sales_expr('jo');
-    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
-    $jobDate = pf_reports_job_order_sales_date_expr('jo');
 
     try {
         [$b, $bt, $bp] = branch_where_parts('o', $branchId);
@@ -1172,7 +990,7 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
              FROM order_items oi
              JOIN products p ON oi.product_id = p.product_id
              JOIN orders o ON oi.order_id = o.order_id
-             WHERE {$storeSales} {$datePart} {$b}
+             WHERE o.payment_status = 'Paid' {$datePart} {$b}
              GROUP BY p.product_id, p.name",
             $dTypes . $bt,
             array_merge($dParams, $bp)
@@ -1196,15 +1014,15 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
         $jdParams = [];
         $jdTypes = "";
         if ($from !== '' && $toEnd !== '') {
-            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
+            $jDatePart = " AND jo.created_at BETWEEN ? AND ?";
             $jdParams = [$from, $toEnd];
             $jdTypes = "ss";
         } elseif ($from !== '') {
-            $jDatePart = " AND {$jobDate} >= ?";
+            $jDatePart = " AND jo.created_at >= ?";
             $jdParams = [$from];
             $jdTypes = "s";
         } elseif ($toEnd !== '') {
-            $jDatePart = " AND {$jobDate} <= ?";
+            $jDatePart = " AND jo.created_at <= ?";
             $jdParams = [$toEnd];
             $jdTypes = "s";
         }
@@ -1212,7 +1030,8 @@ function pf_reports_top_products_merged(string $from, string $toEnd, $branchId, 
         $jrows = db_query(
             "SELECT COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization') AS svc,
                     SUM(COALESCE(jo.quantity, 1)) as qty_sold,
-                    SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) as revenue
+                    SUM(CASE WHEN jo.payment_status = 'PAID'
+                        THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) as revenue
              FROM job_orders jo
              WHERE 1=1 {$jDatePart} {$bj}
              GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization')",
@@ -1438,11 +1257,6 @@ LIMIT {$limit}
  */
 function pf_reports_branch_performance_merged(string $from, string $toEnd, $branchId = 'all', string $prevFrom = null, string $prevToEnd = null): array {
     $map = [];
-    $storeSales = pf_reports_store_order_sales_expr('o');
-    $storeRevenue = pf_reports_store_order_revenue_expr('o');
-    $jobSales = pf_reports_job_order_sales_expr('jo');
-    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
-    $jobDate = pf_reports_job_order_sales_date_expr('jo');
     $names = [];
     $branchIdInt = ($branchId === 'all' || $branchId === null) ? 0 : (int)$branchId;
     $branchWhere = '';
@@ -1503,8 +1317,8 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
 
         $oRows = db_query(
             "SELECT o.branch_id,
-                    SUM(CASE WHEN {$storeSales} THEN 1 ELSE 0 END) AS ord,
-                    SUM(CASE WHEN {$storeSales} THEN {$storeRevenue} ELSE 0 END) AS rev
+                    COUNT(*) AS ord,
+                    SUM(CASE WHEN o.payment_status = 'Paid' THEN o.total_amount ELSE 0 END) AS rev
              FROM orders o
              WHERE o.branch_id IS NOT NULL {$oDatePart}
              GROUP BY o.branch_id",
@@ -1527,15 +1341,15 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
         $jdParams = [];
         $jdTypes = "";
         if ($from !== '' && $toEnd !== '') {
-            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
+            $jDatePart = " AND jo.created_at BETWEEN ? AND ?";
             $jdParams = [$from, $toEnd];
             $jdTypes = "ss";
         } elseif ($from !== '') {
-            $jDatePart = " AND {$jobDate} >= ?";
+            $jDatePart = " AND jo.created_at >= ?";
             $jdParams = [$from];
             $jdTypes = "s";
         } elseif ($toEnd !== '') {
-            $jDatePart = " AND {$jobDate} <= ?";
+            $jDatePart = " AND jo.created_at <= ?";
             $jdParams = [$toEnd];
             $jdTypes = "s";
         }
@@ -1549,8 +1363,9 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
 
         $jRows = db_query(
             "SELECT jo.branch_id,
-                    SUM(CASE WHEN {$jobSales} THEN 1 ELSE 0 END) AS ord,
-                    SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) AS rev
+                    COUNT(*) AS ord,
+                    SUM(CASE WHEN jo.payment_status = 'PAID'
+                        THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) AS rev
              FROM job_orders jo
              WHERE jo.branch_id IS NOT NULL {$jDatePart}
              GROUP BY jo.branch_id",
@@ -1586,10 +1401,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
                 $oDatePart .= " AND o.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
             }
             $oRows = db_query(
-                "SELECT o.branch_id, SUM(CASE WHEN {$storeSales} THEN {$storeRevenue} ELSE 0 END) AS rev
-                 FROM orders o
-                 WHERE o.branch_id IS NOT NULL {$oDatePart}
-                 GROUP BY o.branch_id",
+                "SELECT o.branch_id, SUM(CASE WHEN o.payment_status = 'Paid' THEN o.total_amount ELSE 0 END) AS rev FROM orders o WHERE o.branch_id IS NOT NULL {$oDatePart} GROUP BY o.branch_id",
                 $odTypes,
                 $odParams
             ) ?: [];
@@ -1598,7 +1410,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
                 $prevMap[$id] = (float) $r['rev'];
             }
             // Customization jobs
-            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
+            $jDatePart = " AND jo.created_at BETWEEN ? AND ?";
             $jdParams = [$prevFrom, $prevToEnd];
             $jdTypes = "ss";
             if ($branchId !== 'all' && $branchId !== null) {
@@ -1612,10 +1424,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
                 $jDatePart .= " AND jo.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
             }
             $jRows = db_query(
-                "SELECT jo.branch_id, SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) AS rev
-                 FROM job_orders jo
-                 WHERE jo.branch_id IS NOT NULL {$jDatePart}
-                 GROUP BY jo.branch_id",
+                "SELECT jo.branch_id, SUM(CASE WHEN jo.payment_status = 'PAID' THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) AS rev FROM job_orders jo WHERE jo.branch_id IS NOT NULL {$jDatePart} GROUP BY jo.branch_id",
                 $jdTypes,
                 $jdParams
             ) ?: [];
@@ -2188,12 +1997,6 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
     
     error_log('[PrintFlow] Sales chart query params: from=' . $from . ', to=' . $toEnd . ', branchId=' . $branchId . ', groupBy=' . $groupBy . ', days=' . $days);
 
-    $storeSales = pf_reports_store_order_sales_expr('o');
-    $storeRevenue = pf_reports_store_order_revenue_expr('o');
-    $jobSales = pf_reports_job_order_sales_expr('jo');
-    $jobRevenue = pf_reports_job_order_revenue_expr('jo');
-    $jobDate = pf_reports_job_order_sales_date_expr('jo');
-
     // 2. Fetch Store Orders
     $mapStore = [];
     try {
@@ -2213,7 +2016,7 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
         $fmt = ($groupBy === 'MONTH') ? '%Y-%m' : '%Y-%m-%d';
         $sql = "SELECT DATE_FORMAT(o.order_date,'{$fmt}') as d,
                        COUNT(*) as cnt,
-                       SUM(CASE WHEN {$storeSales} THEN {$storeRevenue} ELSE 0 END) as rev
+                       SUM(CASE WHEN o.payment_status='Paid' THEN o.total_amount ELSE 0 END) as rev
                 FROM orders o WHERE 1=1 {$datePart} {$b}
                 GROUP BY d ORDER BY d";
         
@@ -2235,20 +2038,20 @@ function pf_reports_period_sales_merged(string $from, string $toEnd, $branchId):
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
         $jDatePart = ""; $jdPs = []; $jdTs = "";
         if ($from !== '' && $toEnd !== '') {
-            $jDatePart = " AND {$jobDate} BETWEEN ? AND ?";
+            $jDatePart = " AND jo.created_at BETWEEN ? AND ?";
             $jdPs = [$from, $toEnd]; $jdTs = "ss";
         } elseif ($from !== '') {
-            $jDatePart = " AND {$jobDate} >= ?";
+            $jDatePart = " AND jo.created_at >= ?";
             $jdPs = [$from]; $jdTs = "s";
         } elseif ($toEnd !== '') {
-            $jDatePart = " AND {$jobDate} <= ?";
+            $jDatePart = " AND jo.created_at <= ?";
             $jdPs = [$toEnd]; $jdTs = "s";
         }
 
         $fmt = ($groupBy === 'MONTH') ? '%Y-%m' : '%Y-%m-%d';
-        $sql = "SELECT DATE_FORMAT({$jobDate},'{$fmt}') as d,
+        $sql = "SELECT DATE_FORMAT(jo.created_at,'{$fmt}') as d,
                        COUNT(*) as cnt,
-                       SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) as rev
+                       SUM(CASE WHEN jo.payment_status='PAID' THEN COALESCE(jo.amount_paid, jo.estimated_total, 0) ELSE 0 END) as rev
                 FROM job_orders jo WHERE 1=1 {$jDatePart} {$bj}
                 GROUP BY d ORDER BY d";
         

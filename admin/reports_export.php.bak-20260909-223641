@@ -37,7 +37,6 @@ $branchName = $branchCtx['branch_name'];
 $storePaidSql = pf_reports_store_order_paid_completed_expr('o');
 $storePaidOnlySql = pf_reports_store_order_paid_expr('o');
 $jobCompletedSql = pf_reports_job_order_paid_completed_expr('jo');
-$storeRevenueSql = pf_reports_store_order_revenue_expr('o');
 
 // UTF-8 BOM for Excel compatibility
 header('Content-Type: text/csv; charset=utf-8');
@@ -96,37 +95,63 @@ switch ($report) {
     // ═══════════════════════════════════════════════════════
     case 'sales':
         writeReportHeader($output, 'Sales Report', $from, $to, $branchName);
-        $salesData = pf_reports_official_sales_breakdown($fromStart, $toEnd, $branchId, 500);
-        $sum = $salesData['summary'] ?? [];
-        $totalRev = (float)($sum['total_sales'] ?? 0);
-        $totalOrd = (int)($sum['transaction_count'] ?? 0);
-        $avgVal = $totalOrd > 0 ? ($totalRev / $totalOrd) : 0;
+
+        $summary = db_query(
+            "SELECT COUNT(*) as total_orders,
+                    SUM(o.total_amount) as total_revenue,
+                    AVG(o.total_amount) as avg_order_value
+             FROM orders o
+             WHERE 1=1{$dateSql} AND {$storePaidOnlySql}{$bSql}",
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
+        );
+        $s = $summary[0] ?? [];
+        $totalRev = (float)($s['total_revenue'] ?? 0);
+        $totalOrd = (int)($s['total_orders'] ?? 0);
+        $avgVal = (float)($s['avg_order_value'] ?? 0);
 
         fputcsv($output, ['SUMMARY']);
-        fputcsv($output, ['Total Sales Transactions', $totalOrd]);
+        fputcsv($output, ['Total Orders', $totalOrd]);
         fputcsv($output, ['Total Revenue', number_format($totalRev, 2, '.', '')]);
-        fputcsv($output, ['Product Sales', number_format((float)($sum['product_sales'] ?? 0), 2, '.', '')]);
-        fputcsv($output, ['Service/Custom Sales', number_format((float)($sum['service_sales'] ?? 0), 2, '.', '')]);
-        fputcsv($output, ['Average Sale Value', number_format($avgVal, 2, '.', '')]);
+        fputcsv($output, ['Average Order Value', number_format($avgVal, 2, '.', '')]);
         fputcsv($output, []);
 
-        fputcsv($output, ['Type', 'Order #', 'Customer', 'Branch', 'Sales Date', 'Amount', 'Payment Status', 'Order Status']);
-        foreach (($salesData['transactions'] ?? []) as $row) {
-            $dateForCsv = !empty($row['sales_date']) ? '="' . date('Y-m-d H:i', strtotime((string)$row['sales_date'])) . '"' : '';
-            fputcsv($output, [
-                csvVal($row['type'] ?? ''),
-                '#' . (int)($row['id'] ?? 0),
-                csvVal($row['customer_name'] ?? ''),
-                csvVal($row['branch_name'] ?? ''),
-                $dateForCsv,
-                number_format((float)($row['amount'] ?? 0), 2, '.', ''),
-                csvVal($row['payment_status'] ?? ''),
-                csvVal($row['status'] ?? ''),
-            ]);
+        fputcsv($output, ['Order #', 'Customer Name', 'Email', 'Order Date', 'Total Amount', 'Payment Status', 'Order Status']);
+
+        $orders = db_query(
+            "SELECT o.order_id,
+                    (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                     FROM order_items oi
+                     LEFT JOIN products p ON oi.product_id = p.product_id
+                     WHERE oi.order_id = o.order_id) AS order_sku,
+                    CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
+                    o.order_date, o.total_amount, o.payment_status, o.status
+             FROM orders o
+             LEFT JOIN customers c ON o.customer_id = c.customer_id
+             WHERE 1=1{$dateSql} AND {$storePaidOnlySql}{$bSql}
+             ORDER BY o.order_date DESC",
+            $dateTypes.$bTypes, array_merge($dateParams, $bParams)
+        );
+
+        if ($orders) {
+            foreach ($orders as $row) {
+                // Excel-safe date when opening .csv (avoids #### / wrong serial)
+                $dateForCsv = '="' . date('Y-m-d H:i', strtotime($row['order_date'])) . '"';
+                fputcsv($output, [
+                    csvVal(printflow_format_order_code($row['order_id'] ?? 0, $row['order_sku'] ?? '')),
+                    csvVal($row['customer_name']),
+                    csvVal($row['email']),
+                    $dateForCsv,
+                    number_format((float)$row['total_amount'], 2, '.', ''),
+                    csvVal($row['payment_status']),
+                    csvVal($row['status'])
+                ]);
+            }
         }
-        fputcsv($output, ['TOTAL', '', '', '', '', number_format($totalRev, 2, '.', ''), '', '']);
+
+        fputcsv($output, ['TOTAL', '', '', '', number_format($totalRev, 2, '.', ''), '', '']);
         break;
 
+    // ═══════════════════════════════════════════════════════
     // ORDERS STATUS REPORT
     // ═══════════════════════════════════════════════════════
     case 'orders':
@@ -261,30 +286,103 @@ switch ($report) {
         fputcsv($output, ['Snapshot date', date('F j, Y', strtotime($day))]);
         fputcsv($output, []);
 
-        $salesData = pf_reports_official_sales_breakdown($day . ' 00:00:00', $day . ' 23:59:59', $branchId, 500);
-        $sum = $salesData['summary'] ?? [];
-        fputcsv($output, ['SUMMARY']);
-        fputcsv($output, ['Total Sales Transactions', (int)($sum['transaction_count'] ?? 0)]);
-        fputcsv($output, ['Total Sales', number_format((float)($sum['total_sales'] ?? 0), 2, '.', '')]);
-        fputcsv($output, ['Product Sales', number_format((float)($sum['product_sales'] ?? 0), 2, '.', '')]);
-        fputcsv($output, ['Service/Custom Sales', number_format((float)($sum['service_sales'] ?? 0), 2, '.', '')]);
-        fputcsv($output, []);
+        fputcsv($output, ['STANDARD ORDERS']);
+        fputcsv($output, ['Order #', 'Customer', 'Time', 'Amount', 'Status', 'Payment']);
 
-        fputcsv($output, ['Type', 'Order #', 'Customer', 'Branch', 'Time', 'Amount', 'Status', 'Payment']);
-        foreach (($salesData['transactions'] ?? []) as $row) {
-            fputcsv($output, [
-                csvVal($row['type'] ?? ''),
-                '#' . (int)($row['id'] ?? 0),
-                csvVal($row['customer_name'] ?? ''),
-                csvVal($row['branch_name'] ?? ''),
-                !empty($row['sales_date']) ? date('h:i A', strtotime((string)$row['sales_date'])) : '',
-                number_format((float)($row['amount'] ?? 0), 2, '.', ''),
-                csvVal($row['status'] ?? ''),
-                csvVal($row['payment_status'] ?? ''),
-            ]);
+        if ($branchId !== 'all') {
+            $orders = db_query(
+                "SELECT o.order_id, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name,
+                        o.order_date, o.total_amount, o.status, o.payment_status
+                 FROM orders o
+                 LEFT JOIN customers c ON o.customer_id = c.customer_id
+                 WHERE DATE(o.order_date) = ? AND o.branch_id = ? AND {$storePaidSql}
+                 ORDER BY o.order_date ASC",
+                'si',
+                [$day, $branchId]
+            );
+        } else {
+            $orders = db_query(
+                "SELECT o.order_id, CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name,
+                        o.order_date, o.total_amount, o.status, o.payment_status
+                 FROM orders o
+                 LEFT JOIN customers c ON o.customer_id = c.customer_id
+                 WHERE DATE(o.order_date) = ? AND {$storePaidSql}
+                 ORDER BY o.order_date ASC",
+                's',
+                [$day]
+            );
+        }
+
+        $total_sales = 0.0;
+        if ($orders) {
+            foreach ($orders as $o) {
+                fputcsv($output, [
+                    '#' . (int)$o['order_id'],
+                    csvVal($o['customer_name'] ?? 'Walk-in'),
+                    date('h:i A', strtotime($o['order_date'])),
+                    number_format((float)$o['total_amount'], 2, '.', ''),
+                    csvVal($o['status']),
+                    csvVal($o['payment_status']),
+                ]);
+                $total_sales += (float)$o['total_amount'];
+            }
+        } else {
+            fputcsv($output, ['No standard orders for this date.']);
         }
         fputcsv($output, []);
-        fputcsv($output, ['TOTAL', '', '', '', '', number_format((float)($sum['total_sales'] ?? 0), 2, '.', ''), '', '']);
+
+        fputcsv($output, ['SERVICE ORDERS']);
+        fputcsv($output, ['Order #', 'Service', 'Customer', 'Time', 'Amount', 'Status']);
+
+        if ($branchId !== 'all') {
+            $s_orders = db_query(
+                "SELECT jo.id,
+                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS service_name,
+                        COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name,
+                        COALESCE(jo.payment_verified_at, jo.created_at) AS created_at,
+                        COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS total_price,
+                        jo.status
+                 FROM job_orders jo
+                 LEFT JOIN customers c ON jo.customer_id = c.customer_id
+                 WHERE DATE(COALESCE(jo.payment_verified_at, jo.created_at)) = ? AND jo.branch_id = ? AND {$jobCompletedSql}
+                 ORDER BY COALESCE(jo.payment_verified_at, jo.created_at) ASC",
+                'si',
+                [$day, $branchId]
+            );
+        } else {
+            $s_orders = db_query(
+                "SELECT jo.id,
+                        COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS service_name,
+                        COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name,
+                        COALESCE(jo.payment_verified_at, jo.created_at) AS created_at,
+                        COALESCE(NULLIF(jo.amount_paid, 0), jo.estimated_total, 0) AS total_price,
+                        jo.status
+                 FROM job_orders jo
+                 LEFT JOIN customers c ON jo.customer_id = c.customer_id
+                 WHERE DATE(COALESCE(jo.payment_verified_at, jo.created_at)) = ? AND {$jobCompletedSql}
+                 ORDER BY COALESCE(jo.payment_verified_at, jo.created_at) ASC",
+                's',
+                [$day]
+            );
+        }
+
+        if ($s_orders) {
+            foreach ($s_orders as $so) {
+                fputcsv($output, [
+                    '#' . (int)$so['id'],
+                    csvVal($so['service_name']),
+                    csvVal($so['customer_name'] ?? 'N/A'),
+                    date('h:i A', strtotime($so['created_at'])),
+                    number_format((float)$so['total_price'], 2, '.', ''),
+                    csvVal($so['status']),
+                ]);
+                $total_sales += (float)$so['total_price'];
+            }
+        } else {
+            fputcsv($output, ['No service orders for this date.']);
+        }
+        fputcsv($output, []);
+        fputcsv($output, ['', '', 'TOTAL (paid standard + paid/completed job):', number_format($total_sales, 2, '.', '')]);
         break;
     }
 

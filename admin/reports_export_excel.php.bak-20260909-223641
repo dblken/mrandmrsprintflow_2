@@ -63,7 +63,7 @@ if ($report === 'orders') {
     $sheet->setTitle('Sales Report');
     buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
-    $excelColCount = 8;
+    $excelColCount = ($branchId === 'all') ? 8 : 7;
 } elseif ($report === 'daily_sales') {
     $day = date('Y-m-d', strtotime($_GET['date'] ?? $to));
     $sheet->setTitle('Daily Sales');
@@ -100,17 +100,52 @@ exit;
  * Sales detail report (same rows as CSV sales export), print-style formatting.
  */
 function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
+    $params = array_merge($dateParams, $bParams);
+    $storePaidSql = pf_reports_store_order_paid_expr('o');
+    $showBranchCol = ($branchId === 'all');
+    $colCustomer = $showBranchCol ? 'C' : 'B';
+    $colEmail = $showBranchCol ? 'D' : 'C';
+    $colDate = $showBranchCol ? 'E' : 'D';
+    $colAmount = $showBranchCol ? 'F' : 'E';
+    $colPayment = $showBranchCol ? 'G' : 'F';
+    $colStatus = $showBranchCol ? 'H' : 'G';
+    $lastCol = $colStatus;
+    $lastColIdx = $showBranchCol ? 8 : 7;
     $dateLabel = pf_reports_export_date_range()['label'];
-    $dr = pf_reports_export_date_range();
-    $salesData = pf_reports_official_sales_breakdown($dr['fromStart'], $dr['toEnd'], $branchId, 500);
-    $sum = $salesData['summary'] ?? [];
-    $totalRev = (float)($sum['total_sales'] ?? 0);
-    $totalOrd = (int)($sum['transaction_count'] ?? 0);
-    $avgVal = $totalOrd > 0 ? ($totalRev / $totalOrd) : 0;
+
+    $summary = db_query(
+        "SELECT COUNT(*) as total_orders,
+                SUM(o.total_amount) as total_revenue
+         FROM orders o
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}",
+        $dateTypes . $bTypes,
+        $params
+    );
+    $s = $summary[0] ?? [];
+    $totalRev = (float)($s['total_revenue'] ?? 0);
+    $totalOrd = (int)($s['total_orders'] ?? 0);
+
+    $orders = db_query(
+        "SELECT o.order_id,
+                (SELECT GROUP_CONCAT(DISTINCT p.sku ORDER BY p.sku SEPARATOR '-')
+                 FROM order_items oi
+                 LEFT JOIN products p ON oi.product_id = p.product_id
+                 WHERE oi.order_id = o.order_id) AS order_sku,
+                COALESCE(b.branch_name, 'Unknown') AS branch_name,
+                CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) as customer_name, COALESCE(c.email,'') as email,
+                o.order_date, o.total_amount, o.payment_status, o.status
+         FROM orders o
+         LEFT JOIN customers c ON o.customer_id = c.customer_id
+         LEFT JOIN branches b ON o.branch_id = b.id
+         WHERE 1=1{$dateSql} AND {$storePaidSql}{$bSql}
+         ORDER BY o.order_date DESC",
+        $dateTypes . $bTypes,
+        $params
+    ) ?: [];
 
     $sheet->setCellValue('A1', 'PrintFlow Sales & Analytics Report');
-    $sheet->mergeCells('A1:H1');
-    pf_excel_style_doc_title($sheet, 'A1:H1');
+    $sheet->mergeCells('A1:' . $lastCol . '1');
+    pf_excel_style_doc_title($sheet, 'A1:' . $lastCol . '1');
 
     $sheet->setCellValue('A3', 'Report Type');
     $sheet->setCellValue('B3', 'Sales Report');
@@ -121,58 +156,85 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $sheet->setCellValue('A6', 'Generated On');
     $sheet->setCellValue('B6', date('F j, Y, g:i A'));
     $sheet->getStyle('A3:A6')->getFont()->setBold(true);
+    $sheet->getStyle('B3:B6')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
 
     $row = 8;
     $sheet->setCellValue('A' . $row, 'SUMMARY');
     $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(11);
     $row++;
-    foreach ([['Total Sales Transactions', $totalOrd, false], ['Total Revenue', $totalRev, true], ['Product Sales', (float)($sum['product_sales'] ?? 0), true], ['Service/Custom Sales', (float)($sum['service_sales'] ?? 0), true], ['Average Sale Value', $avgVal, true]] as $line) {
-        $sheet->setCellValue('A' . $row, $line[0]);
-        $sheet->setCellValue('B' . $row, $line[1]);
-        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
-        $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-        if ($line[2]) $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
-        $row++;
-    }
+    $sheet->setCellValue('A' . $row, 'Total Orders');
+    $sheet->setCellValue('B' . $row, $totalOrd);
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+    $row++;
+    $sheet->setCellValue('A' . $row, 'Total Revenue');
+    $sheet->setCellValue('B' . $row, $totalRev);
+    $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+    $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+    $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
     $row += 2;
 
     $headerRow = $row;
-    foreach (['Type', 'Order #', 'Customer', 'Branch', 'Sales Date', 'Amount', 'Payment Status', 'Order Status'] as $i => $h) {
-        $sheet->setCellValue(chr(65 + $i) . $row, $h);
+    $sheet->setCellValue('A' . $row, 'Order #');
+    if ($showBranchCol) {
+        $sheet->setCellValue('B' . $row, 'Branch');
     }
-    pf_excel_style_column_headers($sheet, 'A' . $row . ':H' . $row);
+    $sheet->setCellValue($colCustomer . $row, 'Customer');
+    $sheet->setCellValue($colEmail . $row, 'Email');
+    $sheet->setCellValue($colDate . $row, 'Order Date');
+    $sheet->setCellValue($colAmount . $row, 'Total Amount (₱)');
+    $sheet->setCellValue($colPayment . $row, 'Payment Status');
+    $sheet->setCellValue($colStatus . $row, 'Order Status');
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':' . $lastCol . $row);
     $row++;
 
     $firstData = $row;
-    foreach (($salesData['transactions'] ?? []) as $txn) {
-        $sheet->setCellValue('A' . $row, (string)($txn['type'] ?? ''));
-        $sheet->setCellValue('B' . $row, '#' . (int)($txn['id'] ?? 0));
-        $sheet->setCellValue('C' . $row, trim($txn['customer_name'] ?? ''));
-        $sheet->setCellValue('D' . $row, trim($txn['branch_name'] ?? ''));
-        $ts = strtotime($txn['sales_date'] ?? '');
-        if ($ts) {
-            $sheet->setCellValue('E' . $row, SpreadsheetDate::PHPToExcel($ts));
-            $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('mmm d, yyyy h:mm AM/PM');
+    foreach ($orders as $o) {
+        $orderCode = printflow_format_order_code($o['order_id'] ?? 0, $o['order_sku'] ?? '');
+        $sheet->setCellValue('A' . $row, $orderCode);
+        if ($showBranchCol) {
+            $sheet->setCellValue('B' . $row, trim($o['branch_name'] ?? 'Unknown'));
         }
-        $sheet->setCellValue('F' . $row, (float)($txn['amount'] ?? 0));
-        $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
-        $sheet->setCellValue('G' . $row, (string)($txn['payment_status'] ?? ''));
-        $sheet->setCellValue('H' . $row, (string)($txn['status'] ?? ''));
+        $sheet->setCellValue($colCustomer . $row, trim($o['customer_name'] ?? ''));
+        $sheet->setCellValue($colEmail . $row, trim($o['email'] ?? ''));
+        $ts = strtotime($o['order_date'] ?? '');
+        if ($ts) {
+            $sheet->setCellValue($colDate . $row, SpreadsheetDate::PHPToExcel($ts));
+            $sheet->getStyle($colDate . $row)->getNumberFormat()->setFormatCode('mmm d, yyyy h:mm AM/PM');
+        } else {
+            $sheet->setCellValue($colDate . $row, '');
+        }
+        $amt = (float)($o['total_amount'] ?? 0);
+        $sheet->setCellValue($colAmount . $row, $amt);
+        $sheet->getStyle($colAmount . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+        $sheet->setCellValue($colPayment . $row, (string)($o['payment_status'] ?? ''));
+        $sheet->setCellValue($colStatus . $row, (string)($o['status'] ?? ''));
+
+        $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+        if ($showBranchCol) {
+            $sheet->getStyle('B' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+        }
+        $sheet->getStyle($colCustomer . $row . ':' . $colEmail . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setWrapText(true);
+        $sheet->getStyle($colDate . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle($colAmount . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+        $sheet->getStyle($colPayment . $row . ':' . $colStatus . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
         $row++;
     }
     $lastData = $row - 1;
     if ($lastData >= $firstData) {
-        pf_excel_zebra_body($sheet, $firstData, $lastData, 1, 8);
-        pf_excel_apply_table_autofilter($sheet, $headerRow, 8, $lastData);
-        $sheet->getStyle('A' . $firstData . ':H' . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
+        pf_excel_zebra_body($sheet, $firstData, $lastData, 1, $lastColIdx);
+        pf_excel_apply_table_autofilter($sheet, $headerRow, $lastColIdx, $lastData);
+        $sheet->getStyle('A' . $firstData . ':' . $lastCol . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
     }
 
     $sheet->setCellValue('A' . $row, 'TOTAL');
-    $sheet->setCellValue('F' . $row, $totalRev);
-    $sheet->getStyle('A' . $row . ':H' . $row)->getFont()->setBold(true);
-    $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
-    $sheet->getStyle('A' . $row . ':H' . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
-    $sheet->getStyle('A' . $row . ':H' . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
+    $sheet->setCellValue($colAmount . $row, $totalRev);
+    $sheet->getStyle('A' . $row . ':' . $lastCol . $row)->getFont()->setBold(true);
+    $sheet->getStyle('A' . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+    $sheet->getStyle($colAmount . $row)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
+    $sheet->getStyle($colAmount . $row)->getNumberFormat()->setFormatCode('"₱"#,##0.00');
+    $sheet->getStyle('A' . $row . ':' . $lastCol . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
+    $sheet->getStyle('A' . $row . ':' . $lastCol . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
 }
 
 /**
@@ -475,8 +537,7 @@ function buildDailySalesReport($sheet, string $day, string $branchName, $branchI
     $sheet->getStyle('A' . $row)->getFont()->setBold(true);
     $row += 2;
 
-    $paidOnly = pf_reports_store_order_paid_completed_expr('o');
-    $storeRevenue = pf_reports_store_order_revenue_expr('o');
+    $paidOnly = pf_reports_store_order_paid_expr('o');
     if ($branchId !== 'all') {
         $orders = db_query(
             "SELECT o.order_id,
@@ -484,7 +545,7 @@ function buildDailySalesReport($sheet, string $day, string $branchName, $branchI
                      FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id
                      WHERE oi.order_id = o.order_id) AS order_sku,
                     CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
-                    o.order_date, {$storeRevenue} AS total_amount, o.status, o.payment_status
+                    o.order_date, o.total_amount, o.status, o.payment_status
              FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id
              WHERE DATE(o.order_date) = ? AND o.branch_id = ? AND {$paidOnly}
              ORDER BY o.order_date ASC",
@@ -497,7 +558,7 @@ function buildDailySalesReport($sheet, string $day, string $branchName, $branchI
                      FROM order_items oi LEFT JOIN products p ON oi.product_id = p.product_id
                      WHERE oi.order_id = o.order_id) AS order_sku,
                     CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS customer_name,
-                    o.order_date, {$storeRevenue} AS total_amount, o.status, o.payment_status
+                    o.order_date, o.total_amount, o.status, o.payment_status
              FROM orders o LEFT JOIN customers c ON o.customer_id = c.customer_id
              WHERE DATE(o.order_date) = ? AND {$paidOnly}
              ORDER BY o.order_date ASC",
