@@ -224,4 +224,35 @@ assert.strictEqual(mugAutoSelect, null); // MUG and Subli Paper are both recomme
 const soleMugInventory = [item('MUG')];
 assert.strictEqual(picker.getAutoSelectCandidate(soleMugInventory, context('Souvenirs', { souvenir_type: 'Mug' }), []).name, 'MUG');
 
+// Admin category must override a leaked/wrong service label (POS mixed-order regression).
+function categoryContext(category, serviceType) {
+    return {
+        serviceType,
+        serviceLabel: category || serviceType,
+        serviceCategory: category,
+        customization: {}
+    };
+}
+const leakedTshirtLabelTarp = picker.rankItems(inventory, categoryContext('Tarpaulin', 'T-Shirt Printing'), [], '');
+assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.tier, 'recommended');
+assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.reason, 'Recommended for this job');
+assert.strictEqual(byName(leakedTshirtLabelTarp, 'VINYL BLACK').compatibility.reason, 'Not suggested for Tarpaulin');
+
+const adminTshirtRows = picker.rankItems(inventory, categoryContext('T-Shirt', 'T-Shirt Printing'), [], '');
+assert.strictEqual(byName(adminTshirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');
+
+const adminStickerRows = picker.rankItems(inventory, categoryContext('Stickers', 'Decals/Stickers'), [], '');
+assert.strictEqual(byName(adminStickerRows, 'NEXJET').compatibility.tier, 'unverified');
+
+const adminSignageRows = picker.rankItems(inventory, categoryContext('Signage', 'Custom Signage'), [], '');
+assert.strictEqual(byName(adminSignageRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');
+assert.strictEqual(byName(adminSignageRows, '3M Reflective').compatibility.tier, 'optional');
+
+const adminPrintRows = picker.rankItems(inventory, categoryContext('Print', 'Document Print'), [], '');
+assert.strictEqual(byName(adminPrintRows, 'C2s Board').compatibility.tier, 'recommended');
+assert.strictEqual(byName(adminPrintRows, 'Photo Paper').compatibility.tier, 'optional');
+
+assert.strictEqual(picker.canonicalCategoryKind('Tarpaulin'), 'tarpaulin');
+assert.strictEqual(picker.classifyService(categoryContext('Tarpaulin', 'T-Shirt Printing')), 'tarpaulin');
+
 process.stdout.write('production_material_picker_test: PASS\n');

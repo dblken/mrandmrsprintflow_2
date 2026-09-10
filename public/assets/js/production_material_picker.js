@@ -86,7 +86,25 @@
         }
     }
 
-    function classifyService(context) {
+    const SPECIFIC_SERVICE_NAME_KINDS = new Set([
+        'plate', 'reflective_cut', 'mug', 'brochure', 'raffle', 'poster', 'reflectorized_signage',
+        'reflective_sticker', 'cut_sticker', 'printed_sticker', 'sintraboard'
+    ]);
+
+    function canonicalCategoryKind(category) {
+        const normalized = normalize(category);
+        if (!normalized) return 'unknown';
+        if (normalized === 'TARPAULIN') return 'tarpaulin';
+        if (normalized === 'T SHIRT') return 'tshirt';
+        if (normalized === 'STICKERS') return 'stickers';
+        if (normalized === 'SIGNAGE') return 'signage';
+        if (normalized === 'PRINT') return 'print';
+        if (normalized === 'SINTRABOARD STANDEES') return 'sintraboard';
+        if (normalized === 'MERCHANDISE') return 'merchandise';
+        return 'unknown';
+    }
+
+    function classifyServiceFromName(context) {
         const structured = [];
         flattenStructuredValues(context && context.customization, structured, 0);
         [context && context.productType, context && context.souvenirType, context && context.stickerType, context && context.cutType]
@@ -111,6 +129,29 @@
         if (/TRANSPARENT STICKER|GLASS .*STICKER|WALL .*STICKER/.test(service)) return 'printed_sticker';
         if (/STICKER|DECAL/.test(service)) return 'sticker_unknown';
         return 'unknown';
+    }
+
+    function classifyService(context) {
+        const fromName = classifyServiceFromName(context || {});
+        if (SPECIFIC_SERVICE_NAME_KINDS.has(fromName)) {
+            return fromName;
+        }
+
+        const categoryKind = canonicalCategoryKind(context && context.serviceCategory);
+        if (categoryKind === 'stickers') {
+            if (fromName === 'reflective_sticker' || fromName === 'cut_sticker' || fromName === 'printed_sticker') {
+                return fromName;
+            }
+            return 'sticker_unknown';
+        }
+        if (categoryKind === 'merchandise') {
+            return fromName === 'mug' ? 'mug' : 'unknown';
+        }
+        if (categoryKind !== 'unknown') {
+            return categoryKind;
+        }
+
+        return fromName;
     }
 
     function matchingRule(item, serviceType, rules) {
@@ -168,6 +209,14 @@
             if (family === 'plate') tier = 'recommended';
             if (family === 'colored_sticker' || family === 'reflective') tier = 'optional';
         } else if (serviceKind === 'sticker_unknown') {
+            if (['printed_sticker', 'colored_sticker', 'reflective', 'laminate'].includes(family)) tier = 'unverified';
+        } else if (serviceKind === 'signage') {
+            if (family === 'sintra') tier = 'recommended';
+            if (family === 'reflective' || family === 'colored_sticker') tier = 'optional';
+        } else if (serviceKind === 'print') {
+            if (family === 'c2s_board' || family === 'c2s_special_paper') tier = 'recommended';
+            if (family === 'photo_paper') tier = 'optional';
+        } else if (serviceKind === 'stickers') {
             if (['printed_sticker', 'colored_sticker', 'reflective', 'laminate'].includes(family)) tier = 'unverified';
         } else if (serviceKind === 'unknown') {
             const rule = matchingRule(item, context && context.serviceType, rules);
@@ -392,7 +441,7 @@
     }
 
     return {
-        normalize, familyFor, classifyService, classifyItem, descriptionFor, searchScore, rankItems, inkModeFor,
-        tarpaulinRollWidthFor, getAutoSelectCandidate
+        normalize, familyFor, canonicalCategoryKind, classifyServiceFromName, classifyService, classifyItem,
+        descriptionFor, searchScore, rankItems, inkModeFor, tarpaulinRollWidthFor, getAutoSelectCandidate
     };
 });

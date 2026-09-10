@@ -2698,6 +2698,9 @@ class JobOrderService {
             if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
                 $serviceIdForImage = printflow_resolve_active_service_catalog_id((string)$name);
             }
+            $serviceCategoryForItem = $serviceIdForImage > 0 && function_exists('customer_orders_resolve_service_category_by_id')
+                ? customer_orders_resolve_service_category_by_id($serviceIdForImage)
+                : printflow_canonical_admin_service_category(trim((string)($item['category'] ?? '')));
             $catalogServiceImage = function_exists('get_service_image_url')
                 ? get_service_image_url($name, $serviceIdForImage)
                 : '';
@@ -2715,7 +2718,8 @@ class JobOrderService {
                 'order_id' => (int)($item['order_id'] ?? 0),
                 'product_name' => $name,
                 'product_type' => $item['product_type'] ?? 'custom',
-                'category' => $item['category'] ?? '',
+                'category' => $serviceCategoryForItem !== '' ? $serviceCategoryForItem : ($item['category'] ?? ''),
+                'service_category' => $serviceCategoryForItem,
                 'product_image' => $productImage,
                 'service_id' => $serviceIdForImage,
                 'service_image' => $catalogServiceImage,
@@ -2735,6 +2739,23 @@ class JobOrderService {
         if ($service_name === '') {
             $service_name = get_service_name_from_customization($first_custom, 'Custom Order');
         }
+        $service_category = '';
+        $service_id = 0;
+        if (!empty($items_out[0]['service_category'])) {
+            $service_category = printflow_canonical_admin_service_category((string)$items_out[0]['service_category']);
+        }
+        if ((int)($items_out[0]['service_id'] ?? 0) > 0) {
+            $service_id = (int)$items_out[0]['service_id'];
+        }
+        if ($service_category === '' && $service_id > 0 && function_exists('customer_orders_resolve_service_category_by_id')) {
+            $service_category = customer_orders_resolve_service_category_by_id($service_id);
+        }
+        if ($service_category === '' && !empty($first_custom['service_id'])) {
+            $service_id = (int)$first_custom['service_id'];
+            if ($service_id > 0 && function_exists('customer_orders_resolve_service_category_by_id')) {
+                $service_category = customer_orders_resolve_service_category_by_id($service_id);
+            }
+        }
 
         $items_out = self::backfillStaffItemCustomization($items_out, is_array($first_custom) ? $first_custom : []);
         $items_out = self::finalHydrateStaffItemsFromOrderItems($items_out, $storeOrderId);
@@ -2750,6 +2771,8 @@ class JobOrderService {
             'width_ft' => $width_ft,
             'height_ft' => $height_ft,
             'service_type' => $service_name,
+            'service_id' => $service_id,
+            'service_category' => $service_category,
             'line_qty' => $total_qty,
             'customization_details' => $first_custom,
         ];
@@ -3074,6 +3097,12 @@ class JobOrderService {
             && strcasecmp(trim((string)($payload['service_type'] ?? '')), 'Custom Order') !== 0) {
             $jo['service_type'] = trim((string)$payload['service_type']);
         }
+        if ((int)($payload['service_id'] ?? 0) > 0) {
+            $jo['service_id'] = (int)$payload['service_id'];
+        }
+        if (trim((string)($payload['service_category'] ?? '')) !== '') {
+            $jo['service_category'] = printflow_canonical_admin_service_category((string)$payload['service_category']);
+        }
         $titleParts = [];
         foreach ($payload['items'] ?? [] as $it) {
             $name = trim((string)($it['product_name'] ?? ''));
@@ -3149,34 +3178,47 @@ class JobOrderService {
                 $order['order_item_id'] = (int)$order['joined_order_item_id'];
             }
 
-            // Root-cause fix: getStoreOrderItemsPayload() aggregates the WHOLE store
-            // order and derives service_type/items/customization_details from the
-            // FIRST line item. For mixed-service, multi-item orders that leaks a
-            // different item's service (e.g. a Tarpaulin job showing "not suggested
-            // for T-Shirt Printing"). Re-anchor to the order_item this job actually
-            // belongs to when the order has more than one line item.
+            // Root-cause fix: re-anchor material context to this job's order line.
             $ownItemId = (int)($order['order_item_id'] ?? 0);
-            if ($ownItemId > 0 && !empty($payload['items']) && is_array($payload['items']) && count($payload['items']) > 1) {
-                foreach ($payload['items'] as $candidateItem) {
-                    if ((int)($candidateItem['order_item_id'] ?? 0) !== $ownItemId) {
-                        continue;
-                    }
-                    $ownServiceType = trim((string)($candidateItem['product_name'] ?? ''));
-                    if ($ownServiceType !== '' && strcasecmp($ownServiceType, 'Custom Order') !== 0) {
-                        $order['service_type'] = $ownServiceType;
-                        $order['job_title'] = $ownServiceType;
-                    }
-                    $order['items'] = [$candidateItem];
-                    $ownCustom = is_array($candidateItem['customization'] ?? null) ? $candidateItem['customization'] : [];
-                    if (!empty($ownCustom)) {
-                        $order['customization_details'] = $ownCustom;
-                    }
-                    if (!empty($ownCustom['width']) && !empty($ownCustom['height'])) {
-                        $order['width_ft'] = (string)$ownCustom['width'];
-                        $order['height_ft'] = (string)$ownCustom['height'];
-                    }
-                    $order['quantity'] = max(1, (int)($candidateItem['quantity'] ?? ($order['quantity'] ?? 1)));
-                    break;
+            if ($ownItemId <= 0 && !empty($order['joined_order_item_id'])) {
+                $ownItemId = (int)$order['joined_order_item_id'];
+            }
+            $materialContext = function_exists('printflow_anchor_material_context_to_order_item')
+                ? printflow_anchor_material_context_to_order_item(
+                    is_array($payload['items'] ?? null) ? $payload['items'] : [],
+                    $ownItemId,
+                    (string)($order['service_type'] ?? $payload['service_type'] ?? ''),
+                    is_array($payload['customization_details'] ?? null) ? $payload['customization_details'] : [],
+                    (string)($order['width_ft'] ?? $payload['width_ft'] ?? '1'),
+                    (string)($order['height_ft'] ?? $payload['height_ft'] ?? '1')
+                )
+                : [];
+            if ($materialContext !== []) {
+                if (!empty($materialContext['serviceName'])) {
+                    $order['service_type'] = (string)$materialContext['serviceName'];
+                    $order['job_title'] = (string)$materialContext['serviceName'];
+                }
+                if (!empty($materialContext['serviceCategory'])) {
+                    $order['service_category'] = (string)$materialContext['serviceCategory'];
+                }
+                if ((int)($materialContext['serviceId'] ?? 0) > 0) {
+                    $order['service_id'] = (int)$materialContext['serviceId'];
+                }
+                if (!empty($materialContext['firstCustom'])) {
+                    $order['customization_details'] = $materialContext['firstCustom'];
+                }
+                if (!empty($materialContext['widthFt'])) {
+                    $order['width_ft'] = (string)$materialContext['widthFt'];
+                }
+                if (!empty($materialContext['heightFt'])) {
+                    $order['height_ft'] = (string)$materialContext['heightFt'];
+                }
+                if (is_array($materialContext['primaryItem'] ?? null)) {
+                    $order['items'] = [$materialContext['primaryItem']];
+                    $order['quantity'] = max(1, (int)($materialContext['primaryItem']['quantity'] ?? ($order['quantity'] ?? 1)));
+                }
+                if ($ownItemId > 0) {
+                    $order['linked_order_item_id'] = $ownItemId;
                 }
             }
             self::cleanupLegacyAutoAssignedMaterials((int)$id, $storeOid, (string)($payload['service_type'] ?? $order['service_type'] ?? ''));

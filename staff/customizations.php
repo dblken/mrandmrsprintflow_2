@@ -5108,35 +5108,87 @@ window.pfServiceFieldCatalog = (() => {
                 return s === 'TO_PAY';
             },
 
+            resolvePrimaryOrderItem(jo) {
+                if (!jo || !Array.isArray(jo.items) || !jo.items.length) return null;
+                const linkedId = Number(jo.linked_order_item_id || jo.order_item_id || 0);
+                if (linkedId > 0) {
+                    const linkedItem = jo.items.find(item => Number(item && item.order_item_id) === linkedId);
+                    if (linkedItem) return linkedItem;
+                }
+                return jo.items.length === 1 ? jo.items[0] : (jo.items[0] || null);
+            },
+            resolveMaterialServiceContext(jo) {
+                const order = jo || {};
+                const primaryItem = this.resolvePrimaryOrderItem(order);
+                const primaryCustom = (primaryItem && primaryItem.customization && typeof primaryItem.customization === 'object' && !Array.isArray(primaryItem.customization))
+                    ? primaryItem.customization
+                    : ((order.customization_details && typeof order.customization_details === 'object' && !Array.isArray(order.customization_details))
+                        ? order.customization_details
+                        : {});
+                const rawCustom = primaryItem ? this.parseSpecsObject(primaryItem.customization_data) : {};
+
+                let serviceId = Number(order.service_id || primaryItem?.service_id || primaryCustom.service_id || rawCustom.service_id || 0);
+                let serviceCategory = String(
+                    order.service_category
+                    || primaryItem?.service_category
+                    || primaryItem?.category
+                    || primaryCustom.service_category
+                    || ''
+                ).trim();
+                let serviceName = String(
+                    primaryCustom.service_type
+                    || rawCustom.service_type
+                    || (primaryItem && primaryItem.product_name)
+                    || order.service_type
+                    || order.job_title
+                    || ''
+                ).trim();
+                if (serviceName && this.isGenericServiceLabel(serviceName)) {
+                    serviceName = '';
+                }
+                if (!serviceName) {
+                    serviceName = String(this.getCorrectServiceType({
+                        ...order,
+                        service_type: order.service_type || '',
+                        customization_details: primaryCustom,
+                        items: primaryItem ? [primaryItem] : (order.items || [])
+                    }) || '').trim();
+                }
+                const serviceLabel = serviceCategory
+                    || serviceName
+                    || String(order.service_type || order.job_title || 'this service').trim();
+
+                return {
+                    serviceId,
+                    serviceCategory,
+                    serviceName,
+                    serviceLabel,
+                    primaryItem,
+                    primaryCustom,
+                    rawCustom
+                };
+            },
             get materialCompatibilityContext() {
                 const jo = this.currentJo || {};
-                const itemContexts = Array.isArray(jo.items) ? jo.items.map(item => ({
-                    product_type: item && item.product_type,
-                    product_name: item && item.product_name,
-                    customization: item && item.customization,
-                    customization_data: this.parseSpecsObject(item && item.customization_data)
-                })) : [];
-                return {
-                    serviceType: String(jo.service_type || jo.job_title || this.getCorrectServiceType(jo) || '').trim(),
-                    serviceLabel: String(this.getCorrectServiceType(jo) || jo.service_type || jo.job_title || 'this service').trim(),
-                    productType: jo.product_type || '',
-                    souvenirType: jo.souvenir_type || '',
-                    stickerType: jo.sticker_type || '',
-                    cutType: jo.cut_type || '',
-                    customization: [jo.customization_details || {}, ...itemContexts],
-                    customerWidth: parseFloat(jo.width_ft || 0) || 0,
-                    customerHeight: parseFloat(jo.height_ft || 0) || 0,
-                    customerQuantity: parseFloat(jo.quantity || 0) || 0,
-                    serviceKind: window.PrintFlowProductionMaterials.classifyService({
-                        serviceType: String(jo.service_type || jo.job_title || this.getCorrectServiceType(jo) || '').trim(),
-                        serviceLabel: String(this.getCorrectServiceType(jo) || '').trim(),
-                        productType: jo.product_type || '',
-                        souvenirType: jo.souvenir_type || '',
-                        stickerType: jo.sticker_type || '',
-                        cutType: jo.cut_type || '',
-                        customization: [jo.customization_details || {}, ...itemContexts]
-                    })
+                const materialService = this.resolveMaterialServiceContext(jo);
+                const primaryCustom = materialService.primaryCustom || {};
+                const rawCustom = materialService.rawCustom || {};
+                const context = {
+                    serviceId: materialService.serviceId || 0,
+                    serviceCategory: materialService.serviceCategory || '',
+                    serviceType: materialService.serviceName || '',
+                    serviceLabel: materialService.serviceLabel || 'this service',
+                    productType: jo.product_type || primaryCustom.product_type || rawCustom.product_type || '',
+                    souvenirType: jo.souvenir_type || primaryCustom.souvenir_type || rawCustom.souvenir_type || '',
+                    stickerType: jo.sticker_type || primaryCustom.sticker_type || rawCustom.sticker_type || primaryCustom['Sticker Type'] || '',
+                    cutType: jo.cut_type || primaryCustom.cut_type || rawCustom.cut_type || primaryCustom['Cut Type'] || '',
+                    customization: [primaryCustom],
+                    customerWidth: parseFloat(jo.width_ft || primaryCustom.width || primaryCustom.width_ft || 0) || 0,
+                    customerHeight: parseFloat(jo.height_ft || primaryCustom.height || primaryCustom.height_ft || 0) || 0,
+                    customerQuantity: parseFloat(jo.quantity || primaryCustom.quantity || (materialService.primaryItem && materialService.primaryItem.quantity) || 0) || 0
                 };
+                context.serviceKind = window.PrintFlowProductionMaterials.classifyService(context);
+                return context;
             },
             get availableMaterialsForCurrentOrder() {
                 if (!this.currentJo || !Array.isArray(this.allInventoryItems) || !window.PrintFlowProductionMaterials) return [];

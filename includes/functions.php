@@ -3361,6 +3361,132 @@ function customer_orders_resolve_service_name_by_id(int $service_id): string {
     return $cache[$service_id] = trim((string)($rows[0]['name'] ?? ''));
 }
 
+/** Admin canonical service categories (see admin/services_management.php). */
+function printflow_allowed_admin_service_categories(): array {
+    return ['Tarpaulin', 'T-Shirt', 'Stickers', 'Sintraboard Standees', 'Signage', 'Merchandise', 'Print'];
+}
+
+function printflow_canonical_admin_service_category(string $category): string {
+    $category = trim($category);
+    if ($category === '') {
+        return '';
+    }
+    foreach (printflow_allowed_admin_service_categories() as $allowed) {
+        if (strcasecmp($category, $allowed) === 0) {
+            return $allowed;
+        }
+    }
+    return $category;
+}
+
+function customer_orders_resolve_service_category_by_id(int $service_id): string {
+    static $cache = [];
+    if ($service_id <= 0) {
+        return '';
+    }
+    if (array_key_exists($service_id, $cache)) {
+        return $cache[$service_id];
+    }
+    $rows = db_query('SELECT category FROM services WHERE service_id = ? LIMIT 1', 'i', [$service_id]);
+    return $cache[$service_id] = printflow_canonical_admin_service_category((string)($rows[0]['category'] ?? ''));
+}
+
+/**
+ * Re-anchor material recommendation context to the order line a job/modal actually
+ * represents. getStoreOrderItemsPayload() aggregates the whole store order, so the
+ * first line item can leak the wrong service when multiple services share one order.
+ *
+ * @return array{
+ *   serviceName:string,
+ *   serviceCategory:string,
+ *   serviceId:int,
+ *   firstCustom:array,
+ *   widthFt:string,
+ *   heightFt:string,
+ *   jobItemTitle:string,
+ *   primaryItem:?array
+ * }
+ */
+function printflow_anchor_material_context_to_order_item(
+    array $items,
+    int $linkedOrderItemId,
+    string $fallbackServiceName = '',
+    array $fallbackCustom = [],
+    string $fallbackWidth = '1',
+    string $fallbackHeight = '1'
+): array {
+    $serviceName = trim($fallbackServiceName);
+    $serviceCategory = '';
+    $serviceId = 0;
+    $firstCustom = is_array($fallbackCustom) ? $fallbackCustom : [];
+    $widthFt = (string)$fallbackWidth;
+    $heightFt = (string)$fallbackHeight;
+    $jobItemTitle = '';
+    $primaryItem = null;
+
+    if ($linkedOrderItemId > 0) {
+        foreach ($items as $candidateItem) {
+            if ((int)($candidateItem['order_item_id'] ?? 0) !== $linkedOrderItemId) {
+                continue;
+            }
+            $primaryItem = $candidateItem;
+            break;
+        }
+    } elseif (count($items) === 1) {
+        $primaryItem = $items[0] ?? null;
+    }
+
+    if (is_array($primaryItem)) {
+        $ownName = trim((string)($primaryItem['product_name'] ?? ''));
+        if ($ownName !== '' && strcasecmp($ownName, 'Custom Order') !== 0) {
+            $serviceName = $ownName;
+            $jobItemTitle = $ownName . ' - ' . max(1, (int)($primaryItem['quantity'] ?? 0)) . 'pcs';
+        }
+        $ownCustom = is_array($primaryItem['customization'] ?? null) ? $primaryItem['customization'] : [];
+        if ($ownCustom !== []) {
+            $firstCustom = $ownCustom;
+        }
+        if (!empty($ownCustom['width']) && !empty($ownCustom['height'])) {
+            $widthFt = (string)$ownCustom['width'];
+            $heightFt = (string)$ownCustom['height'];
+        }
+        $serviceId = (int)($primaryItem['service_id'] ?? 0);
+        if ($serviceId <= 0) {
+            $serviceId = (int)($ownCustom['service_id'] ?? 0);
+        }
+        $serviceCategory = printflow_canonical_admin_service_category(
+            trim((string)($primaryItem['service_category'] ?? $primaryItem['category'] ?? ''))
+        );
+    }
+
+    if ($serviceId <= 0 && !empty($firstCustom['service_id'])) {
+        $serviceId = (int)$firstCustom['service_id'];
+    }
+    if ($serviceCategory === '' && $serviceId > 0) {
+        $serviceCategory = customer_orders_resolve_service_category_by_id($serviceId);
+    }
+    if ($serviceName === '' && $serviceId > 0) {
+        $resolvedName = customer_orders_resolve_service_name_by_id($serviceId);
+        if ($resolvedName !== '') {
+            $serviceName = $resolvedName;
+        }
+    }
+    if ($serviceName === '' && !empty($firstCustom['service_type'])) {
+        $serviceName = trim((string)$firstCustom['service_type']);
+    }
+
+    return [
+        'serviceName' => $serviceName,
+        'serviceCategory' => $serviceCategory,
+        'serviceId' => $serviceId,
+        'firstCustom' => $firstCustom,
+        'widthFt' => $widthFt,
+        'heightFt' => $heightFt,
+        'jobItemTitle' => $jobItemTitle,
+        'primaryItem' => is_array($primaryItem) ? $primaryItem : null,
+    ];
+}
+
 function customer_orders_primary_customization(array $order): array {
     $itemCustom = customer_orders_decode_customization_payload((string)($order['first_item_customization'] ?? ''));
     $tableCustom = customer_orders_decode_customization_payload((string)($order['first_customization_details'] ?? ''));

@@ -116,32 +116,23 @@ if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type
 }
 
 // Root-cause fix: getStoreOrderItemsPayload() aggregates the WHOLE store order and
-// derives service_type/width/height from the FIRST line item. For mixed-service,
-// multi-item orders that produces the wrong recommendation context (e.g. a
-// Tarpaulin job showing "not suggested for T-Shirt Printing"). Re-anchor the
-// service/dimensions to the specific order_item this job is actually linked to.
-$job_item_title = '';
-if ($linked_job_order_item_id > 0 && count($items_out) > 1) {
-    foreach ($items_out as $candidateItem) {
-        if ((int)($candidateItem['order_item_id'] ?? 0) !== $linked_job_order_item_id) {
-            continue;
-        }
-        $ownName = trim((string)($candidateItem['product_name'] ?? ''));
-        if ($ownName !== '' && strcasecmp($ownName, 'Custom Order') !== 0) {
-            $service_name = $ownName;
-            $job_item_title = $ownName . ' - ' . max(1, (int)($candidateItem['quantity'] ?? 0)) . 'pcs';
-        }
-        $ownCustom = is_array($candidateItem['customization'] ?? null) ? $candidateItem['customization'] : [];
-        if (!empty($ownCustom['width']) && !empty($ownCustom['height'])) {
-            $width_ft = (string)$ownCustom['width'];
-            $height_ft = (string)$ownCustom['height'];
-        }
-        if (!empty($ownCustom)) {
-            $first_custom = $ownCustom;
-        }
-        break;
-    }
-}
+// derives service_type/width/height from the FIRST line item. Re-anchor the
+// service/dimensions/category to the order_item this job is actually linked to.
+$materialContext = printflow_anchor_material_context_to_order_item(
+    $items_out,
+    $linked_job_order_item_id,
+    $service_name,
+    $first_custom,
+    $width_ft,
+    $height_ft
+);
+$service_name = (string)($materialContext['serviceName'] ?? $service_name);
+$service_category = (string)($materialContext['serviceCategory'] ?? '');
+$service_id = (int)($materialContext['serviceId'] ?? 0);
+$first_custom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $first_custom;
+$width_ft = (string)($materialContext['widthFt'] ?? $width_ft);
+$height_ft = (string)($materialContext['heightFt'] ?? $height_ft);
+$job_item_title = (string)($materialContext['jobItemTitle'] ?? '');
 
 $materials = [];
 if ($includeAssignments && $linked_job_id) {
@@ -303,6 +294,10 @@ $data = [
     'customer_contact' => $o['customer_contact'] ?? '',
     'customer_type' => ((int)($o['transaction_count'] ?? 0) < 3 ? 'NEW' : 'REGULAR'),
     'service_type' => $service_name,
+    'service_id' => $service_id > 0 ? $service_id : null,
+    'service_category' => $service_category,
+    'linked_order_item_id' => $linked_job_order_item_id > 0 ? $linked_job_order_item_id : null,
+    'customization_details' => $first_custom,
     'job_title' => $job_item_title !== '' ? $job_item_title : implode(', ', array_map(static function ($i) {
         return (string)($i['product_name'] ?? 'Order Item') . ' - ' . max(1, (int)($i['quantity'] ?? 0)) . 'pcs';
     }, $items_out)),
