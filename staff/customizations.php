@@ -4371,21 +4371,21 @@ window.pfServiceFieldCatalog = (() => {
                     height: ['height', 'Height', 31],
                     height_ft: ['height', 'Height', 31],
                     heightft: ['height', 'Height', 31],
-                    size: ['dimensions', 'Size / Dimensions', 32],
-                    sizes: ['dimensions', 'Size / Dimensions', 32],
-                    dimension: ['dimensions', 'Size / Dimensions', 32],
-                    dimensions: ['dimensions', 'Size / Dimensions', 32],
-                    dimensions_ft: ['dimensions', 'Size / Dimensions', 32],
-                    dimensionsft: ['dimensions', 'Size / Dimensions', 32],
-                    dimension_ft: ['dimensions', 'Size / Dimensions', 32],
-                    size_dimensions: ['dimensions', 'Size / Dimensions', 32],
+                    size: ['dimensions', 'Dimensions', 32],
+                    sizes: ['dimensions', 'Dimensions', 32],
+                    dimension: ['dimensions', 'Dimensions', 32],
+                    dimensions: ['dimensions', 'Dimensions', 32],
+                    dimensions_ft: ['dimensions', 'Dimensions', 32],
+                    dimensionsft: ['dimensions', 'Dimensions', 32],
+                    dimension_ft: ['dimensions', 'Dimensions', 32],
+                    size_dimensions: ['dimensions', 'Dimensions', 32],
                     dimensions_width: ['width', 'Width', 30],
                     dimensions_height: ['height', 'Height', 31],
                     dimension_width: ['width', 'Width', 30],
                     dimension_height: ['height', 'Height', 31],
                     size_width: ['width', 'Width', 30],
                     size_height: ['height', 'Height', 31],
-                    tarp_size: ['dimensions', 'Size / Dimensions', 32],
+                    tarp_size: ['dimensions', 'Dimensions', 32],
                     total_sqft: ['total_area', 'Total Area', 33],
                     totalsqft: ['total_area', 'Total Area', 33],
                     total_sq_ft: ['total_area', 'Total Area', 33],
@@ -4572,16 +4572,13 @@ window.pfServiceFieldCatalog = (() => {
                 const order = jo || this.currentJo || {};
                 const materialService = this.resolveMaterialServiceContext(order);
                 const primaryItem = materialService.primaryItem || this.resolvePrimaryOrderItem(order);
-                const specs = this.staffEnrichDimensionSpecs(
-                    materialService.primaryCustom && typeof materialService.primaryCustom === 'object'
-                        ? { ...materialService.primaryCustom }
-                        : (order.customization_details && typeof order.customization_details === 'object'
-                            ? { ...order.customization_details }
-                            : {}),
-                    primaryItem
-                );
+                const rawSpecs = materialService.primaryCustom && typeof materialService.primaryCustom === 'object'
+                    ? { ...materialService.primaryCustom }
+                    : (order.customization_details && typeof order.customization_details === 'object'
+                        ? { ...order.customization_details }
+                        : {});
                 const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(primaryItem || order));
-                const parts = this.staffExtractDimensionParts(specs, profile && profile.dimensionField ? profile.dimensionField : null);
+                const parts = this.staffExtractDimensionParts(rawSpecs, profile && profile.dimensionField ? profile.dimensionField : null);
                 const parsePositive = (value) => {
                     const parsed = parseFloat(value);
                     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -4616,7 +4613,10 @@ window.pfServiceFieldCatalog = (() => {
                     read(dimensionField && dimensionField.label ? dimensionField.label : ''),
                     read('Dimensions'),
                     read('Size'),
-                    read('Size (ft)')
+                    read('Size (ft)'),
+                    read('dimensions_ft'),
+                    read('Dimensions (ft)'),
+                    read('Size / Dimensions')
                 ].filter(Boolean);
                 for (const combined of combinedCandidates) {
                     const match = combined.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
@@ -4627,12 +4627,62 @@ window.pfServiceFieldCatalog = (() => {
                         return { width: '', height: '', combined };
                     }
                 }
-                const width = read(widthKey) || read('width') || read('width_ft') || read('Width');
-                const height = read(heightKey) || read('height') || read('height_ft') || read('Height');
+                const width = read(widthKey) || read('width') || read('width_ft') || read('Width')
+                    || read('dimensions_width') || read('dimension_width') || read('size_width');
+                const height = read(heightKey) || read('height') || read('height_ft') || read('Height')
+                    || read('dimensions_height') || read('dimension_height') || read('size_height');
                 if (this.staffMeaningfulSpecValue(width) && this.staffMeaningfulSpecValue(height)) {
                     return { width, height, combined: width + ' x ' + height };
                 }
+                for (const [key, value] of Object.entries(specs)) {
+                    if (typeof key !== 'string') continue;
+                    const token = this.staffCustomizationKeyToken(key);
+                    if (!token.endsWith('_width')) continue;
+                    const base = token.slice(0, -6);
+                    const pairedHeightKey = Object.keys(specs).find((candidate) => {
+                        return this.staffCustomizationKeyToken(candidate) === base + '_height';
+                    });
+                    if (!pairedHeightKey) continue;
+                    const pairedWidth = this.staffCustomizationValueText(value);
+                    const pairedHeight = this.staffCustomizationValueText(specs[pairedHeightKey]);
+                    if (this.staffMeaningfulSpecValue(pairedWidth) && this.staffMeaningfulSpecValue(pairedHeight)) {
+                        return { width: pairedWidth, height: pairedHeight, combined: pairedWidth + ' x ' + pairedHeight };
+                    }
+                }
                 return null;
+            },
+            staffFormatDimensionDisplayValue(parts) {
+                if (!parts) return '';
+                if (parts.width && parts.height) {
+                    const widthNum = parseFloat(parts.width);
+                    const heightNum = parseFloat(parts.height);
+                    if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && (widthNum > 0 || heightNum > 0)) {
+                        const wText = String(widthNum).replace(/\.?0+$/, '');
+                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        return wText + ' × ' + hText + ' ft';
+                    }
+                }
+                const combined = String(parts.combined || '').trim();
+                if (!combined) return '';
+                const normalized = combined
+                    .replace(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i, '$1 × $2')
+                    .replace(/\s*(?:ft|feet)\s*$/i, '')
+                    .trim();
+                if (/(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)/.test(normalized)) {
+                    return normalized + ' ft';
+                }
+                return combined;
+            },
+            staffDimensionDisplayStripKeys() {
+                return [
+                    'dimensions', 'Dimensions', 'Size', 'Size (ft)', 'Size / Dimensions',
+                    'dimensions_ft', 'Dimensions (ft)',
+                    'width', 'height', 'width_ft', 'height_ft', 'Width', 'Height',
+                    'dimension_width', 'dimension_height', 'dimensions_width', 'dimensions_height',
+                    'size_width', 'size_height',
+                    'total_sqft', 'total_sq_ft', 'total_area', 'area_sqft', 'areasqft', 'totalsqft',
+                    'Total Sqft', 'Total Area', 'Total Sq Ft', 'Area Sqft'
+                ];
             },
             staffEnrichDimensionSpecs(specs, item) {
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return specs || {};
@@ -4642,28 +4692,19 @@ window.pfServiceFieldCatalog = (() => {
                 const parts = this.staffExtractDimensionParts(out, dimensionField);
                 if (!parts) return out;
 
-                const displayLabel = 'Size / Dimensions';
-                let displayValue = parts.combined || '';
-                if (parts.width && parts.height) {
-                    const widthNum = parseFloat(parts.width);
-                    const heightNum = parseFloat(parts.height);
-                    if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && (widthNum > 0 || heightNum > 0)) {
-                        const wText = String(widthNum).replace(/\.?0+$/, '');
-                        const hText = String(heightNum).replace(/\.?0+$/, '');
-                        displayValue = wText + ' x ' + hText + ' ft';
-                    }
-                }
+                const displayLabel = 'Dimensions';
+                const displayValue = this.staffFormatDimensionDisplayValue(parts);
                 if (!this.staffMeaningfulSpecValue(displayValue)) return out;
 
                 out[displayLabel] = displayValue;
                 const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
-                [
-                    fieldKey, fieldKey + '_width', fieldKey + '_height',
-                    'dimensions', 'Dimensions', 'Size', 'Size (ft)', 'Size / Dimensions',
-                    'width', 'height', 'width_ft', 'height_ft', 'Width', 'Height',
-                    'dimension_width', 'dimension_height', 'dimensions_width', 'dimensions_height',
-                    'size_width', 'size_height'
-                ].forEach((key) => {
+                const stripKeys = new Set([
+                    fieldKey,
+                    fieldKey + '_width',
+                    fieldKey + '_height',
+                    ...this.staffDimensionDisplayStripKeys()
+                ]);
+                stripKeys.forEach((key) => {
                     if (Object.prototype.hasOwnProperty.call(out, key) && key !== displayLabel) {
                         delete out[key];
                     }
@@ -4684,7 +4725,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (meta.hidden || meta.design) return false;
 
                 const labelToken = this.staffCustomizationKeyToken(label);
-                if (label === 'Size / Dimensions' || meta.group === 'dimensions') {
+                if (label === 'Dimensions' || label === 'Size / Dimensions' || meta.group === 'dimensions') {
                     return profile.allowedGroups.has('dimensions')
                         || profile.allowedGroups.has('width')
                         || profile.allowedGroups.has('height')
@@ -4765,6 +4806,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (meta.group === 'notes' && !includeNotes) continue;
                     if (meta.group === 'quantity' && !includeQuantity) continue;
                     if (meta.design && !includeDesign) continue;
+                    if (meta.group === 'total_area' && (presentGroups.dimensions || (presentGroups.width && presentGroups.height))) continue;
                     if (meta.group === 'dimensions' && presentGroups.width && presentGroups.height) continue;
                     if ((meta.group === 'width' || meta.group === 'height') && presentGroups.dimensions) continue;
                     if ((token.endsWith('_width') || token.endsWith('_height')) && presentGroups.dimensions) continue;
@@ -4992,7 +5034,7 @@ window.pfServiceFieldCatalog = (() => {
                     || token.includes('design');
             },
             staffSpecIsRedundantDimensionPart(key, specs, item) {
-                if (key === 'Size / Dimensions') return false;
+                if (key === 'Dimensions' || key === 'Size / Dimensions') return false;
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return false;
                 const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
                 const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
@@ -5008,7 +5050,7 @@ window.pfServiceFieldCatalog = (() => {
                 return false;
             },
             getCustomLabel(k) {
-                if (k === 'Size / Dimensions') return 'Size / Dimensions';
+                if (k === 'Dimensions' || k === 'Size / Dimensions') return 'Dimensions';
                 return this.customFieldLabels[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             },
             formatRevisionAuditValue(value) {
