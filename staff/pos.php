@@ -3451,7 +3451,20 @@ try {
 
                 const wh = row.querySelector('[data-dimension-role="width"], #width_hidden');
                 const hh = row.querySelector('[data-dimension-role="height"], #height_hidden');
-                if (wh && hh && wh.value && hh.value) setCustomizationValue(customization, row, wh, wh.value + 'x' + hh.value);
+                if (wh && hh && wh.value && hh.value) {
+                    const fieldKey = serviceFieldKey(row, wh.name || hh.name || '');
+                    const widthVal = String(wh.value).trim();
+                    const heightVal = String(hh.value).trim();
+                    if (fieldKey) {
+                        customization[fieldKey] = widthVal + 'x' + heightVal;
+                        customization[fieldKey + '_width'] = widthVal;
+                        customization[fieldKey + '_height'] = heightVal;
+                    }
+                    if (fieldKey === 'dimensions') {
+                        customization.width = widthVal;
+                        customization.height = heightVal;
+                    }
+                }
 
                 const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
@@ -5152,6 +5165,12 @@ try {
                 });
                 const data = await res.json();
                 if (data.success && data.order_id) {
+                    await syncedCartAction('update_service_link', {
+                        index,
+                        pending_order_id: parseInt(data.order_id, 10) || 0,
+                        customization_id: parseInt(data.customization_id, 10) || 0
+                    }, { silentErrors: true });
+
                     const hadDesignUpload = !!(
                         item.customization?.design_upload_data
                         || item.customization?.design_upload_path

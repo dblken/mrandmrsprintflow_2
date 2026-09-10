@@ -13,6 +13,7 @@ require_once __DIR__ . '/../../includes/runtime_config.php';
 require_once __DIR__ . '/../../includes/provider_payments.php';
 require_once __DIR__ . '/../../includes/pos_receipt.php';
 require_once __DIR__ . '/../../includes/pos_receipt_printer.php';
+require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 
 function pos_payload_item_is_service(array $item): bool {
     if (!empty($item['is_service'])) {
@@ -882,6 +883,14 @@ $data = json_decode($json, true);
 
 if (!$data) {
     echo json_encode(['success' => false, 'message' => 'Invalid JSON data.']);
+    exit;
+}
+
+// Void an unfinalized POS Set Price draft (cart removal / explicit cancel).
+if (isset($data['action']) && $data['action'] === 'void_pos_draft') {
+    $orderId = (int)($data['order_id'] ?? 0);
+    $voidResult = pos_void_unfinalized_draft($orderId);
+    echo json_encode($voidResult);
     exit;
 }
 

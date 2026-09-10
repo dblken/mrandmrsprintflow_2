@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/product_option_stock.php';
 require_once __DIR__ . '/../../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 
 // Require staff or admin role
 if (!has_role(['Admin', 'Staff'])) {
@@ -401,12 +402,32 @@ try {
         case 'remove':
             $index = isset($data['index']) ? (int)$data['index'] : -1;
             if ($index >= 0 && isset($_SESSION['pos_cart'][$index])) {
+                $draftOrderIds = pos_cart_item_draft_order_ids((array)$_SESSION['pos_cart'][$index]);
                 array_splice($_SESSION['pos_cart'], $index, 1);
+                pos_void_unfinalized_drafts($draftOrderIds);
             }
             break;
 
         case 'clear':
+            $draftOrderIds = [];
+            foreach ($_SESSION['pos_cart'] as $cartItem) {
+                $draftOrderIds = array_merge($draftOrderIds, pos_cart_item_draft_order_ids((array)$cartItem));
+            }
+            if (isset($_SESSION['pos_pending_orders']) && is_array($_SESSION['pos_pending_orders'])) {
+                foreach ($_SESSION['pos_pending_orders'] as $pendingOrderId) {
+                    $draftOrderIds[] = (int)$pendingOrderId;
+                }
+            }
             $_SESSION['pos_cart'] = [];
+            pos_void_unfinalized_drafts($draftOrderIds);
+            break;
+
+        case 'void_draft':
+            $orderId = (int)($data['order_id'] ?? 0);
+            $voidResult = pos_void_unfinalized_draft($orderId);
+            if (!$voidResult['success']) {
+                throw new Exception($voidResult['message'] ?? 'Unable to void draft order.');
+            }
             break;
 
         case 'get':

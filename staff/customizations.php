@@ -1574,18 +1574,33 @@ $online_closed_count = 0;
             padding: 10px 12px;
             border: 0;
             border-bottom: 1px solid #eef2f7;
+            border-left: 3px solid transparent;
             background: #fff;
             color: #334155;
             text-align: left;
             cursor: pointer;
+            transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
         }
         .production-material-option:last-child { border-bottom: 0; }
         .production-material-option:hover,
-        .production-material-option.is-active { background: #f0fdfa; }
+        .production-material-option.is-active {
+            background: rgba(var(--staff-accent-rgb), 0.08);
+            border-left-color: rgba(var(--staff-accent-rgb), 0.45);
+            box-shadow: inset 0 0 0 1px rgba(var(--staff-accent-rgb), 0.12);
+        }
+        .production-material-option.is-selected {
+            background: rgba(var(--staff-accent-rgb), 0.14);
+            border-left-color: var(--staff-primary);
+            box-shadow: inset 0 0 0 1px rgba(var(--staff-accent-rgb), 0.28);
+        }
+        .production-material-option.is-selected.is-unrelated,
+        .production-material-option.is-selected.is-out-of-stock {
+            background: rgba(var(--staff-accent-rgb), 0.08);
+        }
         .production-material-option:focus-visible {
             position: relative;
             z-index: 1;
-            outline: 3px solid rgba(15, 118, 110, .24);
+            outline: 3px solid rgba(var(--staff-accent-rgb), 0.28);
             outline-offset: -3px;
         }
         .production-material-option.is-recommended { background: #f0fdfa; }
@@ -1626,6 +1641,26 @@ $online_closed_count = 0;
             line-height: 1.3;
             text-align: right;
             color: #0f766e;
+        }
+        .production-material-option__selected-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 4px;
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: var(--staff-primary);
+            color: #fff;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            line-height: 1.2;
+        }
+        .production-material-option__selected-badge svg {
+            width: 10px;
+            height: 10px;
+            flex-shrink: 0;
         }
         .production-material-option.is-unrelated .production-material-option__status { color: #64748b; }
         .production-material-empty {
@@ -2471,7 +2506,8 @@ $online_closed_count = 0;
                                                                     'is-recommended': item.compatibility.tier === 'recommended',
                                                                     'is-unrelated': item.compatibility.tier === 'unrelated' || item.compatibility.tier === 'unverified',
                                                                     'is-out-of-stock': !item.compatibility.inStock,
-                                                                    'is-active': index === materialListActiveIndex
+                                                                    'is-active': index === materialListActiveIndex,
+                                                                    'is-selected': String(newMaterialId) === String(item.id)
                                                                 }"
                                                                 :disabled="!item.compatibility.selectable"
                                                                 :aria-disabled="item.compatibility.selectable ? 'false' : 'true'"
@@ -2487,6 +2523,10 @@ $online_closed_count = 0;
                                                             <span class="production-material-option__main">
                                                                 <span class="production-material-option__name" x-text="item.name"></span>
                                                                 <span class="production-material-option__meta" x-text="materialMetaLabel(item)"></span>
+                                                                <span class="production-material-option__selected-badge" x-show="String(newMaterialId) === String(item.id)" aria-hidden="true">
+                                                                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>
+                                                                    Selected
+                                                                </span>
                                                             </span>
                                                             <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
                                                         </button>
@@ -4481,6 +4521,7 @@ window.pfServiceFieldCatalog = (() => {
                 const allowedTokenNorms = new Set();
                 const allowedLabelNorms = new Set();
                 const designField = { hasDesign: false, label: 'Uploaded Design' };
+                let dimensionField = null;
                 const fields = catalog.fields.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
 
                 fields.forEach((field) => {
@@ -4490,6 +4531,21 @@ window.pfServiceFieldCatalog = (() => {
                     const fieldType = String(field.type || 'text').trim().toLowerCase();
                     const fieldToken = this.staffCustomizationKeyToken(fieldKey);
                     const labelToken = this.staffCustomizationKeyToken(fieldLabel);
+
+                    if (fieldType === 'dimension') {
+                        dimensionField = {
+                            key: fieldKey,
+                            label: fieldLabel || 'Dimensions'
+                        };
+                        allowedGroups.add('dimensions');
+                        allowedGroups.add('width');
+                        allowedGroups.add('height');
+                        this.staffServiceFieldAliasTokens(fieldKey).forEach((alias) => allowedTokenNorms.add(alias));
+                        allowedTokenNorms.add(this.staffCustomizationKeyToken(fieldKey + '_width'));
+                        allowedTokenNorms.add(this.staffCustomizationKeyToken(fieldKey + '_height'));
+                        if (labelToken) allowedLabelNorms.add(labelToken);
+                        return;
+                    }
 
                     if (fieldType === 'file') {
                         const isDesign = fieldToken.includes('design')
@@ -4524,10 +4580,77 @@ window.pfServiceFieldCatalog = (() => {
                     allowedGroups,
                     allowedTokenNorms,
                     allowedLabelNorms,
-                    designField
+                    designField,
+                    dimensionField
                 };
                 this.staffServiceSpecProfileCache[sid] = profile;
                 return profile;
+            },
+            staffExtractDimensionParts(specs, dimensionField) {
+                if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return null;
+                const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
+                const widthKey = fieldKey + '_width';
+                const heightKey = fieldKey + '_height';
+                const read = (key) => {
+                    if (!Object.prototype.hasOwnProperty.call(specs, key)) return '';
+                    return this.staffCustomizationValueText(specs[key]);
+                };
+                const combinedCandidates = [
+                    read(fieldKey),
+                    read(dimensionField && dimensionField.label ? dimensionField.label : ''),
+                    read('Dimensions'),
+                    read('Size'),
+                    read('Size (ft)')
+                ].filter(Boolean);
+                for (const combined of combinedCandidates) {
+                    const match = combined.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+                    if (match) {
+                        return { width: match[1], height: match[2], combined: combined };
+                    }
+                    if (this.staffMeaningfulSpecValue(combined)) {
+                        return { width: '', height: '', combined };
+                    }
+                }
+                const width = read(widthKey) || read('width') || read('width_ft') || read('Width');
+                const height = read(heightKey) || read('height') || read('height_ft') || read('Height');
+                if (this.staffMeaningfulSpecValue(width) && this.staffMeaningfulSpecValue(height)) {
+                    return { width, height, combined: width + ' x ' + height };
+                }
+                return null;
+            },
+            staffEnrichDimensionSpecs(specs, item) {
+                if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return specs || {};
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
+                const out = { ...specs };
+                const parts = this.staffExtractDimensionParts(out, dimensionField);
+                if (!parts) return out;
+
+                const displayLabel = (dimensionField && dimensionField.label) ? dimensionField.label : 'Dimensions';
+                let displayValue = parts.combined || '';
+                if (parts.width && parts.height) {
+                    const widthNum = parseFloat(parts.width);
+                    const heightNum = parseFloat(parts.height);
+                    if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && (widthNum > 0 || heightNum > 0)) {
+                        const wText = String(widthNum).replace(/\.?0+$/, '');
+                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        displayValue = wText + ' x ' + hText + ' ft';
+                    }
+                }
+                if (!this.staffMeaningfulSpecValue(displayValue)) return out;
+
+                out[displayLabel] = displayValue;
+                const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
+                [
+                    fieldKey, fieldKey + '_width', fieldKey + '_height',
+                    'dimensions', 'Dimensions', 'Size', 'Size (ft)',
+                    'width', 'height', 'width_ft', 'height_ft', 'Width', 'Height'
+                ].forEach((key) => {
+                    if (Object.prototype.hasOwnProperty.call(out, key) && key !== displayLabel) {
+                        delete out[key];
+                    }
+                });
+                return out;
             },
             staffMeaningfulSpecValue(value) {
                 const text = this.staffCustomizationValueText(value);
@@ -4764,8 +4887,9 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return [];
 
+                const enrichedCustom = this.staffEnrichDimensionSpecs(sourceCustom, item);
                 const isDetail = !!this.showDetailsModal;
-                const normalized = this.staffCustomizationDisplaySpecs(sourceCustom, {
+                const normalized = this.staffCustomizationDisplaySpecs(enrichedCustom, {
                     includeService: !isDetail,
                     includeDesign: false,
                     includeNotes: false,

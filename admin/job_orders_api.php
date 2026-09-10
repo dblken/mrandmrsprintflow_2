@@ -637,7 +637,7 @@ function jo_api_resolve_order_source(?int $orderId, $currentSource = null): stri
                 "UPDATE orders
                  SET order_source = 'pos'
                  WHERE order_id = ?
-                   AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged')",
+                   AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged', 'pos_draft')",
                 'i',
                 [$orderId]
             );
@@ -709,7 +709,9 @@ function jo_api_resolve_order_sources_batch(array $rows): array {
         }
 
         $isWalkInGuest = strtolower(trim((string)($row['customer_email'] ?? ''))) === 'walkin@pos.local';
-        if ($isWalkInGuest || !empty($row['has_pos_customization']) || !empty($row['has_pos_order_item'])) {
+        if ($dbSource === 'pos_draft') {
+            $sourceMap[$orderId] = 'pos_draft';
+        } elseif ($isWalkInGuest || !empty($row['has_pos_customization']) || !empty($row['has_pos_order_item'])) {
             $sourceMap[$orderId] = 'pos';
             $posIdsToPersist[] = $orderId;
         } else {
@@ -723,7 +725,7 @@ function jo_api_resolve_order_sources_batch(array $rows): array {
             "UPDATE orders
              SET order_source = 'pos'
              WHERE order_id IN ({$posIdList})
-               AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged')"
+               AND LOWER(TRIM(COALESCE(order_source, ''))) NOT IN ('pos', 'walk-in', 'pos_merged', 'pos_draft')"
         );
     }
 
@@ -1114,6 +1116,8 @@ try {
             }
             if ($listSource === 'pos') {
                 $sql .= " AND jo.order_id IS NOT NULL
+                          AND LOWER(TRIM(COALESCE(o.order_source, ''))) NOT IN ('pos_draft', 'pos_merged')
+                          AND LOWER(TRIM(COALESCE(o.status, ''))) NOT IN ('draft', 'cancelled')
                           AND (LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
                                OR LOWER(TRIM(COALESCE(c.email, ''))) = 'walkin@pos.local')";
             } elseif ($listSource === 'online') {
