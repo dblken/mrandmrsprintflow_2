@@ -276,26 +276,45 @@ try {
         }
 
         .pos-search-header {
-            padding: 20px;
+            padding: 16px 20px;
             background: #ffffff;
             border-bottom: 1px solid #e2e8f0;
-            display: flex;
-            gap: 10px;
+            display: grid;
+            grid-template-columns: minmax(220px, 1.45fr) minmax(160px, 1fr) minmax(150px, 0.75fr) auto;
+            gap: 12px;
             align-items: center;
+        }
+
+        .pos-toolbar-field {
+            min-width: 0;
+        }
+
+        .pos-toolbar-sr-label {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
 
         .pos-search-box {
             position: relative;
-            flex: 1;
-            max-width: 400px;
+            width: 100%;
         }
 
         .pos-barcode-scan {
             display: flex;
             flex-direction: column;
             gap: 6px;
-            flex: 0 1 300px;
-            min-width: 240px;
+            min-width: 0;
+        }
+
+        .pos-search-header .pos-barcode-scan {
+            gap: 0;
         }
 
         .pos-barcode-scan label {
@@ -303,6 +322,49 @@ try {
             font-weight: 700;
             color: #475569;
             line-height: 1;
+        }
+
+        .pos-btn-back {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            height: 44px;
+            padding: 0 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: #475569;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, color 0.2s;
+            white-space: nowrap;
+        }
+
+        .pos-btn-back:hover {
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+            color: #334155;
+        }
+
+        .pos-btn-back i {
+            color: var(--staff-primary);
+            font-size: 13px;
+        }
+
+        @media (max-width: 1100px) {
+            .pos-search-header {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .pos-toolbar-sku {
+                grid-column: 1 / -1;
+            }
+
+            .pos-btn-back {
+                justify-self: start;
+            }
         }
 
         .pos-barcode-box {
@@ -329,11 +391,12 @@ try {
             width: 100%;
             padding: 12px 16px 12px 36px;
             border: 1px solid #cbd5e1;
-            border-radius: 8px;
+            border-radius: 10px;
             font-size: 14px;
             outline: none;
             transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
             height: 44px;
+            box-sizing: border-box;
             background: #ffffff;
             color: #334155;
         }
@@ -344,16 +407,16 @@ try {
         }
 
         .pos-category-select {
-            padding: 12px 16px;
+            padding: 0 16px;
             border: 1px solid #cbd5e1;
-            border-radius: 8px;
+            border-radius: 10px;
             background: #ffffff;
             font-size: 14px;
-            width: 160px;
-            flex-shrink: 0;
+            width: 100%;
             outline: none;
             cursor: pointer;
             height: 44px;
+            box-sizing: border-box;
         }
 
         .pos-products-grid {
@@ -523,11 +586,27 @@ try {
         .pos-customer-label {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
+            align-items: center;
+            margin-bottom: 10px;
             font-size: 12px;
             font-weight: 700;
             color: #64748b;
             text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .pos-section-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pos-section-label i {
+            color: var(--staff-primary);
+            font-size: 13px;
+            opacity: 0.9;
+            width: 16px;
+            text-align: center;
         }
 
         .pos-btn-link {
@@ -567,42 +646,95 @@ try {
         }
 
         .pos-cart-item {
-            display: flex;
-            align-items: center;
-            padding: 10px 14px;
+            display: block;
+            padding: 14px;
             border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            margin-bottom: 8px;
+            border-radius: 12px;
+            margin-bottom: 10px;
             background: #fff;
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
-            transition: all 0.2s;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
         }
 
         .pos-cart-item:hover {
-            border-color: var(--staff-primary);
-            background: #f8fafc;
+            border-color: rgba(var(--staff-accent-rgb), 0.35);
+            background: #fcfdfe;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+        }
+
+        .pos-cart-item-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .pos-cart-item-bottom {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 12px;
+            align-items: center;
         }
 
         .pos-item-details {
             flex: 1;
-            padding-right: 12px;
             min-width: 0;
         }
 
         .pos-item-name {
-            font-size: 14px;
-            font-weight: 600;
-            color: #1e293b;
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
             margin-bottom: 4px;
-            line-height: 1.2;
-            white-space: nowrap;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
             overflow: hidden;
-            text-overflow: ellipsis;
+        }
+
+        .pos-item-meta {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 4px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
 
         .pos-item-price {
+            font-size: 13px;
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .pos-btn-set-price {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 2px;
+            padding: 6px 12px;
+            background: #edf4fc;
+            border: 1px solid #bfdbfe;
+            border-radius: 999px;
             font-size: 12px;
-            color: #64748b;
+            font-weight: 700;
+            color: #2f6fae;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        .pos-btn-set-price:hover {
+            background: #dbeafe;
+            border-color: #93c5fd;
+            color: #1d4ed8;
+        }
+
+        .pos-btn-set-price i {
+            font-size: 11px;
         }
 
         .pos-item-controls {
@@ -610,8 +742,9 @@ try {
             align-items: center;
             background: #f8fafc;
             border: 1px solid #e2e8f0;
-            border-radius: 6px;
+            border-radius: 10px;
             overflow: hidden;
+            flex-shrink: 0;
         }
 
         .pos-qty-btn {
@@ -641,32 +774,54 @@ try {
         }
 
         .pos-item-total {
-            font-weight: 700;
-            font-size: 14px;
-            min-width: 60px;
+            font-weight: 800;
+            font-size: 15px;
+            min-width: 72px;
             text-align: right;
-            margin-left: 12px;
+            color: #0f172a;
+            flex-shrink: 0;
         }
 
         .pos-item-remove {
-            color: #ef4444;
-            background: none;
-            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #dc2626;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
             cursor: pointer;
-            margin-left: 12px;
-            padding: 4px;
-            opacity: 0.6;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1;
+            flex-shrink: 0;
+            transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+        }
+
+        .pos-item-remove i {
+            font-size: 12px;
         }
 
         .pos-item-remove:hover {
-            opacity: 1;
+            background: #fee2e2;
+            border-color: #fca5a5;
+            color: #b91c1c;
+            box-shadow: 0 2px 8px rgba(220, 38, 38, 0.12);
         }
 
         .pos-checkout-section {
-            padding: 16px 20px;
+            padding: 18px 20px 20px;
             background: #f8fafc;
             border-top: 1px solid #e2e8f0;
             flex-shrink: 0;
+        }
+
+        .pos-payment-summary {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            margin-bottom: 16px;
         }
 
         @media (max-height: 800px) {
@@ -710,41 +865,118 @@ try {
         .pos-summary-line {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
+            align-items: center;
+            gap: 12px;
             font-size: 14px;
             color: #475569;
+        }
+
+        .pos-summary-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: #475569;
+        }
+
+        .pos-summary-label i {
+            color: var(--staff-primary);
+            font-size: 13px;
+            opacity: 0.9;
+            width: 16px;
+            text-align: center;
+        }
+
+        .pos-summary-amount {
+            font-weight: 700;
+            color: #1e293b;
+            text-align: right;
         }
 
         .pos-summary-total {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px dashed #cbd5e1;
-            font-size: 20px;
+            gap: 12px;
+            padding-top: 14px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 22px;
             font-weight: 800;
-            color: #1e293b;
+            color: #0f172a;
         }
 
+        .pos-summary-total .pos-summary-label {
+            font-size: 15px;
+            font-weight: 700;
+            color: #334155;
+        }
 
+        .pos-summary-total .pos-summary-amount {
+            font-size: 22px;
+            font-weight: 800;
+            color: #0f172a;
+        }
 
-        .pos-tender-group {
+        .pos-summary-change {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            gap: 12px;
+        }
+
+        .pos-summary-change .pos-summary-amount {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--staff-primary);
+        }
+
+        .pos-tender-group {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 0;
+        }
+
+        .pos-payment-field {
+            min-width: 148px;
+            width: 100%;
+            max-width: 180px;
+            justify-self: end;
+        }
+
+        .pos-tender-wrap {
+            position: relative;
+            min-width: 148px;
+            max-width: 180px;
+            width: 100%;
+            justify-self: end;
+        }
+
+        .pos-tender-prefix {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-weight: 700;
+            color: #94a3b8;
+            pointer-events: none;
         }
 
         .pos-tender-input {
-            width: 140px;
-            padding: 10px;
+            width: 100%;
+            min-width: 148px;
+            max-width: 180px;
+            height: 44px;
+            padding: 0 12px 0 28px;
             border: 1px solid #cbd5e1;
-            border-radius: 8px;
+            border-radius: 10px;
             text-align: right;
             font-weight: 700;
             font-size: 16px;
             outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
         }
 
         .pos-tender-input:focus {
@@ -756,7 +988,8 @@ try {
 
         .pos-btn-checkout {
             width: 100%;
-            padding: 16px;
+            min-height: 52px;
+            padding: 14px 18px;
             background: var(--staff-pos-button-bg);
             color: white;
             border: none;
@@ -766,10 +999,10 @@ try {
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             cursor: pointer;
             transition: all 0.2s;
-            box-shadow: 0 12px 26px var(--staff-pos-button-shadow);
+            box-shadow: 0 10px 24px var(--staff-pos-button-shadow);
         }
 
         .pos-btn-checkout:hover {
@@ -1565,10 +1798,13 @@ try {
             
             /* Fix squished headers */
             .pos-search-header {
-                flex-direction: column;
-                align-items: stretch !important;
+                grid-template-columns: 1fr 1fr;
                 padding: 16px !important;
                 gap: 12px !important;
+            }
+            .pos-toolbar-sku,
+            .pos-toolbar-search {
+                grid-column: 1 / -1;
             }
             .pos-search-box,
             .pos-barcode-scan {
@@ -1576,9 +1812,28 @@ try {
                 width: 100%;
             }
             .pos-search-header .pos-category-select,
-            .pos-search-header button {
+            .pos-search-header .pos-btn-back {
                 width: 100% !important;
+            }
+            .pos-btn-back {
+                grid-column: 1 / -1;
                 justify-content: center;
+            }
+            .pos-cart-item-bottom {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            .pos-item-total {
+                text-align: left;
+            }
+            .pos-tender-group {
+                grid-template-columns: 1fr;
+            }
+            .pos-payment-field,
+            .pos-tender-wrap,
+            .pos-tender-input {
+                max-width: none !important;
+                justify-self: stretch;
             }
             
             .pos-services-header {
@@ -1706,31 +1961,34 @@ try {
                         <!-- Products View -->
                         <div id="products-view" style="display: none; height: 100%; flex-direction: column;">
                             <div class="pos-search-header">
-                                <div class="pos-barcode-scan">
-                                    <label for="pos-barcode-input">Scan Barcode or Enter SKU</label>
-                                    <div class="pos-barcode-box">
-                                        <i class="fas fa-barcode"></i>
-                                        <input type="text" id="pos-barcode-input" class="pos-search-input pos-barcode-entry"
-                                            placeholder="Scan or type product SKU, then press Enter" autocomplete="off" inputmode="text">
+                                <div class="pos-toolbar-field pos-toolbar-sku">
+                                    <div class="pos-barcode-scan">
+                                        <label for="pos-barcode-input" class="pos-toolbar-sr-label">Scan Barcode or Enter SKU</label>
+                                        <div class="pos-barcode-box">
+                                            <i class="fas fa-barcode"></i>
+                                            <input type="text" id="pos-barcode-input" class="pos-search-input pos-barcode-entry"
+                                                placeholder="Scan or type SKU, then press Enter" autocomplete="off" inputmode="text">
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="pos-search-box">
-                                    <i class="fas fa-search"></i>
-                                    <input type="text" id="pos-search" class="pos-search-input"
-                                        placeholder="Search products...">
+                                <div class="pos-toolbar-field pos-toolbar-search">
+                                    <div class="pos-search-box">
+                                        <i class="fas fa-search"></i>
+                                        <input type="text" id="pos-search" class="pos-search-input"
+                                            placeholder="Search products...">
+                                    </div>
                                 </div>
-                                <select id="pos-category" class="pos-category-select">
-                                    <option value="">All Categories</option>
-                                    <?php foreach ($categories as $cat): ?>
-                                        <option value="<?= htmlspecialchars($cat['category']) ?>">
-                                            <?= htmlspecialchars($cat['category']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <div style="flex: 1;"></div>
-                                <button onclick="backToSelection()" class="pos-category-select"
-                                    style="min-width: auto; padding: 12px 20px; background: #f8fafc; border-color: #e2e8f0; color:#475569; cursor: pointer; width: auto; display: flex; align-items: center; gap: 8px;"
-                                    title="Back to selection">
+                                <div class="pos-toolbar-field pos-toolbar-category">
+                                    <select id="pos-category" class="pos-category-select" aria-label="Product category">
+                                        <option value="">All Categories</option>
+                                        <?php foreach ($categories as $cat): ?>
+                                            <option value="<?= htmlspecialchars($cat['category']) ?>">
+                                                <?= htmlspecialchars($cat['category']) ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <button type="button" onclick="backToSelection()" class="pos-btn-back" title="Back to selection">
                                     <i class="fas fa-arrow-left"></i> <span>Back</span>
                                 </button>
                             </div>
@@ -1747,8 +2005,7 @@ try {
                                     <p style="font-size:13px; color:#64748b; margin-top:4px;">Quickly add a printing
                                         service to the order.</p>
                                 </div>
-                                <button onclick="backToSelection()" class="pos-category-select"
-                                    style="min-width: auto; padding: 12px 16px; background: #f8fafc; border-color: #e2e8f0; color:#475569; cursor: pointer;"
+                                <button type="button" onclick="backToSelection()" class="pos-btn-back"
                                     title="Back to selection">
                                     <i class="fas fa-arrow-left"></i> Back
                                 </button>
@@ -1782,7 +2039,7 @@ try {
 
                         <div class="pos-customer-section">
                             <div class="pos-customer-label">
-                                <span>Customer *</span>
+                                <span class="pos-section-label"><i class="fas fa-user"></i> Customer *</span>
                                 <button class="pos-btn-link" onclick="openNewCustomerModal()">+ New</button>
                             </div>
                             <select id="pos-customer" class="pos-category-select" style="width: 100%; min-width: unset;"
@@ -1806,43 +2063,39 @@ try {
                         </div>
 
                         <div class="pos-checkout-section">
-                            <div class="pos-summary-line">
-                                <span>Subtotal</span>
-                                <span id="pos-subtotal">₱0.00</span>
-                            </div>
-
-                            <div class="pos-summary-total">
-                                <span id="pos-total">₱0.00</span>
-                            </div>
-
-                            <div class="pos-tender-group" style="margin-bottom: 12px;">
-                                <span style="font-weight: 600; font-size: 14px; color: #475569;">Payment Method</span>
-                                <select id="pos-payment-method" class="pos-category-select"
-                                    style="min-width: 140px; text-align: right; padding: 10px;"
-                                    onchange="toggleReferenceField()">
-                                    <option value="Cash">Cash</option>
-                                    <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">PayMongo QR Ph</option><?php endif; ?>
-                                </select>
-                            </div>
-
-
-
-                            <div class="pos-tender-group" id="tender-group">
-                                <span style="font-weight: 600; font-size: 14px; color: #475569;">Amount Paid</span>
-                                <div style="position: relative;">
-                                    <span
-                                        style="position: absolute; left: 12px; top: 12px; font-weight: 600; color: #94a3b8;">₱</span>
-                                    <input type="number" id="pos-tendered" name="amount_tendered"
-                                        class="pos-tender-input" placeholder="0.00" oninput="calculateChange()"
-                                        style="padding-left: 28px;">
+                            <div class="pos-payment-summary">
+                                <div class="pos-summary-line">
+                                    <span class="pos-summary-label"><i class="fas fa-receipt"></i> Subtotal</span>
+                                    <span class="pos-summary-amount" id="pos-subtotal">₱0.00</span>
                                 </div>
-                            </div>
 
-                            <div class="pos-summary-line" id="change-group"
-                                style="margin-bottom: 20px; align-items: center;">
-                                <span style="font-weight: 600; color: #475569;">Change</span>
-                                <span id="pos-change"
-                                    style="font-size: 20px; font-weight: 800; color: var(--staff-primary);">₱0.00</span>
+                                <div class="pos-summary-total">
+                                    <span class="pos-summary-label"><i class="fas fa-calculator"></i> Total</span>
+                                    <span class="pos-summary-amount" id="pos-total">₱0.00</span>
+                                </div>
+
+                                <div class="pos-tender-group">
+                                    <label class="pos-summary-label" for="pos-payment-method"><i class="fas fa-wallet"></i> Payment Method</label>
+                                    <select id="pos-payment-method" class="pos-category-select pos-payment-field"
+                                        onchange="toggleReferenceField()">
+                                        <option value="Cash">Cash</option>
+                                        <?php if ($posPayMongoQrphAvailable): ?><option value="PayMongo QRPh">PayMongo QR Ph</option><?php endif; ?>
+                                    </select>
+                                </div>
+
+                                <div class="pos-tender-group" id="tender-group">
+                                    <label class="pos-summary-label" for="pos-tendered"><i class="fas fa-money-bill-wave"></i> Amount Paid</label>
+                                    <div class="pos-tender-wrap">
+                                        <span class="pos-tender-prefix">₱</span>
+                                        <input type="number" id="pos-tendered" name="amount_tendered"
+                                            class="pos-tender-input" placeholder="0.00" oninput="calculateChange()">
+                                    </div>
+                                </div>
+
+                                <div class="pos-summary-change" id="change-group">
+                                    <span class="pos-summary-label"><i class="fas fa-coins"></i> Change</span>
+                                    <span class="pos-summary-amount" id="pos-change">₱0.00</span>
+                                </div>
                             </div>
 
                             <button class="pos-btn-checkout" id="pos-checkout-btn" disabled onclick="processCheckout()">
@@ -4263,29 +4516,35 @@ try {
                             if (val) parts.push(`${key}: ${val}`);
                         }
                         if (parts.length > 0) {
-                            customHtml = `<div style="font-size:11px; color:#64748b; margin-top:2px; line-height:1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${parts.join(' | ')}</div>`;
+                            customHtml = `<div class="pos-item-meta">${parts.join(' | ')}</div>`;
                         }
                     }
 
                     const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
-                        ? `<button onclick="redirectToSetPrice(${index})" style="display:inline-flex;align-items:center;gap:4px;margin-top:3px;padding:2px 8px;background:#edf4fc;border:1px solid #bfdbfe;border-radius:999px;font-size:12px;font-weight:700;color:#2f6fae;text-decoration:none;cursor:pointer;border:none;" title="Click to set price in Customizations">
-                    <i class="fas fa-tag" style="font-size:10px;"></i> Set Price
+                        ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
+                    <i class="fas fa-tag"></i> Set Price
                   </button>`
-                        : `<div class="pos-item-price" style="margin-top:2px;">${formatMoney(item.price)}</div>`;
+                        : `<div class="pos-item-price">${formatMoney(item.price)}</div>`;
 
                     div.innerHTML = `
-                <div class="pos-item-details" style="flex:1;">
-                    <div class="pos-item-name">${item.name}</div>
-                    ${priceHtml}
-                    ${customHtml}
+                <div class="pos-cart-item-top">
+                    <div class="pos-item-details">
+                        <div class="pos-item-name">${item.name}</div>
+                        ${customHtml}
+                    </div>
+                    <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
+                        <i class="fas fa-trash-alt"></i> Remove
+                    </button>
                 </div>
-                <div class="pos-item-controls">
-                    <button class="pos-qty-btn" style="font-size:16px; line-height:1; font-weight:bold;" onclick="updateQtyByCartIndex(${index}, -1)">&minus;</button>
-                    <input class="pos-qty-val" value="${item.qty}" readonly>
-                    <button class="pos-qty-btn" style="font-size:16px; line-height:1; font-weight:bold;" onclick="updateQtyByCartIndex(${index}, 1)">&plus;</button>
+                <div class="pos-cart-item-bottom">
+                    <div class="pos-item-action">${priceHtml}</div>
+                    <div class="pos-item-controls">
+                        <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
+                        <input class="pos-qty-val" value="${item.qty}" readonly aria-label="Quantity">
+                        <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
+                    </div>
+                    <div class="pos-item-total">${formatMoney(rowTotal)}</div>
                 </div>
-                <div class="pos-item-total" style="width:70px; text-align:right;">${formatMoney(rowTotal)}</div>
-                <button class="pos-item-remove" style="font-size:18px; line-height:1; font-weight:bold;" onclick="removeByCartIndex(${index})">&times;</button>
             `;
                     cont.appendChild(div);
                 });
