@@ -34,6 +34,9 @@ $assertions = [
     'obsolete ink guidance copy is removed' => !str_contains($source, 'No printer ink required') && !str_contains($source, 'Printer ink is no longer selected or recorded per order.'),
     'modal shell size was not redefined by picker CSS' => !preg_match('/\.production-material-results\s*\{[^}]*\bwidth\s*:\s*(?:[5-9]\d{2}|\d{4,})px/i', $source),
     'material usage resolves order dimensions before defaulting' => str_contains($source, 'resolveOrderDimensions(jo)') && str_contains($source, 'const dims = this.resolveOrderDimensions(this.currentJo)'),
+    'modal design uses one combined section' => str_contains($source, '>Design</div>') && str_contains($source, 'staffDesignDisplayFilename(item)') && !str_contains($source, 'Design Preview'),
+    'modal dimensions use one combined label' => str_contains($source, "const displayLabel = 'Size / Dimensions'") && str_contains($source, 'staffSpecIsRedundantDimensionPart'),
+    'design uploads are excluded from spec grid cards' => str_contains($source, 'staffSpecIsDesignDisplayField(k, v, item)'),
 ];
 
 $failed = array_keys(array_filter($assertions, static fn($passed) => !$passed));

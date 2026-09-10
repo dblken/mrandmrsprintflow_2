@@ -2261,58 +2261,31 @@ $online_closed_count = 0;
                                         <template x-for="([k, v]) in getDisplayableCustom(item.customization, item)" :key="k">
                                             <div style="padding:8px; border:1px solid #e5e7eb; border-radius:6px; background:#fff; min-width:0; overflow-wrap:break-word;">
                                                 <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:2px;" x-text="getCustomLabel(k)"></div>
-                                                <template x-if="staffFieldLooksLikeDesignUpload(k, v) && staffFieldUploadUrl(v)">
-                                                    <div>
-                                                        <template x-if="staffFieldUploadIsImage(k, v)">
-                                                            <img :src="staffFieldUploadUrl(v)"
-                                                                 @click="previewFile = staffFieldUploadUrl(v)"
-                                                                 loading="lazy"
-                                                                 decoding="async"
-                                                                 width="120"
-                                                                 height="120"
-                                                                 style="width:100%; max-width:120px; height:auto; border-radius:8px; border:1px solid #e2e8f0; cursor:zoom-in; background:#f8fafc;"
-                                                                 onerror="this.style.display='none'">
-                                                        </template>
-                                                        <template x-if="!staffFieldUploadIsImage(k, v)">
-                                                            <div style="display:flex; align-items:center; gap:8px;">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                                                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                                    <polyline points="10 9 9 9 8 9"></polyline>
-                                                                </svg>
-                                                                <a :href="staffFieldUploadUrl(v)"
-                                                                   target="_blank"
-                                                                   rel="noopener noreferrer"
-                                                                   style="font-size:12px;font-weight:500;color:#dc2626;word-break:break-word;overflow-wrap:break-word;text-decoration:none;display:flex;align-items:center;gap:4px;">
-                                                                    <span x-text="staffFieldUploadName(v) || formatCustomValuePlain(v)"></span>
-                                                                    <span style="font-size:10px;color:#6b7280;">(PDF)</span>
-                                                                </a>
-                                                            </div>
-                                                        </template>
-                                                    </div>
-                                                </template>
-                                                <div x-show="!staffFieldLooksLikeDesignUpload(k, v)"
-                                                     style="font-size:12px; font-weight:500; color:#1f2937; word-break:break-word; overflow-wrap:break-word;"
+                                                <div style="font-size:12px; font-weight:500; color:#1f2937; word-break:break-word; overflow-wrap:break-word;"
                                                      x-text="formatCustomValuePlain(v)"></div>
                                                 <a x-show="isDisplayableLink(v)" :href="sanitizeStaffLink(v)" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:#4f46e5;font-weight:600;margin-top:4px;display:inline-block;">Open link →</a>
                                             </div>
                                         </template>
                                     </div>
                                     <template x-if="staffShouldRenderDesignSection(item)">
-                                        <div style="margin-top:12px;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:6px;" x-text="staffDesignSectionLabel(item)"></div>
+                                        <div style="margin-top:12px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;">Design</div>
                                             <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
-                                                <div style="display:flex; align-items:flex-end; gap:12px;">
+                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%;">
                                                     <img :src="staffEffectiveDesignOpenUrl(item)"
                                                          @click="previewFile = staffEffectiveDesignOpenUrl(item)"
                                                          loading="lazy"
                                                          decoding="async"
                                                          width="160"
                                                          height="160"
-                                                         style="width:160px; max-height:160px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); background:#f8fafc;"
+                                                         style="width:min(100%, 220px); max-height:220px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); background:#f8fafc;"
                                                          onerror="this.style.display='none';">
+                                                    <a :href="staffEffectiveDesignOpenUrl(item)"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
+                                                       style="font-size:12px; font-weight:500; color:#334155; word-break:break-word; overflow-wrap:anywhere; text-decoration:none;">
+                                                        <span x-text="staffDesignDisplayFilename(item)"></span>
+                                                    </a>
                                                 </div>
                                             </template>
                                             <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
@@ -2320,8 +2293,8 @@ $online_closed_count = 0;
                                                    target="_blank"
                                                    rel="noopener noreferrer"
                                                    style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                    <template x-if="staffFilenameLooksLikePdf(item.design_name)">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <template x-if="staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                                                             <polyline points="14 2 14 8 20 8"></polyline>
                                                             <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -2329,11 +2302,11 @@ $online_closed_count = 0;
                                                             <polyline points="10 9 9 9 8 9"></polyline>
                                                         </svg>
                                                     </template>
-                                                    <template x-if="!staffFilenameLooksLikePdf(item.design_name)">
+                                                    <template x-if="!staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
                                                         <span style="font-size:14px;">FILE</span>
                                                     </template>
-                                                    <span x-text="item.design_name || 'Open uploaded design'"></span>
-                                                    <template x-if="staffFilenameLooksLikePdf(item.design_name)">
+                                                    <span x-text="staffDesignDisplayFilename(item)"></span>
+                                                    <template x-if="staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
                                                         <span style="font-size:10px;color:#6b7280;">(PDF)</span>
                                                     </template>
                                                 </a>
@@ -2344,7 +2317,7 @@ $online_closed_count = 0;
                                                    rel="noopener noreferrer"
                                                    style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
                                                     <span style="font-size:14px;">FILE</span>
-                                                    <span x-text="item.design_name || item.design_image_name || 'Open uploaded design'"></span>
+                                                    <span x-text="staffDesignDisplayFilename(item)"></span>
                                                 </a>
                                             </template>
                                             <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
@@ -4398,14 +4371,20 @@ window.pfServiceFieldCatalog = (() => {
                     height: ['height', 'Height', 31],
                     height_ft: ['height', 'Height', 31],
                     heightft: ['height', 'Height', 31],
-                    size: ['dimensions', 'Size', 32],
-                    sizes: ['dimensions', 'Size', 32],
-                    dimension: ['dimensions', 'Size', 32],
-                    dimensions: ['dimensions', 'Size', 32],
-                    dimensions_ft: ['dimensions', 'Size', 32],
-                    dimensionsft: ['dimensions', 'Size', 32],
-                    dimension_ft: ['dimensions', 'Size', 32],
-                    tarp_size: ['dimensions', 'Size', 32],
+                    size: ['dimensions', 'Size / Dimensions', 32],
+                    sizes: ['dimensions', 'Size / Dimensions', 32],
+                    dimension: ['dimensions', 'Size / Dimensions', 32],
+                    dimensions: ['dimensions', 'Size / Dimensions', 32],
+                    dimensions_ft: ['dimensions', 'Size / Dimensions', 32],
+                    dimensionsft: ['dimensions', 'Size / Dimensions', 32],
+                    dimension_ft: ['dimensions', 'Size / Dimensions', 32],
+                    dimensions_width: ['width', 'Width', 30],
+                    dimensions_height: ['height', 'Height', 31],
+                    dimension_width: ['width', 'Width', 30],
+                    dimension_height: ['height', 'Height', 31],
+                    size_width: ['width', 'Width', 30],
+                    size_height: ['height', 'Height', 31],
+                    tarp_size: ['dimensions', 'Size / Dimensions', 32],
                     total_sqft: ['total_area', 'Total Area', 33],
                     totalsqft: ['total_area', 'Total Area', 33],
                     total_sq_ft: ['total_area', 'Total Area', 33],
@@ -4660,7 +4639,7 @@ window.pfServiceFieldCatalog = (() => {
                 const parts = this.staffExtractDimensionParts(out, dimensionField);
                 if (!parts) return out;
 
-                const displayLabel = (dimensionField && dimensionField.label) ? dimensionField.label : 'Dimensions';
+                const displayLabel = 'Size / Dimensions';
                 let displayValue = parts.combined || '';
                 if (parts.width && parts.height) {
                     const widthNum = parseFloat(parts.width);
@@ -4677,8 +4656,10 @@ window.pfServiceFieldCatalog = (() => {
                 const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
                 [
                     fieldKey, fieldKey + '_width', fieldKey + '_height',
-                    'dimensions', 'Dimensions', 'Size', 'Size (ft)',
-                    'width', 'height', 'width_ft', 'height_ft', 'Width', 'Height'
+                    'dimensions', 'Dimensions', 'Size', 'Size (ft)', 'Size / Dimensions',
+                    'width', 'height', 'width_ft', 'height_ft', 'Width', 'Height',
+                    'dimension_width', 'dimension_height', 'dimensions_width', 'dimensions_height',
+                    'size_width', 'size_height'
                 ].forEach((key) => {
                     if (Object.prototype.hasOwnProperty.call(out, key) && key !== displayLabel) {
                         delete out[key];
@@ -4728,14 +4709,7 @@ window.pfServiceFieldCatalog = (() => {
                 return !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
             },
             staffDesignSectionLabel(item) {
-                if (this.staffEffectiveDesignOpenUrl(item) && this.staffDesignShowsAsImage(item)) {
-                    return 'Design Preview';
-                }
-                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
-                if (profile && profile.designField.label) {
-                    return profile.designField.label;
-                }
-                return 'Uploaded Design';
+                return 'Design';
             },
             /**
              * Canonical staff/customer specification rows — mirrors includes/customization_normalizer.php.
@@ -4766,12 +4740,15 @@ window.pfServiceFieldCatalog = (() => {
                 for (const [key, value] of Object.entries(obj)) {
                     if (typeof key !== 'string') continue;
                     const meta = this.staffCustomizationFieldMeta(key);
+                    const token = this.staffCustomizationKeyToken(key);
                     if (meta.hidden) continue;
                     if (meta.group === 'service' && !includeService) continue;
                     if (meta.group === 'notes' && !includeNotes) continue;
                     if (meta.group === 'quantity' && !includeQuantity) continue;
                     if (meta.design && !includeDesign) continue;
                     if (meta.group === 'dimensions' && presentGroups.width && presentGroups.height) continue;
+                    if ((meta.group === 'width' || meta.group === 'height') && presentGroups.dimensions) continue;
+                    if ((token.endsWith('_width') || token.endsWith('_height')) && presentGroups.dimensions) continue;
 
                     let text = this.staffCustomizationValueText(value);
                     if (!text || /^data:/i.test(text) || ['none', 'no'].includes(text.toLowerCase())) continue;
@@ -4781,7 +4758,6 @@ window.pfServiceFieldCatalog = (() => {
                     if (meta.group === 'dimensions' && this.staffValueLooksLikeUploadFilename(text)) continue;
                     if (meta.design) text = this.staffBasename(text);
 
-                    const token = this.staffCustomizationKeyToken(key);
                     if (['width', 'height', 'total_area'].includes(meta.group) && /^-?\d+(?:\.\d+)?$/.test(text)) {
                         text = String(parseFloat(text)).replace(/\.?0+$/, '');
                     }
@@ -4952,6 +4928,8 @@ window.pfServiceFieldCatalog = (() => {
                     if (v === '' || v == null) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
+                        if (this.staffSpecIsDesignDisplayField(k, v, item)) return false;
+                        if (this.staffSpecIsRedundantDimensionPart(k, enrichedCustom, item)) return false;
                         const lk = String(k).toLowerCase().replace(/\s+/g, '_');
                         if ((lk.includes('payment') && lk.includes('proof')) || ['payment_proof', 'payment_upload', 'proof_of_payment'].includes(lk)) {
                             if (this.staffPaymentProofSrc(this.currentJo)) return false;
@@ -4960,7 +4938,54 @@ window.pfServiceFieldCatalog = (() => {
                     return true;
                 });
             },
+            staffDesignDisplayFilename(item) {
+                if (!item) return 'Open uploaded design';
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                return item.design_name
+                    || item.design_image_name
+                    || custom.design_upload_name
+                    || custom.design_upload
+                    || custom['Upload Design']
+                    || this.staffBasename(item.design_file || custom.design_upload_path || '')
+                    || 'Open uploaded design';
+            },
+            staffSpecIsDesignDisplayField(key, value, item) {
+                const meta = this.staffCustomizationFieldMeta(key);
+                if (meta.design || meta.group === 'uploaded_design') return true;
+                const token = this.staffCustomizationKeyToken(key);
+                if (!token) return false;
+                if (token === 'design' || token.includes('design_upload') || token.includes('upload_design') || token.includes('uploaded_design')) {
+                    return true;
+                }
+                if (!item || !this.staffShouldRenderDesignSection(item)) return false;
+                const filename = this.staffDesignDisplayFilename(item);
+                const valueText = this.staffCustomizationValueText(value);
+                if (filename && valueText && this.staffCustomizationValueFingerprint(filename) === this.staffCustomizationValueFingerprint(valueText)) {
+                    return true;
+                }
+                if (this.staffFieldUploadUrl(value) && (this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item))) {
+                    return true;
+                }
+                return false;
+            },
+            staffSpecIsRedundantDimensionPart(key, specs, item) {
+                if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return false;
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                const dimensionField = profile && profile.dimensionField ? profile.dimensionField : null;
+                const parts = this.staffExtractDimensionParts(specs, dimensionField);
+                if (!parts || !parts.width || !parts.height) return false;
+
+                const meta = this.staffCustomizationFieldMeta(key);
+                const token = this.staffCustomizationKeyToken(key);
+                if (meta.group === 'width' || meta.group === 'height') return true;
+                if (token.endsWith('_width') || token.endsWith('_height')) return true;
+                if (['width', 'height', 'width_ft', 'height_ft'].includes(token)) return true;
+                return false;
+            },
             getCustomLabel(k) {
+                if (k === 'Size / Dimensions') return 'Size / Dimensions';
                 return this.customFieldLabels[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             },
             formatRevisionAuditValue(value) {
