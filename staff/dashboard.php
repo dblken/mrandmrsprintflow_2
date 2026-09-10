@@ -302,6 +302,26 @@ $active_orders_count = $pending_orders + $processing_orders + $ready_orders;
 $all_products_count = db_query("SELECT COUNT(*) as cnt FROM products WHERE status = 'Activated'")[0]['cnt'] ?? 0;
 $pending_reviews_count = db_query("SELECT COUNT(*) as cnt FROM reviews")[0]['cnt'] ?? 0;
 
+$posKpiMetrics = null;
+$posKpiLinks = null;
+if ($is_pos_staff) {
+    require_once __DIR__ . '/../includes/pos_dashboard_kpi.php';
+    $posTimeMeta = [
+        'key' => $timeframe,
+        'start' => $range_start ?? date('Y-m-d'),
+        'end' => $range_end ?? date('Y-m-d'),
+        'sql' => $has_timeframe_range ? $timeframe_sql : '1=1',
+        'types' => $has_timeframe_range ? 'ss' : '',
+        'params' => $has_timeframe_range ? [$range_start, $range_end] : [],
+    ];
+    $posKpiMetrics = printflow_pos_dashboard_kpi_metrics($staffBranchId, $staffOrderScopeSql, $posTimeMeta);
+    $posKpiLinks = printflow_pos_dashboard_kpi_links(
+        $timeframe,
+        (string)($range_start ?? date('Y-m-d')),
+        (string)($range_end ?? date('Y-m-d'))
+    );
+}
+
 $page_title = 'Staff Dashboard - PrintFlow';
 
 ?>
@@ -384,6 +404,42 @@ $page_title = 'Staff Dashboard - PrintFlow';
             text-overflow: ellipsis;
             max-width: 100%;
         }
+
+        .pos-kpi-card {
+            cursor: pointer;
+        }
+        .pos-kpi-card:focus-visible {
+            outline: 2px solid rgba(37, 99, 235, 0.45);
+            outline-offset: 2px;
+        }
+        .pos-kpi-card__head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .pos-kpi-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            border: 1px solid rgba(30, 64, 175, 0.18);
+            background: rgba(239, 246, 255, 0.9);
+            color: #1e3a8a;
+            flex-shrink: 0;
+        }
+        .pos-kpi-card .kpi-value {
+            font-size: 28px;
+            line-height: 1.1;
+            font-weight: 800;
+            color: #0f172a;
+        }
+        .pos-kpi-card.blue::before { background: linear-gradient(90deg, #2563eb, #1d4ed8); }
+        .pos-kpi-card.indigo::before { background: linear-gradient(90deg, #1e40af, #1e3a8a); }
+        .pos-kpi-card.emerald::before { background: linear-gradient(90deg, #0369a1, #075985); }
+        .pos-kpi-card.amber::before { background: linear-gradient(90deg, #1d4ed8, #2563eb); }
     </style>
 </head>
 <body class="staff-dashboard-page">
@@ -469,8 +525,72 @@ $page_title = 'Staff Dashboard - PrintFlow';
             
             <div style="margin-bottom: 24px;">
 
-                <div class="kpi-row content-transition">
-                    <!-- 1. Completed Product Orders -->
+                <div class="kpi-row content-transition" id="dashboard-kpi-row" data-pos-kpi="<?php echo $is_pos_staff ? '1' : '0'; ?>">
+                    <?php if ($is_pos_staff && is_array($posKpiMetrics) && is_array($posKpiLinks)): ?>
+                    <a href="<?php echo htmlspecialchars($posKpiLinks['reports'], ENT_QUOTES, 'UTF-8'); ?>"
+                       class="kpi-card blue kpi-card--link pos-kpi-card"
+                       title="Open POS revenue reports"
+                       id="pos-kpi-revenue-card">
+                        <span class="kpi-card-inner">
+                            <span class="pos-kpi-card__head">
+                                <span class="kpi-label" id="stat-pos-revenue-label"><?php echo htmlspecialchars($posKpiMetrics['revenue_label']); ?></span>
+                                <span class="pos-kpi-icon" aria-hidden="true">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg>
+                                </span>
+                            </span>
+                            <span class="kpi-value" id="stat-pos-revenue"><?php echo htmlspecialchars($posKpiMetrics['formatted_revenue']); ?></span>
+                            <span class="kpi-sub" id="stat-pos-revenue-sub"><?php echo htmlspecialchars($posKpiMetrics['revenue_subtitle']); ?></span>
+                        </span>
+                    </a>
+
+                    <a href="<?php echo htmlspecialchars($posKpiLinks['orders'], ENT_QUOTES, 'UTF-8'); ?>"
+                       class="kpi-card indigo kpi-card--link pos-kpi-card"
+                       title="Open walk-in orders"
+                       id="pos-kpi-walkin-card">
+                        <span class="kpi-card-inner">
+                            <span class="pos-kpi-card__head">
+                                <span class="kpi-label">Walk-in Orders</span>
+                                <span class="pos-kpi-icon" aria-hidden="true">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                </span>
+                            </span>
+                            <span class="kpi-value" id="stat-pos-walkin"><?php echo number_format((int)$posKpiMetrics['walk_in_orders']); ?></span>
+                            <span class="kpi-sub" id="stat-pos-walkin-sub"><?php echo htmlspecialchars($posKpiMetrics['walk_in_subtitle']); ?></span>
+                        </span>
+                    </a>
+
+                    <a href="<?php echo htmlspecialchars($posKpiLinks['customizations_pending'], ENT_QUOTES, 'UTF-8'); ?>"
+                       class="kpi-card emerald kpi-card--link pos-kpi-card"
+                       title="Open pending customizations"
+                       id="pos-kpi-pending-card">
+                        <span class="kpi-card-inner">
+                            <span class="pos-kpi-card__head">
+                                <span class="kpi-label">Pending Customizations</span>
+                                <span class="pos-kpi-icon" aria-hidden="true">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+                                </span>
+                            </span>
+                            <span class="kpi-value" id="stat-pos-pending"><?php echo number_format((int)$posKpiMetrics['pending_customizations']); ?></span>
+                            <span class="kpi-sub">Jobs requiring staff action</span>
+                        </span>
+                    </a>
+
+                    <a href="<?php echo htmlspecialchars($posKpiLinks['orders_completed'], ENT_QUOTES, 'UTF-8'); ?>"
+                       class="kpi-card amber kpi-card--link pos-kpi-card"
+                       title="Open completed walk-in sales"
+                       id="pos-kpi-completed-card">
+                        <span class="kpi-card-inner">
+                            <span class="pos-kpi-card__head">
+                                <span class="kpi-label">Completed Transactions</span>
+                                <span class="pos-kpi-icon" aria-hidden="true">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                                </span>
+                            </span>
+                            <span class="kpi-value" id="stat-pos-completed"><?php echo number_format((int)$posKpiMetrics['completed_transactions']); ?></span>
+                            <span class="kpi-sub" id="stat-pos-completed-sub"><?php echo htmlspecialchars($posKpiMetrics['completed_subtitle']); ?></span>
+                        </span>
+                    </a>
+                    <?php else: ?>
                     <a href="orders.php?type=products&status=COMPLETED" class="kpi-card indigo kpi-card--link" title="View product orders">
                         <span class="kpi-card-inner">
                             <span class="kpi-label" id="stat-products-label">Completed Product Orders</span>
@@ -480,7 +600,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         </span>
                     </a>
 
-                    <!-- 2. Completed Customized Orders -->
                     <a href="customizations.php" class="kpi-card emerald kpi-card--link" title="View customized orders">
                         <span class="kpi-card-inner">
                             <span class="kpi-label" id="stat-custom-label">Completed Customized Orders</span>
@@ -490,7 +609,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         </span>
                     </a>
 
-                    <!-- 3. Reviews -->
                     <a href="reviews.php" class="kpi-card amber kpi-card--link" title="View reviews">
                         <span class="kpi-card-inner">
                             <span class="kpi-label" id="stat-reviews-label">Reviews</span>
@@ -500,7 +618,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         </span>
                     </a>
 
-                    <!-- 4. Revenue / Reports -->
                     <a href="reports.php" class="kpi-card blue kpi-card--link" title="View reports">
                         <span class="kpi-card-inner">
                             <span class="kpi-label">Total Revenue</span>
@@ -509,6 +626,7 @@ $page_title = 'Staff Dashboard - PrintFlow';
                             <span class="kpi-card-cta">View Reports →</span>
                         </span>
                     </a>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -632,25 +750,56 @@ async function refreshDashboard(page = 1, status = null, timeframe = null) {
         
         if (data.error) throw new Error(data.error);
 
-        // 3. Update DOM with micro-animations
-        updateMetric('stat-revenue', data.stats.formatted_revenue || '₱0.00');
-        updateMetric('stat-completed-products', data.stats.product_orders);
-        updateMetric('stat-completed-custom', data.stats.custom_orders);
-        updateMetric('stat-pending', data.stats.reviews);
-        
-        const productsLabelEl = document.getElementById('stat-products-label');
-        if (productsLabelEl && data.stats.product_label) {
-            productsLabelEl.textContent = data.stats.product_label;
-        }
+        const kpiRow = document.getElementById('dashboard-kpi-row');
+        const isPosKpi = !!(kpiRow && kpiRow.dataset.posKpi === '1');
 
-        const customLabelEl = document.getElementById('stat-custom-label');
-        if (customLabelEl && data.stats.custom_label) {
-            customLabelEl.textContent = data.stats.custom_label;
-        }
+        if (isPosKpi && data.stats.pos_kpi) {
+            updateMetric('stat-pos-revenue', data.stats.pos_revenue || '₱0.00');
+            updateMetric('stat-pos-walkin', data.stats.pos_walk_in_orders ?? 0);
+            updateMetric('stat-pos-pending', data.stats.pos_pending_customizations ?? 0);
+            updateMetric('stat-pos-completed', data.stats.pos_completed_transactions ?? 0);
 
-        const reviewsLabelEl = document.getElementById('stat-reviews-label');
-        if (reviewsLabelEl && data.stats.review_label) {
-            reviewsLabelEl.textContent = data.stats.review_label;
+            const revenueLabelEl = document.getElementById('stat-pos-revenue-label');
+            if (revenueLabelEl && data.stats.pos_revenue_label) {
+                revenueLabelEl.textContent = data.stats.pos_revenue_label;
+            }
+            const revenueSubEl = document.getElementById('stat-pos-revenue-sub');
+            if (revenueSubEl && data.stats.pos_revenue_subtitle) revenueSubEl.textContent = data.stats.pos_revenue_subtitle;
+            const walkinSubEl = document.getElementById('stat-pos-walkin-sub');
+            if (walkinSubEl && data.stats.pos_walk_in_subtitle) walkinSubEl.textContent = data.stats.pos_walk_in_subtitle;
+            const completedSubEl = document.getElementById('stat-pos-completed-sub');
+            if (completedSubEl && data.stats.pos_completed_subtitle) completedSubEl.textContent = data.stats.pos_completed_subtitle;
+
+            if (data.stats.pos_links) {
+                const revenueCard = document.getElementById('pos-kpi-revenue-card');
+                const walkinCard = document.getElementById('pos-kpi-walkin-card');
+                const pendingCard = document.getElementById('pos-kpi-pending-card');
+                const completedCard = document.getElementById('pos-kpi-completed-card');
+                if (revenueCard && data.stats.pos_links.reports) revenueCard.href = data.stats.pos_links.reports;
+                if (walkinCard && data.stats.pos_links.orders) walkinCard.href = data.stats.pos_links.orders;
+                if (pendingCard && data.stats.pos_links.customizations_pending) pendingCard.href = data.stats.pos_links.customizations_pending;
+                if (completedCard && data.stats.pos_links.orders_completed) completedCard.href = data.stats.pos_links.orders_completed;
+            }
+        } else {
+            updateMetric('stat-revenue', data.stats.formatted_revenue || '₱0.00');
+            updateMetric('stat-completed-products', data.stats.product_orders);
+            updateMetric('stat-completed-custom', data.stats.custom_orders);
+            updateMetric('stat-pending', data.stats.reviews);
+
+            const productsLabelEl = document.getElementById('stat-products-label');
+            if (productsLabelEl && data.stats.product_label) {
+                productsLabelEl.textContent = data.stats.product_label;
+            }
+
+            const customLabelEl = document.getElementById('stat-custom-label');
+            if (customLabelEl && data.stats.custom_label) {
+                customLabelEl.textContent = data.stats.custom_label;
+            }
+
+            const reviewsLabelEl = document.getElementById('stat-reviews-label');
+            if (reviewsLabelEl && data.stats.review_label) {
+                reviewsLabelEl.textContent = data.stats.review_label;
+            }
         }
 
         const subtitleEl = document.getElementById('kpi-subtitle');

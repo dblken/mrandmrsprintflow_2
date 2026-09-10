@@ -108,6 +108,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/staff_access.php';
+require_once __DIR__ . '/../includes/pos_dashboard_kpi.php';
 
 if ($__pf_debug_requested && defined('PRINTFLOW_DEBUG_SESSION_LOG') && PRINTFLOW_DEBUG_SESSION_LOG) {
     $sessionCookieName = session_name();
@@ -545,18 +546,47 @@ foreach ($orders as &$order) {
 }
 unset($order);
 
+$stats = [
+    'formatted_revenue' => $peso . number_format($totalRevenue, 2),
+    'product_orders' => $productOrdersCount,
+    'custom_orders' => $customOrdersCount,
+    'reviews' => $reviewsCount,
+    'product_label' => $productLabel,
+    'custom_label' => $customLabel,
+    'review_label' => $reviewLabel,
+    'total_orders' => $totalRows,
+];
+
+if ($staffRole === 'pos') {
+    $posTimeMeta = [
+        'key' => $timeMeta['key'],
+        'start' => $timeMeta['start'],
+        'end' => $timeMeta['end'],
+        'sql' => $timeMeta['sql'],
+        'types' => $timeMeta['types'],
+        'params' => $timeMeta['params'],
+    ];
+    $posMetrics = printflow_pos_dashboard_kpi_metrics($staffBranchId, $staffOrderScopeSql, $posTimeMeta);
+    $posLinks = printflow_pos_dashboard_kpi_links(
+        $timeMeta['key'],
+        (string)$timeMeta['start'],
+        (string)$timeMeta['end']
+    );
+    $stats['pos_kpi'] = true;
+    $stats['pos_revenue'] = $posMetrics['formatted_revenue'];
+    $stats['pos_revenue_label'] = $posMetrics['revenue_label'];
+    $stats['pos_revenue_subtitle'] = $posMetrics['revenue_subtitle'];
+    $stats['pos_walk_in_subtitle'] = $posMetrics['walk_in_subtitle'];
+    $stats['pos_completed_subtitle'] = $posMetrics['completed_subtitle'];
+    $stats['pos_walk_in_orders'] = $posMetrics['walk_in_orders'];
+    $stats['pos_pending_customizations'] = $posMetrics['pending_customizations'];
+    $stats['pos_completed_transactions'] = $posMetrics['completed_transactions'];
+    $stats['pos_links'] = $posLinks;
+}
+
 $payload = [
     'success' => true,
-    'stats' => [
-        'formatted_revenue' => $peso . number_format($totalRevenue, 2),
-        'product_orders' => $productOrdersCount,
-        'custom_orders' => $customOrdersCount,
-        'reviews' => $reviewsCount,
-        'product_label' => $productLabel,
-        'custom_label' => $customLabel,
-        'review_label' => $reviewLabel,
-        'total_orders' => $totalRows,
-    ],
+    'stats' => $stats,
     'chart' => [
         'labels' => $chartLabels,
         'values' => $chartValues,
