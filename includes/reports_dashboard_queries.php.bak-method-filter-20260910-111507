@@ -162,15 +162,6 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobRevenue = pf_reports_job_order_revenue_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
-    $hasStorePaymentMethod = pf_reports_table_has_column('orders', 'payment_method');
-    $hasJobPaymentMethod = pf_reports_table_has_column('job_orders', 'payment_method');
-    $storePaymentMethod = $hasStorePaymentMethod
-        ? "CASE WHEN LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
-        : "'QR Ph'";
-    $storePaymentMethodGroup = $hasStorePaymentMethod ? ', o.payment_method' : '';
-    $jobPaymentMethod = $hasJobPaymentMethod
-        ? "CASE WHEN LOWER(TRIM(COALESCE(jo.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
-        : "'QR Ph'";
 
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
@@ -251,16 +242,16 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, o.order_id AS id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.order_id, o.order_date, o.amount_paid, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, o.order_id AS id, o.order_date AS sales_date, {$storeRevenue} AS amount, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.order_id, o.order_date, o.amount_paid, o.total_amount, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
     } catch (Throwable $e) {}
     try {
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
         [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, jo.id AS id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, jo.id AS id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
     } catch (Throwable $e) {}
     usort($txnRows, static fn($a, $b) => strcmp((string)($b['sales_date'] ?? ''), (string)($a['sales_date'] ?? '')));
     foreach (array_slice($txnRows, 0, $limit) as $row) {
-        $transactions[] = ['type' => (string)($row['type'] ?? ''), 'id' => (int)($row['id'] ?? 0), 'sales_date' => (string)($row['sales_date'] ?? ''), 'amount' => round((float)($row['amount'] ?? 0), 2), 'payment_method' => (string)($row['payment_method'] ?? ''), 'payment_status' => (string)($row['payment_status'] ?? ''), 'status' => (string)($row['status'] ?? ''), 'branch_name' => (string)($row['branch_name'] ?? ''), 'customer_name' => (string)($row['customer_name'] ?? ''), 'item_name' => (string)($row['item_name'] ?? '')];
+        $transactions[] = ['type' => (string)($row['type'] ?? ''), 'id' => (int)($row['id'] ?? 0), 'sales_date' => (string)($row['sales_date'] ?? ''), 'amount' => round((float)($row['amount'] ?? 0), 2), 'payment_status' => (string)($row['payment_status'] ?? ''), 'status' => (string)($row['status'] ?? ''), 'branch_name' => (string)($row['branch_name'] ?? ''), 'customer_name' => (string)($row['customer_name'] ?? ''), 'item_name' => (string)($row['item_name'] ?? '')];
     }
 
     return ['summary' => $summary, 'by_branch' => $byBranch, 'by_item' => $byItem, 'transactions' => $transactions];
