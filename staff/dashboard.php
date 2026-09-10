@@ -534,9 +534,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <span class="kpi-card-inner">
                             <span class="pos-kpi-card__head">
                                 <span class="kpi-label" id="stat-pos-revenue-label"><?php echo htmlspecialchars($posKpiMetrics['revenue_label']); ?></span>
-                                <span class="pos-kpi-icon" aria-hidden="true">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 1 0 0 7h5a3.5 3.5 0 1 1 0 7H6"/></svg>
-                                </span>
                             </span>
                             <span class="kpi-value" id="stat-pos-revenue"><?php echo htmlspecialchars($posKpiMetrics['formatted_revenue']); ?></span>
                             <span class="kpi-sub" id="stat-pos-revenue-sub"><?php echo htmlspecialchars($posKpiMetrics['revenue_subtitle']); ?></span>
@@ -550,9 +547,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <span class="kpi-card-inner">
                             <span class="pos-kpi-card__head">
                                 <span class="kpi-label">Walk-in Orders</span>
-                                <span class="pos-kpi-icon" aria-hidden="true">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                </span>
                             </span>
                             <span class="kpi-value" id="stat-pos-walkin"><?php echo number_format((int)$posKpiMetrics['walk_in_orders']); ?></span>
                             <span class="kpi-sub" id="stat-pos-walkin-sub"><?php echo htmlspecialchars($posKpiMetrics['walk_in_subtitle']); ?></span>
@@ -566,9 +560,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <span class="kpi-card-inner">
                             <span class="pos-kpi-card__head">
                                 <span class="kpi-label">Pending Customizations</span>
-                                <span class="pos-kpi-icon" aria-hidden="true">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
-                                </span>
                             </span>
                             <span class="kpi-value" id="stat-pos-pending"><?php echo number_format((int)$posKpiMetrics['pending_customizations']); ?></span>
                             <span class="kpi-sub">Jobs requiring staff action</span>
@@ -582,9 +573,6 @@ $page_title = 'Staff Dashboard - PrintFlow';
                         <span class="kpi-card-inner">
                             <span class="pos-kpi-card__head">
                                 <span class="kpi-label">Completed Transactions</span>
-                                <span class="pos-kpi-icon" aria-hidden="true">
-                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                                </span>
                             </span>
                             <span class="kpi-value" id="stat-pos-completed"><?php echo number_format((int)$posKpiMetrics['completed_transactions']); ?></span>
                             <span class="kpi-sub" id="stat-pos-completed-sub"><?php echo htmlspecialchars($posKpiMetrics['completed_subtitle']); ?></span>
