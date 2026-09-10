@@ -41,7 +41,7 @@ if ($is_manager) {
 
 $sales_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php';
 function sales_page_query(array $overrides = []): string {
-    $keys = ['from', 'to', 'branch_id', 'sales_period', 'type', 'payment', 'item', 'filter_open'];
+    $keys = ['from', 'to', 'branch_id', 'sales_period', 'type', 'payment', 'item'];
     $q = [];
     foreach ($keys as $key) {
         if (array_key_exists($key, $overrides)) {
@@ -178,7 +178,6 @@ $salesSummary['product_sales'] = round((float)$salesSummary['product_sales'], 2)
 $salesSummary['service_sales'] = round((float)$salesSummary['service_sales'], 2);
 $salesFilterCount = (int)($sales_period === 'custom') + (int)($salesTypeFilter !== 'all') + (int)($salesPaymentFilter !== 'all') + (int)($salesItemFilter !== '');
 $salesBranchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
-$salesFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
 $page_title = 'Sales Breakdown - Admin';
 ?>
@@ -231,7 +230,7 @@ $page_title = 'Sales Breakdown - Admin';
 .sales-breakdown-table .num { text-align:right; font-weight:600; color:#0f172a; }
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
-.filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:376px; max-height:min(720px,calc(100vh - 160px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; display:none; }
+.filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:376px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; overflow:hidden; display:none; }
 .filter-panel.open { display:block; }
 .filter-panel-header { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid #f3f4f6; font-size:18px; font-weight:700; color:#111827; }
 .filter-panel-close { border:0; background:transparent; color:#374151; cursor:pointer; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
@@ -293,7 +292,7 @@ $page_title = 'Sales Breakdown - Admin';
                                 Filter
                                 <?php if ($salesFilterCount > 0): ?><span class="filter-badge"><?php echo (int)$salesFilterCount; ?></span><?php endif; ?>
                             </button>
-                            <div class="filter-panel <?php echo $salesFilterOpen ? 'open' : ''; ?>" id="salesFilterPanel">
+                            <div class="filter-panel" id="salesFilterPanel">
                                 <div class="filter-panel-header">
                                     <span>Filter</span>
                                     <button type="button" class="filter-panel-close" id="salesFilterClose" aria-label="Close filter">
@@ -303,7 +302,6 @@ $page_title = 'Sales Breakdown - Admin';
                                 <form method="GET" id="salesFilterForm">
                                     <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($salesBranchParam); ?>">
                                     <input type="hidden" name="sales_period" id="salesPeriodInput" value="<?php echo htmlspecialchars($sales_period); ?>">
-                                    <input type="hidden" name="filter_open" value="1">
                                     <div class="filter-section">
                                         <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
                                         <div class="fp-preset-grid">
@@ -325,6 +323,17 @@ $page_title = 'Sales Breakdown - Admin';
                                             <div>
                                                 <div class="filter-date-label">To:</div>
                                                 <input type="date" name="to" id="salesFilterTo" class="filter-input" value="<?php echo htmlspecialchars($sales_to); ?>">
+                                            </div>
+                                        </div>
+                                        <div style="margin-top:12px;">
+                                            <div class="filter-date-label">Quick presets</div>
+                                            <div class="fp-preset-grid">
+                                                <button type="button" class="fp-preset-btn" data-preset="today">Today</button>
+                                                <button type="button" class="fp-preset-btn" data-preset="last_7">Last 7 days</button>
+                                                <button type="button" class="fp-preset-btn" data-preset="last_30">Last 30 days</button>
+                                                <button type="button" class="fp-preset-btn" data-preset="this_month">This month</button>
+                                                <button type="button" class="fp-preset-btn" data-preset="last_6">Last 6 months</button>
+                                                <button type="button" class="fp-preset-btn" data-preset="last_12">Last 12 months</button>
                                             </div>
                                         </div>
                                     </div>
@@ -460,7 +469,32 @@ document.addEventListener('DOMContentLoaded', function () {
     to.addEventListener('change', submitCustom);
     document.querySelectorAll('[data-period]').forEach(function (button) {
         button.addEventListener('click', function () {
-            const url = new URL(window.location.href); url.searchParams.set('sales_period', button.getAttribute('data-period')); url.searchParams.delete('from'); url.searchParams.delete('to'); url.searchParams.set('filter_open', '1'); window.location.href = url.toString();
+            const url = new URL(window.location.href); url.searchParams.set('sales_period', button.getAttribute('data-period')); url.searchParams.delete('from'); url.searchParams.delete('to'); window.location.href = url.toString();
+        });
+    });
+    document.querySelectorAll('[data-preset]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            const today = new Date();
+            const start = new Date(today);
+            const preset = button.getAttribute('data-preset');
+            if (preset === 'today') {
+                setRange(today, today);
+            } else if (preset === 'last_7') {
+                start.setDate(today.getDate() - 6);
+                setRange(start, today);
+            } else if (preset === 'last_30') {
+                start.setDate(today.getDate() - 29);
+                setRange(start, today);
+            } else if (preset === 'this_month') {
+                start.setDate(1);
+                setRange(start, today);
+            } else if (preset === 'last_6') {
+                start.setMonth(today.getMonth() - 6);
+                setRange(start, today);
+            } else if (preset === 'last_12') {
+                start.setMonth(today.getMonth() - 12);
+                setRange(start, today);
+            }
         });
     });
     resetDates?.addEventListener('click', function () { setRange(new Date(), new Date()); });
