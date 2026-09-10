@@ -162,13 +162,11 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobRevenue = pf_reports_job_order_revenue_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
-    $hasStoreAmountPaid = pf_reports_table_has_column('orders', 'amount_paid');
     $hasStorePaymentMethod = pf_reports_table_has_column('orders', 'payment_method');
     $hasJobPaymentMethod = pf_reports_table_has_column('job_orders', 'payment_method');
     $storePaymentMethod = $hasStorePaymentMethod
         ? "CASE WHEN LOWER(TRIM(COALESCE(o.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
         : "'QR Ph'";
-    $storeAmountPaidGroup = $hasStoreAmountPaid ? ', o.amount_paid' : '';
     $storePaymentMethodGroup = $hasStorePaymentMethod ? ', o.payment_method' : '';
     $jobPaymentMethod = $hasJobPaymentMethod
         ? "CASE WHEN LOWER(TRIM(COALESCE(jo.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
@@ -253,7 +251,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, o.order_id AS id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, o.order_id AS id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.order_id, o.order_date, o.amount_paid, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
     } catch (Throwable $e) {}
     try {
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
