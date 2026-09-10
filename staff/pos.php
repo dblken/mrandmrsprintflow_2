@@ -695,14 +695,7 @@ try {
         }
 
         .pos-item-meta {
-            font-size: 11px;
-            color: #64748b;
-            margin-top: 4px;
-            line-height: 1.35;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            display: none !important;
         }
 
         .pos-item-price {
@@ -885,6 +878,26 @@ try {
             opacity: 0.9;
             width: 16px;
             text-align: center;
+        }
+
+        .pos-summary-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            color: var(--staff-primary);
+            flex-shrink: 0;
+        }
+
+        .pos-summary-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         .pos-summary-amount {
@@ -2065,17 +2078,26 @@ try {
                         <div class="pos-checkout-section">
                             <div class="pos-payment-summary">
                                 <div class="pos-summary-line">
-                                    <span class="pos-summary-label"><i class="fas fa-receipt"></i> Subtotal</span>
+                                    <span class="pos-summary-label">
+                                        <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+                                        Subtotal
+                                    </span>
                                     <span class="pos-summary-amount" id="pos-subtotal">₱0.00</span>
                                 </div>
 
                                 <div class="pos-summary-total">
-                                    <span class="pos-summary-label"><i class="fas fa-calculator"></i> Total</span>
+                                    <span class="pos-summary-label">
+                                        <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8.01" y2="10"/><line x1="12" y1="10" x2="12.01" y2="10"/><line x1="16" y1="10" x2="16.01" y2="10"/><line x1="8" y1="14" x2="8.01" y2="14"/><line x1="12" y1="14" x2="12.01" y2="14"/><line x1="16" y1="14" x2="16.01" y2="14"/><line x1="8" y1="18" x2="8.01" y2="18"/><line x1="12" y1="18" x2="16" y2="18"/></svg></span>
+                                        Total
+                                    </span>
                                     <span class="pos-summary-amount" id="pos-total">₱0.00</span>
                                 </div>
 
                                 <div class="pos-tender-group">
-                                    <label class="pos-summary-label" for="pos-payment-method"><i class="fas fa-wallet"></i> Payment Method</label>
+                                    <label class="pos-summary-label" for="pos-payment-method">
+                                        <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></span>
+                                        Payment Method
+                                    </label>
                                     <select id="pos-payment-method" class="pos-category-select pos-payment-field"
                                         onchange="toggleReferenceField()">
                                         <option value="Cash">Cash</option>
@@ -2084,7 +2106,10 @@ try {
                                 </div>
 
                                 <div class="pos-tender-group" id="tender-group">
-                                    <label class="pos-summary-label" for="pos-tendered"><i class="fas fa-money-bill-wave"></i> Amount Paid</label>
+                                    <label class="pos-summary-label" for="pos-tendered">
+                                        <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg></span>
+                                        Amount Paid
+                                    </label>
                                     <div class="pos-tender-wrap">
                                         <span class="pos-tender-prefix">₱</span>
                                         <input type="number" id="pos-tendered" name="amount_tendered"
@@ -2093,7 +2118,10 @@ try {
                                 </div>
 
                                 <div class="pos-summary-change" id="change-group">
-                                    <span class="pos-summary-label"><i class="fas fa-coins"></i> Change</span>
+                                    <span class="pos-summary-label">
+                                        <span class="pos-summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg></span>
+                                        Change
+                                    </span>
                                     <span class="pos-summary-amount" id="pos-change">₱0.00</span>
                                 </div>
                             </div>
@@ -4509,15 +4537,10 @@ try {
                         item.customization['material_type']
                     );
 
-                    let customHtml = '';
-                    if (item.customization) {
-                        const parts = [];
-                        for (const [key, val] of Object.entries(item.customization)) {
-                            if (val) parts.push(`${key}: ${val}`);
-                        }
-                        if (parts.length > 0) {
-                            customHtml = `<div class="pos-item-meta">${parts.join(' | ')}</div>`;
-                        }
+                    if (item.customization && typeof item.customization === 'object') {
+                        try {
+                            div.dataset.customization = JSON.stringify(item.customization);
+                        } catch (_) {}
                     }
 
                     const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
@@ -4530,7 +4553,6 @@ try {
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
                         <div class="pos-item-name">${item.name}</div>
-                        ${customHtml}
                     </div>
                     <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
                         <i class="fas fa-trash-alt"></i> Remove
