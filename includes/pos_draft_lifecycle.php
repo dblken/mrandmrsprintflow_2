@@ -4,8 +4,83 @@
  * Preserves audit history — soft-cancel only, never hard-delete paid/completed orders.
  */
 
+function pos_customization_json_marked_as_pos(?string $json): bool
+{
+    $json = trim((string)$json);
+    if ($json === '') {
+        return false;
+    }
+
+    return str_contains($json, '"source":"POS"')
+        || str_contains($json, '"source": "POS"');
+}
+
+function pos_order_has_unfinalized_pos_marker(int $orderId): bool
+{
+    if ($orderId <= 0) {
+        return false;
+    }
+
+    $rows = db_query(
+        "SELECT
+            LOWER(TRIM(COALESCE(o.order_source, ''))) AS order_source,
+            LOWER(TRIM(COALESCE(o.status, ''))) AS status,
+            LOWER(TRIM(COALESCE(o.payment_status, ''))) AS payment_status,
+            EXISTS(
+                SELECT 1
+                FROM customizations cust
+                WHERE cust.order_id = o.order_id
+                  AND (
+                      cust.customization_details LIKE '%\"source\":\"POS\"%'
+                      OR cust.customization_details LIKE '%\"source\": \"POS\"%'
+                  )
+            ) AS has_pos_customization,
+            EXISTS(
+                SELECT 1
+                FROM order_items oi
+                WHERE oi.order_id = o.order_id
+                  AND (
+                      oi.customization_data LIKE '%\"source\":\"POS\"%'
+                      OR oi.customization_data LIKE '%\"source\": \"POS\"%'
+                  )
+            ) AS has_pos_order_item
+         FROM orders o
+         WHERE o.order_id = ?
+         LIMIT 1",
+        'i',
+        [$orderId]
+    ) ?: [];
+
+    if ($rows === []) {
+        return false;
+    }
+
+    $row = $rows[0];
+    $payment = strtolower(trim((string)($row['payment_status'] ?? '')));
+    if (in_array($payment, ['paid', 'partially paid', 'partial'], true)) {
+        return false;
+    }
+
+    $source = strtolower(trim((string)($row['order_source'] ?? '')));
+    $status = strtolower(trim(str_replace(['–', '—'], '-', (string)($row['status'] ?? ''))));
+    $hasPosMarker = !empty($row['has_pos_customization']) || !empty($row['has_pos_order_item']);
+
+    if ($source === 'pos_draft') {
+        return true;
+    }
+
+    if ($hasPosMarker
+        && in_array($payment, ['unpaid', ''], true)
+        && in_array($status, ['draft', 'approved', 'pending', 'pending review', 'pending approval', 'for revision'], true)) {
+        return true;
+    }
+
+    return false;
+}
+
 function pos_order_is_voidable_unfinalized_draft(array $order): bool
 {
+    $orderId = (int)($order['order_id'] ?? 0);
     $source = strtolower(trim((string)($order['order_source'] ?? '')));
     if ($source === 'pos_merged') {
         return false;
@@ -25,6 +100,10 @@ function pos_order_is_voidable_unfinalized_draft(array $order): bool
     }
 
     if ($source === 'pos_draft') {
+        return true;
+    }
+
+    if ($orderId > 0 && pos_order_has_unfinalized_pos_marker($orderId)) {
         return true;
     }
 
@@ -130,7 +209,21 @@ function pos_cart_item_draft_order_ids(array $cartItem): array
     if ($pendingOrderId > 0) {
         $ids[] = $pendingOrderId;
     }
-    return $ids;
+
+    $pendingCustomizationId = (int)($cartItem['pending_customization_id'] ?? 0);
+    if ($pendingCustomizationId > 0) {
+        $rows = db_query(
+            'SELECT order_id FROM customizations WHERE customization_id = ? LIMIT 1',
+            'i',
+            [$pendingCustomizationId]
+        ) ?: [];
+        $linkedOrderId = (int)($rows[0]['order_id'] ?? 0);
+        if ($linkedOrderId > 0) {
+            $ids[] = $linkedOrderId;
+        }
+    }
+
+    return array_values(array_unique(array_filter($ids)));
 }
 
 /**

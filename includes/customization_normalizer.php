@@ -242,3 +242,102 @@ function printflow_customization_display_specs(array $customization, array $opti
     uasort($rows, static fn($a, $b) => [$a['priority'], $a['position']] <=> [$b['priority'], $b['position']]);
     return array_map(static fn($row) => $row['value'], $rows);
 }
+
+/**
+ * Resolve structured width/height from customization payloads.
+ *
+ * @return array{width:string,height:string}
+ */
+function printflow_resolve_customization_dimensions($custom): array
+{
+    $custom = is_string($custom) ? json_decode($custom, true) : $custom;
+    if (!is_array($custom)) {
+        $custom = [];
+    }
+
+    $normalizeKey = static function ($key) {
+        $key = strtolower(trim((string)$key));
+        $key = str_replace(['-', '_'], ' ', $key);
+        return preg_replace('/\s+/', ' ', $key);
+    };
+
+    $firstValue = static function (array $source, array $candidates) use ($normalizeKey) {
+        $wanted = [];
+        foreach ($candidates as $candidate) {
+            $wanted[$normalizeKey($candidate)] = true;
+        }
+        foreach ($source as $key => $value) {
+            if (is_array($value) || $value === null || $value === '') {
+                continue;
+            }
+            if (isset($wanted[$normalizeKey($key)])) {
+                return $value;
+            }
+        }
+        return null;
+    };
+
+    $formatScalar = static function ($value): string {
+        if ($value === null) {
+            return '';
+        }
+        $value = trim((string)$value);
+        if ($value === '') {
+            return '';
+        }
+        if (is_numeric($value)) {
+            $number = (float)$value;
+            if (abs($number - round($number)) < 0.00001) {
+                return (string)(int)round($number);
+            }
+            return rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
+        }
+        return $value;
+    };
+
+    $width = $formatScalar($firstValue($custom, ['width_ft', 'width']));
+    $height = $formatScalar($firstValue($custom, ['height_ft', 'height']));
+
+    foreach ($custom as $key => $value) {
+        if (!is_scalar($value) || trim((string)$value) === '') {
+            continue;
+        }
+        $token = printflow_customization_key_token((string)$key);
+        if (str_ends_with($token, '_width') && $width === '') {
+            $width = $formatScalar($value);
+        }
+        if (str_ends_with($token, '_height') && $height === '') {
+            $height = $formatScalar($value);
+        }
+    }
+
+    $dimension_raw = $firstValue($custom, [
+        'dimensions',
+        'dimension',
+        'size',
+        'size dimensions',
+        'exact size',
+        'tarp size',
+        'size ft',
+        'size (ft)',
+    ]);
+    $dimension_text = trim((string)$dimension_raw);
+
+    if (($width === '' || $height === '') && $dimension_text !== '') {
+        $normalized_dimension = preg_replace('/\s*(ft|feet|in|inch|inches|cm|mm|m)\s*$/i', '', $dimension_text);
+        $normalized_dimension = str_replace(['X', 'x', '*', '-'], '×', $normalized_dimension);
+        if (preg_match('/(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)/u', $normalized_dimension, $m)) {
+            if ($width === '') {
+                $width = $formatScalar($m[1]);
+            }
+            if ($height === '') {
+                $height = $formatScalar($m[2]);
+            }
+        }
+    }
+
+    return [
+        'width' => $width,
+        'height' => $height,
+    ];
+}

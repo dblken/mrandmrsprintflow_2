@@ -16,7 +16,7 @@ function ensure_order_source_column() {
         if ($result->num_rows === 0) {
             // Column doesn't exist, add it
             $sql = "ALTER TABLE orders 
-                    ADD COLUMN order_source ENUM('customer', 'pos', 'walk-in') DEFAULT 'customer' 
+                    ADD COLUMN order_source VARCHAR(32) NOT NULL DEFAULT 'customer'
                     AFTER order_type";
             
             if ($conn->query($sql)) {
@@ -24,6 +24,19 @@ function ensure_order_source_column() {
                 return true;
             } else {
                 error_log("Failed to add order_source column: " . $conn->error);
+                return false;
+            }
+        }
+
+        $column = $result->fetch_assoc();
+        $columnType = strtolower(trim((string)($column['Type'] ?? '')));
+        if (str_starts_with($columnType, 'enum(') && !str_contains($columnType, 'pos_draft')) {
+            $sql = "ALTER TABLE orders
+                    MODIFY COLUMN order_source VARCHAR(32) NOT NULL DEFAULT 'customer'";
+            if ($conn->query($sql)) {
+                error_log('Expanded orders.order_source to VARCHAR for POS draft lifecycle values.');
+            } else {
+                error_log('Failed to expand orders.order_source column: ' . $conn->error);
                 return false;
             }
         }

@@ -3453,21 +3453,20 @@ window.pfServiceFieldCatalog = (() => {
                 this.availableRollsList = [];
                 this.materialQtyManuallyEdited = false;
                 
-                // Auto-fill from job dimensions if available
+                // Auto-fill from canonical order dimensions when available.
                 if (this.currentJo && selectedId) {
-                    const jH = parseFloat(this.currentJo.height_ft || 0);
-                    const jW = parseFloat(this.currentJo.width_ft || 0);
+                    const dims = this.resolveOrderDimensions(this.currentJo);
+                    const jW = dims.width;
+                    const jH = dims.height;
                     const jQ = parseFloat(this.currentJo.quantity || 1);
                     
                     if (this.isTarpaulin(selectedId)) {
-                        // For Tarpaulin, qty is width, height is height (heuristic)
-                        // This ensures 'Req:' is not 0.00
-                        this.newMaterialQty = jW || 1;
-                        this.newMaterialHeight = jH || 1;
+                        this.newMaterialQty = jW > 0 ? jW : 1;
+                        this.newMaterialHeight = jH > 0 ? jH : 1;
                     } else if (this.isRollTracked(selectedId)) {
-                         // Default to max dimension for roll-tracked length
-                         this.newMaterialQty = Math.max(jH, jW) || 1;
-                         this.newMaterialHeight = 0;
+                        const longest = Math.max(jH, jW);
+                        this.newMaterialQty = longest > 0 ? longest : 1;
+                        this.newMaterialHeight = 0;
                     } else {
                         this.newMaterialQty = jQ || 1;
                         this.newMaterialHeight = 0;
@@ -4587,6 +4586,40 @@ window.pfServiceFieldCatalog = (() => {
                 this.staffServiceSpecProfileCache[sid] = profile;
                 return profile;
             },
+            resolveOrderDimensions(jo) {
+                const order = jo || this.currentJo || {};
+                const materialService = this.resolveMaterialServiceContext(order);
+                const primaryItem = materialService.primaryItem || this.resolvePrimaryOrderItem(order);
+                const specs = this.staffEnrichDimensionSpecs(
+                    materialService.primaryCustom && typeof materialService.primaryCustom === 'object'
+                        ? { ...materialService.primaryCustom }
+                        : (order.customization_details && typeof order.customization_details === 'object'
+                            ? { ...order.customization_details }
+                            : {}),
+                    primaryItem
+                );
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(primaryItem || order));
+                const parts = this.staffExtractDimensionParts(specs, profile && profile.dimensionField ? profile.dimensionField : null);
+                const parsePositive = (value) => {
+                    const parsed = parseFloat(value);
+                    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+                };
+                let width = parsePositive(order.width_ft);
+                let height = parsePositive(order.height_ft);
+                if (parts) {
+                    const parsedWidth = parsePositive(parts.width);
+                    const parsedHeight = parsePositive(parts.height);
+                    if (parsedWidth > 0) width = parsedWidth;
+                    if (parsedHeight > 0) height = parsedHeight;
+                }
+                if (width <= 0) {
+                    width = parsePositive(materialService.primaryCustom?.width || materialService.primaryCustom?.width_ft);
+                }
+                if (height <= 0) {
+                    height = parsePositive(materialService.primaryCustom?.height || materialService.primaryCustom?.height_ft);
+                }
+                return { width, height, hasDimensions: width > 0 && height > 0 };
+            },
             staffExtractDimensionParts(specs, dimensionField) {
                 if (!specs || typeof specs !== 'object' || Array.isArray(specs)) return null;
                 const fieldKey = dimensionField && dimensionField.key ? String(dimensionField.key) : 'dimensions';
@@ -5318,6 +5351,7 @@ window.pfServiceFieldCatalog = (() => {
                 const materialService = this.resolveMaterialServiceContext(jo);
                 const primaryCustom = materialService.primaryCustom || {};
                 const rawCustom = materialService.rawCustom || {};
+                const orderDimensions = this.resolveOrderDimensions(jo);
                 const context = {
                     serviceId: materialService.serviceId || 0,
                     serviceCategory: materialService.serviceCategory || '',
@@ -5336,8 +5370,8 @@ window.pfServiceFieldCatalog = (() => {
                         || '',
                     cutType: jo.cut_type || primaryCustom.cut_type || rawCustom.cut_type || primaryCustom['Cut Type'] || '',
                     customization: [primaryCustom],
-                    customerWidth: parseFloat(jo.width_ft || primaryCustom.width || primaryCustom.width_ft || 0) || 0,
-                    customerHeight: parseFloat(jo.height_ft || primaryCustom.height || primaryCustom.height_ft || 0) || 0,
+                    customerWidth: orderDimensions.width,
+                    customerHeight: orderDimensions.height,
                     customerQuantity: parseFloat(jo.quantity || primaryCustom.quantity || (materialService.primaryItem && materialService.primaryItem.quantity) || 0) || 0
                 };
                 context.serviceKind = window.PrintFlowProductionMaterials.classifyService(context);

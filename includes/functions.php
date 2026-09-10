@@ -3446,9 +3446,10 @@ function printflow_anchor_material_context_to_order_item(
         if ($ownCustom !== []) {
             $firstCustom = $ownCustom;
         }
-        if (!empty($ownCustom['width']) && !empty($ownCustom['height'])) {
-            $widthFt = (string)$ownCustom['width'];
-            $heightFt = (string)$ownCustom['height'];
+        $resolvedDimensions = printflow_resolve_customization_dimensions($ownCustom);
+        if (($resolvedDimensions['width'] ?? '') !== '' && ($resolvedDimensions['height'] ?? '') !== '') {
+            $widthFt = (string)$resolvedDimensions['width'];
+            $heightFt = (string)$resolvedDimensions['height'];
         }
         $serviceId = (int)($primaryItem['service_id'] ?? 0);
         if ($serviceId <= 0) {
@@ -6190,25 +6191,6 @@ function printflow_customization_summary($custom, $fallback = 'Custom Service') 
         return null;
     };
 
-    $formatScalar = static function ($value): string {
-        if ($value === null) {
-            return '';
-        }
-        $value = trim((string)$value);
-        if ($value === '') {
-            return '';
-        }
-        if (is_numeric($value)) {
-            $number = (float)$value;
-            if (abs($number - round($number)) < 0.00001) {
-                return (string)(int)round($number);
-            }
-            $formatted = rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
-            return $formatted;
-        }
-        return $value;
-    };
-
     $fallback = trim((string)$fallback);
     if ($fallback === '') {
         $fallback = 'Custom Service';
@@ -6223,32 +6205,9 @@ function printflow_customization_summary($custom, $fallback = 'Custom Service') 
     $quantity_raw = $firstValue($custom, ['quantity', 'qty']);
     $quantity = is_numeric((string)$quantity_raw) ? max(1, (int)$quantity_raw) : 1;
 
-    $width_ft = $formatScalar($firstValue($custom, ['width_ft', 'width']));
-    $height_ft = $formatScalar($firstValue($custom, ['height_ft', 'height']));
-
-    $dimension_raw = $firstValue($custom, [
-        'dimensions',
-        'dimension',
-        'size',
-        'size dimensions',
-        'exact size',
-        'tarp size',
-        'size ft'
-    ]);
-    $dimension_text = trim((string)$dimension_raw);
-
-    if (($width_ft === '' || $height_ft === '') && $dimension_text !== '') {
-        $normalized_dimension = preg_replace('/\s*(ft|feet|in|inch|inches|cm|mm|m)\s*$/i', '', $dimension_text);
-        $normalized_dimension = str_replace(['X', 'x', '*', '-'], '×', $normalized_dimension);
-        if (preg_match('/(\d+(?:\.\d+)?)\s*×\s*(\d+(?:\.\d+)?)/u', $normalized_dimension, $m)) {
-            if ($width_ft === '') {
-                $width_ft = $formatScalar($m[1]);
-            }
-            if ($height_ft === '') {
-                $height_ft = $formatScalar($m[2]);
-            }
-        }
-    }
+    $dimensions = printflow_resolve_customization_dimensions($custom);
+    $width_ft = (string)($dimensions['width'] ?? '');
+    $height_ft = (string)($dimensions['height'] ?? '');
 
     return [
         'service_type' => $service_type,

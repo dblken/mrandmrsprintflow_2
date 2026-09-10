@@ -740,6 +740,23 @@ function jo_api_source_matches(string $source, string $filter): bool {
     return $filter === 'pos' ? $isPos : !$isPos;
 }
 
+function jo_api_sql_exclude_unfinalized_pos_drafts(string $orderAlias = 'o', ?string $customAlias = null): string
+{
+    $customSourceClause = $customAlias !== null
+        ? " OR {$customAlias}.customization_details LIKE '%\"source\":\"POS\"%'
+            OR {$customAlias}.customization_details LIKE '%\"source\": \"POS\"%'"
+        : '';
+
+    return " AND NOT (
+        LOWER(TRIM(COALESCE({$orderAlias}.payment_status, ''))) = 'unpaid'
+        AND LOWER(TRIM(COALESCE({$orderAlias}.status, ''))) = 'draft'
+        AND (
+            LOWER(TRIM(COALESCE({$orderAlias}.order_source, ''))) IN ('pos_draft', '')
+            {$customSourceClause}
+        )
+    )";
+}
+
 /** @return array<int,string> */
 function jo_api_order_codes(array $orderIds): array {
     $ids = array_values(array_unique(array_filter(array_map('intval', $orderIds), static fn(int $id): bool => $id > 0)));
@@ -970,7 +987,8 @@ try {
                                          LOWER(TRIM(COALESCE(o.order_source, ''))) IN ('pos', 'walk-in')
                                          OR cust.customization_details LIKE '%\"source\":\"POS\"%'
                                          OR cust.customization_details LIKE '%\"source\": \"POS\"%'
-                                     )";
+                                     )"
+                                     . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust');
                 $customCountTypes = '';
                 $customCountParams = [];
                 if ($joStaffBranch !== null) {
@@ -1515,6 +1533,7 @@ try {
                     OR cust.customization_details LIKE '%\"source\":\"POS\"%'
                     OR cust.customization_details LIKE '%\"source\": \"POS\"%'
                 )"
+                . jo_api_sql_exclude_unfinalized_pos_drafts('o', 'cust')
                 . ($joStaffBranch !== null ? " AND o.branch_id = ?" : "") . "
                 ORDER BY cust.created_at DESC
                 LIMIT " . (int)$dashboardFetchLimit;
@@ -2720,9 +2739,10 @@ try {
                 [$order_id]
             ) ?: [];
 
+            $orderSource = strtolower(trim((string)($orderMeta['order_source'] ?? '')));
             $isPosCustomizationOrder =
                 !empty($linkedCustomizationRows) &&
-                strtolower(trim((string)($orderMeta['order_source'] ?? ''))) === 'pos';
+                in_array($orderSource, ['pos', 'pos_draft'], true);
 
             if ($isPosCustomizationOrder) {
                 jo_api_require_db_write(
@@ -2740,7 +2760,11 @@ try {
                 jo_api_require_db_write(
                     db_execute(
                         "UPDATE orders
-                         SET status = 'Approved'
+                         SET status = 'Approved',
+                             order_source = CASE
+                                 WHEN LOWER(TRIM(COALESCE(order_source, ''))) = 'pos_draft' THEN 'pos'
+                                 ELSE order_source
+                             END
                          WHERE order_id = ?
                            AND status NOT IN ('Processing', 'In Production', 'Printing', 'Ready for Pickup', 'Completed', 'Rejected', 'Cancelled')",
                         'i',

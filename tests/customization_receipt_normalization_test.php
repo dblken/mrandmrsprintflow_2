@@ -132,4 +132,22 @@ foreach (['staff_sidebar.php', 'admin_sidebar.php', 'manager_sidebar.php'] as $s
     expect_true(str_contains($sidebar, 'receipt-scanner.js'), $sidebarFile . ' retains the shared global scanner');
 }
 
+$parsedDimensions = printflow_resolve_customization_dimensions([
+    'source' => 'POS',
+    'Size' => '2 x 8 ft',
+]);
+expect_true(
+    ($parsedDimensions['width'] ?? '') === '2' && ($parsedDimensions['height'] ?? '') === '8',
+    'combined size text resolves to structured width and height'
+);
+$fieldDimensions = printflow_resolve_customization_dimensions([
+    'dimensions' => '2x8',
+    'dimensions_width' => '2',
+    'dimensions_height' => '8',
+]);
+expect_true(
+    ($fieldDimensions['width'] ?? '') === '2' && ($fieldDimensions['height'] ?? '') === '8',
+    'structured dimension width/height fields resolve correctly'
+);
+
 echo "Customization and customer receipt normalization tests passed.\n";

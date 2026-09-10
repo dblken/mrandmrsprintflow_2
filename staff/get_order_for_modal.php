@@ -132,6 +132,18 @@ $service_id = (int)($materialContext['serviceId'] ?? 0);
 $first_custom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $first_custom;
 $width_ft = (string)($materialContext['widthFt'] ?? $width_ft);
 $height_ft = (string)($materialContext['heightFt'] ?? $height_ft);
+$resolvedDimensions = printflow_resolve_customization_dimensions($first_custom);
+if (($resolvedDimensions['width'] ?? '') !== '' && ($resolvedDimensions['height'] ?? '') !== '') {
+    $width_ft = (string)$resolvedDimensions['width'];
+    $height_ft = (string)$resolvedDimensions['height'];
+} elseif ($width_ft === '1' && $height_ft === '1') {
+    if (($resolvedDimensions['width'] ?? '') !== '') {
+        $width_ft = (string)$resolvedDimensions['width'];
+    }
+    if (($resolvedDimensions['height'] ?? '') !== '') {
+        $height_ft = (string)$resolvedDimensions['height'];
+    }
+}
 $job_item_title = (string)($materialContext['jobItemTitle'] ?? '');
 
 $materials = [];

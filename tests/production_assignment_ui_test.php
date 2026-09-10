@@ -33,6 +33,7 @@ $assertions = [
     'obsolete ink options step is removed' => !str_contains($source, 'Ink Options') && !str_contains($source, 'SELECT INK SET') && !str_contains($source, 'Select Ink Set'),
     'obsolete ink guidance copy is removed' => !str_contains($source, 'No printer ink required') && !str_contains($source, 'Printer ink is no longer selected or recorded per order.'),
     'modal shell size was not redefined by picker CSS' => !preg_match('/\.production-material-results\s*\{[^}]*\bwidth\s*:\s*(?:[5-9]\d{2}|\d{4,})px/i', $source),
+    'material usage resolves order dimensions before defaulting' => str_contains($source, 'resolveOrderDimensions(jo)') && str_contains($source, 'const dims = this.resolveOrderDimensions(this.currentJo)'),
 ];
 
 $failed = array_keys(array_filter($assertions, static fn($passed) => !$passed));
