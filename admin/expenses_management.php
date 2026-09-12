@@ -20,34 +20,28 @@ if (!isset($base_path)) {
 [$branchCtx, $branchId, $is_manager, $current_user] = pf_expense_resolve_branch_context();
 $isManagerPanel = defined('MANAGER_PANEL') && MANAGER_PANEL;
 
-$search = trim((string)($_GET['search'] ?? ''));
-$category_filter = trim((string)($_GET['category'] ?? ''));
-$status_filter = trim((string)($_GET['status_filter'] ?? ''));
-$date_from = trim((string)($_GET['date_from'] ?? ''));
-$date_to = trim((string)($_GET['date_to'] ?? ''));
-$sort_by = trim((string)($_GET['sort'] ?? 'newest'));
+$periodInfo = pf_expense_resolve_period($_GET);
+$expense_period = $periodInfo['period'];
+$date_from = $periodInfo['date_from'];
+$date_to = $periodInfo['date_to'];
+$expense_label = $periodInfo['label'];
+$expense_range_label = $periodInfo['range_label'];
+
+$filters = pf_expense_filters_from_request($_GET);
+$search = $filters['search'];
+$category_filter = $filters['category'];
+$status_filter = $filters['status_filter'];
+$sort_by = $filters['sort'];
 $page = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 15;
-
-$allowed_sorts = ['newest', 'oldest', 'az', 'za', 'amount_high', 'amount_low'];
-if (!in_array($sort_by, $allowed_sorts, true)) {
-    $sort_by = 'newest';
-}
-
-$filters = [
-    'search' => $search,
-    'category' => $category_filter,
-    'status_filter' => $status_filter,
-    'date_from' => $date_from,
-    'date_to' => $date_to,
-];
+$expenseFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
 $activeFilterCount = count(array_filter([
+    $expense_period !== 'all' ? 1 : null,
     $search !== '' ? 1 : null,
     ($category_filter !== '' && in_array($category_filter, PF_EXPENSE_CATEGORIES, true)) ? 1 : null,
     in_array($status_filter, ['Paid', 'To Be Paid'], true) ? 1 : null,
-    ($date_from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_from)) ? 1 : null,
-    ($date_to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date_to)) ? 1 : null,
+    ($expense_period === 'custom' && ($date_from !== '' || $date_to !== '')) ? 1 : null,
 ]));
 
 $kpi = pf_expense_kpi_totals($branchId);
@@ -80,7 +74,7 @@ $defaultFormBranchId = printflow_branch_value_is_all($branchId)
     : (int)$branchId;
 
 function pf_expense_page_query(array $overrides = []): string {
-    $keys = ['search', 'category', 'status_filter', 'date_from', 'date_to', 'branch_id', 'sort', 'page'];
+    $keys = ['search', 'category', 'status_filter', 'date_from', 'date_to', 'expense_period', 'branch_id', 'sort', 'page', 'filter_open'];
     $q = [];
     foreach ($keys as $key) {
         if (array_key_exists($key, $overrides)) {
@@ -92,6 +86,31 @@ function pf_expense_page_query(array $overrides = []): string {
         }
     }
     return '?' . http_build_query($q);
+}
+
+function pf_expense_export_url(string $file, array $filters, string $branchParam, string $expensePeriod): string {
+    global $base_path;
+    $params = [
+        'branch_id' => $branchParam,
+        'expense_period' => $expensePeriod,
+        'sort' => $filters['sort'] ?? 'newest',
+    ];
+    if (($filters['date_from'] ?? '') !== '') {
+        $params['date_from'] = $filters['date_from'];
+    }
+    if (($filters['date_to'] ?? '') !== '') {
+        $params['date_to'] = $filters['date_to'];
+    }
+    if (($filters['search'] ?? '') !== '') {
+        $params['search'] = $filters['search'];
+    }
+    if (($filters['category'] ?? '') !== '') {
+        $params['category'] = $filters['category'];
+    }
+    if (($filters['status_filter'] ?? '') !== '') {
+        $params['status_filter'] = $filters['status_filter'];
+    }
+    return rtrim($base_path, '/') . '/admin/' . $file . '?' . http_build_query($params);
 }
 
 function render_expenses_table(array $expenses, bool $archivedOnly = false): void {
@@ -215,6 +234,7 @@ if (isset($_GET['ajax'])) {
         'sort' => $sort_by !== 'newest' ? $sort_by : null,
         'date_from' => $date_from,
         'date_to' => $date_to,
+        'expense_period' => $expense_period !== 'all' ? $expense_period : null,
         'branch_id' => printflow_branch_value_is_all($branchId) ? null : (string)(int)$branchId,
     ], static fn($v) => $v !== null && $v !== '');
     echo render_pagination($page, $total_pages, $pp);
@@ -236,6 +256,14 @@ $csrfToken = generate_csrf_token();
 $page_title = 'Expense Management - PrintFlow';
 $sidebar_file = (($current_user['role'] ?? '') === 'Admin') ? 'admin_sidebar.php' : 'manager_sidebar.php';
 $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
+$branchName = $branchCtx['branch_name'] ?? 'All Branches';
+$expenseToolbarSummary = $expense_period !== 'all'
+    ? $expense_range_label . ' (' . $expense_label . ')'
+    : $expense_range_label;
+$printExpensesUrl = pf_expense_export_url('expenses_print.php', $filters, $branchParam, $expense_period);
+$csvExpensesUrl = pf_expense_export_url('expenses_export.php', $filters, $branchParam, $expense_period);
+$xlsxExpensesUrl = pf_expense_export_url('expenses_export_excel.php', $filters, $branchParam, $expense_period);
+$je = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -248,8 +276,37 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 <link rel="stylesheet" href="<?php echo htmlspecialchars($base_path); ?>/public/assets/css/output.css">
 <?php include __DIR__ . '/../includes/admin_style.php'; ?>
 <?php render_branch_css(); ?>
+<script>
+function expensePrintInPlace(url) {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(iframe);
+    iframe.onload = function () {
+        try {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+        } catch (e) { console.error(e); }
+        setTimeout(function () { iframe.remove(); }, 1000);
+    };
+    iframe.src = url;
+}
+</script>
 <style>
 [x-cloak]{display:none!important}
+.expenses-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px}
+.expenses-toolbar-summary{font-size:13px;color:#6b7280}
+.expenses-toolbar-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.export-dropdown-wide{min-width:260px;max-height:min(70vh,480px);overflow-y:auto}
+.export-dd-label{padding:10px 16px 4px;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em}
+.export-dd-hr{height:1px;background:#f3f4f6;margin:6px 12px;border:0}
+.export-dd-link{display:block;padding:9px 16px;font-size:13px;color:#374151;text-decoration:none}
+.export-dd-link:hover{background:#f9fafb}
+.fp-preset-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.fp-preset-btn{height:34px;border:1px solid #e5e7eb;border-radius:7px;background:#fff;color:#374151;font-size:12px;font-weight:500;cursor:pointer}
+.fp-preset-btn:hover,.fp-preset-btn.active{border-color:#00232b;background:#ecf8fb;color:#00232b;font-weight:700}
+.filter-panel-close{border:0;background:transparent;color:#374151;cursor:pointer;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px}
+.filter-panel-close:hover{background:#f3f4f6}
+.filter-panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:700;color:#111827}
 .btn-action{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:30px;min-height:30px;padding:0 10px;min-width:60px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12px;font-weight:500;line-height:1;cursor:pointer;white-space:nowrap;text-decoration:none;vertical-align:middle;flex-shrink:0}
 .btn-action.teal{color:#14b8a6;border-color:#14b8a6}.btn-action.teal:hover{background:#14b8a6;color:#fff}
 .btn-action.blue{color:#3b82f6;border-color:#3b82f6}.btn-action.blue:hover{background:#3b82f6;color:#fff}
@@ -278,8 +335,7 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 .sort-option{padding:9px 12px;font-size:13px;color:#4b5563;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
 .sort-option:hover{background:#f9fafb}
 .sort-option.selected{background:#f0fdfa;color:#0d9488;font-weight:600}
-.filter-panel{position:absolute;top:calc(100% + 6px);right:0;width:320px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:200;overflow:hidden}
-.filter-panel-header{padding:14px 18px;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:700}
+.filter-panel{position:absolute;top:calc(100% + 6px);right:0;width:320px;max-height:min(560px,calc(100vh - 120px));overflow-y:auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:200}
 .filter-section{padding:14px 18px;border-bottom:1px solid #f3f4f6}
 .filter-section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .filter-section-label{font-size:13px;font-weight:600;color:#374151}
@@ -342,6 +398,103 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 
         <div id="pfExpenseFlash" class="pf-flash"></div>
 
+        <div class="expenses-toolbar no-print" x-data="expenseToolbar()">
+            <div class="expenses-toolbar-summary">
+                <?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <span id="expenseToolbarSummary"><?php echo htmlspecialchars($expenseToolbarSummary); ?></span>
+            </div>
+            <div class="expenses-toolbar-actions">
+                <div style="position:relative;">
+                    <button type="button" class="toolbar-btn" :class="{ active: filterOpen || hasActiveFilters }" @click="filterOpen = !filterOpen; exportOpen = false" style="height:38px;">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                        Filter
+                        <span id="toolbarFilterBadgeContainer">
+                            <?php if ($activeFilterCount > 0): ?><span class="filter-badge"><?php echo $activeFilterCount; ?></span><?php endif; ?>
+                        </span>
+                    </button>
+                    <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
+                        <div class="filter-panel-header">
+                            <span>Filter</span>
+                            <button type="button" class="filter-panel-close" aria-label="Close filter" @click="filterOpen = false">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                            </button>
+                        </div>
+                        <div class="filter-section">
+                            <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
+                            <div class="fp-preset-grid">
+                                <button type="button" class="fp-preset-btn <?php echo $expense_period === 'today' ? 'active' : ''; ?>" data-expense-period="today">Today</button>
+                                <button type="button" class="fp-preset-btn <?php echo $expense_period === 'week' ? 'active' : ''; ?>" data-expense-period="week">This Week</button>
+                                <button type="button" class="fp-preset-btn <?php echo $expense_period === 'month' ? 'active' : ''; ?>" data-expense-period="month">This Month</button>
+                            </div>
+                        </div>
+                        <div class="filter-section">
+                            <div class="filter-section-head">
+                                <span class="filter-section-label">Date range</span>
+                                <button class="filter-reset-link" type="button" onclick="resetFilterField(['date_from','date_to'])">Reset</button>
+                            </div>
+                            <div class="filter-date-row">
+                                <div><div class="filter-date-label">From</div><input type="date" id="fp_date_from" class="filter-input" value="<?php echo htmlspecialchars($date_from, ENT_QUOTES, 'UTF-8'); ?>"></div>
+                                <div><div class="filter-date-label">To</div><input type="date" id="fp_date_to" class="filter-input" value="<?php echo htmlspecialchars($date_to, ENT_QUOTES, 'UTF-8'); ?>"></div>
+                            </div>
+                        </div>
+                        <div class="filter-section">
+                            <div class="filter-section-head">
+                                <span class="filter-section-label">Category</span>
+                                <button class="filter-reset-link" type="button" onclick="resetFilterField(['category'])">Reset</button>
+                            </div>
+                            <select id="fp_category" class="filter-select">
+                                <option value="">All categories</option>
+                                <?php foreach (PF_EXPENSE_CATEGORIES as $cat): ?>
+                                    <option value="<?php echo htmlspecialchars($cat, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $category_filter === $cat ? ' selected' : ''; ?>><?php echo htmlspecialchars($cat); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="filter-section">
+                            <div class="filter-section-head">
+                                <span class="filter-section-label">Status</span>
+                                <button class="filter-reset-link" type="button" onclick="resetFilterField(['status_filter'])">Reset</button>
+                            </div>
+                            <select id="fp_status" class="filter-select">
+                                <option value="">All statuses</option>
+                                <option value="Paid"<?php echo $status_filter === 'Paid' ? ' selected' : ''; ?>>Paid</option>
+                                <option value="To Be Paid"<?php echo $status_filter === 'To Be Paid' ? ' selected' : ''; ?>>To Be Paid</option>
+                            </select>
+                        </div>
+                        <div class="filter-section">
+                            <div class="filter-section-head">
+                                <span class="filter-section-label">Search</span>
+                                <button class="filter-reset-link" type="button" onclick="resetFilterField(['search'])">Reset</button>
+                            </div>
+                            <input type="text" id="fp_search" class="filter-search-input" placeholder="Expense name, category, or ID..." value="<?php echo htmlspecialchars($search, ENT_QUOTES, 'UTF-8'); ?>">
+                        </div>
+                        <div class="filter-actions">
+                            <button type="button" class="filter-btn-reset" onclick="applyFilters(true)">Reset all filters</button>
+                        </div>
+                    </div>
+                </div>
+                <div style="position:relative;">
+                    <button type="button" class="toolbar-btn" @click="exportOpen = !exportOpen; filterOpen = false" style="height:38px;">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Export
+                    </button>
+                    <div class="sort-dropdown export-dropdown-wide" x-show="exportOpen" x-cloak @click.outside="exportOpen = false">
+                        <div class="export-dd-label" style="display:flex;justify-content:space-between;align-items:center;">
+                            Reporting Period
+                            <span id="exportPeriodLabel" style="text-transform:none;font-weight:600;color:#4b5563;font-size:11px;"><?php echo htmlspecialchars($expense_range_label); ?></span>
+                        </div>
+                        <hr class="export-dd-hr" style="margin:4px 12px 8px;">
+                        <div class="export-dd-label">Print</div>
+                        <button type="button" class="sort-option" style="font-weight:600;color:#111827;" @click="expensePrintInPlace(buildExpenseExportUrl('expenses_print.php')); exportOpen = false">Print Expense Report</button>
+                        <hr class="export-dd-hr">
+                        <div class="export-dd-label">Excel</div>
+                        <a class="export-dd-link" id="exportExcelLink" href="<?php echo htmlspecialchars($xlsxExpensesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen = false">Excel – Expense detail</a>
+                        <hr class="export-dd-hr">
+                        <div class="export-dd-label">CSV</div>
+                        <a class="export-dd-link" id="exportCsvLink" href="<?php echo htmlspecialchars($csvExpensesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen = false">CSV – Expense detail</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="kpi-row">
             <div class="kpi-card indigo">
                 <div class="kpi-label">Total Expenses</div>
@@ -366,7 +519,7 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
         </div>
 
         <div class="card">
-            <div class="expenses-list-header" x-data="filterPanel()">
+            <div class="expenses-list-header" x-data="{ sortOpen: false }">
                 <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;" id="expensesListHeader">Expense List</h3>
                 <div class="expenses-list-toolbar">
                     <button type="button" class="toolbar-btn" id="btnAddExpense" style="height:38px;border-color:#3b82f6;color:#3b82f6;">Add Expense</button>
@@ -375,7 +528,7 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
                         Archived
                     </button>
                     <div style="position:relative;">
-                        <button type="button" class="toolbar-btn" :class="{active: sortOpen || (activeSort !== 'newest')}" @click="sortOpen = !sortOpen; filterOpen = false" style="height:38px;">
+                        <button type="button" class="toolbar-btn" :class="{active: sortOpen || (activeSort !== 'newest')}" @click="sortOpen = !sortOpen" style="height:38px;">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
                             Sort by
                         </button>
@@ -397,61 +550,6 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
                             <?php endforeach; ?>
                         </div>
                     </div>
-                    <div style="position:relative;">
-                        <button type="button" class="toolbar-btn" :class="{active: filterOpen || hasActiveFilters}" @click="filterOpen = !filterOpen; sortOpen = false" style="height:38px;">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                            Filter
-                            <span id="filterBadgeContainer">
-                                <?php if ($activeFilterCount > 0): ?><span class="filter-badge"><?php echo $activeFilterCount; ?></span><?php endif; ?>
-                            </span>
-                        </button>
-                        <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
-                            <div class="filter-panel-header">Filter</div>
-                            <div class="filter-section">
-                                <div class="filter-section-head">
-                                    <span class="filter-section-label">Date range</span>
-                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['date_from','date_to'])">Reset</button>
-                                </div>
-                                <div class="filter-date-row">
-                                    <div><div class="filter-date-label">From</div><input type="date" id="fp_date_from" class="filter-input" value="<?php echo htmlspecialchars($date_from, ENT_QUOTES, 'UTF-8'); ?>"></div>
-                                    <div><div class="filter-date-label">To</div><input type="date" id="fp_date_to" class="filter-input" value="<?php echo htmlspecialchars($date_to, ENT_QUOTES, 'UTF-8'); ?>"></div>
-                                </div>
-                            </div>
-                            <div class="filter-section">
-                                <div class="filter-section-head">
-                                    <span class="filter-section-label">Category</span>
-                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['category'])">Reset</button>
-                                </div>
-                                <select id="fp_category" class="filter-select">
-                                    <option value="">All categories</option>
-                                    <?php foreach (PF_EXPENSE_CATEGORIES as $cat): ?>
-                                        <option value="<?php echo htmlspecialchars($cat, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $category_filter === $cat ? ' selected' : ''; ?>><?php echo htmlspecialchars($cat); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="filter-section">
-                                <div class="filter-section-head">
-                                    <span class="filter-section-label">Status</span>
-                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['status_filter'])">Reset</button>
-                                </div>
-                                <select id="fp_status" class="filter-select">
-                                    <option value="">All statuses</option>
-                                    <option value="Paid"<?php echo $status_filter === 'Paid' ? ' selected' : ''; ?>>Paid</option>
-                                    <option value="To Be Paid"<?php echo $status_filter === 'To Be Paid' ? ' selected' : ''; ?>>To Be Paid</option>
-                                </select>
-                            </div>
-                            <div class="filter-section">
-                                <div class="filter-section-head">
-                                    <span class="filter-section-label">Search</span>
-                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['search'])">Reset</button>
-                                </div>
-                                <input type="text" id="fp_search" class="filter-search-input" placeholder="Expense name, category, or ID..." value="<?php echo htmlspecialchars($search, ENT_QUOTES, 'UTF-8'); ?>">
-                            </div>
-                            <div class="filter-actions">
-                                <button type="button" class="filter-btn-reset" onclick="applyFilters(true)">Reset all filters</button>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -468,6 +566,7 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
                         'sort' => $sort_by !== 'newest' ? $sort_by : null,
                         'date_from' => $date_from,
                         'date_to' => $date_to,
+                        'expense_period' => $expense_period !== 'all' ? $expense_period : null,
                         'branch_id' => printflow_branch_value_is_all($branchId) ? null : (string)(int)$branchId,
                     ], static fn($v) => $v !== null && $v !== '');
                     echo render_pagination($page, $total_pages, $pagination_params);
@@ -594,8 +693,10 @@ const isManager = <?php echo $is_manager ? 'true' : 'false'; ?>;
 const defaultBranchId = <?php echo json_encode($defaultFormBranchId); ?>;
 const branchParam = <?php echo json_encode($branchParam); ?>;
 let activeSort = <?php echo json_encode($sort_by); ?>;
+let activeExpensePeriod = <?php echo json_encode($expense_period); ?>;
 let archiveTargetId = 0;
 let searchDebounceTimer = null;
+const expenseExportBase = <?php echo json_encode(rtrim($base_path, '/') . '/admin/'); ?>;
 
 function qs(sel, root) { return (root || document).querySelector(sel); }
 function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
@@ -659,13 +760,13 @@ function refreshKpis(kpis) {
     if (archived) archived.textContent = Number(kpis.archived || 0).toLocaleString();
 }
 
-function filterPanel() {
+function expenseToolbar() {
     return {
-        sortOpen: false,
-        filterOpen: false,
-        activeSort: activeSort,
+        filterOpen: <?php echo $expenseFilterOpen ? 'true' : 'false'; ?>,
+        exportOpen: false,
         get hasActiveFilters() {
-            return document.getElementById('fp_date_from')?.value ||
+            return activeExpensePeriod !== 'all' ||
+                document.getElementById('fp_date_from')?.value ||
                 document.getElementById('fp_date_to')?.value ||
                 document.getElementById('fp_category')?.value ||
                 document.getElementById('fp_status')?.value ||
@@ -678,6 +779,7 @@ function buildFilterURL(page = 1) {
     const params = new URLSearchParams();
     params.set('page', page);
     if (branchParam && branchParam !== 'all') params.set('branch_id', branchParam);
+    if (activeExpensePeriod && activeExpensePeriod !== 'all') params.set('expense_period', activeExpensePeriod);
     const df = document.getElementById('fp_date_from')?.value; if (df) params.set('date_from', df);
     const dt = document.getElementById('fp_date_to')?.value; if (dt) params.set('date_to', dt);
     const cat = document.getElementById('fp_category')?.value; if (cat) params.set('category', cat);
@@ -685,6 +787,34 @@ function buildFilterURL(page = 1) {
     const s = document.getElementById('fp_search')?.value; if (s) params.set('search', s);
     if (activeSort !== 'newest') params.set('sort', activeSort);
     return '?' + params.toString();
+}
+
+function buildExpenseExportUrl(file) {
+    return expenseExportBase + file + buildFilterURL(1).slice(1);
+}
+
+function updateExpenseToolbarMeta() {
+    const df = document.getElementById('fp_date_from')?.value || '';
+    const dt = document.getElementById('fp_date_to')?.value || '';
+    let rangeLabel = 'All time';
+    if (df && dt) {
+        const fromDate = new Date(df + 'T00:00:00');
+        const toDate = new Date(dt + 'T00:00:00');
+        const fmt = d => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        rangeLabel = fmt(fromDate);
+        if (df !== dt) rangeLabel = fmt(fromDate) + ' – ' + fmt(toDate);
+    }
+    const periodLabels = { today: 'Today', week: 'This Week', month: 'This Month', custom: 'Custom', all: 'All Time' };
+    const periodLabel = periodLabels[activeExpensePeriod] || 'Custom';
+    const summary = activeExpensePeriod !== 'all' ? `${rangeLabel} (${periodLabel})` : rangeLabel;
+    const summaryEl = document.getElementById('expenseToolbarSummary');
+    const exportPeriodEl = document.getElementById('exportPeriodLabel');
+    if (summaryEl) summaryEl.textContent = summary;
+    if (exportPeriodEl) exportPeriodEl.textContent = rangeLabel;
+    const excelLink = document.getElementById('exportExcelLink');
+    const csvLink = document.getElementById('exportCsvLink');
+    if (excelLink) excelLink.href = buildExpenseExportUrl('expenses_export_excel.php');
+    if (csvLink) csvLink.href = buildExpenseExportUrl('expenses_export.php');
 }
 
 function fetchUpdatedTable(page = 1) {
@@ -701,9 +831,10 @@ function fetchUpdatedTable(page = 1) {
                 bindTableActions();
                 bindPaginationLinks();
             }
-            const cont = document.getElementById('filterBadgeContainer');
+            const cont = document.getElementById('toolbarFilterBadgeContainer');
             if (cont) cont.innerHTML = data.badge > 0 ? '<span class="filter-badge">' + data.badge + '</span>' : '';
             refreshKpis(data.kpis);
+            updateExpenseToolbarMeta();
             history.replaceState(null, '', buildFilterURL(page));
         })
         .catch(() => showFlash('Failed to refresh expense list.', 'error'));
@@ -716,6 +847,8 @@ function applyFilters(reset = false) {
             if (el) el.value = '';
         });
         activeSort = 'newest';
+        activeExpensePeriod = 'all';
+        document.querySelectorAll('[data-expense-period]').forEach(btn => btn.classList.remove('active'));
     }
     fetchUpdatedTable(1);
 }
@@ -732,9 +865,8 @@ function resetFilterField(fields) {
 function applySortFilter(sortKey) {
     activeSort = sortKey;
     fetchUpdatedTable(1);
-    const alpineEl = document.querySelector('[x-data="filterPanel()"]');
+    const alpineEl = document.querySelector('.expenses-list-header[x-data]');
     if (alpineEl && alpineEl._x_dataStack) {
-        alpineEl._x_dataStack[0].activeSort = sortKey;
         alpineEl._x_dataStack[0].sortOpen = false;
     }
 }
@@ -932,7 +1064,47 @@ function initExpensesPage() {
 
     ['fp_date_from', 'fp_date_to', 'fp_category', 'fp_status'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener('change', () => fetchUpdatedTable(1));
+        if (el) el.addEventListener('change', () => {
+            if (id === 'fp_date_from' || id === 'fp_date_to') activeExpensePeriod = 'custom';
+            fetchUpdatedTable(1);
+        });
+    });
+
+    const padDate = n => String(n).padStart(2, '0');
+    const ymdDate = date => `${date.getFullYear()}-${padDate(date.getMonth() + 1)}-${padDate(date.getDate())}`;
+    const setExpensePeriodRange = (period) => {
+        const df = document.getElementById('fp_date_from');
+        const dt = document.getElementById('fp_date_to');
+        if (!df || !dt) return;
+        const today = new Date();
+        if (period === 'today') {
+            df.value = ymdDate(today);
+            dt.value = ymdDate(today);
+            return;
+        }
+        if (period === 'week') {
+            const start = new Date(today);
+            const day = start.getDay();
+            const diff = day === 0 ? -6 : 1 - day;
+            start.setDate(start.getDate() + diff);
+            df.value = ymdDate(start);
+            dt.value = ymdDate(today);
+            return;
+        }
+        if (period === 'month') {
+            const start = new Date(today.getFullYear(), today.getMonth(), 1);
+            df.value = ymdDate(start);
+            dt.value = ymdDate(today);
+        }
+    };
+
+    document.querySelectorAll('[data-expense-period]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            activeExpensePeriod = button.getAttribute('data-expense-period') || 'all';
+            document.querySelectorAll('[data-expense-period]').forEach(btn => btn.classList.toggle('active', btn === button));
+            setExpensePeriodRange(activeExpensePeriod);
+            fetchUpdatedTable(1);
+        });
     });
 
     const searchInput = document.getElementById('fp_search');

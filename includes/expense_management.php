@@ -448,3 +448,150 @@ function pf_expense_reports_paid_total(string $from, string $toEnd, $branchId): 
         return 0.0;
     }
 }
+
+/**
+ * Resolve expense list period from request (today, week, month, custom, or all).
+ *
+ * @return array{period:string,date_from:string,date_to:string,label:string,range_label:string}
+ */
+function pf_expense_resolve_period(array $input): array
+{
+    $todayYmd = date('Y-m-d');
+    $requestedFrom = trim((string)($input['date_from'] ?? ''));
+    $requestedTo = trim((string)($input['date_to'] ?? ''));
+    $validFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedFrom) ? $requestedFrom : '';
+    $validTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedTo) ? $requestedTo : '';
+    $period = trim((string)($input['expense_period'] ?? ''));
+
+    if (!in_array($period, ['today', 'week', 'month', 'custom', 'all'], true)) {
+        $period = ($validFrom !== '' || $validTo !== '') ? 'custom' : 'all';
+    }
+
+    if ($period === 'custom' && $validFrom !== '' && $validTo !== '') {
+        $from = $validFrom;
+        $to = $validTo;
+        if (strtotime($from) > strtotime($to)) {
+            [$from, $to] = [$to, $from];
+        }
+        $label = 'Custom';
+    } elseif ($period === 'week') {
+        $from = date('Y-m-d', strtotime('monday this week'));
+        $to = $todayYmd;
+        $label = 'This Week';
+    } elseif ($period === 'month') {
+        $from = date('Y-m-01');
+        $to = $todayYmd;
+        $label = 'This Month';
+    } elseif ($period === 'today') {
+        $from = $todayYmd;
+        $to = $todayYmd;
+        $label = 'Today';
+    } else {
+        $from = $validFrom;
+        $to = $validTo;
+        $label = 'All Time';
+        if ($from !== '' && $to !== '') {
+            $period = 'custom';
+            $label = 'Custom';
+        } elseif ($from !== '' || $to !== '') {
+            $period = 'custom';
+            $label = 'Custom';
+        }
+    }
+
+    if ($from !== '' && $to !== '') {
+        $rangeLabel = date('M j, Y', strtotime($from));
+        if ($from !== $to) {
+            $rangeLabel = date('M j, Y', strtotime($from)) . ' – ' . date('M j, Y', strtotime($to));
+        }
+    } else {
+        $rangeLabel = 'All time';
+    }
+
+    return [
+        'period' => $period,
+        'date_from' => $from,
+        'date_to' => $to,
+        'label' => $label,
+        'range_label' => $rangeLabel,
+    ];
+}
+
+/**
+ * Build list/export filters from GET request.
+ *
+ * @return array{search:string,category:string,status_filter:string,date_from:string,date_to:string,expense_period:string,sort:string}
+ */
+function pf_expense_filters_from_request(array $input): array
+{
+    $periodInfo = pf_expense_resolve_period($input);
+    $sort = trim((string)($input['sort'] ?? 'newest'));
+    $allowedSorts = ['newest', 'oldest', 'az', 'za', 'amount_high', 'amount_low'];
+    if (!in_array($sort, $allowedSorts, true)) {
+        $sort = 'newest';
+    }
+
+    return [
+        'search' => trim((string)($input['search'] ?? '')),
+        'category' => trim((string)($input['category'] ?? '')),
+        'status_filter' => trim((string)($input['status_filter'] ?? '')),
+        'date_from' => $periodInfo['date_from'],
+        'date_to' => $periodInfo['date_to'],
+        'expense_period' => $periodInfo['period'],
+        'sort' => $sort,
+    ];
+}
+
+/**
+ * Human-readable export metadata for applied expense filters.
+ *
+ * @return array<string,string>
+ */
+function pf_expense_export_filter_meta(array $filters, string $branchName, array $periodInfo): array
+{
+    $meta = [
+        'Branch' => $branchName !== '' ? $branchName : 'All Branches',
+        'Period' => $periodInfo['label'],
+        'Date Range' => $periodInfo['range_label'],
+    ];
+
+    $category = trim((string)($filters['category'] ?? ''));
+    $meta['Category'] = ($category !== '' && in_array($category, PF_EXPENSE_CATEGORIES, true))
+        ? $category
+        : 'All categories';
+
+    $status = pf_expense_normalize_status((string)($filters['status_filter'] ?? ''));
+    $meta['Status'] = in_array($status, ['Paid', 'To Be Paid'], true) ? $status : 'All statuses';
+
+    $search = trim((string)($filters['search'] ?? ''));
+    $meta['Search'] = $search !== '' ? $search : 'None';
+
+    $sortLabels = [
+        'newest' => 'Newest to Oldest',
+        'oldest' => 'Oldest to Newest',
+        'az' => 'A → Z',
+        'za' => 'Z → A',
+        'amount_high' => 'Amount: High to Low',
+        'amount_low' => 'Amount: Low to High',
+    ];
+    $meta['Sort'] = $sortLabels[$filters['sort'] ?? 'newest'] ?? 'Newest to Oldest';
+
+    return $meta;
+}
+
+/**
+ * Fetch all expense rows matching filters (no pagination) for export.
+ */
+function pf_expense_list_for_export(array $filters, $branchId): array
+{
+    $parts = pf_expense_list_query_parts($filters, $branchId, false);
+    $orderSql = pf_expense_sort_order_clause((string)($filters['sort'] ?? 'newest'));
+
+    return db_query(
+        "SELECT e.*, b.branch_name, u.first_name, u.last_name
+         {$parts['sql']}
+         ORDER BY {$orderSql}",
+        $parts['types'] ?: null,
+        $parts['params'] ?: null
+    ) ?: [];
+}

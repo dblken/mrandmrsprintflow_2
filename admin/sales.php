@@ -194,18 +194,30 @@ $salesBranchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(
 $salesFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
 function sales_export_url(string $file, array $extra = []): string {
-    global $base_path, $sales_from, $sales_to, $salesBranchParam;
-    return rtrim($base_path, '/') . '/admin/' . $file . '?' . http_build_query(array_merge([
+    global $base_path, $sales_from, $sales_to, $salesBranchParam, $sales_period, $salesTypeFilter, $salesMethodFilter, $salesItemFilter;
+    $params = array_merge([
         'from' => $sales_from,
         'to' => $sales_to,
         'branch_id' => $salesBranchParam,
-    ], $extra));
+        'sales_period' => $sales_period,
+    ], $extra);
+    if ($salesTypeFilter !== 'all') {
+        $params['type'] = $salesTypeFilter;
+    }
+    if ($salesMethodFilter !== 'all') {
+        $params['method'] = $salesMethodFilter;
+    }
+    if ($salesItemFilter !== '') {
+        $params['item'] = $salesItemFilter;
+    }
+    return rtrim($base_path, '/') . '/admin/' . $file . '?' . http_build_query($params);
 }
 
 $salesPeriodLabel = date('M d, Y', strtotime($sales_from));
 if ($sales_from !== $sales_to) {
     $salesPeriodLabel = date('M d, Y', strtotime($sales_from)) . ' – ' . date('M d, Y', strtotime($sales_to));
 }
+$salesToolbarSummary = $salesPeriodLabel . ' (' . $sales_label . ')';
 $printSalesUrl = sales_export_url('reports_print.php', ['report' => 'sales']);
 $csvSalesUrl = sales_export_url('reports_export.php', ['report' => 'sales']);
 $xlsxSalesUrl = sales_export_url('reports_export_excel.php', ['report' => 'sales']);
@@ -286,8 +298,7 @@ function salesPrintInPlace(url) {
 .sales-txn-table .sales-breakdown-pill { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
-.filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; display:none; }
-.filter-panel.open { display:block; }
+.filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; }
 .filter-panel-header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid #f3f4f6; font-size:14px; font-weight:700; color:#111827; }
 .filter-panel-close { border:0; background:transparent; color:#374151; cursor:pointer; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
 .filter-panel-close:hover { background:#f3f4f6; }
@@ -332,21 +343,21 @@ function salesPrintInPlace(url) {
         <main>
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
 
-            <div class="sales-toolbar no-print">
+            <div class="sales-toolbar no-print" x-data="{ filterOpen: <?php echo $salesFilterOpen ? 'true' : 'false'; ?>, exportOpen: false }">
                 <div class="sales-toolbar-summary">
-                    <?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars($salesPeriodLabel); ?>
+                    <?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars($salesToolbarSummary); ?>
                 </div>
                 <div class="sales-toolbar-actions">
                     <div style="position:relative;">
-                        <button type="button" class="toolbar-btn <?php echo $salesFilterCount > 0 ? 'active' : ''; ?>" id="salesFilterToggle" style="height:38px;">
+                        <button type="button" class="toolbar-btn <?php echo $salesFilterCount > 0 ? 'active' : ''; ?>" id="salesFilterToggle" style="height:38px;" @click="filterOpen = !filterOpen; exportOpen = false">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                             Filter
                             <?php if ($salesFilterCount > 0): ?><span class="filter-badge"><?php echo (int)$salesFilterCount; ?></span><?php endif; ?>
                         </button>
-                        <div class="filter-panel <?php echo $salesFilterOpen ? 'open' : ''; ?>" id="salesFilterPanel">
+                        <div class="filter-panel" id="salesFilterPanel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
                             <div class="filter-panel-header">
                                 <span>Filter</span>
-                                <button type="button" class="filter-panel-close" id="salesFilterClose" aria-label="Close filter">
+                                <button type="button" class="filter-panel-close" id="salesFilterClose" aria-label="Close filter" @click="filterOpen = false">
                                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                                 </button>
                             </div>
@@ -410,8 +421,8 @@ function salesPrintInPlace(url) {
                             </form>
                         </div>
                     </div>
-                    <div style="position:relative;" x-data="{ exportOpen: false }">
-                        <button type="button" class="toolbar-btn" @click="exportOpen = !exportOpen" style="height:38px;">
+                    <div style="position:relative;">
+                        <button type="button" class="toolbar-btn" @click="exportOpen = !exportOpen; filterOpen = false" style="height:38px;">
                             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                             Export
                         </button>
@@ -527,9 +538,6 @@ function salesPrintInPlace(url) {
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const toggle = document.getElementById('salesFilterToggle');
-    const panel = document.getElementById('salesFilterPanel');
-    const close = document.getElementById('salesFilterClose');
     const form = document.getElementById('salesFilterForm');
     const from = document.getElementById('salesFilterFrom');
     const to = document.getElementById('salesFilterTo');
@@ -537,7 +545,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const periodInput = document.getElementById('salesPeriodInput');
     const resetFilter = document.getElementById('salesResetFilter');
     const scrollInput = document.getElementById('salesScrollY');
-    if (!toggle || !panel || !form || !from || !to) return;
+    if (!form || !from || !to) return;
 
     const pad = n => String(n).padStart(2, '0');
     const ymd = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -545,16 +553,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const submit = () => { rememberScroll(); form.submit(); };
     const submitCustom = () => { if (periodInput) periodInput.value = 'custom'; submit(); };
     const setRange = (start, end) => { from.value = ymd(start); to.value = ymd(end); if (periodInput) periodInput.value = 'custom'; submit(); };
-
-    toggle.addEventListener('click', function (event) {
-        event.stopPropagation();
-        panel.classList.toggle('open');
-    });
-    close?.addEventListener('click', function () { panel.classList.remove('open'); });
-    document.addEventListener('click', function (event) {
-        if (!panel.contains(event.target) && !toggle.contains(event.target)) panel.classList.remove('open');
-    });
-    panel.addEventListener('click', function (event) { event.stopPropagation(); });
 
     from.addEventListener('change', submitCustom);
     to.addEventListener('change', submitCustom);
