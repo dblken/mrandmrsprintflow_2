@@ -81,6 +81,11 @@ function sales_method_display(?string $value): string {
     return sales_format_label($value);
 }
 
+function sales_is_paid_transaction(array $row): bool {
+    $status = strtolower(trim((string)($row['payment_status'] ?? '')));
+    return in_array($status, ['paid', 'fully paid'], true);
+}
+
 $sales_period = $_GET['sales_period'] ?? 'today';
 if (!in_array($sales_period, ['today', 'week', 'month', 'custom'], true)) {
     $sales_period = 'today';
@@ -132,6 +137,9 @@ $salesData = !$branchEmpty
 
 $allItems = $salesData['by_item'] ?? [];
 $salesData['transactions'] = array_values(array_filter($salesData['transactions'] ?? [], static function ($row) use ($salesTypeFilter, $salesMethodFilter, $salesItemFilter): bool {
+    if (!sales_is_paid_transaction($row)) {
+        return false;
+    }
     $type = strtolower(trim((string)($row['type'] ?? '')));
     $method = sales_method_filter_key($row['payment_method'] ?? '');
     if ($salesTypeFilter !== 'all' && $type !== $salesTypeFilter) return false;
@@ -231,10 +239,21 @@ $page_title = 'Sales Management - Admin';
 .sales-breakdown-metric-value { margin-top:10px; font-size:28px; line-height:1.1; font-weight:900; color:#0f172a; }
 .sales-breakdown-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; margin-bottom:20px; }
 .sales-breakdown-panel { border:1px solid #eef2f7; border-radius:10px; padding:16px; min-width:0; background:#fff; }
-.sales-breakdown-table { width:100%; border-collapse:collapse; font-size:14px; }
-.sales-breakdown-table th { text-align:left; color:#64748b; font-weight:600; font-size:13px; padding:12px 8px; border-bottom:1px solid #e5e7eb; }
-.sales-breakdown-table td { padding:14px 8px; border-bottom:1px solid #f1f5f9; color:#111827; vertical-align:middle; }
+.sales-breakdown-table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+.sales-breakdown-table th { text-align:left; color:#64748b; font-weight:600; font-size:12px; padding:10px 12px; border-bottom:1px solid #e5e7eb; white-space:nowrap; }
+.sales-breakdown-table td { padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#111827; vertical-align:middle; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sales-breakdown-table .num { text-align:right; font-weight:600; color:#0f172a; }
+.sales-txn-table th:nth-child(1), .sales-txn-table td:nth-child(1) { width:11%; }
+.sales-txn-table th:nth-child(2), .sales-txn-table td:nth-child(2) { width:7%; }
+.sales-txn-table th:nth-child(3), .sales-txn-table td:nth-child(3) { width:14%; }
+.sales-txn-table th:nth-child(4), .sales-txn-table td:nth-child(4) { width:6%; }
+.sales-txn-table th:nth-child(5), .sales-txn-table td:nth-child(5) { width:11%; }
+.sales-txn-table th:nth-child(6), .sales-txn-table td:nth-child(6) { width:10%; }
+.sales-txn-table th:nth-child(7), .sales-txn-table td:nth-child(7) { width:8%; }
+.sales-txn-table th:nth-child(8), .sales-txn-table td:nth-child(8) { width:7%; }
+.sales-txn-table th:nth-child(9), .sales-txn-table td:nth-child(9) { width:10%; }
+.sales-txn-table th:nth-child(10), .sales-txn-table td:nth-child(10) { width:9%; text-align:right; }
+.sales-txn-table .sales-breakdown-pill { white-space:nowrap; }
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
 .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; display:none; }
@@ -418,8 +437,8 @@ $page_title = 'Sales Management - Admin';
                         <div class="sales-breakdown-empty">No sales transactions for this period.</div>
                     <?php else: ?>
                         <div style="overflow-x:auto;">
-                            <table class="sales-breakdown-table">
-                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
+                            <table class="sales-breakdown-table sales-txn-table">
+                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th>Amount</th></tr></thead>
                                 <tbody>
                                 <?php foreach ($salesData['transactions'] as $row): ?>
                                     <tr>
