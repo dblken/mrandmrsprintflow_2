@@ -47,11 +47,13 @@ if ($action === 'create') {
 
     $d = $validated['data'];
     $paidAt = ($d['status'] === 'Paid') ? date('Y-m-d H:i:s') : null;
+    $notes = $d['notes'];
+    $createdBy = $userId > 0 ? $userId : null;
 
     $result = db_execute(
         "INSERT INTO expenses (expense_name, category, branch_id, amount, expense_date, status, payment_method, notes, paid_at, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        'ssidsisssi',
+        'ssidsssssi',
         [
             $d['expense_name'],
             $d['category'],
@@ -60,9 +62,9 @@ if ($action === 'create') {
             $d['expense_date'],
             $d['status'],
             $d['payment_method'],
-            $d['notes'],
+            $notes,
             $paidAt,
-            $userId > 0 ? $userId : null,
+            $createdBy,
         ]
     );
 
@@ -117,12 +119,14 @@ if ($action === 'update') {
         ? ((string)($existing['status'] ?? '') === 'Paid' && !empty($existing['paid_at']) ? $existing['paid_at'] : date('Y-m-d H:i:s'))
         : null;
 
+    $notes = $d['notes'];
+
     $updated = db_execute(
         "UPDATE expenses
          SET expense_name = ?, category = ?, branch_id = ?, amount = ?, expense_date = ?,
              status = ?, payment_method = ?, notes = ?, paid_at = ?
          WHERE expense_id = ? AND status IN ('Paid', 'To Be Paid')",
-        'ssidsisssi',
+        'ssidsssssi',
         [
             $d['expense_name'],
             $d['category'],
@@ -131,7 +135,7 @@ if ($action === 'update') {
             $d['expense_date'],
             $d['status'],
             $d['payment_method'],
-            $d['notes'],
+            $notes,
             $paidAt,
             $d['expense_id'],
         ]

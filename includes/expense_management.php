@@ -246,6 +246,32 @@ function pf_expense_kpi_totals($branchId): array
     ];
 }
 
+function pf_expense_archived_count($branchId): int
+{
+    pf_ensure_expenses_table();
+
+    [$branchSql, $branchTypes, $branchParams] = branch_where_parts('e', $branchId);
+    $row = db_query(
+        "SELECT COUNT(*) AS cnt FROM expenses e WHERE e.status = 'Archived' {$branchSql}",
+        $branchTypes,
+        $branchParams
+    )[0] ?? [];
+
+    return (int)($row['cnt'] ?? 0);
+}
+
+function pf_expense_sort_order_clause(string $sortBy): string
+{
+    return match ($sortBy) {
+        'oldest' => 'e.expense_date ASC, e.expense_id ASC',
+        'az' => 'e.expense_name ASC, e.expense_id DESC',
+        'za' => 'e.expense_name DESC, e.expense_id DESC',
+        'amount_high' => 'e.amount DESC, e.expense_id DESC',
+        'amount_low' => 'e.amount ASC, e.expense_id DESC',
+        default => 'e.expense_date DESC, e.expense_id DESC',
+    };
+}
+
 /**
  * @return array{ok:bool,errors:array<string,string>,data:array<string,mixed>}
  */

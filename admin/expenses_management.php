@@ -25,8 +25,14 @@ $category_filter = trim((string)($_GET['category'] ?? ''));
 $status_filter = trim((string)($_GET['status_filter'] ?? ''));
 $date_from = trim((string)($_GET['date_from'] ?? ''));
 $date_to = trim((string)($_GET['date_to'] ?? ''));
+$sort_by = trim((string)($_GET['sort'] ?? 'newest'));
 $page = max(1, (int)($_GET['page'] ?? 1));
 $per_page = 15;
+
+$allowed_sorts = ['newest', 'oldest', 'az', 'za', 'amount_high', 'amount_low'];
+if (!in_array($sort_by, $allowed_sorts, true)) {
+    $sort_by = 'newest';
+}
 
 $filters = [
     'search' => $search,
@@ -45,6 +51,7 @@ $activeFilterCount = count(array_filter([
 ]));
 
 $kpi = pf_expense_kpi_totals($branchId);
+$stat_archived = pf_expense_archived_count($branchId);
 
 $branchesForModal = [];
 if ($is_manager) {
@@ -68,8 +75,12 @@ if ($is_manager) {
     ) ?: [];
 }
 
+$defaultFormBranchId = printflow_branch_value_is_all($branchId)
+    ? (int)($branchesForModal[0]['id'] ?? 0)
+    : (int)$branchId;
+
 function pf_expense_page_query(array $overrides = []): string {
-    $keys = ['search', 'category', 'status_filter', 'date_from', 'date_to', 'branch_id', 'page'];
+    $keys = ['search', 'category', 'status_filter', 'date_from', 'date_to', 'branch_id', 'sort', 'page'];
     $q = [];
     foreach ($keys as $key) {
         if (array_key_exists($key, $overrides)) {
@@ -83,47 +94,71 @@ function pf_expense_page_query(array $overrides = []): string {
     return '?' . http_build_query($q);
 }
 
-function pf_expense_render_table_rows(array $expenses, string $base_path, bool $archivedOnly = false): void {
-    if (empty($expenses)) {
-        $colspan = 8;
-        echo '<tr><td colspan="' . $colspan . '" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">'
-            . ($archivedOnly ? 'No archived expenses found.' : 'No expenses found.')
-            . '</td></tr>';
-        return;
-    }
-
-    foreach ($expenses as $row) {
-        $payload = pf_expense_build_payload($row);
-        $payloadAttr = htmlspecialchars(
-            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}',
-            ENT_QUOTES,
-            'UTF-8'
-        );
-        $badge = pf_expense_status_badge((string)($row['status'] ?? ''));
-        $expenseId = (int)($row['expense_id'] ?? 0);
-        $expenseName = htmlspecialchars((string)($row['expense_name'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $category = htmlspecialchars((string)($row['category'] ?? ''), ENT_QUOTES, 'UTF-8');
-        $branchName = htmlspecialchars((string)($row['branch_name'] ?? '—'), ENT_QUOTES, 'UTF-8');
-        $amount = format_currency((float)($row['amount'] ?? 0));
-        $expenseDate = !empty($row['expense_date']) ? date('M j, Y', strtotime((string)$row['expense_date'])) : '—';
-
-        echo '<tr class="expense-row" data-expense-id="' . $expenseId . '" data-expense="' . $payloadAttr . '">';
-        echo '<td style="color:#1f2937;">' . $expenseId . '</td>';
-        echo '<td style="font-weight:500;color:#1f2937;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' . $expenseName . '">' . $expenseName . '</td>';
-        echo '<td>' . $category . '</td>';
-        echo '<td>' . $branchName . '</td>';
-        echo '<td style="font-weight:600;color:#111827;">' . $amount . '</td>';
-        echo '<td>' . $expenseDate . '</td>';
-        echo '<td><span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;' . $badge['style'] . '">' . htmlspecialchars($badge['label']) . '</span></td>';
-        echo '<td style="text-align:right;white-space:nowrap;">';
-        if ($archivedOnly) {
-            echo '<button type="button" class="btn-action teal pf-expense-restore" data-expense-id="' . $expenseId . '">Restore</button>';
-        } else {
-            echo '<button type="button" class="btn-action teal pf-expense-edit" data-expense-id="' . $expenseId . '">Edit</button>';
-            echo ' <button type="button" class="btn-action red pf-expense-archive" data-expense-id="' . $expenseId . '" data-expense-name="' . $expenseName . '">Archive</button>';
-        }
-        echo '</td></tr>';
-    }
+function render_expenses_table(array $expenses, bool $archivedOnly = false): void {
+    ?>
+    <table class="orders-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Expense</th>
+                <th>Category</th>
+                <th>Branch</th>
+                <th>Amount</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th style="text-align:right;">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="expensesTableBody">
+            <?php if (empty($expenses)): ?>
+                <tr>
+                    <td colspan="8" style="padding:40px;text-align:center;color:#9ca3af;font-size:14px;">
+                        <?php echo $archivedOnly ? 'No archived expenses found.' : 'No expenses found.'; ?>
+                    </td>
+                </tr>
+            <?php else: ?>
+                <?php foreach ($expenses as $row): ?>
+                    <?php
+                    $payload = pf_expense_build_payload($row);
+                    $payloadAttr = htmlspecialchars(
+                        json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}',
+                        ENT_QUOTES,
+                        'UTF-8'
+                    );
+                    $badge = pf_expense_status_badge((string)($row['status'] ?? ''));
+                    $expenseId = (int)($row['expense_id'] ?? 0);
+                    $expenseName = htmlspecialchars((string)($row['expense_name'] ?? ''), ENT_QUOTES, 'UTF-8');
+                    $category = htmlspecialchars((string)($row['category'] ?? ''), ENT_QUOTES, 'UTF-8');
+                    $branchName = htmlspecialchars((string)($row['branch_name'] ?? '—'), ENT_QUOTES, 'UTF-8');
+                    $amount = format_currency((float)($row['amount'] ?? 0));
+                    $expenseDate = !empty($row['expense_date']) ? date('M j, Y', strtotime((string)$row['expense_date'])) : '—';
+                    ?>
+                    <tr class="expense-row" data-expense-id="<?php echo $expenseId; ?>" data-expense="<?php echo $payloadAttr; ?>">
+                        <td style="color:#1f2937;"><?php echo $expenseId; ?></td>
+                        <td style="font-weight:500;color:#1f2937;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<?php echo $expenseName; ?>"><?php echo $expenseName; ?></td>
+                        <td><?php echo $category; ?></td>
+                        <td><?php echo $branchName; ?></td>
+                        <td style="font-weight:600;color:#111827;"><?php echo $amount; ?></td>
+                        <td><?php echo $expenseDate; ?></td>
+                        <td>
+                            <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;<?php echo $badge['style']; ?>"><?php echo htmlspecialchars($badge['label']); ?></span>
+                        </td>
+                        <td style="text-align:right;white-space:nowrap;">
+                            <div class="expenses-actions">
+                                <?php if ($archivedOnly): ?>
+                                    <button type="button" class="btn-action teal pf-expense-restore" data-expense-id="<?php echo $expenseId; ?>">Restore</button>
+                                <?php else: ?>
+                                    <button type="button" class="btn-action blue pf-expense-edit" data-expense-id="<?php echo $expenseId; ?>">Edit</button>
+                                    <button type="button" class="btn-action red pf-expense-archive" data-expense-id="<?php echo $expenseId; ?>" data-expense-name="<?php echo $expenseName; ?>">Archive</button>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </tbody>
+    </table>
+    <?php
 }
 
 if (isset($_GET['get_archived'])) {
@@ -139,11 +174,7 @@ if (isset($_GET['get_archived'])) {
     ) ?: [];
 
     ob_start();
-    echo '<table class="orders-table" style="width:100%;"><thead><tr>';
-    echo '<th>ID</th><th>Expense</th><th>Category</th><th>Branch</th><th>Amount</th><th>Date</th><th style="text-align:right;">Actions</th>';
-    echo '</tr></thead><tbody>';
-    pf_expense_render_table_rows($archived, $base_path, true);
-    echo '</tbody></table>';
+    render_expenses_table($archived, true);
     $html = ob_get_clean();
 
     echo json_encode(['success' => true, 'html' => $html, 'csrf_token' => generate_csrf_token()]);
@@ -160,47 +191,43 @@ $total_filtered = (int)($countRow['total'] ?? 0);
 $total_pages = max(1, (int)ceil($total_filtered / $per_page));
 $page = min($page, $total_pages);
 $offset = ($page - 1) * $per_page;
+$orderSql = pf_expense_sort_order_clause($sort_by);
 
 $expenses = db_query(
     "SELECT e.*, b.branch_name, u.first_name, u.last_name
      {$parts['sql']}
-     ORDER BY e.expense_date DESC, e.expense_id DESC
+     ORDER BY {$orderSql}
      LIMIT {$per_page} OFFSET {$offset}",
     $parts['types'] ?: null,
     $parts['params'] ?: null
 ) ?: [];
 
 if (isset($_GET['ajax'])) {
+    header('Content-Type: application/json; charset=utf-8');
     ob_start();
-    ?>
-    <table class="orders-table">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Expense</th>
-                <th>Category</th>
-                <th>Branch</th>
-                <th>Amount</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th style="text-align:right;" class="no-print">Actions</th>
-            </tr>
-        </thead>
-        <tbody id="expensesTableBody">
-            <?php pf_expense_render_table_rows($expenses, $base_path, false); ?>
-        </tbody>
-    </table>
-    <?php if ($total_pages > 1): ?>
-    <div class="pagination-wrap" style="margin-top:16px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
-        <?php for ($p = 1; $p <= $total_pages; $p++): ?>
-            <a href="<?php echo htmlspecialchars(pf_expense_page_query(['page' => $p])); ?>"
-               class="toolbar-btn<?php echo $p === $page ? ' active' : ''; ?>"
-               data-page="<?php echo $p; ?>"><?php echo $p; ?></a>
-        <?php endfor; ?>
-    </div>
-    <?php endif; ?>
-    <?php
-    echo ob_get_clean();
+    render_expenses_table($expenses, false);
+    $table_html = ob_get_clean();
+    ob_start();
+    $pp = array_filter([
+        'search' => $search,
+        'category' => $category_filter,
+        'status_filter' => $status_filter,
+        'sort' => $sort_by !== 'newest' ? $sort_by : null,
+        'date_from' => $date_from,
+        'date_to' => $date_to,
+        'branch_id' => printflow_branch_value_is_all($branchId) ? null : (string)(int)$branchId,
+    ], static fn($v) => $v !== null && $v !== '');
+    echo render_pagination($page, $total_pages, $pp);
+    $pagination_html = ob_get_clean();
+
+    echo json_encode([
+        'success' => true,
+        'table' => '<div class="overflow-x-auto">' . $table_html . '</div>',
+        'pagination' => $pagination_html,
+        'badge' => $activeFilterCount,
+        'kpis' => array_merge($kpi, ['archived' => $stat_archived]),
+        'csrf_token' => generate_csrf_token(),
+    ]);
     exit;
 }
 
@@ -223,39 +250,46 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 <?php render_branch_css(); ?>
 <style>
 [x-cloak]{display:none!important}
-.exp-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:0 0 24px}
-.exp-kpi{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.exp-kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#00232b,#53C5E0)}
-.exp-kpi:nth-child(2)::before{background:linear-gradient(90deg,#059669,#34d399)}
-.exp-kpi:nth-child(3)::before{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
-.exp-kpi-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px}
-.exp-kpi-value{font-size:26px;font-weight:800;color:#111827;line-height:1.15}
-.exp-kpi-sub{font-size:12px;color:#6b7280;margin-top:6px}
-.exp-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.exp-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:18px}
-.exp-toolbar-left,.exp-toolbar-right{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-.exp-search-wrap{position:relative;min-width:220px;flex:1;max-width:320px}
-.exp-search-wrap svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;pointer-events:none}
-.exp-search{width:100%;height:36px;border:1px solid #e5e7eb;border-radius:10px;padding:0 12px 0 38px;font-size:13px;color:#1f2937;box-sizing:border-box}
-.exp-search:focus{outline:none;border-color:#53C5E0;box-shadow:0 0 0 3px rgba(83,197,224,.15)}
-.toolbar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 14px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;color:#111827;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;text-decoration:none;white-space:nowrap}
-.toolbar-btn:hover{border-color:#9ca3af;background:#f9fafb}
-.toolbar-btn.active,.toolbar-btn.primary{border-color:#00232b;color:#00232b;background:#ecf8fb}
-.toolbar-btn.primary{background:#00232b;color:#fff;border-color:#00232b}
-.toolbar-btn.primary:hover{background:#003945;border-color:#003945;color:#fff}
-.filter-panel{position:absolute;top:calc(100% + 6px);right:0;width:320px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:200;display:none}
-.filter-panel.open{display:block}
-.filter-panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:700;color:#111827}
-.filter-section{padding:14px 18px;border-bottom:1px solid #f3f4f6}
-.filter-section-label{font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;display:block}
-.filter-input,.filter-select{width:100%;height:34px;border:1px solid #e5e7eb;border-radius:7px;font-size:13px;padding:0 10px;color:#1f2937;background:#fff;box-sizing:border-box}
-.filter-date-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
-.filter-date-label{font-size:11px;color:#6b7280;margin-bottom:4px}
-.filter-actions{padding:14px 18px;display:flex;flex-direction:column;gap:8px}
-.filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;background:#0d9488;color:#fff;border-radius:999px;font-size:10px;font-weight:700}
-.btn-action{display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12px;font-weight:500;transition:all .2s;cursor:pointer;text-decoration:none}
+.btn-action{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:30px;min-height:30px;padding:0 12px;min-width:72px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12px;font-weight:500;line-height:1;cursor:pointer;white-space:nowrap;text-decoration:none;vertical-align:middle}
 .btn-action.teal{color:#14b8a6;border-color:#14b8a6}.btn-action.teal:hover{background:#14b8a6;color:#fff}
+.btn-action.blue{color:#3b82f6;border-color:#3b82f6}.btn-action.blue:hover{background:#3b82f6;color:#fff}
 .btn-action.red{color:#ef4444;border-color:#ef4444}.btn-action.red:hover{background:#ef4444;color:#fff}
+.btn-action.gray{color:#6b7280;border-color:#d1d5db}.btn-action.gray:hover{background:#6b7280;color:#fff}
+.expenses-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;align-items:stretch}
+@media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,1fr)}}
+.kpi-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;height:100%;display:flex;flex-direction:column}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.kpi-card.indigo::before{background:linear-gradient(90deg,#6366f1,#818cf8)}
+.kpi-card.emerald::before{background:linear-gradient(90deg,#059669,#34d399)}
+.kpi-card.rose::before{background:linear-gradient(90deg,#e11d48,#fb7185)}
+.kpi-card.slate::before{background:linear-gradient(90deg,#64748b,#94a3b8)}
+.kpi-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#9ca3af;margin-bottom:6px}
+.kpi-value{font-size:26px;font-weight:800;color:#111827;line-height:1.15}
+.kpi-sub{font-size:12px;color:#6b7280;margin-top:auto}
+.toolbar-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid #e5e7eb;background:#fff;border-radius:8px;font-size:13px;font-weight:500;color:#374151;cursor:pointer;white-space:nowrap;text-decoration:none}
+.toolbar-btn:hover{border-color:#9ca3af;background:#f9fafb}
+.toolbar-btn.active{border-color:#0d9488;color:#0d9488;background:#f0fdfa}
+.sort-dropdown{position:absolute;top:calc(100% + 6px);right:0;width:200px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 10px 15px -3px rgba(0,0,0,.1);z-index:200;padding:6px}
+.sort-option{padding:9px 12px;font-size:13px;color:#4b5563;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.sort-option:hover{background:#f9fafb}
+.sort-option.selected{background:#f0fdfa;color:#0d9488;font-weight:600}
+.filter-panel{position:absolute;top:calc(100% + 6px);right:0;width:320px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.12);z-index:200;overflow:hidden}
+.filter-panel-header{padding:14px 18px;border-bottom:1px solid #f3f4f6;font-size:14px;font-weight:700}
+.filter-section{padding:14px 18px;border-bottom:1px solid #f3f4f6}
+.filter-section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.filter-section-label{font-size:13px;font-weight:600;color:#374151}
+.filter-reset-link{font-size:12px;font-weight:600;color:#0d9488;cursor:pointer;background:none;border:none;padding:0}
+.filter-input,.filter-select,.filter-search-input{width:100%;height:34px;border:1px solid #e5e7eb;border-radius:7px;font-size:13px;padding:0 10px;box-sizing:border-box}
+.filter-date-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.filter-date-label{font-size:11px;color:#6b7280;margin-bottom:4px}
+.filter-actions{padding:14px 18px;border-top:1px solid #f3f4f6}
+.filter-btn-reset{width:100%;height:36px;border:1px solid #e5e7eb;background:#fff;border-radius:8px;font-size:13px;cursor:pointer}
+.filter-badge{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:#0d9488;color:#fff;border-radius:50%;font-size:10px;font-weight:700}
+.orders-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.orders-table th{padding:12px 16px;font-weight:600;color:#6b7280;text-align:left;border-bottom:1px solid #e5e7eb}
+.orders-table td{padding:12px 16px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+.orders-table tbody tr:hover{background:#f9fafb}
 .pf-modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
 .pf-modal-overlay.open{display:flex}
 .pf-modal{background:#fff;border-radius:14px;width:100%;max-width:560px;max-height:90vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.18)}
@@ -273,133 +307,161 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 .pf-form-group textarea{min-height:90px;resize:vertical}
 .pf-field-error{font-size:12px;color:#dc2626}
 .pf-modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid #f3f4f6}
-.pf-flash{margin:0 0 16px;padding:12px 16px;border-radius:10px;font-size:13px;display:none}
+.pf-flash{margin:0 0 16px;padding:12px 16px;border-radius:8px;font-size:13px;display:none}
 .pf-flash.show{display:block}
-.pf-flash.success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
-.pf-flash.error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
-@media(max-width:900px){.exp-kpis{grid-template-columns:1fr}.pf-form-grid{grid-template-columns:1fr}.exp-search-wrap{max-width:none;flex-basis:100%}}
+.pf-flash.success{background:#f0fdf4;color:#166534;border:1px solid #86efac}
+.pf-flash.error{background:#fef2f2;color:#dc2626;border:1px solid #fca5a5}
+@media(max-width:900px){.pf-form-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+<div class="dashboard-container">
 <?php include __DIR__ . '/../includes/' . $sidebar_file; ?>
 <div class="main-content">
     <header class="pf-mobile-branch-inline">
         <h1 class="page-title">Expense Management</h1>
         <?php if (!$isManagerPanel): render_branch_selector($branchCtx); endif; ?>
     </header>
-    <main x-data="{ filterOpen: false }">
+    <main>
         <?php render_branch_context_banner($branchCtx['branch_name']); ?>
 
         <div id="pfExpenseFlash" class="pf-flash"></div>
 
-        <div class="exp-kpis">
-            <div class="exp-kpi">
-                <div class="exp-kpi-label">Total Expenses</div>
-                <div class="exp-kpi-value" id="kpiTotalExpenses"><?php echo format_currency($kpi['total_expenses']); ?></div>
-                <div class="exp-kpi-sub">Paid expenses only</div>
+        <div class="kpi-row">
+            <div class="kpi-card indigo">
+                <div class="kpi-label">Total Expenses</div>
+                <div class="kpi-value" id="kpiTotalExpenses"><?php echo format_currency($kpi['total_expenses']); ?></div>
+                <div class="kpi-sub">Paid expenses only</div>
             </div>
-            <div class="exp-kpi">
-                <div class="exp-kpi-label">This Month</div>
-                <div class="exp-kpi-value" id="kpiThisMonth"><?php echo format_currency($kpi['this_month']); ?></div>
-                <div class="exp-kpi-sub"><?php echo date('F Y'); ?> paid expenses</div>
+            <div class="kpi-card emerald">
+                <div class="kpi-label">This Month</div>
+                <div class="kpi-value" id="kpiThisMonth"><?php echo format_currency($kpi['this_month']); ?></div>
+                <div class="kpi-sub"><?php echo date('F Y'); ?> paid expenses</div>
             </div>
-            <div class="exp-kpi">
-                <div class="exp-kpi-label">Pending Expenses</div>
-                <div class="exp-kpi-value" id="kpiPending"><?php echo format_currency($kpi['pending_expenses']); ?></div>
-                <div class="exp-kpi-sub"><?php echo number_format($kpi['pending_count']); ?> to be paid</div>
+            <div class="kpi-card rose">
+                <div class="kpi-label">Pending Expenses</div>
+                <div class="kpi-value" id="kpiPending"><?php echo format_currency($kpi['pending_expenses']); ?></div>
+                <div class="kpi-sub"><span id="kpiPendingCount"><?php echo number_format($kpi['pending_count']); ?></span> to be paid</div>
+            </div>
+            <div class="kpi-card slate">
+                <div class="kpi-label">Archived</div>
+                <div class="kpi-value" id="kpiArchived"><?php echo number_format($stat_archived); ?></div>
+                <div class="kpi-sub">In archive storage</div>
             </div>
         </div>
 
-        <div class="exp-card">
-            <div class="exp-toolbar">
-                <div class="exp-toolbar-left">
-                    <div class="exp-search-wrap">
-                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                        <input type="search" id="expenseSearch" class="exp-search" placeholder="Search expenses..." value="<?php echo htmlspecialchars($search, ENT_QUOTES, 'UTF-8'); ?>">
-                    </div>
-                </div>
-                <div class="exp-toolbar-right">
+        <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;" x-data="filterPanel()">
+                <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;" id="expensesListHeader">Expense List</h3>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button type="button" class="toolbar-btn" id="btnAddExpense" style="height:38px;border-color:#3b82f6;color:#3b82f6;">Add Expense</button>
+                    <button type="button" class="toolbar-btn" id="btnViewArchived" style="height:38px;border-color:#6b7280;color:#6b7280;display:flex;align-items:center;gap:6px;">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                        Archived
+                    </button>
                     <div style="position:relative;">
-                        <button type="button" class="toolbar-btn<?php echo $activeFilterCount ? ' active' : ''; ?>" @click="filterOpen = !filterOpen">
+                        <button type="button" class="toolbar-btn" :class="{active: sortOpen || (activeSort !== 'newest')}" @click="sortOpen = !sortOpen; filterOpen = false" style="height:38px;">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
+                            Sort by
+                        </button>
+                        <div class="sort-dropdown" x-show="sortOpen" x-cloak @click.outside="sortOpen = false">
+                            <?php
+                            $sorts = [
+                                'newest' => 'Newest to Oldest',
+                                'oldest' => 'Oldest to Newest',
+                                'az' => 'A → Z',
+                                'za' => 'Z → A',
+                                'amount_high' => 'Amount: High to Low',
+                                'amount_low' => 'Amount: Low to High',
+                            ];
+                            foreach ($sorts as $key => $label): ?>
+                            <div class="sort-option" :class="{ 'selected': activeSort === '<?php echo $key; ?>' }" onclick="applySortFilter('<?php echo $key; ?>')">
+                                <?php echo htmlspecialchars($label); ?>
+                                <svg x-show="activeSort === '<?php echo $key; ?>'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <div style="position:relative;">
+                        <button type="button" class="toolbar-btn" :class="{active: filterOpen || hasActiveFilters}" @click="filterOpen = !filterOpen; sortOpen = false" style="height:38px;">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                             Filter
-                            <?php if ($activeFilterCount): ?><span class="filter-badge"><?php echo $activeFilterCount; ?></span><?php endif; ?>
+                            <span id="filterBadgeContainer">
+                                <?php if ($activeFilterCount > 0): ?><span class="filter-badge"><?php echo $activeFilterCount; ?></span><?php endif; ?>
+                            </span>
                         </button>
-                        <form id="expenseFilterForm" class="filter-panel" :class="{ 'open': filterOpen }" method="get" @click.outside="filterOpen = false">
-                            <div class="filter-panel-header">Filter Expenses</div>
-                            <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($branchParam, ENT_QUOTES, 'UTF-8'); ?>">
-                            <input type="hidden" name="search" id="filterSearchHidden" value="<?php echo htmlspecialchars($search, ENT_QUOTES, 'UTF-8'); ?>">
+                        <div class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false">
+                            <div class="filter-panel-header">Filter</div>
                             <div class="filter-section">
-                                <label class="filter-section-label">Category</label>
-                                <select class="filter-select" name="category">
-                                    <option value="">All Categories</option>
+                                <div class="filter-section-head">
+                                    <span class="filter-section-label">Date range</span>
+                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['date_from','date_to'])">Reset</button>
+                                </div>
+                                <div class="filter-date-row">
+                                    <div><div class="filter-date-label">From</div><input type="date" id="fp_date_from" class="filter-input" value="<?php echo htmlspecialchars($date_from, ENT_QUOTES, 'UTF-8'); ?>"></div>
+                                    <div><div class="filter-date-label">To</div><input type="date" id="fp_date_to" class="filter-input" value="<?php echo htmlspecialchars($date_to, ENT_QUOTES, 'UTF-8'); ?>"></div>
+                                </div>
+                            </div>
+                            <div class="filter-section">
+                                <div class="filter-section-head">
+                                    <span class="filter-section-label">Category</span>
+                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['category'])">Reset</button>
+                                </div>
+                                <select id="fp_category" class="filter-select">
+                                    <option value="">All categories</option>
                                     <?php foreach (PF_EXPENSE_CATEGORIES as $cat): ?>
                                         <option value="<?php echo htmlspecialchars($cat, ENT_QUOTES, 'UTF-8'); ?>"<?php echo $category_filter === $cat ? ' selected' : ''; ?>><?php echo htmlspecialchars($cat); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
                             <div class="filter-section">
-                                <label class="filter-section-label">Status</label>
-                                <select class="filter-select" name="status_filter">
-                                    <option value="">All Statuses</option>
+                                <div class="filter-section-head">
+                                    <span class="filter-section-label">Status</span>
+                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['status_filter'])">Reset</button>
+                                </div>
+                                <select id="fp_status" class="filter-select">
+                                    <option value="">All statuses</option>
                                     <option value="Paid"<?php echo $status_filter === 'Paid' ? ' selected' : ''; ?>>Paid</option>
                                     <option value="To Be Paid"<?php echo $status_filter === 'To Be Paid' ? ' selected' : ''; ?>>To Be Paid</option>
                                 </select>
                             </div>
                             <div class="filter-section">
-                                <label class="filter-section-label">Date Range</label>
-                                <div class="filter-date-row">
-                                    <div>
-                                        <div class="filter-date-label">From</div>
-                                        <input class="filter-input" type="date" name="date_from" value="<?php echo htmlspecialchars($date_from, ENT_QUOTES, 'UTF-8'); ?>">
-                                    </div>
-                                    <div>
-                                        <div class="filter-date-label">To</div>
-                                        <input class="filter-input" type="date" name="date_to" value="<?php echo htmlspecialchars($date_to, ENT_QUOTES, 'UTF-8'); ?>">
-                                    </div>
+                                <div class="filter-section-head">
+                                    <span class="filter-section-label">Search</span>
+                                    <button class="filter-reset-link" type="button" onclick="resetFilterField(['search'])">Reset</button>
                                 </div>
+                                <input type="text" id="fp_search" class="filter-search-input" placeholder="Expense name, category, or ID..." value="<?php echo htmlspecialchars($search, ENT_QUOTES, 'UTF-8'); ?>">
                             </div>
                             <div class="filter-actions">
-                                <a href="<?php echo htmlspecialchars(pf_expense_page_query(['search' => $search, 'category' => null, 'status_filter' => null, 'date_from' => null, 'date_to' => null, 'page' => 1])); ?>" class="toolbar-btn" style="justify-content:center;">Reset filters</a>
-                                <button type="submit" class="toolbar-btn primary" style="justify-content:center;">Apply filters</button>
+                                <button type="button" class="filter-btn-reset" onclick="applyFilters(true)">Reset all filters</button>
                             </div>
-                        </form>
+                        </div>
                     </div>
-                    <button type="button" class="toolbar-btn" id="btnViewArchived">View Archived</button>
-                    <button type="button" class="toolbar-btn primary" id="btnAddExpense">+ Add Expense</button>
                 </div>
             </div>
 
-            <div id="expensesTableWrap">
-                <table class="orders-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Expense</th>
-                            <th>Category</th>
-                            <th>Branch</th>
-                            <th>Amount</th>
-                            <th>Date</th>
-                            <th>Status</th>
-                            <th style="text-align:right;" class="no-print">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="expensesTableBody">
-                        <?php pf_expense_render_table_rows($expenses, $base_path, false); ?>
-                    </tbody>
-                </table>
-                <?php if ($total_pages > 1): ?>
-                <div class="pagination-wrap" style="margin-top:16px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
-                    <?php for ($p = 1; $p <= $total_pages; $p++): ?>
-                        <a href="<?php echo htmlspecialchars(pf_expense_page_query(['page' => $p])); ?>"
-                           class="toolbar-btn<?php echo $p === $page ? ' active' : ''; ?>"
-                           data-page="<?php echo $p; ?>"><?php echo $p; ?></a>
-                    <?php endfor; ?>
+            <div id="expensesTableContainer">
+                <div class="overflow-x-auto">
+                    <?php render_expenses_table($expenses, false); ?>
                 </div>
-                <?php endif; ?>
+                <div id="expensesPagination">
+                    <?php
+                    $pagination_params = array_filter([
+                        'search' => $search,
+                        'category' => $category_filter,
+                        'status_filter' => $status_filter,
+                        'sort' => $sort_by !== 'newest' ? $sort_by : null,
+                        'date_from' => $date_from,
+                        'date_to' => $date_to,
+                        'branch_id' => printflow_branch_value_is_all($branchId) ? null : (string)(int)$branchId,
+                    ], static fn($v) => $v !== null && $v !== '');
+                    echo render_pagination($page, $total_pages, $pagination_params);
+                    ?>
+                </div>
             </div>
         </div>
     </main>
+</div>
 </div>
 
 <div class="pf-modal-overlay" id="expenseFormModal" aria-hidden="true">
@@ -431,7 +493,7 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
                         <label for="expenseBranch">Branch</label>
                         <select id="expenseBranch"<?php echo $is_manager ? ' disabled' : ' name="branch_id" required'; ?>>
                             <?php foreach ($branchesForModal as $b): ?>
-                                <option value="<?php echo (int)($b['id'] ?? 0); ?>"><?php echo htmlspecialchars((string)($b['branch_name'] ?? '')); ?></option>
+                                <option value="<?php echo (int)($b['id'] ?? 0); ?>"<?php echo (int)($b['id'] ?? 0) === $defaultFormBranchId ? ' selected' : ''; ?>><?php echo htmlspecialchars((string)($b['branch_name'] ?? '')); ?></option>
                             <?php endforeach; ?>
                         </select>
                         <?php if ($is_manager): ?>
@@ -476,7 +538,7 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
             </div>
             <div class="pf-modal-footer">
                 <button type="button" class="toolbar-btn" data-close-modal="expenseFormModal">Cancel</button>
-                <button type="submit" class="toolbar-btn primary" id="expenseFormSubmit">Save Expense</button>
+                <button type="submit" class="toolbar-btn" id="expenseFormSubmit" style="background:#0d9488;color:#fff;border-color:#0d9488;">Save Expense</button>
             </div>
         </form>
     </div>
@@ -505,192 +567,283 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
         </div>
         <div class="pf-modal-footer">
             <button type="button" class="toolbar-btn" data-close-modal="archiveConfirmModal">Cancel</button>
-            <button type="button" class="toolbar-btn primary" id="archiveConfirmBtn" style="background:#b91c1c;border-color:#b91c1c;">Archive</button>
+            <button type="button" class="toolbar-btn" id="archiveConfirmBtn" style="background:#b91c1c;color:#fff;border-color:#b91c1c;">Archive</button>
         </div>
     </div>
 </div>
 
 <script>
-(function () {
-    const apiUrl = <?php echo json_encode($apiUrl); ?>;
-    let csrfToken = <?php echo json_encode($csrfToken); ?>;
-    const isManager = <?php echo $is_manager ? 'true' : 'false'; ?>;
-    const defaultBranchId = <?php echo json_encode((int)($is_manager ? ($branchesForModal[0]['id'] ?? 0) : 0)); ?>;
-    let archiveTargetId = 0;
-    let searchTimer = null;
+const apiUrl = <?php echo json_encode($apiUrl); ?>;
+let csrfToken = <?php echo json_encode($csrfToken); ?>;
+const isManager = <?php echo $is_manager ? 'true' : 'false'; ?>;
+const defaultBranchId = <?php echo json_encode($defaultFormBranchId); ?>;
+const branchParam = <?php echo json_encode($branchParam); ?>;
+let activeSort = <?php echo json_encode($sort_by); ?>;
+let archiveTargetId = 0;
+let searchDebounceTimer = null;
 
-    function qs(sel, root) { return (root || document).querySelector(sel); }
-    function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
+function qs(sel, root) { return (root || document).querySelector(sel); }
+function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
-    function showFlash(message, type) {
-        const el = qs('#pfExpenseFlash');
-        if (!el) return;
-        el.textContent = message;
-        el.className = 'pf-flash show ' + (type || 'success');
-        window.setTimeout(() => { el.className = 'pf-flash'; }, 4500);
-    }
+function formatMoney(value) {
+    const num = Number(value || 0);
+    return '₱ ' + num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
-    function openModal(id) {
-        const modal = qs('#' + id);
-        if (!modal) return;
-        modal.classList.add('open');
-        modal.setAttribute('aria-hidden', 'false');
-    }
+function showFlash(message, type) {
+    const el = qs('#pfExpenseFlash');
+    if (!el) return;
+    el.textContent = message;
+    el.className = 'pf-flash show ' + (type || 'success');
+    window.setTimeout(() => { el.className = 'pf-flash'; }, 4500);
+}
 
-    function closeModal(id) {
-        const modal = qs('#' + id);
-        if (!modal) return;
-        modal.classList.remove('open');
-        modal.setAttribute('aria-hidden', 'true');
-    }
+function openModal(id) {
+    const modal = qs('#' + id);
+    if (!modal) return;
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+}
 
-    function clearFormErrors() {
-        qsa('[data-error-for]').forEach(el => { el.textContent = ''; });
-    }
+function closeModal(id) {
+    const modal = qs('#' + id);
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+}
 
-    function applyFormErrors(errors) {
-        Object.keys(errors || {}).forEach(key => {
-            const el = qs('[data-error-for="' + key + '"]');
-            if (el) el.textContent = errors[key];
-        });
-    }
+function clearFormErrors() {
+    qsa('[data-error-for]').forEach(el => { el.textContent = ''; });
+}
 
-    function currentQueryParams() {
-        return new URLSearchParams(window.location.search);
-    }
+function applyFormErrors(errors) {
+    Object.keys(errors || {}).forEach(key => {
+        const el = qs('[data-error-for="' + key + '"]');
+        if (el) el.textContent = errors[key];
+    });
+}
 
-    function reloadTable(page) {
-        const params = currentQueryParams();
-        if (page) params.set('page', String(page));
-        params.set('ajax', '1');
-        fetch(window.location.pathname + '?' + params.toString(), {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        })
-            .then(r => r.text())
-            .then(html => {
-                qs('#expensesTableWrap').innerHTML = html;
+function updateCsrfToken(token) {
+    if (!token) return;
+    csrfToken = token;
+    const meta = qs('meta[name="csrf-token"]');
+    if (meta) meta.setAttribute('content', token);
+}
+
+function refreshKpis(kpis) {
+    if (!kpis) return;
+    const total = qs('#kpiTotalExpenses');
+    const month = qs('#kpiThisMonth');
+    const pending = qs('#kpiPending');
+    const pendingCount = qs('#kpiPendingCount');
+    const archived = qs('#kpiArchived');
+    if (total) total.textContent = formatMoney(kpis.total_expenses);
+    if (month) month.textContent = formatMoney(kpis.this_month);
+    if (pending) pending.textContent = formatMoney(kpis.pending_expenses);
+    if (pendingCount) pendingCount.textContent = Number(kpis.pending_count || 0).toLocaleString();
+    if (archived) archived.textContent = Number(kpis.archived || 0).toLocaleString();
+}
+
+function filterPanel() {
+    return {
+        sortOpen: false,
+        filterOpen: false,
+        activeSort: activeSort,
+        get hasActiveFilters() {
+            return document.getElementById('fp_date_from')?.value ||
+                document.getElementById('fp_date_to')?.value ||
+                document.getElementById('fp_category')?.value ||
+                document.getElementById('fp_status')?.value ||
+                document.getElementById('fp_search')?.value;
+        }
+    };
+}
+
+function buildFilterURL(page = 1) {
+    const params = new URLSearchParams();
+    params.set('page', page);
+    if (branchParam && branchParam !== 'all') params.set('branch_id', branchParam);
+    const df = document.getElementById('fp_date_from')?.value; if (df) params.set('date_from', df);
+    const dt = document.getElementById('fp_date_to')?.value; if (dt) params.set('date_to', dt);
+    const cat = document.getElementById('fp_category')?.value; if (cat) params.set('category', cat);
+    const st = document.getElementById('fp_status')?.value; if (st) params.set('status_filter', st);
+    const s = document.getElementById('fp_search')?.value; if (s) params.set('search', s);
+    if (activeSort !== 'newest') params.set('sort', activeSort);
+    return '?' + params.toString();
+}
+
+function fetchUpdatedTable(page = 1) {
+    fetch(window.location.pathname + buildFilterURL(page) + '&ajax=1', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            updateCsrfToken(data.csrf_token);
+            const wrap = document.getElementById('expensesTableContainer');
+            if (wrap) {
+                wrap.innerHTML = data.table + '<div id="expensesPagination">' + data.pagination + '</div>';
                 bindTableActions();
-            })
-            .catch(() => showFlash('Failed to refresh expense list.', 'error'));
-    }
+                bindPaginationLinks();
+            }
+            const cont = document.getElementById('filterBadgeContainer');
+            if (cont) cont.innerHTML = data.badge > 0 ? '<span class="filter-badge">' + data.badge + '</span>' : '';
+            refreshKpis(data.kpis);
+            history.replaceState(null, '', buildFilterURL(page));
+        })
+        .catch(() => showFlash('Failed to refresh expense list.', 'error'));
+}
 
-    function reloadPageWithKpis() {
-        window.location.reload();
-    }
-
-    async function postExpense(action, payload) {
-        const body = Object.assign({}, payload, { action, csrf_token: csrfToken });
-        const resp = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify(body)
+function applyFilters(reset = false) {
+    if (reset) {
+        ['fp_date_from', 'fp_date_to', 'fp_category', 'fp_status', 'fp_search'].forEach(function (id) {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
         });
-        const data = await resp.json().catch(() => ({}));
-        if (data.csrf_token) csrfToken = data.csrf_token;
-        const meta = qs('meta[name="csrf-token"]');
-        if (meta && data.csrf_token) meta.setAttribute('content', data.csrf_token);
-        return { ok: resp.ok, status: resp.status, data };
+        activeSort = 'newest';
     }
+    fetchUpdatedTable(1);
+}
 
-    function resetExpenseForm() {
-        const form = qs('#expenseForm');
-        form.reset();
-        qs('#expenseIdField').value = '';
-        qs('#expenseModalTitle').textContent = 'Add Expense';
-        qs('#expenseFormSubmit').textContent = 'Save Expense';
-        qs('#expenseDate').value = new Date().toISOString().slice(0, 10);
-        if (isManager && defaultBranchId) {
-            qs('#expenseBranch').value = String(defaultBranchId);
-            const hidden = qs('#expenseBranchHidden');
-            if (hidden) hidden.value = String(defaultBranchId);
-        }
-        clearFormErrors();
-        togglePaymentMethodRequired();
+function resetFilterField(fields) {
+    const map = { date_from: 'fp_date_from', date_to: 'fp_date_to', category: 'fp_category', status_filter: 'fp_status', search: 'fp_search' };
+    fields.forEach(f => {
+        const el = document.getElementById(map[f] || f);
+        if (el) el.value = '';
+    });
+    fetchUpdatedTable(1);
+}
+
+function applySortFilter(sortKey) {
+    activeSort = sortKey;
+    fetchUpdatedTable(1);
+    const alpineEl = document.querySelector('[x-data="filterPanel()"]');
+    if (alpineEl && alpineEl._x_dataStack) {
+        alpineEl._x_dataStack[0].activeSort = sortKey;
+        alpineEl._x_dataStack[0].sortOpen = false;
     }
+}
 
-    function fillExpenseForm(data) {
-        qs('#expenseIdField').value = data.expense_id || '';
-        qs('#expenseName').value = data.expense_name || '';
-        qs('#expenseCategory').value = data.category || '';
-        qs('#expenseBranch').value = String(data.branch_id || '');
-        if (isManager) {
-            const hidden = qs('#expenseBranchHidden');
-            if (hidden) hidden.value = String(data.branch_id || defaultBranchId);
-        }
-        qs('#expenseAmount').value = data.amount != null ? Number(data.amount).toFixed(2) : '';
-        qs('#expenseDate').value = data.expense_date || '';
-        qs('#expenseStatus').value = data.status || 'To Be Paid';
-        qs('#expensePaymentMethod').value = data.payment_method || '';
-        qs('#expenseNotes').value = data.notes || '';
-        qs('#expenseModalTitle').textContent = 'Edit Expense';
-        qs('#expenseFormSubmit').textContent = 'Update Expense';
-        clearFormErrors();
-        togglePaymentMethodRequired();
-    }
-
-    function togglePaymentMethodRequired() {
-        const status = qs('#expenseStatus').value;
-        const pm = qs('#expensePaymentMethod');
-        pm.required = status === 'Paid';
-    }
-
-    function bindTableActions() {
-        qsa('.pf-expense-edit').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const row = btn.closest('.expense-row');
-                if (!row) return;
-                try {
-                    const data = JSON.parse(row.getAttribute('data-expense') || '{}');
-                    fillExpenseForm(data);
-                    openModal('expenseFormModal');
-                } catch (e) {
-                    showFlash('Unable to load expense details.', 'error');
-                }
-            });
+function bindPaginationLinks() {
+    qsa('#expensesPagination a[data-page], #expensesPagination .pagination-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const page = parseInt(link.getAttribute('data-page') || link.dataset.page || '1', 10);
+            fetchUpdatedTable(page);
         });
+    });
+}
 
-        qsa('.pf-expense-archive').forEach(btn => {
-            btn.addEventListener('click', () => {
-                archiveTargetId = parseInt(btn.getAttribute('data-expense-id') || '0', 10);
-                qs('#archiveConfirmName').textContent = btn.getAttribute('data-expense-name') || 'this expense';
-                openModal('archiveConfirmModal');
-            });
-        });
+async function postExpense(action, payload) {
+    const body = Object.assign({}, payload, { action, csrf_token: csrfToken });
+    const resp = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await resp.json().catch(() => ({}));
+    updateCsrfToken(data.csrf_token);
+    return { ok: resp.ok, status: resp.status, data };
+}
 
-        qsa('.pf-expense-restore').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const expenseId = parseInt(btn.getAttribute('data-expense-id') || '0', 10);
-                if (!expenseId) return;
-                btn.disabled = true;
-                const result = await postExpense('restore', { expense_id: expenseId });
-                if (result.ok && result.data.success) {
-                    showFlash('Expense restored successfully.');
-                    loadArchivedList();
-                    reloadPageWithKpis();
-                } else {
-                    showFlash(result.data.error || 'Failed to restore expense.', 'error');
-                    btn.disabled = false;
-                }
-            });
-        });
+function resetExpenseForm() {
+    const form = qs('#expenseForm');
+    form.reset();
+    qs('#expenseIdField').value = '';
+    qs('#expenseModalTitle').textContent = 'Add Expense';
+    qs('#expenseFormSubmit').textContent = 'Save Expense';
+    qs('#expenseDate').value = new Date().toISOString().slice(0, 10);
+    if (defaultBranchId) {
+        qs('#expenseBranch').value = String(defaultBranchId);
+        const hidden = qs('#expenseBranchHidden');
+        if (hidden) hidden.value = String(defaultBranchId);
     }
+    clearFormErrors();
+    togglePaymentMethodRequired();
+}
 
-    async function loadArchivedList() {
-        const params = currentQueryParams();
-        params.set('get_archived', '1');
-        params.delete('ajax');
-        qs('#archivedModalBody').innerHTML = '<div style="padding:30px;text-align:center;color:#9ca3af;">Loading...</div>';
-        try {
-            const resp = await fetch(window.location.pathname + '?' + params.toString());
-            const data = await resp.json();
-            if (data.csrf_token) csrfToken = data.csrf_token;
-            qs('#archivedModalBody').innerHTML = data.html || '<div style="padding:30px;text-align:center;color:#9ca3af;">No archived expenses.</div>';
-            bindTableActions();
-        } catch (e) {
-            qs('#archivedModalBody').innerHTML = '<div style="padding:30px;text-align:center;color:#dc2626;">Failed to load archived expenses.</div>';
-        }
+function fillExpenseForm(data) {
+    qs('#expenseIdField').value = data.expense_id || '';
+    qs('#expenseName').value = data.expense_name || '';
+    qs('#expenseCategory').value = data.category || '';
+    qs('#expenseBranch').value = String(data.branch_id || defaultBranchId);
+    if (isManager) {
+        const hidden = qs('#expenseBranchHidden');
+        if (hidden) hidden.value = String(data.branch_id || defaultBranchId);
     }
+    qs('#expenseAmount').value = data.amount != null ? Number(data.amount).toFixed(2) : '';
+    qs('#expenseDate').value = data.expense_date || '';
+    qs('#expenseStatus').value = data.status || 'To Be Paid';
+    qs('#expensePaymentMethod').value = data.payment_method || '';
+    qs('#expenseNotes').value = data.notes || '';
+    qs('#expenseModalTitle').textContent = 'Edit Expense';
+    qs('#expenseFormSubmit').textContent = 'Update Expense';
+    clearFormErrors();
+    togglePaymentMethodRequired();
+}
 
+function togglePaymentMethodRequired() {
+    const status = qs('#expenseStatus').value;
+    qs('#expensePaymentMethod').required = status === 'Paid';
+}
+
+function bindTableActions() {
+    qsa('.pf-expense-edit').forEach(btn => {
+        btn.onclick = () => {
+            const row = btn.closest('.expense-row');
+            if (!row) return;
+            try {
+                fillExpenseForm(JSON.parse(row.getAttribute('data-expense') || '{}'));
+                openModal('expenseFormModal');
+            } catch (e) {
+                showFlash('Unable to load expense details.', 'error');
+            }
+        };
+    });
+
+    qsa('.pf-expense-archive').forEach(btn => {
+        btn.onclick = () => {
+            archiveTargetId = parseInt(btn.getAttribute('data-expense-id') || '0', 10);
+            qs('#archiveConfirmName').textContent = btn.getAttribute('data-expense-name') || 'this expense';
+            openModal('archiveConfirmModal');
+        };
+    });
+
+    qsa('.pf-expense-restore').forEach(btn => {
+        btn.onclick = async () => {
+            const expenseId = parseInt(btn.getAttribute('data-expense-id') || '0', 10);
+            if (!expenseId) return;
+            btn.disabled = true;
+            const result = await postExpense('restore', { expense_id: expenseId });
+            if (result.ok && result.data.success) {
+                showFlash('Expense restored successfully.');
+                loadArchivedList();
+                fetchUpdatedTable(1);
+            } else {
+                showFlash(result.data.error || 'Failed to restore expense.', 'error');
+                btn.disabled = false;
+            }
+        };
+    });
+}
+
+async function loadArchivedList() {
+    const params = new URLSearchParams(buildFilterURL(1).slice(1));
+    params.set('get_archived', '1');
+    params.delete('ajax');
+    qs('#archivedModalBody').innerHTML = '<div style="padding:30px;text-align:center;color:#9ca3af;">Loading...</div>';
+    try {
+        const resp = await fetch(window.location.pathname + '?' + params.toString());
+        const data = await resp.json();
+        updateCsrfToken(data.csrf_token);
+        qs('#archivedModalBody').innerHTML = data.html || '<div style="padding:30px;text-align:center;color:#9ca3af;">No archived expenses.</div>';
+        bindTableActions();
+    } catch (e) {
+        qs('#archivedModalBody').innerHTML = '<div style="padding:30px;text-align:center;color:#dc2626;">Failed to load archived expenses.</div>';
+    }
+}
+
+function initExpensesPage() {
     qsa('[data-close-modal]').forEach(btn => {
         btn.addEventListener('click', () => closeModal(btn.getAttribute('data-close-modal')));
     });
@@ -739,13 +892,11 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
         if (result.ok && result.data.success) {
             closeModal('expenseFormModal');
             showFlash(expenseId > 0 ? 'Expense updated successfully.' : 'Expense added successfully.');
-            reloadPageWithKpis();
+            fetchUpdatedTable(1);
             return;
         }
 
-        if (result.data.errors) {
-            applyFormErrors(result.data.errors);
-        }
+        if (result.data.errors) applyFormErrors(result.data.errors);
         showFlash(result.data.error || 'Unable to save expense.', 'error');
     });
 
@@ -758,32 +909,31 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
         if (result.ok && result.data.success) {
             closeModal('archiveConfirmModal');
             showFlash('Expense archived successfully.');
-            reloadPageWithKpis();
+            fetchUpdatedTable(1);
         } else {
             showFlash(result.data.error || 'Failed to archive expense.', 'error');
         }
     });
 
-    const searchInput = qs('#expenseSearch');
-    const filterSearchHidden = qs('#filterSearchHidden');
-    searchInput.addEventListener('input', () => {
-        if (filterSearchHidden) filterSearchHidden.value = searchInput.value;
-        clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => {
-            const params = currentQueryParams();
-            const val = searchInput.value.trim();
-            if (val) params.set('search', val); else params.delete('search');
-            params.delete('page');
-            const qsStr = params.toString();
-            const url = window.location.pathname + (qsStr ? '?' + qsStr : '');
-            window.history.replaceState({}, '', url);
-            reloadTable(1);
-        }, 350);
+    ['fp_date_from', 'fp_date_to', 'fp_category', 'fp_status'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => fetchUpdatedTable(1));
     });
 
+    const searchInput = document.getElementById('fp_search');
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => fetchUpdatedTable(1), 450);
+        });
+    }
+
     bindTableActions();
+    bindPaginationLinks();
     togglePaymentMethodRequired();
-})();
+}
+
+document.addEventListener('DOMContentLoaded', initExpensesPage);
 </script>
 </body>
 </html>
