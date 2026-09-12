@@ -1,7 +1,7 @@
 <?php
 /**
- * PrintFlow Sales Breakdown
- * Dedicated sales details page using the shared official report sales rule.
+ * PrintFlow Sales Management
+ * Dedicated sales management page using the shared official report sales rule.
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
@@ -185,7 +185,7 @@ $salesFilterCount = (int)($sales_period === 'custom') + (int)($salesTypeFilter !
 $salesBranchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
 $salesFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
-$page_title = 'Sales Breakdown - Admin';
+$page_title = 'Sales Management - Admin';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -260,8 +260,6 @@ $page_title = 'Sales Breakdown - Admin';
 .sales-breakdown-pill-service { background:#eff6ff; color:#1d4ed8; }
 .sales-breakdown-total-row td { background:#f8fafc; border-top:1px solid #e5e7eb; border-bottom:0; font-weight:800; color:#0f172a; }
 .sales-page-actions { display:flex; align-items:center; gap:8px; position:relative; }
-.sales-page-title-wrap { display:flex; align-items:center; gap:12px; min-width:0; }
-.sales-back-inline { height:32px; padding:0 10px; font-size:13px; }
 @media(max-width:520px){ .filter-panel{right:auto;left:0;width:min(320px,calc(100vw - 48px));} .fp-preset-grid{grid-template-columns:1fr 1fr;} }
 @media(max-width:960px){ .sales-breakdown-grid,.sales-breakdown-split{ grid-template-columns:1fr; } .ana-hd{align-items:flex-start;} .sales-page-subhead{align-items:flex-start;flex-direction:column;} }
 </style>
@@ -271,7 +269,7 @@ $page_title = 'Sales Breakdown - Admin';
     <?php include __DIR__ . '/../includes/' . (($current_user['role'] ?? '') === 'Admin' ? 'admin_sidebar.php' : 'manager_sidebar.php'); ?>
     <div class="main-content">
         <header class="pf-mobile-branch-inline">
-            <div class="sales-page-title-wrap"><a class="toolbar-btn sales-back-inline no-print" href="<?php echo htmlspecialchars(rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/reports.php?branch_id=' . urlencode($salesBranchParam), ENT_QUOTES, 'UTF-8'); ?>"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>Back</a><h1 class="page-title">Sales Breakdown</h1></div>
+            <h1 class="page-title">Sales</h1>
             <?php if (!defined('MANAGER_PANEL') || !MANAGER_PANEL) { render_branch_selector($branchCtx); } ?>
         </header>
         <main>
@@ -284,7 +282,7 @@ $page_title = 'Sales Breakdown - Admin';
                 <div class="ana-hd">
                     <h3 class="chart-title-nowrap">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/></svg>
-                        Sales Breakdown
+                        Sales Overview
                         <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;"><?php echo htmlspecialchars($sales_label); ?></span>
                     </h3>
                                         <div class="sales-page-actions no-print">
