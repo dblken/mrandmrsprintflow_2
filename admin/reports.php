@@ -2636,23 +2636,22 @@ $dashData = [
             <!-- ══ BRANCH EMPTY STATE ════════════════════════════════════════ -->
             <!-- KPI row shows zeroes -->
             <div class="kpi-row">
-                <?php foreach ([
-                    ['kpi-em',  'Total Orders',           '0',         'No transactions recorded'],
-                    ['kpi-ind', 'Total Revenue',          '₱0',        'No completed transactions'],
-                    ['kpi-amb', 'Estimated Gross Profit', '&#8369;0',     'No cost-attributed sales'],
-                    ['kpi-vio', 'Top Customer Location',  '—',         'No location data'],
-                ] as [$cls,$lbl,$val,$sub]): ?>
-                <div class="kpi-card <?php echo $cls; ?>">
+                <div class="kpi-card kpi-ind">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <div class="kpi-lbl" style="margin-bottom:0;"><?php echo $lbl; ?></div>
+                        <div class="kpi-lbl" style="margin-bottom:0;">Total Revenue</div>
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
                     </div>
-                    <div class="kpi-val empty-kpi"><?php echo $val; ?></div>
-                    <div class="kpi-sub"><?php echo $sub; ?></div>
+                    <div class="kpi-val empty-kpi">₱0</div>
+                    <div class="kpi-sub">No completed transactions</div>
                 </div>
-                <?php endforeach; ?>
-            </div>
-            <div class="kpi-row kpi-row-secondary">
+                <div class="kpi-card kpi-amb">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <div class="kpi-lbl" style="margin-bottom:0;">Estimated Gross Profit</div>
+                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                    </div>
+                    <div class="kpi-val empty-kpi">&#8369;0</div>
+                    <div class="kpi-sub">No cost-attributed sales</div>
+                </div>
                 <div class="kpi-card kpi-rose">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                         <div class="kpi-lbl" style="margin-bottom:0;">Operating Expenses</div>
@@ -2684,21 +2683,6 @@ $dashData = [
             <?php else: ?>
             <!-- ══ KPI ROW ═══════════════════════════════════════════════════ -->
             <div class="kpi-row">
-                <!-- Total Orders -->
-                <div class="kpi-card kpi-em" title="Orders for the selected date range and branch context">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <div class="kpi-lbl" style="margin-bottom:0;">Total Orders</div>
-                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : ($is_admin ? 'All Branches' : 'This Branch'); ?></span>
-                    </div>
-                    <div class="kpi-val"><?php echo number_format($total_orders); ?></div>
-                    <div class="kpi-sub">
-                        <?php if ($from !== '' || $to !== ''): ?>
-                            Selected period total
-                        <?php else: ?>
-                            All-time cumulative total
-                        <?php endif; ?>
-                    </div>
-                </div>
                 <!-- Revenue -->
                 <div class="kpi-card kpi-ind" title="Revenue for the selected date range and branch context">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2719,20 +2703,6 @@ $dashData = [
                     <div class="kpi-val">&#8369;<?php echo number_format((float)($gp_summary['estimated_gross_profit'] ?? 0), 0); ?></div>
                     <div class="kpi-sub">Material-cost-based estimate</div>
                 </div>
-
-                <!-- Top Location -->
-                <div class="kpi-card kpi-vio" title="Top customer location for the selected date range.">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <div class="kpi-lbl" style="margin-bottom:0;">Top Location</div>
-                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
-                    </div>
-                    <div class="kpi-val" style="font-size:15px;margin-top:4px;line-height:1.3;">
-                        <?php echo $top_kpi_location ? htmlspecialchars(mb_substr(trim($top_kpi_location['city']),0,20)) : '—'; ?>
-                    </div>
-                    <div class="kpi-sub"><?php echo $top_kpi_location ? $top_kpi_location['cnt'].' transactions' : 'No location data for period'; ?></div>
-                </div>
-            </div>
-            <div class="kpi-row kpi-row-secondary">
                 <div class="kpi-card kpi-rose" title="Paid operating expenses recorded in Expense Management for the selected period and branch. Pending and archived expenses are excluded.">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                         <div class="kpi-lbl" style="margin-bottom:0;">Operating Expenses</div>

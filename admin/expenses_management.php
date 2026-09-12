@@ -250,12 +250,16 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 <?php render_branch_css(); ?>
 <style>
 [x-cloak]{display:none!important}
-.btn-action{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:30px;min-height:30px;padding:0 12px;min-width:72px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12px;font-weight:500;line-height:1;cursor:pointer;white-space:nowrap;text-decoration:none;vertical-align:middle}
+.btn-action{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:30px;min-height:30px;padding:0 10px;min-width:60px;border:1px solid transparent;background:transparent;border-radius:6px;font-size:12px;font-weight:500;line-height:1;cursor:pointer;white-space:nowrap;text-decoration:none;vertical-align:middle;flex-shrink:0}
 .btn-action.teal{color:#14b8a6;border-color:#14b8a6}.btn-action.teal:hover{background:#14b8a6;color:#fff}
 .btn-action.blue{color:#3b82f6;border-color:#3b82f6}.btn-action.blue:hover{background:#3b82f6;color:#fff}
 .btn-action.red{color:#ef4444;border-color:#ef4444}.btn-action.red:hover{background:#ef4444;color:#fff}
 .btn-action.gray{color:#6b7280;border-color:#d1d5db}.btn-action.gray:hover{background:#6b7280;color:#fff}
-.expenses-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.expenses-actions{display:inline-flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:nowrap;white-space:nowrap}
+.expenses-list-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;min-width:0}
+.expenses-list-header h3{flex:1 1 auto;min-width:0}
+.expenses-list-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;flex-shrink:0}
+.expenses-list-toolbar .toolbar-btn{flex-shrink:0}
 .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;align-items:stretch}
 @media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,1fr)}}
 .kpi-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;height:100%;display:flex;flex-direction:column}
@@ -289,7 +293,18 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
 .orders-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
 .orders-table th{padding:12px 16px;font-weight:600;color:#6b7280;text-align:left;border-bottom:1px solid #e5e7eb}
 .orders-table td{padding:12px 16px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+.orders-table th:nth-child(1),.orders-table td:nth-child(1){width:56px}
+.orders-table th:nth-child(2),.orders-table td:nth-child(2){width:16%}
+.orders-table th:nth-child(3),.orders-table td:nth-child(3){width:14%}
+.orders-table th:nth-child(4),.orders-table td:nth-child(4){width:12%}
+.orders-table th:nth-child(5),.orders-table td:nth-child(5){width:11%}
+.orders-table th:nth-child(6),.orders-table td:nth-child(6){width:11%}
+.orders-table th:nth-child(7),.orders-table td:nth-child(7){width:10%}
+.orders-table th:nth-child(8),.orders-table td:nth-child(8){width:172px;text-align:right;white-space:nowrap}
+.orders-table td:nth-child(8){text-align:right}
 .orders-table tbody tr:hover{background:#f9fafb}
+#archivedModalBody{overflow-x:auto}
+@media(max-width:768px){.expenses-list-header{flex-wrap:wrap}.expenses-list-toolbar{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}}
 .pf-modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
 .pf-modal-overlay.open{display:flex}
 .pf-modal{background:#fff;border-radius:14px;width:100%;max-width:560px;max-height:90vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.18)}
@@ -351,9 +366,9 @@ $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$
         </div>
 
         <div class="card">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px;" x-data="filterPanel()">
+            <div class="expenses-list-header" x-data="filterPanel()">
                 <h3 style="font-size:16px;font-weight:700;color:#1f2937;margin:0;" id="expensesListHeader">Expense List</h3>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="expenses-list-toolbar">
                     <button type="button" class="toolbar-btn" id="btnAddExpense" style="height:38px;border-color:#3b82f6;color:#3b82f6;">Add Expense</button>
                     <button type="button" class="toolbar-btn" id="btnViewArchived" style="height:38px;border-color:#6b7280;color:#6b7280;display:flex;align-items:center;gap:6px;">
                         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
