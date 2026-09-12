@@ -86,41 +86,6 @@ function sales_is_paid_transaction(array $row): bool {
     return in_array($status, ['paid', 'fully paid'], true);
 }
 
-function sales_ref_label(array $row): string {
-    $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
-    $id = (int)($row['id'] ?? 0);
-    $storeOrderId = (int)($row['store_order_id'] ?? 0);
-
-    if ($refType === 'job' || strtolower(trim((string)($row['type'] ?? ''))) === 'service') {
-        if ($storeOrderId > 0) {
-            return 'Job #' . $id . ' · Ord #' . $storeOrderId;
-        }
-        return 'Job #' . $id;
-    }
-
-    return 'Order #' . $id;
-}
-
-function sales_order_short_label(array $row): string {
-    $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
-    $id = (int)($row['id'] ?? 0);
-    if ($refType === 'job' || strtolower(trim((string)($row['type'] ?? ''))) === 'service') {
-        return 'Job #' . $id;
-    }
-    return 'Order #' . $id;
-}
-
-function sales_view_href(array $row, string $basePath, $branchId): string {
-    $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
-    $id = (int)($row['id'] ?? 0);
-    $branchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
-    $root = rtrim($basePath, '/');
-    if ($refType === 'job' || strtolower(trim((string)($row['type'] ?? ''))) === 'service') {
-        return $root . '/admin/customizations.php?open_job=' . $id . '&branch_id=' . rawurlencode($branchParam);
-    }
-    return $root . '/admin/orders_management.php?open_order=' . $id . '&branch_id=' . rawurlencode($branchParam);
-}
-
 $sales_period = $_GET['sales_period'] ?? 'today';
 if (!in_array($sales_period, ['today', 'week', 'month', 'custom'], true)) {
     $sales_period = 'today';
@@ -274,31 +239,15 @@ $page_title = 'Sales Management - Admin';
 .sales-breakdown-metric-value { margin-top:10px; font-size:28px; line-height:1.1; font-weight:900; color:#0f172a; }
 .sales-breakdown-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; margin-bottom:20px; }
 .sales-breakdown-panel { border:1px solid #eef2f7; border-radius:10px; padding:16px; min-width:0; background:#fff; }
-.sales-breakdown-table { width:100%; border-collapse:collapse; font-size:13px; }
-.sales-breakdown-table th { text-align:left; color:#64748b; font-weight:600; font-size:12px; padding:10px 12px; border-bottom:1px solid #e5e7eb; }
-.sales-breakdown-table td { padding:10px 12px; border-bottom:1px solid #f1f5f9; color:#111827; vertical-align:middle; }
+.sales-breakdown-table { width:100%; border-collapse:collapse; font-size:14px; }
+.sales-breakdown-table th { text-align:left; color:#64748b; font-weight:600; font-size:13px; padding:12px 8px; border-bottom:1px solid #e5e7eb; }
+.sales-breakdown-table td { padding:14px 8px; border-bottom:1px solid #f1f5f9; color:#111827; vertical-align:middle; }
 .sales-breakdown-table .num { text-align:right; font-weight:600; color:#0f172a; }
-.sales-txn-table { width:100%; table-layout:auto; }
+.sales-txn-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.sales-txn-table { min-width:1080px; table-layout:fixed; }
 .sales-txn-table th,
-.sales-txn-table td { padding:12px 14px; vertical-align:middle; }
-.sales-txn-table th:last-child,
-.sales-txn-table td:last-child { text-align:right; white-space:nowrap; }
-.sales-txn-row { cursor:pointer; transition:background .15s; }
-.sales-txn-row:hover { background:#f9fafb; }
-.sales-txn-row.is-open { background:#f0fdfa; }
-.sales-txn-row td:first-child { position:relative; padding-left:28px; }
-.sales-txn-chevron { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:#9ca3af; transition:transform .15s; }
-.sales-txn-row.is-open .sales-txn-chevron { transform:translateY(-50%) rotate(90deg); color:#0d9488; }
-.sales-txn-detail td { padding:0 14px 14px 28px; background:#f8fafc; border-bottom:1px solid #e5e7eb; }
-.sales-txn-detail-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px 20px; padding:14px 16px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; }
-.sales-txn-detail-item { min-width:0; }
-.sales-txn-detail-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; margin-bottom:4px; }
-.sales-txn-detail-value { font-size:13px; font-weight:500; color:#111827; word-break:break-word; }
-.sales-txn-detail-actions { grid-column:1/-1; display:flex; justify-content:flex-end; padding-top:4px; }
-.sales-txn-view-btn { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 12px; border:1px solid #3b82f6; border-radius:6px; background:#fff; color:#3b82f6; font-size:12px; font-weight:600; text-decoration:none; }
-.sales-txn-view-btn:hover { background:#3b82f6; color:#fff; }
-@media(max-width:900px){ .sales-txn-detail-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media(max-width:520px){ .sales-txn-detail-grid{ grid-template-columns:1fr; } }
+.sales-txn-table td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sales-txn-table .sales-breakdown-pill { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
 .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; display:none; }
@@ -481,63 +430,28 @@ $page_title = 'Sales Management - Admin';
                     <?php if (empty($salesData['transactions'])): ?>
                         <div class="sales-breakdown-empty">No sales transactions for this period.</div>
                     <?php else: ?>
-                        <table class="sales-breakdown-table sales-txn-table">
-                            <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Amount</th></tr></thead>
-                            <tbody>
-                            <?php foreach ($salesData['transactions'] as $txnIndex => $row): ?>
-                                <?php
-                                $viewHref = sales_view_href($row, $base_path, $branchId);
-                                $isService = strtolower(trim((string)($row['type'] ?? ''))) === 'service';
-                                $viewLabel = $isService ? 'View in Customizations' : 'View in Orders';
-                                ?>
-                                <tr class="sales-txn-row" data-txn-row="<?php echo (int)$txnIndex; ?>" tabindex="0" aria-expanded="false">
-                                    <td>
-                                        <svg class="sales-txn-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                                        <?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?>
-                                    </td>
-                                    <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
-                                    <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
-                                    <td><?php echo htmlspecialchars(sales_order_short_label($row)); ?></td>
-                                    <td><?php echo htmlspecialchars((string)$row['customer_name']); ?></td>
-                                    <td class="num">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></td>
-                                </tr>
-                                <tr class="sales-txn-detail" data-txn-detail="<?php echo (int)$txnIndex; ?>" hidden>
-                                    <td colspan="6">
-                                        <div class="sales-txn-detail-grid">
-                                            <div class="sales-txn-detail-item">
-                                                <div class="sales-txn-detail-label">Reference</div>
-                                                <div class="sales-txn-detail-value"><?php echo htmlspecialchars(sales_ref_label($row)); ?></div>
-                                            </div>
-                                            <div class="sales-txn-detail-item">
-                                                <div class="sales-txn-detail-label">Branch</div>
-                                                <div class="sales-txn-detail-value"><?php echo htmlspecialchars((string)$row['branch_name']); ?></div>
-                                            </div>
-                                            <div class="sales-txn-detail-item">
-                                                <div class="sales-txn-detail-label">Payment</div>
-                                                <div class="sales-txn-detail-value"><?php echo htmlspecialchars(sales_format_label($row['payment_status'] ?? '')); ?></div>
-                                            </div>
-                                            <div class="sales-txn-detail-item">
-                                                <div class="sales-txn-detail-label">Method</div>
-                                                <div class="sales-txn-detail-value"><?php echo htmlspecialchars(sales_method_display($row['payment_method'] ?? '')); ?></div>
-                                            </div>
-                                            <div class="sales-txn-detail-item">
-                                                <div class="sales-txn-detail-label">Status</div>
-                                                <div class="sales-txn-detail-value"><?php echo htmlspecialchars(sales_format_label($row['status'] ?? '')); ?></div>
-                                            </div>
-                                            <div class="sales-txn-detail-item">
-                                                <div class="sales-txn-detail-label">Amount</div>
-                                                <div class="sales-txn-detail-value">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></div>
-                                            </div>
-                                            <div class="sales-txn-detail-actions">
-                                                <a class="sales-txn-view-btn" href="<?php echo htmlspecialchars($viewHref, ENT_QUOTES, 'UTF-8'); ?>" onclick="event.stopPropagation();"><?php echo htmlspecialchars($viewLabel); ?></a>
-                                            </div>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                            </tbody>
-                            <tfoot><tr class="sales-breakdown-total-row"><td colspan="5">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
-                        </table>
+                        <div class="sales-txn-wrap">
+                            <table class="sales-breakdown-table sales-txn-table">
+                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
+                                <tbody>
+                                <?php foreach ($salesData['transactions'] as $row): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
+                                        <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
+                                        <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
+                                        <td>#<?php echo (int)$row['id']; ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['customer_name']); ?></td>
+                                        <td><?php echo htmlspecialchars((string)$row['branch_name']); ?></td>
+                                        <td><?php echo htmlspecialchars(sales_format_label($row['payment_status'] ?? '')); ?></td>
+                                        <td><?php echo htmlspecialchars(sales_method_display($row['payment_method'] ?? '')); ?></td>
+                                        <td><?php echo htmlspecialchars(sales_format_label($row['status'] ?? '')); ?></td>
+                                        <td class="num">&#8369;<?php echo number_format((float)$row['amount'], 2); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                                <tfoot><tr class="sales-breakdown-total-row"><td colspan="9">Total Amount</td><td class="num">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></td></tr></tfoot>
+                            </table>
+                        </div>
                     <?php endif; ?>
                 </div>
             </div>
@@ -590,38 +504,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!Number.isNaN(requestedScroll) && requestedScroll > 0) {
         requestAnimationFrame(function () { window.scrollTo({ top: requestedScroll, left: 0, behavior: 'auto' }); });
     }
-
-    const closeSalesTxnDetails = (exceptDetail) => {
-        document.querySelectorAll('.sales-txn-detail').forEach(function (detail) {
-            if (detail === exceptDetail) return;
-            detail.hidden = true;
-            const row = detail.previousElementSibling;
-            if (row && row.classList.contains('sales-txn-row')) {
-                row.classList.remove('is-open');
-                row.setAttribute('aria-expanded', 'false');
-            }
-        });
-    };
-
-    const toggleSalesTxnDetail = (row) => {
-        const detail = row.nextElementSibling;
-        if (!detail || !detail.classList.contains('sales-txn-detail')) return;
-        const willOpen = detail.hidden;
-        closeSalesTxnDetails(willOpen ? detail : null);
-        detail.hidden = !willOpen;
-        row.classList.toggle('is-open', willOpen);
-        row.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    };
-
-    document.querySelectorAll('.sales-txn-row').forEach(function (row) {
-        row.addEventListener('click', function () { toggleSalesTxnDetail(row); });
-        row.addEventListener('keydown', function (event) {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                toggleSalesTxnDetail(row);
-            }
-        });
-    });
 });
 function submitSalesFilter(form) {
     const scrollInput = document.getElementById('salesScrollY');
