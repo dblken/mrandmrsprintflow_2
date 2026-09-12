@@ -86,6 +86,21 @@ function sales_is_paid_transaction(array $row): bool {
     return in_array($status, ['paid', 'fully paid'], true);
 }
 
+function sales_ref_label(array $row): string {
+    $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
+    $id = (int)($row['id'] ?? 0);
+    $storeOrderId = (int)($row['store_order_id'] ?? 0);
+
+    if ($refType === 'job' || strtolower(trim((string)($row['type'] ?? ''))) === 'service') {
+        if ($storeOrderId > 0) {
+            return 'Job #' . $id . ' · Ord #' . $storeOrderId;
+        }
+        return 'Job #' . $id;
+    }
+
+    return 'Order #' . $id;
+}
+
 $sales_period = $_GET['sales_period'] ?? 'today';
 if (!in_array($sales_period, ['today', 'week', 'month', 'custom'], true)) {
     $sales_period = 'today';
@@ -438,14 +453,14 @@ $page_title = 'Sales Management - Admin';
                     <?php else: ?>
                         <div style="overflow-x:auto;">
                             <table class="sales-breakdown-table sales-txn-table">
-                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th>Amount</th></tr></thead>
+                                <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Reference</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th>Amount</th></tr></thead>
                                 <tbody>
                                 <?php foreach ($salesData['transactions'] as $row): ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
                                         <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
                                         <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
-                                        <td>#<?php echo (int)$row['id']; ?></td>
+                                        <td title="<?php echo htmlspecialchars(sales_ref_label($row), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(sales_ref_label($row), ENT_QUOTES, 'UTF-8'); ?></td>
                                         <td><?php echo htmlspecialchars((string)$row['customer_name']); ?></td>
                                         <td><?php echo htmlspecialchars((string)$row['branch_name']); ?></td>
                                         <td><?php echo htmlspecialchars(sales_format_label($row['payment_status'] ?? '')); ?></td>

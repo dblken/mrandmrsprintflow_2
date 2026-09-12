@@ -27,7 +27,7 @@ $branchId  = $branchCtx['selected_branch_id'];
 
 // Get filter parameters
 $status_filter  = trim((string)($_GET['status'] ?? ''));
-$search         = $_GET['search']   ?? '';
+$search         = ltrim(trim((string)($_GET['search'] ?? '')), '#');
 $date_from      = $_GET['date_from'] ?? '';
 $date_to        = $_GET['date_to']   ?? '';
 $sort_by        = $_GET['sort']      ?? 'newest';
