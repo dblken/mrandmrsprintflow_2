@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/reports_date_range.php';
+require_once __DIR__ . '/../includes/sales_page_queries.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 
@@ -95,8 +96,19 @@ switch ($report) {
     // SALES REPORT
     // ═══════════════════════════════════════════════════════
     case 'sales':
-        writeReportHeader($output, 'Sales Report', $from, $to, $branchName);
-        $salesData = pf_reports_official_sales_breakdown($fromStart, $toEnd, $branchId, 500);
+        $salesBundle = pf_sales_page_filtered_breakdown($_GET, $branchId, 5000);
+        $salesData = $salesBundle['salesData'];
+        $salesFilterMeta = $salesBundle['filter_meta'];
+
+        fputcsv($output, ['PrintFlow Sales & Analytics Report']);
+        fputcsv($output, ['Report Type', 'Sales Report']);
+        fputcsv($output, ['Branch', csvVal($branchName)]);
+        foreach ($salesFilterMeta as $metaLabel => $metaValue) {
+            fputcsv($output, [$metaLabel, csvVal($metaValue)]);
+        }
+        fputcsv($output, ['Generated On', date('F j, Y, g:i A', strtotime('now'))]);
+        fputcsv($output, []);
+
         $sum = $salesData['summary'] ?? [];
         $totalRev = (float)($sum['total_sales'] ?? 0);
         $totalOrd = (int)($sum['transaction_count'] ?? 0);

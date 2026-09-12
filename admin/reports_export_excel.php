@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/reports_date_range.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/reports_export_excel_helpers.php';
+require_once __DIR__ . '/../includes/sales_page_queries.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 require_role(['Admin', 'Manager']);
@@ -61,7 +62,8 @@ if ($report === 'orders') {
     $excelColCount = 8;
 } elseif ($report === 'sales') {
     $sheet->setTitle('Sales Report');
-    buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
+    $salesBundle = pf_sales_page_filtered_breakdown($_GET, $branchId, 5000);
+    buildSalesReport($sheet, $branchName, $salesBundle);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
     $excelColCount = 8;
 } elseif ($report === 'daily_sales') {
@@ -99,10 +101,9 @@ exit;
 /**
  * Sales detail report (same rows as CSV sales export), print-style formatting.
  */
-function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
-    $dateLabel = pf_reports_export_date_range()['label'];
-    $dr = pf_reports_export_date_range();
-    $salesData = pf_reports_official_sales_breakdown($dr['fromStart'], $dr['toEnd'], $branchId, 500);
+function buildSalesReport($sheet, $branchName, array $salesBundle) {
+    $salesData = $salesBundle['salesData'] ?? [];
+    $filterMeta = $salesBundle['filter_meta'] ?? [];
     $sum = $salesData['summary'] ?? [];
     $totalRev = (float)($sum['total_sales'] ?? 0);
     $totalOrd = (int)($sum['transaction_count'] ?? 0);
@@ -112,17 +113,23 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $sheet->mergeCells('A1:H1');
     pf_excel_style_doc_title($sheet, 'A1:H1');
 
-    $sheet->setCellValue('A3', 'Report Type');
-    $sheet->setCellValue('B3', 'Sales Report');
-    $sheet->setCellValue('A4', 'Branch');
-    $sheet->setCellValue('B4', $branchName);
-    $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', $dateLabel);
-    $sheet->setCellValue('A6', 'Generated On');
-    $sheet->setCellValue('B6', date('F j, Y, g:i A'));
-    $sheet->getStyle('A3:A6')->getFont()->setBold(true);
+    $metaRow = 3;
+    $sheet->setCellValue('A' . $metaRow, 'Report Type');
+    $sheet->setCellValue('B' . $metaRow, 'Sales Report');
+    $metaRow++;
+    $sheet->setCellValue('A' . $metaRow, 'Branch');
+    $sheet->setCellValue('B' . $metaRow, $branchName);
+    $metaRow++;
+    foreach ($filterMeta as $label => $value) {
+        $sheet->setCellValue('A' . $metaRow, $label);
+        $sheet->setCellValue('B' . $metaRow, $value);
+        $metaRow++;
+    }
+    $sheet->setCellValue('A' . $metaRow, 'Generated On');
+    $sheet->setCellValue('B' . $metaRow, date('F j, Y, g:i A'));
+    $sheet->getStyle('A3:A' . $metaRow)->getFont()->setBold(true);
 
-    $row = 8;
+    $row = $metaRow + 2;
     $sheet->setCellValue('A' . $row, 'SUMMARY');
     $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(11);
     $row++;

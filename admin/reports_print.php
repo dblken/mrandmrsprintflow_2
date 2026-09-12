@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/reports_date_range.php';
+require_once __DIR__ . '/../includes/sales_page_queries.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -134,7 +135,12 @@ try {
     }
 
     // ── 1. GLOBAL SUMMARY & STATUS ────────────────────────────────────────────
-    $printSalesData = pf_reports_official_sales_breakdown($from, $toEnd, $branchId, 500);
+    if ($report === 'sales') {
+        $printSalesBundle = pf_sales_page_filtered_breakdown($_GET, $branchId, 5000);
+        $printSalesData = $printSalesBundle['salesData'];
+    } else {
+        $printSalesData = pf_reports_official_sales_breakdown($from, $toEnd, $branchId, 500);
+    }
     $printSalesSummary = $printSalesData['summary'] ?? [];
     $grandTotalOrd = (int)($printSalesSummary['transaction_count'] ?? 0);
     $grandTotalRev = (float)($printSalesSummary['total_sales'] ?? 0);

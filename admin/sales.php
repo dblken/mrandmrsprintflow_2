@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/sales_page_queries.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -68,10 +69,7 @@ function sales_format_label(?string $value): string {
 }
 
 function sales_method_filter_key(?string $value): string {
-    $value = strtolower(trim((string)$value));
-    if (in_array($value, ['qr ph', 'qrph', 'qr_ph', 'qr-ph'], true)) return 'qrph';
-    if ($value === 'cash') return 'cash';
-    return $value;
+    return pf_sales_method_filter_key($value);
 }
 
 function sales_method_display(?string $value): string {
@@ -81,54 +79,17 @@ function sales_method_display(?string $value): string {
     return sales_format_label($value);
 }
 
-function sales_is_paid_transaction(array $row): bool {
-    $status = strtolower(trim((string)($row['payment_status'] ?? '')));
-    return in_array($status, ['paid', 'fully paid'], true);
-}
+$salesPeriodInfo = pf_sales_resolve_period($_GET);
+$sales_period = $salesPeriodInfo['period'];
+$sales_from = $salesPeriodInfo['from'];
+$sales_to = $salesPeriodInfo['to'];
+$sales_to_end = $salesPeriodInfo['to_end'];
+$sales_label = $salesPeriodInfo['label'];
 
-$sales_period = $_GET['sales_period'] ?? 'today';
-if (!in_array($sales_period, ['today', 'week', 'month', 'custom'], true)) {
-    $sales_period = 'today';
-}
-
-$todayYmd = date('Y-m-d');
-$requested_from = $_GET['from'] ?? '';
-$requested_to = $_GET['to'] ?? '';
-$valid_from = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$requested_from) ? (string)$requested_from : '';
-$valid_to = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$requested_to) ? (string)$requested_to : '';
-
-if ($sales_period === 'custom' && $valid_from !== '' && $valid_to !== '') {
-    $sales_from = $valid_from;
-    $sales_to = $valid_to;
-    if (strtotime($sales_from) > strtotime($sales_to)) {
-        [$sales_from, $sales_to] = [$sales_to, $sales_from];
-    }
-    $sales_label = 'Filtered';
-} elseif ($sales_period === 'week') {
-    $sales_from = date('Y-m-d', strtotime('monday this week'));
-    $sales_to = $todayYmd;
-    $sales_label = 'This Week';
-} elseif ($sales_period === 'month') {
-    $sales_from = date('Y-m-01');
-    $sales_to = $todayYmd;
-    $sales_label = 'This Month';
-} else {
-    $sales_period = 'today';
-    $sales_from = $todayYmd;
-    $sales_to = $todayYmd;
-    $sales_label = 'Today';
-}
-$sales_to_end = $sales_to . ' 23:59:59';
-
-$salesTypeFilter = strtolower(trim((string)($_GET['type'] ?? 'all')));
-if (!in_array($salesTypeFilter, ['all', 'product', 'service'], true)) {
-    $salesTypeFilter = 'all';
-}
-$salesMethodFilter = strtolower(trim((string)($_GET['method'] ?? 'all')));
-if (!in_array($salesMethodFilter, ['all', 'cash', 'qrph'], true)) {
-    $salesMethodFilter = 'all';
-}
-$salesItemFilter = trim((string)($_GET['item'] ?? ''));
+$salesFilters = pf_sales_filters_from_request($_GET);
+$salesTypeFilter = $salesFilters['type'];
+$salesMethodFilter = $salesFilters['method'];
+$salesItemFilter = $salesFilters['item'];
 
 $branchEmpty = !pf_reports_branch_has_activity($branchId);
 $salesData = !$branchEmpty
@@ -136,20 +97,7 @@ $salesData = !$branchEmpty
     : ['summary' => [], 'by_branch' => [], 'by_item' => [], 'transactions' => []];
 
 $allItems = $salesData['by_item'] ?? [];
-$salesData['transactions'] = array_values(array_filter($salesData['transactions'] ?? [], static function ($row) use ($salesTypeFilter, $salesMethodFilter, $salesItemFilter): bool {
-    if (!sales_is_paid_transaction($row)) {
-        return false;
-    }
-    $type = strtolower(trim((string)($row['type'] ?? '')));
-    $method = sales_method_filter_key($row['payment_method'] ?? '');
-    if ($salesTypeFilter !== 'all' && $type !== $salesTypeFilter) return false;
-    if ($salesMethodFilter !== 'all' && $method !== $salesMethodFilter) return false;
-    if ($salesItemFilter !== '') {
-        $itemKey = $type . '|' . trim((string)($row['item_name'] ?? ''));
-        if ($itemKey !== $salesItemFilter) return false;
-    }
-    return true;
-}));
+$salesData['transactions'] = pf_sales_filter_transactions($salesData['transactions'] ?? [], $salesFilters);
 $itemTotals = [];
 foreach ($salesData['transactions'] as $row) {
     $typeLabel = strtolower(trim((string)($row['type'] ?? ''))) === 'service' ? 'Service' : 'Product';
@@ -168,14 +116,10 @@ unset($itemRow);
 $salesData['by_item'] = array_values($itemTotals);
 usort($salesData['by_item'], static fn($a, $b) => (($b['revenue'] ?? 0) <=> ($a['revenue'] ?? 0)));
 
-$salesSummary = ['total_sales' => 0.0, 'transaction_count' => 0, 'product_sales' => 0.0, 'service_sales' => 0.0];
+$salesSummary = pf_sales_summary_from_transactions($salesData['transactions']);
 $branchTotals = [];
 foreach ($salesData['transactions'] as $row) {
     $amount = (float)($row['amount'] ?? 0);
-    $type = strtolower(trim((string)($row['type'] ?? '')));
-    $salesSummary['total_sales'] += $amount;
-    $salesSummary['transaction_count']++;
-    if ($type === 'service') $salesSummary['service_sales'] += $amount; else $salesSummary['product_sales'] += $amount;
     $branch = trim((string)($row['branch_name'] ?? '')) ?: 'â€”';
     if (!isset($branchTotals[$branch])) $branchTotals[$branch] = ['branch_name' => $branch, 'transaction_count' => 0, 'total_sales' => 0.0];
     $branchTotals[$branch]['transaction_count']++;
@@ -186,9 +130,6 @@ foreach ($branchTotals as &$branchRow) {
 }
 unset($branchRow);
 $salesData['by_branch'] = array_values($branchTotals);
-$salesSummary['total_sales'] = round((float)$salesSummary['total_sales'], 2);
-$salesSummary['product_sales'] = round((float)$salesSummary['product_sales'], 2);
-$salesSummary['service_sales'] = round((float)$salesSummary['service_sales'], 2);
 $salesFilterCount = (int)($sales_period === 'custom') + (int)($salesTypeFilter !== 'all') + (int)($salesMethodFilter !== 'all') + (int)($salesItemFilter !== '');
 $salesBranchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
 $salesFilterOpen = ($_GET['filter_open'] ?? '') === '1';
