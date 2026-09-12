@@ -193,6 +193,24 @@ $salesFilterCount = (int)($sales_period === 'custom') + (int)($salesTypeFilter !
 $salesBranchParam = printflow_branch_value_is_all($branchId) ? 'all' : (string)(int)$branchId;
 $salesFilterOpen = ($_GET['filter_open'] ?? '') === '1';
 
+function sales_export_url(string $file, array $extra = []): string {
+    global $base_path, $sales_from, $sales_to, $salesBranchParam;
+    return rtrim($base_path, '/') . '/admin/' . $file . '?' . http_build_query(array_merge([
+        'from' => $sales_from,
+        'to' => $sales_to,
+        'branch_id' => $salesBranchParam,
+    ], $extra));
+}
+
+$salesPeriodLabel = date('M d, Y', strtotime($sales_from));
+if ($sales_from !== $sales_to) {
+    $salesPeriodLabel = date('M d, Y', strtotime($sales_from)) . ' – ' . date('M d, Y', strtotime($sales_to));
+}
+$printSalesUrl = sales_export_url('reports_print.php', ['report' => 'sales']);
+$csvSalesUrl = sales_export_url('reports_export.php', ['report' => 'sales']);
+$xlsxSalesUrl = sales_export_url('reports_export_excel.php', ['report' => 'sales']);
+$je = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+
 $page_title = 'Sales Management - Admin';
 ?>
 <!DOCTYPE html>
@@ -205,7 +223,23 @@ $page_title = 'Sales Management - Admin';
 <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
 <?php include __DIR__ . '/../includes/admin_style.php'; ?>
 <?php render_branch_css(); ?>
+<script>
+function salesPrintInPlace(url) {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(iframe);
+    iframe.onload = function () {
+        try {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+        } catch (e) { console.error(e); }
+        setTimeout(function () { iframe.remove(); }, 1000);
+    };
+    iframe.src = url;
+}
+</script>
 <style>
+[x-cloak] { display:none !important; }
 .ana-wrap { display:flex; flex-direction:column; gap:24px; }
 .ana-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; overflow:visible; box-shadow:0 1px 3px rgba(0,0,0,.05); transition:box-shadow .2s; display:flex; flex-direction:column; height:100%; }
 .ana-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.08); }
@@ -217,7 +251,9 @@ $page_title = 'Sales Management - Admin';
 .toolbar-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:38px; padding:7px 14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; color:#374151; font-size:13px; font-weight:500; cursor:pointer; transition:all .2s; text-decoration:none; white-space:nowrap; }
 .toolbar-btn:hover { border-color:#9ca3af; background:#f9fafb; }
 .toolbar-btn.active { border-color:#0d9488; color:#0d9488; background:#f0fdfa; }
-.sales-page-subhead { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:13px; color:#6b7280; margin-top:-10px; }
+.sales-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:22px; }
+.sales-toolbar-summary { font-size:13px; color:#6b7280; }
+.sales-toolbar-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
 .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
 .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
@@ -273,9 +309,16 @@ $page_title = 'Sales Management - Admin';
 .sales-breakdown-pill-product { background:#ecfdf5; color:#047857; }
 .sales-breakdown-pill-service { background:#eff6ff; color:#1d4ed8; }
 .sales-breakdown-total-row td { background:#f8fafc; border-top:1px solid #e5e7eb; border-bottom:0; font-weight:800; color:#0f172a; }
-.sales-page-actions { display:flex; align-items:center; gap:8px; position:relative; }
+.sort-dropdown { position:absolute; top:calc(100% + 6px); right:0; background:#fff; border:1px solid #e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; border-radius:10px; overflow:hidden; }
+.export-dropdown-wide { min-width:260px; max-height:min(70vh,480px); overflow-y:auto; }
+.export-dd-label { padding:10px 16px 4px; font-size:10px; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:.06em; }
+.export-dd-hr { height:1px; background:#f3f4f6; margin:6px 12px; border:0; }
+.export-dd-link { display:block; padding:9px 16px; font-size:13px; color:#374151; text-decoration:none; }
+.export-dd-link:hover { background:#f9fafb; }
+.sort-option { display:flex; align-items:center; width:100%; border:none; background:none; cursor:pointer; font-size:13px; font-family:inherit; font-weight:500; text-align:left; padding:9px 16px; color:#374151; }
+.sort-option:hover { background:#f9fafb; }
 @media(max-width:520px){ .filter-panel{right:auto;left:0;width:min(320px,calc(100vw - 48px));} .fp-preset-grid{grid-template-columns:1fr 1fr;} }
-@media(max-width:960px){ .sales-breakdown-grid,.sales-breakdown-split{ grid-template-columns:1fr; } .ana-hd{align-items:flex-start;} .sales-page-subhead{align-items:flex-start;flex-direction:column;} }
+@media(max-width:960px){ .sales-breakdown-grid,.sales-breakdown-split{ grid-template-columns:1fr; } .ana-hd{align-items:flex-start;} .sales-toolbar{align-items:flex-start;} }
 </style>
 </head>
 <body>
@@ -288,8 +331,107 @@ $page_title = 'Sales Management - Admin';
         </header>
         <main>
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
-            <div class="sales-page-subhead">
-                <span><?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_from))); ?><?php if ($sales_from !== $sales_to): ?> - <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_to))); ?><?php endif; ?></span>
+
+            <div class="sales-toolbar no-print">
+                <div class="sales-toolbar-summary">
+                    <?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars($salesPeriodLabel); ?>
+                </div>
+                <div class="sales-toolbar-actions">
+                    <div style="position:relative;">
+                        <button type="button" class="toolbar-btn <?php echo $salesFilterCount > 0 ? 'active' : ''; ?>" id="salesFilterToggle" style="height:38px;">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                            Filter
+                            <?php if ($salesFilterCount > 0): ?><span class="filter-badge"><?php echo (int)$salesFilterCount; ?></span><?php endif; ?>
+                        </button>
+                        <div class="filter-panel <?php echo $salesFilterOpen ? 'open' : ''; ?>" id="salesFilterPanel">
+                            <div class="filter-panel-header">
+                                <span>Filter</span>
+                                <button type="button" class="filter-panel-close" id="salesFilterClose" aria-label="Close filter">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                </button>
+                            </div>
+                            <form method="GET" id="salesFilterForm">
+                                <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($salesBranchParam); ?>">
+                                <input type="hidden" name="sales_period" id="salesPeriodInput" value="<?php echo htmlspecialchars($sales_period); ?>">
+                                <input type="hidden" name="filter_open" value="1">
+                                <input type="hidden" name="scroll_y" id="salesScrollY" value="<?php echo htmlspecialchars((string)($_GET['scroll_y'] ?? '')); ?>">
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
+                                    <div class="fp-preset-grid">
+                                        <button type="button" class="fp-preset-btn <?php echo $sales_period === 'today' ? 'active' : ''; ?>" data-period="today">Today</button>
+                                        <button type="button" class="fp-preset-btn <?php echo $sales_period === 'week' ? 'active' : ''; ?>" data-period="week">This Week</button>
+                                        <button type="button" class="fp-preset-btn <?php echo $sales_period === 'month' ? 'active' : ''; ?>" data-period="month">This Month</button>
+                                    </div>
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head">
+                                        <span class="filter-section-label">Date range</span>
+                                        <button type="button" class="filter-reset-link" id="salesResetDates">Reset</button>
+                                    </div>
+                                    <div class="filter-date-row">
+                                        <div>
+                                            <div class="filter-date-label">From:</div>
+                                            <input type="date" name="from" id="salesFilterFrom" class="filter-input" value="<?php echo htmlspecialchars($sales_from); ?>">
+                                        </div>
+                                        <div>
+                                            <div class="filter-date-label">To:</div>
+                                            <input type="date" name="to" id="salesFilterTo" class="filter-input" value="<?php echo htmlspecialchars($sales_to); ?>">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Sales type</span></div>
+                                    <select name="type" class="filter-input" onchange="submitSalesFilter(this.form)">
+                                        <option value="all" <?php echo $salesTypeFilter === 'all' ? 'selected' : ''; ?>>All types</option>
+                                        <option value="product" <?php echo $salesTypeFilter === 'product' ? 'selected' : ''; ?>>Product</option>
+                                        <option value="service" <?php echo $salesTypeFilter === 'service' ? 'selected' : ''; ?>>Service</option>
+                                    </select>
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Product / Service</span></div>
+                                    <select name="item" class="filter-input" onchange="submitSalesFilter(this.form)">
+                                        <option value="" <?php echo $salesItemFilter === '' ? 'selected' : ''; ?>>All products/services</option>
+                                        <?php foreach ($allItems as $itemRow): $itemKey = strtolower(trim((string)($itemRow['type'] ?? ''))) . '|' . trim((string)($itemRow['item_name'] ?? '')); ?>
+                                            <option value="<?php echo htmlspecialchars($itemKey); ?>" <?php echo $salesItemFilter === $itemKey ? 'selected' : ''; ?>><?php echo htmlspecialchars((string)$itemRow['type'] . ' - ' . (string)$itemRow['item_name']); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="filter-section">
+                                    <div class="filter-section-head"><span class="filter-section-label">Payment method</span></div>
+                                    <select name="method" class="filter-input" onchange="submitSalesFilter(this.form)">
+                                        <option value="all" <?php echo $salesMethodFilter === 'all' ? 'selected' : ''; ?>>All methods</option>
+                                        <option value="cash" <?php echo $salesMethodFilter === 'cash' ? 'selected' : ''; ?>>Cash</option>
+                                        <option value="qrph" <?php echo $salesMethodFilter === 'qrph' ? 'selected' : ''; ?>>QR Ph</option>
+                                    </select>
+                                </div>
+                                <div class="filter-actions">
+                                    <button type="button" class="filter-btn-reset" id="salesResetFilter">Reset</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    <div style="position:relative;" x-data="{ exportOpen: false }">
+                        <button type="button" class="toolbar-btn" @click="exportOpen = !exportOpen" style="height:38px;">
+                            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                            Export
+                        </button>
+                        <div class="sort-dropdown export-dropdown-wide" x-show="exportOpen" x-cloak @click.outside="exportOpen = false">
+                            <div class="export-dd-label" style="display:flex;justify-content:space-between;align-items:center;">
+                                Reporting Period
+                                <span style="text-transform:none;font-weight:600;color:#4b5563;font-size:11px;"><?php echo htmlspecialchars($salesPeriodLabel); ?></span>
+                            </div>
+                            <hr class="export-dd-hr" style="margin:4px 12px 8px;">
+                            <div class="export-dd-label">Print</div>
+                            <button type="button" class="sort-option" style="font-weight:600;color:#111827;" @click="salesPrintInPlace(<?php echo json_encode($printSalesUrl, $je); ?>); exportOpen = false">Print Sales Report</button>
+                            <hr class="export-dd-hr">
+                            <div class="export-dd-label">Excel</div>
+                            <a class="export-dd-link" href="<?php echo htmlspecialchars($xlsxSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen = false">Excel – Sales detail</a>
+                            <hr class="export-dd-hr">
+                            <div class="export-dd-label">CSV</div>
+                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen = false">CSV – Sales detail</a>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="kpi-row">
@@ -322,81 +464,6 @@ $page_title = 'Sales Management - Admin';
                         Sales Overview
                         <span style="padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:11px;font-weight:600;"><?php echo htmlspecialchars($sales_label); ?></span>
                     </h3>
-                    <div class="sales-page-actions no-print">
-                        <div style="position:relative;">
-                            <button type="button" class="toolbar-btn <?php echo $salesFilterCount > 0 ? 'active' : ''; ?>" id="salesFilterToggle" style="height:38px;">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                                Filter
-                                <?php if ($salesFilterCount > 0): ?><span class="filter-badge"><?php echo (int)$salesFilterCount; ?></span><?php endif; ?>
-                            </button>
-                            <div class="filter-panel <?php echo $salesFilterOpen ? 'open' : ''; ?>" id="salesFilterPanel">
-                                <div class="filter-panel-header">
-                                    <span>Filter</span>
-                                    <button type="button" class="filter-panel-close" id="salesFilterClose" aria-label="Close filter">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                                    </button>
-                                </div>
-                                <form method="GET" id="salesFilterForm">
-                                    <input type="hidden" name="branch_id" value="<?php echo htmlspecialchars($salesBranchParam); ?>">
-                                    <input type="hidden" name="sales_period" id="salesPeriodInput" value="<?php echo htmlspecialchars($sales_period); ?>">
-                                    <input type="hidden" name="filter_open" value="1">
-                                    <input type="hidden" name="scroll_y" id="salesScrollY" value="<?php echo htmlspecialchars((string)($_GET['scroll_y'] ?? '')); ?>">
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Period</span></div>
-                                        <div class="fp-preset-grid">
-                                            <button type="button" class="fp-preset-btn <?php echo $sales_period === 'today' ? 'active' : ''; ?>" data-period="today">Today</button>
-                                            <button type="button" class="fp-preset-btn <?php echo $sales_period === 'week' ? 'active' : ''; ?>" data-period="week">This Week</button>
-                                            <button type="button" class="fp-preset-btn <?php echo $sales_period === 'month' ? 'active' : ''; ?>" data-period="month">This Month</button>
-                                        </div>
-                                    </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head">
-                                            <span class="filter-section-label">Date range</span>
-                                            <button type="button" class="filter-reset-link" id="salesResetDates">Reset</button>
-                                        </div>
-                                        <div class="filter-date-row">
-                                            <div>
-                                                <div class="filter-date-label">From:</div>
-                                                <input type="date" name="from" id="salesFilterFrom" class="filter-input" value="<?php echo htmlspecialchars($sales_from); ?>">
-                                            </div>
-                                            <div>
-                                                <div class="filter-date-label">To:</div>
-                                                <input type="date" name="to" id="salesFilterTo" class="filter-input" value="<?php echo htmlspecialchars($sales_to); ?>">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Sales type</span></div>
-                                        <select name="type" class="filter-input" onchange="submitSalesFilter(this.form)">
-                                            <option value="all" <?php echo $salesTypeFilter === 'all' ? 'selected' : ''; ?>>All types</option>
-                                            <option value="product" <?php echo $salesTypeFilter === 'product' ? 'selected' : ''; ?>>Product</option>
-                                            <option value="service" <?php echo $salesTypeFilter === 'service' ? 'selected' : ''; ?>>Service</option>
-                                        </select>
-                                    </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Product / Service</span></div>
-                                        <select name="item" class="filter-input" onchange="submitSalesFilter(this.form)">
-                                            <option value="" <?php echo $salesItemFilter === '' ? 'selected' : ''; ?>>All products/services</option>
-                                            <?php foreach ($allItems as $itemRow): $itemKey = strtolower(trim((string)($itemRow['type'] ?? ''))) . '|' . trim((string)($itemRow['item_name'] ?? '')); ?>
-                                                <option value="<?php echo htmlspecialchars($itemKey); ?>" <?php echo $salesItemFilter === $itemKey ? 'selected' : ''; ?>><?php echo htmlspecialchars((string)$itemRow['type'] . ' - ' . (string)$itemRow['item_name']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                    <div class="filter-section">
-                                        <div class="filter-section-head"><span class="filter-section-label">Payment method</span></div>
-                                        <select name="method" class="filter-input" onchange="submitSalesFilter(this.form)">
-                                            <option value="all" <?php echo $salesMethodFilter === 'all' ? 'selected' : ''; ?>>All methods</option>
-                                            <option value="cash" <?php echo $salesMethodFilter === 'cash' ? 'selected' : ''; ?>>Cash</option>
-                                            <option value="qrph" <?php echo $salesMethodFilter === 'qrph' ? 'selected' : ''; ?>>QR Ph</option>
-                                        </select>
-                                    </div>
-                                    <div class="filter-actions">
-                                        <button type="button" class="filter-btn-reset" id="salesResetFilter">Reset</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 <div class="sales-breakdown-split">
