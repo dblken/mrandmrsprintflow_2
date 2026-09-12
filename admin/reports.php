@@ -10,6 +10,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
+require_once __DIR__ . '/../includes/expense_management.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 
 require_role(['Admin', 'Manager']);
@@ -683,6 +684,12 @@ if (!empty($gp_branch_rows)) {
 $gp_revenue_leader = !empty($dash_branch_perf) ? $dash_branch_perf[0] : null;
 $gp_profit_leader = !empty($gp_branch_rows) ? $gp_branch_rows[0] : null;
 
+// ── 12c. Operating expenses + Net Operating Profit (Estimated) ───────────────
+$operating_expenses = pf_expense_reports_paid_total($from, $toEnd, $globalAnalyticsBranchId);
+$gp_material_cost = max(0.0, round((float)($gp_summary['costed_revenue'] ?? 0) - (float)($gp_summary['estimated_gross_profit'] ?? 0), 2));
+$net_operating_profit = round((float)$revenue - $gp_material_cost - $operating_expenses, 2);
+$profitability_disclaimer = 'Estimated Gross Profit is material-cost based only. Net Operating Profit (Estimated) subtracts Paid operating expenses from official sales revenue and attributed material costs. Pending and archived expenses are excluded. Salary/Wages entries are manual expenses, not payroll calculations. Results depend on the completeness of recorded material costs and expenses.';
+
 // ── 13. Top customers ─────────────────────────────────────────────────────────
 $top_customers = [];
 if (!$gaBranchEmpty) {
@@ -1148,7 +1155,8 @@ function reportsPrintInPlace(url) {
 
 /* ── KPI (modern SaaS) ───────────────── */
 .kpi-row  { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; align-items:stretch !important; }
-@media(max-width:900px){ .kpi-row{ grid-template-columns:repeat(2,1fr); } }
+.kpi-row-secondary { grid-template-columns:repeat(2,1fr); margin-top:16px; }
+@media(max-width:900px){ .kpi-row{ grid-template-columns:repeat(2,1fr); } .kpi-row-secondary{ grid-template-columns:1fr; } }
 .kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:20px 22px; position:relative; overflow:hidden; transition:all .2s; box-shadow:0 1px 3px rgba(0,0,0,.04); cursor:help; height:100% !important; display:flex; flex-direction:column; }
 .kpi-card:hover { box-shadow:0 4px 14px rgba(0,0,0,.08); }
 .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
@@ -1156,6 +1164,8 @@ function reportsPrintInPlace(url) {
 .kpi-em::before   { background:linear-gradient(90deg,#059669,#34d399); }
 .kpi-amb::before  { background:linear-gradient(90deg,#f59e0b,#fcd34d); }
 .kpi-vio::before  { background:linear-gradient(90deg,#7c3aed,#a78bfa); }
+.kpi-rose::before { background:linear-gradient(90deg,#be123c,#fb7185); }
+.kpi-teal::before { background:linear-gradient(90deg,#0f766e,#2dd4bf); }
 .kpi-lbl  { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:6px; }
 .kpi-val  { font-size:26px; font-weight:800; color:#111827; line-height:1.15; margin-bottom:6px; letter-spacing:-.02em; }
 .kpi-sub  { font-size:12px; color:#6b7280; display:flex; align-items:center; gap:4px; flex-wrap:wrap; line-height:1.4; margin-top:auto; }
@@ -2370,6 +2380,9 @@ $dashData = [
             'city' => mb_substr(trim($top_kpi_location['city']), 0, 20),
             'cnt'  => (int)$top_kpi_location['cnt']
         ] : null,
+        'operating_expenses' => (float)$operating_expenses,
+        'net_operating_profit' => (float)$net_operating_profit,
+        'material_cost' => (float)$gp_material_cost,
     ],
     'salesChart' => [
         'labels'    => $dash_labels,
@@ -2566,8 +2579,11 @@ $dashData = [
             'highest_margin_service_category' => $gp_cat['highest_margin_service_category'] ?? null,
             'highest_margin_product_category' => $gp_cat['highest_margin_product_category'] ?? null,
         ],
-        'disclaimer' => 'Estimated Gross Profit is calculated using available inventory and material cost data. Labor costs, salaries, utilities, rent, overhead, equipment depreciation, and administrative expenses are not included. Values should be interpreted as material-cost-based profitability estimates.',
+        'disclaimer' => $profitability_disclaimer,
     ],
+    'operatingExpenses' => (float)$operating_expenses,
+    'netOperatingProfit' => (float)$net_operating_profit,
+    'materialCost' => (float)$gp_material_cost,
     'salesByBranchSidebar' => [
         'mode' => $dash_sidebar_single ? 'single' : 'multi',
         'period_label' => $dash_period_label,
@@ -2636,6 +2652,24 @@ $dashData = [
                 </div>
                 <?php endforeach; ?>
             </div>
+            <div class="kpi-row kpi-row-secondary">
+                <div class="kpi-card kpi-rose">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <div class="kpi-lbl" style="margin-bottom:0;">Operating Expenses</div>
+                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                    </div>
+                    <div class="kpi-val empty-kpi">&#8369;<?php echo number_format($operating_expenses, 0); ?></div>
+                    <div class="kpi-sub">Paid operating costs</div>
+                </div>
+                <div class="kpi-card kpi-teal">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <div class="kpi-lbl" style="margin-bottom:0;">Net Operating Profit (Est.)</div>
+                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
+                    </div>
+                    <div class="kpi-val empty-kpi">&#8369;<?php echo number_format($net_operating_profit, 0); ?></div>
+                    <div class="kpi-sub">After material &amp; operating costs</div>
+                </div>
+            </div>
 
             <div class="ana-card">
                 <div class="empty-state">
@@ -2677,7 +2711,7 @@ $dashData = [
                     </div>
                 </div>
                 <!-- Estimated Gross Profit -->
-                <div class="kpi-card kpi-amb" title="Estimated gross profit for the selected date range and branch context. Material-cost based only.">
+                <div class="kpi-card kpi-amb" title="<?php echo htmlspecialchars($profitability_disclaimer, ENT_QUOTES, 'UTF-8'); ?>">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                         <div class="kpi-lbl" style="margin-bottom:0;">Estimated Gross Profit</div>
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
@@ -2696,6 +2730,24 @@ $dashData = [
                         <?php echo $top_kpi_location ? htmlspecialchars(mb_substr(trim($top_kpi_location['city']),0,20)) : '—'; ?>
                     </div>
                     <div class="kpi-sub"><?php echo $top_kpi_location ? $top_kpi_location['cnt'].' transactions' : 'No location data for period'; ?></div>
+                </div>
+            </div>
+            <div class="kpi-row kpi-row-secondary">
+                <div class="kpi-card kpi-rose" title="Paid operating expenses recorded in Expense Management for the selected period and branch. Pending and archived expenses are excluded.">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <div class="kpi-lbl" style="margin-bottom:0;">Operating Expenses</div>
+                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
+                    </div>
+                    <div class="kpi-val">&#8369;<?php echo number_format($operating_expenses, 0); ?></div>
+                    <div class="kpi-sub">Paid operating costs</div>
+                </div>
+                <div class="kpi-card kpi-teal" title="<?php echo htmlspecialchars($profitability_disclaimer, ENT_QUOTES, 'UTF-8'); ?>">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <div class="kpi-lbl" style="margin-bottom:0;">Net Operating Profit (Est.)</div>
+                        <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
+                    </div>
+                    <div class="kpi-val">&#8369;<?php echo number_format($net_operating_profit, 0); ?></div>
+                    <div class="kpi-sub">After material &amp; operating costs</div>
                 </div>
             </div>
 <!-- ══ SALES REVENUE (From Dashboard) ═════════════════════════════ -->

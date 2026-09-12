@@ -378,3 +378,47 @@ function pf_expense_build_payload(array $row): array
         'notes' => (string)($row['notes'] ?? ''),
     ];
 }
+
+/**
+ * Paid operating expenses total for Reports (date range + branch scoped).
+ * Uses expense_date; includes Paid only (excludes To Be Paid and Archived).
+ */
+function pf_expense_reports_paid_total(string $from, string $toEnd, $branchId): float
+{
+    $sql = "SELECT COALESCE(SUM(e.amount), 0) AS total FROM expenses e WHERE e.status = 'Paid'";
+    $types = '';
+    $params = [];
+
+    if ($from !== '' && $toEnd !== '') {
+        $toDate = preg_match('/^(\d{4}-\d{2}-\d{2})/', $toEnd, $m) ? $m[1] : substr($toEnd, 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $toDate)) {
+            $sql .= ' AND e.expense_date BETWEEN ? AND ?';
+            $types .= 'ss';
+            $params[] = $from;
+            $params[] = $toDate;
+        }
+    } elseif ($from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+        $sql .= ' AND e.expense_date >= ?';
+        $types .= 's';
+        $params[] = $from;
+    } elseif ($toEnd !== '') {
+        $toDate = preg_match('/^(\d{4}-\d{2}-\d{2})/', $toEnd, $m) ? $m[1] : substr($toEnd, 0, 10);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $toDate)) {
+            $sql .= ' AND e.expense_date <= ?';
+            $types .= 's';
+            $params[] = $toDate;
+        }
+    }
+
+    [$branchSql, $branchTypes, $branchParams] = branch_where_parts('e', $branchId);
+    $sql .= $branchSql;
+    $types .= $branchTypes;
+    $params = array_merge($params, $branchParams);
+
+    try {
+        $row = db_query($sql, $types !== '' ? $types : null, $params !== [] ? $params : null)[0] ?? [];
+        return round((float)($row['total'] ?? 0), 2);
+    } catch (Throwable $e) {
+        return 0.0;
+    }
+}
