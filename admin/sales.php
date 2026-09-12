@@ -159,9 +159,28 @@ if ($sales_from !== $sales_to) {
     $salesPeriodLabel = date('M d, Y', strtotime($sales_from)) . ' – ' . date('M d, Y', strtotime($sales_to));
 }
 $salesToolbarSummary = $salesPeriodLabel . ' (' . $sales_label . ')';
-$printSalesUrl = sales_export_url('reports_print.php', ['report' => 'sales']);
-$csvSalesUrl = sales_export_url('reports_export.php', ['report' => 'sales']);
+$printSalesUrl = sales_export_url('reports_print.php', ['report' => 'sales', 'autoprint' => 1]);
 $xlsxSalesUrl = sales_export_url('reports_export_excel.php', ['report' => 'sales']);
+
+function sales_transaction_modal_payload(array $row): array
+{
+    $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
+    $linkedOrder = (int)($row['store_order_id'] ?? 0);
+    return [
+        'date' => !empty($row['sales_date']) ? date('M j, Y g:i A', strtotime((string)$row['sales_date'])) : '—',
+        'type' => (string)($row['type'] ?? ''),
+        'item' => (string)($row['item_name'] ?? '-'),
+        'order' => '#' . (int)($row['id'] ?? 0),
+        'customer' => (string)($row['customer_name'] ?? ''),
+        'branch' => (string)($row['branch_name'] ?? ''),
+        'payment_status' => sales_format_label($row['payment_status'] ?? ''),
+        'payment_method' => sales_method_display($row['payment_method'] ?? ''),
+        'order_status' => sales_format_label($row['status'] ?? ''),
+        'amount' => number_format((float)($row['amount'] ?? 0), 2),
+        'record_type' => $refType === 'job' ? 'Customization / Job Order' : 'Store Product Order',
+        'linked_order' => $linkedOrder > 0 ? '#' . $linkedOrder : '',
+    ];
+}
 $je = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
 
 $page_title = 'Sales Management - Admin';
@@ -237,6 +256,20 @@ function salesPrintInPlace(url) {
 .sales-txn-table th,
 .sales-txn-table td { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sales-txn-table .sales-breakdown-pill { max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.sales-txn-row { cursor:pointer; transition:background .15s; }
+.sales-txn-row:hover { background:#f0fdfa !important; }
+.sales-txn-modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:1000; display:none; align-items:center; justify-content:center; padding:20px; }
+.sales-txn-modal-overlay.open { display:flex; }
+.sales-txn-modal { background:#fff; border-radius:14px; width:100%; max-width:520px; max-height:90vh; overflow:auto; box-shadow:0 20px 50px rgba(0,0,0,.18); }
+.sales-txn-modal-header { display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid #f3f4f6; }
+.sales-txn-modal-header h3 { margin:0; font-size:18px; font-weight:700; color:#111827; }
+.sales-txn-modal-close { border:0; background:transparent; color:#6b7280; cursor:pointer; width:32px; height:32px; border-radius:8px; font-size:22px; line-height:1; }
+.sales-txn-modal-close:hover { background:#f3f4f6; }
+.sales-txn-modal-body { padding:20px 22px; }
+.sales-txn-detail-grid { display:grid; grid-template-columns:130px 1fr; gap:10px 16px; font-size:13px; }
+.sales-txn-detail-grid dt { margin:0; font-weight:600; color:#6b7280; }
+.sales-txn-detail-grid dd { margin:0; color:#111827; word-break:break-word; }
+.sales-txn-detail-amount { font-size:22px; font-weight:800; color:#0f766e; margin-top:4px; }
 .sales-breakdown-pill { display:inline-flex; align-items:center; justify-content:center; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; background:#ecfdf5; color:#047857; }
 .sales-breakdown-empty { min-height:110px; display:flex; align-items:center; justify-content:center; color:#64748b; font-size:13px; border:1px dashed #d1d5db; border-radius:10px; background:#fff; text-align:center; }
 .filter-panel { position:absolute; top:calc(100% + 6px); right:0; width:320px; max-height:min(560px,calc(100vh - 120px)); overflow-y:auto; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:200; }
@@ -378,9 +411,6 @@ function salesPrintInPlace(url) {
                             <hr class="export-dd-hr">
                             <div class="export-dd-label">Excel</div>
                             <a class="export-dd-link" href="<?php echo htmlspecialchars($xlsxSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen = false">Excel – Sales detail</a>
-                            <hr class="export-dd-hr">
-                            <div class="export-dd-label">CSV</div>
-                            <a class="export-dd-link" href="<?php echo htmlspecialchars($csvSalesUrl, ENT_QUOTES, 'UTF-8'); ?>" @click="exportOpen = false">CSV – Sales detail</a>
                         </div>
                     </div>
                 </div>
@@ -454,7 +484,11 @@ function salesPrintInPlace(url) {
                                 <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Order</th><th>Customer</th><th>Branch</th><th>Payment</th><th>Method</th><th>Status</th><th class="num">Amount</th></tr></thead>
                                 <tbody>
                                 <?php foreach ($salesData['transactions'] as $row): ?>
-                                    <tr>
+                                    <?php
+                                    $txnPayload = sales_transaction_modal_payload($row);
+                                    $txnPayloadAttr = htmlspecialchars(json_encode($txnPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}', ENT_QUOTES, 'UTF-8');
+                                    ?>
+                                    <tr class="sales-txn-row" tabindex="0" role="button" data-sales-txn="<?php echo $txnPayloadAttr; ?>" aria-label="View transaction details for order #<?php echo (int)($row['id'] ?? 0); ?>">
                                         <td><?php echo htmlspecialchars(date('M j, Y g:i A', strtotime((string)$row['sales_date']))); ?></td>
                                         <td><span class="sales-breakdown-pill<?php echo sales_type_pill_class($row['type'] ?? ''); ?>"><?php echo htmlspecialchars((string)$row['type']); ?></span></td>
                                         <td><?php echo htmlspecialchars((string)($row['item_name'] ?? '-')); ?></td>
@@ -477,8 +511,80 @@ function salesPrintInPlace(url) {
         </main>
     </div>
 </div>
+
+<div class="sales-txn-modal-overlay" id="salesTxnModal" aria-hidden="true">
+    <div class="sales-txn-modal" role="dialog" aria-modal="true" aria-labelledby="salesTxnModalTitle">
+        <div class="sales-txn-modal-header">
+            <h3 id="salesTxnModalTitle">Transaction Details</h3>
+            <button type="button" class="sales-txn-modal-close" id="salesTxnModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="sales-txn-modal-body">
+            <dl class="sales-txn-detail-grid" id="salesTxnModalBody"></dl>
+        </div>
+    </div>
+</div>
+
 <script>
+function salesEscapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function openSalesTxnModal(payload) {
+    const modal = document.getElementById('salesTxnModal');
+    const body = document.getElementById('salesTxnModalBody');
+    const title = document.getElementById('salesTxnModalTitle');
+    if (!modal || !body || !payload) return;
+    title.textContent = 'Transaction ' + (payload.order || '');
+    const rows = [
+        ['Date', payload.date],
+        ['Type', payload.type],
+        ['Item', payload.item],
+        ['Order #', payload.order],
+        ['Customer', payload.customer],
+        ['Branch', payload.branch],
+        ['Payment Status', payload.payment_status],
+        ['Payment Method', payload.payment_method],
+        ['Order Status', payload.order_status],
+        ['Record Type', payload.record_type],
+    ];
+    if (payload.linked_order) rows.push(['Linked Store Order', payload.linked_order]);
+    body.innerHTML = rows.map(function (pair) {
+        return '<dt>' + salesEscapeHtml(pair[0]) + '</dt><dd>' + salesEscapeHtml(pair[1]) + '</dd>';
+    }).join('') + '<dt>Amount</dt><dd class="sales-txn-detail-amount">&#8369;' + salesEscapeHtml(payload.amount) + '</dd>';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeSalesTxnModal() {
+    const modal = document.getElementById('salesTxnModal');
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+}
+
 document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.sales-txn-row').forEach(function (row) {
+        const open = function () {
+            try {
+                openSalesTxnModal(JSON.parse(row.getAttribute('data-sales-txn') || '{}'));
+            } catch (e) { console.error(e); }
+        };
+        row.addEventListener('click', open);
+        row.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                open();
+            }
+        });
+    });
+    document.getElementById('salesTxnModalClose')?.addEventListener('click', closeSalesTxnModal);
+    document.getElementById('salesTxnModal')?.addEventListener('click', function (e) {
+        if (e.target === e.currentTarget) closeSalesTxnModal();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeSalesTxnModal();
+    });
+
     const form = document.getElementById('salesFilterForm');
     const from = document.getElementById('salesFilterFrom');
     const to = document.getElementById('salesFilterTo');

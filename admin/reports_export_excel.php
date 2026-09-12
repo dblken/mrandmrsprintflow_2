@@ -49,6 +49,7 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetDate;
 $spreadsheet = new Spreadsheet();
 $sheet = $spreadsheet->getActiveSheet();
 $excelColCount = 8;
+$skipAutosize = false;
 
 if ($report === 'orders') {
     $sheet->setTitle('Orders Status Report');
@@ -64,8 +65,10 @@ if ($report === 'orders') {
     $sheet->setTitle('Sales Report');
     $salesBundle = pf_sales_page_filtered_breakdown($_GET, $branchId, 5000);
     buildSalesReport($sheet, $branchName, $salesBundle);
+    pf_excel_set_sales_transaction_column_widths($sheet);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
     $excelColCount = 10;
+    $skipAutosize = true;
 } elseif ($report === 'daily_sales') {
     $day = date('Y-m-d', strtotime($_GET['date'] ?? $to));
     $sheet->setTitle('Daily Sales');
@@ -87,7 +90,9 @@ if ($report === 'orders') {
     exit('Unknown report type.');
 }
 
-pf_excel_autosize_columns($sheet, 1, $excelColCount);
+if (empty($skipAutosize)) {
+    pf_excel_autosize_columns($sheet, 1, $excelColCount);
+}
 
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -148,13 +153,16 @@ function buildSalesReport($sheet, $branchName, array $salesBundle) {
         $sheet->setCellValue(chr(65 + $i) . $row, $h);
     }
     pf_excel_style_column_headers($sheet, 'A' . $row . ':J' . $row);
+    $sheet->getRowDimension($row)->setRowHeight(22);
     $row++;
 
     $firstData = $row;
     foreach (($salesData['transactions'] ?? []) as $txn) {
         $exportRow = pf_sales_format_export_transaction_row($txn);
+        $sheet->getRowDimension($row)->setRowHeight(16);
         $sheet->setCellValue('A' . $row, (string)$exportRow[0]);
         $sheet->setCellValue('B' . $row, (string)$exportRow[1]);
+        $sheet->getStyle('C' . $row)->getAlignment()->setWrapText(false);
         $sheet->setCellValue('C' . $row, (string)$exportRow[2]);
         $sheet->setCellValue('D' . $row, (string)$exportRow[3]);
         $sheet->setCellValue('E' . $row, (string)$exportRow[4]);

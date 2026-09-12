@@ -388,7 +388,7 @@ $page_title = 'Payments - PrintFlow';
                             Filter
                             <?php if ($activeFilters): ?><span class="filter-badge"><?php echo $activeFilters; ?></span><?php endif; ?>
                         </button>
-                        <form class="filter-panel" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get">
+                        <form class="filter-panel" id="paymentFilterForm" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" method="get">
                             <div class="filter-panel-header">
                                 Filter
                                 <button type="button" class="filter-reset-link" @click="filterOpen = false">✕</button>
@@ -462,7 +462,6 @@ $page_title = 'Payments - PrintFlow';
                             </div>
                             <div class="filter-actions">
                                 <button class="filter-btn-reset" type="button" onclick="pfReset(['period', 'from', 'to', 'method', 'source', 'status', 'search'])">Reset all filters</button>
-                                <button class="filter-btn-reset" type="submit" style="margin-top:8px;">Apply filters</button>
                             </div>
                         </form>
                     </div>
@@ -513,8 +512,13 @@ $page_title = 'Payments - PrintFlow';
 </div>
 </div>
 <script>
+function pfPaymentSubmitFilter() {
+    const f = document.getElementById('paymentFilterForm');
+    if (f) f.submit();
+}
+
 function pfReset(fields) {
-    const f = document.querySelector('.filter-panel');
+    const f = document.getElementById('paymentFilterForm');
     if (!f) return;
     fields.forEach(function (k) {
         if (!f.elements[k]) return;
@@ -522,6 +526,33 @@ function pfReset(fields) {
     });
     f.submit();
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    const f = document.getElementById('paymentFilterForm');
+    if (!f) return;
+
+    ['period', 'method', 'source', 'status'].forEach(function (name) {
+        const el = f.elements[name];
+        if (el) el.addEventListener('change', pfPaymentSubmitFilter);
+    });
+
+    ['from', 'to'].forEach(function (name) {
+        const el = f.elements[name];
+        if (el) el.addEventListener('change', function () {
+            if (f.elements.period) f.elements.period.value = 'custom';
+            pfPaymentSubmitFilter();
+        });
+    });
+
+    const searchInput = f.elements.search;
+    let searchTimer = null;
+    if (searchInput) {
+        searchInput.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(pfPaymentSubmitFilter, 450);
+        });
+    }
+});
 </script>
 </body>
 </html>
