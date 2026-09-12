@@ -2638,11 +2638,11 @@ $dashData = [
             <div class="kpi-row">
                 <div class="kpi-card kpi-ind">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <div class="kpi-lbl" style="margin-bottom:0;">Total Revenue</div>
+                        <div class="kpi-lbl" style="margin-bottom:0;">Sales Revenue</div>
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
                     </div>
                     <div class="kpi-val empty-kpi">₱0</div>
-                    <div class="kpi-sub">No completed transactions</div>
+                    <div class="kpi-sub">Total sales for selected period</div>
                 </div>
                 <div class="kpi-card kpi-amb">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2650,7 +2650,7 @@ $dashData = [
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
                     </div>
                     <div class="kpi-val empty-kpi">&#8369;0</div>
-                    <div class="kpi-sub">No cost-attributed sales</div>
+                    <div class="kpi-sub">After material costs</div>
                 </div>
                 <div class="kpi-card kpi-rose">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2666,7 +2666,7 @@ $dashData = [
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;">All-Time</span>
                     </div>
                     <div class="kpi-val empty-kpi">&#8369;<?php echo number_format($net_operating_profit, 0); ?></div>
-                    <div class="kpi-sub">After material &amp; operating costs</div>
+                    <div class="kpi-sub">After material + operating costs</div>
                 </div>
             </div>
 
@@ -2683,16 +2683,14 @@ $dashData = [
             <?php else: ?>
             <!-- ══ KPI ROW ═══════════════════════════════════════════════════ -->
             <div class="kpi-row">
-                <!-- Revenue -->
+                <!-- Sales Revenue -->
                 <div class="kpi-card kpi-ind" title="Revenue for the selected date range and branch context">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <div class="kpi-lbl" style="margin-bottom:0;">Total Revenue</div>
+                        <div class="kpi-lbl" style="margin-bottom:0;">Sales Revenue</div>
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
                     </div>
                     <div class="kpi-val">₱<?php echo number_format($revenue, 0); ?></div>
-                    <div class="kpi-sub">
-                        <?php echo $paid_orders; ?> completed transactions <?php echo ($from !== '' || $to !== '') ? 'in period' : 'total'; ?>
-                    </div>
+                    <div class="kpi-sub">Total sales for selected period</div>
                 </div>
                 <!-- Estimated Gross Profit -->
                 <div class="kpi-card kpi-amb" title="<?php echo htmlspecialchars($profitability_disclaimer, ENT_QUOTES, 'UTF-8'); ?>">
@@ -2701,7 +2699,7 @@ $dashData = [
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
                     </div>
                     <div class="kpi-val">&#8369;<?php echo number_format((float)($gp_summary['estimated_gross_profit'] ?? 0), 0); ?></div>
-                    <div class="kpi-sub">Material-cost-based estimate</div>
+                    <div class="kpi-sub">After material costs</div>
                 </div>
                 <div class="kpi-card kpi-rose" title="Paid operating expenses recorded in Expense Management for the selected period and branch. Pending and archived expenses are excluded.">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2717,7 +2715,7 @@ $dashData = [
                         <span style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.04em;"><?php echo ($from !== '' || $to !== '') ? 'Filtered' : 'All-Time'; ?></span>
                     </div>
                     <div class="kpi-val">&#8369;<?php echo number_format($net_operating_profit, 0); ?></div>
-                    <div class="kpi-sub">After material &amp; operating costs</div>
+                    <div class="kpi-sub">After material + operating costs</div>
                 </div>
             </div>
 <!-- ══ SALES REVENUE (From Dashboard) ═════════════════════════════ -->
