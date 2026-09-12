@@ -27,6 +27,69 @@ function pf_sales_is_paid_transaction(array $row): bool
     return in_array($status, ['paid', 'fully paid'], true);
 }
 
+function pf_sales_format_label(?string $value): string
+{
+    $value = trim((string)$value);
+    if ($value === '') {
+        return '—';
+    }
+    return ucwords(strtolower(str_replace(['_', '-'], ' ', $value)));
+}
+
+function pf_sales_method_display(?string $value): string
+{
+    $key = pf_sales_method_filter_key($value);
+    if ($key === 'cash') {
+        return 'Cash';
+    }
+    if ($key === 'qrph') {
+        return 'QR Ph';
+    }
+    return pf_sales_format_label($value);
+}
+
+/** @return list<string> */
+function pf_sales_export_transaction_headers(): array
+{
+    return [
+        'Date',
+        'Type',
+        'Item / Product or Service',
+        'Order #',
+        'Customer',
+        'Branch',
+        'Payment Status',
+        'Payment Method',
+        'Order Status',
+        'Amount',
+    ];
+}
+
+/**
+ * Format one transaction row for CSV/Excel/Print exports (matches admin/sales.php table).
+ *
+ * @return list<string|float>
+ */
+function pf_sales_format_export_transaction_row(array $row): array
+{
+    $date = !empty($row['sales_date'])
+        ? date('M j, Y g:i A', strtotime((string)$row['sales_date']))
+        : '';
+
+    return [
+        $date,
+        (string)($row['type'] ?? ''),
+        (string)($row['item_name'] ?? '-'),
+        '#' . (int)($row['id'] ?? 0),
+        (string)($row['customer_name'] ?? ''),
+        (string)($row['branch_name'] ?? ''),
+        pf_sales_format_label($row['payment_status'] ?? ''),
+        pf_sales_method_display($row['payment_method'] ?? ''),
+        pf_sales_format_label($row['status'] ?? ''),
+        round((float)($row['amount'] ?? 0), 2),
+    ];
+}
+
 /**
  * @return array{period:string,from:string,to:string,to_end:string,label:string,range_label:string}
  */

@@ -122,21 +122,13 @@ switch ($report) {
         fputcsv($output, ['Average Sale Value', number_format($avgVal, 2, '.', '')]);
         fputcsv($output, []);
 
-        fputcsv($output, ['Type', 'Order #', 'Customer', 'Branch', 'Sales Date', 'Amount', 'Payment Status', 'Order Status']);
+        fputcsv($output, pf_sales_export_transaction_headers());
         foreach (($salesData['transactions'] ?? []) as $row) {
-            $dateForCsv = !empty($row['sales_date']) ? '="' . date('Y-m-d H:i', strtotime((string)$row['sales_date'])) . '"' : '';
-            fputcsv($output, [
-                csvVal($row['type'] ?? ''),
-                '#' . (int)($row['id'] ?? 0),
-                csvVal($row['customer_name'] ?? ''),
-                csvVal($row['branch_name'] ?? ''),
-                $dateForCsv,
-                number_format((float)($row['amount'] ?? 0), 2, '.', ''),
-                csvVal($row['payment_status'] ?? ''),
-                csvVal($row['status'] ?? ''),
-            ]);
+            $exportRow = pf_sales_format_export_transaction_row($row);
+            $exportRow[9] = number_format((float)$exportRow[9], 2, '.', '');
+            fputcsv($output, array_map(static fn($v) => is_string($v) ? csvVal($v) : $v, $exportRow));
         }
-        fputcsv($output, ['TOTAL', '', '', '', '', number_format($totalRev, 2, '.', ''), '', '']);
+        fputcsv($output, ['Total Amount', '', '', '', '', '', '', '', '', number_format($totalRev, 2, '.', '')]);
         break;
 
     // ORDERS STATUS REPORT
