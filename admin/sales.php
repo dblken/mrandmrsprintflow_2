@@ -206,22 +206,24 @@ $page_title = 'Sales Management - Admin';
 .ana-hd h3 svg { width:16px; height:16px; color:#53C5E0; flex-shrink:0; }
 .ana-bd { padding:20px; flex:1; display:flex; flex-direction:column; min-height:0; }
 .chart-title-nowrap { min-width:0; }
-.toolbar-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:36px; padding:0 14px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; color:#111827; font-size:13px; font-weight:500; cursor:pointer; transition:all .2s; text-decoration:none; white-space:nowrap; }
+.toolbar-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:38px; padding:7px 14px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; color:#374151; font-size:13px; font-weight:500; cursor:pointer; transition:all .2s; text-decoration:none; white-space:nowrap; }
 .toolbar-btn:hover { border-color:#9ca3af; background:#f9fafb; }
-.toolbar-btn.active { border-color:#00232b; color:#00232b; background:#ecf8fb; }
+.toolbar-btn.active { border-color:#0d9488; color:#0d9488; background:#f0fdfa; }
 .sales-page-subhead { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:13px; color:#6b7280; margin-top:-10px; }
-.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; align-items:stretch!important; margin-bottom:20px; }
-.kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:20px 22px; position:relative; overflow:hidden; transition:all .2s; box-shadow:0 1px 3px rgba(0,0,0,.04); height:100%!important; display:flex; flex-direction:column; }
-.kpi-card:hover { box-shadow:0 4px 14px rgba(0,0,0,.08); }
+.kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; align-items:stretch; }
+.kpi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
 .kpi-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
-.kpi-ind::before { background:linear-gradient(90deg,#00232b,#53C5E0); }
-.kpi-em::before { background:linear-gradient(90deg,#059669,#34d399); }
-.kpi-amb::before { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
-.kpi-vio::before { background:linear-gradient(90deg,#7c3aed,#a78bfa); }
-.kpi-lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#6b7280; margin-bottom:6px; }
-.kpi-val { font-size:26px; font-weight:800; color:#111827; line-height:1.15; margin-bottom:6px; }
-.kpi-sub { font-size:12px; color:#6b7280; display:flex; align-items:center; gap:4px; flex-wrap:wrap; line-height:1.4; margin-top:auto; }
+.kpi-card.indigo::before { background:linear-gradient(90deg,#6366f1,#818cf8); }
+.kpi-card.emerald::before { background:linear-gradient(90deg,#059669,#34d399); }
+.kpi-card.rose::before { background:linear-gradient(90deg,#e11d48,#fb7185); }
+.kpi-card.slate::before { background:linear-gradient(90deg,#64748b,#94a3b8); }
+.kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#9ca3af; margin-bottom:6px; }
+.kpi-value { font-size:26px; font-weight:800; color:#111827; line-height:1.15; }
+.kpi-sub { font-size:12px; color:#6b7280; margin-top:auto; }
 @media(max-width:900px){ .kpi-row{ grid-template-columns:repeat(2,1fr); } }
+.sales-list-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; min-width:0; flex-wrap:wrap; }
+.sales-list-header h3 { margin:0; font-size:16px; font-weight:700; color:#1f2937; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sales-section-title { margin:0 0 12px; font-size:14px; font-weight:700; color:#1f2937; }
 .sales-breakdown-tabs { display:flex; flex-wrap:wrap; gap:8px; }
 .sales-breakdown-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin-bottom:20px; }
 .sales-breakdown-metric { border:1px solid #e5e7eb; border-radius:10px; padding:20px 22px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.04); }
@@ -229,7 +231,6 @@ $page_title = 'Sales Management - Admin';
 .sales-breakdown-metric-value { margin-top:10px; font-size:28px; line-height:1.1; font-weight:900; color:#0f172a; }
 .sales-breakdown-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; margin-bottom:20px; }
 .sales-breakdown-panel { border:1px solid #eef2f7; border-radius:10px; padding:16px; min-width:0; background:#fff; }
-.pf-branch-section-title { margin:0 0 12px; font-size:13px; color:#334155; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
 .sales-breakdown-table { width:100%; border-collapse:collapse; font-size:14px; }
 .sales-breakdown-table th { text-align:left; color:#64748b; font-weight:600; font-size:13px; padding:12px 8px; border-bottom:1px solid #e5e7eb; }
 .sales-breakdown-table td { padding:14px 8px; border-bottom:1px solid #f1f5f9; color:#111827; vertical-align:middle; }
@@ -274,18 +275,41 @@ $page_title = 'Sales Management - Admin';
         </header>
         <main>
             <?php render_branch_context_banner($branchCtx['branch_name']); ?>
-            <div class="ana-wrap">
-                <div class="sales-page-subhead">
-                    <span><?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_from))); ?><?php if ($sales_from !== $sales_to): ?> - <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_to))); ?><?php endif; ?></span>
+            <div class="sales-page-subhead">
+                <span><?php echo htmlspecialchars($branchName); ?> &nbsp;&middot;&nbsp; <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_from))); ?><?php if ($sales_from !== $sales_to): ?> - <?php echo htmlspecialchars(date('M d, Y', strtotime($sales_to))); ?><?php endif; ?></span>
+            </div>
+
+            <div class="kpi-row">
+                <div class="kpi-card indigo">
+                    <div class="kpi-label">Total Sales</div>
+                    <div class="kpi-value">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></div>
+                    <div class="kpi-sub"><?php echo htmlspecialchars($sales_label); ?> sales revenue</div>
                 </div>
-                <div class="ana-card">
-                <div class="ana-hd">
-                    <h3 class="chart-title-nowrap">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/></svg>
+                <div class="kpi-card emerald">
+                    <div class="kpi-label">Sales Transactions</div>
+                    <div class="kpi-value"><?php echo number_format((int)($salesSummary['transaction_count'] ?? 0)); ?></div>
+                    <div class="kpi-sub">Sales transactions in period</div>
+                </div>
+                <div class="kpi-card rose">
+                    <div class="kpi-label">Product Sales</div>
+                    <div class="kpi-value">&#8369;<?php echo number_format((float)($salesSummary['product_sales'] ?? 0), 2); ?></div>
+                    <div class="kpi-sub">Store product revenue</div>
+                </div>
+                <div class="kpi-card slate">
+                    <div class="kpi-label">Service/Custom Sales</div>
+                    <div class="kpi-value">&#8369;<?php echo number_format((float)($salesSummary['service_sales'] ?? 0), 2); ?></div>
+                    <div class="kpi-sub">Customization revenue</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="sales-list-header">
+                    <h3>
+                        <svg width="16" height="16" fill="none" stroke="#53C5E0" viewBox="0 0 24 24" style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/></svg>
                         Sales Overview
-                        <span style="margin-left:8px;padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;"><?php echo htmlspecialchars($sales_label); ?></span>
+                        <span style="padding:3px 8px;background:#EBF8FF;color:#2C5282;border-radius:6px;font-size:11px;font-weight:600;"><?php echo htmlspecialchars($sales_label); ?></span>
                     </h3>
-                                        <div class="sales-page-actions no-print">
+                    <div class="sales-page-actions no-print">
                         <div style="position:relative;">
                             <button type="button" class="toolbar-btn <?php echo $salesFilterCount > 0 ? 'active' : ''; ?>" id="salesFilterToggle" style="height:38px;">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -361,16 +385,10 @@ $page_title = 'Sales Management - Admin';
                         </div>
                     </div>
                 </div>
-                <div class="ana-bd">
-                    <div class="kpi-row">
-                        <div class="kpi-card kpi-ind"><div class="kpi-lbl">Total Sales</div><div class="kpi-val">&#8369;<?php echo number_format((float)($salesSummary['total_sales'] ?? 0), 2); ?></div><div class="kpi-sub"><?php echo htmlspecialchars($sales_label); ?> sales revenue</div></div>
-                        <div class="kpi-card kpi-em"><div class="kpi-lbl">Sales Transactions</div><div class="kpi-val"><?php echo number_format((int)($salesSummary['transaction_count'] ?? 0)); ?></div><div class="kpi-sub">Sales transactions in period</div></div>
-                        <div class="kpi-card kpi-amb"><div class="kpi-lbl">Product Sales</div><div class="kpi-val">&#8369;<?php echo number_format((float)($salesSummary['product_sales'] ?? 0), 2); ?></div><div class="kpi-sub">Store product revenue</div></div>
-                        <div class="kpi-card kpi-vio"><div class="kpi-lbl">Service/Custom Sales</div><div class="kpi-val">&#8369;<?php echo number_format((float)($salesSummary['service_sales'] ?? 0), 2); ?></div><div class="kpi-sub">Customization revenue</div></div>
-                    </div>
-                    <div class="sales-breakdown-split">
+
+                <div class="sales-breakdown-split">
                         <div class="sales-breakdown-panel">
-                            <h4 class="pf-branch-section-title">Sales by Branch</h4>
+                            <h4 class="sales-section-title">Sales by Branch</h4>
                             <?php if (empty($salesData['by_branch'])): ?>
                                 <div class="sales-breakdown-empty">No branch sales for this period.</div>
                             <?php else: ?>
@@ -382,7 +400,7 @@ $page_title = 'Sales Management - Admin';
                             <?php endif; ?>
                         </div>
                         <div class="sales-breakdown-panel">
-                            <h4 class="pf-branch-section-title">Sales by Product/Service</h4>
+                            <h4 class="sales-section-title">Sales by Product/Service</h4>
                             <?php if (empty($salesData['by_item'])): ?>
                                 <div class="sales-breakdown-empty">No product or service sales for this period.</div>
                             <?php else: ?>
@@ -394,8 +412,8 @@ $page_title = 'Sales Management - Admin';
                             <?php endif; ?>
                         </div>
                     </div>
-                    <div class="sales-breakdown-panel">
-                        <h4 class="pf-branch-section-title">Transaction Details</h4>
+                <div class="sales-breakdown-panel" style="margin-top:20px;">
+                        <h4 class="sales-section-title">Transaction Details</h4>
                     <?php if (empty($salesData['transactions'])): ?>
                         <div class="sales-breakdown-empty">No sales transactions for this period.</div>
                     <?php else: ?>
@@ -423,7 +441,6 @@ $page_title = 'Sales Management - Admin';
                         </div>
                     <?php endif; ?>
                 </div>
-            </div>
             </div>
         </main>
     </div>
