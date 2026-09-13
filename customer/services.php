@@ -127,20 +127,13 @@ foreach ($visible_rows as $row) {
     ];
 }
 
-foreach ($core_services as &$service_row) {
-    $review_stats = printflow_get_service_review_stats($service_row['name']);
-    $service_row['avg_rating'] = (float)($review_stats['avg_rating'] ?? 0);
-    $service_row['review_count'] = (int)($review_stats['review_count'] ?? 0);
-}
-unset($service_row);
-
 $csrf_token = generate_csrf_token();
 $page_title = 'Services - PrintFlow';
 $use_customer_css = true;
 require_once __DIR__ . '/../includes/header.php';
 
 // Reusable card template function
-function render_service_card($srv) {
+function render_service_card($srv, int $card_index = 0) {
     global $base_path, $default_service_img;
     $img = pf_normalize_service_image_path($srv['img'], $base_path, $default_service_img);
     $is_video = pf_service_media_is_video($img);
@@ -198,7 +191,19 @@ function render_service_card($srv) {
                 style="background:#f8fafc;opacity:0;"
             ></video>
         <?php else: ?>
-            <img src="<?php echo htmlspecialchars($img); ?>" alt="<?php echo htmlspecialchars($srv['name']); ?>" class="shopee-img" onerror="this.onerror=null;this.src='<?php echo htmlspecialchars($default_service_img); ?>';">
+            <div class="shopee-img-wrap">
+                <?php
+                echo pf_catalog_image_tag($img, 'card', [
+                    'alt' => $srv['name'],
+                    'class' => 'shopee-img',
+                    'loading' => $card_index < 4 ? 'eager' : 'lazy',
+                    'fetchpriority' => $card_index === 0 ? 'high' : '',
+                    'width' => 400,
+                    'height' => 348,
+                    'onerror' => "this.onerror=null;this.src='" . addslashes(htmlspecialchars($default_service_img, ENT_QUOTES)) . "';",
+                ]);
+                ?>
+            </div>
         <?php endif; ?>
         <div class="shopee-body">
             <div class="shopee-meta-row">
@@ -279,12 +284,28 @@ function render_service_card($srv) {
             padding: 0 !important;
         }
 
-        .shopee-grid .shopee-img {
-            aspect-ratio: 1.15;
-            width: 100%;
-            height: auto;
-            max-height: 210px;
-            object-fit: cover;
+    .shopee-img-wrap {
+        aspect-ratio: 1.15;
+        width: 100%;
+        max-height: 210px;
+        overflow: hidden;
+        background: #f1f5f9;
+        contain: layout paint;
+    }
+
+    .shopee-img-wrap .shopee-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .shopee-grid .shopee-img {
+        aspect-ratio: 1.15;
+        width: 100%;
+        height: auto;
+        max-height: 210px;
+        object-fit: cover;
             margin: 0;
             padding: 0;
             border-radius: 0;
@@ -580,8 +601,8 @@ function render_service_card($srv) {
             </div>
         <?php else: ?>
         <div class="shopee-grid mb-12">
-            <?php foreach ($core_services as $srv): ?>
-                <?php render_service_card($srv); ?>
+            <?php foreach ($core_services as $card_index => $srv): ?>
+                <?php render_service_card($srv, (int)$card_index); ?>
             <?php endforeach; ?>
         </div>
         <?php endif; ?>

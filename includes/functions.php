@@ -13,6 +13,7 @@ require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source column exists
 require_once __DIR__ . '/order_items_persistence.php';
+require_once __DIR__ . '/image_optimizer.php';
 
 // Global Environment Detection
 if (!defined('BASE_PATH')) {
@@ -1252,6 +1253,9 @@ function upload_file($file, $allowed_extensions = [], $destination = 'uploads', 
     $relative_path = rtrim($base, '/') . '/uploads/' . $destination . '/' . $new_name;
     
     if (move_uploaded_file($file['tmp_name'], $target_path)) {
+        if (function_exists('pf_image_optimizer_after_upload_path')) {
+            pf_image_optimizer_after_upload_path($target_path);
+        }
         return [
             'success' => true,
             'message' => 'File uploaded successfully',
@@ -6049,6 +6053,77 @@ function printflow_get_service_reviews(string $service_name, ?int $limit = null,
     }
 
     return db_query($sql, $types, $params) ?: [];
+}
+
+/**
+ * Batch-load review images and staff replies to avoid per-review queries.
+ *
+ * @param array<int, array<string, mixed>> $reviews
+ * @return array<int, array<string, mixed>>
+ */
+function printflow_attach_review_media(array $reviews): array {
+    if ($reviews === []) {
+        return $reviews;
+    }
+
+    $ids = [];
+    foreach ($reviews as $review) {
+        $id = (int)($review['id'] ?? 0);
+        if ($id > 0) {
+            $ids[$id] = $id;
+        }
+    }
+    if ($ids === []) {
+        return $reviews;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $types = str_repeat('i', count($ids));
+    $idList = array_values($ids);
+
+    $imagesByReview = [];
+    $imageRows = db_query(
+        "SELECT review_id, image_path FROM review_images WHERE review_id IN ($placeholders) ORDER BY review_id ASC, id ASC",
+        $types,
+        $idList
+    ) ?: [];
+    foreach ($imageRows as $row) {
+        $rid = (int)($row['review_id'] ?? 0);
+        if ($rid > 0) {
+            $imagesByReview[$rid][] = ['image_path' => (string)($row['image_path'] ?? '')];
+        }
+    }
+
+    $repliesByReview = [];
+    $replyRows = db_query(
+        "SELECT rr.review_id, rr.reply_message, rr.created_at, u.first_name, u.last_name
+         FROM review_replies rr
+         INNER JOIN users u ON u.user_id = rr.staff_id
+         WHERE rr.review_id IN ($placeholders)
+         ORDER BY rr.review_id ASC, rr.created_at ASC",
+        $types,
+        $idList
+    ) ?: [];
+    foreach ($replyRows as $row) {
+        $rid = (int)($row['review_id'] ?? 0);
+        if ($rid > 0) {
+            $repliesByReview[$rid][] = [
+                'reply_message' => (string)($row['reply_message'] ?? ''),
+                'created_at' => (string)($row['created_at'] ?? ''),
+                'first_name' => (string)($row['first_name'] ?? ''),
+                'last_name' => (string)($row['last_name'] ?? ''),
+            ];
+        }
+    }
+
+    foreach ($reviews as $idx => $review) {
+        $rid = (int)($review['id'] ?? 0);
+        $reviews[$idx]['images'] = $imagesByReview[$rid] ?? [];
+        $reviews[$idx]['replies'] = $repliesByReview[$rid] ?? [];
+        $reviews[$idx]['has_video'] = !empty($review['video_path']);
+    }
+
+    return $reviews;
 }
 
 function get_service_name_from_customization($custom, $fallback = 'Custom Order') {

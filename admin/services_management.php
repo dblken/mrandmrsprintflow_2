@@ -131,6 +131,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
             $upload_path = $upload_dir . $new_filename;
 
             if (move_uploaded_file($file_tmp, $upload_path)) {
+                if (function_exists('pf_image_optimizer_after_upload_path')) {
+                    require_once __DIR__ . '/../includes/image_optimizer.php';
+                    pf_image_optimizer_after_upload_path($upload_path);
+                }
                 $uploaded_images[] = $base_path . '/public/assets/images/services/' . $new_filename;
             }
         }

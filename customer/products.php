@@ -96,6 +96,9 @@ $types .= 'ii';
 
 $products = db_query($sql, $types, $params);
 
+$base_path = pf_app_base_path();
+$default_product_img = $base_path . '/public/assets/images/services/default.png';
+
 $page_title = 'Products - PrintFlow';
 $use_customer_css = true;
 require_once __DIR__ . '/../includes/header.php';
@@ -141,6 +144,22 @@ require_once __DIR__ . '/../includes/header.php';
             margin: 0;
             min-height: auto;
             border-radius: 16px;
+        }
+
+        .shopee-img-wrap {
+            aspect-ratio: 1.15;
+            width: 100%;
+            max-height: 210px;
+            overflow: hidden;
+            background: #f1f5f9;
+            contain: layout paint;
+        }
+
+        .shopee-img-wrap .shopee-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
         }
 
         /* Optimize card layout for mobile */
@@ -439,9 +458,9 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         <?php else: ?>
             <div class="shopee-grid">
-                <?php foreach ($products as $product): 
-                    $display_img = $product['photo_path'] ?: $product['product_image'] ?: "/printflow/public/assets/images/services/default.png";
-                    if ($display_img[0] !== '/' && strpos($display_img, 'http') === false) $display_img = '/' . $display_img;
+                <?php foreach ($products as $product_index => $product): 
+                    $raw_img = $product['photo_path'] ?: $product['product_image'] ?: $default_product_img;
+                    $display_img = pf_normalize_service_image_path((string)$raw_img, $base_path, $default_product_img);
                     $is_video_media = pf_product_media_is_video($display_img);
                     
                     $sold_count = (int)$product['sold_count'];
@@ -464,7 +483,19 @@ require_once __DIR__ . '/../includes/header.php';
                                 style="background:#f8fafc;opacity:0;"
                             ></video>
                         <?php else: ?>
-                            <img src="<?php echo htmlspecialchars($display_img); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="shopee-img">
+                            <div class="shopee-img-wrap">
+                                <?php
+                                echo pf_catalog_image_tag($display_img, 'card', [
+                                    'alt' => $product['name'],
+                                    'class' => 'shopee-img',
+                                    'loading' => $product_index < 4 ? 'eager' : 'lazy',
+                                    'fetchpriority' => $product_index === 0 ? 'high' : '',
+                                    'width' => 400,
+                                    'height' => 348,
+                                    'onerror' => "this.onerror=null;this.src='" . addslashes(htmlspecialchars($default_product_img, ENT_QUOTES)) . "';",
+                                ]);
+                                ?>
+                            </div>
                         <?php endif; ?>
                         <div class="shopee-body">
                             <div class="shopee-meta-row">

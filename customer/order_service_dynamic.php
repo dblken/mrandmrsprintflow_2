@@ -715,16 +715,57 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                             </video>
                                             <div style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.6);color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:99px;letter-spacing:0.05em;">VIDEO</div>
                                         </div>
-                                    <?php else: ?>
-                                        <img src="<?php echo htmlspecialchars($media['src']); ?>"
+                                    <?php else:
+                                        $carousel_bundle = pf_catalog_image_bundle($media['src'], 'detail', $index === 0);
+                                        $carousel_style = 'position:absolute;top:0;left:' . ($index === 0 ? '0' : '100%') . ';width:100%;height:100%;object-fit:cover;transition:left 0.4s ease-in-out;pointer-events:none;';
+                                        if ($index === 0): ?>
+                                        <img src="<?php echo htmlspecialchars($carousel_bundle['src']); ?>"
+                                             <?php if ($carousel_bundle['srcset'] !== ''): ?>srcset="<?php echo $carousel_bundle['srcset']; ?>" sizes="<?php echo htmlspecialchars($carousel_bundle['sizes']); ?>"<?php endif; ?>
                                              alt="<?php echo htmlspecialchars($service['name']); ?>"
                                              class="carousel-image"
                                              data-index="<?php echo $index; ?>"
-                                             style="position:absolute;top:0;left:<?php echo $index === 0 ? '0' : '100%'; ?>;width:100%;height:100%;object-fit:cover;transition:left 0.4s ease-in-out;pointer-events:none;">
-                                    <?php endif; ?>
+                                             loading="eager"
+                                             fetchpriority="high"
+                                             decoding="async"
+                                             width="800"
+                                             height="800"
+                                             onerror="this.onerror=null;this.src='<?php echo htmlspecialchars($carousel_bundle['fallback'], ENT_QUOTES); ?>';"
+                                             style="<?php echo $carousel_style; ?>">
+                                    <?php else: ?>
+                                        <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                                             data-src="<?php echo htmlspecialchars($carousel_bundle['src']); ?>"
+                                             <?php if ($carousel_bundle['srcset'] !== ''): ?>data-srcset="<?php echo $carousel_bundle['srcset']; ?>" data-sizes="<?php echo htmlspecialchars($carousel_bundle['sizes']); ?>"<?php endif; ?>
+                                             data-fallback="<?php echo htmlspecialchars($carousel_bundle['fallback']); ?>"
+                                             alt="<?php echo htmlspecialchars($service['name']); ?>"
+                                             class="carousel-image pf-lazy-carousel"
+                                             data-index="<?php echo $index; ?>"
+                                             loading="lazy"
+                                             decoding="async"
+                                             width="800"
+                                             height="800"
+                                             style="<?php echo $carousel_style; ?>">
+                                    <?php endif; endif; ?>
                                 <?php endforeach; ?>
                                 
                                 <script>
+                                window.pfLoadCarouselImage = function(item) {
+                                    if (!item) return;
+                                    var img = item.tagName === 'IMG' ? item : item.querySelector('img.pf-lazy-carousel');
+                                    if (!img || img.getAttribute('data-pf-loaded') === '1') return;
+                                    var src = img.getAttribute('data-src');
+                                    if (!src) return;
+                                    img.src = src;
+                                    var srcset = img.getAttribute('data-srcset');
+                                    if (srcset) img.srcset = srcset;
+                                    var sizes = img.getAttribute('data-sizes');
+                                    if (sizes) img.sizes = sizes;
+                                    img.onerror = function() {
+                                        var fallback = img.getAttribute('data-fallback');
+                                        if (fallback) img.src = fallback;
+                                    };
+                                    img.setAttribute('data-pf-loaded', '1');
+                                };
+
                                 window.pfInlineCarouselStep = function(direction) {
                                     var carousel = document.getElementById('image-carousel');
                                     if (!carousel) return false;
@@ -750,6 +791,7 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                     if (newItem) newItem.offsetHeight;
                                     if (oldItem) oldItem.style.left = delta > 0 ? '-100%' : '100%';
                                     if (newItem) newItem.style.left = '0';
+                                    if (newItem) window.pfLoadCarouselImage(newItem);
 
                                     carousel.setAttribute('data-current-index', String(next));
                                     window.currentImageIndex = next;
@@ -863,10 +905,18 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                         </svg>
                                     </button>
                                     <div style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.6);color:white;font-size:10px;font-weight:700;padding:3px 8px;border-radius:99px;letter-spacing:0.05em;">VIDEO</div>
-                                <?php else: ?>
-                                    <img src="<?php echo htmlspecialchars($display_img); ?>"
-                                         alt="<?php echo htmlspecialchars($service['name']); ?>"
-                                         style="width:100%;height:100%;object-fit:cover;">
+                                <?php else:
+                                    echo pf_catalog_image_tag($display_img, 'detail', [
+                                        'alt' => $service['name'],
+                                        'loading' => 'eager',
+                                        'fetchpriority' => 'high',
+                                        'decoding' => 'async',
+                                        'width' => 800,
+                                        'height' => 800,
+                                        'style' => 'width:100%;height:100%;object-fit:cover;',
+                                        'onerror' => "this.onerror=null;this.src='" . addslashes(htmlspecialchars($display_img, ENT_QUOTES)) . "';this.style.objectFit='cover';",
+                                    ]);
+                                    ?>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
@@ -1038,45 +1088,74 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                  WHERE " . implode(' OR ', $review_where_parts) . "
                  ORDER BY {$review_created_expr} DESC";
 
+            $review_where_types = $review_types;
+            $review_where_params = $review_params;
             $review_types = $review_user_voted_types . $review_types;
             array_unshift($review_params, ...$review_user_voted_params);
 
-            $reviews = db_query($review_sql, $review_types, $review_params) ?: [];
-        }
+            $review_where_sql = implode(' OR ', $review_where_parts);
+            $review_count_rows = db_query(
+                "SELECT COUNT(DISTINCT r.id) AS total_reviews
+                 FROM reviews r
+                 LEFT JOIN orders o ON o.order_id = r.order_id
+                 WHERE {$review_where_sql}",
+                $review_where_types,
+                $review_where_params
+            ) ?: [];
+            $total_reviews = (int)($review_count_rows[0]['total_reviews'] ?? 0);
 
-        $total_reviews = count($reviews);
-        $avg_rating = $total_reviews > 0 ? array_sum(array_column($reviews, 'rating')) / $total_reviews : 0;
-        $rating_counts = [5=>0,4=>0,3=>0,2=>0,1=>0];
-        $with_comments = 0; $with_media = 0;
-        foreach ($reviews as $idx => $r) {
-            $rt = (int)$r['rating'];
-            if ($rt >= 1 && $rt <= 5) $rating_counts[$rt]++;
-            if (!empty(trim($r['comment'] ?? ''))) $with_comments++;
-            
-            // Fetch all images for this review
-            $r_imgs = db_query("SELECT image_path FROM review_images WHERE review_id = ?", "i", [$r['id']]) ?: [];
-            
-            // Fetch all replies for this review
-            $r_replies = db_query("
-                SELECT rr.reply_message, rr.created_at, u.first_name, u.last_name
-                FROM review_replies rr
-                INNER JOIN users u ON u.user_id = rr.staff_id
-                WHERE rr.review_id = ?
-                ORDER BY rr.created_at ASC
-            ", 'i', [$r['id']]) ?: [];
+            $reviews_per_page = 10;
+            $poc_page = max(1, (int)($_GET['rpage'] ?? 1));
+            $poc_total_pages = $total_reviews > 0 ? (int)ceil($total_reviews / $reviews_per_page) : 1;
+            $poc_page = min($poc_page, $poc_total_pages);
+            $poc_offset = ($poc_page - 1) * $reviews_per_page;
 
-            $reviews[$idx]['images'] = $r_imgs;
-            $reviews[$idx]['replies'] = $r_replies;
-            $reviews[$idx]['has_video'] = !empty($r['video_path']);
-            
-            if (!empty($r_imgs) || !empty($r['video_path'])) $with_media++;
+            $review_agg_rows = db_query(
+                "SELECT
+                    AVG(r.rating) AS avg_rating,
+                    SUM(CASE WHEN r.rating = 5 THEN 1 ELSE 0 END) AS r5,
+                    SUM(CASE WHEN r.rating = 4 THEN 1 ELSE 0 END) AS r4,
+                    SUM(CASE WHEN r.rating = 3 THEN 1 ELSE 0 END) AS r3,
+                    SUM(CASE WHEN r.rating = 2 THEN 1 ELSE 0 END) AS r2,
+                    SUM(CASE WHEN r.rating = 1 THEN 1 ELSE 0 END) AS r1,
+                    SUM(CASE WHEN TRIM(COALESCE({$review_message_expr}, '')) != '' THEN 1 ELSE 0 END) AS with_comments,
+                    SUM(CASE WHEN ({$review_video_expr} IS NOT NULL AND TRIM({$review_video_expr}) != '')
+                              OR EXISTS (SELECT 1 FROM review_images ri WHERE ri.review_id = r.id)
+                         THEN 1 ELSE 0 END) AS with_media
+                 FROM reviews r
+                 LEFT JOIN orders o ON o.order_id = r.order_id
+                 WHERE {$review_where_sql}",
+                $review_where_types,
+                $review_where_params
+            ) ?: [];
+            $agg = $review_agg_rows[0] ?? [];
+            $avg_rating = (float)($agg['avg_rating'] ?? 0);
+            $rating_counts = [
+                5 => (int)($agg['r5'] ?? 0),
+                4 => (int)($agg['r4'] ?? 0),
+                3 => (int)($agg['r3'] ?? 0),
+                2 => (int)($agg['r2'] ?? 0),
+                1 => (int)($agg['r1'] ?? 0),
+            ];
+            $with_comments = (int)($agg['with_comments'] ?? 0);
+            $with_media = (int)($agg['with_media'] ?? 0);
+
+            $review_sql .= " LIMIT ? OFFSET ?";
+            $review_page_types = $review_types . 'ii';
+            $review_page_params = array_merge($review_params, [$reviews_per_page, $poc_offset]);
+            $reviews = db_query($review_sql, $review_page_types, $review_page_params) ?: [];
+            $reviews_paged = printflow_attach_review_media($reviews);
+        } else {
+            $total_reviews = 0;
+            $avg_rating = 0;
+            $rating_counts = [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0];
+            $with_comments = 0;
+            $with_media = 0;
+            $reviews_per_page = 10;
+            $poc_page = 1;
+            $poc_total_pages = 1;
+            $reviews_paged = [];
         }
-        $reviews_per_page = 10;
-        $poc_page = max(1, (int)($_GET['rpage'] ?? 1));
-        $poc_total_pages = $total_reviews > 0 ? (int)ceil($total_reviews / $reviews_per_page) : 1;
-        $poc_page = min($poc_page, $poc_total_pages);
-        $poc_offset = ($poc_page - 1) * $reviews_per_page;
-        $reviews_paged = array_slice($reviews, $poc_offset, $reviews_per_page);
         ?>
         <div style="margin-top:24px;padding:1.5rem 2rem;background:#fff;border:1px solid #e5e7eb;border-radius:4px;">
             <h2 class="poc-section-title">Product Ratings</h2>
@@ -1150,7 +1229,22 @@ $sold_display = $sold_count >= 1000 ? number_format($sold_count / 1000, 1) . 'k'
                                         $ipath = pf_normalize_service_media_path((string)($img['image_path'] ?? ''), $base_path, '');
                                     ?>
                                         <div style="flex: 0 0 140px; aspect-ratio:1; border-radius:12px; overflow:hidden; border:1px solid #e5e7eb; background: #f9fafb;">
-                                            <img src="<?php echo htmlspecialchars($ipath); ?>" alt="Review image" style="width:100%; height:100%; object-fit:cover; cursor:pointer;" onclick="openReviewImageGallery(<?php echo (int)$review['id']; ?>, <?php echo (int)$imgIndex; ?>)" data-review-id="<?php echo (int)$review['id']; ?>" data-image-index="<?php echo (int)$imgIndex; ?>" class="review-image-item" onerror="this.closest('div').style.display='none'">
+                                            <?php
+                                            echo pf_catalog_image_tag($ipath, 'review', [
+                                                'alt' => 'Review image',
+                                                'class' => 'review-image-item',
+                                                'loading' => 'lazy',
+                                                'width' => 140,
+                                                'height' => 140,
+                                                'style' => 'width:100%; height:100%; object-fit:cover; cursor:pointer;',
+                                                'onclick' => 'openReviewImageGallery(' . (int)$review['id'] . ', ' . (int)$imgIndex . ')',
+                                                'data' => [
+                                                    'review-id' => (string)(int)$review['id'],
+                                                    'image-index' => (string)(int)$imgIndex,
+                                                ],
+                                                'onerror' => "this.onerror=null;this.src='" . addslashes(htmlspecialchars($ipath, ENT_QUOTES)) . "';if(!this.complete||!this.naturalWidth){this.closest('div').style.display='none';}",
+                                            ]);
+                                            ?>
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
