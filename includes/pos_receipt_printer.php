@@ -103,10 +103,74 @@ function printflow_receipt_printer_generate_api_key(int $printerId): string {
 }
 
 function printflow_receipt_printer_hash_key(string $apiKey): string {
-    return hash('sha256', trim($apiKey));
+    return hash('sha256', printflow_receipt_printer_normalize_api_key($apiKey));
 }
 
-function printflow_receipt_printer_request_api_key(): string {
+function printflow_receipt_printer_normalize_api_key(string $apiKey): string {
+    $apiKey = trim($apiKey);
+    if ($apiKey === '') return '';
+    if (preg_match('/^Bearer\s+(.+)$/i', $apiKey, $matches)) {
+        $apiKey = trim((string)($matches[1] ?? ''));
+    }
+    return trim($apiKey, "\"'");
+}
+
+function printflow_receipt_printer_json_body(): array {
+    static $parsed = null;
+    if ($parsed !== null) return $parsed;
+
+    $raw = file_get_contents('php://input');
+    if (!is_string($raw) || trim($raw) === '') {
+        $parsed = [];
+        return $parsed;
+    }
+
+    $decoded = json_decode($raw, true);
+    $parsed = is_array($decoded) ? $decoded : [];
+    return $parsed;
+}
+
+function printflow_receipt_printer_extract_api_key_from_payload(?array $payload): string {
+    if (!is_array($payload) || $payload === []) return '';
+
+    $fieldNames = ['api_key', 'apiKey', 'printer_api_key', 'printerApiKey', 'key', 'token'];
+    $paths = [[], ['query'], ['credentials'], ['authentication'], ['auth'], ['headers'], ['variables'], ['data']];
+
+    foreach ($paths as $path) {
+        $node = $payload;
+        foreach ($path as $segment) {
+            if (!is_array($node) || !array_key_exists($segment, $node)) {
+                $node = null;
+                break;
+            }
+            $node = $node[$segment];
+        }
+        if (!is_array($node)) continue;
+
+        foreach ($fieldNames as $field) {
+            $value = printflow_receipt_printer_normalize_api_key((string)($node[$field] ?? ''));
+            if ($value !== '') return $value;
+        }
+
+        $authHeader = printflow_receipt_printer_normalize_api_key((string)($node['Authorization'] ?? $node['authorization'] ?? ''));
+        if ($authHeader !== '') return $authHeader;
+    }
+
+    return '';
+}
+
+function printflow_receipt_printer_log_auth_failure(string $apiKey, string $context): void {
+    $trimmed = trim($apiKey);
+    $prefix = $trimmed === '' ? '(empty)' : substr($trimmed, 0, min(12, strlen($trimmed))) . '****';
+    error_log(sprintf(
+        '[receipt-printer-auth] %s | received prefix: %s | length: %d | matching printer found: no',
+        $context,
+        $prefix,
+        strlen($trimmed)
+    ));
+}
+
+function printflow_receipt_printer_request_api_key(?array $jsonBody = null): string {
     $headers = [];
     if (function_exists('getallheaders')) {
         $rawHeaders = getallheaders();
@@ -124,25 +188,31 @@ function printflow_receipt_printer_request_api_key(): string {
         ?? $headers['authorization']
         ?? ''
     ));
-    if ($authorization !== '' && preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
-        return trim($matches[1]);
+    if ($authorization !== '') {
+        $authKey = printflow_receipt_printer_normalize_api_key($authorization);
+        if ($authKey !== '') return $authKey;
     }
 
-    $headerKey = trim((string)(
+    $headerKey = printflow_receipt_printer_normalize_api_key((string)(
         $_SERVER['HTTP_X_API_KEY']
         ?? $_SERVER['HTTP_X_PRINTFLOW_API_KEY']
+        ?? $_SERVER['HTTP_X_PRINTFLOW_PRINTER_KEY']
         ?? $headers['x-api-key']
         ?? $headers['x-printflow-api-key']
+        ?? $headers['x-printflow-printer-key']
         ?? ''
     ));
     if ($headerKey !== '') return $headerKey;
 
-    foreach (['api_key', 'apiKey', 'key', 'token'] as $param) {
-        $value = trim((string)($_GET[$param] ?? $_POST[$param] ?? ''));
+    foreach (['api_key', 'apiKey', 'printer_api_key', 'printerApiKey', 'key', 'token'] as $param) {
+        $value = printflow_receipt_printer_normalize_api_key((string)($_GET[$param] ?? $_POST[$param] ?? ''));
         if ($value !== '') return $value;
     }
 
-    return '';
+    if ($jsonBody === null) {
+        $jsonBody = printflow_receipt_printer_json_body();
+    }
+    return printflow_receipt_printer_extract_api_key_from_payload($jsonBody);
 }
 
 function printflow_receipt_printer_key_last4(string $apiKey): string {
@@ -262,15 +332,28 @@ function printflow_receipt_printer_find_for_branch(?int $branchId): array {
     return $rows[0] ?? [];
 }
 
-function printflow_receipt_printer_authenticate(string $apiKey): array {
+function printflow_receipt_printer_authenticate(string $apiKey, string $context = ''): array {
     printflow_receipt_printer_ensure_schema();
+    $apiKey = printflow_receipt_printer_normalize_api_key($apiKey);
+    if ($apiKey === '') {
+        if ($context !== '') {
+            printflow_receipt_printer_log_auth_failure('', $context);
+        }
+        return [];
+    }
+
     $hash = printflow_receipt_printer_hash_key($apiKey);
     $rows = db_query(
         "SELECT * FROM receipt_printers WHERE api_key_hash = ? AND status = 'active' LIMIT 1",
         's',
         [$hash]
     ) ?: [];
-    if (empty($rows)) return [];
+    if (empty($rows)) {
+        if ($context !== '' && preg_match('/^pfpp_(live|test)_/i', $apiKey)) {
+            printflow_receipt_printer_log_auth_failure($apiKey, $context);
+        }
+        return [];
+    }
     db_execute('UPDATE receipt_printers SET last_seen_at = NOW() WHERE id = ?', 'i', [(int)$rows[0]['id']]);
     return $rows[0];
 }
