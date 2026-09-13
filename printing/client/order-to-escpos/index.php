@@ -13,7 +13,7 @@ if (empty($printer)) {
     echo json_encode(['error' => 'Invalid printer API key.']);
     exit;
 }
-$jobUuid = trim((string)($input['query']['_id'] ?? ''));
+$jobUuid = trim((string)($input['query']['_id'] ?? $input['_id'] ?? ''));
 $rows = $jobUuid !== '' ? (db_query(
     "SELECT * FROM receipt_print_jobs
      WHERE job_uuid = ? AND printer_id = ?

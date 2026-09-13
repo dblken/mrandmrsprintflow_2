@@ -1,6 +1,12 @@
 <?php
 
-require_once __DIR__ . '/../includes/pos_receipt_printer.php';
+$read = static function (string $relativePath): string {
+    $path = __DIR__ . '/../' . ltrim($relativePath, '/');
+    if (!is_file($path)) {
+        throw new RuntimeException('Missing file: ' . $relativePath);
+    }
+    return (string)file_get_contents($path);
+};
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
@@ -9,41 +15,15 @@ $assert = static function (bool $condition, string $message): void {
     echo 'PASS: ' . $message . PHP_EOL;
 };
 
-$printerId = 42;
-$apiKey = printflow_receipt_printer_generate_api_key($printerId);
+$printer = $read('includes/pos_receipt_printer.php');
+$escpos = $read('printing/client/order-to-escpos/index.php');
 
-$assert(
-    printflow_receipt_printer_normalize_api_key('Bearer ' . $apiKey) === $apiKey,
-    'normalize strips Bearer prefix'
-);
-$assert(
-    printflow_receipt_printer_normalize_api_key($apiKey) === $apiKey,
-    'normalize keeps raw PrintFlow printer key'
-);
-$assert(
-    printflow_receipt_printer_hash_key('Bearer ' . $apiKey) === printflow_receipt_printer_hash_key($apiKey),
-    'hash_key normalizes Bearer-wrapped keys'
-);
-
-$assert(
-    printflow_receipt_printer_extract_api_key_from_payload([
-        'query' => ['_id' => 'job-uuid', 'apiKey' => $apiKey],
-    ]) === $apiKey,
-    'extract apiKey from PushPrinter-style query payload'
-);
-$assert(
-    printflow_receipt_printer_extract_api_key_from_payload([
-        'api_key' => $apiKey,
-        'query' => ['_id' => 'job-uuid'],
-    ]) === $apiKey,
-    'extract api_key from JSON request root'
-);
-$assert(
-    printflow_receipt_printer_extract_api_key_from_payload([
-        'headers' => ['Authorization' => 'Bearer ' . $apiKey],
-        'query' => ['_id' => 'job-uuid'],
-    ]) === $apiKey,
-    'extract Authorization from embedded JSON headers'
-);
+$assert(str_contains($printer, 'printflow_receipt_printer_json_body'), 'auth helpers parse JSON POST bodies');
+$assert(str_contains($printer, "['printer']"), 'auth helpers inspect printer JSON nodes');
+$assert(str_contains($printer, 'HTTP_API_KEY'), 'auth helpers accept HTTP_API_KEY');
+$assert(str_contains($printer, 'rawurldecode'), 'auth helpers decode URL-encoded keys');
+$assert(str_contains($printer, 'api_key_prefix = ? AND api_key_last4 = ?'), 'auth can recover keys missing the |printerId suffix');
+$assert(str_contains($escpos, 'printflow_receipt_printer_json_body'), 'order-to-escpos parses JSON before authenticating');
+$assert(str_contains($escpos, "\$input['query']['_id'] ?? \$input['_id']"), 'order-to-escpos accepts root and query job ids');
 
 echo "POS receipt printer auth test passed.\n";

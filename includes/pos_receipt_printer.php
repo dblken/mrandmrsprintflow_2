@@ -112,7 +112,14 @@ function printflow_receipt_printer_normalize_api_key(string $apiKey): string {
     if (preg_match('/^Bearer\s+(.+)$/i', $apiKey, $matches)) {
         $apiKey = trim((string)($matches[1] ?? ''));
     }
-    return trim($apiKey, "\"'");
+    $apiKey = trim($apiKey, "\"'");
+    if ($apiKey !== '' && str_contains($apiKey, '%')) {
+        $decoded = rawurldecode($apiKey);
+        if (is_string($decoded) && $decoded !== '') {
+            $apiKey = trim($decoded, "\"'");
+        }
+    }
+    return $apiKey;
 }
 
 function printflow_receipt_printer_json_body(): array {
@@ -134,7 +141,7 @@ function printflow_receipt_printer_extract_api_key_from_payload(?array $payload)
     if (!is_array($payload) || $payload === []) return '';
 
     $fieldNames = ['api_key', 'apiKey', 'printer_api_key', 'printerApiKey', 'key', 'token'];
-    $paths = [[], ['query'], ['credentials'], ['authentication'], ['auth'], ['headers'], ['variables'], ['data']];
+    $paths = [[], ['query'], ['printer'], ['credentials'], ['authentication'], ['auth'], ['headers'], ['variables'], ['data']];
 
     foreach ($paths as $path) {
         $node = $payload;
@@ -197,6 +204,7 @@ function printflow_receipt_printer_request_api_key(?array $jsonBody = null): str
         $_SERVER['HTTP_X_API_KEY']
         ?? $_SERVER['HTTP_X_PRINTFLOW_API_KEY']
         ?? $_SERVER['HTTP_X_PRINTFLOW_PRINTER_KEY']
+        ?? $_SERVER['HTTP_API_KEY']
         ?? $headers['x-api-key']
         ?? $headers['x-printflow-api-key']
         ?? $headers['x-printflow-printer-key']
@@ -348,6 +356,24 @@ function printflow_receipt_printer_authenticate(string $apiKey, string $context 
         's',
         [$hash]
     ) ?: [];
+    if (empty($rows) && !str_contains($apiKey, '|') && preg_match('/^pfpp_(live|test)_[0-9a-f]+$/i', $apiKey)) {
+        $prefix = substr($apiKey, 0, 12);
+        $last4 = substr($apiKey, -4);
+        $candidates = db_query(
+            "SELECT * FROM receipt_printers
+             WHERE api_key_prefix = ? AND api_key_last4 = ? AND status = 'active'
+             ORDER BY is_default DESC, id ASC",
+            'ss',
+            [$prefix, $last4]
+        ) ?: [];
+        foreach ($candidates as $candidate) {
+            $candidateKey = $apiKey . '|' . (int)$candidate['id'];
+            if (printflow_receipt_printer_hash_key($candidateKey) === (string)($candidate['api_key_hash'] ?? '')) {
+                $rows = [$candidate];
+                break;
+            }
+        }
+    }
     if (empty($rows)) {
         if ($context !== '' && preg_match('/^pfpp_(live|test)_/i', $apiKey)) {
             printflow_receipt_printer_log_auth_failure($apiKey, $context);
