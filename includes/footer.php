@@ -1204,6 +1204,10 @@ function _ft_detect_social(string $url): array {
     <!-- PWA -->
     <?php $pwa_js_ver = @filemtime(__DIR__ . '/../public/assets/js/pwa.js') ?: time(); ?>
     <script src="<?php echo $base_url; ?>/public/assets/js/pwa.js?v=<?php echo $pwa_js_ver; ?>" defer></script>
+    <?php if (!empty($pf_catalog_nav_page)): ?>
+    <?php $catalog_nav_js_ver = @filemtime(__DIR__ . '/../public/assets/js/customer-catalog-nav.js') ?: time(); ?>
+    <script src="<?php echo $base_url; ?>/public/assets/js/customer-catalog-nav.js?v=<?php echo $catalog_nav_js_ver; ?>" defer></script>
+    <?php endif; ?>
 
     <?php
     // Only load push/notification script for authenticated users

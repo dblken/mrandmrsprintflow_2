@@ -6,7 +6,9 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 
+define('PF_CUSTOMER_CATALOG_NAV', true);
 require_role('Customer');
 
 function pf_product_media_is_video($path) {
@@ -101,6 +103,7 @@ $default_product_img = $base_path . '/public/assets/images/services/default.png'
 
 $page_title = 'Products - PrintFlow';
 $use_customer_css = true;
+$pf_catalog_nav_page = true;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 

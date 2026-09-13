@@ -14,6 +14,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source column exists
 require_once __DIR__ . '/order_items_persistence.php';
 require_once __DIR__ . '/image_optimizer.php';
+require_once __DIR__ . '/customer_catalog_perf.php';
 
 // Global Environment Detection
 if (!defined('BASE_PATH')) {

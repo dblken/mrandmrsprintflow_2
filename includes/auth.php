@@ -1286,7 +1286,15 @@ function is_profile_complete($customer_id = null) {
  * Sets no-cache headers and handles session timeout redirect.
  */
 function require_auth() {
-    SessionManager::setNoCacheHeaders();
+    if (defined('PF_CUSTOMER_CATALOG_NAV') && PF_CUSTOMER_CATALOG_NAV) {
+        if (function_exists('pf_customer_catalog_navigation_headers')) {
+            pf_customer_catalog_navigation_headers();
+        } else {
+            SessionManager::setNoCacheHeaders();
+        }
+    } else {
+        SessionManager::setNoCacheHeaders();
+    }
     if (!is_logged_in()) {
         if (printflow_get_forced_logout_reason() === 'branch_inactive') {
             $message = printflow_get_forced_logout_message() ?: 'Your assigned branch is inactive. Please contact an administrator.';

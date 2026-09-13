@@ -8,7 +8,9 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/customer_service_catalog.php';
 require_once __DIR__ . '/../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 
+define('PF_CUSTOMER_CATALOG_NAV', true);
 require_role('Customer');
 
 $base_path = pf_app_base_path();
@@ -62,26 +64,19 @@ function pf_service_media_is_video($path) {
     return printflow_is_video_media_path((string) $path);
 }
 
-// Fetch services from DB
+// Fetch services from DB (card stats resolved via the same helpers as service detail pages).
 $visible_rows = db_query(
-    'SELECT s.*, 
-    (SELECT COALESCE(SUM(oi.quantity),0) FROM order_items oi INNER JOIN orders o ON o.order_id = oi.order_id WHERE o.status != \'Cancelled\' AND (
-        (LOWER(TRIM(COALESCE(o.order_type, \'\'))) = \'custom\' AND o.reference_id = s.service_id)
-        OR oi.customization_data LIKE CONCAT(\'%"service_id":\', s.service_id, \'%\')
-        OR oi.customization_data LIKE CONCAT(\'%"service_id": \', s.service_id, \'%\')
-        OR oi.customization_data LIKE CONCAT(\'%"service_id":"\', s.service_id, \'"%\')
-        OR (oi.customization_data LIKE \'%"service_type"%\' AND oi.customization_data LIKE CONCAT(\'%\', CONVERT(s.name USING utf8mb4) COLLATE utf8mb4_unicode_ci, \'%\'))
-    )) as sold_count,
-    (SELECT AVG(rating) FROM reviews r WHERE r.service_type COLLATE utf8mb4_unicode_ci = s.name COLLATE utf8mb4_unicode_ci) as avg_rating,
-    (SELECT COUNT(*) FROM reviews r WHERE r.service_type COLLATE utf8mb4_unicode_ci = s.name COLLATE utf8mb4_unicode_ci) as review_count
-    FROM services s
-    WHERE s.status = \'Activated\'
-      AND COALESCE(s.visible_to_customer, 1) = 1
-    ORDER BY name ASC',
+    "SELECT s.*
+     FROM services s
+     WHERE s.status = 'Activated'
+       AND COALESCE(s.visible_to_customer, 1) = 1
+     ORDER BY name ASC",
     '',
     []
 ) ?: [];
 
+$service_stats_map = printflow_catalog_service_card_stats_map($visible_rows);
+$configured_service_ids = service_ids_with_field_config(array_column($visible_rows, 'service_id'));
 $pricing_by_service = printflow_catalog_pricing_metadata_map(array_column($visible_rows, 'service_id'));
 $core_services = [];
 foreach ($visible_rows as $row) {
@@ -90,15 +85,17 @@ foreach ($visible_rows as $row) {
         continue;
     }
     $pricing = $pricing_by_service[$sid] ?? printflow_catalog_pricing_metadata_from_fields([]);
+    $card_stats = $service_stats_map[$sid] ?? ['avg_rating' => 0.0, 'review_count' => 0, 'sold_count' => 0];
 
     // Every catalog tile must hit order_service_dynamic.php so order_items.customization_data always carries
     // service_id + the same field labels as admin service_field_configs (legacy customer_link flows omit these).
-    if (!service_has_field_config($sid)) {
+    if (!isset($configured_service_ids[$sid])) {
         $cl = trim((string)($row['customer_link'] ?? ''));
         if ($cl !== '') {
             $cl = basename(str_replace('\\', '/', $cl));
         }
         init_service_field_config($sid, $cl !== '' ? $cl : null);
+        $configured_service_ids[$sid] = true;
     }
 
     $img = pf_service_card_primary_image(
@@ -117,9 +114,9 @@ foreach ($visible_rows as $row) {
         'hero_image_raw' => (string)($row['hero_image'] ?? ''),
         'link' => 'order_service_dynamic.php?service_id=' . $sid,
         'modal_text' => $row['customer_modal_text'] ?: printflow_default_customer_service_modal_text(),
-        'sold_count' => (int)$row['sold_count'],
-        'avg_rating' => (float)$row['avg_rating'],
-        'review_count' => (int)$row['review_count'],
+        'sold_count' => (int)$card_stats['sold_count'],
+        'avg_rating' => (float)$card_stats['avg_rating'],
+        'review_count' => (int)$card_stats['review_count'],
         'pricing_type' => $pricing['pricing_type'],
         'display_price' => $pricing['display_price'],
         'minimum_price' => $pricing['minimum_price'],
@@ -130,6 +127,7 @@ foreach ($visible_rows as $row) {
 $csrf_token = generate_csrf_token();
 $page_title = 'Services - PrintFlow';
 $use_customer_css = true;
+$pf_catalog_nav_page = true;
 require_once __DIR__ . '/../includes/header.php';
 
 // Reusable card template function
