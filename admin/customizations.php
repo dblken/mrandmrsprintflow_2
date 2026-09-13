@@ -51,7 +51,7 @@ function admin_customization_payment_badge_html(?string $status, string $size = 
 }
 
 // Filters
-$search         = trim($_GET['search'] ?? '');
+$search         = ltrim(trim((string)($_GET['search'] ?? '')), '#');
 $status_filter  = $_GET['status'] ?? '';
 $payment_filter = $_GET['payment'] ?? '';
 $payment_filter = strtoupper(trim((string)$payment_filter));
@@ -106,10 +106,18 @@ if ($branchId !== 'all') {
 }
 
 if (!empty($search)) {
+    $searchDigits = ltrim(trim($search), '#');
     $s = '%' . $search . '%';
-    $sql .= " AND (CONCAT(c.first_name,' ',c.last_name) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR jo.service_type LIKE ? OR jo.id LIKE ?)";
-    $params = array_merge($params, [$s,$s,$s,$s,$s]);
-    $types .= 'sssss';
+    $sql .= " AND (CONCAT(c.first_name,' ',c.last_name) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR jo.service_type LIKE ? OR CAST(jo.id AS CHAR) LIKE ? OR CAST(jo.order_id AS CHAR) LIKE ?";
+    $params = array_merge($params, [$s, $s, $s, $s, $s, $s]);
+    $types .= 'ssssss';
+    if ($searchDigits !== '' && $searchDigits !== $search) {
+        $sd = '%' . $searchDigits . '%';
+        $sql .= " OR CAST(jo.id AS CHAR) LIKE ? OR CAST(jo.order_id AS CHAR) LIKE ?";
+        $params = array_merge($params, [$sd, $sd]);
+        $types .= 'ss';
+    }
+    $sql .= ')';
 }
 
 if (!empty($status_filter)) {

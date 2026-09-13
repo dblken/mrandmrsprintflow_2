@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/reports_dashboard_queries.php';
 require_once __DIR__ . '/../includes/reports_date_range.php';
+require_once __DIR__ . '/../includes/sales_page_queries.php';
 
 require_role(['Admin', 'Manager']);
 
@@ -72,7 +73,8 @@ function pf_status_badge($val, $avg) {
 }
 
 // ── SECTION FLAGS ─────────────────────────────────────────────────────────────
-$show_all = ($report === 'orders' || $report === 'sales' || $report === 'full' || $report === '');
+$show_all = ($report === 'orders' || $report === 'full' || $report === '');
+$show_sales_transactions = ($report === 'sales');
 $show_sales_revenue = $show_all || ($report === 'sales_revenue');
 $show_sales_trend   = $show_all || ($report === 'sales_trend');
 $show_forecast      = $show_all || ($report === 'forecast');
@@ -134,7 +136,13 @@ try {
     }
 
     // ── 1. GLOBAL SUMMARY & STATUS ────────────────────────────────────────────
-    $printSalesData = pf_reports_official_sales_breakdown($from, $toEnd, $branchId, 500);
+    $printSalesBundle = null;
+    if ($report === 'sales') {
+        $printSalesBundle = pf_sales_page_filtered_breakdown($_GET, $branchId, 5000);
+        $printSalesData = $printSalesBundle['salesData'];
+    } else {
+        $printSalesData = pf_reports_official_sales_breakdown($from, $toEnd, $branchId, 500);
+    }
     $printSalesSummary = $printSalesData['summary'] ?? [];
     $grandTotalOrd = (int)($printSalesSummary['transaction_count'] ?? 0);
     $grandTotalRev = (float)($printSalesSummary['total_sales'] ?? 0);
@@ -492,6 +500,53 @@ foreach ($seasonal_events as $ev) {
             </table>
         </div>
     <?php else: ?>
+        <?php if ($show_sales_transactions): ?>
+        <div class="section">
+            <h2 class="section-title">Transaction Details</h2>
+            <table style="font-size: 11px;">
+                <thead>
+                    <tr>
+                        <?php foreach (pf_sales_export_transaction_headers() as $header): ?>
+                            <th<?php echo $header === 'Amount' ? ' class="num"' : ''; ?>><?php echo htmlspecialchars($header); ?></th>
+                        <?php endforeach; ?>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($printSalesData['transactions'])): ?>
+                        <tr><td colspan="10" class="center">No sales transactions for this period.</td></tr>
+                    <?php else: ?>
+                        <?php foreach ($printSalesData['transactions'] as $txn): ?>
+                            <?php $exportRow = pf_sales_format_export_transaction_row($txn); ?>
+                            <tr class="zebra">
+                                <td><?php echo htmlspecialchars((string)$exportRow[0]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[1]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[2]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[3]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[4]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[5]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[6]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[7]); ?></td>
+                                <td><?php echo htmlspecialchars((string)$exportRow[8]); ?></td>
+                                <td class="num"><?php echo pf_fmt_curr((float)$exportRow[9]); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <tr class="total">
+                            <td colspan="9"><strong>Total Amount</strong></td>
+                            <td class="num"><strong><?php echo pf_fmt_curr($grandTotalRev); ?></strong></td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+            <?php if (!empty($printSalesBundle['filter_meta'])): ?>
+                <div style="margin-top: 12px; font-size: 11px; color: #6b7280;">
+                    <?php foreach ($printSalesBundle['filter_meta'] as $label => $value): ?>
+                        <div><strong><?php echo htmlspecialchars($label); ?>:</strong> <?php echo htmlspecialchars($value); ?></div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
         <?php if ($show_sales_revenue): ?>
         <div class="section">
             <h2 class="section-title">Daily Sales Performance</h2>

@@ -91,6 +91,12 @@ function pf_reports_store_order_sales_expr(string $alias = 'o'): string {
              OR LOWER(TRIM(COALESCE({$alias}.status, ''))) = 'completed')";
 }
 
+/** Store orders that belong on the Products / Orders page (excludes custom checkout rows). */
+function pf_reports_store_product_order_scope_sql(string $alias = 'o'): string {
+    $alias = pf_reports_sql_alias($alias, 'o');
+    return "LOWER(TRIM(COALESCE({$alias}.order_type, 'product'))) = 'product'";
+}
+
 /** Official product/store revenue amount. Uses amount_paid when the column exists. */
 function pf_reports_store_order_revenue_expr(string $alias = 'o'): string {
     $alias = pf_reports_sql_alias($alias, 'o');
@@ -179,11 +185,12 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     $jobPaymentMethod = $hasJobPaymentMethod
         ? "CASE WHEN LOWER(TRIM(COALESCE(jo.payment_method, ''))) = 'cash' THEN 'Cash' ELSE 'QR Ph' END"
         : "'QR Ph'";
+    $storeProductScope = pf_reports_store_product_order_scope_sql('o');
 
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $row = db_query("SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev FROM orders o WHERE {$storeSales}{$do}{$bo}", $dto . $bto, array_merge($dpo, $bpo))[0] ?? [];
+        $row = db_query("SELECT COUNT(*) AS cnt, COALESCE(SUM({$storeRevenue}), 0) AS rev FROM orders o WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo}", $dto . $bto, array_merge($dpo, $bpo))[0] ?? [];
         $summary['product_transactions'] = (int)($row['cnt'] ?? 0);
         $summary['product_sales'] = (float)($row['rev'] ?? 0);
     } catch (Throwable $e) {}
@@ -204,7 +211,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $rows = db_query("SELECT o.branch_id, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COUNT(*) AS product_transactions, COALESCE(SUM({$storeRevenue}), 0) AS product_sales FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.branch_id, b.branch_name", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
+        $rows = db_query("SELECT o.branch_id, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COUNT(*) AS product_transactions, COALESCE(SUM({$storeRevenue}), 0) AS product_sales FROM orders o LEFT JOIN branches b ON b.id = o.branch_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY o.branch_id, b.branch_name", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
         foreach ($rows as $r) {
             $key = (int)($r['branch_id'] ?? 0);
             $byBranch[$key] = ['branch_id' => $key, 'branch_name' => (string)($r['branch_name'] ?? ('Branch #' . $key)), 'product_sales' => (float)($r['product_sales'] ?? 0), 'service_sales' => 0.0, 'product_transactions' => (int)($r['product_transactions'] ?? 0), 'service_transactions' => 0];
@@ -238,7 +245,7 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $rows = db_query("SELECT 'Product' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
+        $rows = db_query("SELECT 'Product' AS type, COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order') AS item_name, COALESCE(SUM(oi.quantity), 0) AS quantity, COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS revenue FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY COALESCE(NULLIF(TRIM(p.name), ''), 'Product Order')", $dto . $bto, array_merge($dpo, $bpo)) ?: [];
         foreach ($rows as $r) {
             $byItem[] = ['type' => 'Product', 'item_name' => (string)($r['item_name'] ?? 'Product Order'), 'quantity' => (float)($r['quantity'] ?? 0), 'revenue' => round((float)($r['revenue'] ?? 0), 2)];
         }
@@ -259,16 +266,29 @@ function pf_reports_official_sales_breakdown(string $from, string $toEnd, $branc
     try {
         [$bo, $bto, $bpo] = branch_where_parts('o', $branchId);
         [$do, $dto, $dpo] = pf_reports_date_expr_where('o.order_date', $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, o.order_id AS id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Product' AS type, 'order' AS ref_type, o.order_id AS id, NULL AS store_order_id, o.order_date AS sales_date, {$storeRevenue} AS amount, {$storePaymentMethod} AS payment_method, o.payment_status, o.status, COALESCE(b.branch_name, CONCAT('Branch #', o.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), 'Walk-in') AS customer_name, COALESCE(NULLIF(GROUP_CONCAT(DISTINCT NULLIF(TRIM(p.name), '') ORDER BY p.name SEPARATOR ', '), ''), 'Product Order') AS item_name FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN branches b ON b.id = o.branch_id LEFT JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN products p ON p.product_id = oi.product_id WHERE {$storeSales} AND {$storeProductScope}{$do}{$bo} GROUP BY o.order_id, o.order_date{$storeAmountPaidGroup}, o.total_amount{$storePaymentMethodGroup}, o.payment_status, o.status, o.branch_id, b.branch_name, c.first_name, c.last_name", $dto . $bto, array_merge($dpo, $bpo)) ?: []);
     } catch (Throwable $e) {}
     try {
         [$bj, $btj, $bpj] = branch_where_parts('jo', $branchId);
         [$dj, $dtj, $dpj] = pf_reports_date_expr_where($jobDate, $from, $toEnd);
-        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, jo.id AS id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
+        $txnRows = array_merge($txnRows, db_query("SELECT 'Service' AS type, 'job' AS ref_type, jo.id AS id, jo.order_id AS store_order_id, {$jobDate} AS sales_date, {$jobRevenue} AS amount, {$jobPaymentMethod} AS payment_method, jo.payment_status, jo.status, COALESCE(b.branch_name, CONCAT('Branch #', jo.branch_id)) AS branch_name, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))), ''), NULLIF(TRIM(jo.customer_name), ''), 'N/A') AS customer_name, COALESCE(NULLIF(TRIM(jo.service_type), ''), NULLIF(TRIM(jo.job_title), ''), 'Customization') AS item_name FROM job_orders jo LEFT JOIN customers c ON c.customer_id = jo.customer_id LEFT JOIN branches b ON b.id = jo.branch_id WHERE {$jobSales}{$dj}{$bj}", $dtj . $btj, array_merge($dpj, $bpj)) ?: []);
     } catch (Throwable $e) {}
     usort($txnRows, static fn($a, $b) => strcmp((string)($b['sales_date'] ?? ''), (string)($a['sales_date'] ?? '')));
     foreach (array_slice($txnRows, 0, $limit) as $row) {
-        $transactions[] = ['type' => (string)($row['type'] ?? ''), 'id' => (int)($row['id'] ?? 0), 'sales_date' => (string)($row['sales_date'] ?? ''), 'amount' => round((float)($row['amount'] ?? 0), 2), 'payment_method' => (string)($row['payment_method'] ?? ''), 'payment_status' => (string)($row['payment_status'] ?? ''), 'status' => (string)($row['status'] ?? ''), 'branch_name' => (string)($row['branch_name'] ?? ''), 'customer_name' => (string)($row['customer_name'] ?? ''), 'item_name' => (string)($row['item_name'] ?? '')];
+        $transactions[] = [
+            'type' => (string)($row['type'] ?? ''),
+            'ref_type' => (string)($row['ref_type'] ?? ''),
+            'id' => (int)($row['id'] ?? 0),
+            'store_order_id' => (int)($row['store_order_id'] ?? 0),
+            'sales_date' => (string)($row['sales_date'] ?? ''),
+            'amount' => round((float)($row['amount'] ?? 0), 2),
+            'payment_method' => (string)($row['payment_method'] ?? ''),
+            'payment_status' => (string)($row['payment_status'] ?? ''),
+            'status' => (string)($row['status'] ?? ''),
+            'branch_name' => (string)($row['branch_name'] ?? ''),
+            'customer_name' => (string)($row['customer_name'] ?? ''),
+            'item_name' => (string)($row['item_name'] ?? ''),
+        ];
     }
 
     return ['summary' => $summary, 'by_branch' => $byBranch, 'by_item' => $byItem, 'transactions' => $transactions];

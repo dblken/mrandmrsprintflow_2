@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/reports_date_range.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/product_branch_stock.php';
 require_once __DIR__ . '/../includes/reports_export_excel_helpers.php';
+require_once __DIR__ . '/../includes/sales_page_queries.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 
 require_role(['Admin', 'Manager']);
@@ -48,6 +49,7 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetDate;
 $spreadsheet = new Spreadsheet();
 $sheet = $spreadsheet->getActiveSheet();
 $excelColCount = 8;
+$skipAutosize = false;
 
 if ($report === 'orders') {
     $sheet->setTitle('Orders Status Report');
@@ -61,9 +63,12 @@ if ($report === 'orders') {
     $excelColCount = 8;
 } elseif ($report === 'sales') {
     $sheet->setTitle('Sales Report');
-    buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams);
+    $salesBundle = pf_sales_page_filtered_breakdown($_GET, $branchId, 5000);
+    buildSalesReport($sheet, $branchName, $salesBundle);
+    pf_excel_set_sales_transaction_column_widths($sheet);
     $filename = 'PrintFlow_Sales_' . date('Y-m-d') . '.xlsx';
-    $excelColCount = 8;
+    $excelColCount = 10;
+    $skipAutosize = true;
 } elseif ($report === 'daily_sales') {
     $day = date('Y-m-d', strtotime($_GET['date'] ?? $to));
     $sheet->setTitle('Daily Sales');
@@ -85,7 +90,9 @@ if ($report === 'orders') {
     exit('Unknown report type.');
 }
 
-pf_excel_autosize_columns($sheet, 1, $excelColCount);
+if (empty($skipAutosize)) {
+    pf_excel_autosize_columns($sheet, 1, $excelColCount);
+}
 
 header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -99,30 +106,35 @@ exit;
 /**
  * Sales detail report (same rows as CSV sales export), print-style formatting.
  */
-function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bTypes, $bParams, $dateSql, $dateTypes, $dateParams) {
-    $dateLabel = pf_reports_export_date_range()['label'];
-    $dr = pf_reports_export_date_range();
-    $salesData = pf_reports_official_sales_breakdown($dr['fromStart'], $dr['toEnd'], $branchId, 500);
+function buildSalesReport($sheet, $branchName, array $salesBundle) {
+    $salesData = $salesBundle['salesData'] ?? [];
+    $filterMeta = $salesBundle['filter_meta'] ?? [];
     $sum = $salesData['summary'] ?? [];
     $totalRev = (float)($sum['total_sales'] ?? 0);
     $totalOrd = (int)($sum['transaction_count'] ?? 0);
     $avgVal = $totalOrd > 0 ? ($totalRev / $totalOrd) : 0;
 
     $sheet->setCellValue('A1', 'PrintFlow Sales & Analytics Report');
-    $sheet->mergeCells('A1:H1');
-    pf_excel_style_doc_title($sheet, 'A1:H1');
+    $sheet->mergeCells('A1:J1');
+    pf_excel_style_doc_title($sheet, 'A1:J1');
 
-    $sheet->setCellValue('A3', 'Report Type');
-    $sheet->setCellValue('B3', 'Sales Report');
-    $sheet->setCellValue('A4', 'Branch');
-    $sheet->setCellValue('B4', $branchName);
-    $sheet->setCellValue('A5', 'Date Range');
-    $sheet->setCellValue('B5', $dateLabel);
-    $sheet->setCellValue('A6', 'Generated On');
-    $sheet->setCellValue('B6', date('F j, Y, g:i A'));
-    $sheet->getStyle('A3:A6')->getFont()->setBold(true);
+    $metaRow = 3;
+    $sheet->setCellValue('A' . $metaRow, 'Report Type');
+    $sheet->setCellValue('B' . $metaRow, 'Sales Report');
+    $metaRow++;
+    $sheet->setCellValue('A' . $metaRow, 'Branch');
+    $sheet->setCellValue('B' . $metaRow, $branchName);
+    $metaRow++;
+    foreach ($filterMeta as $label => $value) {
+        $sheet->setCellValue('A' . $metaRow, $label);
+        $sheet->setCellValue('B' . $metaRow, $value);
+        $metaRow++;
+    }
+    $sheet->setCellValue('A' . $metaRow, 'Generated On');
+    $sheet->setCellValue('B' . $metaRow, date('F j, Y, g:i A'));
+    $sheet->getStyle('A3:A' . $metaRow)->getFont()->setBold(true);
 
-    $row = 8;
+    $row = $metaRow + 2;
     $sheet->setCellValue('A' . $row, 'SUMMARY');
     $sheet->getStyle('A' . $row)->getFont()->setBold(true)->setSize(11);
     $row++;
@@ -137,42 +149,44 @@ function buildSalesReport($sheet, $from, $to, $branchName, $branchId, $bSql, $bT
     $row += 2;
 
     $headerRow = $row;
-    foreach (['Type', 'Order #', 'Customer', 'Branch', 'Sales Date', 'Amount', 'Payment Status', 'Order Status'] as $i => $h) {
+    foreach (pf_sales_export_transaction_headers() as $i => $h) {
         $sheet->setCellValue(chr(65 + $i) . $row, $h);
     }
-    pf_excel_style_column_headers($sheet, 'A' . $row . ':H' . $row);
+    pf_excel_style_column_headers($sheet, 'A' . $row . ':J' . $row);
+    $sheet->getRowDimension($row)->setRowHeight(22);
     $row++;
 
     $firstData = $row;
     foreach (($salesData['transactions'] ?? []) as $txn) {
-        $sheet->setCellValue('A' . $row, (string)($txn['type'] ?? ''));
-        $sheet->setCellValue('B' . $row, '#' . (int)($txn['id'] ?? 0));
-        $sheet->setCellValue('C' . $row, trim($txn['customer_name'] ?? ''));
-        $sheet->setCellValue('D' . $row, trim($txn['branch_name'] ?? ''));
-        $ts = strtotime($txn['sales_date'] ?? '');
-        if ($ts) {
-            $sheet->setCellValue('E' . $row, SpreadsheetDate::PHPToExcel($ts));
-            $sheet->getStyle('E' . $row)->getNumberFormat()->setFormatCode('mmm d, yyyy h:mm AM/PM');
-        }
-        $sheet->setCellValue('F' . $row, (float)($txn['amount'] ?? 0));
-        $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
-        $sheet->setCellValue('G' . $row, (string)($txn['payment_status'] ?? ''));
-        $sheet->setCellValue('H' . $row, (string)($txn['status'] ?? ''));
+        $exportRow = pf_sales_format_export_transaction_row($txn);
+        $sheet->getRowDimension($row)->setRowHeight(16);
+        $sheet->setCellValue('A' . $row, (string)$exportRow[0]);
+        $sheet->setCellValue('B' . $row, (string)$exportRow[1]);
+        $sheet->getStyle('C' . $row)->getAlignment()->setWrapText(false);
+        $sheet->setCellValue('C' . $row, (string)$exportRow[2]);
+        $sheet->setCellValue('D' . $row, (string)$exportRow[3]);
+        $sheet->setCellValue('E' . $row, (string)$exportRow[4]);
+        $sheet->setCellValue('F' . $row, (string)$exportRow[5]);
+        $sheet->setCellValue('G' . $row, (string)$exportRow[6]);
+        $sheet->setCellValue('H' . $row, (string)$exportRow[7]);
+        $sheet->setCellValue('I' . $row, (string)$exportRow[8]);
+        $sheet->setCellValue('J' . $row, (float)$exportRow[9]);
+        $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
         $row++;
     }
     $lastData = $row - 1;
     if ($lastData >= $firstData) {
-        pf_excel_zebra_body($sheet, $firstData, $lastData, 1, 8);
-        pf_excel_apply_table_autofilter($sheet, $headerRow, 8, $lastData);
-        $sheet->getStyle('A' . $firstData . ':H' . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
+        pf_excel_zebra_body($sheet, $firstData, $lastData, 1, 10);
+        pf_excel_apply_table_autofilter($sheet, $headerRow, 10, $lastData);
+        $sheet->getStyle('A' . $firstData . ':J' . $lastData)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('E5E7EB');
     }
 
-    $sheet->setCellValue('A' . $row, 'TOTAL');
-    $sheet->setCellValue('F' . $row, $totalRev);
-    $sheet->getStyle('A' . $row . ':H' . $row)->getFont()->setBold(true);
-    $sheet->getStyle('F' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
-    $sheet->getStyle('A' . $row . ':H' . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
-    $sheet->getStyle('A' . $row . ':H' . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
+    $sheet->setCellValue('A' . $row, 'Total Amount');
+    $sheet->setCellValue('J' . $row, $totalRev);
+    $sheet->getStyle('A' . $row . ':J' . $row)->getFont()->setBold(true);
+    $sheet->getStyle('J' . $row)->getNumberFormat()->setFormatCode('"PHP" #,##0.00');
+    $sheet->getStyle('A' . $row . ':J' . $row)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E5E7EB');
+    $sheet->getStyle('A' . $row . ':J' . $row)->getBorders()->getTop()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('111827');
 }
 
 /**

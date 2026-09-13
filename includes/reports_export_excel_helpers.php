@@ -21,6 +21,28 @@ function pf_excel_autosize_columns(Worksheet $sheet, int $fromColIdx, int $toCol
     }
 }
 
+/** Fixed widths for Sales transaction export (avoids oversized autosize cells). */
+function pf_excel_set_sales_transaction_column_widths(Worksheet $sheet): void
+{
+    $widths = [
+        'A' => 19,
+        'B' => 10,
+        'C' => 26,
+        'D' => 10,
+        'E' => 18,
+        'F' => 14,
+        'G' => 14,
+        'H' => 13,
+        'I' => 14,
+        'J' => 12,
+    ];
+    foreach ($widths as $col => $width) {
+        $sheet->getColumnDimension($col)->setAutoSize(false);
+        $sheet->getColumnDimension($col)->setWidth($width);
+    }
+    $sheet->getDefaultRowDimension()->setRowHeight(16);
+}
+
 function pf_excel_style_doc_title(Worksheet $sheet, string $range): void {
     $sheet->getStyle($range)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('00232b');
     $sheet->getStyle($range)->getFont()->setBold(true)->setSize(15)->getColor()->setRGB('FFFFFF');
