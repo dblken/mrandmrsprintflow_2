@@ -9,6 +9,76 @@
  *   In Stock     (otherwise)
  */
 
+/**
+ * Ensure standard inventory categories exist (idempotent).
+ */
+function printflow_ensure_inv_category_catalog(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+
+    $catalog = [
+        ['name' => 'MUG / DRINKWARE', 'default_uom' => 'pcs', 'sort_order' => 100],
+    ];
+
+    try {
+        $hasDefaultUom = !empty(db_query("SHOW COLUMNS FROM inv_categories LIKE 'default_uom'"));
+        $hasDefaultRoll = !empty(db_query("SHOW COLUMNS FROM inv_categories LIKE 'default_track_by_roll'"));
+        $hasSortOrder = !empty(db_query("SHOW COLUMNS FROM inv_categories LIKE 'sort_order'"));
+
+        foreach ($catalog as $catDef) {
+            $name = trim((string)($catDef['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $exists = db_query(
+                "SELECT id FROM inv_categories WHERE UPPER(TRIM(name)) = UPPER(TRIM(?)) LIMIT 1",
+                's',
+                [$name]
+            );
+            if (!empty($exists)) {
+                continue;
+            }
+
+            $fields = ['name'];
+            $placeholders = ['?'];
+            $types = 's';
+            $params = [$name];
+
+            if ($hasDefaultUom) {
+                $fields[] = 'default_uom';
+                $placeholders[] = '?';
+                $types .= 's';
+                $params[] = (string)($catDef['default_uom'] ?? 'pcs');
+            }
+            if ($hasDefaultRoll) {
+                $fields[] = 'default_track_by_roll';
+                $placeholders[] = '?';
+                $types .= 'i';
+                $params[] = 0;
+            }
+            if ($hasSortOrder) {
+                $fields[] = 'sort_order';
+                $placeholders[] = '?';
+                $types .= 'i';
+                $params[] = (int)($catDef['sort_order'] ?? 0);
+            }
+
+            db_execute(
+                'INSERT INTO inv_categories (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $placeholders) . ')',
+                $types,
+                $params
+            );
+        }
+    } catch (Throwable $e) {
+        error_log('printflow_ensure_inv_category_catalog: ' . $e->getMessage());
+    }
+}
+
 function printflow_ensure_inv_items_threshold_schema(): void {
     static $done = false;
     if ($done) {

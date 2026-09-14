@@ -22,6 +22,15 @@ if (!isset($base_path)) {
 $current_user = get_logged_in_user();
 $is_manager = (($current_user['role'] ?? '') === 'Manager');
 
+if ($is_manager && !(defined('MANAGER_PANEL') && MANAGER_PANEL)) {
+    $managerSalesUrl = rtrim(AUTH_REDIRECT_BASE, '/') . '/manager/sales.php';
+    if (!empty($_SERVER['QUERY_STRING'])) {
+        $managerSalesUrl .= '?' . $_SERVER['QUERY_STRING'];
+    }
+    header('Location: ' . $managerSalesUrl);
+    exit;
+}
+
 $branchCtx = init_branch_context(false);
 $branchId = $branchCtx['selected_branch_id'];
 $branchName = $branchCtx['branch_name'];
@@ -40,7 +49,9 @@ if ($is_manager) {
     }
 }
 
-$sales_href_base = rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php';
+$sales_href_base = (defined('MANAGER_PANEL') && MANAGER_PANEL)
+    ? rtrim(AUTH_REDIRECT_BASE, '/') . '/manager/sales.php'
+    : rtrim(AUTH_REDIRECT_BASE, '/') . '/admin/sales.php';
 function sales_page_query(array $overrides = []): string {
     $keys = ['from', 'to', 'branch_id', 'sales_period', 'type', 'method', 'item', 'filter_open', 'scroll_y'];
     $q = [];
