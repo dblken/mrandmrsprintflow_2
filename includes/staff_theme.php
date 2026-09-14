@@ -983,7 +983,6 @@
     html.printflow-staff.printflow-staff-pos .btn-staff-action-blue,
     html.printflow-staff.printflow-staff-pos .btn-action-primary,
     html.printflow-staff.printflow-staff-pos .service-count,
-    html.printflow-staff.printflow-staff-pos .tp-sold .tp-sold-label,
     html.printflow-staff.printflow-staff-pos .om-value,
     html.printflow-staff.printflow-staff-pos .filter-select:focus,
     html.printflow-staff.printflow-staff-pos .filter-input:focus,
@@ -998,6 +997,11 @@
     html.printflow-staff.printflow-staff-pos .toolbar-btn:hover,
     html.printflow-staff.printflow-staff-pos .toolbar-btn.active {
         background: var(--staff-toolbar-active-bg) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .tp-sold,
+    html.printflow-staff.printflow-staff-pos .tp-sold .tp-sold-label {
+        color: #0f172a !important;
     }
 
     html.printflow-staff.printflow-staff-pos .sort-option.active {

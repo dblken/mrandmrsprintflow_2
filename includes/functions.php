@@ -4710,7 +4710,90 @@ function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuant
         }
     }
 
-    return $out;
+    return printflow_customer_modal_suppress_redundant_dimension_specs($out);
+}
+
+/**
+ * Parse "2×3", "2 x 3 ft", etc. into [width, height] or null when not a dimension pair.
+ *
+ * @return array{0:float,1:float}|null
+ */
+function printflow_customer_modal_parse_dimension_pair(string $text): ?array {
+    $t = strtolower(trim($text));
+    $t = str_replace(['×', '*'], 'x', $t);
+    if (!preg_match('/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/', $t, $m)) {
+        return null;
+    }
+    return [(float)$m[1], (float)$m[2]];
+}
+
+/**
+ * Extract the first numeric measurement from a width/height value (e.g. "2 ft" -> 2).
+ */
+function printflow_customer_modal_parse_single_dimension(string $text): ?float {
+    if (preg_match('/(\d+(?:\.\d+)?)/', trim($text), $m)) {
+        return (float)$m[1];
+    }
+    return null;
+}
+
+/**
+ * When Size/Dimensions already expresses the same W×H as separate Width/Height fields, hide the redundant pair.
+ *
+ * @param array<string, string> $flat
+ * @return array<string, string>
+ */
+function printflow_customer_modal_suppress_redundant_dimension_specs(array $flat): array {
+    if ($flat === []) {
+        return $flat;
+    }
+
+    $sizeKeys = ['size', 'dimensions', 'dimensionsft', 'dimension'];
+    $widthKeys = ['width', 'widthft', 'widthin', 'widthinch', 'widthinches'];
+    $heightKeys = ['height', 'heightft', 'heightin', 'heightinch', 'heightinches'];
+
+    $sizePair = null;
+    foreach ($flat as $k => $v) {
+        $nk = printflow_customer_modal_nf_spec_key((string)$k);
+        if (!in_array($nk, $sizeKeys, true)) {
+            continue;
+        }
+        $pair = printflow_customer_modal_parse_dimension_pair((string)$v);
+        if ($pair !== null) {
+            $sizePair = $pair;
+            break;
+        }
+    }
+    if ($sizePair === null) {
+        return $flat;
+    }
+
+    $widthVal = null;
+    $heightVal = null;
+    $removeKeys = [];
+    foreach ($flat as $k => $v) {
+        $nk = printflow_customer_modal_nf_spec_key((string)$k);
+        if (in_array($nk, $widthKeys, true)) {
+            $widthVal = printflow_customer_modal_parse_single_dimension((string)$v);
+            $removeKeys[] = $k;
+        } elseif (in_array($nk, $heightKeys, true)) {
+            $heightVal = printflow_customer_modal_parse_single_dimension((string)$v);
+            $removeKeys[] = $k;
+        }
+    }
+
+    if ($widthVal === null || $heightVal === null) {
+        return $flat;
+    }
+
+    $eps = 0.02;
+    if (abs($widthVal - $sizePair[0]) <= $eps && abs($heightVal - $sizePair[1]) <= $eps) {
+        foreach ($removeKeys as $rk) {
+            unset($flat[$rk]);
+        }
+    }
+
+    return $flat;
 }
 
 /**

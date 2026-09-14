@@ -12,6 +12,7 @@ require_role('Staff');
 printflow_require_staff_module('reports');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 require_once __DIR__ . '/../includes/staff_status_filters.php';
+require_once __DIR__ . '/../includes/staff_report_top_services.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
 $staffAccessMeta = printflow_get_staff_access_meta();
@@ -187,65 +188,25 @@ $top_products = db_query("
     LIMIT 5
 ", ($status_t ? 'i' . $status_t : 'i'), array_merge([$staffBranchId], $status_p));
 
-// ---- 5. TOP 5 BEST SELLING SERVICES / CUSTOMIZATIONS (DYNAMIC) ----
-$top_services_map = [];
+// ---- 5. TOP 5 BEST SELLING SERVICES (catalog-resolved; no pseudo "Customization" bucket) ----
+$top_services = printflow_staff_report_top_selling_services([
+    'job_date_condition' => str_replace('o.order_date', 'jo.created_at', $date_condition),
+    'service_date_condition' => str_replace('o.order_date', 'so.created_at', $date_condition),
+    'branch_id' => $staffBranchId,
+    'job_status_sql' => $job_status_sql,
+    'service_status_sql' => $service_status_sql,
+    'limit' => 5,
+]);
 
-$job_service_rows = db_query("
-    SELECT COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization') AS service_name,
-           SUM(COALESCE(jo.quantity, 1)) AS total_sold
-    FROM job_orders jo
-    WHERE " . str_replace('o.order_date', 'jo.created_at', $date_condition) . "
-      AND jo.branch_id = ?
-      {$job_status_sql}
-    GROUP BY COALESCE(NULLIF(TRIM(jo.service_type), ''), 'Customization')
-    ORDER BY total_sold DESC
-", 'i', [$staffBranchId]);
-
-foreach ($job_service_rows as $row) {
-    $service_name = trim((string)($row['service_name'] ?? ''));
-    if ($service_name === '') {
-        $service_name = 'Customization';
-    }
-    $service_key = function_exists('mb_strtolower')
-        ? mb_strtolower($service_name, 'UTF-8')
-        : strtolower($service_name);
-    $top_services_map[$service_key] = [
-        'name' => $service_name,
-        'total_sold' => (int)($row['total_sold'] ?? 0),
-    ];
+if (isset($_GET['ajax']) && (string)$_GET['ajax'] === 'top_services') {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'success' => true,
+        'html' => printflow_staff_report_render_top_services_html($top_services),
+        'top_services' => $top_services,
+    ], JSON_UNESCAPED_SLASHES | (defined('JSON_INVALID_UTF8_SUBSTITUTE') ? JSON_INVALID_UTF8_SUBSTITUTE : 0));
+    exit;
 }
-
-$service_order_rows = db_query("
-    SELECT COALESCE(NULLIF(TRIM(so.service_name), ''), 'Service') AS service_name,
-           COUNT(*) AS total_sold
-    FROM service_orders so
-    WHERE " . str_replace('o.order_date', 'so.created_at', $date_condition) . "
-      AND (so.branch_id = ? OR so.branch_id IS NULL)
-      {$service_status_sql}
-    GROUP BY COALESCE(NULLIF(TRIM(so.service_name), ''), 'Service')
-    ORDER BY total_sold DESC
-", 'i', [$staffBranchId]);
-
-foreach ($service_order_rows as $row) {
-    $service_name = trim((string)($row['service_name'] ?? ''));
-    if ($service_name === '') {
-        $service_name = 'Service';
-    }
-    $service_key = function_exists('mb_strtolower')
-        ? mb_strtolower($service_name, 'UTF-8')
-        : strtolower($service_name);
-    if (!isset($top_services_map[$service_key])) {
-        $top_services_map[$service_key] = [
-            'name' => $service_name,
-            'total_sold' => 0,
-        ];
-    }
-    $top_services_map[$service_key]['total_sold'] += (int)($row['total_sold'] ?? 0);
-}
-
-$top_services = array_values($top_services_map);
-usort($top_services, static fn($a, $b) => ($b['total_sold'] <=> $a['total_sold']));
-$top_services = array_slice($top_services, 0, 5);
 $page_title = 'Visual Reports & Analytics';
 ?>
 <!DOCTYPE html>
