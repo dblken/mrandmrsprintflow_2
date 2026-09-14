@@ -450,26 +450,35 @@ $page_title = 'Staff Dashboard - PrintFlow';
 </head>
 <body class="staff-dashboard-page">
 
-<div class="dashboard-container">
-    <?php include __DIR__ . '/../includes/staff_sidebar.php'; ?>
-
-    <div class="main-content" x-data="{ 
-        sortOpen: false, 
-        filterOpen: false, 
-        activeStatus: '<?php echo $status_filter; ?>', 
-        activeTimeframe: '<?php echo $timeframe; ?>',
+<script>
+function staffDashboardToolbar() {
+    return {
+        sortOpen: false,
+        filterOpen: false,
+        activeStatus: <?php echo json_encode($status_filter, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+        activeTimeframe: <?php echo json_encode($timeframe, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+        statusLabels: <?php echo json_encode(
+            printflow_staff_dashboard_status_labels($staffAccessMeta['key'] ?? null),
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+        ); ?>,
         getButtonLabel(type) {
             if (type === 'today') return 'Today';
             if (type === 'week') return 'This Week';
             if (type === 'month') return 'This Month';
-            return type.charAt(0).toUpperCase() + type.slice(1);
+            return String(type || '').charAt(0).toUpperCase() + String(type || '').slice(1);
         },
         getStatusLabel(status) {
-            const labels = <?php echo json_encode(printflow_staff_dashboard_status_labels($staffAccessMeta['key'] ?? null)); ?>;
-            if (!status) return 'All';
-            return labels[status] || status;
+            if (!status) return 'All Statuses';
+            return this.statusLabels[status] || status;
         }
-    }">
+    };
+}
+</script>
+
+<div class="dashboard-container">
+    <?php include __DIR__ . '/../includes/staff_sidebar.php'; ?>
+
+    <div class="main-content" x-data="staffDashboardToolbar()">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
             <div>
                 <h1 class="page-title">Dashboard</h1>

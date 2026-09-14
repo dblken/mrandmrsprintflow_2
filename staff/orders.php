@@ -2884,16 +2884,16 @@ $page_title = 'Orders - Staff';
                 <?php if ($is_pos_staff): ?>
                     <div class="kpi-card indigo">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Total Walk-in Sales</span>
-                            <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
-                            <span class="kpi-sub">Completed product sales</span>
+                            <span class="kpi-label">Completed Walk-in Transactions</span>
+                            <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($completed_count); ?></span>
+                            <span class="kpi-sub">Number of completed POS sales</span>
                         </span>
                     </div>
                     <div class="kpi-card blue">
                         <span class="kpi-card-inner">
                             <span class="kpi-label">Total Items Sold</span>
                             <span class="kpi-value"><?php echo number_format($total_items_sold); ?></span>
-                            <span class="kpi-sub">Units from completed walk-in sales</span>
+                            <span class="kpi-sub">Total units sold from completed POS sales</span>
                         </span>
                     </div>
                     <div class="kpi-card emerald">

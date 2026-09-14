@@ -553,6 +553,15 @@ function renderReportsCharts() {
     Chart.defaults.font.weight = '600';
     Chart.defaults.color = "#64748b";
 
+    const rootStyle = getComputedStyle(document.documentElement);
+    const chartLine = rootStyle.getPropertyValue('--staff-chart-line').trim() || '#06A1A1';
+    const chartFillStart = rootStyle.getPropertyValue('--staff-chart-fill-start').trim() || 'rgba(6, 161, 161, 0.4)';
+    const chartFillEnd = rootStyle.getPropertyValue('--staff-chart-fill-end').trim() || 'rgba(6, 161, 161, 0.0)';
+    const chartTooltipBg = rootStyle.getPropertyValue('--staff-chart-tooltip-bg').trim() || '#0f172a';
+    const chartTooltipText = rootStyle.getPropertyValue('--staff-chart-tooltip-text').trim() || '#ffffff';
+    const chartGridColor = rootStyle.getPropertyValue('--staff-chart-grid-color').trim() || '#f1f5f9';
+    const chartTextColor = rootStyle.getPropertyValue('--staff-chart-text-color').trim() || '#64748b';
+
     // --- 1. REVENUE LINE CHART ---
     const revCanvas = document.getElementById('revenueLineChart');
     if (revCanvas) {
@@ -560,12 +569,6 @@ function renderReportsCharts() {
         if (revenueChartInstance && typeof revenueChartInstance.destroy === 'function') {
             revenueChartInstance.destroy();
         }
-
-        const rootStyle = getComputedStyle(document.documentElement);
-        const chartLine = rootStyle.getPropertyValue('--staff-chart-line').trim() || '#06A1A1';
-        const chartFillStart = rootStyle.getPropertyValue('--staff-chart-fill-start').trim() || 'rgba(6, 161, 161, 0.4)';
-        const chartFillEnd = rootStyle.getPropertyValue('--staff-chart-fill-end').trim() || 'rgba(6, 161, 161, 0.0)';
-        const chartTooltipBg = rootStyle.getPropertyValue('--staff-chart-tooltip-bg').trim() || '#0f172a';
         const gradient = revCtx.createLinearGradient(0, 0, 0, 400);
         gradient.addColorStop(0, chartFillStart);
         gradient.addColorStop(1, chartFillEnd);
@@ -596,6 +599,8 @@ function renderReportsCharts() {
                     legend: { display: false },
                     tooltip: {
                         backgroundColor: chartTooltipBg,
+                        titleColor: chartTooltipText,
+                        bodyColor: chartTooltipText,
                         padding: 12,
                         titleFont: { size: 12, weight: '700' },
                         bodyFont: { size: 12, weight: '600' },
@@ -610,13 +615,15 @@ function renderReportsCharts() {
                 scales: {
                     y: {
                         beginAtZero: true,
-                        grid: { color: '#f1f5f9', drawBorder: false },
+                        grid: { color: chartGridColor, drawBorder: false },
                         ticks: {
+                            color: chartTextColor,
                             callback: function(value) { return '₱' + value.toLocaleString(); }
                         }
                     },
                     x: {
-                        grid: { display: false, drawBorder: false }
+                        grid: { display: false, drawBorder: false },
+                        ticks: { color: chartTextColor }
                     }
                 }
             }
@@ -641,6 +648,10 @@ function renderReportsCharts() {
             'Ready for Pickup': '#a855f7',
             'Completed': '#22c55e',
             'Cancelled': '#ef4444',
+            'Inquiry & Design': '#fde047',
+            'Payment': '#67e8f9',
+            'Production': '#3b82f6',
+            'To Pickup': '#a855f7',
             'No Data Yet': '#e2e8f0'
         };
 
@@ -682,6 +693,8 @@ function renderReportsCharts() {
                     },
                     tooltip: {
                         backgroundColor: chartTooltipBg,
+                        titleColor: chartTooltipText,
+                        bodyColor: chartTooltipText,
                         padding: 12,
                         callbacks: {
                             label: function(context) {

@@ -28,6 +28,10 @@ $assert(str_contains($filters, "if (\$role === 'pos')"), 'shared status helper b
 $assert(str_contains($filters, "'INQUIRY' => 'Inquiry & Design'"), 'shared status helper defines online workflow stages');
 $assert(str_contains($filters, 'printflow_staff_notification_type_options'), 'shared notification allowlist exists');
 $assert(str_contains($dashboard, 'printflow_staff_status_filter_options'), 'dashboard uses shared status options');
+$assert(str_contains($dashboard, 'function staffDashboardToolbar()'), 'dashboard alpine state uses external toolbar factory');
+$assert(str_contains($dashboard, 'x-data="staffDashboardToolbar()"'), 'dashboard binds alpine via toolbar factory');
+$assert(str_contains($reports, 'const chartTooltipBg = rootStyle.getPropertyValue'), 'reports chart tooltip vars are function-scoped');
+$assert(str_contains($orders, 'Completed Walk-in Transactions'), 'walk-in KPI #1 labels completed transactions clearly');
 $assert(str_contains($reports, 'printflow_staff_orders_status_clause'), 'reports use shared order status SQL');
 $assert(str_contains($reports, 'font-weight: 500'), 'reports top-selling names use normal weight');
 $assert(str_contains($reports, 'color: #0f172a'), 'reports sold counts use dark text');
