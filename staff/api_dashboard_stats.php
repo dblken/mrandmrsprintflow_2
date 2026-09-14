@@ -109,6 +109,7 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/staff_access.php';
 require_once __DIR__ . '/../includes/pos_dashboard_kpi.php';
+require_once __DIR__ . '/../includes/staff_status_filters.php';
 
 if ($__pf_debug_requested && defined('PRINTFLOW_DEBUG_SESSION_LOG') && PRINTFLOW_DEBUG_SESSION_LOG) {
     $sessionCookieName = session_name();
@@ -325,11 +326,11 @@ $timeframe = strtolower(trim((string)($_GET['timeframe'] ?? 'today')));
 if (!in_array($timeframe, ['today', 'week', 'month'], true)) {
     $timeframe = 'today';
 }
-$status_filter = pf_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''));
+$status_filter = printflow_staff_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''), $staffRole);
 
 $timeMeta = pf_dashboard_timeframe_meta($timeframe);
-$statusMeta = pf_dashboard_status_sql('o', $status_filter);
-$statusLabels = pf_dashboard_status_labels();
+$statusMeta = printflow_staff_dashboard_status_sql('o', $status_filter, $staffRole);
+$statusLabels = printflow_staff_dashboard_status_labels($staffRole);
 $statusLabel = $status_filter !== '' ? ($statusLabels[$status_filter] ?? $status_filter) : 'All';
 
 $productLabel = (($status_filter !== '' && $status_filter !== 'COMPLETED') ? $statusLabel : 'Completed') . ' Product Orders';

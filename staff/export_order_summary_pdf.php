@@ -7,6 +7,8 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/staff_access.php';
+require_once __DIR__ . '/../includes/staff_status_filters.php';
 
 $userType = $_SESSION['user_type'] ?? '';
 if (!in_array($userType, ['Staff', 'Admin', 'Manager'], true)) {
@@ -21,6 +23,8 @@ $staffEmail = $staffData['email'] ?? '';
 $staffContact = $staffData['contact_number'] ?? '';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($staffData['branch_id'] ?? 1);
+$staffRole = $userType === 'Staff' ? printflow_get_staff_access_role() : 'online';
+$staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
 $branchInfo = db_query("SELECT * FROM branches WHERE id = ?", 'i', [$staffBranchId])[0] ?? [];
 $branchName = $branchInfo['branch_name'] ?? 'Mr. and Mrs. Print Main';
 $branchAddress = trim(($branchInfo['address'] ?? '') . ' ' . ($branchInfo['address_line'] ?? '') . ' ' . ($branchInfo['barangay'] ?? '') . ' ' . ($branchInfo['city'] ?? '') . ' ' . ($branchInfo['province'] ?? ''));
@@ -31,7 +35,11 @@ $branchContact = $branchInfo['contact_number'] ?? '0921 212 2293';
 $branchEmail = $branchInfo['email'] ?? 'mrandmrsprints@gmail.com';
 
 $range = $_GET['range'] ?? 'week';
-$status_filter = $_GET['status'] ?? 'ALL';
+$status_filter = printflow_staff_normalize_status_filter((string)($_GET['status'] ?? 'ALL'), $staffRole);
+$ordersStatusMeta = printflow_staff_orders_status_clause($status_filter, 'o', $staffRole);
+$status_where_sql = ($ordersStatusMeta['sql'] !== '1=1') ? ' AND ' . $ordersStatusMeta['sql'] : '';
+$status_params = $ordersStatusMeta['params'];
+$status_types = $ordersStatusMeta['types'];
 
 if ($range === 'month') {
     $date_condition = "YEAR(o.order_date) = YEAR(CURDATE()) AND MONTH(o.order_date) = MONTH(CURDATE())";
@@ -60,6 +68,7 @@ $sql = "
     FROM orders o
     LEFT JOIN customers c ON o.customer_id = c.customer_id
     WHERE {$date_condition}
+    AND {$staffOrderScopeSql}
 ";
 
 $params = [];
@@ -71,10 +80,12 @@ if ($staffBranchId !== null) {
     $types .= 'i';
 }
 
-if ($status_filter !== 'ALL' && $status_filter !== '') {
-    $sql .= " AND o.status = ?";
-    $params[] = $status_filter;
-    $types .= 's';
+if ($status_where_sql !== '') {
+    $sql .= $status_where_sql;
+    if ($status_params !== []) {
+        $params = array_merge($params, $status_params);
+        $types .= $status_types;
+    }
 }
 
 $sql .= " ORDER BY o.order_date DESC";

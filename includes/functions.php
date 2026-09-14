@@ -571,11 +571,19 @@ function printflow_staff_notification_visible(array $notification, ?int $branchI
     }
 
     $staffRole = function_exists('printflow_get_staff_access_role') ? printflow_get_staff_access_role() : null;
+    $type = (string)($notification['type'] ?? '');
+    if ($staffRole !== null) {
+        if (!function_exists('printflow_staff_notification_type_allowed')) {
+            require_once __DIR__ . '/staff_status_filters.php';
+        }
+        if (!printflow_staff_notification_type_allowed($type, $staffRole)) {
+            return false;
+        }
+    }
     if ($staffRole === null || !function_exists('printflow_staff_role_can_access_order_source')) {
         return true;
     }
 
-    $type = (string)($notification['type'] ?? '');
     $dataId = (int)($notification['data_id'] ?? 0);
     $orderSource = printflow_notification_source_for_staff_scope($type, $dataId);
     if ($orderSource !== null) {

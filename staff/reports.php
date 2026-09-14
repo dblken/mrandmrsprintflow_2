@@ -11,9 +11,12 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_role('Staff');
 printflow_require_staff_module('reports');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
+require_once __DIR__ . '/../includes/staff_status_filters.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
-$staffOrderScopeSql = printflow_staff_order_source_sql('o');
+$staffAccessMeta = printflow_get_staff_access_meta();
+$staffRole = (string)($staffAccessMeta['key'] ?? 'online');
+$staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
 $range = $_GET['range'] ?? 'week';
 $report_date = $_GET['date'] ?? date('Y-m-d');
 
@@ -32,36 +35,13 @@ if ($range === 'month') {
     $date_condition = "YEARWEEK(o.order_date, 1) = YEARWEEK(CURDATE(), 1)";
 }
 
-$status_filter = $_GET['status'] ?? 'ALL';
-$status_where = "";
-$status_p = [];
-$status_t = "";
-if ($status_filter !== 'ALL' && !empty($status_filter)) {
-    $status_where = " AND o.status = ? ";
-    $status_p = [$status_filter];
-    $status_t = "s";
-}
-function staff_reports_service_status_sql(string $status_filter): string {
-    if ($status_filter === 'ALL' || $status_filter === '') return " AND so.status NOT IN ('Cancelled', 'Rejected')";
-    if ($status_filter === 'Pending') return " AND so.status IN ('Pending', 'Pending Review', 'Pending Approval', 'For Revision')";
-    if ($status_filter === 'Processing') return " AND so.status IN ('Processing', 'In Production', 'Printing')";
-    if ($status_filter === 'Ready for Pickup') return " AND so.status IN ('Ready for Pickup', 'Ready For Pickup')";
-    if ($status_filter === 'Cancelled') return " AND so.status IN ('Cancelled', 'Rejected')";
-    return " AND so.status = '" . db_escape($status_filter) . "'";
-}
-$service_status_sql = staff_reports_service_status_sql($status_filter);
-function staff_reports_job_status_sql(string $status_filter): string {
-    if ($status_filter === 'ALL' || $status_filter === '') return " AND jo.status != 'CANCELLED'";
-    if ($status_filter === 'Pending') return " AND jo.status = 'PENDING'";
-    if ($status_filter === 'Processing') return " AND jo.status = 'IN_PRODUCTION'";
-    if ($status_filter === 'Ready for Pickup') return " AND jo.status = 'TO_RECEIVE'";
-    if ($status_filter === 'Completed') return " AND jo.status = 'COMPLETED'";
-    if ($status_filter === 'Cancelled') return " AND jo.status = 'CANCELLED'";
-    if ($status_filter === 'Approved') return " AND jo.status = 'APPROVED'";
-    if ($status_filter === 'To Pay') return " AND jo.status = 'TO_PAY'";
-    return " AND jo.status = '" . db_escape(strtoupper($status_filter)) . "'";
-}
-$job_status_sql = staff_reports_job_status_sql($status_filter);
+$status_filter = printflow_staff_normalize_status_filter((string)($_GET['status'] ?? 'ALL'), $staffRole);
+$ordersStatusMeta = printflow_staff_orders_status_clause($status_filter, 'o', $staffRole);
+$status_where = ($ordersStatusMeta['sql'] !== '1=1') ? ' AND ' . $ordersStatusMeta['sql'] : '';
+$status_p = $ordersStatusMeta['params'];
+$status_t = $ordersStatusMeta['types'];
+$service_status_sql = printflow_staff_service_orders_status_sql($status_filter, 'so', $staffRole);
+$job_status_sql = printflow_staff_job_orders_status_sql($status_filter, 'jo', $staffRole);
 
 // ---- 1. RANGE-AWARE KPI METRICS (DYNAMIC) ----
 // Total revenue for THE SELECTED PERIOD (Paid only)
@@ -80,11 +60,22 @@ $ord_res = db_query("SELECT SUM(t.cnt) AS count FROM (
 ) t", ($status_t ? "ii" . $status_t : "ii"), array_merge([$staffBranchId, $staffBranchId], $status_p));
 $period_orders = (int)($ord_res[0]['count'] ?? 0);
 
-// Pending/Active orders received in THE SELECTED PERIOD (if status is not filtered specifically)
-$active_statuses_sql = "status IN ('Pending', 'Pending Review', 'Pending Verification', 'Approved', 'Downpayment Submitted', 'In Production')";
-if ($status_filter !== 'ALL') {
-    $pend_res = db_query("SELECT COUNT(*) as count FROM orders o WHERE o.status = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND $date_condition", 'si', [$status_filter, $staffBranchId]);
+// Pending/Active orders received in THE SELECTED PERIOD
+if ($staffRole === 'pos') {
+    $pending_clause = printflow_staff_orders_status_clause('PENDING', 'o', $staffRole);
+    $pend_res = db_query(
+        "SELECT COUNT(*) as count FROM orders o WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND $date_condition AND {$pending_clause['sql']}",
+        'i',
+        [$staffBranchId]
+    );
+} elseif ($status_filter !== 'ALL' && $status_filter !== '') {
+    $pend_res = db_query(
+        "SELECT COUNT(*) as count FROM orders o WHERE o.branch_id = ? AND {$staffOrderScopeSql} AND $date_condition {$status_where}",
+        ($status_t ? 'i' . $status_t : 'i'),
+        array_merge([$staffBranchId], $status_p)
+    );
 } else {
+    $active_statuses_sql = "o.status IN ('Pending', 'Pending Review', 'Pending Verification', 'Approved', 'Downpayment Submitted', 'In Production')";
     $pend_res = db_query("SELECT COUNT(*) as count FROM orders o WHERE $active_statuses_sql AND o.branch_id = ? AND {$staffOrderScopeSql} AND $date_condition", 'i', [$staffBranchId]);
 }
 $pending_period_orders = (int)($pend_res[0]['count'] ?? 0);
@@ -149,27 +140,32 @@ if ($range === 'today') {
     }
 }
 
-// ---- 3. ORDER STATUS DISTRIBUTION (FIXED LABELS) ----
-$std_statuses = [
-    'Pending', 'Processing', 'Ready for Pickup', 'Completed', 'Cancelled',
-    'Pending Review', 'Approved', 'Downpayment Submitted', 'To Pay'
-];
+// ---- 3. ORDER STATUS DISTRIBUTION (role-aware buckets) ----
+$std_statuses = printflow_staff_report_status_chart_labels($staffRole);
 
 $status_res = db_query("
     SELECT status, COUNT(*) as status_count 
     FROM orders o
     WHERE $date_condition AND branch_id = ?
     AND {$staffOrderScopeSql}
+    {$status_where}
     GROUP BY status
-", 'i', [$staffBranchId]);
+", ($status_t ? 'i' . $status_t : 'i'), array_merge([$staffBranchId], $status_p));
 
-$status_map = [];
+$status_bucket_counts = array_fill_keys($std_statuses, 0);
 foreach ($status_res as $s) {
-    if ($s['status']) $status_map[$s['status']] = (int)$s['status_count'];
+    if (empty($s['status'])) {
+        continue;
+    }
+    $bucket = printflow_staff_map_orders_status_to_bucket((string)$s['status'], $staffRole);
+    if (!isset($status_bucket_counts[$bucket])) {
+        $status_bucket_counts[$bucket] = 0;
+    }
+    $status_bucket_counts[$bucket] += (int)($s['status_count'] ?? 0);
 }
 
 $status_labels = $std_statuses;
-$status_counts = array_map(fn($s) => $status_map[$s] ?? 0, $std_statuses);
+$status_counts = array_map(static fn($label) => (int)($status_bucket_counts[$label] ?? 0), $std_statuses);
 
 // Use 'No Data Yet' only if EVERYTHING is zero across the period
 if (array_sum($status_counts) === 0) {
@@ -185,10 +181,11 @@ $top_products = db_query("
     JOIN products p ON oi.product_id = p.product_id
     WHERE $date_condition AND o.branch_id = ?
     AND {$staffOrderScopeSql}
+    {$status_where}
     GROUP BY oi.product_id
     ORDER BY total_sold DESC
     LIMIT 5
-", 'i', [$staffBranchId]);
+", ($status_t ? 'i' . $status_t : 'i'), array_merge([$staffBranchId], $status_p));
 
 // ---- 5. TOP 5 BEST SELLING SERVICES / CUSTOMIZATIONS (DYNAMIC) ----
 $top_services_map = [];
@@ -299,9 +296,10 @@ $page_title = 'Visual Reports & Analytics';
         .top-list-body { flex: 1; display: flex; flex-direction: column; }
         .top-product-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
         .top-product-row:last-child { border-bottom: none; }
-        .tp-name { font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 10px; }
-        .tp-rank { width: 24px; height: 24px; background: #f1f5f9; color: #475569; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; }
-        .tp-sold { font-size: 14px; font-weight: 800; color: var(--staff-primary); }
+        .tp-name { font-size: 14px; font-weight: 500; color: #334155; display: flex; align-items: center; gap: 10px; }
+        .tp-rank { width: 24px; height: 24px; background: #f1f5f9; color: #475569; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+        .tp-sold { font-size: 14px; font-weight: 600; color: #0f172a; }
+        .tp-sold .tp-sold-label { font-size: 12px; color: #0f172a; font-weight: 500; }
         .top-list-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #94a3b8; font-size: 14px; }
         .top-list-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #94a3b8; font-size: 14px; }
     </style>
@@ -312,7 +310,7 @@ $page_title = 'Visual Reports & Analytics';
     <!-- Sidebar -->
     <?php include __DIR__ . '/../includes/staff_sidebar.php'; ?>
 
-    <div class="main-content" x-data="{ filterOpen: false, activeStatus: '<?php echo $_GET['status'] ?? 'ALL'; ?>', activeRange: '<?php echo $range; ?>', hasActiveFilters: <?php echo (($_GET['status']??'ALL') !== 'ALL' || $range !== 'week') ? 'true' : 'false'; ?> }">
+    <div class="main-content" x-data="{ filterOpen: false, activeStatus: '<?php echo htmlspecialchars($status_filter === '' ? 'ALL' : $status_filter, ENT_QUOTES); ?>', activeRange: '<?php echo $range; ?>', hasActiveFilters: <?php echo (($status_filter !== 'ALL' && $status_filter !== '') || $range !== 'week') ? 'true' : 'false'; ?> }">
         <header style="display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 24px !important; flex-wrap: wrap !important; gap: 16px !important; width: 100% !important;">
             <div style="flex: 0 1 auto !important;">
                 <h1 class="page-title">Visual Reports & Analytics</h1>
@@ -345,11 +343,8 @@ $page_title = 'Visual Reports & Analytics';
                                     <button type="button" @click="activeStatus = 'ALL'; document.getElementById('reports-filter-form').submit()" class="filter-reset-link">Reset</button>
                                 </div>
                                 <select name="status" class="filter-select" x-model="activeStatus" @change="document.getElementById('reports-filter-form').submit()">
-                                    <option value="ALL">All Statuses</option>
-                                    <?php 
-                                    $all_opts = ['Pending', 'Processing', 'Ready for Pickup', 'Completed', 'Cancelled', 'Pending Review', 'Approved', 'Downpayment Submitted', 'To Pay'];
-                                    foreach($all_opts as $opt): ?>
-                                        <option value="<?php echo htmlspecialchars($opt); ?>"><?php echo htmlspecialchars($opt); ?></option>
+                                    <?php foreach (printflow_staff_status_filter_options($staffRole) as $statusCode => $statusLabel): ?>
+                                        <option value="<?php echo htmlspecialchars($statusCode === '' ? 'ALL' : $statusCode); ?>"><?php echo htmlspecialchars($statusLabel); ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -376,12 +371,12 @@ $page_title = 'Visual Reports & Analytics';
 
                 <!-- Export Buttons Group -->
                 <div style="display: flex; gap: 8px;">
-                    <a href="export_reports.php?range=<?php echo $range; ?>&status=<?php echo $_GET['status'] ?? 'ALL'; ?>" class="toolbar-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; color:#fff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); height: 38px; font-weight: 700;">
+                    <a href="export_reports.php?range=<?php echo $range; ?>&status=<?php echo urlencode($status_filter === '' ? 'ALL' : $status_filter); ?>" class="toolbar-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border: none; color:#fff; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); height: 38px; font-weight: 700;">
                         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width: 2;"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                         Excel
                     </a>
                     
-                    <a href="export_order_summary_pdf.php?range=<?php echo $range; ?>&status=<?php echo $_GET['status'] ?? 'ALL'; ?>" class="toolbar-btn" style="background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); border: none; color:#fff; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); height: 38px; font-weight: 700;" target="_blank">
+                    <a href="export_order_summary_pdf.php?range=<?php echo $range; ?>&status=<?php echo urlencode($status_filter === '' ? 'ALL' : $status_filter); ?>" class="toolbar-btn" style="background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); border: none; color:#fff; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.2); height: 38px; font-weight: 700;" target="_blank">
                         <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="stroke-width: 2;"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                         PDF
                     </a>
@@ -491,7 +486,7 @@ $page_title = 'Visual Reports & Analytics';
                                     <?php echo htmlspecialchars($tp['name']); ?>
                                 </div>
                                 <div class="tp-sold">
-                                    <?php echo (int)$tp['total_sold']; ?> <span style="font-size:12px;color:#64748b;font-weight:600;">sold</span>
+                                    <?php echo (int)$tp['total_sold']; ?> <span class="tp-sold-label">sold</span>
                                 </div>
                             </div>
                             <?php endforeach; ?>
@@ -525,7 +520,7 @@ $page_title = 'Visual Reports & Analytics';
                                     <?php echo htmlspecialchars($service['name']); ?>
                                 </div>
                                 <div class="tp-sold">
-                                    <?php echo (int)$service['total_sold']; ?> <span style="font-size:12px;color:#64748b;font-weight:600;">sold</span>
+                                    <?php echo (int)$service['total_sold']; ?> <span class="tp-sold-label">sold</span>
                                 </div>
                             </div>
                             <?php endforeach; ?>

@@ -341,4 +341,6 @@ window.PFConfig = {
 <script src="<?php echo $base_path; ?>/public/assets/js/inactivity_logout.js" defer></script>
 <?php $receipt_scanner_ver = @filemtime(__DIR__ . '/../public/assets/js/receipt-scanner.js') ?: time(); ?>
 <script src="<?php echo $base_path; ?>/public/assets/js/receipt-scanner.js?v=<?php echo $receipt_scanner_ver; ?>" data-base-path="<?php echo htmlspecialchars($base_path, ENT_QUOTES); ?>" defer></script>
+<?php $staff_modal_stack_ver = @filemtime(__DIR__ . '/../public/assets/js/staff_modal_stack.js') ?: time(); ?>
+<script src="<?php echo $base_path; ?>/public/assets/js/staff_modal_stack.js?v=<?php echo $staff_modal_stack_ver; ?>" defer></script>
 </div>

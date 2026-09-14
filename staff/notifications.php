@@ -9,6 +9,10 @@ require_once __DIR__ . '/../includes/functions.php';
 require_role('Staff');
 printflow_require_staff_module('notifications');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
+require_once __DIR__ . '/../includes/staff_status_filters.php';
+
+$staffAccessMeta = printflow_get_staff_access_meta();
+$staffRole = (string)($staffAccessMeta['key'] ?? 'online');
 
 $staff_id = get_user_id();
 $base_url = defined('BASE_URL') ? BASE_URL : (defined('BASE_PATH') ? BASE_PATH : '/printflow');
@@ -118,14 +122,17 @@ if (isset($_GET['action'])) {
     }
 }
 
-$filter = isset($_GET['filter']) ? $_GET['filter'] : 'all';
+$filter = isset($_GET['filter']) ? (string)$_GET['filter'] : 'all';
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 
 $where = "user_id = ?";
 $params = [$staff_id];
 $types = 'i';
 
-$notification_type_filters = ['Order', 'Stock', 'System', 'Payment', 'Design', 'Job Order', 'Rating', 'Review', 'Status', 'Message', 'Payment Issue'];
+$notification_type_filters = printflow_staff_notification_type_options($staffRole);
+if ($filter !== 'all' && $filter !== 'unread' && !in_array($filter, $notification_type_filters, true)) {
+    $filter = 'all';
+}
 
 if ($filter === 'unread') {
     $where .= " AND is_read = 0";
@@ -590,14 +597,24 @@ $page_title = 'Notifications - Staff';
                                             <select id="nt_fp_filter" class="input-field" style="height:34px; padding:0 8px;">
                                                 <option value="all" <?php echo $filter === 'all' ? 'selected' : ''; ?>>All notifications</option>
                                                 <option value="unread" <?php echo $filter === 'unread' ? 'selected' : ''; ?>>Unread only</option>
-                                                <option value="Order" <?php echo $filter === 'Order' ? 'selected' : ''; ?>>Orders</option>
-                                                <option value="Payment" <?php echo $filter === 'Payment' ? 'selected' : ''; ?>>Payments</option>
-                                                <option value="Design" <?php echo $filter === 'Design' ? 'selected' : ''; ?>>Design uploads</option>
-                                                <option value="Job Order" <?php echo $filter === 'Job Order' ? 'selected' : ''; ?>>Job orders</option>
-                                                <option value="Stock" <?php echo $filter === 'Stock' ? 'selected' : ''; ?>>Inventory</option>
-                                                <option value="Rating" <?php echo $filter === 'Rating' ? 'selected' : ''; ?>>Ratings</option>
-                                                <option value="Review" <?php echo $filter === 'Review' ? 'selected' : ''; ?>>Reviews</option>
-                                                <option value="System" <?php echo $filter === 'System' ? 'selected' : ''; ?>>System</option>
+                                                <?php
+                                                $notification_filter_labels = [
+                                                    'Order' => 'Orders',
+                                                    'Payment' => 'Payments',
+                                                    'Design' => 'Design uploads',
+                                                    'Job Order' => 'Job orders',
+                                                    'Stock' => 'Inventory',
+                                                    'Rating' => 'Ratings',
+                                                    'Review' => 'Reviews',
+                                                    'Status' => 'Status updates',
+                                                    'Message' => 'Messages',
+                                                    'Payment Issue' => 'Payment issues',
+                                                    'System' => 'System',
+                                                ];
+                                                foreach ($notification_type_filters as $notificationType):
+                                                ?>
+                                                <option value="<?php echo htmlspecialchars($notificationType, ENT_QUOTES); ?>" <?php echo $filter === $notificationType ? 'selected' : ''; ?>><?php echo htmlspecialchars($notification_filter_labels[$notificationType] ?? $notificationType); ?></option>
+                                                <?php endforeach; ?>
                                             </select>
                                         </div>
                                         <div class="filter-section">

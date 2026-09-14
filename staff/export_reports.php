@@ -7,6 +7,8 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
+require_once __DIR__ . '/../includes/staff_access.php';
+require_once __DIR__ . '/../includes/staff_status_filters.php';
 
 // Requires Staff, Manager, or Admin role
 $userType = $_SESSION['user_type'] ?? '';
@@ -15,8 +17,12 @@ if (!in_array($userType, ['Staff', 'Admin', 'Manager'], true)) {
 }
 
 $staffBranchId = null;
+$staffRole = 'online';
+$staffOrderScopeSql = '1=1';
 if (in_array($userType, ['Staff', 'Manager'], true)) {
     $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
+    $staffRole = printflow_get_staff_access_role();
+    $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
 }
 
 // Load PhpSpreadsheet via Composer Autoloader
@@ -45,7 +51,11 @@ use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 // 1. Determine Filters (Matches reports.php logic)
 $range = $_GET['range'] ?? 'week';
-$status_filter = $_GET['status'] ?? 'ALL';
+$status_filter = printflow_staff_normalize_status_filter((string)($_GET['status'] ?? 'ALL'), $staffRole);
+$ordersStatusMeta = printflow_staff_orders_status_clause($status_filter, 'o', $staffRole);
+$status_where_sql = ($ordersStatusMeta['sql'] !== '1=1') ? ' AND ' . $ordersStatusMeta['sql'] : '';
+$status_params = $ordersStatusMeta['params'];
+$status_types = $ordersStatusMeta['types'];
 
 if ($range === 'year') {
     $interval_sql = '11 MONTH';
@@ -73,6 +83,7 @@ $sql = "
     FROM orders o
     LEFT JOIN customers c ON o.customer_id = c.customer_id
     WHERE o.order_date >= DATE_SUB(CURDATE(), INTERVAL $interval_sql)
+    AND {$staffOrderScopeSql}
 ";
 
 $params = [];
@@ -84,16 +95,12 @@ if ($staffBranchId !== null) {
     $types .= 'i';
 }
 
-if ($staffBranchId !== null) {
-    $sql .= " AND o.branch_id = ?";
-    $params[] = $staffBranchId;
-    $types .= 'i';
-}
-
-if ($status_filter !== 'ALL' && $status_filter !== '') {
-    $sql .= " AND o.status = ?";
-    $params[] = $status_filter;
-    $types .= 's';
+if ($status_where_sql !== '') {
+    $sql .= $status_where_sql;
+    if ($status_params !== []) {
+        $params = array_merge($params, $status_params);
+        $types .= $status_types;
+    }
 }
 
 $sql .= " ORDER BY o.order_date DESC";

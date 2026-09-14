@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_role('Staff');
 printflow_require_staff_module('dashboard');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
+require_once __DIR__ . '/../includes/staff_status_filters.php';
 
 $staffCtx = init_branch_context();
 $staffBranchId = $staffCtx['selected_branch_id'] === 'all' ? (int)($_SESSION['branch_id'] ?? 1) : (int)$staffCtx['selected_branch_id'];
@@ -40,7 +41,7 @@ $page = max(1, (int)($_GET['page'] ?? 1));
 $limit = 15;
 $offset = ($page - 1) * $limit;
 
-$status_filter = $_GET['status'] ?? '';
+$status_filter = printflow_staff_dashboard_normalize_status_filter((string)($_GET['status'] ?? ''), $staffAccessMeta['key'] ?? null);
 $search_filter = $_GET['search'] ?? '';
 $timeframe = $_GET['timeframe'] ?? 'today';
 if ($timeframe === 'year') {
@@ -255,10 +256,15 @@ $sql_cond = " WHERE o.branch_id = ? AND {$staffOrderScopeSql}";
 $params = [$staffBranchId];
 $types = "i";
 
-if ($status_filter) {
-    $sql_cond .= " AND o.status = ?";
-    $params[] = $status_filter;
-    $types .= "s";
+if ($status_filter !== '') {
+    $dashboardStatusMeta = printflow_staff_dashboard_status_sql('o', $status_filter, $staffAccessMeta['key'] ?? null);
+    if (($dashboardStatusMeta['sql'] ?? '1=1') !== '1=1') {
+        $sql_cond .= ' AND ' . $dashboardStatusMeta['sql'];
+        if (!empty($dashboardStatusMeta['params'])) {
+            $params = array_merge($params, $dashboardStatusMeta['params']);
+            $types .= $dashboardStatusMeta['types'];
+        }
+    }
 }
 if ($has_timeframe_range) {
     $sql_cond .= " AND " . $timeframe_sql;
@@ -459,14 +465,9 @@ $page_title = 'Staff Dashboard - PrintFlow';
             return type.charAt(0).toUpperCase() + type.slice(1);
         },
         getStatusLabel(status) {
+            const labels = <?php echo json_encode(printflow_staff_dashboard_status_labels($staffAccessMeta['key'] ?? null)); ?>;
             if (!status) return 'All';
-            if (status === 'PENDING') return 'Pending';
-            if (status === 'APPROVED') return 'Approved';
-            if (status === 'TO_PAY') return 'To Pay';
-            if (status === 'READY') return 'Ready';
-            if (status === 'COMPLETED') return 'Completed';
-            if (status === 'CANCELLED') return 'Cancelled / Rejected';
-            return status;
+            return labels[status] || status;
         }
     }">
         <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
@@ -497,12 +498,10 @@ $page_title = 'Staff Dashboard - PrintFlow';
                     </button>
                     <div class="dropdown-panel sort-dropdown" x-show="filterOpen" x-cloak @click.outside="filterOpen = false" style="right: 0; left: auto;">
                         <a href="#" class="sort-option" :class="{ active: !activeStatus }" @click.prevent="activeStatus = ''; filterOpen = false; refreshDashboard(1, '', activeTimeframe)">All Statuses</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'PENDING' }" @click.prevent="activeStatus = 'PENDING'; filterOpen = false; refreshDashboard(1, 'PENDING', activeTimeframe)">Pending</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'APPROVED' }" @click.prevent="activeStatus = 'APPROVED'; filterOpen = false; refreshDashboard(1, 'APPROVED', activeTimeframe)">Approved</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'TO_PAY' }" @click.prevent="activeStatus = 'TO_PAY'; filterOpen = false; refreshDashboard(1, 'TO_PAY', activeTimeframe)">To Pay</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'READY' }" @click.prevent="activeStatus = 'READY'; filterOpen = false; refreshDashboard(1, 'READY', activeTimeframe)">Ready</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'COMPLETED' }" @click.prevent="activeStatus = 'COMPLETED'; filterOpen = false; refreshDashboard(1, 'COMPLETED', activeTimeframe)">Completed</a>
-                        <a href="#" class="sort-option" :class="{ active: activeStatus === 'CANCELLED' }" @click.prevent="activeStatus = 'CANCELLED'; filterOpen = false; refreshDashboard(1, 'CANCELLED', activeTimeframe)">Cancelled / Rejected</a>
+                        <?php foreach (printflow_staff_status_filter_options($staffAccessMeta['key'] ?? null) as $statusCode => $statusLabel): ?>
+                            <?php if ($statusCode === '' || $statusCode === 'ALL') { continue; } ?>
+                        <a href="#" class="sort-option" :class="{ active: activeStatus === '<?php echo htmlspecialchars($statusCode, ENT_QUOTES); ?>' }" @click.prevent="activeStatus = '<?php echo htmlspecialchars($statusCode, ENT_QUOTES); ?>'; filterOpen = false; refreshDashboard(1, '<?php echo htmlspecialchars($statusCode, ENT_QUOTES); ?>', activeTimeframe)"><?php echo htmlspecialchars($statusLabel); ?></a>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
