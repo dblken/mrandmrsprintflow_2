@@ -101,23 +101,31 @@ require_once __DIR__ . '/../includes/header.php';
         align-items: center;
         gap: 0.75rem;
     }
+    .notif-action-btn,
     .notif-mark-all-btn {
-        padding: 0.65rem 1.25rem;
+        padding: 0.55rem 1.1rem;
+        min-height: 40px;
         border-radius: 8px;
-        font-size: 0.8rem;
-        font-weight: 700;
+        font-size: 0.75rem;
+        font-weight: 800;
         text-transform: uppercase;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.04em;
         background: rgba(14, 116, 144, 0.08);
         border: 1px solid rgba(14, 116, 144, 0.25);
         color: #0e7490;
         text-decoration: none;
         transition: all 0.2s;
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-sizing: border-box;
     }
+    .notif-action-btn:hover,
     .notif-mark-all-btn:hover {
-        background: rgba(14, 116, 144, 0.14);
-        transform: translateY(-1px);
+        background: #0e7490;
+        color: #ffffff;
     }
 
     /* Group Label */
@@ -249,8 +257,13 @@ require_once __DIR__ . '/../includes/header.php';
         .notif-page-title {
             font-size: 1.5rem;
         }
-        .notif-mark-all-btn {
+        .notif-page-header > div {
             width: 100%;
+        }
+        .notif-action-btn,
+        .notif-mark-all-btn {
+            flex: 1 1 160px;
+            width: auto;
             text-align: center;
         }
         .notif-card {
@@ -296,11 +309,11 @@ require_once __DIR__ . '/../includes/header.php';
                 <?php endif; ?>
             </h1>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                <button type="button" id="pf-push-toggle" class="notif-mark-all-btn" style="border:none;cursor:pointer;position:relative;z-index:5;pointer-events:auto;" onclick="return window.PFNotifications && window.PFNotifications.handlePushToggleClick ? (window.PFNotifications.handlePushToggleClick(this), false) : false;">
+                <button type="button" id="pf-push-toggle" class="notif-action-btn notif-mark-all-btn" onclick="return window.PFNotifications && window.PFNotifications.handlePushToggleClick ? (window.PFNotifications.handlePushToggleClick(this), false) : false;">
                     Enable notifications
                 </button>
                 <?php if ($unread_total > 0): ?>
-                    <a href="?mark_all_read=1" class="notif-mark-all-btn">Mark all as read</a>
+                    <a href="?mark_all_read=1" class="notif-action-btn notif-mark-all-btn">Mark all as read</a>
                 <?php endif; ?>
             </div>
         </div>

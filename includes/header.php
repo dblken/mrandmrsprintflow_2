@@ -209,7 +209,7 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
     </style>
     
 </head>
-<body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
+<body class="bg-gray-50<?php echo !empty($use_landing_css) ? ' lp-page' : ''; ?><?php echo !empty($use_customer_css) ? ' customer-theme' : ''; ?><?php echo !empty($is_chat_page) ? ' chat-page' : ''; ?><?php echo !empty($pf_catalog_nav_page) ? ' pf-catalog-nav-page' : ''; ?>" data-user-type="<?php echo htmlspecialchars(get_user_type() ?? 'Guest'); ?>">
     <!-- Skip to main content (accessibility) - hidden until focused -->
     <a href="#main-content" style="position:absolute;left:-9999px;z-index:9999;padding:0.5rem 1rem;background:#4F46E5;color:#fff;font-weight:500;" id="skip-link">Skip to main content</a>
     <script>document.getElementById('skip-link').addEventListener('focus',function(){ this.style.left='0'; }); document.getElementById('skip-link').addEventListener('blur',function(){ this.style.left='-9999px'; });</script>
@@ -339,7 +339,13 @@ $url_google_auth    = $base_url . '/public/google-auth.php';
             });
 
             window.addEventListener('load', syncSessionState);
-            window.addEventListener('pageshow', syncSessionState);
+            window.addEventListener('pageshow', function(event) {
+                if (event.persisted && document.body.classList.contains('pf-catalog-nav-page')) {
+                    setTimeout(syncSessionState, 3000);
+                    return;
+                }
+                syncSessionState();
+            });
             window.addEventListener('focus', syncSessionState);
             document.addEventListener('visibilitychange', function() {
                 if (document.visibilityState === 'visible') {

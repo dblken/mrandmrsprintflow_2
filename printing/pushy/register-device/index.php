@@ -6,7 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
 $apiKey = printflow_receipt_printer_request_api_key();
-$printer = printflow_receipt_printer_authenticate($apiKey);
+$printer = printflow_receipt_printer_authenticate($apiKey, 'pushy-register-device');
 $deviceToken = trim((string)($_GET['deviceToken'] ?? ''));
 
 if (empty($printer) || $deviceToken === '') {

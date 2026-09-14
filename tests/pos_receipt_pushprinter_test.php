@@ -67,6 +67,11 @@ $assert(str_contains($pos, "const onlineStoreUrl = 'https://mrandmrsprintflow.co
 $assert(str_contains($pos, 'Visit our Online Store') && str_contains($pos, 'Scan the QR code to order online'), 'POS preview identifies the separate online-store QR');
 $assert(!str_contains($customerOrders, 'Visit our Online Store'), 'online customer receipts do not receive the POS website section');
 $assert(!str_contains($pos, "showPosScanToast("), 'receipt monitoring uses an existing defined notification function');
+$assert(str_contains($printer, 'printflow_receipt_printer_json_body'), 'printer auth reads JSON POST bodies once');
+$assert(str_contains($printer, 'printflow_receipt_printer_extract_api_key_from_payload'), 'printer auth extracts keys from PushPrinter JSON payloads');
+$assert(str_contains($printer, 'HTTP_X_PRINTFLOW_PRINTER_KEY'), 'printer auth accepts the polling fallback header');
+$assert(str_contains($escposDelivery, 'printflow_receipt_printer_json_body'), 'order-to-escpos parses JSON before authenticating');
+$assert(str_contains($printerApi, 'printflow_receipt_printer_request_api_key'), 'polling fallback reuses shared printer auth');
 $assert(str_contains($printerApi, "\$action === 'diagnostics'"), 'printer API exposes authenticated receipt diagnostics');
 $assert(str_contains($printerApi, "\$action === 'adopt-retry'"), 'printer API can safely adopt and retry an existing receipt job');
 $assert(str_contains($printerApi, "WHERE id = ? AND status IN ('pending', 'failed')"), 'printer job adoption cannot recreate or alter an active completed sale');

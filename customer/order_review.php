@@ -1528,6 +1528,28 @@ require_once __DIR__ . '/../includes/header.php';
     .order-review-page .review-order-entry--product .review-total-row {
         grid-column: 5 !important;
     }
+    .order-review-page .review-order-entry--service .order-item-content {
+        grid-template-columns:
+            minmax(120px, 1.3fr)
+            minmax(72px, 0.75fr)
+            minmax(64px, 0.5fr)
+            minmax(158px, 1.15fr) !important;
+    }
+    .order-review-page .review-order-entry--service .review-total-row {
+        grid-column: 4 !important;
+        min-width: 0 !important;
+    }
+    .order-review-page .review-order-entry--service .review-total-label {
+        white-space: normal !important;
+        line-height: 1.2 !important;
+    }
+    .order-review-page .review-order-entry--service .review-total-value {
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        line-height: 1.25 !important;
+        font-size: 1rem !important;
+    }
     .order-review-page .review-order-entry .order-item-spec-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
         gap: 1rem 1.25rem !important;

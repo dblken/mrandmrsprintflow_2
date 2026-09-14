@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/staff_order_status_buckets.php';
 
 require_role('Staff');
 printflow_require_staff_module('orders');
@@ -274,63 +275,6 @@ function staff_orders_attach_payment_rejected_flags(array &$orders): void {
     unset($row);
 }
 
-/**
- * SQL predicate for orders that are still in the payment stage. PayMongo rows
- * remain authoritative; legacy proof-review statuses stay visible for old and
- * manual payments only.
- */
-function staff_orders_sql_payment_bucket(string $oAlias = 'o'): string {
-    $legacy = "{$oAlias}.status IN ('To Pay', 'Payment Confirmed', 'To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted', 'Payment Rejected', 'Rejected', 'Processing')";
-    if (!printflow_provider_payments_ready()) {
-        return '(' . $legacy . ')';
-    }
-
-    $mode = printflow_paymongo_mode();
-    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
-        ? " AND pp.mode = '{$mode}'"
-        : '';
-    $provider = "EXISTS (SELECT 1 FROM provider_payments pp
-        WHERE pp.subject_type = 'order' AND pp.subject_id = {$oAlias}.order_id
-          AND pp.channel = 'online' AND pp.provider = 'paymongo'{$modeSql}
-          AND pp.status IN ('generating', 'awaiting_payment', 'paid', 'failed', 'expired', 'cancelled'))";
-    $notFulfilled = "{$oAlias}.status NOT IN ('Ready for Pickup', 'To Pickup', 'To Pick Up', 'Completed', 'Cancelled')";
-    return '(' . $legacy . ' OR (' . $notFulfilled . ' AND ' . $provider . '))';
-}
-
-/** Online product orders that are not yet paid (including expired QR attempts). */
-function staff_orders_sql_awaiting_payment_bucket(string $oAlias = 'o'): string {
-    $legacy = "{$oAlias}.status IN ('To Pay', 'To Verify', 'Pending Verification', 'Verify Pay', 'Downpayment Submitted', 'Payment Rejected', 'Rejected', 'Processing')";
-    if (!printflow_provider_payments_ready()) {
-        return '(' . $legacy . ')';
-    }
-
-    $mode = printflow_paymongo_mode();
-    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
-        ? " AND pp.mode = '{$mode}'"
-        : '';
-    return '(' . $legacy . " OR EXISTS (SELECT 1 FROM provider_payments pp
-        WHERE pp.subject_type = 'order' AND pp.subject_id = {$oAlias}.order_id
-          AND pp.channel = 'online' AND pp.provider = 'paymongo'{$modeSql}
-          AND pp.status IN ('generating', 'awaiting_payment', 'failed', 'expired', 'cancelled')))";
-}
-
-/** Online product orders confirmed paid and awaiting physical claim. */
-function staff_orders_sql_paid_bucket(string $oAlias = 'o'): string {
-    $legacy = "{$oAlias}.status = 'Payment Confirmed'";
-    if (!printflow_provider_payments_ready()) {
-        return '(' . $legacy . ')';
-    }
-
-    $mode = printflow_paymongo_mode();
-    $modeSql = in_array($mode, ['test', 'live'], true) && db_table_has_column('provider_payments', 'mode')
-        ? " AND pp.mode = '{$mode}'"
-        : '';
-    return '(' . $legacy . " OR EXISTS (SELECT 1 FROM provider_payments pp
-        WHERE pp.subject_type = 'order' AND pp.subject_id = {$oAlias}.order_id
-          AND pp.channel = 'online' AND pp.provider = 'paymongo'{$modeSql}
-          AND pp.status = 'paid'))";
-}
-
 /** Attach the current environment's online PayMongo state to rendered rows. */
 function staff_orders_attach_provider_payments(array &$orders): void {
     if ($orders === [] || !printflow_provider_payments_ready()) {
@@ -484,6 +428,14 @@ $payment_count = $all_counts['PAYMENT'];
 $awaiting_payment_count = $all_counts['AWAITING_PAYMENT'];
 $paid_count = $all_counts['PAID'];
 $completed_count = $all_counts['COMPLETED'];
+$total_items_sold = (int)(db_query(
+    "SELECT COALESCE(SUM(oi.quantity), 0) AS total
+     FROM order_items oi
+     INNER JOIN orders o ON o.order_id = oi.order_id
+     WHERE o.status = 'Completed' {$kpi_conditions}",
+    $kpi_types ?: null,
+    $kpi_params ?: null
+)[0]['total'] ?? 0);
 $total_revenue = db_query(
     "SELECT COALESCE(SUM(o.total_amount), 0) as total FROM orders o WHERE o.status = 'Completed' {$kpi_conditions}",
     $kpi_types ?: null,
@@ -2932,16 +2884,16 @@ $page_title = 'Orders - Staff';
                 <?php if ($is_pos_staff): ?>
                     <div class="kpi-card indigo">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Total Walk-in Sales</span>
-                            <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($total_count); ?></span>
-                            <span class="kpi-sub">Completed product sales</span>
+                            <span class="kpi-label">Completed Walk-in Transactions</span>
+                            <span class="kpi-value" id="totalOrdersCount"><?php echo number_format($completed_count); ?></span>
+                            <span class="kpi-sub">Number of completed POS sales</span>
                         </span>
                     </div>
                     <div class="kpi-card blue">
                         <span class="kpi-card-inner">
-                            <span class="kpi-label">Completed Sales</span>
-                            <span class="kpi-value"><?php echo number_format($completed_count); ?></span>
-                            <span class="kpi-sub">Paid and released</span>
+                            <span class="kpi-label">Total Items Sold</span>
+                            <span class="kpi-value"><?php echo number_format($total_items_sold); ?></span>
+                            <span class="kpi-sub">Total units sold from completed POS sales</span>
                         </span>
                     </div>
                     <div class="kpi-card emerald">

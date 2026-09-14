@@ -185,6 +185,11 @@ function handle_product_photo_upload($file, $product_id = null) {
     if (!move_uploaded_file($file['tmp_name'], $target_path)) {
         throw new Exception('Failed to upload file to server');
     }
+
+    if (function_exists('pf_image_optimizer_after_upload_path')) {
+        require_once __DIR__ . '/../includes/image_optimizer.php';
+        pf_image_optimizer_after_upload_path($target_path);
+    }
     
     // Use the actual $base_path variable value, not PHP code
     $base = defined('BASE_PATH') ? BASE_PATH : (defined('BASE_URL') ? BASE_URL : '/printflow');

@@ -13,6 +13,8 @@ require_once __DIR__ . '/email_sms_config.php';
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/ensure_order_source_column.php'; // Ensure order_source column exists
 require_once __DIR__ . '/order_items_persistence.php';
+require_once __DIR__ . '/image_optimizer.php';
+require_once __DIR__ . '/customer_catalog_perf.php';
 
 // Global Environment Detection
 if (!defined('BASE_PATH')) {
@@ -569,11 +571,19 @@ function printflow_staff_notification_visible(array $notification, ?int $branchI
     }
 
     $staffRole = function_exists('printflow_get_staff_access_role') ? printflow_get_staff_access_role() : null;
+    $type = (string)($notification['type'] ?? '');
+    if ($staffRole !== null) {
+        if (!function_exists('printflow_staff_notification_type_allowed')) {
+            require_once __DIR__ . '/staff_status_filters.php';
+        }
+        if (!printflow_staff_notification_type_allowed($type, $staffRole)) {
+            return false;
+        }
+    }
     if ($staffRole === null || !function_exists('printflow_staff_role_can_access_order_source')) {
         return true;
     }
 
-    $type = (string)($notification['type'] ?? '');
     $dataId = (int)($notification['data_id'] ?? 0);
     $orderSource = printflow_notification_source_for_staff_scope($type, $dataId);
     if ($orderSource !== null) {
@@ -1252,6 +1262,9 @@ function upload_file($file, $allowed_extensions = [], $destination = 'uploads', 
     $relative_path = rtrim($base, '/') . '/uploads/' . $destination . '/' . $new_name;
     
     if (move_uploaded_file($file['tmp_name'], $target_path)) {
+        if (function_exists('pf_image_optimizer_after_upload_path')) {
+            pf_image_optimizer_after_upload_path($target_path);
+        }
         return [
             'success' => true,
             'message' => 'File uploaded successfully',
@@ -4697,6 +4710,413 @@ function printflow_customer_modal_dedupe_flat_specs(array $flat, ?int $lineQuant
         }
     }
 
+    return printflow_customer_modal_suppress_redundant_dimension_specs($out);
+}
+
+/**
+ * Parse "2×3", "2 x 3 ft", etc. into [width, height] or null when not a dimension pair.
+ *
+ * @return array{0:float,1:float}|null
+ */
+function printflow_customer_modal_parse_dimension_pair(string $text): ?array {
+    $t = strtolower(trim($text));
+    $t = str_replace(['×', '*'], 'x', $t);
+    if (!preg_match('/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/', $t, $m)) {
+        return null;
+    }
+    return [(float)$m[1], (float)$m[2]];
+}
+
+/**
+ * Extract the first numeric measurement from a width/height value (e.g. "2 ft" -> 2).
+ */
+function printflow_customer_modal_parse_single_dimension(string $text): ?float {
+    if (preg_match('/(\d+(?:\.\d+)?)/', trim($text), $m)) {
+        return (float)$m[1];
+    }
+    return null;
+}
+
+/**
+ * Format a single measurement for customer display (2.00 -> 2, 2.25 -> 2.25).
+ */
+function printflow_customer_modal_format_dimension_number(float $n): string {
+    if (abs($n - round($n)) < 0.0001) {
+        return (string)(int)round($n);
+    }
+
+    return rtrim(rtrim(number_format($n, 4, '.', ''), '0'), '.');
+}
+
+/**
+ * Detect unit suffix on a dimension string (not area).
+ */
+function printflow_customer_modal_extract_dimension_unit(string $text): string {
+    if (preg_match('/\b(sq\s*ft|sqft)\b/i', $text)) {
+        return 'sqft';
+    }
+    if (preg_match('/\b(ft|feet|foot)\b/i', $text)) {
+        return 'ft';
+    }
+    if (preg_match('/\b(in|inch|inches)\b/i', $text)) {
+        return 'in';
+    }
+    if (preg_match('/\b(cm)\b/i', $text)) {
+        return 'cm';
+    }
+    if (preg_match('/\b(m)\b/i', $text)) {
+        return 'm';
+    }
+
+    return '';
+}
+
+/**
+ * Semantic fingerprint for W×H measurements (ignores formatting differences).
+ */
+function printflow_customer_modal_normalize_dimension_fingerprint(string $text): ?string {
+    if (preg_match('/\b(sq\s*ft|sqft)\b/i', $text)) {
+        return null;
+    }
+    $pair = printflow_customer_modal_parse_dimension_pair($text);
+    if ($pair === null) {
+        return null;
+    }
+    $w = printflow_customer_modal_format_dimension_number($pair[0]);
+    $h = printflow_customer_modal_format_dimension_number($pair[1]);
+    $unit = printflow_customer_modal_extract_dimension_unit($text);
+
+    return $w . 'x' . $h . ($unit !== '' ? '@' . $unit : '');
+}
+
+/**
+ * Compare dimension fingerprints (2x3 matches 2x3@ft).
+ */
+function printflow_customer_modal_dimension_fingerprints_equivalent(string $fp1, string $fp2): bool {
+    if ($fp1 === $fp2) {
+        return true;
+    }
+
+    $parse = static function (string $fp): array {
+        if (str_contains($fp, '@')) {
+            return explode('@', $fp, 2);
+        }
+
+        return [$fp, ''];
+    };
+
+    [$base1, $unit1] = $parse($fp1);
+    [$base2, $unit2] = $parse($fp2);
+    if ($base1 !== $base2) {
+        return false;
+    }
+    if ($unit1 === $unit2) {
+        return true;
+    }
+
+    return $unit1 === '' || $unit2 === '';
+}
+
+/**
+ * Non-measurement size labels (apparel presets, paper sizes, "Custom" without numbers).
+ */
+function printflow_customer_modal_is_preset_size_value(string $text): bool {
+    $text = trim($text);
+    if ($text === '' || printflow_customer_modal_parse_dimension_pair($text) !== null) {
+        return false;
+    }
+
+    $lower = strtolower($text);
+    $presets = [
+        'small', 'medium', 'large', 'extra large', 'xl', 'xxl', 'xs', 'xxs',
+        'custom', 'a4', 'a3', 'a5', 'a2', 'letter', 'legal', 'tabloid',
+    ];
+    if (in_array($lower, $presets, true)) {
+        return true;
+    }
+
+    return !preg_match('/\d/', $text);
+}
+
+/**
+ * Prefer configured Dimensions field over generic Size when collapsing duplicates.
+ */
+function printflow_customer_modal_dimension_key_priority(string $normalizedKey): int {
+    static $priority = [
+        'dimensionsft' => 100,
+        'dimensionft' => 95,
+        'dimensions' => 90,
+        'dimension' => 85,
+        'tarpsize' => 80,
+        'size' => 70,
+        'sizes' => 65,
+    ];
+
+    return $priority[$normalizedKey] ?? 0;
+}
+
+/**
+ * Customer-facing dimension formatting (strip .00, preserve meaningful decimals).
+ */
+function printflow_customer_modal_format_dimension_display_value(string $text): string {
+    $text = trim($text);
+    if ($text === '' || printflow_customer_modal_is_preset_size_value($text)) {
+        return $text;
+    }
+
+    $pair = printflow_customer_modal_parse_dimension_pair($text);
+    if ($pair === null) {
+        return $text;
+    }
+
+    $w = printflow_customer_modal_format_dimension_number($pair[0]);
+    $h = printflow_customer_modal_format_dimension_number($pair[1]);
+    $unit = printflow_customer_modal_extract_dimension_unit($text);
+
+    if ($unit === 'ft') {
+        return $w . ' × ' . $h . ' ft';
+    }
+    if ($unit === 'in') {
+        return $w . ' × ' . $h . ' in';
+    }
+    if ($unit === 'cm') {
+        return $w . ' × ' . $h . ' cm';
+    }
+    if ($unit === 'm') {
+        return $w . ' × ' . $h . ' m';
+    }
+    if (str_contains($text, '×')) {
+        return $w . '×' . $h;
+    }
+    if (str_contains($text, '*')) {
+        return $w . '*' . $h;
+    }
+
+    return $w . ' × ' . $h;
+}
+
+/**
+ * Whether a flat spec key/label represents a dimensional measurement field.
+ */
+function printflow_customer_modal_is_dimension_spec_key(string $key): bool {
+    $nk = printflow_customer_modal_nf_spec_key($key);
+    if (in_array($nk, ['size', 'sizes', 'dimension', 'dimensions', 'dimensionsft', 'dimensionft', 'tarpsize'], true)) {
+        return true;
+    }
+
+    return str_contains($nk, 'dimension');
+}
+
+/**
+ * Collapse equivalent Size/Dimensions rows and format the surviving Dimensions value.
+ *
+ * @param array<string, string> $flat
+ * @return array<string, string>
+ */
+function printflow_customer_modal_collapse_equivalent_dimension_fields(array $flat): array {
+    $dimensionGroupKeys = ['size', 'sizes', 'dimension', 'dimensions', 'dimensionsft', 'dimensionft', 'tarpsize'];
+    $dimensionFields = [];
+
+    foreach ($flat as $k => $v) {
+        $nk = printflow_customer_modal_nf_spec_key((string)$k);
+        if (!in_array($nk, $dimensionGroupKeys, true)) {
+            continue;
+        }
+        $text = trim((string)$v);
+        if ($text === '' || printflow_customer_modal_is_preset_size_value($text)) {
+            continue;
+        }
+        $fp = printflow_customer_modal_normalize_dimension_fingerprint($text);
+        if ($fp === null) {
+            continue;
+        }
+        $dimensionFields[] = [
+            'key' => (string)$k,
+            'nk' => $nk,
+            'value' => $text,
+            'fp' => $fp,
+            'priority' => printflow_customer_modal_dimension_key_priority($nk),
+        ];
+    }
+
+    if ($dimensionFields === []) {
+        return $flat;
+    }
+
+    $groups = [];
+    foreach ($dimensionFields as $field) {
+        $groupIndex = null;
+        foreach ($groups as $idx => $group) {
+            foreach ($group as $existing) {
+                if (printflow_customer_modal_dimension_fingerprints_equivalent($field['fp'], $existing['fp'])) {
+                    $groupIndex = $idx;
+                    break 2;
+                }
+            }
+        }
+        if ($groupIndex === null) {
+            $groups[] = [$field];
+            continue;
+        }
+        $groups[$groupIndex][] = $field;
+    }
+
+    foreach ($groups as $group) {
+        usort($group, static fn($a, $b) => $b['priority'] <=> $a['priority']);
+        $winner = $group[0];
+        foreach ($group as $field) {
+            unset($flat[$field['key']]);
+        }
+        $flat['Dimensions'] = printflow_customer_modal_format_dimension_display_value($winner['value']);
+    }
+
+    return $flat;
+}
+
+/**
+ * When Dimensions already expresses the same W×H as separate Width/Height fields, hide the redundant pair.
+ *
+ * @param array<string, string> $flat
+ * @return array<string, string>
+ */
+function printflow_customer_modal_suppress_redundant_dimension_specs(array $flat): array {
+    if ($flat === []) {
+        return $flat;
+    }
+
+    $flat = printflow_customer_modal_collapse_equivalent_dimension_fields($flat);
+
+    $widthKeys = ['width', 'widthft', 'widthin', 'widthinch', 'widthinches'];
+    $heightKeys = ['height', 'heightft', 'heightin', 'heightinch', 'heightinches'];
+
+    $sizePair = null;
+    foreach ($flat as $k => $v) {
+        if (!printflow_customer_modal_is_dimension_spec_key((string)$k)) {
+            continue;
+        }
+        $pair = printflow_customer_modal_parse_dimension_pair((string)$v);
+        if ($pair !== null) {
+            $sizePair = $pair;
+            break;
+        }
+    }
+    if ($sizePair === null) {
+        return $flat;
+    }
+
+    $widthVal = null;
+    $heightVal = null;
+    $removeKeys = [];
+    foreach ($flat as $k => $v) {
+        $nk = printflow_customer_modal_nf_spec_key((string)$k);
+        if (in_array($nk, $widthKeys, true)) {
+            $widthVal = printflow_customer_modal_parse_single_dimension((string)$v);
+            $removeKeys[] = $k;
+        } elseif (in_array($nk, $heightKeys, true)) {
+            $heightVal = printflow_customer_modal_parse_single_dimension((string)$v);
+            $removeKeys[] = $k;
+        }
+    }
+
+    if ($widthVal === null || $heightVal === null) {
+        return $flat;
+    }
+
+    $eps = 0.02;
+    if (abs($widthVal - $sizePair[0]) <= $eps && abs($heightVal - $sizePair[1]) <= $eps) {
+        foreach ($removeKeys as $rk) {
+            unset($flat[$rk]);
+        }
+    }
+
+    return $flat;
+}
+
+/**
+ * After display_specs, ensure customer modal shows one clean "Dimensions" label.
+ *
+ * @param array<string, string> $specs
+ * @return array<string, string>
+ */
+function printflow_customer_modal_finalize_customer_dimension_labels(array $specs): array {
+    if ($specs === []) {
+        return $specs;
+    }
+
+    $measurable = [];
+    foreach ($specs as $label => $value) {
+        $text = trim((string)$value);
+        if ($text === '' || !printflow_customer_modal_is_dimension_spec_key((string)$label)) {
+            continue;
+        }
+        if (printflow_customer_modal_is_preset_size_value($text)) {
+            continue;
+        }
+        $fp = printflow_customer_modal_normalize_dimension_fingerprint($text);
+        if ($fp === null) {
+            continue;
+        }
+        $measurable[] = [
+            'label' => (string)$label,
+            'labelNorm' => printflow_customer_modal_nf_spec_key((string)$label),
+            'value' => $text,
+            'fp' => $fp,
+            'priority' => printflow_customer_modal_dimension_key_priority(printflow_customer_modal_nf_spec_key((string)$label)),
+        ];
+    }
+
+    if ($measurable === []) {
+        return $specs;
+    }
+
+    $groups = [];
+    foreach ($measurable as $field) {
+        $groupIndex = null;
+        foreach ($groups as $idx => $group) {
+            foreach ($group as $existing) {
+                if (printflow_customer_modal_dimension_fingerprints_equivalent($field['fp'], $existing['fp'])) {
+                    $groupIndex = $idx;
+                    break 2;
+                }
+            }
+        }
+        if ($groupIndex === null) {
+            $groups[] = [$field];
+            continue;
+        }
+        $groups[$groupIndex][] = $field;
+    }
+
+    $canonical = null;
+    foreach ($groups as $group) {
+        usort($group, static fn($a, $b) => $b['priority'] <=> $a['priority']);
+        $winner = $group[0];
+        if ($canonical === null) {
+            $canonical = printflow_customer_modal_format_dimension_display_value($winner['value']);
+        }
+    }
+
+    $out = [];
+    $dimensionsInserted = false;
+    foreach ($specs as $label => $value) {
+        $text = trim((string)$value);
+        if ($canonical !== null && printflow_customer_modal_is_dimension_spec_key((string)$label)) {
+            if (printflow_customer_modal_is_preset_size_value($text)) {
+                $out[$label] = $value;
+                continue;
+            }
+            $fp = printflow_customer_modal_normalize_dimension_fingerprint($text);
+            if ($fp !== null) {
+                if (!$dimensionsInserted) {
+                    $out['Dimensions'] = $canonical;
+                    $dimensionsInserted = true;
+                }
+                continue;
+            }
+        }
+        $out[$label] = $value;
+    }
+
     return $out;
 }
 
@@ -4777,12 +5197,17 @@ function printflow_flatten_order_customization_for_customer_modal(array $custom,
     $out = printflow_customer_modal_strip_placeholder_job_dimensions($out);
 
     $out = printflow_customer_modal_dedupe_flat_specs($out, $lineQuantity, $is_staff);
-    return printflow_customization_display_specs($out, [
+    $out = printflow_customization_display_specs($out, [
         'include_service' => $is_staff,
         'include_design' => false,
         'include_notes' => $is_staff,
         'include_quantity' => false,
     ]);
+    if (!$is_staff) {
+        $out = printflow_customer_modal_finalize_customer_dimension_labels($out);
+    }
+
+    return $out;
 }
 
 /**
@@ -6049,6 +6474,77 @@ function printflow_get_service_reviews(string $service_name, ?int $limit = null,
     }
 
     return db_query($sql, $types, $params) ?: [];
+}
+
+/**
+ * Batch-load review images and staff replies to avoid per-review queries.
+ *
+ * @param array<int, array<string, mixed>> $reviews
+ * @return array<int, array<string, mixed>>
+ */
+function printflow_attach_review_media(array $reviews): array {
+    if ($reviews === []) {
+        return $reviews;
+    }
+
+    $ids = [];
+    foreach ($reviews as $review) {
+        $id = (int)($review['id'] ?? 0);
+        if ($id > 0) {
+            $ids[$id] = $id;
+        }
+    }
+    if ($ids === []) {
+        return $reviews;
+    }
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $types = str_repeat('i', count($ids));
+    $idList = array_values($ids);
+
+    $imagesByReview = [];
+    $imageRows = db_query(
+        "SELECT review_id, image_path FROM review_images WHERE review_id IN ($placeholders) ORDER BY review_id ASC, id ASC",
+        $types,
+        $idList
+    ) ?: [];
+    foreach ($imageRows as $row) {
+        $rid = (int)($row['review_id'] ?? 0);
+        if ($rid > 0) {
+            $imagesByReview[$rid][] = ['image_path' => (string)($row['image_path'] ?? '')];
+        }
+    }
+
+    $repliesByReview = [];
+    $replyRows = db_query(
+        "SELECT rr.review_id, rr.reply_message, rr.created_at, u.first_name, u.last_name
+         FROM review_replies rr
+         INNER JOIN users u ON u.user_id = rr.staff_id
+         WHERE rr.review_id IN ($placeholders)
+         ORDER BY rr.review_id ASC, rr.created_at ASC",
+        $types,
+        $idList
+    ) ?: [];
+    foreach ($replyRows as $row) {
+        $rid = (int)($row['review_id'] ?? 0);
+        if ($rid > 0) {
+            $repliesByReview[$rid][] = [
+                'reply_message' => (string)($row['reply_message'] ?? ''),
+                'created_at' => (string)($row['created_at'] ?? ''),
+                'first_name' => (string)($row['first_name'] ?? ''),
+                'last_name' => (string)($row['last_name'] ?? ''),
+            ];
+        }
+    }
+
+    foreach ($reviews as $idx => $review) {
+        $rid = (int)($review['id'] ?? 0);
+        $reviews[$idx]['images'] = $imagesByReview[$rid] ?? [];
+        $reviews[$idx]['replies'] = $repliesByReview[$rid] ?? [];
+        $reviews[$idx]['has_video'] = !empty($review['video_path']);
+    }
+
+    return $reviews;
 }
 
 function get_service_name_from_customization($custom, $fallback = 'Custom Order') {

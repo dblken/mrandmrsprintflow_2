@@ -1202,7 +1202,12 @@ function _ft_detect_social(string $url): array {
     <?php endif; ?>
 
     <!-- PWA -->
-    <script src="<?php echo $base_url; ?>/public/assets/js/pwa.js?v=<?php echo time(); ?>"></script>
+    <?php $pwa_js_ver = @filemtime(__DIR__ . '/../public/assets/js/pwa.js') ?: time(); ?>
+    <script src="<?php echo $base_url; ?>/public/assets/js/pwa.js?v=<?php echo $pwa_js_ver; ?>" defer></script>
+    <?php if (!empty($pf_catalog_nav_page)): ?>
+    <?php $catalog_nav_js_ver = @filemtime(__DIR__ . '/../public/assets/js/customer-catalog-nav.js') ?: time(); ?>
+    <script src="<?php echo $base_url; ?>/public/assets/js/customer-catalog-nav.js?v=<?php echo $catalog_nav_js_ver; ?>" defer></script>
+    <?php endif; ?>
 
     <?php
     // Only load push/notification script for authenticated users
@@ -1246,6 +1251,7 @@ function _ft_detect_social(string $url): array {
     <script src="<?php echo $base_url; ?>/public/assets/js/notifications.js?v=<?php echo $notif_js_ver; ?>" defer></script>
     <script src="<?php echo $base_url; ?>/public/assets/js/inactivity_logout.js" defer></script>
     <?php endif; ?>
-    <script src="<?php echo $base_url ?? '/printflow'; ?>/public/assets/js/order_validation.js?v=<?php echo time(); ?>" defer></script>
+    <?php $order_validation_js_ver = @filemtime(__DIR__ . '/../public/assets/js/order_validation.js') ?: time(); ?>
+    <script src="<?php echo $base_url ?? '/printflow'; ?>/public/assets/js/order_validation.js?v=<?php echo $order_validation_js_ver; ?>" defer></script>
 </body>
 </html>

@@ -11,36 +11,15 @@ function printer_api_respond(int $statusCode, array $payload): void {
     exit;
 }
 
-function printer_api_input(): array {
-    $raw = file_get_contents('php://input');
-    if (!is_string($raw) || trim($raw) === '') return [];
-    $decoded = json_decode($raw, true);
-    return is_array($decoded) ? $decoded : [];
-}
-
-function printer_api_key(array $input): string {
-    $authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
-    if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
-        return trim($matches[1]);
-    }
-    $forwarded = trim((string)($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''));
-    if (preg_match('/^Bearer\s+(.+)$/i', $forwarded, $matches)) {
-        return trim($matches[1]);
-    }
-    return trim((string)(
-        $_SERVER['HTTP_X_PRINTFLOW_PRINTER_KEY']
-        ?? $input['api_key']
-        ?? $_REQUEST['api_key']
-        ?? ''
-    ));
-}
-
 if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', ['GET', 'POST'], true)) {
     printer_api_respond(405, ['ok' => false, 'error' => 'method_not_allowed']);
 }
 
-$input = printer_api_input();
-$printer = printflow_receipt_printer_authenticate(printer_api_key($input));
+$input = printflow_receipt_printer_json_body();
+$printer = printflow_receipt_printer_authenticate(
+    printflow_receipt_printer_request_api_key($input),
+    'printer-jobs-api'
+);
 if (empty($printer)) {
     printer_api_respond(401, ['ok' => false, 'error' => 'invalid_printer_api_key']);
 }

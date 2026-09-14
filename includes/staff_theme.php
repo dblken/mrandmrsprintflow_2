@@ -983,7 +983,6 @@
     html.printflow-staff.printflow-staff-pos .btn-staff-action-blue,
     html.printflow-staff.printflow-staff-pos .btn-action-primary,
     html.printflow-staff.printflow-staff-pos .service-count,
-    html.printflow-staff.printflow-staff-pos .tp-sold,
     html.printflow-staff.printflow-staff-pos .om-value,
     html.printflow-staff.printflow-staff-pos .filter-select:focus,
     html.printflow-staff.printflow-staff-pos .filter-input:focus,
@@ -998,6 +997,11 @@
     html.printflow-staff.printflow-staff-pos .toolbar-btn:hover,
     html.printflow-staff.printflow-staff-pos .toolbar-btn.active {
         background: var(--staff-toolbar-active-bg) !important;
+    }
+
+    html.printflow-staff.printflow-staff-pos .tp-sold,
+    html.printflow-staff.printflow-staff-pos .tp-sold .tp-sold-label {
+        color: #0f172a !important;
     }
 
     html.printflow-staff.printflow-staff-pos .sort-option.active {
@@ -1082,7 +1086,6 @@
     html.printflow-staff.printflow-staff-pos .chart-title,
     html.printflow-staff.printflow-staff-pos .page-title,
     html.printflow-staff.printflow-staff-pos .notif-card-head h3,
-    html.printflow-staff.printflow-staff-pos .tp-name,
     html.printflow-staff.printflow-staff-pos .notif-msg,
     html.printflow-staff.printflow-staff-pos .om-value,
     html.printflow-staff.printflow-staff-pos [style*="color:#013a3a"],
@@ -1380,5 +1383,20 @@
             max-height: calc(100dvh - 88px) !important;
             overflow: auto !important;
         }
+    }
+
+    html.printflow-staff .tp-name {
+        font-weight: 500 !important;
+        color: #334155 !important;
+    }
+
+    html.printflow-staff .tp-sold,
+    html.printflow-staff .tp-sold .tp-sold-label {
+        color: #0f172a !important;
+        font-weight: 600 !important;
+    }
+
+    html.printflow-staff .tp-sold .tp-sold-label {
+        font-weight: 500 !important;
     }
 </style>

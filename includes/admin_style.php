@@ -281,6 +281,12 @@ unset($__pf_admin_mobile_css_file, $__pf_admin_mobile_css_ver);
         z-index: 1;
     }
 
+    /* Staff modals live inside .main-content; raise the column above the fixed sidebar while open */
+    body.pf-modal-open .main-content,
+    html.pf-modal-open .main-content {
+        z-index: 1030;
+    }
+
     /* Keep main in sync with fixed sidebar width (same duration/easing = no “jump”) */
     @media (min-width: 769px) {
         .main-content {

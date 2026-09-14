@@ -6,7 +6,9 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/customer_catalog_perf.php';
 
+define('PF_CUSTOMER_CATALOG_NAV', true);
 require_role('Customer');
 
 function pf_product_media_is_video($path) {
@@ -96,8 +98,12 @@ $types .= 'ii';
 
 $products = db_query($sql, $types, $params);
 
+$base_path = pf_app_base_path();
+$default_product_img = $base_path . '/public/assets/images/services/default.png';
+
 $page_title = 'Products - PrintFlow';
 $use_customer_css = true;
+$pf_catalog_nav_page = true;
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
@@ -118,6 +124,62 @@ require_once __DIR__ . '/../includes/header.php';
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
+    }
+
+    .shopee-img-wrap {
+        width: 100%;
+        height: 210px;
+        max-height: 210px;
+        overflow: hidden;
+        background: #f1f5f9;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .shopee-img-wrap .shopee-img {
+        width: 100%;
+        height: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center;
+        display: block;
+        aspect-ratio: auto;
+        margin: 0;
+        padding: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: transparent;
+    }
+
+    .shopee-card > video.shopee-img {
+        width: 100%;
+        height: 210px;
+        max-height: 210px;
+        object-fit: cover;
+        object-position: center;
+        aspect-ratio: auto;
+        flex-shrink: 0;
+        display: block;
+        margin: 0;
+        border-radius: 0;
+    }
+
+    @media (min-width: 1024px) {
+        .shopee-img-wrap,
+        .shopee-card > video.shopee-img {
+            height: 220px;
+            max-height: 220px;
+        }
+    }
+
+    @media (max-width: 1023px) and (min-width: 641px) {
+        .shopee-img-wrap,
+        .shopee-card > video.shopee-img {
+            height: 200px;
+            max-height: 200px;
+        }
     }
 
     /* Tablet: 2 cards per row */
@@ -143,15 +205,10 @@ require_once __DIR__ . '/../includes/header.php';
             border-radius: 16px;
         }
 
-        /* Optimize card layout for mobile */
-        .shopee-img {
-            aspect-ratio: 1.15;
-            width: 100%;
-            height: auto;
-            max-height: 210px;
-            object-fit: cover;
-            margin: 0;
-            border-radius: 0;
+        .shopee-img-wrap,
+        .shopee-card > video.shopee-img {
+            height: 168px;
+            max-height: 168px;
         }
 
         .shopee-body {
@@ -255,16 +312,11 @@ require_once __DIR__ . '/../includes/header.php';
         z-index: 1;
     }
 
-    .shopee-img {
+    .shopee-card > .shopee-img:not(.shopee-img-wrap .shopee-img) {
         width: 100%;
-        min-width: 100%;
         display: block;
         margin: 0;
-        aspect-ratio: 1.18;
-        object-fit: cover;
         border-radius: 0;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 30px rgba(16, 53, 71, 0.12);
-        background: linear-gradient(180deg, rgba(240, 248, 252, 0.9), rgba(225, 236, 243, 0.9));
     }
 
     .shopee-body {
@@ -439,9 +491,9 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         <?php else: ?>
             <div class="shopee-grid">
-                <?php foreach ($products as $product): 
-                    $display_img = $product['photo_path'] ?: $product['product_image'] ?: "/printflow/public/assets/images/services/default.png";
-                    if ($display_img[0] !== '/' && strpos($display_img, 'http') === false) $display_img = '/' . $display_img;
+                <?php foreach ($products as $product_index => $product): 
+                    $raw_img = $product['photo_path'] ?: $product['product_image'] ?: $default_product_img;
+                    $display_img = pf_normalize_service_image_path((string)$raw_img, $base_path, $default_product_img);
                     $is_video_media = pf_product_media_is_video($display_img);
                     
                     $sold_count = (int)$product['sold_count'];
@@ -464,7 +516,19 @@ require_once __DIR__ . '/../includes/header.php';
                                 style="background:#f8fafc;opacity:0;"
                             ></video>
                         <?php else: ?>
-                            <img src="<?php echo htmlspecialchars($display_img); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="shopee-img">
+                            <div class="shopee-img-wrap">
+                                <?php
+                                echo pf_catalog_image_tag($display_img, 'card', [
+                                    'alt' => $product['name'],
+                                    'class' => 'shopee-img',
+                                    'loading' => $product_index < 4 ? 'eager' : 'lazy',
+                                    'fetchpriority' => $product_index === 0 ? 'high' : '',
+                                    'width' => 400,
+                                    'height' => 348,
+                                    'onerror' => "this.onerror=null;this.src='" . addslashes(htmlspecialchars($default_product_img, ENT_QUOTES)) . "';",
+                                ]);
+                                ?>
+                            </div>
                         <?php endif; ?>
                         <div class="shopee-body">
                             <div class="shopee-meta-row">

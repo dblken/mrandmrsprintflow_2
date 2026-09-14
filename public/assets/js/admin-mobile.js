@@ -294,7 +294,7 @@
         const panels = root.querySelectorAll ? root.querySelectorAll('.filter-panel') : [];
 
         panels.forEach(panel => {
-            if (panel.querySelector(':scope > .pf-filter-close')) return;
+            if (panel.querySelector(':scope > .pf-filter-close') || panel.querySelector('.filter-close-btn')) return;
 
             const button = document.createElement('button');
             button.type = 'button';
