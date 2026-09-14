@@ -42,6 +42,8 @@ $assert(str_contains($staffTheme, 'html.printflow-staff.printflow-staff-pos .tp-
 $assert(str_contains($notifications, 'notif-action-btn'), 'notifications page uses unified action button class');
 $assert(str_contains($notifications, 'background: #0e7490'), 'notifications action buttons reuse view-button hover fill');
 
+$assert(str_contains($functions, 'printflow_customer_modal_collapse_equivalent_dimension_fields'), 'size/dimensions collapse helper exists');
+$assert(str_contains($functions, 'printflow_customer_modal_finalize_customer_dimension_labels'), 'customer Dimensions label finalize exists');
 $assert(str_contains($functions, "abs(\$widthVal - \$sizePair[0])"), 'dimension dedupe compares parsed width/height to size pair');
 
 echo PHP_EOL . 'All staff report / UI consistency tests passed.' . PHP_EOL;
