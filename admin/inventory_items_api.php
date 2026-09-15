@@ -15,6 +15,7 @@ require_once __DIR__ . '/../includes/inventory_stock_status.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 
 printflow_ensure_inv_items_threshold_schema();
+printflow_ensure_inv_category_catalog();
 
 require_role(['Admin', 'Staff', 'Manager']);
 header('Content-Type: application/json');

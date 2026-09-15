@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/inventory_stock_status.php';
 
 require_role(['Admin', 'Manager']);
 printflow_ensure_inv_items_threshold_schema();
+printflow_ensure_inv_category_catalog();
 // Ensure $base_path is defined
 if (!isset($base_path)) {
     if (file_exists(__DIR__ . '/../config.php')) {
