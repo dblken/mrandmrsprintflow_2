@@ -71,6 +71,7 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
+require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
 
@@ -901,6 +902,86 @@ function jo_api_hydrate_items_raw(int $orderId, array &$items): void {
         }
     }
     unset($item);
+}
+
+function jo_api_material_context_for_assignment(int $orderId, ?string $orderType): array {
+    $orderType = strtoupper(trim((string)$orderType));
+    $context = [
+        'serviceId' => 0,
+        'serviceCategory' => '',
+        'serviceType' => '',
+        'serviceName' => '',
+        'serviceLabel' => 'this service',
+        'customization' => [],
+        'productType' => '',
+        'souvenirType' => '',
+        'stickerType' => '',
+        'cutType' => '',
+    ];
+
+    if ($orderType === 'ORDER') {
+        $payload = JobOrderService::getStoreOrderItemsPayload($orderId, false, true);
+        $items = array_values($payload['items'] ?? []);
+        jo_api_hydrate_items_raw($orderId, $items);
+
+        $linkedRows = db_query(
+            'SELECT order_item_id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1',
+            'i',
+            [$orderId]
+        ) ?: [];
+        $linkedOrderItemId = (int)($linkedRows[0]['order_item_id'] ?? 0);
+        $firstCustom = [];
+        foreach ($items as $item) {
+            if ($firstCustom === [] && !empty($item['customization']) && is_array($item['customization'])) {
+                $firstCustom = $item['customization'];
+            }
+        }
+        $serviceName = trim((string)($payload['service_type'] ?? ''));
+        $materialContext = function_exists('printflow_anchor_material_context_to_order_item')
+            ? printflow_anchor_material_context_to_order_item(
+                $items,
+                $linkedOrderItemId,
+                $serviceName,
+                $firstCustom,
+                (string)($payload['width_ft'] ?? '1'),
+                (string)($payload['height_ft'] ?? '1')
+            )
+            : [];
+        $primaryCustom = is_array($materialContext['firstCustom'] ?? null) ? $materialContext['firstCustom'] : $firstCustom;
+        $serviceType = trim((string)($materialContext['serviceName'] ?? $serviceName));
+        $serviceCategory = trim((string)($materialContext['serviceCategory'] ?? ''));
+        $serviceId = (int)($materialContext['serviceId'] ?? ($primaryCustom['service_id'] ?? 0));
+        $serviceLabel = $serviceType !== '' && $serviceCategory !== '' && strcasecmp($serviceType, $serviceCategory) !== 0
+            ? $serviceType . ' / ' . $serviceCategory
+            : ($serviceType !== '' ? $serviceType : ($serviceCategory !== '' ? $serviceCategory : 'this service'));
+
+        return array_merge($context, [
+            'serviceId' => $serviceId,
+            'serviceCategory' => $serviceCategory,
+            'serviceType' => $serviceType,
+            'serviceName' => $serviceType,
+            'serviceLabel' => $serviceLabel,
+            'customization' => [$primaryCustom],
+            'productType' => (string)($primaryCustom['product_type'] ?? ''),
+            'souvenirType' => (string)($primaryCustom['souvenir_type'] ?? ''),
+            'stickerType' => (string)($primaryCustom['sticker_type'] ?? $primaryCustom['stickers_type'] ?? $primaryCustom['sticker_type_size'] ?? $primaryCustom['stickers_type_size'] ?? $primaryCustom['Sticker Type'] ?? ''),
+            'cutType' => (string)($primaryCustom['cut_type'] ?? $primaryCustom['Cut Type'] ?? ''),
+        ]);
+    }
+
+    $jobRows = db_query('SELECT * FROM job_orders WHERE id = ? LIMIT 1', 'i', [$orderId]) ?: [];
+    $job = $jobRows[0] ?? [];
+    $linkedOrderId = (int)($job['order_id'] ?? 0);
+    if ($linkedOrderId > 0) {
+        return jo_api_material_context_for_assignment($linkedOrderId, 'ORDER');
+    }
+    $serviceType = trim((string)($job['service_type'] ?? $job['job_title'] ?? ''));
+    return array_merge($context, [
+        'serviceType' => $serviceType,
+        'serviceName' => $serviceType,
+        'serviceLabel' => $serviceType !== '' ? $serviceType : 'this service',
+        'customization' => [],
+    ]);
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
@@ -2952,6 +3033,8 @@ try {
             } else {
                 jo_api_require_staff_branch($joStaffBranch, $orderId);
             }
+            $materialContext = jo_api_material_context_for_assignment($orderId, $orderType);
+            pfpm_assert_material_applicable($itemId, $materialContext);
             $res = JobOrderService::addMaterial($orderId, $itemId, $qty, $uom, $rollId, $notes, $metadata, $orderType);
             jo_api_json_response(['success' => true, 'id' => $res]);
             break;

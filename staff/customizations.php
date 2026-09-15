@@ -2504,8 +2504,8 @@ $online_closed_count = 0;
                                                             <span class="production-material-option__status" :id="'production-material-status-' + item.id" x-text="materialStatusLabel(item)"></span>
                                                         </button>
                                                     </template>
-                                                    <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty">
-                                                        No materials match this search.
+                                                    <div x-show="availableMaterialsForCurrentOrder.length === 0" class="production-material-empty" x-text="materialPickerEmptyMessage">
+                                                        No recommended materials configured for this service.
                                                     </div>
                                                 </div>
                                                 <div x-show="!hasVerifiedMaterialSuggestions" style="margin-top:7px; color:#64748b; font-size:10px; line-height:1.4;">
@@ -5529,6 +5529,12 @@ window.pfServiceFieldCatalog = (() => {
                         const state = this.materialClassification(item);
                         return state.tier === 'recommended' || state.tier === 'optional';
                     });
+            },
+            get materialPickerEmptyMessage() {
+                if (!this.hasVerifiedMaterialSuggestions) {
+                    return 'No recommended materials configured for this service.';
+                }
+                return 'No materials match this search.';
             },
             materialClassification(item) {
                 if (!item || !window.PrintFlowProductionMaterials) return { tier: 'unrelated', selectable: false };

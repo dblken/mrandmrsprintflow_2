@@ -32,19 +32,23 @@ function byName(rows, name) {
 }
 
 const mugRows = picker.rankItems(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), [], '');
+const mugTarpState = picker.classifyItem(byName(inventory, '3ft Tarpaulin'), context('Souvenirs', { souvenir_type: 'Mug' }), []);
+const mugOutOfStockTarpState = picker.classifyItem(byName(inventory, '4ft Tarpaulin'), context('Souvenirs', { souvenir_type: 'Mug' }), []);
 assert.strictEqual(mugRows[0].name, 'MUG');
 assert.strictEqual(byName(mugRows, 'MUG').compatibility.tier, 'recommended');
 assert.strictEqual(byName(mugRows, 'Subli Paper').compatibility.tier, 'recommended');
 assert.strictEqual(byName(mugRows, 'BOX MUG').compatibility.tier, 'optional');
 assert.strictEqual(byName(mugRows, 'MUG').compatibility.directSelectable, true);
 assert.strictEqual(byName(mugRows, 'BOX MUG').compatibility.directSelectable, true);
-assert.strictEqual(byName(mugRows, '3ft Tarpaulin').compatibility.directSelectable, false);
-assert.strictEqual(byName(mugRows, '3ft Tarpaulin').compatibility.overrideable, true);
-assert.strictEqual(byName(mugRows, '3ft Tarpaulin').compatibility.selectable, true);
-assert.strictEqual(byName(mugRows, '4ft Tarpaulin').compatibility.overrideable, false);
-assert.strictEqual(byName(mugRows, '4ft Tarpaulin').compatibility.selectable, false);
-assert.strictEqual(byName(mugRows, '4ft Tarpaulin').compatibility.reason, 'Out of stock');
-assert.strictEqual(byName(mugRows, 'PVC ID').compatibility.tier, 'unrelated');
+assert.strictEqual(byName(mugRows, '3ft Tarpaulin'), undefined);
+assert.strictEqual(mugTarpState.directSelectable, false);
+assert.strictEqual(mugTarpState.overrideable, true);
+assert.strictEqual(mugTarpState.selectable, true);
+assert.strictEqual(mugOutOfStockTarpState.overrideable, false);
+assert.strictEqual(mugOutOfStockTarpState.selectable, false);
+assert.strictEqual(mugOutOfStockTarpState.reason, 'Out of stock');
+assert.strictEqual(byName(mugRows, 'PVC ID'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'PVC ID'), context('Souvenirs', { souvenir_type: 'Mug' }), []).tier, 'unrelated');
 assert.strictEqual(byName(mugRows, 'test garbage nonsense material'), undefined);
 assert.strictEqual(byName(mugRows, 'INK L120 BLUE'), undefined);
 
@@ -71,11 +75,14 @@ const shirtRows = picker.rankItems(inventory, context('T-Shirt Printing'), [], '
 assert.strictEqual(byName(shirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');
 assert.strictEqual(byName(shirtRows, 'Holographic').compatibility.tier, 'recommended');
 assert.strictEqual(byName(shirtRows, 'Matte Black').compatibility.tier, 'recommended');
-assert.strictEqual(byName(shirtRows, 'MUG').compatibility.directSelectable, false);
-assert.strictEqual(byName(shirtRows, 'MUG').compatibility.overrideable, true);
-assert.strictEqual(byName(shirtRows, 'PVC ID').compatibility.directSelectable, false);
-assert.strictEqual(byName(shirtRows, 'PVC ID').compatibility.overrideable, true);
-assert.strictEqual(byName(shirtRows, 'STICKER BLACK').compatibility.directSelectable, false);
+assert.strictEqual(byName(shirtRows, 'MUG'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'MUG'), context('T-Shirt Printing'), []).directSelectable, false);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'MUG'), context('T-Shirt Printing'), []).overrideable, true);
+assert.strictEqual(byName(shirtRows, 'PVC ID'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'PVC ID'), context('T-Shirt Printing'), []).directSelectable, false);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'PVC ID'), context('T-Shirt Printing'), []).overrideable, true);
+assert.strictEqual(byName(shirtRows, 'STICKER BLACK'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'STICKER BLACK'), context('T-Shirt Printing'), []).directSelectable, false);
 assert.strictEqual(picker.inkModeFor(byName(shirtRows, 'VINYL BLACK')), 'none');
 
 const printedRows = picker.rankItems(inventory, context('Stickers Decals', { sticker_type: 'Printed Sticker' }), [], '');
@@ -107,18 +114,19 @@ const metadataStickerRows = picker.rankItems([
 ], { serviceType: 'Stickers Decals', serviceLabel: 'Stickers Decals / Stickers', serviceCategory: 'Stickers' }, [], '');
 assert.strictEqual(byName(metadataStickerRows, 'BLACK').compatibility.tier, 'recommended');
 assert.strictEqual(byName(metadataStickerRows, 'Adhesive White').compatibility.tier, 'recommended');
-assert.notStrictEqual(byName(metadataStickerRows, 'Generic Vinyl').compatibility.tier, 'recommended');
+assert.strictEqual(byName(metadataStickerRows, 'Generic Vinyl'), undefined);
 
 const sintraRows = picker.rankItems(inventory, context('Sintraboard Standees'), [], '');
 assert.strictEqual(byName(sintraRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');
 assert.strictEqual(byName(sintraRows, 'Sintra 5mm').compatibility.tier, 'recommended');
-assert.strictEqual(byName(sintraRows, 'SP HOME').compatibility.directSelectable, false);
-assert.strictEqual(byName(sintraRows, 'SP HOME').compatibility.overrideable, true);
+assert.strictEqual(byName(sintraRows, 'SP HOME'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'SP HOME'), context('Sintraboard Standees'), []).directSelectable, false);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'SP HOME'), context('Sintraboard Standees'), []).overrideable, true);
 assert.strictEqual(picker.inkModeFor(byName(sintraRows, 'Sintra 3mm 32')), 'none');
 
 const brochureRows = picker.rankItems(inventory, context('Brochure'), [], '');
 assert.strictEqual(byName(brochureRows, 'C2s Special Paper').compatibility.tier, 'recommended');
-assert.strictEqual(byName(brochureRows, 'C2s Board').compatibility.directSelectable, false);
+assert.strictEqual(byName(brochureRows, 'C2s Board'), undefined);
 
 const raffleRows = picker.rankItems(inventory, context('Raffle Ticket Printing'), [], '');
 assert.strictEqual(byName(raffleRows, 'C2s Board').compatibility.tier, 'recommended');
@@ -133,48 +141,45 @@ const signageRows = picker.rankItems(inventory, context('Reflectorized Signage')
 assert.strictEqual(byName(signageRows, 'Sintra 3mm 32').compatibility.tier, 'recommended');
 assert.strictEqual(byName(signageRows, '3M Reflective').compatibility.tier, 'optional');
 assert.strictEqual(byName(signageRows, 'STICKER BLACK').compatibility.tier, 'optional');
-assert.strictEqual(byName(signageRows, 'AC EURO').compatibility.directSelectable, false);
+assert.strictEqual(byName(signageRows, 'AC EURO'), undefined);
 
 const plateRows = picker.rankItems(inventory, context('Reflectorized', { product_type: 'Plate Number / Temporary Plate' }), [], '');
 assert.strictEqual(byName(plateRows, 'AC EURO').compatibility.tier, 'recommended');
 assert.strictEqual(byName(plateRows, 'SP HOME').compatibility.tier, 'recommended');
 assert.strictEqual(byName(plateRows, '3M Reflective').compatibility.tier, 'optional');
 assert.strictEqual(byName(plateRows, 'STICKER SILVER').compatibility.tier, 'optional');
-assert.strictEqual(byName(plateRows, 'VINYL BLACK').compatibility.directSelectable, false);
-assert.strictEqual(byName(plateRows, 'Sintra 3mm 32').compatibility.directSelectable, false);
-assert.strictEqual(byName(plateRows, 'Sintra 3mm 32').compatibility.overrideable, true);
+assert.strictEqual(byName(plateRows, 'VINYL BLACK'), undefined);
+assert.strictEqual(byName(plateRows, 'Sintra 3mm 32'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'Sintra 3mm 32'), context('Reflectorized', { product_type: 'Plate Number / Temporary Plate' }), []).directSelectable, false);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'Sintra 3mm 32'), context('Reflectorized', { product_type: 'Plate Number / Temporary Plate' }), []).overrideable, true);
 assert.strictEqual(picker.inkModeFor(byName(plateRows, 'AC EURO')), 'none');
 
-const fuzzyCases = {
-    tarpolin: '3ft Tarpaulin',
-    nexjt: 'NEXJET',
-    'mug bx': 'BOX MUG',
-    reflect: '3M Reflective',
-    'pp matte': 'PP STKR MATTE 98',
-    'sp home': 'SP HOME',
-    sintra: 'Sintra 3mm 32',
-    c2s: 'C2s Board',
-    'special papr': 'C2s Special Paper',
-    subli: 'Subli Paper',
-    'photo papr': 'Photo Paper',
-    'stiker paper': 'Sticker Paper',
-    'ac thai': 'AC THAI',
-    hologram: 'HOLOGRAM',
-    holographic: 'Holographic',
-    'mat blk': 'Matte Black'
-};
-Object.entries(fuzzyCases).forEach(([query, expected]) => {
-    const rows = picker.rankItems(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), [], query);
+const fuzzyCases = [
+    ['tarpolin', '3ft Tarpaulin', context('Tarpaulin Printing')],
+    ['nexjt', 'NEXJET', context('Stickers Decals', { sticker_type: 'Printed Sticker' })],
+    ['mug bx', 'BOX MUG', context('Souvenirs', { souvenir_type: 'Mug' })],
+    ['reflect', '3M Reflective', context('Reflectorized Signage')],
+    ['pp matte', 'PP STKR MATTE 98', context('Stickers Decals', { sticker_type: 'Printed Sticker' })],
+    ['sp home', 'SP HOME', context('Reflectorized', { product_type: 'Plate Number / Temporary Plate' })],
+    ['sintra', 'Sintra 3mm 32', context('Reflectorized Signage')],
+    ['c2s', 'C2s Board', context('Raffle Ticket Printing')],
+    ['special papr', 'C2s Special Paper', context('Brochure')],
+    ['subli', 'Subli Paper', context('Souvenirs', { souvenir_type: 'Mug' })],
+    ['photo papr', 'Photo Paper', context('Poster Printing')],
+    ['stiker paper', 'Sticker Paper', context('Stickers Decals', { sticker_type: 'Printed Sticker' })],
+    ['ac thai', 'AC THAI', context('Reflectorized', { product_type: 'Plate Number / Temporary Plate' })],
+    ['hologram', 'HOLOGRAM', context('Stickers Decals', { sticker_type: 'Printed Sticker' })],
+    ['holographic', 'Holographic', context('T-Shirt Printing')],
+    ['mat blk', 'Matte Black', context('T-Shirt Printing')]
+];
+fuzzyCases.forEach(([query, expected, ctx]) => {
+    const rows = picker.rankItems(inventory, ctx, [], query);
     assert.strictEqual(rows[0].name, expected, `${query} should rank ${expected} first`);
 });
 const unrelatedSearch = picker.rankItems(inventory, context('Souvenirs', { souvenir_type: 'Mug' }), [], 'tarpaulin');
-assert.strictEqual(unrelatedSearch[0].name, '3ft Tarpaulin');
-assert.strictEqual(unrelatedSearch[0].compatibility.directSelectable, false);
-assert.strictEqual(unrelatedSearch[0].compatibility.overrideable, true);
+assert.strictEqual(unrelatedSearch.length, 0);
 const plateSearchOnMugs = picker.rankItems(inventory, context('Mugs'), [], 'SP HOME');
-assert.strictEqual(plateSearchOnMugs[0].name, 'SP HOME');
-assert.strictEqual(plateSearchOnMugs[0].compatibility.directSelectable, false);
-assert.strictEqual(plateSearchOnMugs[0].compatibility.overrideable, true);
+assert.strictEqual(plateSearchOnMugs.length, 0);
 
 const unknown = context('Verified Legacy Service');
 const rules = [{ service_type: 'Verified Legacy Service', item_id: inventory[18].id, rule_type: 'REQUIRED' }];
@@ -246,7 +251,8 @@ function categoryContext(category, serviceType) {
 const leakedTshirtLabelTarp = picker.rankItems(inventory, categoryContext('Tarpaulin', 'T-Shirt Printing'), [], '');
 assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.tier, 'recommended');
 assert.strictEqual(byName(leakedTshirtLabelTarp, '3ft Tarpaulin').compatibility.reason, 'Recommended for this job');
-assert.strictEqual(byName(leakedTshirtLabelTarp, 'VINYL BLACK').compatibility.reason, 'Not suggested for Tarpaulin');
+assert.strictEqual(byName(leakedTshirtLabelTarp, 'VINYL BLACK'), undefined);
+assert.strictEqual(picker.classifyItem(byName(inventory, 'VINYL BLACK'), categoryContext('Tarpaulin', 'T-Shirt Printing'), []).reason, 'Not suggested for Tarpaulin');
 
 const adminTshirtRows = picker.rankItems(inventory, categoryContext('T-Shirt', 'T-Shirt Printing'), [], '');
 assert.strictEqual(byName(adminTshirtRows, 'VINYL BLACK').compatibility.tier, 'recommended');

@@ -405,7 +405,7 @@
     function rankItems(items, context, rules, query) {
         return (Array.isArray(items) ? items : [])
             .map(item => ({ ...item, compatibility: classifyItem(item, context, rules), search_score: searchScore(item, query) }))
-            .filter(item => item.compatibility.tier !== 'excluded' && item.search_score > 0)
+            .filter(item => ['recommended', 'optional'].includes(item.compatibility.tier) && item.search_score > 0)
             .sort((left, right) => {
                 if (query && right.search_score !== left.search_score) return right.search_score - left.search_score;
                 const tierDiff = TIER_ORDER[left.compatibility.tier] - TIER_ORDER[right.compatibility.tier];
