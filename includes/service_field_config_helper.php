@@ -4,6 +4,65 @@
  * Extracts and manages dynamic field configurations for services
  */
 
+/** Maximum length for select/radio option labels configured in Admin. */
+function printflow_service_field_option_max_length(): int {
+    return 64;
+}
+
+/**
+ * Enforce option label length when saving service field configs (presentation metadata only).
+ *
+ * @param mixed $options
+ * @return mixed
+ */
+function printflow_normalize_service_field_options($options) {
+    if (!is_array($options)) {
+        return $options;
+    }
+
+    $max = printflow_service_field_option_max_length();
+    $trimToMax = static function (string $value) use ($max): string {
+        $value = trim($value);
+        if ($value === '') {
+            return $value;
+        }
+        if (function_exists('mb_strlen') && mb_strlen($value, 'UTF-8') > $max) {
+            return mb_substr($value, 0, $max, 'UTF-8');
+        }
+        if (strlen($value) > $max) {
+            return substr($value, 0, $max);
+        }
+
+        return $value;
+    };
+
+    $out = [];
+    foreach ($options as $option) {
+        if (is_array($option)) {
+            $row = $option;
+            if (isset($row['value']) && is_scalar($row['value'])) {
+                $row['value'] = $trimToMax((string)$row['value']);
+            }
+            if (!empty($row['nested_fields']) && is_array($row['nested_fields'])) {
+                foreach ($row['nested_fields'] as $idx => $nested) {
+                    if (is_array($nested) && array_key_exists('options', $nested)) {
+                        $row['nested_fields'][$idx]['options'] = printflow_normalize_service_field_options($nested['options']);
+                    }
+                }
+            }
+            $out[] = $row;
+            continue;
+        }
+        if (is_string($option) || is_numeric($option)) {
+            $out[] = $trimToMax((string)$option);
+            continue;
+        }
+        $out[] = $option;
+    }
+
+    return $out;
+}
+
 /**
  * Extract field structure from a customer order page
  * Analyzes the HTML/PHP to detect all form fields
@@ -116,6 +175,9 @@ function save_service_field_config($service_id, $field_key, $config) {
         [$service_id, $field_key]
     );
     
+    if (isset($config['options'])) {
+        $config['options'] = printflow_normalize_service_field_options($config['options']);
+    }
     $options_json = isset($config['options']) ? json_encode($config['options']) : null;
     $unit = $config['unit'] ?? 'ft';
     $allow_others = array_key_exists('allow_others', $config)

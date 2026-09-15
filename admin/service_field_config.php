@@ -9,6 +9,8 @@ require_once __DIR__ . '/../includes/service_field_config_helper.php';
 
 require_role(['Admin', 'Manager']);
 
+$pf_service_option_max_length = printflow_service_field_option_max_length();
+
 $service_id = (int)($_GET['service_id'] ?? $_GET['service-id'] ?? 0);
 $error = '';
 $success = '';
@@ -366,7 +368,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                     ?>
                                                         <div class="option-item radio-option-item" data-option-index="<?php echo $optIdx; ?>" style="flex-direction:column;align-items:stretch;">
                             <div style="display:flex;gap:8px;align-items:center;">
-                                <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;">
+                                <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
                                 <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                                 <button type="button" class="btn-add" onclick="toggleNestedFieldPanel(this, '<?php echo htmlspecialchars($key); ?>', <?php echo $optIdx; ?>)" style="background:#10b981;color:white;border:none;padding:8px 12px;border-radius:6px;font-size:14px;font-weight:600;min-width:40px;" title="Add Nested Field">
                                     +
@@ -387,7 +389,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                         $optPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                                                     ?>
                                                         <div class="option-item" style="display:flex;gap:8px;align-items:center;">
-                                                            <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;">
+                                                            <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
                                                             <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                                                             <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
                                                         </div>
@@ -677,7 +679,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                     <label class="field-label">Options (Choices shown to customer)</label>
                     <div id="new-field-options-list" class="option-list">
                         <div class="option-item" style="display:flex;gap:8px;align-items:center;">
-                            <input type="text" class="option-input" placeholder="e.g., Small, Red, Matte (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;">
+                            <input type="text" class="option-input" placeholder="e.g., Small, Red, Matte (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
                             <input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                             <button type="button" class="btn-add" onclick="toggleNewNestedFieldPanel(this, 0)" style="background:#10b981;color:white;border:none;padding:8px 12px;border-radius:6px;font-size:14px;font-weight:600;min-width:40px;" title="Add Nested Field">
                                 +
@@ -685,7 +687,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                             <button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>
                         </div>
                         <div class="option-item" style="display:flex;gap:8px;align-items:center;">
-                            <input type="text" class="option-input" placeholder="e.g., Medium, Blue, Glossy (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;">
+                            <input type="text" class="option-input" placeholder="e.g., Medium, Blue, Glossy (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
                             <input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                             <button type="button" class="btn-add" onclick="toggleNewNestedFieldPanel(this, 1)" style="background:#10b981;color:white;border:none;padding:8px 12px;border-radius:6px;font-size:14px;font-weight:600;min-width:40px;" title="Add Nested Field">
                                 +
@@ -693,7 +695,7 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                             <button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>
                         </div>
                         <div class="option-item" style="display:flex;gap:8px;align-items:center;">
-                            <input type="text" class="option-input" placeholder="e.g., Large, Green, Vinyl (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;">
+                            <input type="text" class="option-input" placeholder="e.g., Large, Green, Vinyl (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
                             <input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
                             <button type="button" class="btn-add" onclick="toggleNewNestedFieldPanel(this, 2)" style="background:#10b981;color:white;border:none;padding:8px 12px;border-radius:6px;font-size:14px;font-weight:600;min-width:40px;" title="Add Nested Field">
                                 +
@@ -780,6 +782,8 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
 
 
 <script>
+const PF_SERVICE_OPTION_MAX_LEN = <?php echo (int)$pf_service_option_max_length; ?>;
+const PF_SERVICE_OPTION_PLACEHOLDER = 'Enter option (' + PF_SERVICE_OPTION_MAX_LEN + ' MAX CHARACTERS)';
 window.fieldConfigurations = <?php echo json_encode($field_configs, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?> || {};
 
 window.showAddFieldModal = function() {
@@ -817,7 +821,7 @@ window.showEditFieldModal = function(key) {
             const item = document.createElement('div');
             item.className = 'option-item';
             item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-            item.innerHTML = '<input type="text" class="option-input" value="' + optValue + '" maxlength="32" placeholder="Enter option (32 MAX CHARACTERS)" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" value="' + optPrice + '" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button>';
+            item.innerHTML = '<input type="text" class="option-input" value="' + optValue + '" maxlength="' + PF_SERVICE_OPTION_MAX_LEN + '" placeholder="' + PF_SERVICE_OPTION_PLACEHOLDER + '" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" value="' + optPrice + '" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button>';
             list.appendChild(item);
         });
     } else if (config.type === 'dimension') {
@@ -911,7 +915,7 @@ window.addOption = function(btn) {
     const item = document.createElement('div');
     item.className = 'option-item';
     item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>';
+    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>';
     list.appendChild(item);
 };
 
@@ -940,7 +944,7 @@ window.addNewFieldOption = function() {
     const item = document.createElement('div');
     item.className = 'option-item';
     item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>';
+    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>';
     list.appendChild(item);
 };
 
@@ -1127,7 +1131,7 @@ window.addEditFieldOption = function() {
     const item = document.createElement('div');
     item.className = 'option-item';
     item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (32 MAX CHARACTERS)" maxlength="32" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button>';
+    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeEditFieldOption(this)">Remove</button>';
     list.appendChild(item);
 };
 
