@@ -3028,7 +3028,9 @@ try {
                     });
                 });
                 body.querySelectorAll('select').forEach(s => {
+                    if (typeof pfSyncSelectOthersWrap === 'function') pfSyncSelectOthersWrap(s);
                     s.addEventListener('change', function () {
+                        if (typeof pfSyncSelectOthersWrap === 'function') pfSyncSelectOthersWrap(this);
                         if (typeof updateConditionalFields === 'function') updateConditionalFields();
                     });
                 });
@@ -3369,7 +3371,17 @@ try {
                     }
                 });
                 radiosByName.forEach((radios, name) => {
-                    if (!radios.some(radio => radio.checked)) addError(row, radios[0], name);
+                    const checked = radios.find(radio => radio.checked);
+                    if (!checked) {
+                        addError(row, radios[0], name);
+                        return;
+                    }
+                    if (checked.value === 'Others') {
+                        const otherInput = row.querySelector('input[name="' + name + '_other"]');
+                        if (otherInput && !String(otherInput.value || '').trim()) {
+                            addError(row, otherInput, name + '_other');
+                        }
+                    }
                 });
 
                 const dimensionInputs = requiredInputs.filter(input => input.type === 'hidden' && input.dataset.dimensionRole);
@@ -3382,6 +3394,13 @@ try {
                     const value = input.type === 'file'
                         ? (input.files && input.files.length > 0 ? input.files[0].name : '')
                         : String(input.value || '').trim();
+                    if (input.tagName === 'SELECT') {
+                        const otherValue = input.getAttribute('data-other-option') || 'Others';
+                        const rowOtherInput = row.querySelector('input[name="' + input.name + '_other"]');
+                        if (value === otherValue && rowOtherInput && !String(rowOtherInput.value || '').trim()) {
+                            addError(row, rowOtherInput, input.name + '_other');
+                        }
+                    }
                     if (input.name === 'quantity' || input.classList.contains('pf-service-quantity-input')) {
                         const qty = parseInt(value, 10);
                         if (!Number.isFinite(qty) || qty < 1) addError(row, input);
@@ -3435,10 +3454,31 @@ try {
                 if (!isServiceFieldVisible(row)) return;
 
                 const checkedRadio = row.querySelector('input[type="radio"]:checked');
-                if (checkedRadio) setCustomizationValue(customization, row, checkedRadio, checkedRadio.value);
+                if (checkedRadio) {
+                    let radioValue = checkedRadio.value;
+                    if (radioValue === 'Others') {
+                        const radioOther = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
+                        if (radioOther && radioOther.value.trim()) {
+                            radioValue = radioOther.value.trim();
+                            customization[serviceFieldLabel(row) + ' (Other)'] = radioValue;
+                        }
+                    }
+                    setCustomizationValue(customization, row, checkedRadio, radioValue);
+                }
 
                 const sel = row.querySelector('select:not([name="branch_id"])');
-                if (sel && sel.value) setCustomizationValue(customization, row, sel, sel.value);
+                if (sel && sel.value) {
+                    let selectValue = sel.value;
+                    const otherValue = sel.getAttribute('data-other-option') || 'Others';
+                    if (selectValue === otherValue) {
+                        const selectOther = row.querySelector('input[name="' + sel.name + '_other"]');
+                        if (selectOther && selectOther.value.trim()) {
+                            selectValue = selectOther.value.trim();
+                            customization[serviceFieldLabel(row) + ' (Other)'] = selectValue;
+                        }
+                    }
+                    setCustomizationValue(customization, row, sel, selectValue);
+                }
 
                 const dateInput = row.querySelector('input[type="date"]');
                 if (dateInput && dateInput.value) setCustomizationValue(customization, row, dateInput, dateInput.value);
@@ -3466,7 +3506,7 @@ try {
                     }
                 }
 
-                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
+                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
                     setCustomizationValue(customization, row, textInput, textInput.value.trim());
                 }

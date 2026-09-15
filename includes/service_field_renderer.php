@@ -148,9 +148,34 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                 }
                 $html .= '</select>';
             } else {
-                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
+                $allowSelectOthers = !empty($config['allow_others']);
+                $rawOptions = array_values($config['options'] ?? []);
+                $presetValues = [];
+                foreach ($rawOptions as $opt) {
+                    $ov = is_array($opt) ? trim((string)($opt['value'] ?? '')) : trim((string)$opt);
+                    if ($ov !== '') {
+                        $presetValues[$ov] = true;
+                    }
+                }
+                $hasOthersInList = isset($presetValues['Others']);
+                $selectOptions = $rawOptions;
+                if ($allowSelectOthers && !$hasOthersInList) {
+                    $selectOptions[] = ['value' => 'Others', 'price' => 0];
+                }
+                $othersAvailable = $hasOthersInList || $allowSelectOthers;
+
+                $savedOtherText = trim((string)($saved_customization[$field_label . ' (Other)'] ?? ''));
+                $selectSaved = trim((string)$saved_value);
+                if ($othersAvailable && $selectSaved !== '' && $selectSaved !== 'Others' && !isset($presetValues[$selectSaved])) {
+                    $selectSaved = 'Others';
+                    if ($savedOtherText === '') {
+                        $savedOtherText = trim((string)$saved_value);
+                    }
+                }
+
+                $html .= '<select name="' . htmlspecialchars($field_key) . '" class="shopee-opt-btn pricing-field pf-select-with-others" data-field-key="' . htmlspecialchars($field_key) . '" data-other-option="Others" ' . $required_attr . ' style="width: 175px; cursor: pointer;">';
                 $html .= '<option value="">Select ' . $label . '</option>';
-                foreach ($config['options'] ?? [] as $option) {
+                foreach ($selectOptions as $option) {
                     $optionValue = is_array($option) ? ($option['value'] ?? '') : $option;
                     $optionPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                     if ($optionValue === '') continue;
@@ -160,9 +185,18 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
                     
                     $value = htmlspecialchars($optionValue);
                     $displayValue = htmlspecialchars(pf_service_option_label($optionValue));
-                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '">' . $displayValue . '</option>';
+                    $selected = ($selectSaved === (string)$optionValue) ? ' selected' : '';
+                    $html .= '<option value="' . $value . '" data-price="' . htmlspecialchars((string)$optionPrice) . '"' . $selected . '>' . $displayValue . '</option>';
                 }
                 $html .= '</select>';
+
+                if ($othersAvailable) {
+                    $showOthersInput = ($selectSaved === 'Others');
+                    $placeholder = 'Enter custom ' . strtolower(trim((string)($config['label'] ?? 'value')));
+                    $html .= '<div class="select-others-wrap" id="select-others-' . htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($showOthersInput ? 'block' : 'none') . '">';
+                    $html .= '<input type="text" name="' . htmlspecialchars($field_key) . '_other" class="input-field select-others-input" placeholder="' . htmlspecialchars($placeholder, ENT_QUOTES, 'UTF-8') . '" value="' . htmlspecialchars($savedOtherText, ENT_QUOTES, 'UTF-8') . '" style="max-width:400px;" autocomplete="off">';
+                    $html .= '</div>';
+                }
             }
             break;
             
@@ -582,7 +616,30 @@ function pfSyncRadioOthersWrap(radio) {
             val = r.value;
         }
     });
-    wrap.style.display = val === 'Others' ? 'block' : 'none';
+    const show = val === 'Others';
+    wrap.style.display = show ? 'block' : 'none';
+    const input = wrap.querySelector('input');
+    if (input) {
+        if (!show) input.value = '';
+        const selectedRadio = row.querySelector('input[type="radio"].pricing-field[name="' + radio.name + '"]:checked');
+        input.required = !!(show && selectedRadio && selectedRadio.hasAttribute('required'));
+    }
+}
+
+function pfSyncSelectOthersWrap(select) {
+    if (!select || !select.name) return;
+    const wrap = document.getElementById('select-others-' + select.name);
+    if (!wrap) return;
+    const otherValue = select.getAttribute('data-other-option') || 'Others';
+    const show = select.value === otherValue;
+    wrap.style.display = show ? 'block' : 'none';
+    const input = wrap.querySelector('input');
+    if (input) {
+        if (!show) input.value = '';
+        if (select.hasAttribute('required')) {
+            input.required = show;
+        }
+    }
 }
 
 function selectNestedDimension(key, w, h, e) {
@@ -810,6 +867,7 @@ window.handleNestedFields = handleNestedFields;
 window.selectNestedDimension = selectNestedDimension;
 window.selectNestedDimensionOthers = selectNestedDimensionOthers;
 window.syncNestedDimension = syncNestedDimension;
+window.pfSyncSelectOthersWrap = pfSyncSelectOthersWrap;
 window.validateDimensionInput = validateDimensionInput;
 window.updateDimensionUnit = updateDimensionUnit;
 window.syncDimensionToHidden = syncDimensionToHidden;
@@ -856,6 +914,11 @@ if (!window.__pfServiceFieldDelegatesBound) {
         const radio = e.target.closest('.shopee-opt-btn input[type="radio"]');
         if (radio) {
             updateOptVisual(radio);
+            updateConditionalFields();
+        }
+        const select = e.target.closest('select.pf-select-with-others');
+        if (select) {
+            pfSyncSelectOthersWrap(select);
             updateConditionalFields();
         }
     }, true);
@@ -1014,9 +1077,17 @@ function initServiceFieldRenderer() {
     
     // Initialize select listeners
     document.querySelectorAll('select').forEach(select => {
+        if (select.classList && select.classList.contains('pf-select-with-others')) {
+            pfSyncSelectOthersWrap(select);
+        }
         if (select.dataset.pfServiceFieldBound === '1') return;
         select.dataset.pfServiceFieldBound = '1';
-        select.addEventListener('change', updateConditionalFields);
+        select.addEventListener('change', function() {
+            if (this.classList && this.classList.contains('pf-select-with-others')) {
+                pfSyncSelectOthersWrap(this);
+            }
+            updateConditionalFields();
+        });
     });
     
     document.querySelectorAll('.custom-dim-width, .custom-dim-height').forEach(input => {

@@ -205,6 +205,13 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         $label = trim((string)($config['label'] ?? $fieldKey));
         $type = trim((string)($config['type'] ?? 'text'));
         $value = pos_cart_custom_value($customization, (string)$fieldKey, $label);
+        if (in_array($type, ['select', 'radio'], true) && strcasecmp($value, 'Others') === 0 && !empty($config['allow_others'])) {
+            $otherValue = pos_cart_custom_value($customization, (string)$fieldKey . '_other', $label . ' (Other)');
+            if ($otherValue === '') {
+                $errors[(string)$fieldKey] = 'Please specify ' . strtolower($label) . '.';
+                continue;
+            }
+        }
 
         if ($type === 'dimension') {
             $w = pos_cart_custom_value($customization, $fieldKey . '_width', $label . ' Width');

@@ -370,7 +370,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
                 
                 // If "Others" is selected, check specify input
-                if (($_POST[$key] ?? '') === 'Others' && empty(trim($_POST[$key . '_other'] ?? ''))) {
+                if (($_POST[$key] ?? '') === 'Others' && !empty($config['allow_others']) && empty(trim($_POST[$key . '_other'] ?? ''))) {
                     $error = 'Please specify ' . strtolower($config['label']) . '.';
                     break;
                 }
@@ -509,9 +509,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                         }
                         $val = implode(', ', $parts);
                     }
-                    if ($val === 'Others' && !empty($_POST[$key . '_other'])) {
-                        $val = $_POST[$key . '_other'];
-                        $customization[$spec_label($config, $key) . ' (Other)'] = $_POST[$key . '_other'];
+                    if ($val === 'Others' && !empty($config['allow_others']) && !empty($_POST[$key . '_other'])) {
+                        $val = trim((string)$_POST[$key . '_other']);
+                        $customization[$spec_label($config, $key) . ' (Other)'] = $val;
                     }
                     $customization[$spec_label($config, $key)] = $val;
                     if (($config['type'] ?? '') === 'textarea' && $key === 'notes') {
@@ -1890,13 +1890,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
             row.querySelectorAll('select').forEach(select => {
                 hasControls = true;
-                if (select.value && select.value !== '') rowHasValue = true;
+                if (select.value && select.value !== '') {
+                    const otherWrap = select.name ? document.getElementById('select-others-' + select.name) : null;
+                    const otherInput = otherWrap ? otherWrap.querySelector('input') : null;
+                    const otherValue = select.getAttribute('data-other-option') || 'Others';
+                    if (select.value === otherValue && otherInput) {
+                        rowHasValue = otherInput.value.trim() !== '';
+                    } else {
+                        rowHasValue = true;
+                    }
+                }
             });
 
             const radios = row.querySelectorAll('input[type="radio"]');
             if (radios.length > 0) {
                 hasControls = true;
-                if (row.querySelector('input[type="radio"]:checked')) rowHasValue = true;
+                const checkedRadio = row.querySelector('input[type="radio"]:checked');
+                if (checkedRadio) {
+                    if (checkedRadio.value === 'Others') {
+                        const otherInput = row.querySelector('input[name="' + checkedRadio.name + '_other"]');
+                        rowHasValue = otherInput ? otherInput.value.trim() !== '' : true;
+                    } else {
+                        rowHasValue = true;
+                    }
+                }
             }
 
             const widthHidden = row.querySelector('[data-dimension-role="width"], #width_hidden');
