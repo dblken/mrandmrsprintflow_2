@@ -3105,14 +3105,20 @@ try {
         async function syncedCartAction(action, payload = {}, options = {}) {
             console.log('syncedCartAction:', action, payload);
             try {
-                const response = await fetch(staffUrl('staff/api/pos_cart_handler.php'), {
+                const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action, ...payload })
-                });
-                const data = await response.json();
+                }, Number(options.timeoutMs || 15000));
+                const responseText = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (parseError) {
+                    throw new Error('Cart server returned an invalid response.');
+                }
                 console.log('syncedCartAction Response:', data);
-                if (data.success) {
+                if (response.ok && data.success) {
                     cart = data.cart || [];
                     console.log('Updated local cart:', cart);
                     renderCart();
@@ -4997,8 +5003,8 @@ try {
 
             posCheckoutRequestInFlight = true;
 
-            resetPayMongoPosCheckoutState();
-            const checkoutToken = getPosPayMongoCheckoutToken(true);
+            resetPayMongoPosCheckoutState(false);
+            const checkoutToken = getPosPayMongoCheckoutToken();
             posPayMongoCheckoutPending = true;
             const payload = {
                 action: 'walkin_checkout',
@@ -5033,13 +5039,20 @@ try {
                     data = JSON.parse(text);
                 } catch (parseErr) {
                     console.error('Non-JSON response from checkout:', text);
-                    await showPOSAlert('Server Error', 'Server error. Check browser console for details.', 'error');
+                    posCheckoutRequestInFlight = false;
                     updateCheckoutState();
+                    await showPOSAlert('Server Error', 'Server error. Check browser console for details.', 'error');
                     return;
                 }
-                if (data.success) {
-                    await syncedCartAction('clear');
+                if (res.ok && data.success) {
                     checkoutCompleted = true;
+                    const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
+                    if (!clearResult.success) {
+                        // Checkout is already committed. Clear the local cart so the
+                        // completed request cannot be submitted again.
+                        cart = [];
+                        renderCart();
+                    }
 
                     if (data.payment_pending && data.payment) {
                         openPayMongoPosModal(data.order_id, data.payment);
@@ -5048,6 +5061,7 @@ try {
                     }
 
                     posPayMongoCheckoutPending = false;
+                    resetPayMongoPosCheckoutState();
                     document.getElementById('pos-payment-method').value = 'Cash';
                     document.getElementById('pos-tendered').value = '';
                     toggleReferenceField();
@@ -5055,16 +5069,18 @@ try {
                     updateCheckoutState();
                     openReceiptModal(data.receipt);
                 } else {
-                    await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
+                    posCheckoutRequestInFlight = false;
                     updateCheckoutState();
+                    await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
                 }
             } catch (e) {
                 console.error('Checkout error:', e);
                 const message = e.name === 'AbortError'
                     ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
                     : 'Network error: ' + e.message;
-                await showPOSAlert('Network Error', message, 'error');
+                posCheckoutRequestInFlight = false;
                 updateCheckoutState();
+                await showPOSAlert('Network Error', message, 'error');
             } finally {
                 posCheckoutConfirmOpen = false;
                 posCheckoutRequestInFlight = false;
@@ -5097,7 +5113,7 @@ try {
             return posPayMongoCheckoutAttemptToken;
         }
 
-        function resetPayMongoPosCheckoutState() {
+        function resetPayMongoPosCheckoutState(clearCheckoutToken = true) {
             if (paymongoPollTimer) window.clearInterval(paymongoPollTimer);
             if (paymongoCountdownTimer) window.clearInterval(paymongoCountdownTimer);
             paymongoPollTimer = null;
@@ -5107,9 +5123,11 @@ try {
             pendingPayMongoPrintJob = null;
             pendingPayMongoOrderId = 0;
             posPayMongoCheckoutPending = false;
-            posPayMongoCheckoutAttemptToken = null;
             sessionStorage.removeItem('pos_paymongo_pending');
-            sessionStorage.removeItem('pos_paymongo_checkout_token');
+            if (clearCheckoutToken) {
+                posPayMongoCheckoutAttemptToken = null;
+                sessionStorage.removeItem('pos_paymongo_checkout_token');
+            }
         }
 
         function closePayMongoPosModal() {

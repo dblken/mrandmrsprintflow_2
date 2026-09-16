@@ -50,9 +50,11 @@ pos_paymongo_checkout_assert(
 );
 pos_paymongo_checkout_assert(
     strpos($posSource, 'posPayMongoCheckoutPending') !== false
-        && strpos($posSource, 'getPosPayMongoCheckoutToken(true)') !== false
+        && strpos($posSource, 'resetPayMongoPosCheckoutState(false)') !== false
+        && strpos($posSource, 'getPosPayMongoCheckoutToken()') !== false
+        && strpos($checkoutSource, "\$_SESSION['pos_checkout_orders'][\$checkoutToken]") !== false
         && strpos($posSource, "sessionStorage.removeItem('pos_paymongo_checkout_token');") !== false,
-    'POS QR Ph reuses a pending token only for the same attempt and resets stale checkout state for new ones.'
+    'POS retries reuse one attempt token until the committed order is recovered or shown successfully.'
 );
 pos_paymongo_checkout_assert(
     strpos($posSource, 'payment?.qr_image_url') !== false

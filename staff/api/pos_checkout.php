@@ -1040,10 +1040,42 @@ if ($isPayMongoQrph
     echo json_encode(['success' => false, 'message' => 'Dynamic QR Ph is not enabled for this payment environment.']);
     exit;
 }
-if ($isPayMongo && !preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
+if (!preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'A valid POS checkout token is required.']);
     exit;
+}
+if (!empty($_SESSION['pos_checkout_orders'][$checkoutToken])) {
+    $existingOrderId = (int)$_SESSION['pos_checkout_orders'][$checkoutToken];
+    $existingOrder = db_query(
+        "SELECT order_id, payment_status
+         FROM orders
+         WHERE order_id = ? AND order_source = 'pos'
+         LIMIT 1",
+        'i',
+        [$existingOrderId]
+    ) ?: [];
+    if ($existingOrder !== []) {
+        if ($isPayMongo) {
+            // Continue through the existing provider-payment recovery path below.
+            $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = $existingOrderId;
+        } else {
+            $receipt = pos_build_receipt_payload($existingOrderId, $amount_tendered);
+            $_SESSION['pos_receipt_snapshots'][$existingOrderId] = $receipt;
+            echo json_encode([
+                'success' => true,
+                'duplicate_request' => true,
+                'order_id' => $existingOrderId,
+                'message' => 'Sale was already completed successfully.',
+                'warning' => '',
+                'receipt' => $receipt,
+                'print_job' => null,
+            ], JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+    } else {
+        unset($_SESSION['pos_checkout_orders'][$checkoutToken]);
+    }
 }
 if ($isPayMongo && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) {
     $existingOrderId = (int)$_SESSION['pos_paymongo_checkouts'][$checkoutToken];
@@ -1118,14 +1150,28 @@ foreach ($items as $item) {
         }
     }
 
-    $price = (float)($item['price'] ?? $p['price']);
+    $price = $is_service_item
+        ? (float)($item['price'] ?? $p['price'])
+        : (float)$p['price'];
     $total_amount += $price * $qty;
 }
+if (!$isPayMongo && $amount_tendered < $total_amount) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Amount paid must be at least ₱' . number_format($total_amount, 2) . '.',
+    ]);
+    exit;
+}
 
+$checkout_started_at = microtime(true);
+$checkout_stage = 'transaction_start';
+$checkout_committed = false;
 try {
     global $conn;
     $post_commit_job_sync = [];
     $transaction_open = false;
+    $checkout_committed = true;
     $service_placeholder_product_id = 0;
     $conn->begin_transaction();
     $transaction_open = true;
@@ -1187,12 +1233,12 @@ try {
     }
 
     $order_id = $conn->insert_id;
+    $checkout_stage = 'order_created';
 
     // Insert Order Items and Update Stock
     foreach ($items as $item) {
         $product_id = (int)$item['id'];
         $qty = (int)$item['qty'];
-        $price = (float)$item['price'];
         $p = $products_cache[$product_id] ?? null;
         $prod_name = $p['name'] ?? 'Product';
 
@@ -1201,6 +1247,9 @@ try {
         
         // Detect if this specific item is a service or customized product
         $is_service = pos_payload_item_is_service((array)$item);
+        $price = $is_service
+            ? (float)($item['price'] ?? ($p['price'] ?? 0))
+            : (float)($p['price'] ?? 0);
         
         $custom_details = $item['customization'] ?? [];
         if (!is_array($custom_details)) $custom_details = [];
@@ -1253,6 +1302,7 @@ try {
         }
         
         $order_item_id = $conn->insert_id;
+        $checkout_stage = 'items_inserting';
         $storedMedia = pos_store_order_item_inline_media($order_item_id, $designPayload, $referencePayload);
         pos_apply_stored_media_to_customization($custom_details, $storedMedia);
         if (!empty($designPayload['blob']) && function_exists('printflow_embed_design_backup_in_customization')) {
@@ -1450,16 +1500,23 @@ try {
                     $current_user_id,
                     'POS sale'
                 );
+                $checkout_stage = 'inventory_deducted';
             } catch (Throwable $inventoryError) {
-                $conn->rollback();
-                echo json_encode(['success' => false, 'message' => 'Failed to deduct stock for ' . $prod_name]);
-                exit;
+                throw new RuntimeException('Failed to deduct stock for ' . $prod_name . ': ' . $inventoryError->getMessage(), 409, $inventoryError);
             }
         }
     }
 
-    $conn->commit();
+    $checkout_stage = 'commit';
+    if (!$conn->commit()) {
+        throw new RuntimeException('Could not commit the POS sale.');
+    }
     $transaction_open = false;
+    $_SESSION['pos_checkout_orders'][$checkoutToken] = (int)$order_id;
+    if (count($_SESSION['pos_checkout_orders']) > 20) {
+        $_SESSION['pos_checkout_orders'] = array_slice($_SESSION['pos_checkout_orders'], -20, null, true);
+    }
+    $checkout_stage = 'committed';
     if ($isPayMongo) {
         $_SESSION['pos_paymongo_checkouts'] = [];
         $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = (int)$order_id;
@@ -1535,11 +1592,18 @@ try {
         'print_job' => null
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     if ($transaction_open && isset($conn)) {
         $conn->rollback();
+        $transaction_open = false;
     }
-    if (!empty($order_id) && !$transaction_open) {
+    error_log(sprintf(
+        'PrintFlow POS checkout failed stage=%s elapsed_ms=%d error=%s',
+        (string)$checkout_stage,
+        (int)round((microtime(true) - $checkout_started_at) * 1000),
+        $e->getMessage()
+    ));
+    if (!empty($order_id) && $checkout_committed) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
         $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
         $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
@@ -1553,7 +1617,15 @@ try {
             'print_job' => null
         ]);
     } else {
-        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+        $isInventoryFailure = (int)$e->getCode() === 409
+            && str_starts_with($e->getMessage(), 'Failed to deduct stock for ');
+        http_response_code($isInventoryFailure ? 409 : 500);
+        echo json_encode([
+            'success' => false,
+            'message' => $isInventoryFailure
+                ? $e->getMessage()
+                : 'Unable to complete the sale. No order or stock movement was saved.',
+        ]);
     }
 }
 
