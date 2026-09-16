@@ -2779,11 +2779,39 @@ class JobOrderService {
     }
 
     /**
+     * Resolve staff list display identity using the same rules as customer/orders.php.
+     *
+     * @return array{display_name:string,service_id:int,item_type:string}
+     */
+    private static function resolveBatchStoreOrderLineIdentity(array $orderMeta, array $item, array $custom): array {
+        if (function_exists('printflow_resolve_order_line_identity')) {
+            $identity = printflow_resolve_order_line_identity($orderMeta, $item, $custom);
+            return [
+                'display_name' => trim((string)($identity['display_name'] ?? '')) ?: 'Custom Order',
+                'service_id' => (int)($identity['service_id'] ?? 0),
+                'item_type' => (string)($identity['item_type'] ?? 'product'),
+            ];
+        }
+
+        $name = trim((string)($item['product_name'] ?? ''));
+        if ($name === '') {
+            $name = get_service_name_from_customization($custom, 'Custom Order');
+        }
+
+        return [
+            'display_name' => $name !== '' ? $name : 'Custom Order',
+            'service_id' => (int)($custom['service_id'] ?? $item['service_id'] ?? 0),
+            'item_type' => self::isServiceStoreOrderItem($item, $custom) ? 'service' : 'product',
+        ];
+    }
+
+    /**
      * Batch-load the small subset of order-item data required by staff list rows.
      *
      * This deliberately never selects design_image and never returns raw
-     * customization/specification JSON. Full media and specifications belong to
-     * getStoreOrderItemsPayload()/getOrder(), which are called when View opens.
+     * customization/specification JSON in the API payload. Full media and
+     * specifications belong to getStoreOrderItemsPayload()/getOrder(), which
+     * are called when View opens.
      *
      * @param  int[] $orderIds
      * @return array<int, array{items:array,width_ft:string,height_ft:string,service_type:string,line_qty:int}>
@@ -2798,39 +2826,29 @@ class JobOrderService {
             printflow_ensure_order_items_specifications_column();
         }
 
+        require_once __DIR__ . '/order_ui_helper.php';
+
         $idsStr = implode(',', $orderIds);
+        $itemTypeSelect = self::tableHasColumn('order_items', 'item_type') ? 'oi.item_type,' : '';
+        $serviceIdSelect = self::tableHasColumn('order_items', 'service_id') ? 'oi.service_id,' : '';
         $items = db_query(
             "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
-                    p.name AS product_name, p.category, p.product_type,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.width')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.width')) END
-                    ) AS pf_width,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.height')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.height')) END
-                    ) AS pf_height,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.dimensions')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.dimensions')) END
-                    ) AS pf_dimensions,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.service_type')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.service_type')) END
-                    ) AS pf_service_type,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.source_page')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.source_page')) END
-                    ) AS pf_source_page,
-                    COALESCE(
-                        CASE WHEN JSON_VALID(oi.specifications) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.specifications, '$.form_type')) END,
-                        CASE WHEN JSON_VALID(oi.customization_data) THEN JSON_UNQUOTE(JSON_EXTRACT(oi.customization_data, '$.form_type')) END
-                    ) AS pf_form_type
+                    oi.customization_data, oi.specifications,
+                    {$itemTypeSelect}{$serviceIdSelect}
+                    p.name AS product_name, p.category, p.product_type
              FROM order_items oi
              LEFT JOIN products p ON p.product_id = oi.product_id
              WHERE oi.order_id IN ({$idsStr})
              ORDER BY oi.order_item_id ASC"
         ) ?: [];
+
+        $orderMetaById = [];
+        $orderMetaRows = db_query(
+            "SELECT order_id, order_type, reference_id FROM orders WHERE order_id IN ({$idsStr})"
+        ) ?: [];
+        foreach ($orderMetaRows as $orderMetaRow) {
+            $orderMetaById[(int)$orderMetaRow['order_id']] = $orderMetaRow;
+        }
 
         $itemsByOrder = [];
         foreach ($items as $item) {
@@ -2844,17 +2862,16 @@ class JobOrderService {
             $totalQty = 0;
             $widthFt = '1';
             $heightFt = '1';
+            $orderMeta = $orderMetaById[$orderId] ?? ['order_type' => 'custom', 'reference_id' => 0];
 
             foreach ($itemsByOrder[$orderId] ?? [] as $item) {
-                $custom = array_filter([
-                    'width' => $item['pf_width'] ?? null,
-                    'height' => $item['pf_height'] ?? null,
-                    'dimensions' => $item['pf_dimensions'] ?? null,
-                    'service_type' => $item['pf_service_type'] ?? null,
-                    'source_page' => $item['pf_source_page'] ?? null,
-                    'form_type' => $item['pf_form_type'] ?? null,
-                ], static fn($value): bool => $value !== null && trim((string)$value) !== '');
-                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+                $savedSpecs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+                if ($savedSpecs !== []) {
+                    $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+                }
+                $identity = self::resolveBatchStoreOrderLineIdentity($orderMeta, $item, $custom);
+                if ($serviceOnly && $identity['item_type'] !== 'service' && !self::isServiceStoreOrderItem($item, $custom)) {
                     continue;
                 }
                 if ($firstCustom === []) {
@@ -2874,28 +2891,34 @@ class JobOrderService {
                     }
                 }
 
-                $name = trim((string)($item['product_name'] ?? ''));
-                if ($name === '') {
-                    $name = get_service_name_from_customization($custom, 'Custom Order');
-                }
-
                 $itemsOut[] = [
                     'order_item_id' => (int)($item['order_item_id'] ?? 0),
-                    'product_name' => $name,
+                    'product_name' => $identity['display_name'],
                     'product_type' => $item['product_type'] ?? 'custom',
+                    'item_type' => $identity['item_type'],
+                    'service_id' => $identity['service_id'],
                     'quantity' => $quantity,
-                    'customization' => [],
+                    'customization' => array_filter([
+                        'service_type' => $custom['service_type'] ?? null,
+                        'service_id' => $identity['service_id'] > 0 ? $identity['service_id'] : ($custom['service_id'] ?? null),
+                        'source_page' => $custom['source_page'] ?? null,
+                    ], static fn($value): bool => $value !== null && trim((string)$value) !== ''),
                 ];
             }
 
-            $serviceName = $itemsOut !== []
-                ? get_service_name_from_customization($firstCustom, $itemsOut[0]['product_name'] ?? 'Custom Order')
-                : '';
+            $serviceName = '';
+            if ($itemsOut !== []) {
+                $serviceName = trim((string)($itemsOut[0]['product_name'] ?? ''));
+            }
+            if ($serviceName === '') {
+                $serviceName = get_service_name_from_customization($firstCustom, 'Custom Order');
+            }
             $payloads[$orderId] = [
                 'items' => $itemsOut,
                 'width_ft' => $widthFt,
                 'height_ft' => $heightFt,
                 'service_type' => $serviceName,
+                'service_id' => (int)($itemsOut[0]['service_id'] ?? 0),
                 'line_qty' => $totalQty,
             ];
         }
@@ -2933,11 +2956,14 @@ class JobOrderService {
         }
 
         $idsStr = implode(',', $orderIds);
+        $itemTypeSelect = self::tableHasColumn('order_items', 'item_type') ? 'oi.item_type,' : '';
+        $serviceIdSelect = self::tableHasColumn('order_items', 'service_id') ? 'oi.service_id,' : '';
         $items = db_query(
             "SELECT oi.order_item_id, oi.order_id, oi.product_id, oi.quantity,
                     oi.customization_data, oi.specifications,
                     oi.design_image, oi.design_file, oi.reference_image_file,
                     IFNULL(LENGTH(oi.design_image),0) AS pf_design_image_bytes,
+                    {$itemTypeSelect}{$serviceIdSelect}
                     p.name AS product_name, p.category, p.product_type,
                     {$productImageSelect}
              FROM order_items oi
@@ -2947,6 +2973,14 @@ class JobOrderService {
         ) ?: [];
 
         require_once __DIR__ . '/order_ui_helper.php';
+
+        $orderMetaById = [];
+        $orderMetaRows = db_query(
+            "SELECT order_id, order_type, reference_id FROM orders WHERE order_id IN ({$idsStr})"
+        ) ?: [];
+        foreach ($orderMetaRows as $orderMetaRow) {
+            $orderMetaById[(int)$orderMetaRow['order_id']] = $orderMetaRow;
+        }
 
         // Group by order_id
         $itemsByOrder = [];
@@ -2962,6 +2996,7 @@ class JobOrderService {
             $total_qty   = 0;
             $width_ft    = '1';
             $height_ft   = '1';
+            $orderMeta = $orderMetaById[$orderId] ?? ['order_type' => 'custom', 'reference_id' => 0];
 
             foreach ($orderItems as $item) {
                 $custom    = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
@@ -2969,7 +3004,8 @@ class JobOrderService {
                 if ($savedSpecs !== []) {
                     $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
                 }
-                if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                $identity = self::resolveBatchStoreOrderLineIdentity($orderMeta, $item, $custom);
+                if ($serviceOnly && $identity['item_type'] !== 'service' && !self::isServiceStoreOrderItem($item, $custom)) {
                     continue;
                 }
                 if (empty($first_custom)) {
@@ -2991,12 +3027,10 @@ class JobOrderService {
                     }
                 }
 
-                $name = (string)($item['product_name'] ?? 'Custom Order');
-                if ($name === '') {
-                    $name = get_service_name_from_customization($custom, 'Custom Order');
-                }
-
-                $serviceIdForImage = (int)($custom['service_id'] ?? 0);
+                $name = $identity['display_name'];
+                $serviceIdForImage = $identity['service_id'] > 0
+                    ? $identity['service_id']
+                    : (int)($custom['service_id'] ?? 0);
                 if ($serviceIdForImage <= 0 && function_exists('printflow_resolve_active_service_catalog_id')) {
                     $serviceIdForImage = printflow_resolve_active_service_catalog_id($name);
                 }
@@ -3005,6 +3039,7 @@ class JobOrderService {
                     'order_item_id'      => (int)($item['order_item_id'] ?? 0),
                     'product_name'       => $name,
                     'product_type'       => $item['product_type'] ?? 'custom',
+                    'item_type'          => $identity['item_type'],
                     'product_image'      => (string)($item['product_image'] ?? ''),
                     'service_id'         => $serviceIdForImage,
                     'service_image'      => function_exists('get_service_image_url') ? get_service_image_url($name, $serviceIdForImage) : '',
@@ -3021,15 +3056,20 @@ class JobOrderService {
                 ];
             }
 
-            $service_name = !empty($items_out)
-                ? get_service_name_from_customization($first_custom, $items_out[0]['product_name'] ?? 'Custom Order')
-                : '';
+            $service_name = '';
+            if ($items_out !== []) {
+                $service_name = trim((string)($items_out[0]['product_name'] ?? ''));
+            }
+            if ($service_name === '') {
+                $service_name = get_service_name_from_customization($first_custom, 'Custom Order');
+            }
 
             $payloads[$orderId] = [
                 'items'        => $items_out,
                 'width_ft'     => $width_ft,
                 'height_ft'    => $height_ft,
                 'service_type' => $service_name,
+                'service_id'   => (int)($items_out[0]['service_id'] ?? 0),
                 'line_qty'     => $total_qty,
             ];
         }

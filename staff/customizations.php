@@ -6206,6 +6206,11 @@ window.pfServiceFieldCatalog = (() => {
                     return rawTitle;
                 }
 
+                const titleWithoutQty = rawTitle.replace(/\s*-\s*\d+\s*pcs?$/i, '').trim();
+                if (titleWithoutQty && titleWithoutQty.toLowerCase() === resolvedService.toLowerCase()) {
+                    return resolvedService;
+                }
+
                 const titleUpper = rawTitle.toUpperCase();
                 const serviceUpper = resolvedService.toUpperCase();
                 const compatibilityMap = {
