@@ -2983,19 +2983,19 @@ $online_closed_count = 0;
             <!-- Modal Panel — true viewport center via transform -->
             <div x-show="showRevisionModal" x-cloak
                  style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002;
-                        width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-y:auto;
+                        width:calc(100% - 32px); max-width:540px; max-height:calc(100vh - 32px);
                         background:white; border-radius:16px;
                         box-shadow:0 25px 50px -12px rgba(0,0,0,0.35);
-                         border:1px solid #fee2e2; overflow:auto;">
+                        border:1px solid #fee2e2; display:flex; flex-direction:column; overflow:hidden;">
                 <!-- Header -->
-                <div style="padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
+                <div style="flex:0 0 auto; padding:16px 20px; border-bottom:1px solid #fee2e2; background:#fef2f2; display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Request Additional Details</h3>
                     <button @click="closeRevisionModal()" style="background:none; border:none; color:#f87171; cursor:pointer;" onmouseover="this.style.color='#b91c1c'" onmouseout="this.style.color='#f87171'">
                         <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                     </button>
                 </div>
                 <!-- Body -->
-                <div style="padding:20px;">
+                <div style="flex:1 1 auto; overflow-y:auto; padding:20px;">
                     <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Reason for Revision</label>
                     <select x-model="revisionReasonSelect" @change="applyRevisionReasonDefaults()" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; margin-bottom:16px; outline:none;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'">
                         <option value="">-- Select a reason --</option>
@@ -3010,33 +3010,42 @@ $online_closed_count = 0;
                         <input x-model="revisionReasonText" type="text" placeholder="Enter custom reason..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;">
                     </div>
 
-                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:16px; padding:12px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
-                        <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:9px;">Allow customer to edit</div>
-                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:8px 12px;">
+                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:16px; padding:14px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;">
+                        <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:4px;">Details customer needs to update</div>
+                        <div style="font-size:11px; color:#6b7280; margin-bottom:12px; line-height:1.45;">Select only the information that needs correction.</div>
+                        <div x-show="!revisionFieldOptions.length" style="font-size:12px; color:#6b7280; font-style:italic;">No customer-facing specifications were found for this order.</div>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px 14px;">
                             <template x-for="option in revisionFieldOptions" :key="option.value">
-                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; cursor:pointer; line-height:1.35;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;' : ''">
+                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; cursor:pointer; line-height:1.35; min-width:0;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;' : ''">
                                     <input type="checkbox" :value="option.value" x-model="revisionEditableFields" :disabled="revisionFieldLocked(option.value)" style="margin-top:2px; accent-color:#0f766e; flex:0 0 auto;">
-                                    <span x-text="option.label"></span>
+                                    <span style="min-width:0;">
+                                        <span style="display:block; font-weight:600;" x-text="option.label"></span>
+                                        <span style="display:block; font-size:11px; color:#6b7280; margin-top:2px; word-break:break-word;" x-text="'Current: ' + (option.currentValue || 'No value submitted')"></span>
+                                    </span>
                                 </label>
                             </template>
                         </div>
+                        <div x-show="revisionReasonSelect && revisionFieldOptions.length && !revisionEditableFields.length" x-cloak style="margin-top:10px; font-size:12px; font-weight:600; color:#dc2626;">Select at least one detail the customer needs to update.</div>
                     </div>
 
                     <div x-show="revisionReasonSelect" x-cloak>
                         <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Instructions for Customer <span style="color:#dc2626;">*</span></label>
-                        <textarea x-model="revisionInstruction" rows="4" placeholder="Clearly explain what the customer must correct..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;"></textarea>
+                        <textarea x-model="revisionInstruction" rows="4" placeholder="Clearly explain what needs to be corrected..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;"></textarea>
                     </div>
 
                     <div style="margin-top:16px; padding-top:12px; border-top:1px solid #e5e7eb;">
-                        <div style="font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:8px;">Product/service and branch cannot be revised here because they affect inventory, pricing, and routing.</div>
+                        <div style="font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:8px;">Product/service and branch cannot be changed here because they affect pricing, inventory, and routing.</div>
                         <button type="button" @click="cancelAndRequestNewOrder()" style="border:0; background:none; padding:0; color:#b91c1c; font-size:12px; font-weight:700; cursor:pointer;">Cancel and Request New Order</button>
                     </div>
                 </div>
                 <!-- Footer -->
-                <div style="padding:16px 20px; border-top:1px solid #f3f4f6; background:#f9fafb; display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
-                    <div style="display:flex; justify-content:flex-end; gap:8px;">
-                        <button @click="closeRevisionModal()" class="btn-secondary">Cancel</button>
-                        <button @click="submitRevision()" class="btn-action red">Send Revision Request</button>
+                <div style="flex:0 0 auto; padding:16px 20px; border-top:1px solid #f3f4f6; background:#f9fafb; display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+                    <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; width:100%;">
+                        <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; justify-content:center;">Cancel</button>
+                        <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
+                            <span x-show="!revisionSubmitting">Send Revision Request</span>
+                            <span x-show="revisionSubmitting">Sending...</span>
+                        </button>
                     </div>
                     <div x-show="revisionModalError" x-cloak style="width:100%; font-size:12px; font-weight:600; color:#dc2626; text-align:left;" x-text="revisionModalError"></div>
                 </div>
@@ -3130,7 +3139,7 @@ $preloaded_customization_rows_b64 = base64_encode($preloaded_customization_rows_
 // Canonical POS/online service form definitions (service_field_configs) for modal spec whitelisting.
 $pf_service_field_catalog = [];
 $config_rows = db_query(
-    "SELECT service_id, field_key, field_label, field_type, display_order
+    "SELECT service_id, field_key, field_label, field_type, display_order, parent_field_key, parent_value
      FROM service_field_configs
      WHERE is_visible = 1
      ORDER BY service_id ASC, display_order ASC"
@@ -3153,6 +3162,8 @@ foreach ($config_rows as $config_row) {
         'label' => $field_label !== '' ? $field_label : $field_key,
         'type' => trim((string)($config_row['field_type'] ?? 'text')),
         'order' => (int)($config_row['display_order'] ?? 0),
+        'parent_field_key' => trim((string)($config_row['parent_field_key'] ?? '')),
+        'parent_value' => trim((string)($config_row['parent_value'] ?? '')),
     ];
 }
 $pf_service_field_catalog_json = json_encode(
@@ -3254,6 +3265,7 @@ window.pfServiceFieldCatalog = (() => {
             revisionInstruction: '',
             revisionEditableFields: [],
             revisionFieldOptions: [],
+            revisionSubmitting: false,
             revisionModalError: '',
             showRejectPaymentModal: false,
             rejectPaymentReasonSelect: '',
@@ -7600,56 +7612,228 @@ window.pfServiceFieldCatalog = (() => {
                 this.revisionEditableFields = [];
                 this.revisionFieldOptions = this.buildRevisionFieldOptions();
                 this.revisionModalError = '';
+                this.revisionSubmitting = false;
                 this.showRevisionModal = true;
             },
 
+            staffRevisionIsProtectedKey(key) {
+                const normalized = this.staffCustomizationKeyToken(key);
+                if (!normalized) return true;
+                const exact = new Set([
+                    'service_id', 'product_id', 'variant_id', 'branch', 'branch_id', 'branch_name',
+                    'service_type', 'product_name', 'category', 'source_page', 'source', 'item_key', 'cart_key',
+                    'form_type', 'customization_id', 'order_id', 'order_item_id', 'config_id',
+                    'price', 'unit_price', 'subtotal', 'total', 'total_amount', 'estimated_price', 'final_price',
+                    'payment_status', 'payment_method', 'order_status', 'status', 'csrf_token'
+                ]);
+                if (exact.has(normalized)) return true;
+                return normalized[0] === '_'
+                    || normalized.includes('payment')
+                    || normalized.includes('price')
+                    || normalized.includes('branch')
+                    || normalized.includes('service_id')
+                    || normalized.includes('product_id')
+                    || normalized.includes('_mime')
+                    || normalized.includes('_blob')
+                    || normalized.includes('_tmp_path')
+                    || normalized.endsWith('_path');
+            },
+
+            staffResolveFieldValueFromSource(fieldKey, sourceCustom) {
+                if (!sourceCustom || typeof sourceCustom !== 'object' || Array.isArray(sourceCustom)) return '';
+                const targetToken = this.staffCustomizationKeyToken(fieldKey);
+                if (!targetToken) return '';
+                if (Object.prototype.hasOwnProperty.call(sourceCustom, fieldKey)) {
+                    return this.staffCustomizationValueText(sourceCustom[fieldKey]);
+                }
+                for (const [key, value] of Object.entries(sourceCustom)) {
+                    const keyToken = this.staffCustomizationKeyToken(key);
+                    if (keyToken === targetToken || key === fieldKey) {
+                        return this.staffCustomizationValueText(value);
+                    }
+                }
+                return '';
+            },
+
+            staffRevisionFieldParentActive(field, sourceCustom) {
+                const parentKey = String(field && field.parent_field_key ? field.parent_field_key : '').trim();
+                const parentValue = String(field && field.parent_value ? field.parent_value : '').trim();
+                if (!parentKey) return true;
+                const actual = this.staffResolveFieldValueFromSource(parentKey, sourceCustom);
+                return actual.toLowerCase() === parentValue.toLowerCase();
+            },
+
+            staffFindStorageKeyForDisplayLabel(displayLabel, sourceCustom, item) {
+                const target = String(displayLabel || '').trim();
+                if (!target) return '';
+                if (target === 'Quantity') return '__quantity__';
+                if (target === 'Notes') return '__order_notes__';
+
+                const enriched = this.staffEnrichDimensionSpecs({ ...(sourceCustom || {}) }, item || null);
+                for (const [key] of Object.entries(enriched)) {
+                    const meta = this.staffCustomizationFieldMeta(key);
+                    if (meta.hidden || meta.group === 'service') continue;
+                    const candidates = new Set([
+                        meta.group === 'notes' ? 'Notes' : meta.label,
+                        this.getCustomLabel(key),
+                        this.getCustomLabel(meta.label),
+                        String(key)
+                    ]);
+                    if (candidates.has(target)) return key;
+                }
+
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && Array.isArray(profile.fields)) {
+                    for (const field of profile.fields) {
+                        const fieldKey = String(field.key || '').trim();
+                        const fieldLabel = String(field.label || fieldKey).trim();
+                        if (!fieldKey) continue;
+                        if (fieldLabel === target || this.getCustomLabel(fieldKey) === target) {
+                            return fieldKey;
+                        }
+                    }
+                }
+                return Object.prototype.hasOwnProperty.call(enriched, target) ? target : '';
+            },
+
+            staffRevisionPermissionToken(itemId, storageKey) {
+                if (!storageKey || this.staffRevisionIsProtectedKey(storageKey)) return '';
+                if (storageKey === '__quantity__') return 'quantity';
+                if (storageKey === '__order_notes__') return 'order_notes';
+
+                const meta = this.staffCustomizationFieldMeta(storageKey);
+                if (meta.hidden || meta.group === 'service') return '';
+                if (meta.group === 'uploaded_design') return 'uploaded_design';
+                if (meta.group === 'quantity') return 'quantity';
+                if (meta.group === 'layout') return 'layout';
+                if (meta.group === 'needed_date') return 'needed_date';
+                if (meta.group === 'notes') return 'order_notes';
+
+                if (itemId > 0) {
+                    return `spec:${itemId}:${encodeURIComponent(String(storageKey))}`;
+                }
+                return '';
+            },
+
+            staffCollectRevisionFieldCandidates(item) {
+                const itemId = Number(item && item.order_item_id ? item.order_item_id : 0);
+                const built = this.staffBuildItemDisplaySpecs(item && item.customization, item, {
+                    isDetail: true,
+                    includeService: false,
+                    includeNotes: true,
+                    includeQuantity: true,
+                    skipServiceFilter: true
+                });
+                const sourceCustom = built.enriched || built.source || {};
+                const rows = [];
+                const seenPermissions = new Set();
+                const seenLabels = new Set();
+
+                const addRow = (permission, label, currentValue, priority = 100) => {
+                    if (!permission || seenPermissions.has(permission)) return;
+                    const cleanLabel = this.getCustomLabel(label);
+                    if (!cleanLabel || seenLabels.has(cleanLabel)) return;
+                    seenPermissions.add(permission);
+                    seenLabels.add(cleanLabel);
+                    rows.push({
+                        value: permission,
+                        label: cleanLabel,
+                        currentValue: currentValue || 'No value submitted',
+                        priority
+                    });
+                };
+
+                if (this.staffShouldRenderDesignSection(item)) {
+                    const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                    const designLabel = (profile && profile.designField && profile.designField.label)
+                        ? profile.designField.label
+                        : 'Uploaded Design';
+                    const hasDesign = !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
+                    addRow('uploaded_design', designLabel, hasDesign ? 'File uploaded' : 'No value submitted', 60);
+                }
+
+                built.entries.forEach(([displayLabel, displayValue]) => {
+                    const storageKey = this.staffFindStorageKeyForDisplayLabel(displayLabel, sourceCustom, item);
+                    const permission = this.staffRevisionPermissionToken(itemId, storageKey);
+                    if (!permission) return;
+                    const meta = this.staffCustomizationFieldMeta(storageKey);
+                    addRow(permission, displayLabel, displayValue, meta.priority || 100);
+                });
+
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && Array.isArray(profile.fields)) {
+                    profile.fields.forEach((field) => {
+                        const fieldKey = String(field.key || '').trim();
+                        if (!fieldKey) return;
+                        const fieldType = String(field.type || 'text').toLowerCase();
+                        const fieldToken = this.staffCustomizationKeyToken(fieldKey);
+                        if (fieldType === 'file') {
+                            const isReference = fieldToken.includes('reference') || fieldKey === 'reference_file';
+                            if (isReference) return;
+                            if (this.staffShouldRenderDesignSection(item)) return;
+                        }
+                        if (!this.staffRevisionFieldParentActive(field, sourceCustom)) return;
+                        const meta = this.staffCustomizationFieldMeta(fieldKey);
+                        if (meta.hidden || meta.group === 'service') return;
+                        const permission = this.staffRevisionPermissionToken(itemId, fieldKey);
+                        const label = String(field.label || meta.label || fieldKey);
+                        if (!permission || seenLabels.has(this.getCustomLabel(label))) return;
+                        const hasValue = this.staffMeaningfulSpecValue(this.staffResolveFieldValueFromSource(fieldKey, sourceCustom));
+                        if (!hasValue) {
+                            addRow(permission, label, 'No value submitted', field.order || meta.priority || 100);
+                        }
+                    });
+                }
+
+                rows.sort((left, right) => (left.priority || 100) - (right.priority || 100));
+                return rows;
+            },
+
             buildRevisionFieldOptions() {
-                const options = [
-                    { value: 'uploaded_design', label: 'Uploaded Design' },
-                    { value: 'needed_date', label: 'Needed Date' },
-                    { value: 'type_specifications', label: 'Type / Order Specifications' },
-                    { value: 'layout', label: 'Layout' },
-                    { value: 'quantity', label: 'Quantity' },
-                    { value: 'order_notes', label: 'Order Notes' }
-                ];
-                const seen = new Set(options.map(option => option.value));
-                const seenLogicalSpecs = new Set();
-                const protectedKeys = /(^_|branch|price|payment|service_id|product_id|order_id|item_id|design|upload|reference|status)/i;
-                (this.currentJo.items || []).forEach((item) => {
-                    const itemId = Number(item.order_item_id || 0);
-                    if (!itemId) return;
-                    // Permission tokens must use keys physically persisted on
-                    // the order item; enriched display labels are not writable.
-                    const revisionSpecs = {
-                        ...this.parseSpecsObject(item.customization_data || {}),
-                        ...this.parseSpecsObject(item.specifications_raw || {})
-                    };
-                    Object.entries(revisionSpecs).forEach(([key, fieldValue]) => {
-                        const normalized = String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                        if (!normalized || protectedKeys.test(normalized)) return;
-                        if (typeof fieldValue === 'string' && fieldValue.length > 10000) return;
-                        if (['quantity', 'qty'].includes(normalized)) return;
-                        if (['needed_date', 'need_date', 'date_needed', 'required_date', 'due_date'].includes(normalized)) return;
-                        if (normalized.includes('layout')) return;
-                        if (['notes', 'order_notes', 'customer_notes', 'additional_notes', 'special_instructions', 'job_notes'].includes(normalized)) return;
-                        const logicalSpec = `${itemId}:${normalized}`;
-                        if (seenLogicalSpecs.has(logicalSpec)) return;
-                        seenLogicalSpecs.add(logicalSpec);
-                        const value = `spec:${itemId}:${encodeURIComponent(String(key))}`;
-                        if (seen.has(value)) return;
-                        seen.add(value);
-                        options.push({ value, label: `Other: ${this.getCustomLabel(key)}` });
+                const options = [];
+                const seen = new Set();
+                const items = Array.isArray(this.currentJo && this.currentJo.items) ? this.currentJo.items : [];
+                items.forEach((item) => {
+                    this.staffCollectRevisionFieldCandidates(item).forEach((row) => {
+                        if (seen.has(row.value)) return;
+                        seen.add(row.value);
+                        options.push(row);
                     });
                 });
+
+                if (!this.staffOrderNotesRenderedInItemSpecs()) {
+                    const orderNote = this.combinedCustomerNotes().trim();
+                    if (orderNote && orderNote !== 'No specific instructions.' && !seen.has('order_notes')) {
+                        options.push({
+                            value: 'order_notes',
+                            label: 'Order Notes',
+                            currentValue: orderNote,
+                            priority: 50
+                        });
+                    }
+                }
+
+                options.sort((left, right) => (left.priority || 100) - (right.priority || 100));
                 return options;
             },
 
+            isRevisionFormValid() {
+                if (!this.revisionReasonSelect) return false;
+                if (this.revisionReasonSelect === 'others' && !String(this.revisionReasonText || '').trim()) return false;
+                if (!Array.isArray(this.revisionEditableFields) || !this.revisionEditableFields.length) return false;
+                if (!String(this.revisionInstruction || '').trim()) return false;
+                return true;
+            },
+
             applyRevisionReasonDefaults() {
+                const available = new Set((this.revisionFieldOptions || []).map((option) => option.value));
                 const designReasons = ['low_image_quality', 'wrong_design', 'invalid_format'];
                 if (designReasons.includes(this.revisionReasonSelect)) {
-                    this.revisionEditableFields = ['uploaded_design'];
+                    this.revisionEditableFields = available.has('uploaded_design') ? ['uploaded_design'] : [];
                 } else if (this.revisionReasonSelect === 'incorrect_details') {
-                    this.revisionEditableFields = ['needed_date', 'type_specifications', 'layout', 'quantity', 'order_notes'];
+                    this.revisionEditableFields = (this.revisionFieldOptions || [])
+                        .filter((option) => option.value !== 'uploaded_design')
+                        .map((option) => option.value);
                 } else {
                     this.revisionEditableFields = [];
                 }
@@ -7663,6 +7847,7 @@ window.pfServiceFieldCatalog = (() => {
 
             closeRevisionModal() {
                 this.revisionModalError = '';
+                this.revisionSubmitting = false;
                 this.showRevisionModal = false;
             },
             async submitRevision() {
@@ -7677,7 +7862,7 @@ window.pfServiceFieldCatalog = (() => {
                     return;
                 }
                 if (!this.revisionEditableFields.length) {
-                    this.revisionModalError = 'Select at least one field the customer may edit.';
+                    this.revisionModalError = 'Select at least one detail the customer needs to update.';
                     return;
                 }
                 if (!this.revisionInstruction.trim()) {
@@ -7694,7 +7879,7 @@ window.pfServiceFieldCatalog = (() => {
                     }[this.revisionReasonSelect] || this.revisionReasonSelect);
                 this.revisionModalError = '';
                 if (!this.beginModalAction()) return;
-                this.showRevisionModal = false;
+                this.revisionSubmitting = true;
                 try {
                     const ok = await this.updateStatus(oid, 'For Revision', null, legacyReason, {
                         reasonCode: this.revisionReasonSelect,
@@ -7703,9 +7888,11 @@ window.pfServiceFieldCatalog = (() => {
                         permittedFields: [...this.revisionEditableFields]
                     });
                     if (ok) {
+                        this.showRevisionModal = false;
                         this.showStaffAlert('Success', 'Additional details request sent successfully.');
                     }
                 } finally {
+                    this.revisionSubmitting = false;
                     this.endModalAction();
                 }
             },
