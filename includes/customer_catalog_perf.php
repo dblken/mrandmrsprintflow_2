@@ -47,68 +47,58 @@ function printflow_catalog_service_card_stats_map(array $service_rows): array {
 
     $serviceIds = array_keys($services);
     $idPlaceholders = implode(',', array_fill(0, count($serviceIds), '?'));
-    $serviceIdRows = [];
-    $serviceIdParams = [];
-    foreach ($serviceIds as $serviceId) {
-        $serviceIdRows[] = 'SELECT ? AS service_id, ? AS like_colon, ? AS like_colon_sp, ? AS like_quoted';
-        array_push(
-            $serviceIdParams,
-            (int)$serviceId,
-            '%"service_id":' . (int)$serviceId . '%',
-            '%"service_id": ' . (int)$serviceId . '%',
-            '%"service_id":"' . (int)$serviceId . '"%'
-        );
-    }
-
-    $serviceNameRows = [];
-    $serviceNameParams = [];
-    foreach ($services as $serviceId => $name) {
-        $serviceNameRows[] = 'SELECT ? AS service_id, ? AS service_name';
-        array_push($serviceNameParams, (int)$serviceId, $name);
-    }
-
     $soldRows = db_query(
-        "SELECT matched.service_id, COALESCE(SUM(matched.quantity), 0) AS cnt
-         FROM (
-            SELECT oi.order_item_id, oi.quantity, o.reference_id AS service_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.order_id = oi.order_id
-            WHERE o.status != 'Cancelled'
-              AND LOWER(TRIM(COALESCE(o.order_type, ''))) = 'custom'
-              AND o.reference_id IN ($idPlaceholders)
-            UNION
-            SELECT oi.order_item_id, oi.quantity, service_ids.service_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.order_id = oi.order_id
-            INNER JOIN (" . implode(' UNION ALL ', $serviceIdRows) . ") service_ids ON (
-                oi.customization_data LIKE service_ids.like_colon
-                OR oi.customization_data LIKE service_ids.like_colon_sp
-                OR oi.customization_data LIKE service_ids.like_quoted
-            )
-            WHERE o.status != 'Cancelled'
-            UNION
-            SELECT oi.order_item_id, oi.quantity, service_names.service_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.order_id = oi.order_id
-            INNER JOIN (" . implode(' UNION ALL ', $serviceNameRows) . ") service_names ON (
-                oi.customization_data LIKE '%\"service_type\"%'
-                AND oi.customization_data COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', service_names.service_name COLLATE utf8mb4_unicode_ci, '%')
-            )
-            WHERE o.status != 'Cancelled'
-         ) matched
-         GROUP BY matched.service_id",
-        str_repeat('i', count($serviceIds)) . str_repeat('isss', count($serviceIds)) . str_repeat('is', count($services)),
-        array_merge($serviceIds, $serviceIdParams, $serviceNameParams)
+        "SELECT oi.order_item_id, oi.quantity, o.reference_id, o.order_type, oi.customization_data
+         FROM order_items oi
+         INNER JOIN orders o ON o.order_id = oi.order_id
+         WHERE o.status != 'Cancelled'
+           AND (
+                (LOWER(TRIM(COALESCE(o.order_type, ''))) = 'custom'
+                 AND o.reference_id IN ($idPlaceholders))
+                OR oi.customization_data LIKE '%\"service_id\"%'
+                OR oi.customization_data LIKE '%\"service_type\"%'
+           )",
+        str_repeat('i', count($serviceIds)),
+        $serviceIds
     ) ?: [];
+
+    $serviceIdSet = array_fill_keys($serviceIds, true);
     foreach ($soldRows as $row) {
-        $serviceId = (int)($row['service_id'] ?? 0);
-        if (isset($map[$serviceId])) {
-            $map[$serviceId]['sold_count'] = (int)($row['cnt'] ?? 0);
+        $matchedServiceIds = [];
+        $referenceId = (int)($row['reference_id'] ?? 0);
+        if (strtolower(trim((string)($row['order_type'] ?? ''))) === 'custom'
+            && isset($serviceIdSet[$referenceId])) {
+            $matchedServiceIds[$referenceId] = true;
+        }
+
+        $rawCustomization = (string)($row['customization_data'] ?? '');
+        $customization = json_decode($rawCustomization, true);
+        if (is_array($customization)) {
+            $configuredServiceId = (int)($customization['service_id'] ?? 0);
+            if (isset($serviceIdSet[$configuredServiceId])) {
+                $matchedServiceIds[$configuredServiceId] = true;
+            }
+        }
+
+        // Preserve the legacy service_type fallback. The old SQL matched the
+        // configured service name anywhere after confirming the payload carried
+        // a service_type key, so do the same once per row without an SQL
+        // service-count cross product.
+        if (stripos($rawCustomization, '"service_type"') !== false) {
+            foreach ($services as $serviceId => $serviceName) {
+                if ($serviceName !== '' && stripos($rawCustomization, $serviceName) !== false) {
+                    $matchedServiceIds[$serviceId] = true;
+                }
+            }
+        }
+
+        $quantity = (int)($row['quantity'] ?? 0);
+        foreach (array_keys($matchedServiceIds) as $serviceId) {
+            $map[$serviceId]['sold_count'] += $quantity;
         }
     }
 
-    $aliasRows = [];
-    $aliasParams = [];
+    $serviceAliases = [];
     foreach ($services as $serviceId => $name) {
         $aliases = function_exists('printflow_service_name_aliases') ? printflow_service_name_aliases($name) : [$name];
         foreach ($aliases as $alias) {
@@ -116,46 +106,76 @@ function printflow_catalog_service_card_stats_map(array $service_rows): array {
             if ($alias === '') {
                 continue;
             }
-            $aliasRows[] = 'SELECT ? AS service_id, ? AS service_name';
-            array_push($aliasParams, (int)$serviceId, $alias);
+            $serviceAliases[$serviceId][$alias] = true;
         }
     }
 
-    if ($aliasRows !== []) {
-        $schema = function_exists('printflow_review_schema') ? printflow_review_schema() : ['service_col' => 'service_type'];
-        $reviewWhere = [];
-        if (!empty($schema['service_col'])) {
-            $reviewWhere[] = "r.{$schema['service_col']} COLLATE utf8mb4_unicode_ci = service_alias.service_name COLLATE utf8mb4_unicode_ci";
-        }
-        $reviewWhere[] = "EXISTS (
-            SELECT 1
-            FROM order_items oi
-            LEFT JOIN products p ON p.product_id = oi.product_id
-            WHERE oi.order_id = r.order_id
-              AND (
-                p.name COLLATE utf8mb4_unicode_ci = service_alias.service_name COLLATE utf8mb4_unicode_ci
-                OR oi.customization_data COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', service_alias.service_name COLLATE utf8mb4_unicode_ci, '%')
-              )
-        )";
+    if ($serviceAliases !== []) {
+        $reviewColumns = array_flip(array_column(db_query('SHOW COLUMNS FROM reviews') ?: [], 'Field'));
+        $serviceColumn = isset($reviewColumns['service_type']) ? 'service_type' : '';
+        $orderColumn = isset($reviewColumns['order_id']) ? 'order_id' : '';
+        $reviewSelect = ['id', 'rating'];
+        if ($serviceColumn !== '') $reviewSelect[] = $serviceColumn;
+        if ($orderColumn !== '') $reviewSelect[] = $orderColumn;
+        $reviewRows = db_query('SELECT ' . implode(', ', $reviewSelect) . ' FROM reviews') ?: [];
 
-        $reviewRows = db_query(
-            "SELECT matched.service_id, AVG(matched.rating) AS avg_rating, COUNT(*) AS review_count
-             FROM (
-                SELECT service_alias.service_id, r.id AS review_id, MAX(r.rating) AS rating
-                FROM (" . implode(' UNION ALL ', $aliasRows) . ") service_alias
-                INNER JOIN reviews r ON (" . implode(' OR ', $reviewWhere) . ")
-                GROUP BY service_alias.service_id, r.id
-             ) matched
-             GROUP BY matched.service_id",
-            str_repeat('is', count($aliasRows)),
-            $aliasParams
-        ) ?: [];
-        foreach ($reviewRows as $row) {
-            $serviceId = (int)($row['service_id'] ?? 0);
-            if (isset($map[$serviceId])) {
-                $map[$serviceId]['avg_rating'] = (float)($row['avg_rating'] ?? 0);
-                $map[$serviceId]['review_count'] = (int)($row['review_count'] ?? 0);
+        $orderIds = [];
+        foreach ($reviewRows as $reviewRow) {
+            $orderId = (int)($reviewRow[$orderColumn] ?? 0);
+            if ($orderId > 0) $orderIds[$orderId] = true;
+        }
+
+        $orderReviewHints = [];
+        if ($orderIds !== []) {
+            $reviewOrderIds = array_keys($orderIds);
+            $orderPlaceholders = implode(',', array_fill(0, count($reviewOrderIds), '?'));
+            $hintRows = db_query(
+                "SELECT oi.order_id, p.name AS product_name, oi.customization_data
+                 FROM order_items oi
+                 LEFT JOIN products p ON p.product_id = oi.product_id
+                 WHERE oi.order_id IN ($orderPlaceholders)",
+                str_repeat('i', count($reviewOrderIds)),
+                $reviewOrderIds
+            ) ?: [];
+            foreach ($hintRows as $hintRow) {
+                $orderId = (int)($hintRow['order_id'] ?? 0);
+                if ($orderId > 0) $orderReviewHints[$orderId][] = $hintRow;
             }
+        }
+
+        $ratingTotals = [];
+        foreach ($reviewRows as $reviewRow) {
+            $reviewServiceName = $serviceColumn !== '' ? trim((string)($reviewRow[$serviceColumn] ?? '')) : '';
+            $orderId = $orderColumn !== '' ? (int)($reviewRow[$orderColumn] ?? 0) : 0;
+            foreach ($serviceAliases as $serviceId => $aliases) {
+                $matches = false;
+                foreach (array_keys($aliases) as $alias) {
+                    if ($reviewServiceName !== '' && strcasecmp($reviewServiceName, $alias) === 0) {
+                        $matches = true;
+                        break;
+                    }
+                    foreach ($orderReviewHints[$orderId] ?? [] as $hint) {
+                        if (strcasecmp(trim((string)($hint['product_name'] ?? '')), $alias) === 0
+                            || stripos((string)($hint['customization_data'] ?? ''), $alias) !== false) {
+                            $matches = true;
+                            break 2;
+                        }
+                    }
+                }
+                if (!$matches) continue;
+
+                $ratingTotals[$serviceId]['sum'] = ($ratingTotals[$serviceId]['sum'] ?? 0.0)
+                    + (float)($reviewRow['rating'] ?? 0);
+                $ratingTotals[$serviceId]['count'] = ($ratingTotals[$serviceId]['count'] ?? 0) + 1;
+            }
+        }
+
+        foreach ($ratingTotals as $serviceId => $ratingStats) {
+            $count = (int)($ratingStats['count'] ?? 0);
+            $map[$serviceId]['review_count'] = $count;
+            $map[$serviceId]['avg_rating'] = $count > 0
+                ? (float)$ratingStats['sum'] / $count
+                : 0.0;
         }
     }
 

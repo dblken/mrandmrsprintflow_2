@@ -37,6 +37,10 @@ $assert(str_contains($products, 'pf_catalog_image_tag'), 'products cards use opt
 $assert(str_contains($auth, 'PF_CUSTOMER_CATALOG_NAV'), 'auth uses softer cache headers on catalog pages');
 $assert(str_contains($catalogPerf, 'printflow_catalog_service_card_stats_map'), 'catalog service stats are batched');
 $assert(str_contains($catalogPerf, 'printflow_catalog_product_card_stats_map'), 'catalog product stats are batched');
+$assert(!str_contains($catalogPerf, 'INNER JOIN (" . implode(\' UNION ALL \', $serviceIdRows)'), 'service sold stats do not cross-join every order item to every service ID');
+$assert(!str_contains($catalogPerf, 'INNER JOIN reviews r ON (" . implode(\' OR \', $reviewWhere)'), 'service review stats do not use the alias cross-product with correlated order-item lookups');
+$assert(str_contains($catalogPerf, 'SELECT oi.order_item_id, oi.quantity, o.reference_id, o.order_type, oi.customization_data'), 'service sold stats scan eligible order rows once');
+$assert(str_contains($services, 'SELECT s.service_id, s.name, s.category, s.display_image, s.hero_image'), 'services listing selects only catalog-card columns');
 $assert(str_contains($products, 'printflow_catalog_product_card_stats_map'), 'products listing uses batched card stats helper');
 $assert(!str_contains($products, 'as avg_rating'), 'products listing no longer uses correlated avg_rating subquery');
 $assert(!str_contains($services, 'printflow_get_service_review_stats'), 'services listing no longer calls per-card review stats');
