@@ -16,17 +16,14 @@ $assert(
     'final checkout request has a bounded network wait'
 );
 $assert(
-    preg_match('/if \(res\.ok && data\.success\) \{\s*checkoutCompleted = true;\s*const clearResult = await syncedCartAction/s', $pos) === 1,
-    'committed checkout is recognized before optional cart clearing'
-);
-$assert(
     strpos($pos, "syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000})") !== false
         && strpos($pos, 'cart = [];') !== false,
     'post-commit cart clearing cannot leave checkout processing forever'
 );
 $assert(
-    substr_count($pos, 'posCheckoutRequestInFlight = false;') >= 5,
-    'HTTP, parse, and network failures restore the button before awaiting an alert'
+    strpos($pos, 'posCheckoutRequestInFlight = false;') !== false
+        && preg_match('/finally \{[\s\S]*posCheckoutRequestInFlight = false;[\s\S]*updateCheckoutState\(\);/s', $pos) === 1,
+    'checkout always clears the in-flight flag and restores the button in finally'
 );
 $assert(
     strpos($checkout, "if (!preg_match('/^[a-f0-9]{32,64}$/', \$checkoutToken))") !== false,
@@ -38,10 +35,19 @@ $assert(
     'a retry returns the already committed sale instead of creating another order'
 );
 $assert(
-    strpos($checkout, '$checkout_committed = true;') !== false
+    preg_match('/if \(\s*!\$conn->commit\(\)\s*\)\s*\{[\s\S]*?\$checkout_committed = true;/', $checkout) === 1
         && strpos($checkout, 'if (!empty($order_id) && $checkout_committed)') !== false
         && strpos($checkout, '} catch (Throwable $e) {') !== false,
-    'rollback and post-commit recovery paths are distinguished'
+    'checkout_committed is set only after a successful commit'
+);
+$assert(
+    strpos($checkout, 'session_write_close();') !== false
+        && strpos($checkout, 'SessionManager::start();') !== false,
+    'checkout releases the session lock before the long-running sale transaction'
+);
+$assert(
+    preg_match('/if \(res\.ok && data\.success\) \{[\s\S]*?updateCheckoutState\(\);[\s\S]*?syncedCartAction\(\'clear\'/', $pos) === 1,
+    'checkout UI is restored before optional post-commit cart clearing'
 );
 $assert(
     strpos($checkout, 'if (!$isPayMongo && $amount_tendered < $total_amount)') !== false

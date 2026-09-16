@@ -5046,6 +5046,46 @@ try {
                 }
                 if (res.ok && data.success) {
                     checkoutCompleted = true;
+                    posPayMongoCheckoutPending = false;
+                    resetPayMongoPosCheckoutState();
+
+                    if (data.payment_pending && data.payment) {
+                        openPayMongoPosModal(data.order_id, data.payment);
+                        updateCheckoutState();
+                        const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
+                        if (!clearResult.success) {
+                            cart = [];
+                            renderCart();
+                            updateCheckoutState();
+                        }
+                        return;
+                    }
+
+                    document.getElementById('pos-payment-method').value = 'Cash';
+                    document.getElementById('pos-tendered').value = '';
+                    toggleReferenceField();
+                    calculateChange();
+                    updateCheckoutState();
+
+                    if (data.receipt && data.order_id) {
+                        try {
+                            openReceiptModal(data.receipt);
+                        } catch (receiptError) {
+                            console.error('Receipt modal failed:', receiptError);
+                            await showPOSAlert(
+                                'Sale Completed',
+                                'Order #' + data.order_id + ' was saved, but the receipt preview could not be opened.',
+                                'warning'
+                            );
+                        }
+                    } else {
+                        await showPOSAlert(
+                            'Sale Completed',
+                            (data.message || 'Sale completed successfully.') + (data.order_id ? ' Order #' + data.order_id + '.' : ''),
+                            data.warning ? 'warning' : 'success'
+                        );
+                    }
+
                     const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
                     if (!clearResult.success) {
                         // Checkout is already committed. Clear the local cart so the
@@ -5053,40 +5093,22 @@ try {
                         cart = [];
                         renderCart();
                     }
-
-                    if (data.payment_pending && data.payment) {
-                        openPayMongoPosModal(data.order_id, data.payment);
-                        updateCheckoutState();
-                        return;
-                    }
-
-                    posPayMongoCheckoutPending = false;
-                    resetPayMongoPosCheckoutState();
-                    document.getElementById('pos-payment-method').value = 'Cash';
-                    document.getElementById('pos-tendered').value = '';
-                    toggleReferenceField();
-                    calculateChange();
                     updateCheckoutState();
-                    openReceiptModal(data.receipt);
                 } else {
-                    posCheckoutRequestInFlight = false;
-                    updateCheckoutState();
-                    await showPOSAlert('Error', 'Checkout failed: ' + (data.message || 'Error'), 'error');
+                    const failureMessage = data.message
+                        || (res.status ? 'Server returned HTTP ' + res.status + '.' : 'Checkout failed.');
+                    await showPOSAlert('Error', 'Checkout failed: ' + failureMessage, 'error');
                 }
             } catch (e) {
                 console.error('Checkout error:', e);
                 const message = e.name === 'AbortError'
                     ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
                     : 'Network error: ' + e.message;
-                posCheckoutRequestInFlight = false;
-                updateCheckoutState();
                 await showPOSAlert('Network Error', message, 'error');
             } finally {
                 posCheckoutConfirmOpen = false;
                 posCheckoutRequestInFlight = false;
-                if (!checkoutCompleted) {
-                    updateCheckoutState();
-                }
+                updateCheckoutState();
             }
         }
 

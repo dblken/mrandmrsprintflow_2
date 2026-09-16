@@ -1167,18 +1167,25 @@ if (!$isPayMongo && $amount_tendered < $total_amount) {
 $checkout_started_at = microtime(true);
 $checkout_stage = 'transaction_start';
 $checkout_committed = false;
+$pos_pending_orders_snapshot = $_SESSION['pos_pending_orders'] ?? [];
+$checkout_actor_user_id = (int)($_SESSION['user_id'] ?? 0);
+$checkout_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+if ($checkout_branch_id < 1) {
+    $checkout_branch_id = 1;
+}
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 try {
     global $conn;
     $post_commit_job_sync = [];
     $transaction_open = false;
-    $checkout_committed = true;
     $service_placeholder_product_id = 0;
     $conn->begin_transaction();
     $transaction_open = true;
 
     // Fixed-product walk-in sales complete immediately; service/custom POS items keep their own workflow.
-    $branch_id = (int)($_SESSION['branch_id'] ?? 1);
-    if ($branch_id < 1) $branch_id = 1;
+    $branch_id = $checkout_branch_id;
 
     // Determine order_type based on cart content
     $has_service = false;
@@ -1331,8 +1338,8 @@ try {
             $details['source'] = 'POS'; // Mark as POS purchase
             $details_json = json_encode($details ?: new stdClass());
             $pendingOrderId = (int)($item['pending_order_id'] ?? 0);
-            if ($pendingOrderId <= 0 && isset($_SESSION['pos_pending_orders'][$product_id])) {
-                $pendingOrderId = (int)$_SESSION['pos_pending_orders'][$product_id];
+            if ($pendingOrderId <= 0 && isset($pos_pending_orders_snapshot[$product_id])) {
+                $pendingOrderId = (int)$pos_pending_orders_snapshot[$product_id];
             }
             $pendingCustomizationId = (int)($item['pending_customization_id'] ?? 0);
             $pendingOrderItemId = 0;
@@ -1485,13 +1492,13 @@ try {
                     )
                 );
                 // Hide the temporary POS source order after its customization is re-linked.
-                unset($_SESSION['pos_pending_orders'][$product_id]);
+                unset($pos_pending_orders_snapshot[$product_id]);
             }
         }
 
         // Product stock is deducted when counter staff marks the walk-in order Completed.
         // Services/custom items continue through the job/material completion flow.
-        $current_user_id = (int)($_SESSION['user_id'] ?? 0);
+        $current_user_id = $checkout_actor_user_id;
         if (!$isPayMongo && $order_status === 'Completed' && !$is_service && $is_actual_product) {
             try {
                 printflow_apply_product_order_item_inventory(
@@ -1512,6 +1519,13 @@ try {
         throw new RuntimeException('Could not commit the POS sale.');
     }
     $transaction_open = false;
+    $checkout_committed = true;
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        SessionManager::start();
+    }
+    if ($pos_pending_orders_snapshot !== ($_SESSION['pos_pending_orders'] ?? [])) {
+        $_SESSION['pos_pending_orders'] = $pos_pending_orders_snapshot;
+    }
     $_SESSION['pos_checkout_orders'][$checkoutToken] = (int)$order_id;
     if (count($_SESSION['pos_checkout_orders']) > 20) {
         $_SESSION['pos_checkout_orders'] = array_slice($_SESSION['pos_checkout_orders'], -20, null, true);
@@ -1605,17 +1619,33 @@ try {
     ));
     if (!empty($order_id) && $checkout_committed) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
-        $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
-        $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
-        echo json_encode([
-            'success' => true,
-            'order_id' => (int)$order_id,
-            'customization_id' => $last_customization_id ?? null,
-            'message' => 'Sale completed successfully.',
-            'warning' => 'Production sync needs follow-up.',
-            'receipt' => $receipt,
-            'print_job' => null
-        ]);
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            SessionManager::start();
+        }
+        try {
+            $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
+            $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
+            echo json_encode([
+                'success' => true,
+                'order_id' => (int)$order_id,
+                'customization_id' => $last_customization_id ?? null,
+                'message' => 'Sale completed successfully.',
+                'warning' => 'Production sync needs follow-up.',
+                'receipt' => $receipt,
+                'print_job' => null
+            ]);
+        } catch (Throwable $receiptError) {
+            error_log('PrintFlow POS checkout receipt recovery failed for order #' . (int)$order_id . ': ' . $receiptError->getMessage());
+            echo json_encode([
+                'success' => true,
+                'order_id' => (int)$order_id,
+                'customization_id' => $last_customization_id ?? null,
+                'message' => 'Sale completed successfully.',
+                'warning' => 'Receipt details could not be loaded. Order #' . (int)$order_id . ' was saved.',
+                'receipt' => null,
+                'print_job' => null
+            ]);
+        }
     } else {
         $isInventoryFailure = (int)$e->getCode() === 409
             && str_starts_with($e->getMessage(), 'Failed to deduct stock for ');
