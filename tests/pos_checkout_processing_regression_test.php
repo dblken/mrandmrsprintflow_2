@@ -12,7 +12,8 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $assert(
-    strpos($pos, "fetchWithTimeout(staffUrl('staff/api/pos_checkout.php')") !== false,
+    strpos($pos, "fetchWithTimeout(checkoutUrl") !== false
+        && strpos($pos, "staffUrl('staff/api/pos_checkout.php')") !== false,
     'final checkout request has a bounded network wait'
 );
 $assert(
@@ -52,13 +53,17 @@ if ($cartHandler === false) {
 }
 $assert(
     strpos($cartHandler, '$cartResponse = array_values($_SESSION[\'pos_cart\'] ?? []);') !== false
-        && strpos($cartHandler, 'session_write_close();') !== false
-        && strpos($cartHandler, 'pos_cart_effective_product_stock') !== false,
-    'cart refresh releases the session lock before per-item stock lookups'
+        && preg_match('/completedCustomizationIds[\s\S]*session_write_close\(\);[\s\S]*job_orders[\s\S]*pos_cart_effective_product_stock/', $cartHandler) === 1,
+    'cart refresh releases the session lock before slow cleanup queries and per-item stock lookups'
 );
 $assert(
-    preg_match('/if \(res\.ok && data\.success\) \{[\s\S]*?updateCheckoutState\(\);[\s\S]*?syncedCartAction\(\'clear\'/', $pos) === 1,
+    preg_match('/finally \{[\s\S]*posCheckoutRequestInFlight = false;[\s\S]*updateCheckoutState\(\);[\s\S]*\}[\s\S]*if \(!checkoutData\) return;[\s\S]*syncedCartAction\(\'clear\'/', $pos) === 1,
     'checkout UI is restored before optional post-commit cart clearing'
+);
+$assert(
+    strpos($checkout, 'function pos_checkout_capture_session_context(') !== false
+        && preg_match('/pos_checkout_capture_session_context\(\);[\s\S]*session_write_close\(\);[\s\S]*file_get_contents\(\'php:\/\/input\'\)/', $checkout) === 1,
+    'checkout releases the PHP session lock before reading the request body'
 );
 $assert(
     strpos($checkout, 'if (!$isPayMongo && $amount_tendered < $total_amount)') !== false

@@ -257,6 +257,56 @@ function pos_customization_has_persisted_media_path(array $customization, string
     return false;
 }
 
+/**
+ * @return array{
+ *   csrf_token:string,
+ *   pos_checkout_orders:array,
+ *   pos_paymongo_checkouts:array,
+ *   pos_pending_orders:array,
+ *   user_id:int,
+ *   branch_id:int,
+ *   user_name:string
+ * }
+ */
+function pos_checkout_capture_session_context(): array {
+    return [
+        'csrf_token' => (string)($_SESSION['csrf_token'] ?? ''),
+        'pos_checkout_orders' => is_array($_SESSION['pos_checkout_orders'] ?? null)
+            ? $_SESSION['pos_checkout_orders']
+            : [],
+        'pos_paymongo_checkouts' => is_array($_SESSION['pos_paymongo_checkouts'] ?? null)
+            ? $_SESSION['pos_paymongo_checkouts']
+            : [],
+        'pos_pending_orders' => is_array($_SESSION['pos_pending_orders'] ?? null)
+            ? $_SESSION['pos_pending_orders']
+            : [],
+        'user_id' => (int)($_SESSION['user_id'] ?? 0),
+        'branch_id' => (int)($_SESSION['branch_id'] ?? 0),
+        'user_name' => trim((string)($_SESSION['user_name'] ?? 'Staff')),
+    ];
+}
+
+function pos_checkout_verify_csrf(string $token, array $sessionContext): bool {
+    $expected = (string)($sessionContext['csrf_token'] ?? '');
+    return $expected !== '' && hash_equals($expected, (string)$token);
+}
+
+function pos_checkout_reopen_session(): void {
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        SessionManager::start();
+    }
+}
+
+function pos_checkout_log_stage(string $stage, array $meta = []): void {
+    $parts = ['[POS CHECKOUT]', 'stage=' . $stage];
+    foreach ($meta as $key => $value) {
+        if (is_scalar($value) || $value === null) {
+            $parts[] = $key . '=' . (string)$value;
+        }
+    }
+    error_log(implode(' ', $parts));
+}
+
 function pos_checkout_persist_session_state(
     string $checkoutToken,
     int $orderId,
@@ -902,6 +952,12 @@ if (!has_role(['Admin', 'Staff'])) {
 
 header('Content-Type: application/json');
 
+$sessionContext = pos_checkout_capture_session_context();
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+pos_checkout_log_stage('session_released');
+
 $json = file_get_contents('php://input');
 $data = json_decode($json, true);
 
@@ -909,6 +965,11 @@ if (!$data) {
     echo json_encode(['success' => false, 'message' => 'Invalid JSON data.']);
     exit;
 }
+
+pos_checkout_log_stage('payload_ready', [
+    'action' => (string)($data['action'] ?? 'walkin_checkout'),
+    'items' => is_array($data['items'] ?? null) ? count($data['items']) : 0,
+]);
 
 // Void an unfinalized POS Set Price draft (cart removal / explicit cancel).
 if (isset($data['action']) && $data['action'] === 'void_pos_draft') {
@@ -920,6 +981,7 @@ if (isset($data['action']) && $data['action'] === 'void_pos_draft') {
 
 // Handle create_pending_customization action
 if (isset($data['action']) && $data['action'] === 'create_pending_customization') {
+    pos_checkout_reopen_session();
     printflow_ensure_order_items_columns();
     pos_ensure_customizations_table();
 
@@ -1052,7 +1114,7 @@ $customer_id = $data['customer_id'] === 'guest' ? null : (int)$data['customer_id
 if ($customer_id === null) {
     $customer_id = pos_get_walkin_customer_id();
 }
-if (!verify_csrf_token((string)($data['csrf_token'] ?? ''))) {
+if (!pos_checkout_verify_csrf((string)($data['csrf_token'] ?? ''), $sessionContext)) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Invalid security token.']);
     exit;
@@ -1092,8 +1154,8 @@ if (!preg_match('/^[a-f0-9]{32,64}$/', $checkoutToken)) {
     echo json_encode(['success' => false, 'message' => 'A valid POS checkout token is required.']);
     exit;
 }
-if (!empty($_SESSION['pos_checkout_orders'][$checkoutToken])) {
-    $existingOrderId = (int)$_SESSION['pos_checkout_orders'][$checkoutToken];
+if (!empty($sessionContext['pos_checkout_orders'][$checkoutToken])) {
+    $existingOrderId = (int)$sessionContext['pos_checkout_orders'][$checkoutToken];
     $existingOrder = db_query(
         "SELECT order_id, payment_status
          FROM orders
@@ -1104,11 +1166,18 @@ if (!empty($_SESSION['pos_checkout_orders'][$checkoutToken])) {
     ) ?: [];
     if ($existingOrder !== []) {
         if ($isPayMongo) {
-            // Continue through the existing provider-payment recovery path below.
+            pos_checkout_reopen_session();
             $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = $existingOrderId;
+            session_write_close();
         } else {
             $receipt = pos_build_receipt_payload($existingOrderId, $amount_tendered);
-            $_SESSION['pos_receipt_snapshots'][$existingOrderId] = $receipt;
+            pos_checkout_persist_session_state(
+                $checkoutToken,
+                $existingOrderId,
+                $sessionContext['pos_pending_orders'],
+                $receipt,
+                false
+            );
             echo json_encode([
                 'success' => true,
                 'duplicate_request' => true,
@@ -1121,26 +1190,30 @@ if (!empty($_SESSION['pos_checkout_orders'][$checkoutToken])) {
             exit;
         }
     } else {
+        pos_checkout_reopen_session();
         unset($_SESSION['pos_checkout_orders'][$checkoutToken]);
+        session_write_close();
     }
 }
-if ($isPayMongo && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) {
-    $existingOrderId = (int)$_SESSION['pos_paymongo_checkouts'][$checkoutToken];
+if ($isPayMongo && !empty($sessionContext['pos_paymongo_checkouts'][$checkoutToken])) {
+    $existingOrderId = (int)$sessionContext['pos_paymongo_checkouts'][$checkoutToken];
     $preparedOrder = pos_prepare_order_for_paymongo_checkout(
         $existingOrderId,
-        (int)get_user_id(),
+        (int)$sessionContext['user_id'],
         $payment_method,
         'Awaiting Payment',
         'Pending'
     );
     if (!$preparedOrder['ok']) {
+        pos_checkout_reopen_session();
         unset($_SESSION['pos_paymongo_checkouts'][$checkoutToken]);
+        session_write_close();
     } else {
         $existingResult = printflow_provider_payment_create_qrph(
             'order',
             $existingOrderId,
             'pos',
-            (int)get_user_id()
+            (int)$sessionContext['user_id']
         );
         http_response_code(!empty($existingResult['ok']) ? 200 : (int)($existingResult['http_status'] ?? 409));
         echo json_encode([
@@ -1154,17 +1227,14 @@ if ($isPayMongo && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) 
     }
 }
 
-$pos_pending_orders_snapshot = $_SESSION['pos_pending_orders'] ?? [];
-$checkout_actor_user_id = (int)($_SESSION['user_id'] ?? 0);
-$checkout_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+$pos_pending_orders_snapshot = $sessionContext['pos_pending_orders'];
+$checkout_actor_user_id = (int)$sessionContext['user_id'];
+$checkout_branch_id = (int)$sessionContext['branch_id'];
 if ($checkout_branch_id < 1) {
     $checkout_branch_id = 1;
 }
 $pos_branch_id = $checkout_branch_id;
 $checkoutStaffId = $checkout_actor_user_id;
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
-}
 
 printflow_ensure_product_branch_stock_table();
 printflow_ensure_product_inventory_transaction_schema();
@@ -1239,6 +1309,7 @@ if (!$isPayMongo && $amount_tendered < $total_amount) {
 $checkout_started_at = microtime(true);
 $checkout_stage = 'transaction_start';
 $checkout_committed = false;
+pos_checkout_log_stage('transaction_start', ['items' => count($items)]);
 try {
     global $conn;
     $post_commit_job_sync = [];
@@ -1586,6 +1657,7 @@ try {
     }
 
     $checkout_stage = 'commit';
+    pos_checkout_log_stage('commit', ['order_id' => (int)($order_id ?? 0)]);
     if (!$conn->commit()) {
         throw new RuntimeException('Could not commit the POS sale.');
     }

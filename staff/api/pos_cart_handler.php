@@ -453,32 +453,48 @@ try {
             $completedCustomizationIds[] = $custId;
         }
     }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+
+    $doneIds = [];
     if (!empty($completedCustomizationIds)) {
-        $inStr = implode(',', $completedCustomizationIds);
-        $doneRows = db_query(
-            "SELECT id FROM job_orders
-             WHERE id IN ({$inStr})
-               AND status IN ('COMPLETED','CLOSED','Completed','Closed','CANCELLED','Cancelled')"
-        ) ?: [];
-        if (!empty($doneRows)) {
-            $doneIds = array_flip(array_column($doneRows, 'id'));
-            $_SESSION['pos_cart'] = array_values(array_filter(
-                $_SESSION['pos_cart'],
-                function ($item) use ($doneIds) {
-                    $cid = (int)($item['pending_customization_id'] ?? 0);
-                    return $cid <= 0 || !isset($doneIds[$cid]);
-                }
-            ));
+        $safeIds = array_values(array_unique(array_filter(
+            array_map('intval', $completedCustomizationIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if (!empty($safeIds)) {
+            $inStr = implode(',', $safeIds);
+            $doneRows = db_query(
+                "SELECT id FROM job_orders
+                 WHERE id IN ({$inStr})
+                   AND status IN ('COMPLETED','CLOSED','Completed','Closed','CANCELLED','Cancelled')"
+            ) ?: [];
+            if (!empty($doneRows)) {
+                $doneIds = array_flip(array_column($doneRows, 'id'));
+            }
         }
+    }
+
+    // Briefly reopen the session only to apply cleanup and snapshot the cart.
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        SessionManager::start();
+    }
+    if (!empty($doneIds)) {
+        $_SESSION['pos_cart'] = array_values(array_filter(
+            $_SESSION['pos_cart'],
+            function ($item) use ($doneIds) {
+                $cid = (int)($item['pending_customization_id'] ?? 0);
+                return $cid <= 0 || !isset($doneIds[$cid]);
+            }
+        ));
     }
 
     // Release the session before per-item stock lookups so checkout cannot block
     // behind cart refreshes when the cart grows to several lines.
     $pos_branch_id = pos_cart_branch_id();
     $cartResponse = array_values($_SESSION['pos_cart'] ?? []);
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
+    session_write_close();
     foreach ($cartResponse as &$cartItem) {
         $isServiceItem = pos_cart_item_is_service((array)$cartItem);
         $cartItem['is_service'] = $isServiceItem;

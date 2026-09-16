@@ -59,6 +59,11 @@ try {
     $pos_services = db_query("SELECT service_id, name, category FROM services WHERE status = 'Activated' ORDER BY name ASC") ?: [];
 } catch (Exception $e) {
 }
+
+$pos_csrf_token = generate_csrf_token();
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -2066,7 +2071,7 @@ try {
     </style>
 </head>
 
-<body data-turbo="false" data-csrf="<?php echo htmlspecialchars(generate_csrf_token(), ENT_QUOTES, 'UTF-8'); ?>">
+<body data-turbo="false" data-csrf="<?php echo htmlspecialchars($pos_csrf_token, ENT_QUOTES, 'UTF-8'); ?>">
 
     <div class="dashboard-container">
         <?php
@@ -5011,6 +5016,9 @@ try {
         async function processCheckout() {
             if (cart.length === 0 || posCheckoutRequestInFlight || posCheckoutConfirmOpen) return;
 
+            console.log('[POS CHECKOUT] started');
+            console.log('[POS CHECKOUT] validating cart', { items: cart.length, total: currentTotal });
+
             // Validate customer selection
             const customer = $('#pos-customer').val();
             if (!customer) {
@@ -5043,12 +5051,8 @@ try {
             posCheckoutConfirmOpen = false;
             if (!confirmed) return;
 
-            const btn = document.getElementById('pos-checkout-btn');
-            btn.disabled = true;
-            document.getElementById('checkout-icon').className = 'fas fa-spinner fa-spin';
-            document.getElementById('checkout-text').textContent = 'Processing...';
-
             posCheckoutRequestInFlight = true;
+            updateCheckoutState();
 
             resetPayMongoPosCheckoutState(false);
             const checkoutToken = getPosPayMongoCheckoutToken();
@@ -5064,90 +5068,105 @@ try {
                 items: cart.map(posCheckoutItemPayload)
             };
 
-            let checkoutCompleted = false;
+            let checkoutData = null;
+            let checkoutErrorMessage = '';
+            const checkoutUrl = staffUrl('staff/api/pos_checkout.php');
             try {
-                const res = await fetchWithTimeout(staffUrl('staff/api/pos_checkout.php'), {
+                console.log('[POS CHECKOUT] request sent', checkoutUrl, { items: payload.items.length });
+                const startedAt = performance.now();
+                const res = await fetchWithTimeout(checkoutUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 }, 45000);
+                console.log('[POS CHECKOUT] response received', {
+                    status: res.status,
+                    ms: Math.round(performance.now() - startedAt)
+                });
                 const text = await res.text();
                 let data;
                 try {
                     data = JSON.parse(text);
                 } catch (parseErr) {
-                    console.error('Non-JSON response from checkout:', text);
-                    posCheckoutRequestInFlight = false;
-                    updateCheckoutState();
-                    await showPOSAlert('Server Error', 'Server error. Check browser console for details.', 'error');
+                    console.error('[POS CHECKOUT] ERROR invalid JSON response', text.slice(0, 500));
+                    checkoutErrorMessage = 'Server returned an invalid response. Check the browser console for details.';
                     return;
                 }
                 if (res.ok && data.success) {
-                    checkoutCompleted = true;
-                    posPayMongoCheckoutPending = false;
-                    resetPayMongoPosCheckoutState();
-
-                    if (data.payment_pending && data.payment) {
-                        openPayMongoPosModal(data.order_id, data.payment);
-                        updateCheckoutState();
-                        const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
-                        if (!clearResult.success) {
-                            cart = [];
-                            renderCart();
-                            updateCheckoutState();
-                        }
-                        return;
-                    }
-
-                    document.getElementById('pos-payment-method').value = 'Cash';
-                    document.getElementById('pos-tendered').value = '';
-                    toggleReferenceField();
-                    calculateChange();
-                    updateCheckoutState();
-
-                    if (data.receipt && data.order_id) {
-                        try {
-                            openReceiptModal(data.receipt);
-                        } catch (receiptError) {
-                            console.error('Receipt modal failed:', receiptError);
-                            await showPOSAlert(
-                                'Sale Completed',
-                                'Order #' + data.order_id + ' was saved, but the receipt preview could not be opened.',
-                                'warning'
-                            );
-                        }
-                    } else {
-                        await showPOSAlert(
-                            'Sale Completed',
-                            (data.message || 'Sale completed successfully.') + (data.order_id ? ' Order #' + data.order_id + '.' : ''),
-                            data.warning ? 'warning' : 'success'
-                        );
-                    }
-
-                    const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
-                    if (!clearResult.success) {
-                        // Checkout is already committed. Clear the local cart so the
-                        // completed request cannot be submitted again.
-                        cart = [];
-                        renderCart();
-                    }
-                    updateCheckoutState();
+                    console.log('[POS CHECKOUT] checkout completed', { orderId: data.order_id });
+                    checkoutData = data;
                 } else {
-                    const failureMessage = data.message
-                        || (res.status ? 'Server returned HTTP ' + res.status + '.' : 'Checkout failed.');
-                    await showPOSAlert('Error', 'Checkout failed: ' + failureMessage, 'error');
+                    console.error('[POS CHECKOUT] ERROR', {
+                        status: res.status,
+                        stage: data.stage || '',
+                        message: data.message || ''
+                    });
+                    checkoutErrorMessage = data.message
+                        || ('Checkout failed with HTTP ' + res.status + '.');
                 }
             } catch (e) {
-                console.error('Checkout error:', e);
-                const message = e.name === 'AbortError'
+                console.error('[POS CHECKOUT] ERROR', e);
+                checkoutErrorMessage = e.name === 'AbortError'
                     ? 'Checkout took too long to respond. Please refresh the POS and check Store Orders before trying again.'
-                    : 'Network error: ' + e.message;
-                await showPOSAlert('Network Error', message, 'error');
+                    : ('Network error: ' + e.message);
             } finally {
                 posCheckoutConfirmOpen = false;
                 posCheckoutRequestInFlight = false;
                 updateCheckoutState();
+                console.log('[POS CHECKOUT] UI unlocked');
             }
+
+            if (checkoutErrorMessage) {
+                await showPOSAlert('Checkout Failed', checkoutErrorMessage, 'error');
+                return;
+            }
+            if (!checkoutData) return;
+
+            posPayMongoCheckoutPending = false;
+            resetPayMongoPosCheckoutState();
+
+            if (checkoutData.payment_pending && checkoutData.payment) {
+                openPayMongoPosModal(checkoutData.order_id, checkoutData.payment);
+                const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
+                if (!clearResult.success) {
+                    cart = [];
+                    renderCart();
+                    updateCheckoutState();
+                }
+                return;
+            }
+
+            document.getElementById('pos-payment-method').value = 'Cash';
+            document.getElementById('pos-tendered').value = '';
+            toggleReferenceField();
+            calculateChange();
+
+            if (checkoutData.receipt && checkoutData.order_id) {
+                try {
+                    openReceiptModal(checkoutData.receipt);
+                } catch (receiptError) {
+                    console.error('[POS CHECKOUT] receipt modal failed:', receiptError);
+                    await showPOSAlert(
+                        'Sale Completed',
+                        'Order #' + checkoutData.order_id + ' was saved, but the receipt preview could not be opened.',
+                        'warning'
+                    );
+                }
+            } else {
+                await showPOSAlert(
+                    'Sale Completed',
+                    (checkoutData.message || 'Sale completed successfully.')
+                        + (checkoutData.order_id ? ' Order #' + checkoutData.order_id + '.' : ''),
+                    checkoutData.warning ? 'warning' : 'success'
+                );
+            }
+
+            const clearResult = await syncedCartAction('clear', {}, {silentErrors: true, timeoutMs: 10000});
+            if (!clearResult.success) {
+                cart = [];
+                renderCart();
+            }
+            updateCheckoutState();
         }
 
         function getPosPayMongoCheckoutToken(forceNew = false) {
