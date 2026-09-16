@@ -2782,9 +2782,9 @@ $online_closed_count = 0;
                             <div x-show="currentJo.revision_review.changes && currentJo.revision_review.changes.length" style="display:grid;gap:7px;">
                                 <template x-for="change in (currentJo.revision_review.changes || [])" :key="change.path">
                                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;padding:8px;background:#fff;border:1px solid #bae6fd;border-radius:7px;align-items:start;">
-                                        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#0369a1;overflow-wrap:anywhere;" x-text="change.label"></div>
-                                        <div style="font-size:11px;color:#991b1b;overflow-wrap:anywhere;"><strong>Previous:</strong> <span x-text="formatRevisionAuditValue(change.previous)"></span></div>
-                                        <div style="font-size:11px;color:#166534;overflow-wrap:anywhere;"><strong>Revised:</strong> <span x-text="formatRevisionAuditValue(change.revised)"></span></div>
+                                        <div style="font-size:10px;font-weight:800;text-transform:uppercase;color:#111827;overflow-wrap:anywhere;" x-text="change.label"></div>
+                                        <div style="font-size:11px;color:#111827;overflow-wrap:anywhere;"><strong style="color:#991b1b;">Original:</strong> <span x-text="formatRevisionAuditValue(change.previous)"></span></div>
+                                        <div style="font-size:11px;color:#111827;overflow-wrap:anywhere;"><strong style="color:#166534;">Updated:</strong> <span x-text="formatRevisionAuditValue(change.revised)"></span></div>
                                     </div>
                                 </template>
                             </div>
@@ -2799,8 +2799,8 @@ $online_closed_count = 0;
                             </div>
                             <template x-if="revisionReplacementIsImage()">
                                 <div style="margin-top:12px;">
-                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Revised Design — Awaiting Staff Review</div>
-                                    <img :src="revisionReplacementDesignUrl()" alt="Customer revised design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
+                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;">Customer's Updated Design — Awaiting Staff Review</div>
+                                    <img :src="revisionReplacementDesignUrl()" alt="Customer updated design awaiting review" @click="previewFile = revisionReplacementDesignUrl()" style="display:block;max-width:min(100%,320px);max-height:220px;object-fit:contain;cursor:zoom-in;border-radius:10px;border:1px solid #bae6fd;background:#fff;box-shadow:0 2px 8px rgba(2,132,199,.12);">
                                 </div>
                             </template>
                         </div>
@@ -2820,9 +2820,9 @@ $online_closed_count = 0;
                                 <div x-show="(staffDesignShowsAsImage(revItem) && staffEffectiveDesignOpenUrl(revItem)) || (revItem.revision_design_url && staffFilenameLooksLikeImage(revItem.revision_design_name))"
                                      @click="previewFile = revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
                                      style="flex-shrink:0; cursor:zoom-in;">
-                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;max-width:220px;">Customer's Revised Design — Awaiting Staff Review</div>
+                                    <div style="font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#0369a1;margin-bottom:6px;max-width:220px;">Customer's Updated Design — Awaiting Staff Review</div>
                                     <img :src="revItem.revision_design_url || staffEffectiveDesignOpenUrl(revItem)"
-                                         alt="Revised design preview"
+                                         alt="Updated design preview"
                                          style="display:block; max-width:min(100%, 220px); max-height:140px; object-fit:contain; border-radius:10px; border:1px solid #bae6fd; background:#fff; box-shadow:0 2px 8px rgba(2,132,199,0.12);"
                                          onerror="this.style.display='none'">
                                 </div>
@@ -5128,8 +5128,8 @@ window.pfServiceFieldCatalog = (() => {
                 const design = this.currentJo?.revision_review?.[key] || {};
                 const isPdf = String(design.media_type || '').toLowerCase() === 'pdf';
                 return kind === 'previous'
-                    ? (isPdf ? 'View Previous PDF' : 'View Previous Design')
-                    : (isPdf ? 'View Replacement PDF' : 'View Replacement Design');
+                    ? (isPdf ? 'View Original PDF' : 'View Original Design')
+                    : (isPdf ? 'View Updated PDF' : 'View Updated Design');
             },
             formatCustomValuePlain(v) {
                 if (v == null) return '';
@@ -5347,28 +5347,37 @@ window.pfServiceFieldCatalog = (() => {
                 const j = this.currentJo;
                 if (!j) return '';
 
+                const cleanCustomerNote = (value) => {
+                    const text = String(value || '').trim();
+                    if (!text) return '';
+                    return text
+                        .replace(/\r\n/g, '\n')
+                        .replace(/(?:^|\n)\s*\[REVISION REQUEST\][\s\S]*$/i, '')
+                        .trim();
+                };
+
                 const extractNote = (source) => {
                     if (!source || typeof source !== 'object' || Array.isArray(source)) return '';
                     const candidates = [
                         'notes', 'Notes', 'NOTES',
+                        'order_notes', 'Order Notes', 'Order_Notes',
                         'additional_notes', 'Additional Notes', 'Additional_Notes',
-                        'job_notes', 'Job Notes', 'jobnotes', 'JobNotes',
                         'customer_notes', 'Customer Notes', 'customernotes', 'CustomerNotes',
                         'other_instructions', 'Other Instructions',
-                        'special_instructions', 'Special Instructions',
-                        'design_notes', 'Design Notes'
+                        'special_instructions', 'Special Instructions'
                     ];
                     for (const key of candidates) {
                         const value = source[key];
-                        if (typeof value === 'string' && value.trim()) {
-                            return value.trim();
+                        if (typeof value === 'string') {
+                            const cleaned = cleanCustomerNote(value);
+                            if (cleaned) return cleaned;
                         }
                     }
                     return '';
                 };
                 
                 // Priority 1: Customer-facing notes only.
-                let note = (j.store_order_notes || '').trim();
+                let note = cleanCustomerNote(j.store_order_notes || '');
                 
                 // Priority 2: Item-specific customization notes
                 if (!note && j.items && j.items.length) {

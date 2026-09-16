@@ -613,6 +613,9 @@ function printflow_revision_changes(array $previous, array $revised): array
             if (preg_match('/(?:^|_)(?:path|file|filename|mime|blob|url|id|status)(?:_|$)/i', $key)) {
                 continue;
             }
+            if (printflow_revision_key_group($key) === 'order_notes') {
+                continue;
+            }
             $label = ucwords(trim(str_replace(['_', '-'], ' ', $key)));
         } else {
             // Product IDs, branch IDs, upload internals, generated filenames,

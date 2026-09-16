@@ -2775,9 +2775,6 @@ try {
                 ];
             }
             $res = JobOrderService::updateStatus($id, $status, $machineId, $reason, false, $revisionMeta);
-            if ($res && $status === 'For Revision' && $reason !== '') {
-                db_execute("UPDATE job_orders SET notes = CONCAT(IFNULL(notes, ''), '\n[REVISION REQUEST] ', ?) WHERE id = ?", 'si', [$reason, $id]);
-            }
             jo_api_json_response(['success' => $res]);
             break;
 
