@@ -3013,10 +3013,11 @@ $online_closed_count = 0;
                         <div style="font-size:13px; font-weight:700; color:#374151; margin-bottom:4px;">Details customer needs to update</div>
                         <div style="font-size:11px; color:#6b7280; margin-bottom:12px; line-height:1.45;">Select only the information that needs correction.</div>
                         <div x-show="!revisionFieldOptions.length" style="font-size:12px; color:#6b7280; font-style:italic;">No customer-facing specifications were found for this order.</div>
+                        <div x-show="revisionDesignReasonUnavailable()" x-cloak style="margin-bottom:10px; font-size:12px; font-weight:600; color:#b45309; line-height:1.45;">No editable design upload field is available for this order.</div>
                         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px 14px;">
                             <template x-for="option in revisionFieldOptions" :key="option.value">
-                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; cursor:pointer; line-height:1.35; min-width:0;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;' : ''">
-                                    <input type="checkbox" :value="option.value" x-model="revisionEditableFields" :disabled="revisionFieldLocked(option.value)" style="margin-top:2px; accent-color:#0f766e; flex:0 0 auto;">
+                                <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; color:#374151; line-height:1.35; min-width:0;" :style="revisionFieldLocked(option.value) ? 'opacity:.48;cursor:not-allowed;pointer-events:none;' : 'cursor:pointer;'">
+                                    <input type="checkbox" :value="option.value" x-model="revisionEditableFields" :disabled="revisionFieldLocked(option.value)" style="margin-top:2px; accent-color:#0f766e; flex:0 0 auto; pointer-events:auto;">
                                     <span style="min-width:0;">
                                         <span style="display:block; font-weight:600;" x-text="option.label"></span>
                                         <span style="display:block; font-size:11px; color:#6b7280; margin-top:2px; word-break:break-word;" x-text="'Current: ' + (option.currentValue || 'No value submitted')"></span>
@@ -4517,7 +4518,7 @@ window.pfServiceFieldCatalog = (() => {
                 const allowedGroups = new Set();
                 const allowedTokenNorms = new Set();
                 const allowedLabelNorms = new Set();
-                const designField = { hasDesign: false, label: 'Uploaded Design' };
+                const designField = { hasDesign: false, label: 'Uploaded Design', key: '' };
                 let dimensionField = null;
                 const fields = catalog.fields.slice().sort((a, b) => (a.order || 0) - (b.order || 0));
 
@@ -4556,6 +4557,7 @@ window.pfServiceFieldCatalog = (() => {
                         if (isDesign) {
                             designField.hasDesign = true;
                             designField.label = fieldLabel || 'Uploaded Design';
+                            designField.key = fieldKey;
                         }
                         if (!isReference) {
                             this.staffServiceFieldAliasTokens(fieldKey).forEach((alias) => allowedTokenNorms.add(alias));
@@ -7695,30 +7697,127 @@ window.pfServiceFieldCatalog = (() => {
                 return Object.prototype.hasOwnProperty.call(enriched, target) ? target : '';
             },
 
-            staffRevisionFieldConfigIsDesignUpload(fieldConfig) {
+            staffRevisionCatalogFileFieldIsReference(fieldConfig) {
                 if (!fieldConfig || typeof fieldConfig !== 'object') return false;
-                const fieldType = String(fieldConfig.type || '').toLowerCase();
-                if (fieldType !== 'file') return false;
                 const keyToken = this.staffCustomizationKeyToken(fieldConfig.key || '');
                 const labelToken = this.staffCustomizationKeyToken(fieldConfig.label || '');
-                if (keyToken.includes('reference') || labelToken.includes('reference') || fieldConfig.key === 'reference_file') {
-                    return false;
-                }
+                return keyToken.includes('reference')
+                    || labelToken.includes('reference')
+                    || fieldConfig.key === 'reference_file';
+            },
+
+            staffRevisionCatalogFileFieldIsDesignCandidate(fieldConfig) {
+                if (!fieldConfig || typeof fieldConfig !== 'object') return false;
+                if (String(fieldConfig.type || '').toLowerCase() !== 'file') return false;
+                if (this.staffRevisionCatalogFileFieldIsReference(fieldConfig)) return false;
+                const keyToken = this.staffCustomizationKeyToken(fieldConfig.key || '');
+                const labelToken = this.staffCustomizationKeyToken(fieldConfig.label || '');
                 return keyToken.includes('design')
                     || labelToken.includes('design')
+                    || labelToken.includes('artwork')
+                    || labelToken.includes('upload')
                     || fieldConfig.key === 'design_file';
             },
 
-            staffRevisionStorageKeyIsDesignUpload(storageKey, fieldConfig = null) {
+            staffRevisionResolveDesignUploadField(item) {
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && profile.designField && profile.designField.hasDesign) {
+                    return {
+                        permission: 'uploaded_design',
+                        label: profile.designField.label || 'Uploaded Design',
+                        key: String(profile.designField.key || '').trim()
+                    };
+                }
+                if (profile && Array.isArray(profile.fields)) {
+                    const fileFields = profile.fields.filter((field) => this.staffRevisionCatalogFileFieldIsDesignCandidate(field));
+                    if (fileFields.length === 1) {
+                        const field = fileFields[0];
+                        return {
+                            permission: 'uploaded_design',
+                            label: String(field.label || field.key || 'Uploaded Design').trim(),
+                            key: String(field.key || '').trim()
+                        };
+                    }
+                }
+                if (this.staffShouldRenderDesignSection(item)) {
+                    return {
+                        permission: 'uploaded_design',
+                        label: 'Uploaded Design',
+                        key: ''
+                    };
+                }
+                return null;
+            },
+
+            staffRevisionDesignCurrentValue(item) {
+                if (!item) return 'No value submitted';
+                if (this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item)) {
+                    const filename = this.staffDesignDisplayFilename(item);
+                    if (filename && filename !== 'Open uploaded design') {
+                        return filename;
+                    }
+                    return 'File uploaded';
+                }
+                const resolved = this.staffRevisionResolveDesignUploadField(item);
+                if (resolved && resolved.key) {
+                    const sourceCustom = this.staffResolveItemCustomizationSource(item.customization, item);
+                    const customValue = this.staffResolveFieldValueFromSource(resolved.key, sourceCustom);
+                    if (this.staffMeaningfulSpecValue(customValue)) {
+                        return this.staffBasename(this.staffCustomizationValueText(customValue));
+                    }
+                }
+                return 'No value submitted';
+            },
+
+            staffRevisionFieldConfigIsDesignUpload(fieldConfig, item = null) {
+                if (!fieldConfig || typeof fieldConfig !== 'object') return false;
+                if (String(fieldConfig.type || '').toLowerCase() !== 'file') return false;
+                if (this.staffRevisionCatalogFileFieldIsReference(fieldConfig)) return false;
+                const resolved = item ? this.staffRevisionResolveDesignUploadField(item) : null;
+                if (resolved) {
+                    const fieldKey = String(fieldConfig.key || '').trim();
+                    const fieldLabel = String(fieldConfig.label || '').trim();
+                    const resolvedKeyToken = this.staffCustomizationKeyToken(resolved.key || '');
+                    const fieldKeyToken = this.staffCustomizationKeyToken(fieldKey);
+                    if (resolvedKeyToken && fieldKeyToken && resolvedKeyToken === fieldKeyToken) return true;
+                    if (fieldLabel && fieldLabel === resolved.label) return true;
+                }
+                return this.staffRevisionCatalogFileFieldIsDesignCandidate(fieldConfig);
+            },
+
+            staffRevisionStorageKeyIsDesignUpload(storageKey, fieldConfig = null, item = null) {
                 const token = this.staffCustomizationKeyToken(storageKey);
                 if (!token || token.includes('reference')) return false;
-                if (this.staffRevisionFieldConfigIsDesignUpload(fieldConfig)) return true;
+                if (fieldConfig && this.staffRevisionFieldConfigIsDesignUpload(fieldConfig, item)) return true;
+                const resolved = item ? this.staffRevisionResolveDesignUploadField(item) : null;
+                if (resolved) {
+                    const resolvedKeyToken = this.staffCustomizationKeyToken(resolved.key || '');
+                    if (resolvedKeyToken && resolvedKeyToken === token) return true;
+                    const labelToken = this.staffCustomizationKeyToken(resolved.label || '');
+                    if (labelToken && labelToken === token) return true;
+                }
                 const meta = this.staffCustomizationFieldMeta(storageKey);
                 if (meta.design || meta.group === 'uploaded_design') return true;
                 return token.includes('design')
                     || token.includes('upload_design')
                     || token.includes('uploaddesign')
-                    || token.includes('uploadeddesign');
+                    || token.includes('uploadeddesign')
+                    || token.includes('artwork');
+            },
+
+            staffRevisionFieldMatchesDesignUpload(fieldKey, fieldConfig, item) {
+                if (!item) return false;
+                const resolved = this.staffRevisionResolveDesignUploadField(item);
+                if (!resolved) return false;
+                const candidates = [fieldKey, fieldConfig && fieldConfig.key].filter(Boolean);
+                const resolvedKeyToken = this.staffCustomizationKeyToken(resolved.key || '');
+                for (const candidate of candidates) {
+                    if (resolvedKeyToken && this.staffCustomizationKeyToken(candidate) === resolvedKeyToken) {
+                        return true;
+                    }
+                }
+                const label = String((fieldConfig && fieldConfig.label) || fieldKey || '').trim();
+                return label !== '' && label === resolved.label;
             },
 
             staffRevisionOptionIsDesignUpload(option) {
@@ -7731,14 +7830,20 @@ window.pfServiceFieldCatalog = (() => {
                 return (this.revisionFieldOptions || []).filter((option) => this.staffRevisionOptionIsDesignUpload(option));
             },
 
-            staffRevisionPermissionToken(itemId, storageKey, fieldConfig = null) {
+            revisionDesignReasonUnavailable() {
+                const designReasons = ['low_image_quality', 'wrong_design'];
+                if (!designReasons.includes(this.revisionReasonSelect)) return false;
+                return this.staffRevisionFindDesignUploadOptions().length === 0;
+            },
+
+            staffRevisionPermissionToken(itemId, storageKey, fieldConfig = null, item = null) {
                 if (!storageKey || this.staffRevisionIsProtectedKey(storageKey)) return '';
                 if (storageKey === '__quantity__') return 'quantity';
                 if (storageKey === '__order_notes__') return 'order_notes';
 
                 const meta = this.staffCustomizationFieldMeta(storageKey);
                 if (meta.hidden || meta.group === 'service') return '';
-                if (this.staffRevisionStorageKeyIsDesignUpload(storageKey, fieldConfig)) return 'uploaded_design';
+                if (this.staffRevisionStorageKeyIsDesignUpload(storageKey, fieldConfig, item)) return 'uploaded_design';
                 if (meta.group === 'uploaded_design') return 'uploaded_design';
                 if (meta.group === 'quantity') return 'quantity';
                 if (meta.group === 'layout') return 'layout';
@@ -7780,23 +7885,26 @@ window.pfServiceFieldCatalog = (() => {
                     });
                 };
 
-                if (this.staffShouldRenderDesignSection(item)) {
-                    const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
-                    const designLabel = (profile && profile.designField && profile.designField.label)
-                        ? profile.designField.label
-                        : 'Uploaded Design';
-                    const hasDesign = !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
-                    addRow('uploaded_design', designLabel, hasDesign ? 'File uploaded' : 'No value submitted', 60, true);
+                const resolvedDesignField = this.staffRevisionResolveDesignUploadField(item);
+                if (resolvedDesignField) {
+                    addRow(
+                        resolvedDesignField.permission,
+                        resolvedDesignField.label,
+                        this.staffRevisionDesignCurrentValue(item),
+                        60,
+                        true
+                    );
                 }
 
                 built.entries.forEach(([displayLabel, displayValue]) => {
                     const storageKey = this.staffFindStorageKeyForDisplayLabel(displayLabel, sourceCustom, item);
-                    const isDesignUpload = this.staffRevisionStorageKeyIsDesignUpload(storageKey);
+                    if (this.staffRevisionFieldMatchesDesignUpload(storageKey, null, item)) return;
+                    const isDesignUpload = this.staffRevisionStorageKeyIsDesignUpload(storageKey, null, item);
                     if (isDesignUpload && seenPermissions.has('uploaded_design')) return;
-                    const permission = this.staffRevisionPermissionToken(itemId, storageKey);
+                    const permission = this.staffRevisionPermissionToken(itemId, storageKey, null, item);
                     if (!permission) return;
                     const meta = this.staffCustomizationFieldMeta(storageKey);
-                    addRow(permission, displayLabel, displayValue, meta.priority || 100, isDesignUpload);
+                    addRow(permission, displayLabel, displayValue, meta.priority || 100, permission === 'uploaded_design' || isDesignUpload);
                 });
 
                 const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
@@ -7804,25 +7912,23 @@ window.pfServiceFieldCatalog = (() => {
                     profile.fields.forEach((field) => {
                         const fieldKey = String(field.key || '').trim();
                         if (!fieldKey) return;
+                        if (this.staffRevisionFieldMatchesDesignUpload(fieldKey, field, item)) return;
                         const fieldType = String(field.type || 'text').toLowerCase();
-                        const fieldToken = this.staffCustomizationKeyToken(fieldKey);
-                        const isDesignUpload = this.staffRevisionFieldConfigIsDesignUpload(field)
-                            || this.staffRevisionStorageKeyIsDesignUpload(fieldKey, field);
+                        const isDesignUpload = this.staffRevisionFieldConfigIsDesignUpload(field, item)
+                            || this.staffRevisionStorageKeyIsDesignUpload(fieldKey, field, item);
                         if (fieldType === 'file') {
-                            const isReference = fieldToken.includes('reference') || fieldKey === 'reference_file';
-                            if (isReference) return;
+                            if (this.staffRevisionCatalogFileFieldIsReference(field)) return;
                             if (isDesignUpload && seenPermissions.has('uploaded_design')) return;
-                            if (isDesignUpload && this.staffShouldRenderDesignSection(item)) return;
                         }
                         if (!this.staffRevisionFieldParentActive(field, sourceCustom)) return;
                         const meta = this.staffCustomizationFieldMeta(fieldKey);
                         if (meta.hidden || meta.group === 'service') return;
-                        const permission = this.staffRevisionPermissionToken(itemId, fieldKey, field);
+                        const permission = this.staffRevisionPermissionToken(itemId, fieldKey, field, item);
                         const label = String(field.label || meta.label || fieldKey);
                         if (!permission || seenLabels.has(this.getCustomLabel(label))) return;
                         const hasValue = this.staffMeaningfulSpecValue(this.staffResolveFieldValueFromSource(fieldKey, sourceCustom));
                         if (!hasValue) {
-                            addRow(permission, label, 'No value submitted', field.order || meta.priority || 100, isDesignUpload);
+                            addRow(permission, label, 'No value submitted', field.order || meta.priority || 100, permission === 'uploaded_design' || isDesignUpload);
                         }
                     });
                 }
@@ -7885,6 +7991,7 @@ window.pfServiceFieldCatalog = (() => {
             revisionFieldLocked(field) {
                 const designReasons = ['low_image_quality', 'wrong_design'];
                 if (!designReasons.includes(this.revisionReasonSelect)) return false;
+                if (String(field || '') === 'uploaded_design') return false;
                 const option = (this.revisionFieldOptions || []).find((entry) => entry.value === field);
                 return !this.staffRevisionOptionIsDesignUpload(option);
             },
@@ -7903,6 +8010,10 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (this.revisionReasonSelect === 'others' && !this.revisionReasonText.trim()) {
                     this.revisionModalError = 'Please specify the revision reason.';
+                    return;
+                }
+                if (this.revisionDesignReasonUnavailable()) {
+                    this.revisionModalError = 'No editable design upload field is available for this order.';
                     return;
                 }
                 if (!this.revisionEditableFields.length) {
