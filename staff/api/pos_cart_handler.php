@@ -297,10 +297,24 @@ try {
             // Services do not consume products.stock_quantity.
             // For products, always use branch-effective stock so POS checks are accurate.
             $stock = null;
+            $preparedCustomization = is_array($customization) ? $customization : [];
             if (!$is_service) {
                 if (empty($product)) {
                     throw new Exception('Product not found.');
                 }
+                $preparedOptionStock = printflow_product_option_stock_prepare_cart_customization(
+                    $product_id,
+                    $pos_branch_id,
+                    $preparedCustomization,
+                    $qty,
+                    (string)$name
+                );
+                if (!$preparedOptionStock['ok']) {
+                    throw new Exception((string)($preparedOptionStock['message'] ?? 'Please select a valid stock option for this product.'));
+                }
+                $preparedCustomization = (array)($preparedOptionStock['customization'] ?? []);
+                $customization = $preparedCustomization;
+                $custom_json = !empty($preparedCustomization) ? json_encode($preparedCustomization) : null;
                 $stock = pos_cart_effective_product_stock($product_id, $pos_branch_id);
                 if ($stock <= 0) {
                     throw new Exception('Out of stock.');
@@ -318,8 +332,23 @@ try {
                     
                     // Stock check
                     $existingIsService = pos_cart_item_is_service($item) || $is_service;
-                    if (!$existingIsService && $stock !== null && ($item['qty'] + $qty) > $stock) {
-                        throw new Exception('Cannot add more. Insufficient stock.');
+                    if (!$existingIsService) {
+                        $nextQty = (int)$item['qty'] + $qty;
+                        $mergeCustomization = is_array($item['customization']) ? $item['customization'] : $preparedCustomization;
+                        $mergeOptionStock = printflow_product_option_stock_prepare_cart_customization(
+                            $product_id,
+                            $pos_branch_id,
+                            $mergeCustomization,
+                            $nextQty,
+                            (string)$name
+                        );
+                        if (!$mergeOptionStock['ok']) {
+                            throw new Exception((string)($mergeOptionStock['message'] ?? 'Cannot add more. Insufficient stock.'));
+                        }
+                        $item['customization'] = (array)($mergeOptionStock['customization'] ?? $mergeCustomization);
+                        if ($stock !== null && $nextQty > $stock && !printflow_product_option_stock_has_rows($product_id, $pos_branch_id)) {
+                            throw new Exception('Cannot add more. Insufficient stock.');
+                        }
                     }
                     
                     $item['qty'] += $qty;
@@ -335,7 +364,7 @@ try {
 
             if (!$found) {
                 // Stock check for new item
-                if (!$is_service && $stock !== null && $qty > $stock) {
+                if (!$is_service && $stock !== null && $qty > $stock && !printflow_product_option_stock_has_rows($product_id, $pos_branch_id)) {
                     throw new Exception('Insufficient stock.');
                 }
                 
@@ -345,7 +374,7 @@ try {
                     'price' => $price,
                     'qty' => $qty,
                     'stock' => $stock,
-                    'customization' => $customization,
+                    'customization' => $preparedCustomization,
                     'is_service' => $is_service
                 ];
             }
@@ -367,10 +396,27 @@ try {
                 if (!$isServiceItem) {
                     $pos_branch_id = pos_cart_branch_id();
                     $item['stock'] = pos_cart_effective_product_stock((int)$item['product_id'], $pos_branch_id);
+                    $itemCustomization = is_array($item['customization']) ? $item['customization'] : [];
+                    $updateOptionStock = printflow_product_option_stock_prepare_cart_customization(
+                        (int)$item['product_id'],
+                        $pos_branch_id,
+                        $itemCustomization,
+                        $qty,
+                        (string)($item['name'] ?? '')
+                    );
+                    if (!$updateOptionStock['ok']) {
+                        throw new Exception((string)($updateOptionStock['message'] ?? 'Insufficient stock for selected option.'));
+                    }
+                    $item['customization'] = (array)($updateOptionStock['customization'] ?? $itemCustomization);
                 } else {
                     $item['stock'] = null;
                 }
-                if (!$isServiceItem && $item['stock'] !== null && $qty > $item['stock']) {
+                if (
+                    !$isServiceItem
+                    && $item['stock'] !== null
+                    && $qty > $item['stock']
+                    && !printflow_product_option_stock_has_rows((int)$item['product_id'], $pos_branch_id)
+                ) {
                     throw new Exception('Insufficient stock.');
                 }
                 $item['qty'] = $qty;

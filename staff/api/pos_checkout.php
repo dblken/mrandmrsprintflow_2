@@ -1252,7 +1252,7 @@ $ordersHasPriceFinalized = db_table_has_column('orders', 'price_finalized_at')
 $total_amount = 0;
 $actual_product_ids = [];
 $baseStockDemand = [];
-foreach ($items as $item) {
+foreach ($items as $itemIndex => $item) {
     $product_id = (int)$item['id'];
     $qty = max(1, (int)$item['qty']);
     $is_service_item = pos_payload_item_is_service((array)$item);
@@ -1269,17 +1269,31 @@ foreach ($items as $item) {
     }
     $p = $products_cache[$product_id];
     $actual_product_ids[$product_id] = true;
+    $productName = (string)($item['name'] ?? $p['name'] ?? ('Product #' . $product_id));
 
     // Skip stock check for services
     if (!$is_service_item) {
         $customization = $item['customization'] ?? [];
         $customization = is_array($customization) ? $customization : [];
-        $optionStock = printflow_product_option_stock_validate($product_id, $pos_branch_id, $customization, $qty);
-        if (!empty($optionStock['uses_option_stock']) && empty($optionStock['ok'])) {
-            echo json_encode(['success' => false, 'message' => (string)($optionStock['message'] ?? 'Selected option is out of stock.')]);
+        $preparedOptionStock = printflow_product_option_stock_prepare_cart_customization(
+            $product_id,
+            $pos_branch_id,
+            $customization,
+            $qty,
+            $productName
+        );
+        if (!$preparedOptionStock['ok']) {
+            echo json_encode([
+                'success' => false,
+                'stage' => 'stock_option_validation',
+                'product_id' => $product_id,
+                'message' => (string)($preparedOptionStock['message'] ?? 'Selected option is out of stock.'),
+            ]);
             exit;
         }
-        if (empty($optionStock['uses_option_stock'])) {
+        $items[$itemIndex]['customization'] = $preparedOptionStock['customization'];
+        $usesOptionStock = printflow_product_option_stock_has_rows($product_id, $pos_branch_id);
+        if (!$usesOptionStock) {
             $baseStockDemand[$product_id] = ($baseStockDemand[$product_id] ?? 0) + $qty;
         }
     }

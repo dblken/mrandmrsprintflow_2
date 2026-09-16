@@ -90,6 +90,12 @@ $assert(
     'checkout request omits heavy inline upload blobs when paths already exist'
 );
 $assert(
+    strpos($pos, 'function posResolveVariantBeforeAdd(') !== false
+        && strpos($pos, 'function posBuildVariantCustomization(') !== false
+        && strpos($pos, 'variant-modal-overlay') !== false,
+    'POS prompts for variant stock options before adding option-stock products'
+);
+$assert(
     strpos($pos, "posCheckoutRequestInFlight && action !== 'clear'") !== false
         && strpos($pos, 'if (posCheckoutRequestInFlight) {') !== false,
     'checkout blocks competing cart sync and keeps Processing state stable'

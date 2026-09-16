@@ -43,7 +43,8 @@ foreach ([
     $assert(str_contains($source, 'printflow_apply_product_order_item_inventory('), "{$flow} uses shared product movement");
 }
 $assert(str_contains($providerPayments, "customization['service_id']") && str_contains($providerPayments, "customization['service_type']"), 'PayMongo POS excludes service placeholder lines from product stock');
-$assert(str_contains($posCheckout, 'printflow_product_option_stock_validate('), 'POS validates selected option stock');
+$assert(str_contains($posCheckout, 'printflow_product_option_stock_prepare_cart_customization('), 'POS normalizes and validates selected option stock');
+$assert(str_contains($optionStock, 'function printflow_product_option_stock_prepare_cart_customization('), 'shared helper can auto-select a single in-stock option');
 
 $assert(str_contains($jobs, 'getScopedMaterials((int)$orderId, true, true)'), 'service deductions lock undeducted assignments');
 $assert(str_contains($jobs, "['materials' => true, 'inks' => false]"), 'completion does not repeat production-stage ink usage');

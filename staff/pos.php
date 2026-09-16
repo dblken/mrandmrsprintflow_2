@@ -2517,6 +2517,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         </div>
     </div>
 
+    <!-- Modal for variant / size selection on option-stock products -->
+    <div id="variant-modal-overlay"
+        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000; align-items:center; justify-content:center;">
+        <div class="price-modal" style="border-radius:20px; border:1px solid #e2e8f0; width:min(360px, calc(100vw - 32px));">
+            <h3 id="vm-title"
+                style="margin:0 0 8px 0; font-size:20px; font-weight:800; color:#0f172a; letter-spacing:-0.02em;">Select Option</h3>
+            <p id="vm-subtitle" style="margin:0 0 18px 0; font-size:13px; color:#64748b; line-height:1.45;"></p>
+            <div id="vm-options" style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px; max-height:280px; overflow-y:auto;"></div>
+            <div style="display:flex; gap:12px;">
+                <button type="button" onclick="closeVariantModal()"
+                    style="flex:1; padding:14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; color:#64748b; font-weight:700; cursor:pointer;">Cancel</button>
+                <button type="button" onclick="confirmVariantSelection()"
+                    style="flex:1; padding:14px; border:none; border-radius:12px; background:var(--staff-pos-button-bg); color:white; font-weight:700; cursor:pointer;">Add to Cart</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Custom Price -->
     <div id="price-modal-overlay"
         style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:1000; align-items:center; justify-content:center;">
@@ -2649,6 +2666,129 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 pending_order_id: item.pending_order_id || 0,
                 pending_customization_id: item.pending_customization_id || 0
             };
+        }
+
+        function posVariantOptionsList(product) {
+            if (!product || !product.has_variant_stock) return [];
+            if (Array.isArray(product.variant_stock_options)) {
+                return product.variant_stock_options;
+            }
+            return Object.entries(product.variant_stock_options || {}).map(([optionValue, meta]) => ({
+                option_value: optionValue,
+                stock_quantity: meta && meta.stock_quantity != null ? meta.stock_quantity : 0
+            }));
+        }
+
+        function posVariantOptionsInStock(product) {
+            return posVariantOptionsList(product).filter(option => (parseInt(option.stock_quantity, 10) || 0) > 0);
+        }
+
+        function posBuildVariantCustomization(product, optionValue) {
+            const fieldKey = product.variant_stock_field_key || 'size';
+            const fieldLabel = product.variant_stock_field_label || fieldKey;
+            const normalized = String(optionValue || '').trim();
+            const customization = {};
+            customization[fieldKey] = normalized;
+            customization[fieldLabel] = normalized;
+            return customization;
+        }
+
+        function posCartItemVariantLabel(item) {
+            const customization = item && item.customization && typeof item.customization === 'object'
+                ? item.customization
+                : null;
+            if (!customization) return '';
+            const keys = Object.keys(customization);
+            for (const key of keys) {
+                const normalized = String(key || '').trim().toLowerCase();
+                if (['size', 'sizes', 'variant', 'variants'].includes(normalized) && customization[key]) {
+                    return String(customization[key]);
+                }
+            }
+            return '';
+        }
+
+        function posResolveVariantBeforeAdd(product) {
+            if (!product || !product.has_variant_stock) {
+                return { action: 'add', customization: null };
+            }
+            const inStock = posVariantOptionsInStock(product);
+            if (inStock.length === 0) {
+                return { action: 'error', message: (product.product_name || 'This product') + ' is out of stock.' };
+            }
+            if (inStock.length === 1) {
+                const optionValue = inStock[0].option_value;
+                return {
+                    action: 'add',
+                    customization: posBuildVariantCustomization(product, optionValue)
+                };
+            }
+            return {
+                action: 'prompt',
+                options: inStock,
+                fieldLabel: product.variant_stock_field_label || 'Option'
+            };
+        }
+
+        let pendingVariantProduct = null;
+        let pendingVariantAddOptions = null;
+
+        function openVariantModal(product, options, fieldLabel, addOptions = {}) {
+            pendingVariantProduct = product;
+            pendingVariantAddOptions = addOptions;
+            const overlay = document.getElementById('variant-modal-overlay');
+            const title = document.getElementById('vm-title');
+            const subtitle = document.getElementById('vm-subtitle');
+            const optionsEl = document.getElementById('vm-options');
+            const productName = product.product_name || product.name || 'Product';
+            title.textContent = 'Select ' + fieldLabel;
+            subtitle.textContent = productName + ' requires a ' + fieldLabel.toLowerCase() + ' before it can be added to the cart.';
+            optionsEl.innerHTML = options.map((option, index) => {
+                const value = String(option.option_value || '').replace(/"/g, '&quot;');
+                const stock = parseInt(option.stock_quantity, 10) || 0;
+                const checked = index === 0 ? 'checked' : '';
+                return '<label style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; cursor:pointer;">'
+                    + '<span style="display:flex; align-items:center; gap:10px; font-weight:600; color:#0f172a;">'
+                    + '<input type="radio" name="pos_variant_option" value="' + value + '" ' + checked + '>'
+                    + '<span>' + value + '</span>'
+                    + '</span>'
+                    + '<span style="font-size:12px; color:#64748b;">' + stock + ' left</span>'
+                    + '</label>';
+            }).join('');
+            overlay.style.display = 'flex';
+        }
+
+        function closeVariantModal() {
+            document.getElementById('variant-modal-overlay').style.display = 'none';
+            pendingVariantProduct = null;
+            pendingVariantAddOptions = null;
+        }
+
+        async function confirmVariantSelection() {
+            if (!pendingVariantProduct) return;
+            const selected = document.querySelector('#variant-modal-overlay input[name="pos_variant_option"]:checked');
+            if (!selected || !selected.value) {
+                await showPOSAlert('Selection Required', 'Please choose an option before adding this product.', 'warning');
+                return;
+            }
+            const customization = posBuildVariantCustomization(pendingVariantProduct, selected.value);
+            const addOptions = pendingVariantAddOptions || {};
+            const product = pendingVariantProduct;
+            closeVariantModal();
+            return await posAddProductToCart(product, null, null, customization, addOptions);
+        }
+
+        async function posAddProductToCart(p, overridePrice = null, overrideName = null, customization = null, options = {}) {
+            const name = overrideName || p.product_name;
+            const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
+            return await syncedCartAction('add', {
+                product_id: p.product_id,
+                name: name,
+                price: price,
+                qty: 1,
+                customization: customization,
+                is_service: false
+            }, options);
         }
         function formatMoney(value) {
             const amount = Number.parseFloat(value);
@@ -4361,21 +4501,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return true;
         }
         async function addToCart(p, overridePrice = null, overrideName = null, options = {}) {
-            const name = overrideName || p.product_name;
-            const price = overridePrice !== null ? overridePrice : parseFloat(p.price);
-
             if (p.price == 0 && overridePrice === null) {
                 openPriceModal(p);
                 return;
             }
 
-            return await syncedCartAction('add', {
-                product_id: p.product_id,
-                name: name,
-                price: price,
-                qty: 1,
-                is_service: false
-            }, options);
+            const variantPlan = posResolveVariantBeforeAdd(p);
+            if (variantPlan.action === 'error') {
+                if (!options.silentErrors) {
+                    await showPOSAlert('Cannot Add Product', variantPlan.message, 'warning');
+                }
+                return { success: false, message: variantPlan.message };
+            }
+            if (variantPlan.action === 'prompt') {
+                openVariantModal(p, variantPlan.options, variantPlan.fieldLabel, options);
+                return { success: true, pending_variant: true };
+            }
+
+            return await posAddProductToCart(p, overridePrice, overrideName, variantPlan.customization, options);
         }
 
         let pendingCustomProduct = null;
@@ -4880,6 +5023,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         } catch (_) {}
                     }
 
+                    const variantLabel = posCartItemVariantLabel(item);
                     const priceHtml = (isService && !priceWasSet && !hasMaterialSet)
                         ? `<button type="button" class="pos-btn-set-price" onclick="redirectToSetPrice(${index})" title="Click to set price in Customizations">
                     <i class="fas fa-tag"></i> Set Price
@@ -4889,7 +5033,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     div.innerHTML = `
                 <div class="pos-cart-item-top">
                     <div class="pos-item-details">
-                        <div class="pos-item-name">${item.name}</div>
+                        <div class="pos-item-name">${escapeHtml(item.name)}${variantLabel ? `<div style="font-size:11px; color:#64748b; margin-top:2px;">${escapeHtml(variantLabel)}</div>` : ''}</div>
                     </div>
                     <button type="button" class="pos-item-remove" onclick="removeByCartIndex(${index})" title="Remove item" aria-label="Remove item">
                         <i class="fas fa-trash-alt"></i> Remove
@@ -5018,6 +5162,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             console.log('[POS CHECKOUT] started');
             console.log('[POS CHECKOUT] validating cart', { items: cart.length, total: currentTotal });
+
+            for (const item of cart) {
+                if (item.is_service) continue;
+                const catalogProduct = products.find(p => String(p.product_id) === String(item.product_id));
+                if (!catalogProduct || !catalogProduct.has_variant_stock) continue;
+                if (!posCartItemVariantLabel(item)) {
+                    const fieldLabel = catalogProduct.variant_stock_field_label || 'stock option';
+                    await showPOSAlert(
+                        'Selection Required',
+                        item.name + ': please select a ' + fieldLabel + ' before checkout. Remove this item and add it again.',
+                        'warning'
+                    );
+                    return;
+                }
+            }
 
             // Validate customer selection
             const customer = $('#pos-customer').val();
@@ -5490,6 +5649,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         window.processCheckout = processCheckout;
         window.addQuickService = addQuickService;
         window.addToCart = addToCart;
+        window.closeVariantModal = closeVariantModal;
+        window.confirmVariantSelection = confirmVariantSelection;
         window.togglePosOtherInput = togglePosOtherInput;
         window.updateQtyByCartIndex = updateQtyByCartIndex;
         window.removeByCartIndex = removeByCartIndex;
