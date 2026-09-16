@@ -67,8 +67,15 @@ $sourceResolver = ($sourceStart !== false && $sourceEnd !== false)
 $assert($sourceResolver !== '', 'item customization source resolver should be present');
 $assert(
     strpos($sourceResolver, 'sourceCustom.notes = revisedOrderNotes') !== false
+        && strpos($sourceResolver, "this.staffCustomizationFieldMeta(key).group === 'notes'") !== false
+        && strpos($sourceResolver, 'delete sourceCustom[key]') !== false
         && strpos($sourceResolver, 'sourceCustom.order_notes = revisedOrderNotes') !== false,
-    'item spec source should overlay latest revised order notes for the current Order Details Notes tile'
+    'item spec source should replace notes aliases with the latest revised order note for one current Notes tile'
+);
+$assert(
+    strpos($sourceResolver, "this.staffCustomizationFieldMeta(key).group === 'quantity'") !== false
+        && strpos($sourceResolver, 'sourceCustom.quantity = item.quantity') !== false,
+    'item spec source should replace stale quantity aliases with the current order item quantity'
 );
 
 echo "revision_notes_separation_test: PASS\n";

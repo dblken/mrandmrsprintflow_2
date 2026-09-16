@@ -4993,13 +4993,22 @@ window.pfServiceFieldCatalog = (() => {
                 if (fallbackCustom && !Array.isArray(fallbackCustom)) {
                     sourceCustom = { ...fallbackCustom, ...sourceCustom };
                 }
-                if (item && item.quantity && !this.staffMeaningfulSpecValue(sourceCustom.quantity) && !this.staffMeaningfulSpecValue(sourceCustom.qty)) {
+                if (item && item.quantity) {
+                    Object.keys(sourceCustom).forEach((key) => {
+                        if (this.staffCustomizationFieldMeta(key).group === 'quantity') {
+                            delete sourceCustom[key];
+                        }
+                    });
                     sourceCustom.quantity = item.quantity;
                 }
                 const revisedOrderNotes = this.staffLatestRevisionOrderNotes();
                 if (revisedOrderNotes) {
+                    Object.keys(sourceCustom).forEach((key) => {
+                        if (this.staffCustomizationFieldMeta(key).group === 'notes') {
+                            delete sourceCustom[key];
+                        }
+                    });
                     sourceCustom.notes = revisedOrderNotes;
-                    sourceCustom.Notes = revisedOrderNotes;
                     sourceCustom.order_notes = revisedOrderNotes;
                 }
                 return sourceCustom;
