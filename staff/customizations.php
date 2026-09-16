@@ -4996,6 +4996,12 @@ window.pfServiceFieldCatalog = (() => {
                 if (item && item.quantity && !this.staffMeaningfulSpecValue(sourceCustom.quantity) && !this.staffMeaningfulSpecValue(sourceCustom.qty)) {
                     sourceCustom.quantity = item.quantity;
                 }
+                const revisedOrderNotes = this.staffLatestRevisionOrderNotes();
+                if (revisedOrderNotes) {
+                    sourceCustom.notes = revisedOrderNotes;
+                    sourceCustom.Notes = revisedOrderNotes;
+                    sourceCustom.order_notes = revisedOrderNotes;
+                }
                 return sourceCustom;
             },
             staffBuildItemDisplaySpecs(custom, item = null, options = {}) {
@@ -5375,6 +5381,11 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     return '';
                 };
+
+                const revisedOrderNote = this.staffLatestRevisionOrderNotes();
+                if (revisedOrderNote) {
+                    return revisedOrderNote;
+                }
                 
                 // Priority 1: Customer-facing notes only.
                 let note = cleanCustomerNote(j.store_order_notes || '');
@@ -5402,6 +5413,21 @@ window.pfServiceFieldCatalog = (() => {
                 }
 
                 return note || '';
+            },
+            staffLatestRevisionOrderNotes() {
+                const changes = this.currentJo?.revision_review?.changes;
+                if (!Array.isArray(changes)) return '';
+                const cleanCustomerNote = (value) => String(value || '')
+                    .replace(/\r\n/g, '\n')
+                    .replace(/(?:^|\n)\s*\[REVISION REQUEST\][\s\S]*$/i, '')
+                    .trim();
+                for (let index = changes.length - 1; index >= 0; index--) {
+                    const change = changes[index] || {};
+                    if (change.path !== 'order.notes') continue;
+                    const value = cleanCustomerNote(change.revised);
+                    if (value) return value;
+                }
+                return '';
             },
             isPendingReviewStatus(jo) {
                 if (!jo) return false;

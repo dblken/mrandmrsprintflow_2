@@ -51,5 +51,24 @@ $assert(
     strpos($resolver, '\\[REVISION REQUEST\\]') !== false,
     'customer notes resolver should safely strip legacy revision markers for display'
 );
+$assert(
+    strpos($resolver, 'const revisedOrderNote = this.staffLatestRevisionOrderNotes();') !== false
+        && strpos($resolver, 'cleanCustomerNote(j.store_order_notes || \'\')') !== false
+        && strpos($resolver, 'const revisedOrderNote = this.staffLatestRevisionOrderNotes();') < strpos($resolver, 'cleanCustomerNote(j.store_order_notes || \'\')'),
+    'customer notes resolver should prefer the latest submitted revision note before stored order notes'
+);
+
+$sourceStart = strpos($staff, 'staffResolveItemCustomizationSource(custom, item = null) {');
+$sourceEnd = $sourceStart === false ? false : strpos($staff, "\n            staffBuildItemDisplaySpecs", $sourceStart);
+$sourceResolver = ($sourceStart !== false && $sourceEnd !== false)
+    ? substr($staff, $sourceStart, $sourceEnd - $sourceStart)
+    : '';
+
+$assert($sourceResolver !== '', 'item customization source resolver should be present');
+$assert(
+    strpos($sourceResolver, 'sourceCustom.notes = revisedOrderNotes') !== false
+        && strpos($sourceResolver, 'sourceCustom.order_notes = revisedOrderNotes') !== false,
+    'item spec source should overlay latest revised order notes for the current Order Details Notes tile'
+);
 
 echo "revision_notes_separation_test: PASS\n";
