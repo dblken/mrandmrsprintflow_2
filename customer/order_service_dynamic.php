@@ -1773,108 +1773,16 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<script src="<?php echo htmlspecialchars($base_path . '/public/assets/js/service_estimated_price.js'); ?>"></script>
 <script>
-// Estimated Price Calculation System - Global scope
-window.calculateEstimatedPrice = window.calculateEstimatedPrice || null;
-
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('serviceForm');
-    if (!form) return;
-    
-    // Get base price from PHP
-    const basePrice = <?php echo (float)($service['base_price'] ?? 0); ?>;
-    
-    window.calculateEstimatedPrice = function() {
-        let optionsTotal = 0;
-        
-        // Calculate price from radio buttons
-        const checkedRadios = form.querySelectorAll('input[type="radio"].pricing-field:checked');
-        checkedRadios.forEach(radio => {
-            const price = parseFloat(radio.getAttribute('data-price') || 0);
-            optionsTotal += price;
-        });
-        
-        // Calculate price from select dropdowns
-        const selects = form.querySelectorAll('select.pricing-field');
-        selects.forEach(select => {
-            const selectedOption = select.options[select.selectedIndex];
-            if (selectedOption && selectedOption.value) {
-                const price = parseFloat(selectedOption.getAttribute('data-price') || 0);
-                optionsTotal += price;
-            }
-        });
-        
-        // Calculate price from dimension buttons
-        const activeDimensionBtn = form.querySelector('button.shopee-opt-btn.pricing-field.active[data-price]');
-        if (activeDimensionBtn) {
-            const price = parseFloat(activeDimensionBtn.getAttribute('data-price') || 0);
-            optionsTotal += price;
-        }
+    if (!form || typeof window.printflowInitServiceEstimatedPrice !== 'function') return;
 
-        // Nested fields under radio/select options (only when container is visible)
-        form.querySelectorAll('.nested-fields-container').forEach(function(container) {
-            var cs = window.getComputedStyle(container);
-            if (cs.display === 'none' || cs.visibility === 'hidden') return;
-            if (!container.offsetParent) return;
-
-            container.querySelectorAll('select').forEach(function(sel) {
-                var opt = sel.options[sel.selectedIndex];
-                if (opt && opt.value) {
-                    optionsTotal += parseFloat(opt.getAttribute('data-price') || '0') || 0;
-                }
-            });
-            container.querySelectorAll('input[type="radio"]:checked').forEach(function(radio) {
-                optionsTotal += parseFloat(radio.getAttribute('data-price') || '0') || 0;
-            });
-            container.querySelectorAll('.shopee-opt-group').forEach(function(grp) {
-                var btn = grp.querySelector('button.shopee-opt-btn.active[data-price]');
-                if (btn) {
-                    optionsTotal += parseFloat(btn.getAttribute('data-price') || '0') || 0;
-                }
-            });
-        });
-        
-        // Get quantity (field name comes from admin service_field_configs)
-        const qtyInput = form.querySelector('.pf-service-quantity-input');
-        const quantity = parseInt(qtyInput?.value || 1);
-        
-        // Calculate totals
-        const unitPrice = basePrice + optionsTotal;
-        const estimatedTotal = unitPrice * quantity;
-        
-        // Update display
-        const estimatedTotalEl = document.getElementById('estimated-total');
-        const qtyDisplayEl = document.getElementById('qty-display');
-        const unitPriceInputEl = document.getElementById('calculated-unit-price');
-        const estimatedPriceInputEl = document.getElementById('calculated-estimated-price');
-        
-        if (estimatedTotalEl) {
-            estimatedTotalEl.textContent = '₱' + estimatedTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        }
-        
-        if (qtyDisplayEl) {
-            qtyDisplayEl.textContent = quantity;
-        }
-        
-        if (unitPriceInputEl) {
-            unitPriceInputEl.value = unitPrice.toFixed(2);
-        }
-        
-        if (estimatedPriceInputEl) {
-            estimatedPriceInputEl.value = estimatedTotal.toFixed(2);
-        }
-    };
-    
-    // Listen to all form changes
-    form.addEventListener('change', window.calculateEstimatedPrice);
-    form.addEventListener('input', function(e) {
-        if (e.target.classList && e.target.classList.contains('pf-service-quantity-input')) {
-            window.calculateEstimatedPrice();
-        }
+    window.printflowInitServiceEstimatedPrice(form, {
+        basePrice: <?php echo (float)($service['base_price'] ?? 0); ?>,
+        form: form
     });
-    
-    // Initial calculation
-    window.calculateEstimatedPrice();
 });
 </script>
 

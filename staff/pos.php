@@ -2362,6 +2362,7 @@ try {
     echo get_service_field_scripts();
     ?>
 
+    <script src="<?php echo htmlspecialchars(BASE_PATH . '/public/assets/js/service_estimated_price.js'); ?>"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
@@ -2380,6 +2381,7 @@ try {
         const barcodeScanQueue = [];
         let posBarcodeDebugEnabled = false;
         let isAddingToOrder = false;
+        let posEstimatedPriceController = null;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         const POS_CSRF_TOKEN = document.body.dataset.csrf || '';
         try {
@@ -2968,6 +2970,58 @@ try {
             return { label: 'Branch *', type: 'select', name: 'branch_id', options: branches, required: hasBranches };
         }
 
+        function destroyPosEstimatedPrice() {
+            if (posEstimatedPriceController && typeof posEstimatedPriceController.destroy === 'function') {
+                posEstimatedPriceController.destroy();
+            }
+            posEstimatedPriceController = null;
+        }
+
+        function appendPosEstimatedPriceBlock(body) {
+            const block = document.createElement('div');
+            block.id = 'pos-estimated-price-display';
+            block.className = 'pos-estimated-price-display';
+            block.style.cssText = 'margin:1.25rem 0;padding:1rem 1.125rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;';
+            block.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                    <span style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;">Estimated Price</span>
+                    <span id="pos-estimated-total" style="font-size:1.35rem;color:#0f172a;font-weight:900;white-space:nowrap;">₱0.00</span>
+                </div>
+                <div style="margin-top:0.4rem;font-size:0.8rem;color:#64748b;text-align:right;font-weight:500;">
+                    Based on selected options · Qty <span id="pos-qty-display">1</span>
+                </div>
+            `;
+            const anchorKeys = ['needed_date', 'quantity', 'notes'];
+            let insertBefore = null;
+            for (const key of anchorKeys) {
+                const row = body.querySelector('.shopee-form-row[data-field-key="' + key + '"]');
+                if (row) {
+                    insertBefore = row;
+                    break;
+                }
+            }
+            if (insertBefore) {
+                body.insertBefore(block, insertBefore);
+            } else {
+                body.appendChild(block);
+            }
+            return block;
+        }
+
+        function initPosEstimatedPrice(body, basePrice) {
+            destroyPosEstimatedPrice();
+            const block = appendPosEstimatedPriceBlock(body);
+            if (typeof window.printflowInitServiceEstimatedPrice !== 'function') {
+                return;
+            }
+            posEstimatedPriceController = window.printflowInitServiceEstimatedPrice(body, {
+                basePrice: basePrice,
+                form: body,
+                estimatedTotalEl: block.querySelector('#pos-estimated-total'),
+                qtyDisplayEl: block.querySelector('#pos-qty-display')
+            });
+        }
+
         async function openServiceModal(serviceId, serviceName) {
             console.log('openServiceModal called:', serviceId, serviceName);
             const overlay = document.getElementById('service-modal-overlay');
@@ -2975,6 +3029,7 @@ try {
             const body = document.getElementById('sm-fields-body');
             const footerActions = document.getElementById('sm-footer-actions');
 
+            destroyPosEstimatedPrice();
             title.textContent = serviceName + ' — Order Details';
             body.innerHTML = '<div style="text-align:center;padding:2rem;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> Loading fields...</div>';
             footerActions.style.display = 'none';
@@ -3035,6 +3090,7 @@ try {
                     });
                 });
                 bindServiceValidationClearers(body);
+                initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';
             }
@@ -3043,6 +3099,9 @@ try {
         function closeServiceModal() {
             isAddingToOrder = false;
             setServiceAddButtonBusy(false);
+            destroyPosEstimatedPrice();
+            const body = document.getElementById('sm-fields-body');
+            if (body) body.innerHTML = '';
             document.getElementById('service-modal-overlay').style.display = 'none';
         }
 
