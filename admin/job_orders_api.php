@@ -2067,42 +2067,6 @@ try {
             ];
             $mapped_status = $status_map[$cust['status'] ?? ''] ?? 'PENDING';
 
-            if (!empty($cust['order_id']) && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
-                try {
-                    JobOrderService::ensureStoreOrderProductionDeductions((int)$cust['order_id']);
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow customization deduction sync failed for order %d: %s',
-                        (int)$cust['order_id'],
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-            if ($mapped_status === 'IN_PRODUCTION') {
-                try {
-                    $linkedJobForDeduction = db_query(
-                        "SELECT id
-                         FROM job_orders
-                         WHERE order_id = ?
-                           AND status NOT IN ('COMPLETED', 'CANCELLED')
-                         ORDER BY id ASC
-                         LIMIT 1",
-                        'i',
-                        [(int)($cust['order_id'] ?? 0)]
-                    ) ?: [];
-                    $linkedJobId = (int)($linkedJobForDeduction[0]['id'] ?? 0);
-                    if ($linkedJobId > 0) {
-                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
-                    }
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow customization job-level deduction sync failed for order %d: %s',
-                        (int)($cust['order_id'] ?? 0),
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-
             // Determine payment proof status
             $payment_proof_status = 'NONE';
             $payment_proof_url = null;
@@ -2564,42 +2528,6 @@ try {
             $db_status = $o['status'] ?? '';
             $mapped_status = $status_map[$db_status] ?? $db_status;
 
-            if ($order_id > 0 && in_array($mapped_status, ['IN_PRODUCTION', 'TO_RECEIVE', 'COMPLETED'], true)) {
-                try {
-                    JobOrderService::ensureStoreOrderProductionDeductions($order_id);
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow order deduction sync failed for order %d: %s',
-                        $order_id,
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-            if ($order_id > 0 && $mapped_status === 'IN_PRODUCTION') {
-                try {
-                    $linkedJobRows = db_query(
-                        "SELECT id
-                         FROM job_orders
-                         WHERE order_id = ?
-                           AND status NOT IN ('COMPLETED', 'CANCELLED')
-                         ORDER BY id ASC
-                         LIMIT 1",
-                        'i',
-                        [$order_id]
-                    ) ?: [];
-                    $linkedJobId = (int)($linkedJobRows[0]['id'] ?? 0);
-                    if ($linkedJobId > 0) {
-                        JobOrderService::ensureProductionDeductionsForJob($linkedJobId);
-                    }
-                } catch (Throwable $syncErr) {
-                    error_log(sprintf(
-                        'PrintFlow regular-order job-level deduction sync failed for order %d: %s',
-                        $order_id,
-                        $syncErr->getMessage()
-                    ));
-                }
-            }
-            
             // Map payment proof status for staff dashboard
             $payment_proof_status = 'NONE';
             $payment_proof_url = null;

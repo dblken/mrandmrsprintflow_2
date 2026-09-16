@@ -146,10 +146,10 @@ try {
 
         if ($newStatus === 'Completed') {
             $branchId = (int)($order['branch_id'] ?? 0);
-            $orderRef = printflow_get_order_inventory_reference($orderId);
-            $orderLabel = $orderRef['label'] ?? ('Order #' . printflow_format_order_code($orderId, ''));
             $items = db_query(
-                'SELECT oi.product_id, oi.quantity, oi.customization_data, p.name AS product_name FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = ?',
+                'SELECT oi.order_item_id, oi.product_id, oi.quantity
+                 FROM order_items oi
+                 WHERE oi.order_id = ?',
                 'i',
                 [$orderId]
             ) ?: [];
@@ -159,29 +159,12 @@ try {
                 $quantity = (int)($item['quantity'] ?? 0);
                 if ($productId <= 0 || $quantity <= 0) continue;
 
-                $productName = (string)($item['product_name'] ?? ('Product #' . $productId));
-                $customization = !empty($item['customization_data'])
-                    ? (json_decode((string)$item['customization_data'], true) ?: [])
-                    : [];
-                $variant = printflow_product_option_stock_deduct($productId, $branchId, $customization, $quantity);
-                if (!empty($variant['handled'])) {
-                    if (empty($variant['success'])) {
-                        throw new RuntimeException((string)($variant['message'] ?? 'Failed to deduct selected size stock.'));
-                    }
-                    printflow_record_product_inventory_transaction(
-                        $productId, 'OUT', (float)$quantity, 'ORDER', $orderId,
-                        "{$orderLabel} completed - {$productName} ({$variant['field_label']}: {$variant['option_value']}) {$variant['previous_stock']} -> {$variant['new_stock']}",
-                        (int)($_SESSION['user_id'] ?? 0), date('Y-m-d'), $branchId
-                    );
-                    continue;
-                }
-                if (printflow_product_deduct_stock_for_branch($productId, $branchId, $quantity)) {
-                    printflow_record_product_inventory_transaction(
-                        $productId, 'OUT', (float)$quantity, 'ORDER', $orderId,
-                        "{$orderLabel} completed - {$productName}",
-                        (int)($_SESSION['user_id'] ?? 0), date('Y-m-d'), $branchId
-                    );
-                }
+                printflow_apply_product_order_item_inventory(
+                    (int)$item['order_item_id'],
+                    $branchId,
+                    (int)($_SESSION['user_id'] ?? 0),
+                    'Online product completion'
+                );
             }
         }
 

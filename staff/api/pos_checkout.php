@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
+require_once __DIR__ . '/../../includes/product_option_stock.php';
 require_once __DIR__ . '/../../includes/order_items_persistence.php';
 require_once __DIR__ . '/../../includes/JobOrderService.php';
 require_once __DIR__ . '/../../includes/runtime_config.php';
@@ -691,41 +692,17 @@ function pos_sync_customization_jobs_after_commit(int $orderId, string $targetSt
         return;
     }
 
-    // POS service requirement: deduct in IN_PRODUCTION stage, but do it safely so
-    // checkout stays successful even if inventory sync needs follow-up.
+    // POS service requirement: production status and material deduction are one
+    // authoritative operation. A deduction failure aborts checkout.
     if (in_array($normalizedTargetStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
-        $syncHadWarning = false;
         foreach ($jobs as $job) {
             $jobId = (int)($job['id'] ?? 0);
             if ($jobId <= 0) {
                 continue;
             }
-            try {
-                // Use store-facing "Processing" so order/customization/job statuses stay
-                // aligned to the same production phase and deduction triggers immediately.
-                JobOrderService::updateStatus($jobId, 'Processing', null, '', true);
-            } catch (Throwable $syncError) {
-                // Keep POS sale flow resilient: status still advances to production,
-                // and deduction can be retried from staff customizations/order flow.
-                db_execute(
-                    "UPDATE job_orders SET status = 'Processing', updated_at = NOW() WHERE id = ?",
-                    'i',
-                    [$jobId]
-                );
-                error_log('PrintFlow POS IN_PRODUCTION sync warning for job #' . $jobId . ': ' . $syncError->getMessage());
-                $syncHadWarning = true;
-            }
-        }
-        try {
-            // Force an idempotent deduction pass for this store order so materials are
-            // consumed as soon as POS payment moves the job to In Production.
-            JobOrderService::ensureStoreOrderProductionDeductions($orderId);
-        } catch (Throwable $deductSyncError) {
-            $syncHadWarning = true;
-            error_log('PrintFlow POS deduction sync warning for order #' . $orderId . ': ' . $deductSyncError->getMessage());
-        }
-        if ($syncHadWarning) {
-            error_log('PrintFlow POS production sync warning for order #' . $orderId . ': checkout will continue and deduction can be retried.');
+            // Use store-facing "Processing" so order/customization/job statuses stay
+            // aligned to the same production phase and deduction triggers immediately.
+            JobOrderService::updateStatus($jobId, 'Processing', null, '', true);
         }
         return;
     }
@@ -1127,8 +1104,15 @@ foreach ($items as $item) {
 
     // Skip stock check for services
     if (!$is_service_item) {
+        $customization = $item['customization'] ?? [];
+        $customization = is_array($customization) ? $customization : [];
+        $optionStock = printflow_product_option_stock_validate($product_id, $pos_branch_id, $customization, $qty);
         [$effStock] = printflow_product_effective_stock($product_id, $pos_branch_id);
-        if ($effStock < $qty) {
+        if (!empty($optionStock['uses_option_stock']) && empty($optionStock['ok'])) {
+            echo json_encode(['success' => false, 'message' => (string)($optionStock['message'] ?? 'Selected option is out of stock.')]);
+            exit;
+        }
+        if (empty($optionStock['uses_option_stock']) && $effStock < $qty) {
             echo json_encode(['success' => false, 'message' => 'Insufficient stock for ' . $p['name']]);
             exit;
         }
@@ -1459,27 +1443,18 @@ try {
         // Services/custom items continue through the job/material completion flow.
         $current_user_id = (int)($_SESSION['user_id'] ?? 0);
         if (!$isPayMongo && $order_status === 'Completed' && !$is_service && $is_actual_product) {
-            // Reduce branch/product stock atomically (will fail if insufficient)
-            $deducted = printflow_product_deduct_stock_for_branch($product_id, $branch_id, $qty);
-            if ($deducted === false) {
+            try {
+                printflow_apply_product_order_item_inventory(
+                    (int)$order_item_id,
+                    (int)$branch_id,
+                    $current_user_id,
+                    'POS sale'
+                );
+            } catch (Throwable $inventoryError) {
                 $conn->rollback();
                 echo json_encode(['success' => false, 'message' => 'Failed to deduct stock for ' . $prod_name]);
                 exit;
             }
-
-            // Record product movement in shared inventory ledger
-            $note = 'POS sale: Order #' . $order_id;
-            printflow_record_product_inventory_transaction(
-                $product_id,
-                'OUT',
-                $qty,
-                'ORDER',
-                $order_id,
-                $note,
-                $current_user_id,
-                date('Y-m-d'),
-                $branch_id
-            );
         }
     }
 

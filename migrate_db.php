@@ -98,6 +98,7 @@ $tables = [
       `ink_color` varchar(50) NOT NULL,
       `quantity_used` decimal(10,2) NOT NULL,
       `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+      `deducted_at` timestamp NULL DEFAULT NULL,
       PRIMARY KEY (`id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;",
 
@@ -195,6 +196,13 @@ foreach ($tables as $sql) {
     if (!$conn->query($sql)) {
         echo "Error creating table: " . $conn->error . "\n";
     }
+}
+
+if (!db_table_has_column('job_order_ink_usage', 'deducted_at')) {
+    $conn->query("ALTER TABLE job_order_ink_usage ADD COLUMN deducted_at TIMESTAMP NULL DEFAULT NULL AFTER created_at");
+}
+if (!db_table_has_column('inventory_transactions', 'product_id')) {
+    $conn->query("ALTER TABLE inventory_transactions ADD COLUMN product_id INT NULL AFTER item_id");
 }
 echo "Done.\n";
 

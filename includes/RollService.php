@@ -47,9 +47,14 @@ class RollService {
      */
     public static function deductFromRoll($rollId, $lengthToDeduct, $jobOrderId, $jobOrderMaterialId = null) {
         global $conn;
+        $wasInTransaction = printflow_db_in_transaction($conn);
+        if (!$wasInTransaction) {
+            $conn->begin_transaction();
+        }
 
+        try {
         // 1. Lock the roll row
-        $stmt = $conn->prepare("SELECT id, item_id, remaining_length_ft, status FROM inv_rolls WHERE id = ? FOR UPDATE");
+        $stmt = $conn->prepare("SELECT id, item_id, branch_id, remaining_length_ft, status FROM inv_rolls WHERE id = ? FOR UPDATE");
         $stmt->bind_param("i", $rollId);
         $stmt->execute();
         $roll = $stmt->get_result()->fetch_assoc();
@@ -86,7 +91,10 @@ class RollService {
             'JOB_ORDER', 
             $jobOrderId, 
             $rollId, 
-            "Deducted for {$jobLabel}"
+            "Deducted for {$jobLabel}",
+            null,
+            null,
+            (int)($roll['branch_id'] ?? 0)
         );
 
         // 4. Update Job Order Material status (if ID provided) to mark as deducted
@@ -97,7 +105,16 @@ class RollService {
             $stmt->close();
         }
 
+        if (!$wasInTransaction) {
+            $conn->commit();
+        }
         return true;
+        } catch (Throwable $e) {
+            if (!$wasInTransaction && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
+            throw $e;
+        }
     }
 
     /**
@@ -147,7 +164,7 @@ class RollService {
         }
 
         // 3. Begin transaction for atomicity
-        $wasInTransaction = $conn->in_transaction ?? false;
+        $wasInTransaction = printflow_db_in_transaction($conn);
         if (!$wasInTransaction) {
             $conn->begin_transaction();
         }
@@ -235,7 +252,7 @@ class RollService {
             return $deductions;
 
         } catch (Throwable $e) {
-            if (!$wasInTransaction && $conn->in_transaction) {
+            if (!$wasInTransaction && printflow_db_in_transaction($conn)) {
                 $conn->rollback();
             }
             throw $e;

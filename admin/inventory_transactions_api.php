@@ -121,14 +121,26 @@ try {
                 $types .= 'i';
             }
             if ($type) {
-                // If type is IN or OUT filter by direction
-                if (in_array(strtoupper($type), ['IN', 'OUT'])) {
+                $normalizedType = strtoupper(trim((string)$type));
+                $typeGroups = [
+                    'SERVICE_USAGE' => ['JOB_ORDER', 'SERVICE_ORDER'],
+                    'PRODUCT_SALE' => ['ORDER', 'ORDER_PRODUCT'],
+                ];
+                if (in_array($normalizedType, ['IN', 'OUT'], true)) {
                     $sql .= " AND t.direction = ?";
+                    $params[] = $normalizedType;
+                    $types .= 's';
+                } elseif (isset($typeGroups[$normalizedType])) {
+                    $groupTypes = $typeGroups[$normalizedType];
+                    $groupPlaceholders = implode(',', array_fill(0, count($groupTypes), '?'));
+                    $sql .= " AND UPPER(TRIM(COALESCE(t.ref_type, ''))) IN ($groupPlaceholders)";
+                    $params = array_merge($params, $groupTypes);
+                    $types .= str_repeat('s', count($groupTypes));
                 } else {
-                    $sql .= " AND t.ref_type = ?";
+                    $sql .= " AND UPPER(TRIM(COALESCE(t.ref_type, ''))) = ?";
+                    $params[] = $normalizedType;
+                    $types .= 's';
                 }
-                $params[] = $type;
-                $types .= 's';
             }
             if ($search) {
                 $st = '%' . $search . '%';

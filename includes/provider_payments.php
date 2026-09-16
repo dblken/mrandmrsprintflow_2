@@ -2013,7 +2013,7 @@ function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): a
         if ($isProduct) {
             require_once __DIR__ . '/product_branch_stock.php';
             $items = db_query(
-                'SELECT product_id, quantity FROM order_items WHERE order_id = ?',
+                'SELECT order_item_id, product_id, quantity, customization_data FROM order_items WHERE order_id = ?',
                 'i',
                 [$orderId]
             ) ?: [];
@@ -2023,25 +2023,18 @@ function printflow_provider_payment_complete_pos(int $ledgerId, int $staffId): a
             foreach ($items as $item) {
                 $productId = (int)$item['product_id'];
                 $quantity = (int)$item['quantity'];
-                if ($productId <= 0 || $quantity <= 0
-                    || !printflow_product_deduct_stock_for_branch(
-                        $productId,
-                        (int)$payment['branch_id'],
-                        $quantity
-                    )
-                    || !printflow_record_product_inventory_transaction(
-                        $productId,
-                        'OUT',
-                        $quantity,
-                        'ORDER',
-                        $orderId,
-                        'PayMongo POS sale: Order #' . $orderId,
-                        $staffId,
-                        date('Y-m-d'),
-                        (int)$payment['branch_id']
-                    )) {
-                    throw new RuntimeException('Inventory could not be finalized for the paid POS order.');
+                $customization = json_decode((string)($item['customization_data'] ?? ''), true);
+                $customization = is_array($customization) ? $customization : [];
+                if (!empty($customization['service_id']) || !empty($customization['service_type'])) {
+                    continue;
                 }
+                if ($productId <= 0 || $quantity <= 0) continue;
+                printflow_apply_product_order_item_inventory(
+                    (int)$item['order_item_id'],
+                    (int)$payment['branch_id'],
+                    $staffId,
+                    'PayMongo POS sale'
+                );
             }
             if (!db_execute(
                 "UPDATE orders SET status = 'Completed', updated_at = NOW()

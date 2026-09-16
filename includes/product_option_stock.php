@@ -13,6 +13,13 @@ function printflow_ensure_product_option_stock_table(): void
     if ($done) {
         return;
     }
+    global $conn;
+    if (printflow_db_in_transaction($conn)) {
+        // Avoid implicit-commit DDL during an atomic sale. Missing schema will
+        // surface as a query failure and roll the sale back.
+        $done = true;
+        return;
+    }
 
     db_execute(
         "CREATE TABLE IF NOT EXISTS product_option_stock (
@@ -311,12 +318,16 @@ function printflow_product_option_stock_validate(
     int $requestedQty
 ): array {
     $selection = printflow_product_option_stock_find_selected_value($productId, $customization);
-    if ($selection === null) {
+    $hasOptionStock = printflow_product_option_stock_has_rows($productId, $branchId);
+    if (!$hasOptionStock) {
         return ['uses_option_stock' => false, 'ok' => true];
     }
-
-    if (!printflow_product_option_stock_has_rows($productId, $branchId)) {
-        return ['uses_option_stock' => false, 'ok' => true];
+    if ($selection === null) {
+        return [
+            'uses_option_stock' => true,
+            'ok' => false,
+            'message' => 'A valid stock option must be selected for this product.',
+        ];
     }
 
     $rows = printflow_product_option_stock_map($productId, $branchId);
@@ -355,8 +366,16 @@ function printflow_product_option_stock_deduct(
     int $qty
 ): array {
     $selection = printflow_product_option_stock_find_selected_value($productId, $customization);
-    if ($selection === null || !printflow_product_option_stock_has_rows($productId, $branchId)) {
+    $hasOptionStock = printflow_product_option_stock_has_rows($productId, $branchId);
+    if (!$hasOptionStock) {
         return ['handled' => false, 'success' => false];
+    }
+    if ($selection === null) {
+        return [
+            'handled' => true,
+            'success' => false,
+            'message' => 'A valid stock option must be selected for this product.',
+        ];
     }
 
     $currentRows = printflow_product_option_stock_map($productId, $branchId);
@@ -379,7 +398,7 @@ function printflow_product_option_stock_deduct(
         ];
     }
 
-    $result = db_execute(
+    $affected = db_execute_affected_rows(
         "UPDATE product_option_stock
          SET stock_quantity = stock_quantity - ?
          WHERE product_id = ? AND branch_id = ? AND field_key = ? AND option_value = ? AND stock_quantity >= ?",
@@ -389,7 +408,8 @@ function printflow_product_option_stock_deduct(
 
     return [
         'handled' => true,
-        'success' => $result !== false,
+        'success' => $affected === 1,
+        'message' => $affected === 1 ? '' : 'Selected option stock changed before checkout completed.',
         'field_key' => $selection['field_key'],
         'field_label' => $selection['field_label'],
         'option_value' => $selection['option_value'],

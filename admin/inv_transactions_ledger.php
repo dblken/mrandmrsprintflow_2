@@ -196,13 +196,26 @@ if ($catalog_product_id > 0) {
     $types .= 'i';
 }
 if ($type_filter) {
-    if (in_array(strtoupper($type_filter), ['IN', 'OUT'])) {
+    $normalizedTypeFilter = strtoupper(trim((string)$type_filter));
+    $typeGroups = [
+        'SERVICE_USAGE' => ['JOB_ORDER', 'SERVICE_ORDER'],
+        'PRODUCT_SALE' => ['ORDER', 'ORDER_PRODUCT'],
+    ];
+    if (in_array($normalizedTypeFilter, ['IN', 'OUT'], true)) {
         $sql .= " AND t.direction = ?";
+        $params[] = $normalizedTypeFilter;
+        $types .= 's';
+    } elseif (isset($typeGroups[$normalizedTypeFilter])) {
+        $groupTypes = $typeGroups[$normalizedTypeFilter];
+        $groupPlaceholders = implode(',', array_fill(0, count($groupTypes), '?'));
+        $sql .= " AND UPPER(TRIM(COALESCE(t.ref_type, ''))) IN ($groupPlaceholders)";
+        $params = array_merge($params, $groupTypes);
+        $types .= str_repeat('s', count($groupTypes));
     } else {
-        $sql .= " AND t.ref_type = ?";
+        $sql .= " AND UPPER(TRIM(COALESCE(t.ref_type, ''))) = ?";
+        $params[] = $normalizedTypeFilter;
+        $types .= 's';
     }
-    $params[] = $type_filter;
-    $types .= 's';
 }
 if ($search) {
     $st = '%' . $search . '%';
@@ -754,6 +767,8 @@ if (isset($_GET['ajax'])) {
                                         <option value="">All Types</option>
                                         <option value="IN" <?php echo ($type_filter === 'IN') ? 'selected' : ''; ?>>All STOCK-IN</option>
                                         <option value="OUT" <?php echo ($type_filter === 'OUT') ? 'selected' : ''; ?>>All STOCK-OUT</option>
+                                        <option value="SERVICE_USAGE" <?php echo ($type_filter === 'SERVICE_USAGE') ? 'selected' : ''; ?>>Service Material Usage</option>
+                                        <option value="PRODUCT_SALE" <?php echo ($type_filter === 'PRODUCT_SALE') ? 'selected' : ''; ?>>Product Sales</option>
                                         <option value="opening_balance" <?php echo ($type_filter === 'opening_balance') ? 'selected' : ''; ?>>Opening Balance</option>
                                         <option value="purchase" <?php echo ($type_filter === 'purchase') ? 'selected' : ''; ?>>Purchase (IN)</option>
                                         <option value="issue" <?php echo ($type_filter === 'issue') ? 'selected' : ''; ?>>Issue (OUT)</option>

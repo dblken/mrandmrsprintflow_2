@@ -73,27 +73,43 @@ if (empty($order_row)) {
 $order_row = $order_row[0];
 
 $op = $input['op'] ?? '';
+if ($op === 'update_status' && (string)($input['status'] ?? '') === 'Processing') {
+    $op = 'approve';
+}
 
 if ($op === 'approve') {
-    // When approving, move to Processing and trigger inventory deduction
-    db_execute("UPDATE service_orders SET status = 'Processing' WHERE id = ?", 'i', [$order_id]);
-    
-    // Deduct inventory for service orders (similar to job orders moving to IN_PRODUCTION)
     require_once __DIR__ . '/../../includes/InventoryManager.php';
     require_once __DIR__ . '/../../includes/RollService.php';
-    
+
+    global $conn;
+    $transactionStarted = !printflow_db_in_transaction($conn);
     try {
+        if ($transactionStarted && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start the service inventory transaction.');
+        }
+        $lockedOrderRows = db_query("SELECT id, status, branch_id FROM service_orders WHERE id = ? FOR UPDATE", 'i', [$order_id]) ?: [];
+        if ($lockedOrderRows === []) throw new RuntimeException('The service order no longer exists.');
+        $lockedOrder = $lockedOrderRows[0];
+        $branchId = (int)($lockedOrder['branch_id'] ?? 0);
+        if ($branchId <= 0) {
+            throw new RuntimeException('The service order does not identify an inventory branch.');
+        }
+
         // Get materials assigned to this service order
         $materials = db_query(
-            "SELECT * FROM job_order_materials WHERE std_order_id = ? AND deducted_at IS NULL",
+            "SELECT * FROM job_order_materials
+             WHERE std_order_id = ?
+               AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')
+             FOR UPDATE",
             'i',
             [$order_id]
         );
         
         if ($materials) {
             foreach ($materials as $m) {
+                db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$m['item_id']]);
                 $item = InventoryManager::getItem($m['item_id']);
-                if (!$item) continue;
+                if (!$item) throw new RuntimeException('An assigned service material no longer exists.');
 
                 if ($item['track_by_roll']) {
                     $lengthNeeded = (float)($m['computed_required_length_ft'] ?: $m['quantity']);
@@ -109,7 +125,8 @@ if ($op === 'approve') {
                             $lengthNeeded,
                             'SERVICE_ORDER',
                             $order_id,
-                            "Deducted for Service Order #{$order_id}"
+                            "Deducted for Service Order #{$order_id}",
+                            $branchId
                         );
                     } catch (Exception $e) {
                         throw new Exception(
@@ -123,6 +140,7 @@ if ($op === 'approve') {
                     if (is_array($metadata) && isset($metadata['lamination_item_id']) && !empty($metadata['lamination_length_ft'])) {
                         $lamItem = InventoryManager::getItem($metadata['lamination_item_id']);
                         if ($lamItem) {
+                            db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$lamItem['id']]);
                             try {
                                 if ($lamItem['track_by_roll']) {
                                     RollService::deductFIFO(
@@ -130,7 +148,8 @@ if ($op === 'approve') {
                                         $metadata['lamination_length_ft'],
                                         'SERVICE_ORDER',
                                         $order_id,
-                                        "Lamination deducted for Service Order #{$order_id}"
+                                        "Lamination deducted for Service Order #{$order_id}",
+                                        $branchId
                                     );
                                 } else {
                                     InventoryManager::issueStock(
@@ -139,7 +158,10 @@ if ($op === 'approve') {
                                         $lamItem['unit_of_measure'], 
                                         'SERVICE_ORDER', 
                                         $order_id, 
-                                        "Lamination deducted for Service Order #{$order_id}"
+                                        "Lamination deducted for Service Order #{$order_id}",
+                                        false,
+                                        false,
+                                        $branchId
                                     );
                                 }
                             } catch (Exception $e) {
@@ -160,7 +182,10 @@ if ($op === 'approve') {
                         $m['uom'], 
                         'SERVICE_ORDER', 
                         $order_id, 
-                        "Deducted for Service Order #{$order_id}"
+                        "Deducted for Service Order #{$order_id}",
+                        false,
+                        false,
+                        $branchId
                     );
                     db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
                 }
@@ -168,11 +193,27 @@ if ($op === 'approve') {
         }
 
         // Process Ink Deductions
-        $inks = db_query("SELECT * FROM job_order_ink_usage WHERE std_order_id = ?", 'i', [$order_id]);
+        if (!db_table_has_column('job_order_ink_usage', 'deducted_at')) {
+            $legacyInks = db_query("SELECT id FROM job_order_ink_usage WHERE std_order_id = ? LIMIT 1", 'i', [$order_id]) ?: [];
+            if ($legacyInks !== []) {
+                throw new RuntimeException('The ink-usage idempotency migration is required before inventory can be deducted.');
+            }
+            $inks = [];
+        } else {
+            $inks = db_query(
+                "SELECT * FROM job_order_ink_usage
+                 WHERE std_order_id = ?
+                   AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')
+                 FOR UPDATE",
+                'i',
+                [$order_id]
+            ) ?: [];
+        }
         if ($inks) {
             foreach ($inks as $ink) {
+                db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$ink['item_id']]);
                 $inkItem = InventoryManager::getItem($ink['item_id']);
-                if (!$inkItem) continue;
+                if (!$inkItem) throw new RuntimeException('An assigned ink inventory item no longer exists.');
 
                 InventoryManager::issueStock(
                     $ink['item_id'],
@@ -180,11 +221,29 @@ if ($op === 'approve') {
                     $inkItem['unit_of_measure'] ?? 'bottle',
                     'SERVICE_ORDER',
                     $order_id,
-                    "{$ink['ink_color']} ink used for Service Order #{$order_id}"
+                    "{$ink['ink_color']} ink used for Service Order #{$order_id}",
+                    false,
+                    false,
+                    $branchId
                 );
+                if (db_execute(
+                    "UPDATE job_order_ink_usage SET deducted_at = NOW()
+                     WHERE id = ?
+                       AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                    'i',
+                    [(int)$ink['id']]
+                ) === false) {
+                    throw new RuntimeException('Failed to finalize the ink deduction.');
+                }
             }
         }
-    } catch (Exception $e) {
+
+        if (!db_execute("UPDATE service_orders SET status = 'Processing' WHERE id = ?", 'i', [$order_id])) {
+            throw new RuntimeException('Failed to move the service order into production.');
+        }
+        if ($transactionStarted) $conn->commit();
+    } catch (Throwable $e) {
+        if ($transactionStarted && printflow_db_in_transaction($conn)) $conn->rollback();
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
         exit;
     }
@@ -215,6 +274,10 @@ if ($op === 'approve') {
     $new_status = (string)($input['status'] ?? '');
     if (!in_array($new_status, ['Pending', 'Pending Review', 'Approved', 'Processing', 'Completed', 'Rejected'], true)) {
         echo json_encode(['success' => false, 'error' => 'Invalid status']);
+        exit;
+    }
+    if ($new_status === 'Completed' && strcasecmp(trim((string)($order_row['status'] ?? '')), 'Processing') !== 0) {
+        echo json_encode(['success' => false, 'error' => 'Move the service order to Processing so inventory is deducted before completion.']);
         exit;
     }
     db_execute('UPDATE service_orders SET status = ? WHERE id = ?', 'si', [$new_status, $order_id]);

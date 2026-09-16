@@ -237,7 +237,7 @@ class JobOrderService {
         return (int)($row[0]['order_id'] ?? 0);
     }
 
-    private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false): array {
+    private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
                 FROM job_order_materials
@@ -256,11 +256,14 @@ class JobOrderService {
         if ($onlyUndeducted) {
             $sql .= " AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')";
         }
+        if ($forUpdate) {
+            $sql .= " FOR UPDATE";
+        }
 
         return db_query($sql, $types, $params) ?: [];
     }
 
-    private static function getScopedInkUsage(int $jobId): array {
+    private static function getScopedInkUsage(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
                 FROM job_order_ink_usage
@@ -275,6 +278,17 @@ class JobOrderService {
         }
 
         $sql .= ")";
+        if ($onlyUndeducted) {
+            if (!self::tableHasColumn('job_order_ink_usage', 'deducted_at')) {
+                $existingInkRows = db_query($sql . ' LIMIT 1', $types, $params) ?: [];
+                if ($existingInkRows === []) return [];
+                throw new RuntimeException('The ink-usage idempotency migration is required before inventory can be deducted.');
+            }
+            $sql .= " AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')";
+        }
+        if ($forUpdate) {
+            $sql .= " FOR UPDATE";
+        }
 
         return db_query($sql, $types, $params) ?: [];
     }
@@ -1124,8 +1138,9 @@ class JobOrderService {
                     throw new Exception('Cannot mark as Completed: payment must be Paid. Current payment status: ' . ($order['payment_status'] ?? 'Unpaid'));
                 }
                 
-                // Process deductions again (idempotent - will skip already deducted items)
-                self::processDeductions($orderId);
+                // Completion is a recovery pass for assigned materials only.
+                // Ink usage is processed at production entry and must not be issued twice.
+                self::processDeductions($orderId, ['materials' => true, 'inks' => false]);
                 if ($order['customer_id']) {
                     self::updateCustomerStatus($order['customer_id']);
                 }
@@ -1231,24 +1246,41 @@ class JobOrderService {
      * Idempotent deduction for all materials in an order.
      */
     private static function processDeductions($orderId, array $options = []) {
+        global $conn;
+
+        $startedTransaction = !printflow_db_in_transaction($conn);
+        if ($startedTransaction && !$conn->begin_transaction()) {
+            throw new RuntimeException('Unable to start the material deduction transaction.');
+        }
+
+        try {
         $processMaterials = $options['materials'] ?? true;
         $processInks = $options['inks'] ?? true;
         $branchId = self::getJobBranchId((int)$orderId);
+        if ($branchId === null || $branchId <= 0) {
+            throw new RuntimeException("Job #{$orderId} does not identify an inventory branch.");
+        }
+        db_query('SELECT id FROM job_orders WHERE id = ? FOR UPDATE', 'i', [(int)$orderId]);
         $jobRef = printflow_get_job_inventory_reference((int)$orderId);
         $jobLabel = $jobRef['label'] ?? ('Job #' . printflow_format_job_code((int)$orderId));
-        $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true) : [];
+        $materials = $processMaterials ? self::getScopedMaterials((int)$orderId, true, true) : [];
         
         if ($materials) {
             foreach ($materials as $m) {
+                db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$m['item_id']]);
                 $item = InventoryManager::getItem($m['item_id']);
-                if (!$item) continue;
+                if (!$item) {
+                    throw new RuntimeException('An assigned inventory material no longer exists.');
+                }
 
                 if ($item['track_by_roll']) {
                     $lengthNeeded = (float)($m['computed_required_length_ft'] ?: $m['quantity']);
 
                     if ($lengthNeeded <= 0) {
                         // Nothing to deduct — mark as processed and continue
-                        db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
+                        if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                            throw new RuntimeException('Failed to mark the zero-quantity material as processed.');
+                        }
                         continue;
                     }
 
@@ -1276,6 +1308,7 @@ class JobOrderService {
                     if (is_array($metadata) && isset($metadata['lamination_item_id']) && !empty($metadata['lamination_length_ft'])) {
                         $lamItem = InventoryManager::getItem($metadata['lamination_item_id']);
                         if ($lamItem) {
+                            db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$lamItem['id']]);
                             try {
                                 if ($lamItem['track_by_roll']) {
                                     RollService::deductFIFO(
@@ -1308,7 +1341,9 @@ class JobOrderService {
                         }
                     }
 
-                    db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
+                    if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                        throw new RuntimeException('Failed to finalize the roll-material deduction.');
+                    }
                 } else {
                     // Non-roll deduction
                     InventoryManager::issueStock(
@@ -1323,18 +1358,23 @@ class JobOrderService {
                         $branchId
                     );
                     // Mark as deducted
-                    db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ?", 'i', [$m['id']]);
+                    if (db_execute("UPDATE job_order_materials SET deducted_at = NOW() WHERE id = ? AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')", 'i', [$m['id']]) === false) {
+                        throw new RuntimeException('Failed to finalize the material deduction.');
+                    }
                 }
             }
         }
 
         // Process Ink Deductions
-        $inks = $processInks ? self::getScopedInkUsage((int)$orderId) : [];
+        $inks = $processInks ? self::getScopedInkUsage((int)$orderId, true, true) : [];
         if ($inks) {
             foreach ($inks as $ink) {
+                db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [(int)$ink['item_id']]);
                 // Determine item from inventory
                 $inkItem = InventoryManager::getItem($ink['item_id']);
-                if (!$inkItem) continue;
+                if (!$inkItem) {
+                    throw new RuntimeException('An assigned ink inventory item no longer exists.');
+                }
                 $inkQtyForInventory = self::convertInkMlToItemUom((float)$ink['quantity_used'], $inkItem);
 
                 InventoryManager::issueStock(
@@ -1348,7 +1388,26 @@ class JobOrderService {
                     false,
                     $branchId
                 );
+                if (db_execute(
+                    "UPDATE job_order_ink_usage
+                     SET deducted_at = NOW()
+                     WHERE id = ?
+                       AND (deducted_at IS NULL OR deducted_at = '' OR deducted_at = '0000-00-00 00:00:00')",
+                    'i',
+                    [(int)$ink['id']]
+                ) === false) {
+                    throw new RuntimeException('Failed to finalize the ink deduction.');
+                }
             }
+        }
+        if ($startedTransaction) {
+            $conn->commit();
+        }
+        } catch (Throwable $e) {
+            if ($startedTransaction && printflow_db_in_transaction($conn)) {
+                $conn->rollback();
+            }
+            throw $e;
         }
     }
 
