@@ -2995,7 +2995,7 @@ $online_closed_count = 0;
                     </button>
                 </div>
                 <!-- Body -->
-                <div style="flex:1 1 auto; overflow-y:auto; padding:20px;">
+                <div style="flex:1 1 auto; min-height:0; overflow-y:auto; padding:20px;">
                     <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Reason for Revision</label>
                     <select x-model="revisionReasonSelect" @change="applyRevisionReasonDefaults()" style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; margin-bottom:16px; outline:none;" onfocus="this.style.borderColor='#f87171'" onblur="this.style.borderColor='#d1d5db'">
                         <option value="">-- Select a reason --</option>
@@ -3028,26 +3028,21 @@ $online_closed_count = 0;
                         <div x-show="revisionReasonSelect && revisionFieldOptions.length && !revisionEditableFields.length" x-cloak style="margin-top:10px; font-size:12px; font-weight:600; color:#dc2626;">Select at least one detail the customer needs to update.</div>
                     </div>
 
-                    <div x-show="revisionReasonSelect" x-cloak>
+                    <div x-show="revisionReasonSelect" x-cloak style="margin-bottom:0;">
                         <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:8px;">Instructions for Customer <span style="color:#dc2626;">*</span></label>
                         <textarea x-model="revisionInstruction" rows="4" placeholder="Clearly explain what needs to be corrected..." style="width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; resize:vertical; outline:none; box-sizing:border-box;"></textarea>
                     </div>
-
-                    <div style="margin-top:16px; padding-top:12px; border-top:1px solid #e5e7eb;">
-                        <div style="font-size:11px; color:#6b7280; line-height:1.45; margin-bottom:8px;">Product/service and branch cannot be changed here because they affect pricing, inventory, and routing.</div>
-                        <button type="button" @click="cancelAndRequestNewOrder()" style="border:0; background:none; padding:0; color:#b91c1c; font-size:12px; font-weight:700; cursor:pointer;">Cancel and Request New Order</button>
-                    </div>
                 </div>
                 <!-- Footer -->
-                <div style="flex:0 0 auto; padding:16px 20px; border-top:1px solid #f3f4f6; background:#f9fafb; display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+                <div style="flex:0 0 auto; flex-shrink:0; padding:16px 20px; border-top:1px solid #e5e7eb; background:#fff; display:flex; flex-direction:column; align-items:stretch; gap:8px;">
+                    <div x-show="revisionModalError" x-cloak style="width:100%; font-size:12px; font-weight:600; color:#dc2626; text-align:left;" x-text="revisionModalError"></div>
                     <div style="display:flex; justify-content:flex-end; align-items:center; gap:10px; width:100%;">
-                        <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; justify-content:center;">Cancel</button>
-                        <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
+                        <button type="button" @click="closeRevisionModal()" class="pf-entry-btn pf-entry-out" style="height:38px; min-width:96px; padding:0 16px; justify-content:center; background:#fff;">Cancel</button>
+                        <button type="button" @click="submitRevision()" class="pf-entry-btn pf-entry-in" style="height:38px; min-width:170px; padding:0 16px; justify-content:center; background:#10b981; border-color:#10b981; color:#fff;" :disabled="revisionSubmitting || !isRevisionFormValid()" :style="(revisionSubmitting || !isRevisionFormValid()) ? 'opacity:.55;cursor:not-allowed;' : ''">
                             <span x-show="!revisionSubmitting">Send Revision Request</span>
                             <span x-show="revisionSubmitting">Sending...</span>
                         </button>
                     </div>
-                    <div x-show="revisionModalError" x-cloak style="width:100%; font-size:12px; font-weight:600; color:#dc2626; text-align:left;" x-text="revisionModalError"></div>
                 </div>
             </div>
         </div>
