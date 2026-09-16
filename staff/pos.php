@@ -2609,6 +2609,42 @@ try {
                 clearTimeout(timeoutId);
             }
         }
+
+        function posCheckoutCustomizationPayload(customization) {
+            if (!customization || typeof customization !== 'object') {
+                return null;
+            }
+            const payload = { ...customization };
+            const stripKeys = [
+                'design_upload_data',
+                'reference_upload_data',
+                'design_data',
+                'reference_data',
+                'design_blob',
+                'reference_blob'
+            ];
+            stripKeys.forEach(key => delete payload[key]);
+            if (payload.design_upload_path || payload.design_file || payload.design_tmp_path) {
+                delete payload.design_upload_data;
+            }
+            if (payload.reference_upload_path || payload.reference_file) {
+                delete payload.reference_upload_data;
+            }
+            return Object.keys(payload).length ? payload : null;
+        }
+
+        function posCheckoutItemPayload(item) {
+            return {
+                id: item.product_id,
+                qty: item.qty,
+                price: item.price,
+                name: item.name || null,
+                customization: posCheckoutCustomizationPayload(item.customization),
+                is_service: item.is_service || false,
+                pending_order_id: item.pending_order_id || 0,
+                pending_customization_id: item.pending_customization_id || 0
+            };
+        }
         function formatMoney(value) {
             const amount = Number.parseFloat(value);
             const safeAmount = Number.isFinite(amount) ? amount : 0;
@@ -5014,16 +5050,7 @@ try {
                 amount_tendered: tendered,
                 csrf_token: POS_CSRF_TOKEN,
                 checkout_token: checkoutToken,
-                items: cart.map(i => ({
-                    id: i.product_id,
-                    qty: i.qty,
-                    price: i.price,
-                    name: i.name || null,
-                    customization: i.customization || null,
-                    is_service: i.is_service || false,
-                    pending_order_id: i.pending_order_id || 0,
-                    pending_customization_id: i.pending_customization_id || 0
-                }))
+                items: cart.map(posCheckoutItemPayload)
             };
 
             let checkoutCompleted = false;

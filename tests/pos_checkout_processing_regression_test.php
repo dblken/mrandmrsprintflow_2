@@ -54,5 +54,24 @@ $assert(
         && strpos($checkout, ': (float)$p[\'price\'];') !== false,
     'cash payment and ready-made totals are validated server-side'
 );
+$assert(
+    strpos($checkout, 'function pos_prefetch_products_by_ids(') !== false
+        && strpos($checkout, 'SELECT product_id, price, name FROM products WHERE product_id IN') !== false,
+    'checkout batches product lookups instead of querying each cart line'
+);
+$assert(
+    strpos($checkout, 'function pos_customization_has_persisted_media_path(') !== false
+        && strpos($checkout, 'pos_customization_has_persisted_media_path($custom_details, \'design_upload\')') !== false,
+    'checkout skips re-reading persisted design files for every cart line'
+);
+$assert(
+    strpos($checkout, 'if (!$isPayMongo && !$is_service && $is_actual_product)') !== false,
+    'ready-made product inventory deducts during mixed POS checkout'
+);
+$assert(
+    strpos($pos, 'function posCheckoutCustomizationPayload(') !== false
+        && strpos($pos, 'cart.map(posCheckoutItemPayload)') !== false,
+    'checkout request omits heavy inline upload blobs when paths already exist'
+);
 
 echo "POS checkout processing regression test passed.\n";
