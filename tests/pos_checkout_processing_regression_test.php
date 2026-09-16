@@ -30,7 +30,8 @@ $assert(
     'all cash and PayMongo submissions require an idempotency token'
 );
 $assert(
-    strpos($checkout, "\$_SESSION['pos_checkout_orders'][\$checkoutToken] = (int)\$order_id;") !== false
+    strpos($checkout, 'function pos_checkout_persist_session_state(') !== false
+        && strpos($checkout, "\$_SESSION['pos_checkout_orders'][\$checkoutToken] = \$orderId;") !== false
         && strpos($checkout, "'duplicate_request' => true") !== false,
     'a retry returns the already committed sale instead of creating another order'
 );
@@ -41,9 +42,19 @@ $assert(
     'checkout_committed is set only after a successful commit'
 );
 $assert(
-    strpos($checkout, 'session_write_close();') !== false
-        && strpos($checkout, 'SessionManager::start();') !== false,
-    'checkout releases the session lock before the long-running sale transaction'
+    strpos($checkout, 'function pos_checkout_persist_session_state(') !== false
+        && strpos($checkout, 'session_write_close();') !== false,
+    'checkout releases the session lock before heavy work and only reopens it briefly to persist state'
+);
+$cartHandler = file_get_contents(__DIR__ . '/../staff/api/pos_cart_handler.php');
+if ($cartHandler === false) {
+    throw new RuntimeException('Unable to read POS cart handler source.');
+}
+$assert(
+    strpos($cartHandler, '$cartResponse = array_values($_SESSION[\'pos_cart\'] ?? []);') !== false
+        && strpos($cartHandler, 'session_write_close();') !== false
+        && strpos($cartHandler, 'pos_cart_effective_product_stock') !== false,
+    'cart refresh releases the session lock before per-item stock lookups'
 );
 $assert(
     preg_match('/if \(res\.ok && data\.success\) \{[\s\S]*?updateCheckoutState\(\);[\s\S]*?syncedCartAction\(\'clear\'/', $pos) === 1,
@@ -72,6 +83,11 @@ $assert(
     strpos($pos, 'function posCheckoutCustomizationPayload(') !== false
         && strpos($pos, 'cart.map(posCheckoutItemPayload)') !== false,
     'checkout request omits heavy inline upload blobs when paths already exist'
+);
+$assert(
+    strpos($pos, "posCheckoutRequestInFlight && action !== 'clear'") !== false
+        && strpos($pos, 'if (posCheckoutRequestInFlight) {') !== false,
+    'checkout blocks competing cart sync and keeps Processing state stable'
 );
 
 echo "POS checkout processing regression test passed.\n";

@@ -12,12 +12,23 @@ if (!function_exists('printflow_ensure_order_items_columns')) {
      */
     function printflow_ensure_order_items_columns(): bool
     {
+        static $ensured = false;
+        if ($ensured) {
+            return true;
+        }
+
         if (!function_exists('db_table_has_column')) {
             return false;
         }
 
         global $conn;
         if (!$conn instanceof mysqli) {
+            return false;
+        }
+
+        if (function_exists('printflow_db_in_transaction')
+            && printflow_db_in_transaction($conn)) {
+            // Never run DDL inside an active checkout/completion transaction.
             return false;
         }
 
@@ -64,7 +75,8 @@ if (!function_exists('printflow_ensure_order_items_columns')) {
             @$conn->query('ALTER TABLE `customizations` MODIFY COLUMN `customization_details` LONGTEXT NULL');
         }
 
-        return db_table_has_column('order_items', 'customization_data');
+        $ensured = db_table_has_column('order_items', 'customization_data');
+        return $ensured;
     }
 }
 

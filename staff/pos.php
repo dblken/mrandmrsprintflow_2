@@ -3139,6 +3139,10 @@ try {
         });
 
         async function syncedCartAction(action, payload = {}, options = {}) {
+            if (posCheckoutRequestInFlight && action !== 'clear' && !options.allowDuringCheckout) {
+                console.warn('Skipped cart sync during checkout:', action);
+                return { success: false, skipped: true, message: 'Checkout in progress.' };
+            }
             console.log('syncedCartAction:', action, payload);
             try {
                 const response = await fetchWithTimeout(staffUrl('staff/api/pos_cart_handler.php'), {
@@ -4953,6 +4957,13 @@ try {
             const btn = document.getElementById('pos-checkout-btn');
             const icon = document.getElementById('checkout-icon');
             const text = document.getElementById('checkout-text');
+
+            if (posCheckoutRequestInFlight) {
+                btn.disabled = true;
+                icon.className = 'fas fa-spinner fa-spin';
+                text.textContent = 'Processing...';
+                return;
+            }
 
             if (cart.length === 0) {
                 btn.disabled = true;

@@ -472,9 +472,14 @@ try {
         }
     }
 
-    // Normalize legacy cart rows so service items never hit product stock checks.
+    // Release the session before per-item stock lookups so checkout cannot block
+    // behind cart refreshes when the cart grows to several lines.
     $pos_branch_id = pos_cart_branch_id();
-    foreach ($_SESSION['pos_cart'] as &$cartItem) {
+    $cartResponse = array_values($_SESSION['pos_cart'] ?? []);
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+    foreach ($cartResponse as &$cartItem) {
         $isServiceItem = pos_cart_item_is_service((array)$cartItem);
         $cartItem['is_service'] = $isServiceItem;
         if ($isServiceItem) {
@@ -485,10 +490,9 @@ try {
     }
     unset($cartItem);
 
-    session_write_close();
     echo json_encode([
         'success' => true,
-        'cart' => array_values($_SESSION['pos_cart'])
+        'cart' => $cartResponse
     ]);
 
 } catch (PosCartValidationException $e) {

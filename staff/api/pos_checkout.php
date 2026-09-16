@@ -257,6 +257,39 @@ function pos_customization_has_persisted_media_path(array $customization, string
     return false;
 }
 
+function pos_checkout_persist_session_state(
+    string $checkoutToken,
+    int $orderId,
+    array $posPendingOrdersSnapshot,
+    ?array $receipt = null,
+    bool $isPayMongo = false
+): void {
+    if ($orderId <= 0 || $checkoutToken === '') {
+        return;
+    }
+
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        SessionManager::start();
+    }
+
+    if ($posPendingOrdersSnapshot !== ($_SESSION['pos_pending_orders'] ?? [])) {
+        $_SESSION['pos_pending_orders'] = $posPendingOrdersSnapshot;
+    }
+    $_SESSION['pos_checkout_orders'][$checkoutToken] = $orderId;
+    if (count($_SESSION['pos_checkout_orders']) > 20) {
+        $_SESSION['pos_checkout_orders'] = array_slice($_SESSION['pos_checkout_orders'], -20, null, true);
+    }
+    if ($isPayMongo) {
+        $_SESSION['pos_paymongo_checkouts'] = [];
+        $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = $orderId;
+    }
+    if ($receipt !== null) {
+        $_SESSION['pos_receipt_snapshots'][$orderId] = $receipt;
+    }
+
+    session_write_close();
+}
+
 function pos_find_pending_service_link(int $customerId, int $branchId, int $productId, string $serviceName): array {
     if ($customerId <= 0 || $branchId <= 0) {
         return ['order_id' => 0, 'customization_id' => 0];
@@ -1121,9 +1154,20 @@ if ($isPayMongo && !empty($_SESSION['pos_paymongo_checkouts'][$checkoutToken])) 
     }
 }
 
+$pos_pending_orders_snapshot = $_SESSION['pos_pending_orders'] ?? [];
+$checkout_actor_user_id = (int)($_SESSION['user_id'] ?? 0);
+$checkout_branch_id = (int)($_SESSION['branch_id'] ?? 0);
+if ($checkout_branch_id < 1) {
+    $checkout_branch_id = 1;
+}
+$pos_branch_id = $checkout_branch_id;
+$checkoutStaffId = $checkout_actor_user_id;
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 printflow_ensure_product_branch_stock_table();
 printflow_ensure_product_inventory_transaction_schema();
-$pos_branch_id = (int)($_SESSION['branch_id'] ?? 0);
 
 $productIdsToPrefetch = [];
 foreach ($items as $item) {
@@ -1133,7 +1177,6 @@ $products_cache = pos_prefetch_products_by_ids($productIdsToPrefetch);
 $ordersHasAmountPaid = pos_table_has_column('orders', 'amount_paid');
 $ordersHasPriceFinalized = db_table_has_column('orders', 'price_finalized_at')
     && db_table_has_column('orders', 'price_finalized_by');
-$checkoutStaffId = (int)get_user_id();
 
 // Calculate total and verify stock
 $total_amount = 0;
@@ -1196,15 +1239,6 @@ if (!$isPayMongo && $amount_tendered < $total_amount) {
 $checkout_started_at = microtime(true);
 $checkout_stage = 'transaction_start';
 $checkout_committed = false;
-$pos_pending_orders_snapshot = $_SESSION['pos_pending_orders'] ?? [];
-$checkout_actor_user_id = (int)($_SESSION['user_id'] ?? 0);
-$checkout_branch_id = (int)($_SESSION['branch_id'] ?? 0);
-if ($checkout_branch_id < 1) {
-    $checkout_branch_id = 1;
-}
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
-}
 try {
     global $conn;
     $post_commit_job_sync = [];
@@ -1557,47 +1591,7 @@ try {
     }
     $transaction_open = false;
     $checkout_committed = true;
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        SessionManager::start();
-    }
-    if ($pos_pending_orders_snapshot !== ($_SESSION['pos_pending_orders'] ?? [])) {
-        $_SESSION['pos_pending_orders'] = $pos_pending_orders_snapshot;
-    }
-    $_SESSION['pos_checkout_orders'][$checkoutToken] = (int)$order_id;
-    if (count($_SESSION['pos_checkout_orders']) > 20) {
-        $_SESSION['pos_checkout_orders'] = array_slice($_SESSION['pos_checkout_orders'], -20, null, true);
-    }
     $checkout_stage = 'committed';
-    if ($isPayMongo) {
-        $_SESSION['pos_paymongo_checkouts'] = [];
-        $_SESSION['pos_paymongo_checkouts'][$checkoutToken] = (int)$order_id;
-        $providerResult = printflow_provider_payment_create_qrph(
-            'order',
-            (int)$order_id,
-            'pos',
-            (int)get_user_id()
-        );
-        if (empty($providerResult['ok'])) {
-            http_response_code((int)($providerResult['http_status'] ?? 502));
-            echo json_encode([
-                'success' => false,
-                'order_id' => (int)$order_id,
-                'payment_pending' => true,
-                'message' => $providerResult['message'] ?? 'The order was saved, but its PayMongo payment could not be created. Retry checkout to reuse this order.',
-            ]);
-            exit;
-        }
-        echo json_encode([
-            'success' => true,
-            'order_id' => (int)$order_id,
-            'customization_id' => $last_customization_id ?? null,
-            'payment_pending' => true,
-            'message' => 'Order saved. Complete the PayMongo payment before issuing a receipt.',
-            'payment' => $providerResult['payment'] ?? null,
-            'receipt' => null,
-        ], JSON_UNESCAPED_SLASHES);
-        exit;
-    }
     $sync_warning = '';
     foreach ($post_commit_job_sync as $syncMeta) {
         if (!is_array($syncMeta)) {
@@ -1634,8 +1628,50 @@ try {
         }
     }
 
+    if ($isPayMongo) {
+        $providerResult = printflow_provider_payment_create_qrph(
+            'order',
+            (int)$order_id,
+            'pos',
+            $checkoutStaffId
+        );
+        pos_checkout_persist_session_state(
+            $checkoutToken,
+            (int)$order_id,
+            $pos_pending_orders_snapshot,
+            null,
+            true
+        );
+        if (empty($providerResult['ok'])) {
+            http_response_code((int)($providerResult['http_status'] ?? 502));
+            echo json_encode([
+                'success' => false,
+                'order_id' => (int)$order_id,
+                'payment_pending' => true,
+                'message' => $providerResult['message'] ?? 'The order was saved, but its PayMongo payment could not be created. Retry checkout to reuse this order.',
+            ]);
+            exit;
+        }
+        echo json_encode([
+            'success' => true,
+            'order_id' => (int)$order_id,
+            'customization_id' => $last_customization_id ?? null,
+            'payment_pending' => true,
+            'message' => 'Order saved. Complete the PayMongo payment before issuing a receipt.',
+            'payment' => $providerResult['payment'] ?? null,
+            'receipt' => null,
+        ], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
     $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
-    $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
+    pos_checkout_persist_session_state(
+        $checkoutToken,
+        (int)$order_id,
+        $pos_pending_orders_snapshot,
+        $receipt,
+        false
+    );
     echo json_encode([
         'success' => true,
         'order_id' => $order_id,
@@ -1659,12 +1695,15 @@ try {
     ));
     if (!empty($order_id) && $checkout_committed) {
         error_log('PrintFlow POS checkout post-commit sync failed for order #' . (int)$order_id . ': ' . $e->getMessage());
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            SessionManager::start();
-        }
         try {
             $receipt = pos_build_receipt_payload((int)$order_id, (float)$amount_tendered);
-            $_SESSION['pos_receipt_snapshots'][(int)$order_id] = $receipt;
+            pos_checkout_persist_session_state(
+                $checkoutToken,
+                (int)$order_id,
+                $pos_pending_orders_snapshot,
+                $receipt,
+                $isPayMongo
+            );
             echo json_encode([
                 'success' => true,
                 'order_id' => (int)$order_id,
@@ -1676,6 +1715,13 @@ try {
             ]);
         } catch (Throwable $receiptError) {
             error_log('PrintFlow POS checkout receipt recovery failed for order #' . (int)$order_id . ': ' . $receiptError->getMessage());
+            pos_checkout_persist_session_state(
+                $checkoutToken,
+                (int)$order_id,
+                $pos_pending_orders_snapshot,
+                null,
+                $isPayMongo
+            );
             echo json_encode([
                 'success' => true,
                 'order_id' => (int)$order_id,
@@ -1692,6 +1738,7 @@ try {
         http_response_code($isInventoryFailure ? 409 : 500);
         echo json_encode([
             'success' => false,
+            'stage' => (string)$checkout_stage,
             'message' => $isInventoryFailure
                 ? $e->getMessage()
                 : 'Unable to complete the sale. No order or stock movement was saved.',
