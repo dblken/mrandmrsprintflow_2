@@ -219,6 +219,201 @@ try {
             max-height: 80px !important;
         }
 
+        /* Service modal: match Customer choice/select styling */
+        #service-modal-overlay .shopee-opt-btn {
+            min-height: 40px;
+            min-width: 80px;
+            padding: 0 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            background: #ffffff !important;
+            color: #333 !important;
+            font-size: 0.875rem !important;
+            border-radius: 2px !important;
+            position: relative !important;
+            overflow: hidden !important;
+        }
+
+        #service-modal-overlay .shopee-opt-btn:hover {
+            border-color: #0a2530 !important;
+            color: #0a2530 !important;
+            background: #ffffff !important;
+        }
+
+        #service-modal-overlay button.shopee-opt-btn.active,
+        #service-modal-overlay label.shopee-opt-btn.active,
+        #service-modal-overlay button.shopee-opt-btn:has(input:checked),
+        #service-modal-overlay label.shopee-opt-btn:has(input:checked) {
+            border-color: #0a2530 !important;
+            background: #ffffff !important;
+            color: #0a2530 !important;
+        }
+
+        #service-modal-overlay button.shopee-opt-btn.active::after,
+        #service-modal-overlay label.shopee-opt-btn.active::after,
+        #service-modal-overlay button.shopee-opt-btn:has(input:checked)::after,
+        #service-modal-overlay label.shopee-opt-btn:has(input:checked)::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            right: -10px;
+            width: 20px;
+            height: 20px;
+            background: #0a2530;
+            transform: rotate(45deg);
+        }
+
+        #service-modal-overlay textarea.shopee-opt-btn:hover,
+        #service-modal-overlay textarea.shopee-opt-btn:focus,
+        #service-modal-overlay .quantity-container.shopee-opt-btn:hover {
+            border-color: #e5e7eb !important;
+            background: #ffffff !important;
+            color: #374151 !important;
+        }
+
+        #service-modal-overlay select.shopee-opt-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            color: #0f172a !important;
+            background-color: #ffffff !important;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1rem;
+            padding-right: 2.5rem !important;
+        }
+
+        #service-modal-overlay select.shopee-opt-btn option {
+            color: #0f172a;
+            background: #ffffff;
+        }
+
+        #service-modal-overlay select.shopee-opt-btn:focus {
+            border-color: #0a2530 !important;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(10, 37, 48, 0.08);
+        }
+
+        #service-modal-overlay .sm-footer-actions {
+            padding: 14px 20px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+            flex-shrink: 0;
+        }
+
+        #service-modal-overlay .sm-footer-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            width: 100%;
+            flex-wrap: wrap;
+        }
+
+        #service-modal-overlay .pos-estimated-price-display {
+            flex: 1 1 220px;
+            min-width: 0;
+        }
+
+        #service-modal-overlay .pos-est-price-label {
+            font-size: 10px;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            line-height: 1.2;
+        }
+
+        #service-modal-overlay .pos-est-price-amount {
+            font-size: 1.25rem;
+            color: #0f172a;
+            font-weight: 900;
+            line-height: 1.2;
+            margin-top: 2px;
+        }
+
+        #service-modal-overlay .pos-est-price-meta {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 2px;
+            font-weight: 500;
+        }
+
+        #service-modal-overlay .sm-footer-buttons {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex: 0 0 auto;
+        }
+
+        #service-modal-overlay .sm-btn-cancel {
+            min-width: 108px;
+            padding: 11px 20px;
+            border: 1px solid #dc2626;
+            border-radius: 10px;
+            background: #ffffff;
+            color: #dc2626;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            line-height: 1.2;
+            transition: background 0.2s, border-color 0.2s, color 0.2s;
+        }
+
+        #service-modal-overlay .sm-btn-cancel:hover {
+            background: #fef2f2;
+            border-color: #b91c1c;
+            color: #b91c1c;
+        }
+
+        #service-modal-overlay .sm-btn-cancel:focus-visible {
+            outline: 2px solid #dc2626;
+            outline-offset: 2px;
+        }
+
+        #service-modal-overlay .sm-btn-add {
+            min-width: 148px;
+            padding: 11px 22px;
+            border: none;
+            border-radius: 10px;
+            background: #00232b;
+            color: #fff;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            line-height: 1.2;
+            box-shadow: 0 10px 24px rgba(0, 35, 43, 0.28);
+            transition: background 0.2s;
+        }
+
+        #service-modal-overlay .sm-btn-add:hover {
+            background: #003a47;
+        }
+
+        #service-modal-overlay .sm-btn-add:focus-visible {
+            outline: 2px solid #00232b;
+            outline-offset: 2px;
+        }
+
+        @media (max-width: 560px) {
+            #service-modal-overlay .sm-footer-inner {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            #service-modal-overlay .sm-footer-buttons {
+                width: 100%;
+                justify-content: stretch;
+            }
+
+            #service-modal-overlay .sm-btn-cancel,
+            #service-modal-overlay .sm-btn-add {
+                flex: 1 1 0;
+                min-width: 0;
+            }
+        }
+
         .dim-label {
             font-size: .7rem;
             color: #94a3b8;
@@ -2169,17 +2364,17 @@ try {
                     onmouseover="this.style.color='#1e293b'" onmouseout="this.style.color='#94a3b8'">&times;</button>
             </div>
             <div id="sm-fields-body" style="overflow-y:auto;flex:1;padding:20px 24px;"></div>
-            <div id="sm-footer-actions"
-                style="display:none;padding:16px 24px;border-top:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0;">
-                <div style="display:flex;gap:10px;">
-                    <button onclick="closeServiceModal()"
-                        style="flex:1;padding:12px;border:1px solid #cbd5e1;border-radius:10px;background:#ffffff;color:#475569;font-weight:700;cursor:pointer;font-size:14px;"
-                        onmouseover="this.style.background='#f8fafc';this.style.borderColor='#94a3b8';this.style.color='#334155'"
-                        onmouseout="this.style.background='#ffffff';this.style.borderColor='#cbd5e1';this.style.color='#475569'">Cancel</button>
-                    <button id="sm-add-to-order-btn" onclick="confirmServiceModal()"
-                        style="flex:2;padding:12px;border:none;border-radius:10px;background:#00232b;color:#fff;font-weight:700;cursor:pointer;font-size:14px;box-shadow:0 10px 24px rgba(0,35,43,0.28);"
-                        onmouseover="this.style.background='#003a47'" onmouseout="this.style.background='#00232b'">Add
-                        to Order</button>
+            <div id="sm-footer-actions" class="sm-footer-actions" style="display:none;">
+                <div class="sm-footer-inner">
+                    <div id="pos-estimated-price-display" class="pos-estimated-price-display">
+                        <div class="pos-est-price-label">Estimated Price</div>
+                        <div id="pos-estimated-total" class="pos-est-price-amount">₱0.00</div>
+                        <div class="pos-est-price-meta">Based on selected options · Qty <span id="pos-qty-display">1</span></div>
+                    </div>
+                    <div class="sm-footer-buttons">
+                        <button type="button" class="sm-btn-cancel" onclick="closeServiceModal()">Cancel</button>
+                        <button type="button" id="sm-add-to-order-btn" class="sm-btn-add" onclick="confirmServiceModal()">Add to Order</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2975,50 +3170,29 @@ try {
                 posEstimatedPriceController.destroy();
             }
             posEstimatedPriceController = null;
+            resetPosEstimatedPriceDisplay();
         }
 
-        function appendPosEstimatedPriceBlock(body) {
-            const block = document.createElement('div');
-            block.id = 'pos-estimated-price-display';
-            block.className = 'pos-estimated-price-display';
-            block.style.cssText = 'margin:1.25rem 0;padding:1rem 1.125rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;';
-            block.innerHTML = `
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
-                    <span style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;">Estimated Price</span>
-                    <span id="pos-estimated-total" style="font-size:1.35rem;color:#0f172a;font-weight:900;white-space:nowrap;">₱0.00</span>
-                </div>
-                <div style="margin-top:0.4rem;font-size:0.8rem;color:#64748b;text-align:right;font-weight:500;">
-                    Based on selected options · Qty <span id="pos-qty-display">1</span>
-                </div>
-            `;
-            const anchorKeys = ['needed_date', 'quantity', 'notes'];
-            let insertBefore = null;
-            for (const key of anchorKeys) {
-                const row = body.querySelector('.shopee-form-row[data-field-key="' + key + '"]');
-                if (row) {
-                    insertBefore = row;
-                    break;
-                }
-            }
-            if (insertBefore) {
-                body.insertBefore(block, insertBefore);
-            } else {
-                body.appendChild(block);
-            }
-            return block;
+        function resetPosEstimatedPriceDisplay() {
+            const footer = document.getElementById('pos-estimated-price-display');
+            if (!footer) return;
+            const totalEl = footer.querySelector('#pos-estimated-total');
+            const qtyEl = footer.querySelector('#pos-qty-display');
+            if (totalEl) totalEl.textContent = '₱0.00';
+            if (qtyEl) qtyEl.textContent = '1';
         }
 
         function initPosEstimatedPrice(body, basePrice) {
             destroyPosEstimatedPrice();
-            const block = appendPosEstimatedPriceBlock(body);
-            if (typeof window.printflowInitServiceEstimatedPrice !== 'function') {
+            const footer = document.getElementById('pos-estimated-price-display');
+            if (!footer || typeof window.printflowInitServiceEstimatedPrice !== 'function') {
                 return;
             }
             posEstimatedPriceController = window.printflowInitServiceEstimatedPrice(body, {
                 basePrice: basePrice,
                 form: body,
-                estimatedTotalEl: block.querySelector('#pos-estimated-total'),
-                qtyDisplayEl: block.querySelector('#pos-qty-display')
+                estimatedTotalEl: footer.querySelector('#pos-estimated-total'),
+                qtyDisplayEl: footer.querySelector('#pos-qty-display')
             });
         }
 
