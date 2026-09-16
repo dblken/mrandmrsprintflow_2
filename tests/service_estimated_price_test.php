@@ -12,7 +12,8 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $apiSource = (string)file_get_contents(__DIR__ . '/../staff/api/pos_service_fields.php');
-$assert(str_contains($apiSource, 'base_price'), 'POS service fields API selects base_price');
+$assert(str_contains($apiSource, 'COALESCE(price, 0) AS base_price'), 'POS service fields API maps services.price to base_price');
+$assert(!preg_match('/COALESCE\(base_price/', $apiSource), 'POS API does not reference non-existent services.base_price column');
 $assert(str_contains($apiSource, "'base_price'"), 'POS service fields API returns base_price in JSON');
 
 $posSource = (string)file_get_contents(__DIR__ . '/../staff/pos.php');
