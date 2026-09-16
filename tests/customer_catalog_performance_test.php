@@ -35,7 +35,12 @@ $assert(str_contains($services, 'service_ids_with_field_config'), 'services list
 $assert(str_contains($products, "define('PF_CUSTOMER_CATALOG_NAV', true)"), 'products page opts into catalog navigation cache policy');
 $assert(str_contains($products, 'pf_catalog_image_tag'), 'products cards use optimized responsive images');
 $assert(str_contains($auth, 'PF_CUSTOMER_CATALOG_NAV'), 'auth uses softer cache headers on catalog pages');
-$assert(str_contains($catalogPerf, 'printflow_get_service_review_stats'), 'catalog stats match service detail review definition');
+$assert(str_contains($catalogPerf, 'printflow_catalog_service_card_stats_map'), 'catalog service stats are batched');
+$assert(str_contains($catalogPerf, 'printflow_catalog_product_card_stats_map'), 'catalog product stats are batched');
+$assert(str_contains($products, 'printflow_catalog_product_card_stats_map'), 'products listing uses batched card stats helper');
+$assert(!str_contains($products, 'as avg_rating'), 'products listing no longer uses correlated avg_rating subquery');
+$assert(!str_contains($services, 'printflow_get_service_review_stats'), 'services listing no longer calls per-card review stats');
+$assert(!str_contains($services, 'printflow_service_units_sold'), 'services listing no longer calls per-card sold stats');
 $assert(str_contains($orderReview, 'review-order-entry--service .review-total-value'), 'order review allows full To Be Discussed text');
 $assert(str_contains($catalogNavJs, 'pf-catalog-nav-page'), 'catalog nav script only runs on catalog pages');
 $assert(str_contains($products, 'pf_normalize_service_image_path'), 'products use normalized image paths');
