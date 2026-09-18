@@ -3455,6 +3455,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     });
                 });
                 bindServiceValidationClearers(body);
+                if (typeof initPfDesignUploadGroups === 'function') initPfDesignUploadGroups(body);
                 initPosEstimatedPrice(body, parseFloat(data.base_price) || 0);
             } catch (e) {
                 body.innerHTML = '<p style="color:#ef4444;text-align:center;padding:1rem;">Network error. Please try again.</p>';

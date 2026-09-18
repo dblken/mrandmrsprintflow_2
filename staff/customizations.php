@@ -2271,10 +2271,11 @@ $online_closed_count = 0;
                                         <div style="margin-top:12px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
                                             <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;" x-text="staffDesignSectionLabel(item)"></div>
                                             <template x-if="staffItemHasUploadedDesignFile(item)">
-                                                <div style="margin-bottom:10px;">
-                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded File</div>
+                                                <div style="margin-bottom:12px;">
+                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">📁 Uploaded File</div>
+                                                    <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-word; overflow-wrap:anywhere; margin-bottom:8px;" x-text="staffDesignDisplayFilename(item)"></div>
                                             <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
-                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%;">
+                                                <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%; margin-bottom:8px;">
                                                     <img :src="staffEffectiveDesignOpenUrl(item)"
                                                          @click="previewFile = staffEffectiveDesignOpenUrl(item)"
                                                          loading="lazy"
@@ -2283,58 +2284,46 @@ $online_closed_count = 0;
                                                          height="160"
                                                          style="width:min(100%, 220px); max-height:220px; object-fit:contain; border-radius:10px; border:1px solid #e2e8f0; cursor:zoom-in; box-shadow:0 4px 6px -1px rgba(0,0,0,0.08); background:#f8fafc;"
                                                          onerror="this.style.display='none';">
-                                                    <a :href="staffEffectiveDesignOpenUrl(item)"
-                                                       target="_blank"
-                                                       rel="noopener noreferrer"
-                                                       style="font-size:12px; font-weight:500; color:#334155; word-break:break-word; overflow-wrap:anywhere; text-decoration:none;">
-                                                        <span x-text="staffDesignDisplayFilename(item)"></span>
-                                                    </a>
                                                 </div>
                                             </template>
-                                            <template x-if="staffEffectiveDesignOpenUrl(item) && !staffDesignShowsAsImage(item)">
-                                                <a :href="staffEffectiveDesignOpenUrl(item)"
-                                                   target="_blank"
-                                                   rel="noopener noreferrer"
-                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                    <template x-if="staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                                            <polyline points="14 2 14 8 20 8"></polyline>
-                                                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                                                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                                                            <polyline points="10 9 9 9 8 9"></polyline>
-                                                        </svg>
-                                                    </template>
-                                                    <template x-if="!staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
-                                                        <span style="font-size:14px;">FILE</span>
-                                                    </template>
-                                                    <span x-text="staffDesignDisplayFilename(item)"></span>
-                                                    <template x-if="staffFilenameLooksLikePdf(staffDesignDisplayFilename(item))">
-                                                        <span style="font-size:10px;color:#6b7280;">(PDF)</span>
-                                                    </template>
-                                                </a>
-                                            </template>
-                                            <template x-if="!staffEffectiveDesignOpenUrl(item) && staffItemHasStoredDesign(item)">
-                                                <a :href="staffOrderItemDesignServeUrl(item)"
-                                                   target="_blank"
-                                                   rel="noopener noreferrer"
-                                                   style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#334155; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none;">
-                                                    <span style="font-size:14px;">FILE</span>
-                                                    <span x-text="staffDesignDisplayFilename(item)"></span>
-                                                </a>
-                                            </template>
+                                                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                                        <button type="button"
+                                                                @click="previewFile = staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                                style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; cursor:pointer;">
+                                                            View
+                                                        </button>
+                                                        <a :href="staffEffectiveDesignOpenUrl(item) || staffOrderItemDesignServeUrl(item)"
+                                                           target="_blank"
+                                                           rel="noopener noreferrer"
+                                                           download
+                                                           style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; text-decoration:none;">
+                                                            Download
+                                                        </a>
+                                                    </div>
                                                 </div>
                                             </template>
                                             <template x-if="staffGetDesignExternalLink(item)">
                                                 <div>
-                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Link</div>
-                                                    <a :href="sanitizeStaffLink(staffGetDesignExternalLink(item))"
-                                                       target="_blank"
-                                                       rel="noopener noreferrer"
-                                                       style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #dbeafe; border-radius:10px; background:#eff6ff; color:#1d4ed8; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none; word-break:break-word;">
-                                                        Open Design Link
-                                                    </a>
-                                                    <div style="margin-top:6px; font-size:11px; color:#64748b; word-break:break-word; overflow-wrap:anywhere;" x-text="staffGetDesignExternalLink(item)"></div>
+                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">🔗 Design Link</div>
+                                                    <input type="text"
+                                                           readonly
+                                                           :value="staffGetDesignExternalLink(item)"
+                                                           @focus="$event.target.select()"
+                                                           @click="$event.target.select()"
+                                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; font-size:12px; color:#334155; word-break:break-all; overflow-wrap:anywhere; user-select:text; cursor:text;">
+                                                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                                                        <button type="button"
+                                                                @click="staffCopyDesignLink(staffGetDesignExternalLink(item), $event)"
+                                                                style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; font-size:12px; font-weight:600; color:#334155; cursor:pointer;">
+                                                            Copy Link
+                                                        </button>
+                                                        <a :href="sanitizeStaffLink(staffGetDesignExternalLink(item))"
+                                                           target="_blank"
+                                                           rel="noopener noreferrer"
+                                                           style="padding:8px 12px; border:1px solid #dbeafe; border-radius:8px; background:#eff6ff; font-size:12px; font-weight:600; color:#1d4ed8; text-decoration:none;">
+                                                            Open Link
+                                                        </a>
+                                                    </div>
                                                 </div>
                                             </template>
                                             <template x-if="!staffItemHasUploadedDesignFile(item) && !staffGetDesignExternalLink(item)">
@@ -5229,6 +5218,45 @@ window.pfServiceFieldCatalog = (() => {
                 if (/^https?:\/\//i.test(s)) return s;
                 if (s.startsWith('/')) return s;
                 return '#';
+            },
+            async staffCopyDesignLink(url, event) {
+                const text = String(url || '').trim();
+                if (!text || !/^https?:\/\//i.test(text)) return false;
+                const btn = event && event.currentTarget ? event.currentTarget : null;
+                let copied = false;
+                try {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(text);
+                        copied = true;
+                    }
+                } catch (err) {
+                    copied = false;
+                }
+                if (!copied) {
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '-9999px';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        copied = document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    } catch (fallbackErr) {
+                        copied = false;
+                    }
+                }
+                if (btn && copied) {
+                    if (!btn.dataset.defaultLabel) {
+                        btn.dataset.defaultLabel = btn.textContent.trim() || 'Copy Link';
+                    }
+                    btn.textContent = '✓ Copied';
+                    setTimeout(() => {
+                        btn.textContent = btn.dataset.defaultLabel || 'Copy Link';
+                    }, 2000);
+                }
+                return copied;
             },
             staffResolveMediaUrl(raw) {
                 if (raw == null || raw === '') return '';

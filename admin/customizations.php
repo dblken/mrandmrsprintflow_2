@@ -811,6 +811,12 @@ function custom_payment_badge($status) {
 
                 getItemDesignExternalLink(item) {
                     const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    const candidates = ['design_link', 'design_file_link', 'Upload Design Link', 'Design Link'];
+                    for (const candidate of candidates) {
+                        if (!Object.prototype.hasOwnProperty.call(custom, candidate)) continue;
+                        const text = String(custom[candidate] || '').trim();
+                        if (/^https?:\/\//i.test(text)) return text;
+                    }
                     for (const [key, value] of Object.entries(custom)) {
                         if (typeof key !== 'string' || value == null) continue;
                         const text = String(value).trim();
@@ -820,9 +826,66 @@ function custom_payment_badge($status) {
                     return '';
                 },
 
+                getItemDesignFileUrl(item) {
+                    return String(item?.design_open_url || item?.design_url || item?.design_file || '').trim();
+                },
+
+                getItemDesignFilename(item) {
+                    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    return String(item?.design_name || item?.design_image_name || custom.design_upload_name || custom['Upload Design'] || 'Uploaded design').trim();
+                },
+
+                itemHasUploadedDesignFile(item) {
+                    return !!this.getItemDesignFileUrl(item) || !!(item?.has_design || item?.design_exists);
+                },
+
+                itemHasDesignDetails(item) {
+                    return this.itemHasUploadedDesignFile(item) || !!this.getItemDesignExternalLink(item);
+                },
+
                 sanitizeExternalLink(url) {
                     const s = String(url || '').trim();
                     return /^https?:\/\//i.test(s) ? s : '#';
+                },
+
+                async copyDesignLink(url, event) {
+                    const text = String(url || '').trim();
+                    if (!text || !/^https?:\/\//i.test(text)) return false;
+                    const btn = event && event.currentTarget ? event.currentTarget : null;
+                    let copied = false;
+                    try {
+                        if (navigator.clipboard && window.isSecureContext) {
+                            await navigator.clipboard.writeText(text);
+                            copied = true;
+                        }
+                    } catch (err) {
+                        copied = false;
+                    }
+                    if (!copied) {
+                        try {
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.setAttribute('readonly', '');
+                            ta.style.position = 'fixed';
+                            ta.style.top = '-9999px';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            copied = document.execCommand('copy');
+                            document.body.removeChild(ta);
+                        } catch (fallbackErr) {
+                            copied = false;
+                        }
+                    }
+                    if (btn && copied) {
+                        if (!btn.dataset.defaultLabel) {
+                            btn.dataset.defaultLabel = btn.textContent.trim() || 'Copy Link';
+                        }
+                        btn.textContent = '✓ Copied';
+                        setTimeout(() => {
+                            btn.textContent = btn.dataset.defaultLabel || 'Copy Link';
+                        }, 2000);
+                    }
+                    return copied;
                 }
             };
         }
@@ -1320,10 +1383,10 @@ function custom_payment_badge($status) {
                         <div style="background:#f9fafb;border-radius:8px;padding:12px 14px;font-size:13px;color:#374151;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;" x-text="job?.notes"></div>
                     </div>
                     <!-- Design Files & Payment Proof -->
-                    <div x-show="(job?.artwork_path || job?.payment_proof_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url)))" style="margin-top:18px;">
+                    <div x-show="(job?.artwork_path || job?.payment_proof_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="margin-top:18px;">
                         <div style="display:flex;gap:24px;flex-wrap:wrap;">
                             <!-- Design Files -->
-                            <div x-show="(job?.artwork_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url)))" style="flex:1;min-width:200px;">
+                            <div x-show="(job?.artwork_path || (job?.items && job.items.length > 0 && job.items.some(i => i.design_url || i.reference_url || itemHasDesignDetails(i))))" style="flex:1;min-width:200px;">
                                 <p style="font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;margin-bottom:8px;">Design Files</p>
                                 <div style="display:flex;gap:12px;flex-wrap:wrap;">
                                     <template x-if="job?.artwork_path">
@@ -1333,29 +1396,41 @@ function custom_payment_badge($status) {
                                         </div>
                                     </template>
                                     <template x-if="job?.items && job.items.length > 0">
-                                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                                        <div style="display:flex;flex-direction:column;gap:12px;width:100%;">
                                             <template x-for="(item, idx) in job.items" :key="idx">
-                                                <div>
-                                                    <template x-if="item.design_url">
-                                                        <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:8px;" @click="viewImage(item.design_url)">
-                                                            <img :src="item.design_url" style="width:100%;height:100%;object-fit:cover;" alt="Design">
-                                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:10px;padding:4px;text-align:center;">Design</div>
+                                                <div x-show="itemHasDesignDetails(item) || item.reference_url" style="border:1px solid #e5e7eb;border-radius:10px;padding:12px;background:#fff;max-width:100%;box-sizing:border-box;">
+                                                    <div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Upload Design</div>
+                                                    <template x-if="itemHasUploadedDesignFile(item)">
+                                                        <div style="margin-bottom:10px;">
+                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">📁 Uploaded File</div>
+                                                            <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-word;overflow-wrap:anywhere;margin-bottom:8px;" x-text="getItemDesignFilename(item)"></div>
+                                                            <template x-if="getItemDesignFileUrl(item)">
+                                                                <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:8px;" @click="viewImage(getItemDesignFileUrl(item))">
+                                                                    <img :src="getItemDesignFileUrl(item)" style="width:100%;height:100%;object-fit:cover;" alt="Design">
+                                                                </div>
+                                                            </template>
+                                                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                                                <button type="button" @click="viewImage(getItemDesignFileUrl(item))" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">View</button>
+                                                                <a :href="getItemDesignFileUrl(item)" target="_blank" rel="noopener noreferrer" download style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;text-decoration:none;">Download</a>
+                                                            </div>
                                                         </div>
                                                     </template>
                                                     <template x-if="getItemDesignExternalLink(item)">
-                                                        <div style="margin-bottom:8px;max-width:100%;">
-                                                            <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))"
-                                                               target="_blank"
-                                                               rel="noopener noreferrer"
-                                                               style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:600;text-decoration:none;word-break:break-word;">
-                                                                Open Design Link
-                                                            </a>
+                                                        <div style="margin-bottom:10px;">
+                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">🔗 Design Link</div>
+                                                            <input type="text" readonly :value="getItemDesignExternalLink(item)" @focus="$event.target.select()" @click="$event.target.select()" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:12px;color:#334155;word-break:break-all;overflow-wrap:anywhere;user-select:text;cursor:text;">
+                                                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                                                                <button type="button" @click="copyDesignLink(getItemDesignExternalLink(item), $event)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Copy Link</button>
+                                                                <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">Open Link</a>
+                                                            </div>
                                                         </div>
                                                     </template>
                                                     <template x-if="item.reference_url">
-                                                        <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(item.reference_url)">
-                                                            <img :src="item.reference_url" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
-                                                            <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:10px;padding:4px;text-align:center;">Reference</div>
+                                                        <div>
+                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">Reference</div>
+                                                            <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;" @click="viewImage(item.reference_url)">
+                                                                <img :src="item.reference_url" style="width:100%;height:100%;object-fit:cover;" alt="Reference">
+                                                            </div>
                                                         </div>
                                                     </template>
                                                 </div>
