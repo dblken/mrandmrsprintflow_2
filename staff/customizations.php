@@ -439,10 +439,20 @@ $online_closed_count = 0;
             font-weight: 700;
         }
 
+        .pf-order-code-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+            max-width: 100%;
+        }
+
         .pf-urgent-request-badge {
             display: inline-flex;
             align-items: center;
-            margin-top: 4px;
+            align-self: flex-start;
+            max-width: 100%;
             padding: 2px 8px;
             border-radius: 9999px;
             background: #fee2e2;
@@ -450,30 +460,17 @@ $online_closed_count = 0;
             font-size: 10px;
             font-weight: 800;
             letter-spacing: .04em;
+            line-height: 1.3;
             text-transform: uppercase;
+            white-space: nowrap;
         }
 
-        .pf-urgent-request-banner {
-            margin-bottom: 20px;
-            padding: 14px 16px;
-            border-radius: 12px;
-            border: 1px solid #fecaca;
-            background: #fef2f2;
-        }
-
-        .pf-urgent-request-banner__title {
-            font-size: 13px;
-            font-weight: 800;
-            color: #b91c1c;
-            text-transform: uppercase;
-            letter-spacing: .04em;
-        }
-
-        .pf-urgent-request-banner__line {
-            margin-top: 8px;
-            font-size: 13px;
-            color: #7f1d1d;
-            word-break: break-word;
+        .customization-mobile-card__order-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
         }
 
         .source-badge-pill {
@@ -2006,8 +2003,10 @@ $online_closed_count = 0;
                                 <tr @click="viewDetails(jo.id, jo.order_type || 'JOB')" class="group transition-all relative cursor-pointer customization-row">
                                     <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
                                         <div class="row-indicator"></div>
-                                        <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
-                                        <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">🔴 Urgent Request</span>
+                                        <div class="pf-order-code-stack">
+                                            <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
+                                            <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                        </div>
                                     </td>
                                     <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                         <div class="flex items-center gap-3">
@@ -2079,12 +2078,14 @@ $online_closed_count = 0;
                         >
                             <div class="customization-mobile-card__section customization-mobile-card__section--order">
                                 <span class="customization-mobile-card__label">Order</span>
-                                <span
-                                    class="customization-mobile-card__order"
-                                    :title="getDisplayOrderCode(jo)"
-                                    x-text="getDisplayOrderCode(jo)"
-                                ></span>
-                                <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">🔴 Urgent Request</span>
+                                <div class="customization-mobile-card__order-wrap">
+                                    <span
+                                        class="customization-mobile-card__order"
+                                        :title="getDisplayOrderCode(jo)"
+                                        x-text="getDisplayOrderCode(jo)"
+                                    ></span>
+                                    <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                </div>
                             </div>
 
                             <div class="customization-mobile-card__section">
@@ -2273,20 +2274,6 @@ $online_closed_count = 0;
 
                 <!-- Modal Body -->
                 <div style="padding:24px;">
-
-                    <div x-show="orderIsUrgentRequest(currentJo)" x-cloak class="pf-urgent-request-banner">
-                        <div class="pf-urgent-request-banner__title">🔴 Urgent Order Request</div>
-                        <div class="pf-urgent-request-banner__line" x-show="getPriorityRequestLabel(currentJo) && getPriorityRequestValue(currentJo)">
-                            <strong x-text="getPriorityRequestLabel(currentJo) + ':'"></strong>
-                            <span x-text="getPriorityRequestValue(currentJo)"></span>
-                        </div>
-                        <template x-for="(relatedValue, relatedLabel) in getPriorityRelatedFields(currentJo)" :key="relatedLabel">
-                            <div class="pf-urgent-request-banner__line">
-                                <strong x-text="relatedLabel + ':'"></strong>
-                                <span x-text="relatedValue"></span>
-                            </div>
-                        </template>
-                    </div>
 
                     <!-- Customer Row -->
                     <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #f3f4f6;">
@@ -4382,14 +4369,46 @@ window.pfServiceFieldCatalog = (() => {
             staffCustomizationKeyToken(key) {
                 return String(key || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
             },
+            staffCustomizationIsInternalKey(key) {
+                const raw = String(key || '').trim();
+                if (!raw) return true;
+                if (raw.charAt(0) === '_') return true;
+                const token = this.staffCustomizationKeyToken(raw);
+                return [
+                    'staff_priority_request',
+                    'priority_request',
+                    'priority_request_label',
+                    'priority_request_value',
+                    'priority_request_related',
+                    'is_urgent_request',
+                    'is_regular_priority',
+                    'has_priority_field',
+                ].includes(token);
+            },
+            staffCustomizationIsInternalValue(value) {
+                if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+                if (Object.prototype.hasOwnProperty.call(value, 'is_urgent_request')
+                    && Object.prototype.hasOwnProperty.call(value, 'has_priority_field')) {
+                    return true;
+                }
+                if (Object.prototype.hasOwnProperty.call(value, 'field_label')
+                    && Object.prototype.hasOwnProperty.call(value, 'selected_value')) {
+                    return true;
+                }
+                return false;
+            },
             staffCustomizationValueText(value) {
                 if (value === true) return 'Yes';
                 if (value === false) return 'No';
+                if (this.staffCustomizationIsInternalValue(value)) return '';
                 if (Array.isArray(value)) {
                     return value
                         .filter((entry) => entry !== null && entry !== undefined && String(entry).trim() !== '')
                         .map((entry) => String(entry).trim())
                         .join(', ');
+                }
+                if (value !== null && typeof value === 'object') {
+                    return '';
                 }
                 return value === null || value === undefined ? '' : String(value).trim();
             },
@@ -4422,7 +4441,11 @@ window.pfServiceFieldCatalog = (() => {
                     || (/^(data|blob):/i.test(text) && text.includes('base64'));
             },
             staffCustomizationFieldMeta(key) {
-                const token = this.staffCustomizationKeyToken(key);
+                const rawKey = String(key || '').trim();
+                const token = this.staffCustomizationKeyToken(rawKey);
+                if (this.staffCustomizationIsInternalKey(rawKey)) {
+                    return { group: token, label: '', priority: 999, hidden: true, design: false };
+                }
                 const hiddenExact = new Set([
                     'branch', 'branch_id', 'branch_name', 'branchname', 'pickup_branch', 'pickupbranch',
                     'service_id', 'customization_id', 'order_id', 'order_item_id', 'product_id', 'config_id',
@@ -4434,12 +4457,13 @@ window.pfServiceFieldCatalog = (() => {
                     'design_upload_data', 'reference_upload_data', 'design_tmp_path', 'reference_tmp_path',
                     'designtype', 'template'
                 ]);
-                const looksInternal = token.endsWith('_id')
+                const looksInternal = rawKey.charAt(0) === '_'
+                    || token.endsWith('_id')
                     || token.includes('_mime')
                     || token.includes('_blob')
                     || token.includes('_tmp_path')
                     || token.endsWith('_path');
-                if (!token || token[0] === '_' || looksInternal || hiddenExact.has(token)) {
+                if (!token || looksInternal || hiddenExact.has(token)) {
                     return { group: token, label: '', priority: 999, hidden: true, design: false };
                 }
                 if (
@@ -5185,6 +5209,8 @@ window.pfServiceFieldCatalog = (() => {
                     : this.staffFilterSpecsByServiceForm(normalized, item);
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
+                    if (this.staffCustomizationIsInternalKey(k)) return false;
+                    if (this.staffCustomizationIsInternalValue(v)) return false;
                     if (v === '' || v == null) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
                     if (isDetail && item) {
@@ -5306,7 +5332,8 @@ window.pfServiceFieldCatalog = (() => {
             },
             formatCustomValuePlain(v) {
                 if (v == null) return '';
-                if (typeof v === 'object') return JSON.stringify(v);
+                if (this.staffCustomizationIsInternalValue(v)) return '';
+                if (typeof v === 'object') return '';
                 return String(v);
             },
             isDisplayableLink(v) {

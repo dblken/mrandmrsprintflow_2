@@ -383,6 +383,63 @@ if (!function_exists('printflow_order_has_urgent_request')) {
     }
 }
 
+if (!function_exists('printflow_is_internal_customization_key')) {
+    /**
+     * Keys that must never appear in customer/staff specification UIs.
+     */
+    function printflow_is_internal_customization_key(string $key): bool
+    {
+        $key = trim($key);
+        if ($key === '') {
+            return true;
+        }
+
+        if ($key[0] === '_') {
+            return true;
+        }
+
+        $token = strtolower(preg_replace('/[^a-z0-9]+/', '_', $key));
+        $token = trim($token, '_');
+
+        static $hiddenTokens = [
+            'staff_priority_request',
+            'priority_request',
+            'priority_request_label',
+            'priority_request_value',
+            'priority_request_related',
+            'is_urgent_request',
+            'is_regular_priority',
+            'has_priority_field',
+        ];
+
+        return in_array($token, $hiddenTokens, true);
+    }
+}
+
+if (!function_exists('printflow_is_internal_customization_value')) {
+    /**
+     * Structured values that should not be rendered directly in spec tiles.
+     *
+     * @param mixed $value
+     */
+    function printflow_is_internal_customization_value($value): bool
+    {
+        if (!is_array($value)) {
+            return false;
+        }
+
+        if (array_key_exists('is_urgent_request', $value) && array_key_exists('has_priority_field', $value)) {
+            return true;
+        }
+
+        if (array_key_exists('field_label', $value) && array_key_exists('selected_value', $value)) {
+            return true;
+        }
+
+        return false;
+    }
+}
+
 if (!function_exists('printflow_order_priority_needed_date_label')) {
     function printflow_order_priority_needed_date_label(int $orderId): string
     {

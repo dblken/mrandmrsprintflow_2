@@ -7,6 +7,11 @@
 if (!function_exists('pf_order_ui_value_to_text')) {
     function pf_order_ui_value_to_text($value): string {
         if (is_array($value)) {
+            if (function_exists('printflow_is_internal_customization_value')
+                && printflow_is_internal_customization_value($value)) {
+                return '';
+            }
+
             $parts = [];
             $is_list = array_keys($value) === range(0, count($value) - 1);
 
@@ -417,6 +422,13 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             return true;
         }
 
+        if (!function_exists('printflow_is_internal_customization_key')) {
+            require_once __DIR__ . '/service_field_priority_helper.php';
+        }
+        if (printflow_is_internal_customization_key($key)) {
+            return true;
+        }
+
         static $skipExact = [
             'design_upload', 'reference_upload', 'notes', 'order_notes', 'job_notes',
             'special_instructions', 'additional_notes', 'other_instructions',
@@ -496,6 +508,9 @@ if (!function_exists('pf_order_ui_normalize_review_customization')) {
         $needed_written = false;
         foreach ($custom as $ck => $cv) {
             if ($cv === '' || $cv === null) {
+                continue;
+            }
+            if (function_exists('printflow_is_internal_customization_value') && printflow_is_internal_customization_value($cv)) {
                 continue;
             }
             if (pf_order_ui_should_skip_spec_key((string)$ck)) {

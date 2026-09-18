@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/../includes/service_field_priority_helper.php';
+require_once __DIR__ . '/../includes/order_ui_helper.php';
 
 $assertions = 0;
 $failures = 0;
@@ -85,6 +86,14 @@ $row = [];
 printflow_apply_priority_request_to_row($row, $urgentPriority);
 $assert(!empty($row['is_urgent_request']), 'row enrichment exposes urgent flag');
 $assert(($row['priority_request_label'] ?? '') === 'Order Priority', 'row enrichment exposes field label');
+
+$assert(printflow_is_internal_customization_key('_staff_priority_request'), 'internal snapshot key is hidden from UI');
+$assert(printflow_is_internal_customization_key('priority_request_label'), 'internal API keys are hidden from UI');
+$assert(!printflow_is_internal_customization_key('Order Priority'), 'configured field labels remain visible');
+
+$normalized = pf_order_ui_normalize_review_customization($urgentCustom, [], true);
+$assert(!array_key_exists('_staff_priority_request', $normalized), 'review normalization removes internal snapshot key');
+$assert(($normalized['Order Priority'] ?? '') === 'Urgent Order', 'review normalization keeps configured field value');
 
 echo "Priority helper smoke test: {$assertions} assertions, {$failures} failures\n";
 exit($failures > 0 ? 1 : 0);
