@@ -3007,6 +3007,7 @@ function openItemsModal(orderId, event, options = {}) {
                 const entries = Object.entries(item.customization).filter(([k, v]) => {
                     if (v === null || v === undefined || v === '') return false;
                     const nk = String(k).toLowerCase().replace(/\s+/g, '_');
+                    if (imIsDesignLinkKey(k)) return false;
                     if ((v === 'No' || v === 'None') && nk !== 'custom_print') return false;
                     if ([
                         'design_upload',
@@ -3017,6 +3018,10 @@ function openItemsModal(orderId, event, options = {}) {
                         'design_upload_path',
                         'design_upload_mime',
                         'design_file',
+                        'design_external_link',
+                        'design_link',
+                        'design_file_link',
+                        'upload_design_link',
                         'job_notes',
                         'reference_upload'
                     ].includes(nk) || String(k).startsWith('_')) return false;
@@ -3055,6 +3060,7 @@ function openItemsModal(orderId, event, options = {}) {
             }
 
             const design = item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
+            const designLink = imRenderDesignLinkBlock(item);
             const reference = item.has_reference ? `<a class="im-asset-trigger" href="${item.reference_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.reference_url}" class="im-thumb hover:scale-105 transition-transform" alt="Reference"></span></a>` : '';
             const descLabel = data.is_service_order ? 'Service Description' : 'Item Description';
 
@@ -3064,10 +3070,10 @@ function openItemsModal(orderId, event, options = {}) {
                     ${specs}
                     ${longFormHtml}
                     
-                    ${design || reference ? `
+                    ${design || designLink || reference ? `
                         <div style="margin-top: 1rem;">
-                            <div class="im-meta-title">Uploaded Assets</div>
-                            <div style="display: flex; gap: 0.75rem;">${design}${reference}</div>
+                            <div class="im-meta-title">Design / Image</div>
+                            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-start;">${design}${designLink}${reference ? `<div><div class="im-meta-title" style="font-size:0.72rem;margin-bottom:0.35rem;">Reference</div>${reference}</div>` : ''}</div>
                         </div>
                     ` : ''}
                 </td>
@@ -3428,6 +3434,103 @@ function escIM(str) {
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function imIsDesignLinkKey(key) {
+    const k = String(key || '').trim();
+    if (!k) return false;
+    if (/\slink$/i.test(k)) return true;
+    const token = k.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    return ['design_link', 'design_file_link', 'upload_design_link', 'design_external_link'].includes(token)
+        || (token.endsWith('_link') && (token.includes('design') || token.includes('upload')));
+}
+
+function imDesignLinkPlatform(url) {
+    try {
+        const host = new URL(String(url || '')).hostname.toLowerCase();
+        if (host.includes('canva.com')) return 'Canva Design';
+        if (host.includes('drive.google.com') || host.includes('docs.google.com')) return 'Google Drive';
+        if (host.includes('dropbox.com')) return 'Dropbox';
+        if (host.includes('onedrive.live.com') || host.includes('1drv.ms')) return 'OneDrive';
+        if (host.includes('photos.google.com')) return 'Google Photos';
+    } catch (e) {}
+    return 'Design Link';
+}
+
+function imIsDirectImageUrl(url) {
+    const text = String(url || '').trim();
+    if (!/^https?:\/\//i.test(text)) return false;
+    try {
+        const parsed = new URL(text);
+        const host = parsed.hostname.toLowerCase();
+        if (/canva\.com|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/.test(host)) {
+            return false;
+        }
+        return /\.(?:jpe?g|png|gif|webp|svg|bmp|avif)(?:$|[?#])/i.test(parsed.pathname);
+    } catch (e) {
+        return false;
+    }
+}
+
+async function imCopyExternalLink(url, btn) {
+    const text = String(url || '').trim();
+    if (!text || !/^https?:\/\//i.test(text)) return false;
+    let copied = false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+        }
+    } catch (e) {
+        copied = false;
+    }
+    if (!copied) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand('copy');
+            document.body.removeChild(ta);
+        } catch (fallbackErr) {
+            copied = false;
+        }
+    }
+    if (btn && copied) {
+        if (!btn.dataset.defaultLabel) {
+            btn.dataset.defaultLabel = (btn.textContent || 'Copy Link').trim() || 'Copy Link';
+        }
+        btn.textContent = '✓ Link copied';
+        setTimeout(function() {
+            btn.textContent = btn.dataset.defaultLabel || 'Copy Link';
+        }, 2000);
+    }
+    return copied;
+}
+
+function imRenderDesignLinkBlock(item) {
+    const url = String(item.design_external_link || '').trim();
+    if (!url || !/^https?:\/\//i.test(url)) return '';
+    const platform = item.design_link_platform || imDesignLinkPlatform(url);
+    const isDirect = item.design_link_is_direct_image || imIsDirectImageUrl(url);
+    const safeUrl = escIM(url);
+    const preview = isDirect
+        ? `<img src="${safeUrl}" class="im-thumb hover:scale-105 transition-transform" alt="Design link preview" style="max-width:160px;max-height:120px;object-fit:contain;border-radius:8px;border:1px solid #dbeafe;background:#fff;">`
+        : `<div style="font-size:0.85rem;font-weight:700;color:#0f172a;margin-bottom:6px;">${escIM(platform)}</div>`;
+    return `
+        <div class="im-design-link-card" style="min-width:220px;max-width:100%;padding:0.75rem;border:1px solid #dbeafe;border-radius:10px;background:#f8fafc;">
+            <div class="im-meta-title" style="margin-bottom:0.35rem;">Design / Image Link</div>
+            <div style="font-size:0.72rem;font-weight:700;color:#0369a1;text-transform:uppercase;margin-bottom:0.5rem;">Source: Design Link</div>
+            ${preview}
+            <input type="text" readonly value="${safeUrl}" onclick="this.select();" style="width:100%;box-sizing:border-box;margin-top:0.5rem;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;font-size:12px;word-break:break-all;overflow-wrap:anywhere;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <button type="button" class="im-copy-link-btn" data-link="${safeUrl}" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer;">Copy Link</button>
+                <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:8px;background:#fff;color:#0369a1;font-size:12px;font-weight:700;text-decoration:none;">Open Link</a>
+            </div>
+        </div>`;
+}
+
 function formatRevisionRequestedAt(value) {
     const date = new Date(String(value || '').replace(' ', 'T'));
     return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString();
@@ -3437,6 +3540,14 @@ document.addEventListener('click', function (event) {
     const link = event.target.closest('a[data-revision-action="1"]');
     if (!link) return;
     event.stopPropagation();
+});
+
+document.addEventListener('click', function (event) {
+    const btn = event.target.closest('.im-copy-link-btn');
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    imCopyExternalLink(btn.getAttribute('data-link') || '', btn);
 });
 
 function renderOrderSuccessBanner(message) {

@@ -517,6 +517,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     }
                     if ($design_link_url !== null && $design_link_url !== '') {
                         $customization[service_order_design_link_storage_key($field_label)] = $design_link_url;
+                        $customization['design_external_link'] = $design_link_url;
                     }
                     continue;
                 }

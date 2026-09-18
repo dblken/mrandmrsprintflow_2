@@ -91,6 +91,177 @@ if (!function_exists('pf_order_ui_resolve_special_instructions_text')) {
     }
 }
 
+if (!function_exists('pf_order_ui_is_design_external_link_key')) {
+    function pf_order_ui_is_design_external_link_key(string $key): bool
+    {
+        $key = trim($key);
+        if ($key === '') {
+            return false;
+        }
+        if (preg_match('/\slink$/i', $key)) {
+            return true;
+        }
+        $token = strtolower(preg_replace('/[^a-z0-9]+/', '_', $key));
+        if (in_array($token, ['design_link', 'design_file_link', 'upload_design_link', 'design_external_link'], true)) {
+            return true;
+        }
+        return str_ends_with($token, '_link')
+            && (str_contains($token, 'design') || str_contains($token, 'upload'));
+    }
+}
+
+if (!function_exists('pf_order_ui_is_safe_external_url')) {
+    function pf_order_ui_is_safe_external_url($value): bool
+    {
+        if (!is_scalar($value)) {
+            return false;
+        }
+        $url = trim((string)$value);
+        if ($url === '' || !preg_match('/^https?:\/\//i', $url)) {
+            return false;
+        }
+        if (preg_match('/^\s*(javascript|data|file|vbscript):/i', $url)) {
+            return false;
+        }
+        return filter_var($url, FILTER_VALIDATE_URL) !== false;
+    }
+}
+
+if (!function_exists('pf_order_ui_design_link_platform_label')) {
+    function pf_order_ui_design_link_platform_label(string $url): string
+    {
+        $host = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
+        if ($host === '') {
+            return 'Design Link';
+        }
+        if (str_contains($host, 'canva.com')) {
+            return 'Canva Design';
+        }
+        if (str_contains($host, 'drive.google.com') || str_contains($host, 'docs.google.com')) {
+            return 'Google Drive';
+        }
+        if (str_contains($host, 'dropbox.com')) {
+            return 'Dropbox';
+        }
+        if (str_contains($host, 'onedrive.live.com') || str_contains($host, '1drv.ms')) {
+            return 'OneDrive';
+        }
+        if (str_contains($host, 'photos.google.com')) {
+            return 'Google Photos';
+        }
+        return 'Design Link';
+    }
+}
+
+if (!function_exists('pf_order_ui_is_direct_renderable_image_url')) {
+    function pf_order_ui_is_direct_renderable_image_url(string $url): bool
+    {
+        if (!pf_order_ui_is_safe_external_url($url)) {
+            return false;
+        }
+        $host = strtolower((string)(parse_url($url, PHP_URL_HOST) ?? ''));
+        if (preg_match('/(?:^|\.)canva\.com$|drive\.google\.com|docs\.google\.com|dropbox\.com|onedrive\.live\.com|1drv\.ms|photos\.google\.com/', $host)) {
+            return false;
+        }
+        $path = strtolower((string)(parse_url($url, PHP_URL_PATH) ?? ''));
+        return (bool)preg_match('/\.(?:jpe?g|png|gif|webp|svg|bmp|avif)(?:$|[?#])/i', $path);
+    }
+}
+
+if (!function_exists('pf_order_ui_extract_design_external_link')) {
+    /**
+     * @return array{url:string,label:string,platform:string}
+     */
+    function pf_order_ui_extract_design_external_link(array $custom): array
+    {
+        $empty = ['url' => '', 'label' => 'Design Link', 'platform' => 'Design Link'];
+        if ($custom === []) {
+            return $empty;
+        }
+
+        if (function_exists('service_order_extract_design_link_from_customization')) {
+            $url = service_order_extract_design_link_from_customization($custom);
+            if ($url !== '') {
+                return [
+                    'url' => $url,
+                    'label' => 'Design Link',
+                    'platform' => pf_order_ui_design_link_platform_label($url),
+                ];
+            }
+        }
+
+        foreach ($custom as $key => $value) {
+            if (!is_string($key) || !pf_order_ui_is_design_external_link_key($key)) {
+                continue;
+            }
+            if (!pf_order_ui_is_safe_external_url($value)) {
+                continue;
+            }
+            $url = trim((string)$value);
+            return [
+                'url' => $url,
+                'label' => 'Design Link',
+                'platform' => pf_order_ui_design_link_platform_label($url),
+            ];
+        }
+
+        return $empty;
+    }
+}
+
+if (!function_exists('pf_order_ui_print_copy_link_script_once')) {
+    function pf_order_ui_print_copy_link_script_once(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        echo <<<'HTML'
+<script>
+window.pfCopyExternalLink = window.pfCopyExternalLink || async function(url, btn) {
+    const text = String(url || '').trim();
+    if (!text || !/^https?:\/\//i.test(text)) return false;
+    let copied = false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            copied = true;
+        }
+    } catch (e) {
+        copied = false;
+    }
+    if (!copied) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'fixed';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand('copy');
+            document.body.removeChild(ta);
+        } catch (fallbackErr) {
+            copied = false;
+        }
+    }
+    if (btn && copied) {
+        if (!btn.dataset.defaultLabel) {
+            btn.dataset.defaultLabel = (btn.textContent || 'Copy Link').trim() || 'Copy Link';
+        }
+        btn.textContent = '✓ Link copied';
+        setTimeout(function() {
+            btn.textContent = btn.dataset.defaultLabel || 'Copy Link';
+        }, 2000);
+    }
+    return copied;
+};
+</script>
+HTML;
+    }
+}
+
 if (!function_exists('pf_order_ui_should_skip_spec_key')) {
     /**
      * Keys/labels that belong in the header, notes block, or design preview — not spec tiles.
@@ -112,6 +283,7 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             'reference_upload_data', 'upload_reference_data', 'reference_data',
             'design_upload_path', 'design_file', 'reference_file', 'layout_file',
             'design_upload_name', 'design_upload_mime', 'reference_upload_name', 'reference_upload_mime',
+            'design_external_link', 'design_link', 'design_file_link',
         ];
         if (in_array($key, $skipExact, true)) {
             return true;
@@ -125,12 +297,16 @@ if (!function_exists('pf_order_ui_should_skip_spec_key')) {
             'designuploaddata', 'uploaddesigndata', 'designdata', 'designuploadname',
             'designuploadmime', 'referenceuploadname', 'referenceuploadmime',
             'referenceupload', 'referencefile', 'referenceuploaddata', 'uploadreferencedata',
-            'referencedata',
+            'referencedata', 'designexternallink', 'designlink', 'designfilelink', 'uploaddesignlink',
         ], true)) {
             return true;
         }
 
-        if (preg_match('/upload\s*design/iu', $key)) {
+        if (pf_order_ui_is_design_external_link_key($key)) {
+            return true;
+        }
+
+        if (preg_match('/upload\s*design(?!\s*link)/iu', $key)) {
             return true;
         }
         if (preg_match('/reference\s*(attachment|image|upload)/iu', $key)) {
@@ -150,6 +326,16 @@ if (!function_exists('pf_order_ui_normalize_review_customization')) {
      * quantity / notes / upload filename rows (shown elsewhere on the card).
      */
     function pf_order_ui_normalize_review_customization(array $custom, array $item, bool $is_cart_item): array {
+        $preserved_links = [];
+        foreach ($custom as $ck => $cv) {
+            if (!is_string($ck)) {
+                continue;
+            }
+            if (pf_order_ui_is_design_external_link_key($ck) && pf_order_ui_is_safe_external_url($cv)) {
+                $preserved_links[$ck] = trim((string)$cv);
+            }
+        }
+
         $needed_val = null;
         foreach ($custom as $ck => $cv) {
             if ($cv === '' || $cv === null) {
@@ -187,6 +373,14 @@ if (!function_exists('pf_order_ui_normalize_review_customization')) {
             $out['needed_date'] = $needed_val;
         }
 
+        foreach ($preserved_links as $linkKey => $linkValue) {
+            $out[$linkKey] = $linkValue;
+        }
+        $primaryLink = pf_order_ui_extract_design_external_link($preserved_links + $out);
+        if ($primaryLink['url'] !== '') {
+            $out['design_external_link'] = $primaryLink['url'];
+        }
+
         return $out;
     }
 }
@@ -214,6 +408,13 @@ if (!function_exists('pf_order_ui_cart_has_design_upload')) {
             : (is_string($item['customization'] ?? null) ? json_decode((string)$item['customization'], true) : []);
         if (!is_array($custom)) {
             return false;
+        }
+
+        if (function_exists('pf_order_ui_extract_design_external_link')) {
+            $linkMeta = pf_order_ui_extract_design_external_link($custom);
+            if (trim((string)($linkMeta['url'] ?? '')) !== '') {
+                return true;
+            }
         }
 
         foreach ($custom as $key => $value) {
@@ -811,6 +1012,10 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $rawCustom = $is_cart_item
         ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
         : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+    $designLinkMeta = pf_order_ui_extract_design_external_link(is_array($rawCustom) ? $rawCustom : []);
+    $designLinkUrl = (string)($designLinkMeta['url'] ?? '');
+    $designLinkPlatform = (string)($designLinkMeta['platform'] ?? 'Design Link');
+    $designLinkIsDirectImage = $designLinkUrl !== '' && pf_order_ui_is_direct_renderable_image_url($designLinkUrl);
     $custom = pf_order_ui_normalize_review_customization($rawCustom, $item, $is_cart_item);
     $notesCombined = pf_order_ui_resolve_special_instructions_text($rawCustom, $item);
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? 'Order Item'), $custom, 'Order Item');
@@ -921,7 +1126,8 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
 
                 <?php if ($upload_url): ?>
                     <div class="review-spec-tile order-item-spec-tile order-item-upload-design" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
-                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Uploaded Design</div>
+                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Design / Image</div>
+                        <div style="font-size: 0.72rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">Source: Uploaded File</div>
                         <?php if ($upload_is_previewable_image): ?>
                         <img src="<?php echo htmlspecialchars($upload_url); ?>" alt="Uploaded design preview" class="review-order-item" style="width: 100%; max-width: 320px; max-height: 280px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; cursor: zoom-in;">
                         <?php else: ?>
@@ -933,6 +1139,24 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                             </div>
                         </div>
                         <?php endif; ?>
+                    </div>
+                    <?php $has_specs = true; ?>
+                <?php endif; ?>
+
+                <?php if ($designLinkUrl !== ''): ?>
+                    <div class="review-spec-tile order-item-design-link" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
+                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Design / Image</div>
+                        <div style="font-size: 0.72rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 6px;">Source: Design Link</div>
+                        <?php if ($designLinkIsDirectImage): ?>
+                        <img src="<?php echo htmlspecialchars($designLinkUrl, ENT_QUOTES, 'UTF-8'); ?>" alt="Design link preview" style="width: 100%; max-width: 320px; max-height: 220px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; margin-bottom: 10px;">
+                        <?php else: ?>
+                        <div style="font-size: 0.85rem; color: #eaf6fb; font-weight: 700; margin-bottom: 8px;"><?php echo pf_order_ui_escape($designLinkPlatform); ?></div>
+                        <?php endif; ?>
+                        <input type="text" readonly value="<?php echo pf_order_ui_escape($designLinkUrl); ?>" onclick="this.select();" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid rgba(83,197,224,0.22);border-radius:8px;background:rgba(0,0,0,0.25);color:#eaf6fb;font-size:12px;word-break:break-all;overflow-wrap:anywhere;user-select:text;cursor:text;margin-bottom:10px;">
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button type="button" onclick="pfCopyExternalLink(<?php echo json_encode($designLinkUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES); ?>, this)" style="padding:8px 12px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.12);color:#eaf6fb;font-size:12px;font-weight:700;cursor:pointer;">Copy Link</button>
+                            <a href="<?php echo pf_order_ui_escape($designLinkUrl); ?>" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.08);color:#53c5e0;font-size:12px;font-weight:700;text-decoration:none;">Open Link</a>
+                        </div>
                     </div>
                     <?php $has_specs = true; ?>
                 <?php endif; ?>
@@ -966,5 +1190,6 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
         <?php endif; ?>
     </div>
     <?php
+    pf_order_ui_print_copy_link_script_once();
 }
 

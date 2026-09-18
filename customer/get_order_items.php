@@ -1192,6 +1192,15 @@ foreach ($items as $lineIndex => $item) {
         $design_url = $base_path . '/public/serve_design.php?type=order_item&id=' . $design_serve_id;
     }
 
+    $designLinkMeta = function_exists('pf_order_ui_extract_design_external_link')
+        ? pf_order_ui_extract_design_external_link($custom_data)
+        : ['url' => '', 'platform' => 'Design Link'];
+    $designExternalLink = trim((string)($designLinkMeta['url'] ?? ''));
+    $designLinkPlatform = trim((string)($designLinkMeta['platform'] ?? 'Design Link'));
+    $designLinkIsDirectImage = $designExternalLink !== ''
+        && function_exists('pf_order_ui_is_direct_renderable_image_url')
+        && pf_order_ui_is_direct_renderable_image_url($designExternalLink);
+
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
         'raw_unit_price' => $raw_unit_price,
@@ -1218,6 +1227,10 @@ foreach ($items as $lineIndex => $item) {
                 : pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')),
         'reference_kind'=> pf_asset_kind('', $item['reference_image_file'] ?? ''),
         'design_url'    => $design_url,
+        'design_external_link' => $designExternalLink,
+        'has_design_link' => $designExternalLink !== '',
+        'design_link_platform' => $designLinkPlatform !== '' ? $designLinkPlatform : 'Design Link',
+        'design_link_is_direct_image' => $designLinkIsDirectImage,
         'reference_url' => !empty($item['reference_image_file'])
                             ? $base_path . '/public/serve_design.php?type=order_item&id=' . $line_oid . '&field=reference'
                             : null,

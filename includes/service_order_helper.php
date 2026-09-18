@@ -91,6 +91,9 @@ function service_order_extract_design_link_from_customization(array $customizati
     }
     $candidates[] = service_order_design_link_post_name($field_key);
     $candidates[] = 'design_link';
+    $candidates[] = 'design_external_link';
+    $candidates[] = 'Upload Design Link';
+    $candidates[] = 'Design Link';
 
     foreach ($candidates as $candidate) {
         if (!array_key_exists($candidate, $customization)) {
