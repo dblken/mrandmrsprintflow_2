@@ -440,6 +440,108 @@ if (!function_exists('printflow_is_internal_customization_value')) {
     }
 }
 
+if (!function_exists('printflow_resolve_needed_date_from_customization')) {
+    /**
+     * Resolve the customer-configured needed date from submitted customization data.
+     *
+     * @param array<string,mixed> $customization
+     */
+    function printflow_resolve_needed_date_from_customization(array $customization, int $serviceId = 0): string
+    {
+        if ($serviceId <= 0) {
+            $serviceId = (int)($customization['service_id'] ?? 0);
+        }
+
+        if ($serviceId > 0 && function_exists('get_service_field_config')) {
+            if (!function_exists('get_service_field_config')) {
+                require_once __DIR__ . '/service_field_config_helper.php';
+            }
+            $configs = get_service_field_config($serviceId);
+            if (is_array($configs)) {
+                foreach ($configs as $fieldKey => $config) {
+                    if (!is_array($config)) {
+                        continue;
+                    }
+                    $type = strtolower(trim((string)($config['type'] ?? '')));
+                    if ($fieldKey !== 'needed_date' && $type !== 'date') {
+                        continue;
+                    }
+                    $label = trim((string)($config['label'] ?? ''));
+                    if ($label !== '') {
+                        $byLabel = trim((string)($customization[$label] ?? ''));
+                        if ($byLabel !== '') {
+                            return $byLabel;
+                        }
+                    }
+                    $byKey = trim((string)($customization[(string)$fieldKey] ?? ''));
+                    if ($byKey !== '') {
+                        return $byKey;
+                    }
+                }
+            }
+        }
+
+        foreach (['Needed Date', 'needed_date', 'needed-date'] as $exactKey) {
+            $value = trim((string)($customization[$exactKey] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        foreach ($customization as $key => $value) {
+            if (!is_scalar($value)) {
+                continue;
+            }
+            $token = strtolower(preg_replace('/[^a-z0-9]/', '', (string)$key));
+            if (!in_array($token, ['neededdate', 'dateneeded', 'orderneededdate', 'needdate', 'requiredby'], true)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('printflow_format_needed_date_display')) {
+    function printflow_format_needed_date_display(?string $raw): string
+    {
+        $raw = trim((string)$raw);
+        if ($raw === '') {
+            return '';
+        }
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $raw, $matches)) {
+            $timestamp = strtotime($matches[1] . '-' . $matches[2] . '-' . $matches[3]);
+            if ($timestamp !== false) {
+                return date('M j, Y', $timestamp);
+            }
+        }
+
+        $timestamp = strtotime($raw);
+        if ($timestamp !== false && !preg_match('/^\d+$/', $raw)) {
+            return date('M j, Y', $timestamp);
+        }
+
+        return $raw;
+    }
+}
+
+if (!function_exists('printflow_apply_needed_date_to_row')) {
+    /**
+     * @param array<string,mixed> $row
+     */
+    function printflow_apply_needed_date_to_row(array &$row, string $raw): void
+    {
+        $raw = trim($raw);
+        $row['needed_date'] = $raw;
+        $row['needed_date_display'] = $raw !== '' ? printflow_format_needed_date_display($raw) : '';
+    }
+}
+
 if (!function_exists('printflow_order_priority_needed_date_label')) {
     function printflow_order_priority_needed_date_label(int $orderId): string
     {
@@ -453,27 +555,23 @@ if (!function_exists('printflow_order_priority_needed_date_label')) {
         }
 
         $items = db_query(
-            'SELECT customization_data, specifications FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC LIMIT 1',
+            'SELECT customization_data, specifications FROM order_items WHERE order_id = ? ORDER BY order_item_id ASC',
             'i',
             [$orderId]
         ) ?: [];
 
-        if (empty($items[0])) {
-            return '';
-        }
+        foreach ($items as $item) {
+            $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+            $specs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+            if ($specs !== []) {
+                $custom = function_exists('printflow_overlay_nonempty_assoc')
+                    ? printflow_overlay_nonempty_assoc($custom, $specs)
+                    : array_merge($custom, $specs);
+            }
 
-        $custom = customer_orders_decode_customization_payload((string)($items[0]['customization_data'] ?? ''));
-        $specs = customer_orders_decode_customization_payload((string)($items[0]['specifications'] ?? ''));
-        if ($specs !== []) {
-            $custom = function_exists('printflow_overlay_nonempty_assoc')
-                ? printflow_overlay_nonempty_assoc($custom, $specs)
-                : array_merge($custom, $specs);
-        }
-
-        foreach (['Needed Date', 'needed_date'] as $key) {
-            $value = trim((string)($custom[$key] ?? ''));
-            if ($value !== '') {
-                return $value;
+            $raw = printflow_resolve_needed_date_from_customization($custom, (int)($custom['service_id'] ?? 0));
+            if ($raw !== '') {
+                return $raw;
             }
         }
 

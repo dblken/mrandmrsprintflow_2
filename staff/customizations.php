@@ -721,7 +721,7 @@ $online_closed_count = 0;
         }
         .customizations-data-table {
             width: 100%;
-            min-width: 940px;
+            min-width: 1040px;
             table-layout: fixed;
         }
         .customizations-data-table th,
@@ -731,22 +731,26 @@ $online_closed_count = 0;
             box-sizing: border-box;
             vertical-align: middle;
         }
-        .customizations-data-table .col-order { width: 16%; }
-        .customizations-data-table .col-info { width: 24%; }
-        .customizations-data-table .col-status { width: 14%; }
-        .customizations-data-table .col-customer { width: 16%; }
-        .customizations-data-table .col-created { width: 18%; }
+        .customizations-data-table .col-order { width: 14%; }
+        .customizations-data-table .col-info { width: 20%; }
+        .customizations-data-table .col-needed { width: 12%; }
+        .customizations-data-table .col-status { width: 12%; }
+        .customizations-data-table .col-customer { width: 14%; }
+        .customizations-data-table .col-created { width: 16%; }
         .customizations-data-table .col-action { width: 12%; }
-        .customizations-data-table th:nth-child(3),
-        .customizations-data-table td:nth-child(3),
-        .customizations-data-table th:nth-child(6),
-        .customizations-data-table td:nth-child(6) {
+        .customizations-data-table th:nth-child(4),
+        .customizations-data-table td:nth-child(4),
+        .customizations-data-table th:nth-child(7),
+        .customizations-data-table td:nth-child(7) {
             text-align: center !important;
         }
-        .customizations-data-table th:nth-child(5),
-        .customizations-data-table td:nth-child(5) {
+        .customizations-data-table th:nth-child(6),
+        .customizations-data-table td:nth-child(6) {
             text-align: left !important;
             white-space: nowrap;
+        }
+        .needed-date-cell .table-text-main {
+            color: #334155;
         }
         .customizations-data-table .status-col-inner,
         .customizations-data-table .action-btn-group {
@@ -1299,6 +1303,7 @@ $online_closed_count = 0;
             }
             .customizations-data-table tr.customization-row .order-code-cell,
             .customizations-data-table tr.customization-row .customization-info-cell,
+            .customizations-data-table tr.customization-row .needed-date-cell,
             .customizations-data-table tr.customization-row .status-col-cell,
             .customizations-data-table tr.customization-row .customer-cell,
             .customizations-data-table tr.customization-row .created-cell,
@@ -1985,13 +1990,14 @@ $online_closed_count = 0;
                 <div class="overflow-x-auto -mx-6 px-6 customizations-table-scroll" style="clear:both;">
                     <table class="w-full text-sm text-left border-separate border-spacing-0 customizations-data-table">
                         <colgroup>
-                            <col class="col-order"><col class="col-info"><col class="col-status">
+                            <col class="col-order"><col class="col-info"><col class="col-needed"><col class="col-status">
                             <col class="col-customer"><col class="col-created"><col class="col-action">
                         </colgroup>
                         <thead class="bg-gray-50/50">
                             <tr>
                                 <th class="pl-6 pr-4 py-4 border-b border-gray-100">Order Code</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customization Info</th>
+                                <th class="px-4 py-4 border-b border-gray-100">Needed Date</th>
                                 <th class="px-4 py-4 border-b border-gray-100 text-center">Status</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Customer</th>
                                 <th class="px-4 py-4 border-b border-gray-100">Created</th>
@@ -2018,6 +2024,9 @@ $online_closed_count = 0;
                                                 <div class="table-text-sub uppercase tracking-wider truncate-ellipsis" x-show="jo.order_type === 'SERVICE'">Service purchase</div>
                                             </div>
                                         </div>
+                                    </td>
+                                    <td class="px-4 py-4 needed-date-cell" data-label="Needed Date">
+                                        <div class="table-text-main truncate-ellipsis" :title="formatOrderNeededDate(jo, true)" x-text="formatOrderNeededDate(jo)"></div>
                                     </td>
                                     <td class="px-4 py-4 status-col-cell" data-label="Status">
                                         <div class="status-col-inner">
@@ -2048,6 +2057,7 @@ $online_closed_count = 0;
                                 <tr aria-hidden="true">
                                     <td class="pl-6 pr-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton"></span><span class="pf-customization-skeleton medium" style="margin-top:8px;"></span></td>
+                                    <td class="px-4 py-5"><span class="pf-customization-skeleton short"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton short" style="margin:0 auto;"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton medium"></span></td>
                                     <td class="px-4 py-5"><span class="pf-customization-skeleton"></span></td>
@@ -2055,14 +2065,14 @@ $online_closed_count = 0;
                                 </tr>
                             </template>
                             <tr x-show="ordersError && orders.length === 0" x-cloak>
-                                <td colspan="6" class="px-6 py-20 text-center">
+                                <td colspan="7" class="px-6 py-20 text-center">
                                     <div style="color:#475569;font-weight:700;font-size:14px;">Unable to load customizations. Please try again.</div>
                                     <div style="margin-top:8px;color:#64748b;font-size:13px;" x-text="ordersError"></div>
                                     <button type="button" @click="retryLoadOrders()" :disabled="loadingOrders" :style="loadingOrders ? 'opacity:.6;cursor:not-allowed' : ''" style="margin-top:12px;padding:9px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#1e3a5f;font-weight:700;cursor:pointer;">Retry</button>
                                 </td>
                             </tr>
                             <tr x-show="!loadingOrders && !ordersError && filteredOrders.length === 0">
-                                <td colspan="6" class="px-6 py-24 text-center">
+                                <td colspan="7" class="px-6 py-24 text-center">
                                     <span class="table-text-sub uppercase tracking-widest">No matching jobs in this stage</span>
                                 </td>
                             </tr>
@@ -2101,6 +2111,14 @@ $online_closed_count = 0;
                             </div>
 
                             <div class="customization-mobile-card__meta">
+                                <div class="customization-mobile-card__meta-row">
+                                    <span class="customization-mobile-card__label">Needed Date</span>
+                                    <span
+                                        class="customization-mobile-card__value"
+                                        :title="formatOrderNeededDate(jo, true)"
+                                        x-text="formatOrderNeededDate(jo)"
+                                    ></span>
+                                </div>
                                 <div class="customization-mobile-card__meta-row">
                                     <span class="customization-mobile-card__label">Status</span>
                                     <div class="customization-mobile-card__status">
@@ -4073,6 +4091,24 @@ window.pfServiceFieldCatalog = (() => {
             getPriorityRelatedFields(row) {
                 const related = row && row.priority_request_related;
                 return related && typeof related === 'object' ? related : {};
+            },
+            formatOrderNeededDate(row, forTitle = false) {
+                if (!row) return forTitle ? '' : '—';
+                const display = String(row.needed_date_display || '').trim();
+                if (display) return display;
+                const raw = String(row.needed_date || '').trim();
+                if (!raw) return forTitle ? '' : '—';
+                if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+                    const stamp = Date.parse(raw.slice(0, 10));
+                    if (!Number.isNaN(stamp)) {
+                        return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                    }
+                }
+                const stamp = Date.parse(raw);
+                if (!Number.isNaN(stamp)) {
+                    return new Date(stamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                }
+                return raw;
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';

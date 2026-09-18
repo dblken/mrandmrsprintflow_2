@@ -2855,6 +2855,48 @@ class JobOrderService {
     }
 
     /**
+     * Resolve customer Needed Date from store order items (first matching line).
+     *
+     * @param array<string,mixed> $orderMeta
+     * @param array<int,array<string,mixed>> $orderItems
+     * @return array{needed_date:string,needed_date_display:string}
+     */
+    private static function resolveStoreOrderNeededDatePayload(array $orderMeta, array $orderItems, bool $serviceOnly = false): array
+    {
+        require_once __DIR__ . '/service_field_priority_helper.php';
+
+        foreach ($orderItems as $item) {
+            $custom = customer_orders_decode_customization_payload((string)($item['customization_data'] ?? ''));
+            $savedSpecs = customer_orders_decode_customization_payload((string)($item['specifications'] ?? ''));
+            if ($savedSpecs !== []) {
+                $custom = printflow_overlay_nonempty_assoc($custom, $savedSpecs);
+            }
+            if ($serviceOnly && !self::isServiceStoreOrderItem($item, $custom)) {
+                continue;
+            }
+
+            $identity = self::resolveBatchStoreOrderLineIdentity($orderMeta, $item, $custom);
+            $serviceId = (int)($identity['service_id'] ?? 0);
+            if ($serviceId <= 0) {
+                $serviceId = (int)($custom['service_id'] ?? 0);
+            }
+
+            $raw = printflow_resolve_needed_date_from_customization($custom, $serviceId);
+            if ($raw !== '') {
+                return [
+                    'needed_date' => $raw,
+                    'needed_date_display' => printflow_format_needed_date_display($raw),
+                ];
+            }
+        }
+
+        return [
+            'needed_date' => '',
+            'needed_date_display' => '',
+        ];
+    }
+
+    /**
      * Resolve staff list display identity using the same rules as customer/orders.php.
      *
      * @return array{display_name:string,service_id:int,item_type:string}
@@ -2996,6 +3038,11 @@ class JobOrderService {
                 $serviceIdForPriority = (int)($firstCustom['service_id'] ?? 0);
             }
             $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $firstCustom);
+            $neededDatePayload = self::resolveStoreOrderNeededDatePayload(
+                $orderMeta,
+                $itemsByOrder[$orderId] ?? [],
+                $serviceOnly
+            );
 
             $payloads[$orderId] = [
                 'items' => $itemsOut,
@@ -3005,6 +3052,8 @@ class JobOrderService {
                 'service_id' => (int)($itemsOut[0]['service_id'] ?? 0),
                 'line_qty' => $totalQty,
                 'priority_request' => $priorityRequest,
+                'needed_date' => $neededDatePayload['needed_date'],
+                'needed_date_display' => $neededDatePayload['needed_date_display'],
             ];
         }
 
@@ -3155,6 +3204,7 @@ class JobOrderService {
                 $serviceIdForPriority = (int)($first_custom['service_id'] ?? 0);
             }
             $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $first_custom);
+            $neededDatePayload = self::resolveStoreOrderNeededDatePayload($orderMeta, $orderItems, $serviceOnly);
 
             $payloads[$orderId] = [
                 'items'        => $items_out,
@@ -3164,6 +3214,8 @@ class JobOrderService {
                 'service_id'   => (int)($items_out[0]['service_id'] ?? 0),
                 'line_qty'     => $total_qty,
                 'priority_request' => $priorityRequest,
+                'needed_date' => $neededDatePayload['needed_date'],
+                'needed_date_display' => $neededDatePayload['needed_date_display'],
             ];
         }
 
@@ -3239,6 +3291,13 @@ class JobOrderService {
         if (!empty($payload['priority_request']) && is_array($payload['priority_request'])) {
             require_once __DIR__ . '/service_field_priority_helper.php';
             printflow_apply_priority_request_to_row($jo, $payload['priority_request']);
+        }
+        if (array_key_exists('needed_date', $payload) || array_key_exists('needed_date_display', $payload)) {
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            printflow_apply_needed_date_to_row($jo, (string)($payload['needed_date'] ?? ''));
+            if (trim((string)($payload['needed_date_display'] ?? '')) !== '') {
+                $jo['needed_date_display'] = (string)$payload['needed_date_display'];
+            }
         }
         $titleParts = [];
         foreach ($payload['items'] ?? [] as $it) {

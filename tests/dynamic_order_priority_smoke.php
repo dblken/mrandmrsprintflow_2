@@ -95,5 +95,9 @@ $normalized = pf_order_ui_normalize_review_customization($urgentCustom, [], true
 $assert(!array_key_exists('_staff_priority_request', $normalized), 'review normalization removes internal snapshot key');
 $assert(($normalized['Order Priority'] ?? '') === 'Urgent Order', 'review normalization keeps configured field value');
 
+$neededRaw = printflow_resolve_needed_date_from_customization(['Needed Date' => '2026-09-18'], 0);
+$assert($neededRaw === '2026-09-18', 'needed date resolves from configured label');
+$assert(printflow_format_needed_date_display('2026-09-18') === 'Sep 18, 2026', 'needed date display format is human readable');
+
 echo "Priority helper smoke test: {$assertions} assertions, {$failures} failures\n";
 exit($failures > 0 ? 1 : 0);
