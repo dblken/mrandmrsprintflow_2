@@ -2269,7 +2269,10 @@ $online_closed_count = 0;
                                     </div>
                                     <template x-if="staffShouldRenderDesignSection(item)">
                                         <div style="margin-top:12px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#fff;">
-                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;">Design</div>
+                                            <div style="font-size:10px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;" x-text="staffDesignSectionLabel(item)"></div>
+                                            <template x-if="staffItemHasUploadedDesignFile(item)">
+                                                <div style="margin-bottom:10px;">
+                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Uploaded File</div>
                                             <template x-if="staffEffectiveDesignOpenUrl(item) && staffDesignShowsAsImage(item)">
                                                 <div style="display:flex; flex-direction:column; align-items:flex-start; gap:8px; max-width:100%;">
                                                     <img :src="staffEffectiveDesignOpenUrl(item)"
@@ -2320,7 +2323,21 @@ $online_closed_count = 0;
                                                     <span x-text="staffDesignDisplayFilename(item)"></span>
                                                 </a>
                                             </template>
-                                            <template x-if="!staffEffectiveDesignOpenUrl(item) && !staffItemHasStoredDesign(item)">
+                                                </div>
+                                            </template>
+                                            <template x-if="staffGetDesignExternalLink(item)">
+                                                <div>
+                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">Design Link</div>
+                                                    <a :href="sanitizeStaffLink(staffGetDesignExternalLink(item))"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
+                                                       style="display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #dbeafe; border-radius:10px; background:#eff6ff; color:#1d4ed8; font-size:12px; font-weight:600; max-width:100%; overflow-wrap:anywhere; text-decoration:none; word-break:break-word;">
+                                                        Open Design Link
+                                                    </a>
+                                                    <div style="margin-top:6px; font-size:11px; color:#64748b; word-break:break-word; overflow-wrap:anywhere;" x-text="staffGetDesignExternalLink(item)"></div>
+                                                </div>
+                                            </template>
+                                            <template x-if="!staffItemHasUploadedDesignFile(item) && !staffGetDesignExternalLink(item)">
                                                 <div style="font-size:12px; color:#6b7280; font-style:italic;">No design uploaded.</div>
                                             </template>
                                         </div>
@@ -4426,6 +4443,9 @@ window.pfServiceFieldCatalog = (() => {
                     design_file_name: ['uploaded_design', 'Uploaded Design', 60],
                     uploaded_design_name: ['uploaded_design', 'Uploaded Design', 60],
                     uploaded_design: ['uploaded_design', 'Uploaded Design', 60],
+                    design_link: ['design_external_link', 'Design Link', 61],
+                    design_file_link: ['design_external_link', 'Design Link', 61],
+                    upload_design_link: ['design_external_link', 'Design Link', 61],
                     quantity: ['quantity', 'Quantity', 5],
                     qty: ['quantity', 'Quantity', 5],
                     print_type: ['print_type', 'Print Type', 45],
@@ -4439,7 +4459,10 @@ window.pfServiceFieldCatalog = (() => {
                 };
                 if (map[token]) {
                     const [group, label, priority] = map[token];
-                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' };
+                    return { group, label, priority, hidden: false, design: group === 'uploaded_design' || group === 'design_external_link' };
+                }
+                if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
+                    return { group: 'design_external_link', label: 'Design Link', priority: 61, hidden: false, design: true };
                 }
                 const label = String(key || '')
                     .replace(/_/g, ' ')
@@ -4787,9 +4810,46 @@ window.pfServiceFieldCatalog = (() => {
                 if (profile) {
                     return profile.designField.hasDesign === true;
                 }
+                return !!(this.staffEffectiveDesignOpenUrl(item)
+                    || this.staffItemHasStoredDesign(item)
+                    || this.staffGetDesignExternalLink(item));
+            },
+            staffGetDesignExternalLink(item) {
+                if (!item) return '';
+                const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
+                    ? item.customization
+                    : {};
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                const candidates = [];
+                if (profile && profile.designField && profile.designField.label) {
+                    candidates.push(String(profile.designField.label).trim() + ' Link');
+                }
+                candidates.push('design_link', 'design_file_link', 'Upload Design Link', 'Design Link');
+                for (const candidate of candidates) {
+                    if (!Object.prototype.hasOwnProperty.call(custom, candidate)) continue;
+                    const value = this.staffCustomizationValueText(custom[candidate]);
+                    if (value && /^https?:\/\//i.test(value)) return value;
+                }
+                for (const [key, value] of Object.entries(custom)) {
+                    if (typeof key !== 'string' || !this.staffMeaningfulSpecValue(value)) continue;
+                    if (!/ link$/i.test(key.trim())) continue;
+                    const text = this.staffCustomizationValueText(value);
+                    if (text && /^https?:\/\//i.test(text)) return text;
+                    const token = this.staffCustomizationKeyToken(key);
+                    if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
+                        if (text && /^https?:\/\//i.test(text)) return text;
+                    }
+                }
+                return '';
+            },
+            staffItemHasUploadedDesignFile(item) {
                 return !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
             },
             staffDesignSectionLabel(item) {
+                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
+                if (profile && profile.designField && profile.designField.label) {
+                    return String(profile.designField.label).trim();
+                }
                 return 'Design';
             },
             /**
@@ -5088,6 +5148,12 @@ window.pfServiceFieldCatalog = (() => {
                 const token = this.staffCustomizationKeyToken(key);
                 if (!token) return false;
                 if (token === 'design' || token.includes('design_upload') || token.includes('upload_design') || token.includes('uploaded_design')) {
+                    return true;
+                }
+                if (token.endsWith('_link') && (token.includes('design') || token.includes('upload'))) {
+                    return true;
+                }
+                if (/ link$/i.test(String(key || '').trim())) {
                     return true;
                 }
                 if (!item || !this.staffShouldRenderDesignSection(item)) return false;

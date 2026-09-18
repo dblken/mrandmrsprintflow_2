@@ -3586,10 +3586,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                 }
 
-                // Text / number
-                const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input)');
+                // Text / number / design link
+                const textInput = row.querySelector('input[type="text"], input[type="number"]:not(#quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
-                    customization[labelText] = textInput.value.trim();
+                    if (textInput.classList.contains('pf-design-link-input')) {
+                        customization[labelText + ' Link'] = textInput.value.trim();
+                    } else {
+                        customization[labelText] = textInput.value.trim();
+                    }
+                }
+
+                const uploadGroup = row.querySelector('.pf-file-upload-group[data-pf-required="1"]');
+                if (uploadGroup && isRequired) {
+                    const fileInput = uploadGroup.querySelector('.pf-design-file-input');
+                    const linkInput = uploadGroup.querySelector('.pf-design-link-input');
+                    const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                    const hasLink = !!(linkInput && linkInput.value.trim());
+                    if (!hasFile && !hasLink) {
+                        showPOSAlert('Required Field', 'Please upload a design or paste a design link.', 'warning');
+                        valid = false;
+                    } else if (hasLink && !isValidDesignLink(linkInput.value.trim())) {
+                        showPOSAlert('Invalid Link', 'Please enter a valid HTTP or HTTPS design link.', 'warning');
+                        valid = false;
+                    }
                 }
             });
 
@@ -3675,7 +3694,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const label = serviceFieldLabel(row);
             const name = String((input && input.name) || serviceFieldKey(row) || label).toLowerCase();
             const type = input ? String(input.type || '').toLowerCase() : '';
-            if (name.includes('design') || type === 'file') return 'Please upload a design.';
+            if (row && row.querySelector('.pf-file-upload-group')) {
+                return 'Please upload a design or paste a design link.';
+            }
+            if (name.includes('design') || type === 'file') return 'Please upload a design or paste a design link.';
             if (name.includes('layout') || label.toLowerCase().includes('layout')) return 'Please select a layout.';
             if (name.includes('needed_date') || label.toLowerCase().includes('needed date')) return 'Please select a needed date.';
             if (name.includes('quantity') || label.toLowerCase().includes('quantity')) return 'Quantity must be at least 1.';
@@ -3768,6 +3790,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             });
         }
 
+        function isValidDesignLink(value) {
+            const text = String(value || '').trim();
+            if (!text) return true;
+            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            try {
+                const parsed = new URL(text);
+                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (err) {
+                return false;
+            }
+        }
+
         function validateServiceOrderForm() {
             const body = document.getElementById('sm-fields-body');
             const errors = {};
@@ -3832,6 +3866,23 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                     if (!value) addError(row, input);
                 });
+            });
+
+            body.querySelectorAll('.pf-file-upload-group[data-pf-required="1"]').forEach(group => {
+                const row = group.closest('.shopee-form-row');
+                if (!row || !isServiceFieldVisible(row)) return;
+                const fileInput = group.querySelector('.pf-design-file-input');
+                const linkInput = group.querySelector('.pf-design-link-input');
+                const hasFile = !!(fileInput && fileInput.files && fileInput.files.length > 0);
+                const linkValue = linkInput ? String(linkInput.value || '').trim() : '';
+                const hasLink = linkValue !== '';
+                if (!hasFile && !hasLink) {
+                    addError(row, fileInput || linkInput || group);
+                    return;
+                }
+                if (hasLink && !isValidDesignLink(linkValue)) {
+                    addError(row, linkInput || group, (linkInput && linkInput.name) || 'design_link');
+                }
             });
 
             return { valid: Object.keys(errors).length === 0, errors };
@@ -3930,8 +3981,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     }
                 }
 
-                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input)');
+                const textInput = row.querySelector('input[type="text"]:not(.pf-service-quantity-input):not(.select-others-input):not(.radio-others-input), input[type="number"]:not(#quantity-input):not(.pf-service-quantity-input), input[type="url"].pf-design-link-input');
                 if (textInput && !textInput.id.includes('hidden') && textInput.value.trim()) {
+                    if (textInput.classList.contains('pf-design-link-input')) {
+                        const labelText = serviceFieldLabel(row);
+                        customization[labelText + ' Link'] = textInput.value.trim();
+                    }
                     setCustomizationValue(customization, row, textInput, textInput.value.trim());
                 }
             });

@@ -145,6 +145,9 @@ function printflow_customization_field_meta(string $key): array {
         'design_file_name' => ['uploaded_design', 'Uploaded Design', 60],
         'uploaded_design_name' => ['uploaded_design', 'Uploaded Design', 60],
         'uploaded_design' => ['uploaded_design', 'Uploaded Design', 60],
+        'design_link' => ['design_external_link', 'Design Link', 61],
+        'design_file_link' => ['design_external_link', 'Design Link', 61],
+        'upload_design_link' => ['design_external_link', 'Design Link', 61],
         'quantity' => ['quantity', 'Quantity', 5],
         'qty' => ['quantity', 'Quantity', 5],
         'print_type' => ['print_type', 'Print Type', 45],
@@ -158,7 +161,10 @@ function printflow_customization_field_meta(string $key): array {
     ];
     if (isset($map[$token])) {
         [$group, $label, $priority] = $map[$token];
-        return ['group' => $group, 'label' => $label, 'priority' => $priority, 'hidden' => false, 'design' => $group === 'uploaded_design'];
+        return ['group' => $group, 'label' => $label, 'priority' => $priority, 'hidden' => false, 'design' => in_array($group, ['uploaded_design', 'design_external_link'], true)];
+    }
+    if (str_ends_with($token, '_link') && (str_contains($token, 'design') || str_contains($token, 'upload'))) {
+        return ['group' => 'design_external_link', 'label' => 'Design Link', 'priority' => 61, 'hidden' => false, 'design' => true];
     }
     $label = ucwords(str_replace('_', ' ', $token));
     return ['group' => $token, 'label' => $label, 'priority' => 100, 'hidden' => false, 'design' => false];

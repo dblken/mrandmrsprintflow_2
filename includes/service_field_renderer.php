@@ -469,7 +469,35 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             break;
             
         case 'file':
-            $html .= '<input type="file" name="design_file" id="design_file" accept=".jpg,.jpeg,.png,.pdf" class="input-field" ' . $required_attr . ' style="max-width: 400px;">';
+            $link_post_name = function_exists('service_order_design_link_post_name')
+                ? service_order_design_link_post_name($field_key)
+                : ($field_key . '_link');
+            $link_storage_key = function_exists('service_order_design_link_storage_key')
+                ? service_order_design_link_storage_key((string)($config['label'] ?? 'Design'))
+                : 'Design Link';
+            $saved_link = trim((string)(
+                $saved_customization[$link_storage_key]
+                ?? $saved_customization[$link_post_name]
+                ?? $saved_customization['design_link']
+                ?? ''
+            ));
+            $accept_attr = function_exists('service_order_design_file_accept_attr')
+                ? service_order_design_file_accept_attr()
+                : '.jpg,.jpeg,.png,.webp,.gif,.svg,.pdf,.ai,.psd';
+            $formats_label = defined('SERVICE_ORDER_SUPPORTED_FORMATS_LABEL')
+                ? SERVICE_ORDER_SUPPORTED_FORMATS_LABEL
+                : 'PNG, JPG, JPEG, WEBP, GIF, SVG, PDF, AI, PSD';
+            $required_data = $config['required'] ? ' data-pf-required="1"' : '';
+
+            $html .= '<div class="pf-file-upload-group" data-pf-file-upload="1"' . $required_data . ' style="max-width:100%;width:100%;">';
+            $html .= '<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;background:#fafafa;">';
+            $html .= '<input type="file" name="design_file" id="design_file" accept="' . htmlspecialchars($accept_attr, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-file-input" style="max-width:100%;width:100%;margin-bottom:8px;">';
+            $html .= '<p class="pf-supported-formats" style="margin:0 0 12px;font-size:12px;color:#6b7280;line-height:1.45;">Supported files: ' . htmlspecialchars($formats_label, ENT_QUOTES, 'UTF-8') . ' (max 5MB)</p>';
+            $html .= '<div style="text-align:center;margin:8px 0;font-size:12px;font-weight:600;color:#9ca3af;letter-spacing:0.04em;">OR</div>';
+            $html .= '<label for="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" style="display:block;font-size:12px;color:#6b7280;margin-bottom:6px;">Paste design/image link</label>';
+            $html .= '<input type="url" name="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($link_post_name, ENT_QUOTES, 'UTF-8') . '" class="input-field pf-design-link-input" placeholder="https://..." value="' . htmlspecialchars($saved_link, ENT_QUOTES, 'UTF-8') . '" inputmode="url" autocomplete="url" style="max-width:100%;width:100%;">';
+            $html .= '<p style="margin:10px 0 0;font-size:12px;color:#9ca3af;line-height:1.45;">You can upload a file or paste an accessible design/image link.</p>';
+            $html .= '</div></div>';
             break;
             
         case 'date':

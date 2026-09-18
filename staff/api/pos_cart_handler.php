@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/product_branch_stock.php';
 require_once __DIR__ . '/../../includes/product_option_stock.php';
 require_once __DIR__ . '/../../includes/service_field_config_helper.php';
+require_once __DIR__ . '/../../includes/service_order_helper.php';
 require_once __DIR__ . '/../../includes/pos_draft_lifecycle.php';
 
 // Require staff or admin role
@@ -85,7 +86,7 @@ function pos_cart_custom_value(array $customization, string $key, ?string $label
         $candidates[] = 'branch_id';
     }
     if ($key === 'design_file') {
-        array_push($candidates, 'design_upload_path', 'design_upload_name', 'design_upload', 'Upload Design', 'Design');
+        array_push($candidates, 'design_upload_path', 'design_upload_name', 'design_upload', 'Upload Design', 'Design', 'design_file_link', 'design_link', 'Upload Design Link', 'Design Link');
     }
 
     foreach ($candidates as $candidate) {
@@ -107,7 +108,7 @@ function pos_cart_required_message(string $key, string $label, string $type): st
 {
     $needle = strtolower($key . ' ' . $label);
     if ($type === 'file' || strpos($needle, 'design') !== false) {
-        return 'Please upload a design.';
+        return 'Please upload a design or paste a design link.';
     }
     if (strpos($needle, 'layout') !== false) {
         return 'Please select a layout.';
@@ -224,6 +225,16 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
             if ($quantity < 1) {
                 $errors[(string)$fieldKey] = 'Quantity must be at least 1.';
             }
+        } elseif ($type === 'file') {
+            $linkValue = pos_cart_custom_value($customization, $fieldKey . '_link', $label . ' Link');
+            if ($value === '' && $linkValue === '') {
+                $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
+            } elseif ($linkValue !== '') {
+                $linkCheck = service_order_validate_design_link($linkValue);
+                if (!$linkCheck['ok']) {
+                    $errors[$fieldKey . '_link'] = $linkCheck['error'];
+                }
+            }
         } elseif ($value === '') {
             $errors[(string)$fieldKey] = pos_cart_required_message((string)$fieldKey, $label, $type);
         }
@@ -234,8 +245,12 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
     }
 
     $layout = strtolower(pos_cart_custom_value($customization, 'layout', 'Layout'));
-    if ($layout === 'with layout' && pos_cart_custom_value($customization, 'design_file', 'Upload Design') === '') {
-        $errors['design_file'] = 'Please upload a design.';
+    if ($layout === 'with layout') {
+        $designValue = pos_cart_custom_value($customization, 'design_file', 'Upload Design');
+        $designLink = pos_cart_custom_value($customization, 'design_file_link', 'Upload Design Link');
+        if ($designValue === '' && $designLink === '') {
+            $errors['design_file'] = 'Please upload a design or paste a design link.';
+        }
     }
 
     return $errors;

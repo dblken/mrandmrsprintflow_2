@@ -807,6 +807,22 @@ function custom_payment_badge($status) {
                 viewImage(url) {
                     this.currentImage = url;
                     this.showImageViewer = true;
+                },
+
+                getItemDesignExternalLink(item) {
+                    const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
+                    for (const [key, value] of Object.entries(custom)) {
+                        if (typeof key !== 'string' || value == null) continue;
+                        const text = String(value).trim();
+                        if (!/^https?:\/\//i.test(text)) continue;
+                        if (/ link$/i.test(key.trim()) || /design.*link/i.test(key)) return text;
+                    }
+                    return '';
+                },
+
+                sanitizeExternalLink(url) {
+                    const s = String(url || '').trim();
+                    return /^https?:\/\//i.test(s) ? s : '#';
                 }
             };
         }
@@ -1324,6 +1340,16 @@ function custom_payment_badge($status) {
                                                         <div style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:2px solid #e5e7eb;cursor:pointer;margin-bottom:8px;" @click="viewImage(item.design_url)">
                                                             <img :src="item.design_url" style="width:100%;height:100%;object-fit:cover;" alt="Design">
                                                             <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);color:white;font-size:10px;padding:4px;text-align:center;">Design</div>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="getItemDesignExternalLink(item)">
+                                                        <div style="margin-bottom:8px;max-width:100%;">
+                                                            <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))"
+                                                               target="_blank"
+                                                               rel="noopener noreferrer"
+                                                               style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:600;text-decoration:none;word-break:break-word;">
+                                                                Open Design Link
+                                                            </a>
                                                         </div>
                                                     </template>
                                                     <template x-if="item.reference_url">

@@ -356,9 +356,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 }
             } elseif ($config['type'] === 'file') {
                 $has_design_field = true;
-                if ($config['required'] && (!isset($_FILES['design_file']) || $_FILES['design_file']['error'] !== UPLOAD_ERR_OK)) {
-                    $error = 'Please upload your design.';
+                $link_post_name = service_order_design_link_post_name($key);
+                $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
+                $has_uploaded_file = isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK;
+                $has_design_link = $design_link_raw !== '';
+
+                if ($config['required'] && !$has_uploaded_file && !$has_design_link) {
+                    $error = 'Please upload your design or paste a design link.';
                     break;
+                }
+
+                if ($has_design_link) {
+                    $link_check = service_order_validate_design_link($design_link_raw);
+                    if (!$link_check['ok']) {
+                        $error = $link_check['error'];
+                        break;
+                    }
                 }
             } elseif ($config['type'] === 'radio' || $config['type'] === 'select') {
                 // Skip branch validation as it's already validated above
@@ -403,6 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
         $design_tmp_path = null;
         $design_name = null;
         $design_mime = null;
+        $design_link_url = null;
         
         if ($has_design_field && isset($_FILES['design_file']) && $_FILES['design_file']['error'] === UPLOAD_ERR_OK) {
             $valid = service_order_validate_file($_FILES['design_file']);
@@ -424,8 +438,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     $error = 'Failed to process uploaded file.';
                 }
             }
-        } elseif (!$has_design_field) {
-            // No design field configured, create item key without file
+        }
+
+        if ($has_design_field) {
+            foreach ($field_configs as $fileKey => $fileConfig) {
+                if (($fileConfig['type'] ?? '') !== 'file' || empty($fileConfig['visible'])) {
+                    continue;
+                }
+                $link_post_name = service_order_design_link_post_name($fileKey);
+                $design_link_raw = trim((string)($_POST[$link_post_name] ?? ''));
+                if ($design_link_raw === '') {
+                    continue;
+                }
+                $link_check = service_order_validate_design_link($design_link_raw);
+                if (!$link_check['ok']) {
+                    $error = $link_check['error'];
+                    break;
+                }
+                $design_link_url = $link_check['url'];
+                break;
+            }
+        }
+
+        if (empty($error) && !isset($item_key)) {
             $item_key = 'service_' . $service_id . '_' . time() . '_' . rand(100, 999);
         }
         
@@ -476,8 +511,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                     continue;
                 }
                 if ($config['type'] === 'file') {
+                    $field_label = $spec_label($config, $key);
                     if ($design_name !== null && $design_name !== '') {
-                        $customization[$spec_label($config, $key)] = $design_name;
+                        $customization[$field_label] = $design_name;
+                    }
+                    if ($design_link_url !== null && $design_link_url !== '') {
+                        $customization[service_order_design_link_storage_key($field_label)] = $design_link_url;
                     }
                     continue;
                 }
@@ -1853,6 +1892,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (file.files && file.files.length > 0) rowHasValue = true;
             });
 
+            row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
+                hasControls = true;
+                if (linkInput.value && linkInput.value.trim() !== '') rowHasValue = true;
+            });
+
             row.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach(input => {
                 if (input.type === 'hidden' || input.dataset.dimensionRole || input.id === 'width_hidden' || input.id === 'height_hidden') return;
                 hasControls = true;
@@ -1873,6 +1917,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const labelEl = row.querySelector('.shopee-form-label');
             if (!labelEl || !labelEl.innerText.includes('*')) return;
             if (getRowValueState(row).rowHasValue) removeRowErrors(row);
+        };
+
+        const isValidDesignLink = (value) => {
+            const text = String(value || '').trim();
+            if (!text) return true;
+            if (/^\s*(javascript|data|file|vbscript):/i.test(text)) return false;
+            try {
+                const parsed = new URL(text);
+                return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+            } catch (err) {
+                return false;
+            }
         };
 
         form.addEventListener('submit', function(e) {
@@ -1910,7 +1966,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     const firstControl = row.querySelector('select, label, input:not([type="hidden"]), textarea') || row;
                     const finalMessage = fieldName.includes('Branch') ? 'Please select a branch for pickup.' : `${fieldName} is required.`;
                     setError(firstControl, finalMessage);
+                    return;
                 }
+
+                row.querySelectorAll('.pf-design-link-input').forEach(linkInput => {
+                    const linkValue = String(linkInput.value || '').trim();
+                    if (linkValue !== '' && !isValidDesignLink(linkValue)) {
+                        setError(linkInput, 'Please enter a valid HTTP or HTTPS design link.');
+                    }
+                });
             });
             
             if (hasError) {
