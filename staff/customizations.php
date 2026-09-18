@@ -2304,13 +2304,7 @@ $online_closed_count = 0;
                                             </template>
                                             <template x-if="staffGetDesignExternalLink(item)">
                                                 <div>
-                                                    <div style="font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; margin-bottom:6px;">🔗 Design Link</div>
-                                                    <input type="text"
-                                                           readonly
-                                                           :value="staffGetDesignExternalLink(item)"
-                                                           @focus="$event.target.select()"
-                                                           @click="$event.target.select()"
-                                                           style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb; font-size:12px; color:#334155; word-break:break-all; overflow-wrap:anywhere; user-select:text; cursor:text;">
+                                                    <div style="font-size:13px; font-weight:600; color:#1f2937; word-break:break-all; overflow-wrap:anywhere; margin-bottom:8px;" x-text="'🔗 ' + staffGetDesignExternalLink(item)"></div>
                                                     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
                                                         <button type="button"
                                                                 @click="staffCopyDesignLink(staffGetDesignExternalLink(item), $event)"
@@ -4795,16 +4789,13 @@ window.pfServiceFieldCatalog = (() => {
                 return out;
             },
             staffShouldRenderDesignSection(item) {
-                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
-                if (profile) {
-                    return profile.designField.hasDesign === true;
-                }
-                return !!(this.staffEffectiveDesignOpenUrl(item)
-                    || this.staffItemHasStoredDesign(item)
-                    || this.staffGetDesignExternalLink(item));
+                return !!(this.staffItemHasUploadedDesignFile(item) || this.staffGetDesignExternalLink(item));
             },
             staffGetDesignExternalLink(item) {
                 if (!item) return '';
+                if (item.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
+                    return String(item.design_external_link).trim();
+                }
                 const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
                     ? item.customization
                     : {};
@@ -4832,14 +4823,37 @@ window.pfServiceFieldCatalog = (() => {
                 return '';
             },
             staffItemHasUploadedDesignFile(item) {
-                return !!(this.staffEffectiveDesignOpenUrl(item) || this.staffItemHasStoredDesign(item));
+                if (!item) return false;
+                if (typeof item.has_design_file === 'boolean') {
+                    return item.has_design_file;
+                }
+                return this.staffItemHasActualUploadedDesignFile(item);
+            },
+            staffItemHasActualUploadedDesignFile(item) {
+                if (!item) return false;
+                if ((item.design_image_bytes || 0) > 0) return true;
+                if (item.design_exists === true) {
+                    const openUrl = String(item.design_open_url || item.design_serve_url || '').trim();
+                    if (openUrl && !/^https?:\/\//i.test(openUrl)) return true;
+                    if (openUrl && /serve_design\.php/i.test(openUrl)) return true;
+                    if (String(item.design_file || '').trim() !== '') return true;
+                }
+                const custom = (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
+                    ? item.customization
+                    : {};
+                for (const key of ['design_upload_data', 'upload_design_data', 'design_data']) {
+                    const text = this.staffCustomizationValueText(custom[key]);
+                    if (text && /^data:/i.test(text)) return true;
+                }
+                for (const key of ['design_upload_path', 'design_file', 'upload_design_path']) {
+                    const text = this.staffCustomizationValueText(custom[key]);
+                    if (!text || /^https?:\/\//i.test(text)) continue;
+                    if (text.includes('/') || /\.(jpe?g|png|gif|webp|pdf|ai|psd|svg)$/i.test(text)) return true;
+                }
+                return false;
             },
             staffDesignSectionLabel(item) {
-                const profile = this.staffGetServiceSpecProfile(this.staffResolveItemServiceId(item));
-                if (profile && profile.designField && profile.designField.label) {
-                    return String(profile.designField.label).trim();
-                }
-                return 'Design';
+                return 'Design / Image';
             },
             /**
              * Canonical staff/customer specification rows — mirrors includes/customization_normalizer.php.
@@ -5119,17 +5133,16 @@ window.pfServiceFieldCatalog = (() => {
                 });
             },
             staffDesignDisplayFilename(item) {
-                if (!item) return 'Open uploaded design';
+                if (!item) return 'Uploaded design';
                 const custom = item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization)
                     ? item.customization
                     : {};
-                return item.design_name
+                const name = item.design_name
                     || item.design_image_name
                     || custom.design_upload_name
                     || custom.design_upload
-                    || custom['Upload Design']
-                    || this.staffBasename(item.design_file || custom.design_upload_path || '')
-                    || 'Open uploaded design';
+                    || this.staffBasename(item.design_file || custom.design_upload_path || '');
+                return String(name || 'Uploaded design').trim();
             },
             staffSpecIsDesignDisplayField(key, value, item) {
                 const meta = this.staffCustomizationFieldMeta(key);
@@ -5380,22 +5393,7 @@ window.pfServiceFieldCatalog = (() => {
                     || this.staffFilenameLooksLikeImage(item.artwork_path || (this.currentJo && this.currentJo.artwork_path));
             },
             staffItemHasStoredDesign(item) {
-                if (!item) return false;
-                const custom = (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization))
-                    ? item.customization
-                    : {};
-                return !!(item.design_is_image
-                    || item.design_image_bytes > 0
-                    || (item.design_name && String(item.design_name).trim())
-                    || (item.design_image_name && String(item.design_image_name).trim())
-                    || (item.design_file && String(item.design_file).trim())
-                    || (item.customization && typeof item.customization === 'object' && !Array.isArray(item.customization) && (
-                        (item.customization.design_upload && String(item.customization.design_upload).trim())
-                        || (item.customization.design_upload_name && String(item.customization.design_upload_name).trim())
-                        || (item.customization.design_upload_path && String(item.customization.design_upload_path).trim())
-                    ))
-                    || (custom.design_upload && String(custom.design_upload).trim())
-                    || (custom['Upload Design'] && String(custom['Upload Design']).trim()));
+                return this.staffItemHasActualUploadedDesignFile(item);
             },
             /** Fallback when API omitted design_open_url but line item has stored artwork + filename */
             staffOrderItemDesignServeUrl(item) {
@@ -5406,7 +5404,7 @@ window.pfServiceFieldCatalog = (() => {
                 return base + '/public/serve_design.php?type=order_item&id=' + id;
             },
             staffEffectiveDesignOpenUrl(item) {
-                if (!item) return '';
+                if (!item || !this.staffItemHasUploadedDesignFile(item)) return '';
                 
                 // Priority 1: Check for revision design URL (newly uploaded revision)
                 const revisionUrl = (item.revision_design_url || '').trim();
@@ -5428,28 +5426,26 @@ window.pfServiceFieldCatalog = (() => {
 
                 // Priority 3: Direct stored design file path.
                 const designFile = (item.design_file || '').trim();
-                if (designFile) return this.staffResolveOrderUploadUrl(designFile);
+                if (designFile && !/^https?:\/\//i.test(designFile)) {
+                    return this.staffResolveOrderUploadUrl(designFile);
+                }
 
                 // Priority 3b: POS-staged upload path stored in customization payload.
                 const customizationDesignPath = ((item.customization && item.customization.design_upload_path) || '').trim();
-                if (customizationDesignPath) return this.staffResolveOrderUploadUrl(customizationDesignPath);
+                if (customizationDesignPath && !/^https?:\/\//i.test(customizationDesignPath)) {
+                    return this.staffResolveOrderUploadUrl(customizationDesignPath);
+                }
 
                 // Priority 4: Use job_orders.artwork_path if the order item did not carry a design_file.
                 const artworkPath = (item.artwork_path || (this.currentJo && this.currentJo.artwork_path) || '').trim();
-                if (artworkPath) return this.staffResolveOrderUploadUrl(artworkPath);
+                if (artworkPath && !/^https?:\/\//i.test(artworkPath)) {
+                    return this.staffResolveOrderUploadUrl(artworkPath);
+                }
 
-                // Priority 5: Reference file as last real upload fallback before placeholder behavior.
-                const referenceOpenUrl = (item.reference_open_url || item.reference_url || '').trim();
-                if (referenceOpenUrl) return this.staffResolveOrderUploadUrl(referenceOpenUrl);
-                
-                // Priority 6: Generic image/file URL only after the item-specific endpoint candidates.
-                const genericDesignUrl = (item.design_url || '').trim();
-                if (genericDesignUrl) return this.staffResolveOrderUploadUrl(genericDesignUrl);
-
-                // Priority 7: Fallback to serve_design.php when we know a design was stored
-                if (item.order_item_id && this.staffItemHasStoredDesign(item)) {
+                if (item.order_item_id && (item.design_image_bytes || 0) > 0) {
                     return this.staffOrderItemDesignServeUrl(item);
                 }
+
                 return '';
             },
             combinedCustomerNotes() {

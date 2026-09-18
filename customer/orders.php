@@ -3059,7 +3059,7 @@ function openItemsModal(orderId, event, options = {}) {
                 }
             }
 
-            const design = item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
+            const design = item.has_design_file || item.has_design ? `<a class="im-asset-trigger" href="${item.design_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.design_url}" class="im-thumb hover:scale-105 transition-transform" alt="Design"></span></a>` : '';
             const designLink = imRenderDesignLinkBlock(item);
             const reference = item.has_reference ? `<a class="im-asset-trigger" href="${item.reference_url}" target="_blank" rel="noopener noreferrer" onclick="event.preventDefault(); event.stopPropagation(); window.open(this.href, '_blank', 'noopener,noreferrer'); return false;"><span class="im-asset-thumb-wrap"><img src="${item.reference_url}" class="im-thumb hover:scale-105 transition-transform" alt="Reference"></span></a>` : '';
             const descLabel = data.is_service_order ? 'Service Description' : 'Item Description';
@@ -3512,19 +3512,16 @@ async function imCopyExternalLink(url, btn) {
 function imRenderDesignLinkBlock(item) {
     const url = String(item.design_external_link || '').trim();
     if (!url || !/^https?:\/\//i.test(url)) return '';
-    const platform = item.design_link_platform || imDesignLinkPlatform(url);
     const isDirect = item.design_link_is_direct_image || imIsDirectImageUrl(url);
     const safeUrl = escIM(url);
     const preview = isDirect
-        ? `<img src="${safeUrl}" class="im-thumb hover:scale-105 transition-transform" alt="Design link preview" style="max-width:160px;max-height:120px;object-fit:contain;border-radius:8px;border:1px solid #dbeafe;background:#fff;">`
-        : `<div style="font-size:0.85rem;font-weight:700;color:#0f172a;margin-bottom:6px;">${escIM(platform)}</div>`;
+        ? `<img src="${safeUrl}" class="im-thumb hover:scale-105 transition-transform" alt="Design preview" style="max-width:160px;max-height:120px;object-fit:contain;border-radius:8px;border:1px solid #dbeafe;background:#fff;margin-bottom:8px;">`
+        : '';
     return `
         <div class="im-design-link-card" style="min-width:220px;max-width:100%;padding:0.75rem;border:1px solid #dbeafe;border-radius:10px;background:#f8fafc;">
-            <div class="im-meta-title" style="margin-bottom:0.35rem;">Design / Image Link</div>
-            <div style="font-size:0.72rem;font-weight:700;color:#0369a1;text-transform:uppercase;margin-bottom:0.5rem;">Source: Design Link</div>
             ${preview}
-            <input type="text" readonly value="${safeUrl}" onclick="this.select();" style="width:100%;box-sizing:border-box;margin-top:0.5rem;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;font-size:12px;word-break:break-all;overflow-wrap:anywhere;">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <div style="font-size:0.9rem;font-weight:600;color:#0f172a;line-height:1.45;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;">🔗 ${safeUrl}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" class="im-copy-link-btn" data-link="${safeUrl}" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:8px;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;cursor:pointer;">Copy Link</button>
                 <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:8px;background:#fff;color:#0369a1;font-size:12px;font-weight:700;text-decoration:none;">Open Link</a>
             </div>

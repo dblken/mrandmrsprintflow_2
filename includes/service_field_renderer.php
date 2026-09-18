@@ -1174,6 +1174,34 @@ function initPfDesignUploadGroups(root) {
                 setMode(this.dataset.pfDesignMode || 'file');
             });
         });
+        const fileInput = group.querySelector('input[type="file"].pf-design-file-input, input[type="file"][name="design_file"]');
+        const linkInput = group.querySelector('.pf-design-link-input');
+        const clearLinkInput = () => {
+            if (!linkInput) return;
+            linkInput.value = '';
+            linkInput.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const clearFileInput = () => {
+            if (!fileInput) return;
+            fileInput.value = '';
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        if (fileInput) {
+            fileInput.addEventListener('change', function() {
+                if (this.files && this.files.length > 0) {
+                    clearLinkInput();
+                    setMode('file');
+                }
+            });
+        }
+        if (linkInput) {
+            linkInput.addEventListener('input', function() {
+                if (String(this.value || '').trim() !== '') {
+                    clearFileInput();
+                    setMode('link');
+                }
+            });
+        }
         setMode(group.dataset.pfDesignInitial || 'file');
     });
 }

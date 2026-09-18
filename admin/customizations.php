@@ -810,6 +810,9 @@ function custom_payment_badge($status) {
                 },
 
                 getItemDesignExternalLink(item) {
+                    if (item?.design_external_link && /^https?:\/\//i.test(String(item.design_external_link).trim())) {
+                        return String(item.design_external_link).trim();
+                    }
                     const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
                     const candidates = ['design_link', 'design_file_link', 'Upload Design Link', 'Design Link'];
                     for (const candidate of candidates) {
@@ -827,16 +830,20 @@ function custom_payment_badge($status) {
                 },
 
                 getItemDesignFileUrl(item) {
-                    return String(item?.design_open_url || item?.design_url || item?.design_file || '').trim();
+                    if (!this.itemHasUploadedDesignFile(item)) return '';
+                    return String(item?.design_open_url || item?.design_url || '').trim();
                 },
 
                 getItemDesignFilename(item) {
                     const custom = item && item.customization && typeof item.customization === 'object' ? item.customization : {};
-                    return String(item?.design_name || item?.design_image_name || custom.design_upload_name || custom['Upload Design'] || 'Uploaded design').trim();
+                    return String(item?.design_name || item?.design_image_name || custom.design_upload_name || 'Uploaded design').trim();
                 },
 
                 itemHasUploadedDesignFile(item) {
-                    return !!this.getItemDesignFileUrl(item) || !!(item?.has_design || item?.design_exists);
+                    if (!item) return false;
+                    if (typeof item.has_design_file === 'boolean') return item.has_design_file;
+                    if (typeof item.has_design === 'boolean' && item.has_design && !this.getItemDesignExternalLink(item)) return item.has_design;
+                    return !!(item?.design_exists && (item?.design_open_url || item?.design_url || item?.design_file));
                 },
 
                 itemHasDesignDetails(item) {
@@ -1417,8 +1424,7 @@ function custom_payment_badge($status) {
                                                     </template>
                                                     <template x-if="getItemDesignExternalLink(item)">
                                                         <div style="margin-bottom:10px;">
-                                                            <div style="font-size:10px;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:4px;">🔗 Design Link</div>
-                                                            <input type="text" readonly :value="getItemDesignExternalLink(item)" @focus="$event.target.select()" @click="$event.target.select()" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:12px;color:#334155;word-break:break-all;overflow-wrap:anywhere;user-select:text;cursor:text;">
+                                                            <div style="font-size:13px;font-weight:600;color:#1f2937;word-break:break-all;overflow-wrap:anywhere;margin-bottom:8px;" x-text="'🔗 ' + getItemDesignExternalLink(item)"></div>
                                                             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
                                                                 <button type="button" @click="copyDesignLink(getItemDesignExternalLink(item), $event)" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Copy Link</button>
                                                                 <a :href="sanitizeExternalLink(getItemDesignExternalLink(item))" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid #dbeafe;border-radius:8px;background:#eff6ff;font-size:12px;font-weight:600;color:#1d4ed8;text-decoration:none;">Open Link</a>

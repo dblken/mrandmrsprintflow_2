@@ -1175,14 +1175,17 @@ foreach ($items as $lineIndex => $item) {
         }
     }
 
+    $designSource = pf_order_ui_resolve_design_source($item, false, $custom_data);
+    $designExternalLink = trim((string)($designSource['link_url'] ?? ''));
+    $designLinkPlatform = trim((string)($designSource['link_platform'] ?? 'Design Link'));
+    $designLinkIsDirectImage = !empty($designSource['link_is_direct_image']);
+    $has_own_design = !empty($designSource['has_file']);
+
     $line_oid = (int)($item['order_item_id'] ?? 0);
-    $designMeta = function_exists('getOrderDesignImage')
-        ? getOrderDesignImage($item, ['order_id' => $order_id, 'heal' => true])
+    $designMeta = ($has_own_design && function_exists('getOrderDesignImage'))
+        ? getOrderDesignImage($item, ['order_id' => $order_id, 'heal' => false])
         : null;
-    $has_own_design = is_array($designMeta) ? !empty($designMeta['exists']) : printflow_order_item_row_has_retrievable_design($item);
-    $design_serve_id = $has_own_design
-        ? $line_oid
-        : (($line_oid === 0 && $any_design_order_item_id > 0) ? $any_design_order_item_id : 0);
+    $design_serve_id = $has_own_design ? $line_oid : 0;
     $has_design_thumb = $has_own_design && ($design_serve_id > 0 || !empty($designMeta['direct_url']));
     $design_url = null;
     if ($has_own_design && is_array($designMeta)) {
@@ -1191,15 +1194,6 @@ foreach ($items as $lineIndex => $item) {
     if ($design_url === null && $has_design_thumb && $design_serve_id > 0) {
         $design_url = $base_path . '/public/serve_design.php?type=order_item&id=' . $design_serve_id;
     }
-
-    $designLinkMeta = function_exists('pf_order_ui_extract_design_external_link')
-        ? pf_order_ui_extract_design_external_link($custom_data)
-        : ['url' => '', 'platform' => 'Design Link'];
-    $designExternalLink = trim((string)($designLinkMeta['url'] ?? ''));
-    $designLinkPlatform = trim((string)($designLinkMeta['platform'] ?? 'Design Link'));
-    $designLinkIsDirectImage = $designExternalLink !== ''
-        && function_exists('pf_order_ui_is_direct_renderable_image_url')
-        && pf_order_ui_is_direct_renderable_image_url($designExternalLink);
 
     $service_items_raw[] = [
         'raw_subtotal' => $raw_subtotal,
@@ -1218,7 +1212,8 @@ foreach ($items as $lineIndex => $item) {
         'estimated_price' => format_currency($raw_subtotal),
         'final_price'   => format_currency($raw_subtotal),
         'customization' => $customForPayload,
-        'has_design'    => $has_design_thumb,
+        'has_design'    => $has_own_design,
+        'has_design_file' => $has_own_design,
         'has_reference' => !empty($item['reference_image_file']),
         'design_kind'   => $has_own_design
             ? pf_asset_kind($item['design_image_mime'] ?? '', $item['design_file'] ?? '')

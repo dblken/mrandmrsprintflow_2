@@ -209,6 +209,150 @@ if (!function_exists('pf_order_ui_extract_design_external_link')) {
     }
 }
 
+if (!function_exists('pf_order_ui_item_has_actual_uploaded_design_file')) {
+    /**
+     * True only when the order line has a retrievable uploaded design file (not a link-only submission).
+     */
+    function pf_order_ui_item_has_actual_uploaded_design_file(array $item, bool $is_cart_item, ?array $custom = null): bool
+    {
+        if ($custom === null) {
+            $custom = $is_cart_item
+                ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
+                : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+        }
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+
+        if ($is_cart_item) {
+            if (!empty($item['design_tmp_path']) && is_file((string)$item['design_tmp_path'])) {
+                return true;
+            }
+            if (!empty($item['uploaded_files']) && is_array($item['uploaded_files'])) {
+                foreach ($item['uploaded_files'] as $upload) {
+                    if (!is_array($upload)) {
+                        continue;
+                    }
+                    $tmp = trim((string)($upload['tmp_path'] ?? ($upload['path'] ?? '')));
+                    if ($tmp !== '' && is_file($tmp)) {
+                        return true;
+                    }
+                }
+            }
+            foreach (['design_upload_data', 'upload_design_data', 'design_data'] as $key) {
+                $val = trim((string)($custom[$key] ?? ''));
+                if ($val !== '' && str_starts_with($val, 'data:')) {
+                    return true;
+                }
+            }
+            foreach (['design_upload_path', 'design_file', 'upload_design_path'] as $key) {
+                $path = trim((string)($custom[$key] ?? ''));
+                if ($path === '' || pf_order_ui_is_safe_external_url($path)) {
+                    continue;
+                }
+                if (function_exists('printflow_resolve_order_upload_disk_path')) {
+                    $disk = printflow_resolve_order_upload_disk_path($path);
+                    if ($disk !== null && is_file($disk)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        if (function_exists('printflow_order_item_row_has_retrievable_design')
+            && printflow_order_item_row_has_retrievable_design($item)) {
+            return true;
+        }
+
+        if (function_exists('getOrderDesignImage') && (int)($item['order_item_id'] ?? 0) > 0) {
+            $resolved = getOrderDesignImage($item, [
+                'heal' => false,
+                'customization' => $custom,
+            ]);
+            if (!empty($resolved['exists'])) {
+                return true;
+            }
+        }
+
+        foreach (['design_upload_data', 'upload_design_data', 'design_data'] as $key) {
+            $val = trim((string)($custom[$key] ?? ''));
+            if ($val !== '' && str_starts_with($val, 'data:')) {
+                return true;
+            }
+        }
+        foreach (['design_upload_path', 'design_file', 'upload_design_path'] as $key) {
+            $path = trim((string)($custom[$key] ?? ''));
+            if ($path === '' || pf_order_ui_is_safe_external_url($path)) {
+                continue;
+            }
+            if (function_exists('printflow_resolve_order_upload_disk_path')) {
+                $disk = printflow_resolve_order_upload_disk_path($path);
+                if ($disk !== null && is_file($disk)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+}
+
+if (!function_exists('pf_order_ui_resolve_design_source')) {
+    /**
+     * Distinguish uploaded file vs external design/image link for one order line.
+     *
+     * @return array{
+     *   has_file:bool,
+     *   has_link:bool,
+     *   file_url:?string,
+     *   file_name:string,
+     *   file_is_previewable_image:bool,
+     *   link_url:string,
+     *   link_platform:string,
+     *   link_is_direct_image:bool
+     * }
+     */
+    function pf_order_ui_resolve_design_source(array $item, bool $is_cart_item, ?array $custom = null): array
+    {
+        if ($custom === null) {
+            $custom = $is_cart_item
+                ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
+                : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
+        }
+        if (!is_array($custom)) {
+            $custom = [];
+        }
+
+        $linkMeta = pf_order_ui_extract_design_external_link($custom);
+        $linkUrl = trim((string)($linkMeta['url'] ?? ''));
+        $hasFile = pf_order_ui_item_has_actual_uploaded_design_file($item, $is_cart_item, $custom);
+
+        $fileUrl = null;
+        $fileName = 'Uploaded design';
+        $fileIsPreviewable = false;
+
+        if ($hasFile) {
+            $fileUrl = pf_order_ui_resolve_customer_upload_url($item, $is_cart_item);
+            $uploadMeta = pf_order_ui_resolve_design_upload_meta($item, $is_cart_item, $fileUrl);
+            $fileName = (string)($uploadMeta['name'] ?? 'Uploaded design');
+            $fileIsPreviewable = !empty($uploadMeta['is_previewable_image']);
+        }
+
+        return [
+            'has_file' => $hasFile,
+            'has_link' => $linkUrl !== '',
+            'file_url' => $fileUrl,
+            'file_name' => $fileName,
+            'file_is_previewable_image' => $fileIsPreviewable,
+            'link_url' => $linkUrl,
+            'link_platform' => (string)($linkMeta['platform'] ?? 'Design Link'),
+            'link_is_direct_image' => $linkUrl !== '' && pf_order_ui_is_direct_renderable_image_url($linkUrl),
+        ];
+    }
+}
+
 if (!function_exists('pf_order_ui_print_copy_link_script_once')) {
     function pf_order_ui_print_copy_link_script_once(): void
     {
@@ -462,6 +606,10 @@ if (!function_exists('pf_order_ui_temp_preview_url')) {
 if (!function_exists('pf_order_ui_resolve_customer_upload_url')) {
     function pf_order_ui_resolve_customer_upload_url(array $item, bool $is_cart_item): ?string
     {
+        if (!pf_order_ui_item_has_actual_uploaded_design_file($item, $is_cart_item)) {
+            return null;
+        }
+
         $base_url = defined('BASE_URL') ? BASE_URL : (function_exists('pf_app_base_path') ? pf_app_base_path() : '');
 
         if ($is_cart_item) {
@@ -486,14 +634,15 @@ if (!function_exists('pf_order_ui_resolve_customer_upload_url')) {
         }
 
         if (function_exists('getOrderDesignImage') && (int)($item['order_item_id'] ?? 0) > 0) {
-            $resolved = getOrderDesignImage($item, ['heal' => true]);
+            $resolved = getOrderDesignImage($item, ['heal' => false]);
             if (!empty($resolved['exists'])) {
                 return $resolved['direct_url'] ?? $resolved['serve_url'] ?? $resolved['url'];
             }
         }
 
-        $has_design = !empty($item['design_image']) || !empty($item['design_file']);
-        if ($has_design && (int)($item['order_item_id'] ?? 0) > 0) {
+        if (function_exists('printflow_order_item_row_has_retrievable_design')
+            && printflow_order_item_row_has_retrievable_design($item)
+            && (int)($item['order_item_id'] ?? 0) > 0) {
             return rtrim($base_url, '/') . '/public/serve_design.php?type=order_item&id=' . (int)$item['order_item_id'];
         }
 
@@ -1012,10 +1161,14 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $rawCustom = $is_cart_item
         ? printflow_decode_modal_customization_payload($item['customization'] ?? [])
         : printflow_decode_modal_customization_payload($item['customization_data'] ?? '');
-    $designLinkMeta = pf_order_ui_extract_design_external_link(is_array($rawCustom) ? $rawCustom : []);
-    $designLinkUrl = (string)($designLinkMeta['url'] ?? '');
-    $designLinkPlatform = (string)($designLinkMeta['platform'] ?? 'Design Link');
-    $designLinkIsDirectImage = $designLinkUrl !== '' && pf_order_ui_is_direct_renderable_image_url($designLinkUrl);
+    $designSource = pf_order_ui_resolve_design_source($item, $is_cart_item, is_array($rawCustom) ? $rawCustom : []);
+    $hasDesignFile = !empty($designSource['has_file']);
+    $hasDesignLink = !empty($designSource['has_link']);
+    $designLinkUrl = (string)($designSource['link_url'] ?? '');
+    $designLinkIsDirectImage = !empty($designSource['link_is_direct_image']);
+    $upload_url = $hasDesignFile ? ($designSource['file_url'] ?? null) : null;
+    $upload_name = (string)($designSource['file_name'] ?? 'Uploaded design');
+    $upload_is_previewable_image = $hasDesignFile && !empty($designSource['file_is_previewable_image']);
     $custom = pf_order_ui_normalize_review_customization($rawCustom, $item, $is_cart_item);
     $notesCombined = pf_order_ui_resolve_special_instructions_text($rawCustom, $item);
     $name = printflow_resolve_order_item_name($item['name'] ?? ($item['product_name'] ?? 'Order Item'), $custom, 'Order Item');
@@ -1029,10 +1182,7 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
     $estimated_total_display = $estimated_total > 0 ? format_currency($estimated_total) : 'To Be Discussed';
     $service_price_label = pf_order_ui_service_price_label($item);
     $media = pf_order_ui_resolve_item_design_urls($item, $is_cart_item, $name);
-    $upload_url = $media['upload_url'] ?? null;
     $catalog_url = $media['catalog_url'] ?? null;
-    $upload_name = (string)($media['upload_name'] ?? 'Uploaded design');
-    $upload_is_previewable_image = !empty($media['upload_is_previewable_image']);
     $header_image_url = $is_service_item ? $catalog_url : ($catalog_url ?: ($upload_is_previewable_image ? $upload_url : null));
     $ref_url = $media['ref_url'];
 
@@ -1124,10 +1274,10 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                     </div>
                 <?php endforeach; ?>
 
-                <?php if ($upload_url): ?>
+                <?php if ($hasDesignFile && $upload_url): ?>
                     <div class="review-spec-tile order-item-spec-tile order-item-upload-design" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
                         <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Design / Image</div>
-                        <div style="font-size: 0.72rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">Source: Uploaded File</div>
+                        <div style="font-size: 0.72rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 8px;">📁 Uploaded File</div>
                         <?php if ($upload_is_previewable_image): ?>
                         <img src="<?php echo htmlspecialchars($upload_url); ?>" alt="Uploaded design preview" class="review-order-item" style="width: 100%; max-width: 320px; max-height: 280px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; cursor: zoom-in;">
                         <?php else: ?>
@@ -1143,16 +1293,13 @@ function render_order_item_clean($item, $is_cart_item = false, $show_price = tru
                     <?php $has_specs = true; ?>
                 <?php endif; ?>
 
-                <?php if ($designLinkUrl !== ''): ?>
+                <?php if ($hasDesignLink && $designLinkUrl !== ''): ?>
                     <div class="review-spec-tile order-item-design-link" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(83, 197, 224, 0.18); padding: 0.85rem; border-radius: 10px;">
-                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Design / Image</div>
-                        <div style="font-size: 0.72rem; color: #53c5e0; font-weight: 700; text-transform: uppercase; margin-bottom: 6px;">Source: Design Link</div>
+                        <div class="pf-spec-label" style="font-size: 0.65rem; color: #9fc4d4; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.02em;">Design / Image</div>
                         <?php if ($designLinkIsDirectImage): ?>
-                        <img src="<?php echo htmlspecialchars($designLinkUrl, ENT_QUOTES, 'UTF-8'); ?>" alt="Design link preview" style="width: 100%; max-width: 320px; max-height: 220px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; margin-bottom: 10px;">
-                        <?php else: ?>
-                        <div style="font-size: 0.85rem; color: #eaf6fb; font-weight: 700; margin-bottom: 8px;"><?php echo pf_order_ui_escape($designLinkPlatform); ?></div>
+                        <img src="<?php echo htmlspecialchars($designLinkUrl, ENT_QUOTES, 'UTF-8'); ?>" alt="Design preview" style="width: 100%; max-width: 320px; max-height: 220px; object-fit: contain; border-radius: 8px; border: 1px solid rgba(83, 197, 224, 0.22); background: rgba(0,0,0,0.25); display: block; margin-bottom: 10px;">
                         <?php endif; ?>
-                        <input type="text" readonly value="<?php echo pf_order_ui_escape($designLinkUrl); ?>" onclick="this.select();" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid rgba(83,197,224,0.22);border-radius:8px;background:rgba(0,0,0,0.25);color:#eaf6fb;font-size:12px;word-break:break-all;overflow-wrap:anywhere;user-select:text;cursor:text;margin-bottom:10px;">
+                        <div style="font-size: 0.9rem; color: #eaf6fb; font-weight: 600; line-height: 1.45; word-break: break-all; overflow-wrap: anywhere; margin-bottom: 10px;">🔗 <?php echo pf_order_ui_escape($designLinkUrl); ?></div>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;">
                             <button type="button" onclick="pfCopyExternalLink(<?php echo json_encode($designLinkUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES); ?>, this)" style="padding:8px 12px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.12);color:#eaf6fb;font-size:12px;font-weight:700;cursor:pointer;">Copy Link</button>
                             <a href="<?php echo pf_order_ui_escape($designLinkUrl); ?>" target="_blank" rel="noopener noreferrer" style="padding:8px 12px;border:1px solid rgba(83,197,224,0.35);border-radius:8px;background:rgba(83,197,224,0.08);color:#53c5e0;font-size:12px;font-weight:700;text-decoration:none;">Open Link</a>
