@@ -20,6 +20,10 @@ function printflow_normalize_service_field_options($options) {
         return $options;
     }
 
+    if (!function_exists('printflow_normalize_service_field_staff_flags')) {
+        require_once __DIR__ . '/service_field_priority_helper.php';
+    }
+
     $max = printflow_service_field_option_max_length();
     $trimToMax = static function (string $value) use ($max): string {
         $value = trim($value);
@@ -49,6 +53,9 @@ function printflow_normalize_service_field_options($options) {
                         $row['nested_fields'][$idx]['options'] = printflow_normalize_service_field_options($nested['options']);
                     }
                 }
+            }
+            if (isset($row['staff_flags']) && is_array($row['staff_flags'])) {
+                $row['staff_flags'] = printflow_normalize_service_field_staff_flags($row['staff_flags']);
             }
             $out[] = $row;
             continue;

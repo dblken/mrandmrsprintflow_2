@@ -778,6 +778,11 @@ class JobOrderService {
             ));
 
             try {
+                require_once __DIR__ . '/service_field_priority_helper.php';
+                $serviceIdForPriority = (int)($custom['service_id'] ?? 0);
+                $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $custom);
+                $jobPriority = (string)($priorityRequest['job_priority'] ?? 'NORMAL');
+
                 $jid = self::createOrder([
                     'order_id'        => $orderId,
                     'customer_id'     => $customerId,
@@ -793,7 +798,7 @@ class JobOrderService {
                     'estimated_total' => $unit_price * $job_qty,
                     'notes'           => $notes,
                     'due_date'        => null,
-                    'priority'        => 'NORMAL',
+                    'priority'        => $jobPriority,
                     'order_item_id'   => (int)($item['order_item_id'] ?? 0),
                     'artwork_path'    => self::orderItemArtworkPath((int)($item['order_item_id'] ?? 0)),
                     'created_by'      => null,
@@ -2324,12 +2329,19 @@ class JobOrderService {
             ];
         }
         $service_name = get_service_name_from_customization($first_custom, $items_out[0]['product_name'] ?? 'Custom Order');
+        require_once __DIR__ . '/service_field_priority_helper.php';
+        $serviceIdForPriority = (int)($items_out[0]['service_id'] ?? 0);
+        if ($serviceIdForPriority <= 0) {
+            $serviceIdForPriority = (int)($first_custom['service_id'] ?? 0);
+        }
+        $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $first_custom);
         return [
             'items'        => $items_out,
             'width_ft'     => $width_ft,
             'height_ft'    => $height_ft,
             'service_type' => $service_name,
             'line_qty'     => $total_qty,
+            'priority_request' => $priorityRequest,
         ];
         }
 
@@ -2825,6 +2837,7 @@ class JobOrderService {
             }
         }
 
+        require_once __DIR__ . '/service_field_priority_helper.php';
         return [
             'items' => $items_out,
             'width_ft' => $width_ft,
@@ -2834,6 +2847,10 @@ class JobOrderService {
             'service_category' => $service_category,
             'line_qty' => $total_qty,
             'customization_details' => $first_custom,
+            'priority_request' => printflow_resolve_dynamic_order_priority(
+                (int)($service_id ?: ($first_custom['service_id'] ?? 0)),
+                $first_custom
+            ),
         ];
     }
 
@@ -2972,6 +2989,14 @@ class JobOrderService {
             if ($serviceName === '') {
                 $serviceName = get_service_name_from_customization($firstCustom, 'Custom Order');
             }
+
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            $serviceIdForPriority = (int)($itemsOut[0]['service_id'] ?? 0);
+            if ($serviceIdForPriority <= 0) {
+                $serviceIdForPriority = (int)($firstCustom['service_id'] ?? 0);
+            }
+            $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $firstCustom);
+
             $payloads[$orderId] = [
                 'items' => $itemsOut,
                 'width_ft' => $widthFt,
@@ -2979,6 +3004,7 @@ class JobOrderService {
                 'service_type' => $serviceName,
                 'service_id' => (int)($itemsOut[0]['service_id'] ?? 0),
                 'line_qty' => $totalQty,
+                'priority_request' => $priorityRequest,
             ];
         }
 
@@ -3123,6 +3149,13 @@ class JobOrderService {
                 $service_name = get_service_name_from_customization($first_custom, 'Custom Order');
             }
 
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            $serviceIdForPriority = (int)($items_out[0]['service_id'] ?? 0);
+            if ($serviceIdForPriority <= 0) {
+                $serviceIdForPriority = (int)($first_custom['service_id'] ?? 0);
+            }
+            $priorityRequest = printflow_resolve_dynamic_order_priority($serviceIdForPriority, $first_custom);
+
             $payloads[$orderId] = [
                 'items'        => $items_out,
                 'width_ft'     => $width_ft,
@@ -3130,6 +3163,7 @@ class JobOrderService {
                 'service_type' => $service_name,
                 'service_id'   => (int)($items_out[0]['service_id'] ?? 0),
                 'line_qty'     => $total_qty,
+                'priority_request' => $priorityRequest,
             ];
         }
 
@@ -3201,6 +3235,10 @@ class JobOrderService {
         }
         if (trim((string)($payload['service_category'] ?? '')) !== '') {
             $jo['service_category'] = printflow_canonical_admin_service_category((string)$payload['service_category']);
+        }
+        if (!empty($payload['priority_request']) && is_array($payload['priority_request'])) {
+            require_once __DIR__ . '/service_field_priority_helper.php';
+            printflow_apply_priority_request_to_row($jo, $payload['priority_request']);
         }
         $titleParts = [];
         foreach ($payload['items'] ?? [] as $it) {

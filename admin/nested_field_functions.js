@@ -1,5 +1,28 @@
 // Nested Field Management Functions
 
+window.printflowCollectOptionStaffFlags = function(optionItem) {
+    const urgent = optionItem ? optionItem.querySelector('.option-urgent-flag') : null;
+    if (urgent && urgent.checked) {
+        return ['urgent_request'];
+    }
+    return [];
+};
+
+window.printflowBuildServiceOptionPayload = function(optionItem, optionValue, optionPrice, nestedFields) {
+    const payload = {
+        value: optionValue,
+        price: optionPrice
+    };
+    const staffFlags = window.printflowCollectOptionStaffFlags(optionItem);
+    if (staffFlags.length > 0) {
+        payload.staff_flags = staffFlags;
+    }
+    if (nestedFields && nestedFields.length > 0) {
+        payload.nested_fields = nestedFields;
+    }
+    return payload;
+};
+
 // Toggle nested field panel when + button is clicked
 window.toggleNestedFieldPanel = function(btn, fieldKey, optionIndex) {
     const optionItem = btn.closest('.radio-option-item');
@@ -301,17 +324,13 @@ window.collectNestedFieldConfigurations = function() {
                         });
                         
                         if (nestedFields.length > 0) {
-                            options.push({
-                                value: optionValue,
-                                price: optionPrice,
-                                nested_fields: nestedFields
-                            });
+                            options.push(window.printflowBuildServiceOptionPayload(optionItem, optionValue, optionPrice, nestedFields));
                         } else {
-                            options.push({ value: optionValue, price: optionPrice });
+                            options.push(window.printflowBuildServiceOptionPayload(optionItem, optionValue, optionPrice));
                         }
                     } else {
                         // No nested field panel
-                        options.push({ value: optionValue, price: optionPrice });
+                        options.push(window.printflowBuildServiceOptionPayload(optionItem, optionValue, optionPrice));
                     }
                 });
                 
@@ -329,7 +348,7 @@ window.collectNestedFieldConfigurations = function() {
                     if (!val) return;
                     const priceInput = item.querySelector('.option-price-input');
                     const optionPrice = priceInput ? parseFloat(priceInput.value) || 0 : 0;
-                    options.push({ value: val, price: optionPrice });
+                    options.push(window.printflowBuildServiceOptionPayload(item, val, optionPrice));
                 });
                 if (options.length > 0) config.options = options;
             }

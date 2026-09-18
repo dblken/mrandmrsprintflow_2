@@ -581,6 +581,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token($_POST['csrf_toke
                 $customization['service_type'] = $service['name'];
             }
 
+            require_once __DIR__ . '/../includes/service_field_priority_helper.php';
+            $priorityRequest = printflow_resolve_dynamic_order_priority($service_id, $customization);
+            $prioritySnapshot = printflow_build_staff_priority_request_snapshot($priorityRequest);
+            if ($prioritySnapshot !== null) {
+                $customization['_staff_priority_request'] = $prioritySnapshot;
+            }
+
             // Calculate estimated price dynamically based on selected options
             $base_price = (float)($service['base_price'] ?? 0);
             $options_total = 0;

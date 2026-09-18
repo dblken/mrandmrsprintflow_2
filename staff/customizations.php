@@ -439,6 +439,43 @@ $online_closed_count = 0;
             font-weight: 700;
         }
 
+        .pf-urgent-request-badge {
+            display: inline-flex;
+            align-items: center;
+            margin-top: 4px;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            background: #fee2e2;
+            color: #b91c1c;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+        }
+
+        .pf-urgent-request-banner {
+            margin-bottom: 20px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid #fecaca;
+            background: #fef2f2;
+        }
+
+        .pf-urgent-request-banner__title {
+            font-size: 13px;
+            font-weight: 800;
+            color: #b91c1c;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .pf-urgent-request-banner__line {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #7f1d1d;
+            word-break: break-word;
+        }
+
         .source-badge-pill {
             min-width: 76px;
             text-align: center;
@@ -1820,11 +1857,11 @@ $online_closed_count = 0;
 
                         <!-- Filter Menu -->
                         <div style="position: relative;">
-                            <button @click="filterOpen = !filterOpen; sortOpen = false" class="toolbar-btn" :class="(serviceFilter !== 'ALL' || dateFilter !== 'ALL') ? 'active' : ''">
+                            <button @click="filterOpen = !filterOpen; sortOpen = false" class="toolbar-btn" :class="(serviceFilter !== 'ALL' || dateFilter !== 'ALL' || priorityFilter !== 'ALL') ? 'active' : ''">
                                 <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
                                 <span class="toolbar-btn-label-light">Filter</span>
-                                <template x-if="serviceFilter !== 'ALL' || dateFilter !== 'ALL'">
-                                    <span class="filter-badge" x-text="(serviceFilter !== 'ALL' ? 1 : 0) + (dateFilter !== 'ALL' ? 1 : 0)"></span>
+                                <template x-if="serviceFilter !== 'ALL' || dateFilter !== 'ALL' || priorityFilter !== 'ALL'">
+                                    <span class="filter-badge" x-text="(serviceFilter !== 'ALL' ? 1 : 0) + (dateFilter !== 'ALL' ? 1 : 0) + (priorityFilter !== 'ALL' ? 1 : 0)"></span>
                                 </template>
                             </button>
                             <div x-show="filterOpen" @click.away="filterOpen = false" x-cloak class="dropdown-panel filter-panel" style="right: 0;">
@@ -1873,6 +1910,18 @@ $online_closed_count = 0;
 
                                 <div class="filter-section">
                                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                        <span class="filter-label" style="margin:0;">Priority</span>
+                                        <button @click="priorityFilter = 'ALL'" class="filter-reset-link">Reset</button>
+                                    </div>
+                                    <select x-model="priorityFilter" class="filter-select">
+                                        <option value="ALL">All</option>
+                                        <option value="REGULAR">Regular</option>
+                                        <option value="URGENT">Urgent</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-section">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                                         <span class="filter-label" style="margin:0;">Keyword search</span>
                                         <button @click="search = ''" class="filter-reset-link">Reset</button>
                                     </div>
@@ -1880,7 +1929,7 @@ $online_closed_count = 0;
                                 </div>
 
                                 <div class="filter-footer">
-                                    <button @click="serviceFilter = 'ALL'; dateFilter = 'ALL'; customDateFrom = ''; customDateTo = ''; search = '';" class="filter-btn-reset" style="width:100%;">
+                                    <button @click="serviceFilter = 'ALL'; dateFilter = 'ALL'; priorityFilter = 'ALL'; customDateFrom = ''; customDateTo = ''; search = '';" class="filter-btn-reset" style="width:100%;">
                                         Reset all filters
                                     </button>
                                 </div>
@@ -1958,6 +2007,7 @@ $online_closed_count = 0;
                                     <td class="pl-6 pr-4 py-4 relative order-code-cell" data-label="Order">
                                         <div class="row-indicator"></div>
                                         <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
+                                        <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">🔴 Urgent Request</span>
                                     </td>
                                     <td class="px-4 py-4 customization-info-cell" data-label="Details">
                                         <div class="flex items-center gap-3">
@@ -2034,6 +2084,7 @@ $online_closed_count = 0;
                                     :title="getDisplayOrderCode(jo)"
                                     x-text="getDisplayOrderCode(jo)"
                                 ></span>
+                                <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">🔴 Urgent Request</span>
                             </div>
 
                             <div class="customization-mobile-card__section">
@@ -2222,6 +2273,20 @@ $online_closed_count = 0;
 
                 <!-- Modal Body -->
                 <div style="padding:24px;">
+
+                    <div x-show="orderIsUrgentRequest(currentJo)" x-cloak class="pf-urgent-request-banner">
+                        <div class="pf-urgent-request-banner__title">🔴 Urgent Order Request</div>
+                        <div class="pf-urgent-request-banner__line" x-show="getPriorityRequestLabel(currentJo) && getPriorityRequestValue(currentJo)">
+                            <strong x-text="getPriorityRequestLabel(currentJo) + ':'"></strong>
+                            <span x-text="getPriorityRequestValue(currentJo)"></span>
+                        </div>
+                        <template x-for="(relatedValue, relatedLabel) in getPriorityRelatedFields(currentJo)" :key="relatedLabel">
+                            <div class="pf-urgent-request-banner__line">
+                                <strong x-text="relatedLabel + ':'"></strong>
+                                <span x-text="relatedValue"></span>
+                            </div>
+                        </template>
+                    </div>
 
                     <!-- Customer Row -->
                     <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid #f3f4f6;">
@@ -3587,6 +3652,7 @@ window.pfServiceFieldCatalog = (() => {
             materialSearch: '',
             dateFilter: 'ALL',
             serviceFilter: 'ALL',
+            priorityFilter: 'ALL',
             customDateFrom: '',
             customDateTo: '',
             actionBusy: false,
@@ -3996,6 +4062,30 @@ window.pfServiceFieldCatalog = (() => {
                     ? row.order_id
                     : (row.id !== null && row.id !== undefined ? row.id : 0);
                 return 'ORD-' + String(orderId).padStart(5, '0');
+            },
+            orderIsUrgentRequest(row) {
+                if (!row) return false;
+                return row.is_urgent_request === true
+                    || row.is_urgent_request === 1
+                    || row.is_urgent_request === '1';
+            },
+            orderPriorityFilterMatches(row) {
+                if (this.priorityFilter === 'ALL') return true;
+                if (this.priorityFilter === 'URGENT') return this.orderIsUrgentRequest(row);
+                if (this.priorityFilter === 'REGULAR') {
+                    return !!row.has_priority_field && !this.orderIsUrgentRequest(row);
+                }
+                return true;
+            },
+            getPriorityRequestLabel(row) {
+                return String((row && row.priority_request_label) || 'Priority').trim();
+            },
+            getPriorityRequestValue(row) {
+                return String((row && row.priority_request_value) || '').trim();
+            },
+            getPriorityRelatedFields(row) {
+                const related = row && row.priority_request_related;
+                return related && typeof related === 'object' ? related : {};
             },
             formatCustomizationInfo(row) {
                 if (!row) return 'Custom service';
@@ -6482,6 +6572,10 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.serviceFilter !== 'ALL') {
                     const rowService = this.getServiceFilterValue(jo);
                     if (rowService !== this.serviceFilter) return false;
+                }
+
+                if (this.priorityFilter !== 'ALL' && !this.orderPriorityFilterMatches(jo)) {
+                    return false;
                 }
 
                 if (this.dateFilter !== 'ALL') {

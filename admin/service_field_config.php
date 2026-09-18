@@ -365,11 +365,17 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                         $optValue = is_array($option) ? ($option['value'] ?? '') : $option;
                                                         $optPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
                                                         $nestedFields = is_array($option) ? ($option['nested_fields'] ?? []) : [];
+                                                        $optStaffFlags = is_array($option) ? ($option['staff_flags'] ?? []) : [];
+                                                        $optUrgentFlag = in_array('urgent_request', $optStaffFlags, true) || in_array('urgent', $optStaffFlags, true);
                                                     ?>
                                                         <div class="option-item radio-option-item" data-option-index="<?php echo $optIdx; ?>" style="flex-direction:column;align-items:stretch;">
-                            <div style="display:flex;gap:8px;align-items:center;">
-                                <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
-                                <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;">
+                                <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option">
+                                    <input type="checkbox" class="option-urgent-flag" <?php echo $optUrgentFlag ? 'checked' : ''; ?>>
+                                    <span>Urgent request</span>
+                                </label>
                                 <button type="button" class="btn-add" onclick="toggleNestedFieldPanel(this, '<?php echo htmlspecialchars($key); ?>', <?php echo $optIdx; ?>)" style="background:#10b981;color:white;border:none;padding:8px 12px;border-radius:6px;font-size:14px;font-weight:600;min-width:40px;" title="Add Nested Field">
                                     +
                                 </button>
@@ -387,10 +393,16 @@ $page_title = 'Configure Input Fields - ' . $service['name'];
                                                     <?php foreach ($config['options'] ?? [] as $option): 
                                                         $optValue = is_array($option) ? ($option['value'] ?? '') : $option;
                                                         $optPrice = is_array($option) ? ($option['price'] ?? 0) : 0;
+                                                        $optStaffFlags = is_array($option) ? ($option['staff_flags'] ?? []) : [];
+                                                        $optUrgentFlag = in_array('urgent_request', $optStaffFlags, true) || in_array('urgent', $optStaffFlags, true);
                                                     ?>
-                                                        <div class="option-item" style="display:flex;gap:8px;align-items:center;">
-                                                            <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;">
-                                                            <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
+                                                        <div class="option-item" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                                            <input type="text" class="option-input" value="<?php echo htmlspecialchars($optValue); ?>" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;">
+                                                            <input type="number" class="option-price-input" value="<?php echo $optPrice; ?>" placeholder="Price" min="0" step="0.01" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option">
+                                                            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option">
+                                                                <input type="checkbox" class="option-urgent-flag" <?php echo $optUrgentFlag ? 'checked' : ''; ?>>
+                                                                <span>Urgent request</span>
+                                                            </label>
                                                             <button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -914,8 +926,8 @@ window.addOption = function(btn) {
     const list = btn.previousElementSibling;
     const item = document.createElement('div');
     item.className = 'option-item';
-    item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>';
+    item.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeOption(this)">Remove</button>';
     list.appendChild(item);
 };
 
@@ -943,8 +955,8 @@ window.addNewFieldOption = function() {
     const list = document.getElementById('new-field-options-list');
     const item = document.createElement('div');
     item.className = 'option-item';
-    item.style.cssText = 'display:flex;gap:8px;align-items:center;';
-    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>';
+    item.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+    item.innerHTML = '<input type="text" class="option-input" placeholder="Enter option (<?php echo (int)$pf_service_option_max_length; ?> MAX CHARACTERS)" maxlength="<?php echo (int)$pf_service_option_max_length; ?>" oninput="formatTextToTitleCase(this)" style="flex:2;min-width:160px;"><input type="number" class="option-price-input" placeholder="Price" min="0" step="0.01" value="0" style="flex:1;min-width:90px;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;" title="Price for this option"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#374151;white-space:nowrap;" title="Staff will see an urgent indicator when the customer selects this option"><input type="checkbox" class="option-urgent-flag"><span>Urgent request</span></label><button type="button" class="btn-remove" onclick="removeNewFieldOption(this)">Remove</button>';
     list.appendChild(item);
 };
 
@@ -1072,12 +1084,12 @@ window.addNewField = function() {
                 });
                 
                 if (nestedFields.length > 0) {
-                    options.push({ value: optionValue, price: optionPrice, nested_fields: nestedFields });
+                    options.push(window.printflowBuildServiceOptionPayload(optionItem, optionValue, optionPrice, nestedFields));
                 } else {
-                    options.push({ value: optionValue, price: optionPrice });
+                    options.push(window.printflowBuildServiceOptionPayload(optionItem, optionValue, optionPrice));
                 }
             } else {
-                options.push({ value: optionValue, price: optionPrice });
+                options.push(window.printflowBuildServiceOptionPayload(optionItem, optionValue, optionPrice));
             }
         });
         
@@ -1293,7 +1305,7 @@ document.getElementById('configForm')?.addEventListener('submit', function(e) {
                     if (!val) return;
                     const priceInput = item.querySelector('.option-price-input');
                     const optionPrice = priceInput ? parseFloat(priceInput.value) || 0 : 0;
-                    options.push({ value: val, price: optionPrice });
+                    options.push(window.printflowBuildServiceOptionPayload(item, val, optionPrice));
                 });
                 if (options.length > 0) config.options = options;
             }
