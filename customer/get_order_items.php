@@ -88,6 +88,7 @@ require_once __DIR__ . '/../includes/service_field_config_helper.php';
 require_once __DIR__ . '/../includes/order_items_persistence.php';
 require_once __DIR__ . '/../includes/runtime_config.php';
 require_once __DIR__ . '/../includes/revision_workflow.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 
 require_role('Customer');
@@ -1407,6 +1408,8 @@ customer_order_items_json([
         'revise_url' => (function_exists('pf_app_base_path') ? pf_app_base_path() : '') . '/customer/edit_order.php?order_id=' . $order_id,
     ] : null,
     'revision_request_error' => $revision_request_error,
+    'change_item' => printflow_change_item_summary_for_order($order_id),
+    'change_item_reasons' => printflow_change_item_reason_labels(),
     'payment_rejection_reason' => $order['payment_rejection_reason'] ?? '',
     'items'            => $items_out,
     'can_cancel'       => $can_cancel,

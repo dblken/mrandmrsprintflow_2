@@ -74,6 +74,28 @@ require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/production_material_compatibility.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/job_order_summary.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
+
+function jo_api_attach_change_item_rows(array &$rows): void
+{
+    $orderIds = [];
+    foreach ($rows as $row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        if ($oid > 0) {
+            $orderIds[] = $oid;
+        }
+    }
+    if ($orderIds === []) {
+        return;
+    }
+
+    $summaries = printflow_change_item_batch_summaries($orderIds);
+    foreach ($rows as &$row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        printflow_change_item_apply_to_row($row, $summaries[$oid] ?? null);
+    }
+    unset($row);
+}
 
 if (!is_logged_in()) {
     jo_api_json_response(['success' => false, 'error' => 'Unauthorized'], 401);
@@ -1458,6 +1480,7 @@ try {
                             WHEN o.status IN ('To Pay') THEN 'TO_PAY'
                             WHEN o.status = 'Payment Confirmed' THEN 'PAYMENT_CONFIRMED'
                             WHEN o.status IN ('Paid – In Process', 'Paid - In Process', 'Processing', 'In Production', 'Printing') THEN 'IN_PRODUCTION'
+                            WHEN o.status = 'Change Item Request' THEN 'CHANGE_ITEM_REQUEST'
                             WHEN o.status = 'Ready for Pickup' THEN 'TO_RECEIVE'
                             WHEN o.status = 'Completed' THEN 'COMPLETED'
                             WHEN o.status = 'Rejected' THEN 'REJECTED'
@@ -1492,6 +1515,7 @@ try {
                         'Approved', 'Design Approved',
                         'To Pay', 'Payment Confirmed', 'Downpayment Submitted', 'Pending Verification', 'To Verify',
                         'Processing', 'In Production', 'Printing', 'Paid – In Process', 'Paid - In Process', 'Ready for Pickup',
+                        'Change Item Request',
                         'Completed', 'Rejected', 'Cancelled'
                     )"
                     . ($serviceOnly ? " AND o.order_type = 'custom'" : "")
@@ -1731,6 +1755,8 @@ try {
             $mergedHasMore = count($deduped) > ($dashboardListOffset + $dashboardListLimit)
                 || $pendingHasMore || $customHasMore || $serviceHasMore;
             $merged = array_slice($deduped, $dashboardListOffset, $dashboardListLimit);
+
+            jo_api_attach_change_item_rows($merged);
 
             if ($summaryOnly) {
                 $merged = jo_api_summary_rows($merged);
@@ -1999,6 +2025,7 @@ try {
                        COALESCE(NULLIF(o.payment_proof_path,''), NULLIF(o.payment_proof,''), NULLIF(jo.payment_proof_path,'')) AS payment_proof_path,
                        COALESCE(jo.payment_submitted_amount, o.downpayment_amount, 0) AS downpayment_amount,
                        o.order_source,
+                       o.status AS store_order_status,
                        o.design_status AS store_design_status,
                        o.revision_reason AS store_revision_reason,
                        " . $revisionCountSelect . "
@@ -2062,10 +2089,11 @@ try {
                 'Ready for Pickup'      => 'TO_RECEIVE',
                 'Ready For Pickup'      => 'TO_RECEIVE',
                 'Completed'             => 'COMPLETED',
+                'Change Item Request'   => 'CHANGE_ITEM_REQUEST',
                 'Cancelled'             => 'CANCELLED',
                 'Rejected'              => 'REJECTED',
             ];
-            $mapped_status = $status_map[$cust['status'] ?? ''] ?? 'PENDING';
+            $mapped_status = $status_map[$cust['store_order_status'] ?? ''] ?? ($status_map[$cust['status'] ?? ''] ?? 'PENDING');
 
             // Determine payment proof status
             $payment_proof_status = 'NONE';
@@ -2473,6 +2501,7 @@ try {
                 'ink_usage'                => $linked_job_ink_usage,
                 'customization_details'    => printflow_normalize_customization_for_modal($details),
                 'revision_review'          => jo_api_revision_review((int)($cust['order_id'] ?? 0)),
+                'change_item'              => printflow_change_item_summary_for_order((int)($cust['order_id'] ?? 0)),
             ];
             if (in_array(strtolower((string)($_GET['debug_specs'] ?? '')), ['1', 'true', 'yes'], true)) {
                 $data['_debug'] = [
@@ -2981,6 +3010,88 @@ try {
             $jomId = (int)($_POST['id'] ?? 0);
             if (!$jomId) throw new Exception("ID required.");
             throw new Exception('Assigned materials cannot be removed once they have been set.');
+            break;
+
+        case 'change_item_create':
+            jo_api_require_staff_mutation();
+            $orderId = (int)($_POST['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Order ID required.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $proof = ['tmp_name' => '', 'name' => '', 'size' => 0];
+            if (!empty($_FILES['proof']) && is_array($_FILES['proof'])) {
+                $proof = $_FILES['proof'];
+            }
+            $upload = printflow_change_item_upload_proof($proof, $orderId);
+            $record = printflow_change_item_create([
+                'order_id' => $orderId,
+                'source_channel' => sanitize($_POST['source_channel'] ?? 'counter') === 'customer' ? 'customer' : 'counter',
+                'reason_code' => sanitize($_POST['reason_code'] ?? ''),
+                'reason_label' => sanitize($_POST['reason_label'] ?? ''),
+                'issue_description' => trim((string)($_POST['issue_description'] ?? '')),
+                'staff_notes' => trim((string)($_POST['staff_notes'] ?? '')),
+                'proof_path' => (string)($upload['path'] ?? ''),
+                'proof_original_name' => (string)($upload['original_name'] ?? ''),
+                'auto_approve' => !empty($_POST['auto_approve']) || sanitize($_POST['source_channel'] ?? 'counter') !== 'customer',
+                'idempotency_key' => trim((string)($_POST['idempotency_key'] ?? '')),
+                'created_by_user_id' => (int)get_user_id(),
+                'created_by_role' => (string)get_user_type(),
+            ]);
+            jo_api_json_response(['success' => true, 'data' => $record]);
+            break;
+
+        case 'change_item_approve':
+            jo_api_require_staff_mutation();
+            $changeItemId = (int)($_POST['change_item_id'] ?? 0);
+            if ($changeItemId <= 0) {
+                throw new Exception('Change Item ID required.');
+            }
+            $orderRows = db_query(
+                'SELECT order_id FROM change_item_requests WHERE change_item_id = ? LIMIT 1',
+                'i',
+                [$changeItemId]
+            ) ?: [];
+            $orderId = (int)($orderRows[0]['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Change Item request not found.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $record = printflow_change_item_approve($changeItemId, (int)get_user_id());
+            jo_api_json_response(['success' => true, 'data' => $record]);
+            break;
+
+        case 'change_item_reject':
+            jo_api_require_staff_mutation();
+            $changeItemId = (int)($_POST['change_item_id'] ?? 0);
+            $reason = trim((string)($_POST['reason'] ?? ''));
+            if ($changeItemId <= 0) {
+                throw new Exception('Change Item ID required.');
+            }
+            $orderRows = db_query(
+                'SELECT order_id FROM change_item_requests WHERE change_item_id = ? LIMIT 1',
+                'i',
+                [$changeItemId]
+            ) ?: [];
+            $orderId = (int)($orderRows[0]['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Change Item request not found.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            $record = printflow_change_item_reject($changeItemId, $reason, (int)get_user_id());
+            jo_api_json_response(['success' => true, 'data' => $record]);
+            break;
+
+        case 'change_item_summary':
+            $orderId = (int)($_GET['order_id'] ?? 0);
+            if ($orderId <= 0) {
+                throw new Exception('Order ID required.');
+            }
+            jo_api_require_staff_order_branch($joStaffBranch, $orderId);
+            jo_api_json_response([
+                'success' => true,
+                'data' => printflow_change_item_summary_for_order($orderId),
+            ]);
             break;
 
         default:

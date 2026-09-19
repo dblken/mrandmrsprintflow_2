@@ -465,6 +465,23 @@ $online_closed_count = 0;
             white-space: nowrap;
         }
 
+        .pf-change-item-badge {
+            display: inline-flex;
+            align-items: center;
+            align-self: flex-start;
+            max-width: 100%;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .04em;
+            line-height: 1.3;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
         .customization-mobile-card__order-wrap {
             display: flex;
             flex-direction: column;
@@ -2012,6 +2029,7 @@ $online_closed_count = 0;
                                         <div class="pf-order-code-stack">
                                             <span class="table-text-main truncate-ellipsis" :title="getDisplayOrderCode(jo)" x-text="getDisplayOrderCode(jo)"></span>
                                             <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                            <span x-show="orderHasChangeItemBadge(jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(jo)"></span>
                                         </div>
                                     </td>
                                     <td class="px-4 py-4 customization-info-cell" data-label="Details">
@@ -2095,6 +2113,7 @@ $online_closed_count = 0;
                                         x-text="getDisplayOrderCode(jo)"
                                     ></span>
                                     <span x-show="orderIsUrgentRequest(jo)" class="pf-urgent-request-badge">Urgent Request</span>
+                                    <span x-show="orderHasChangeItemBadge(jo)" class="pf-change-item-badge" x-text="getChangeItemBadgeLabel(jo)"></span>
                                 </div>
                             </div>
 
@@ -2761,6 +2780,33 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
+                    <template x-if="currentJo.status === 'CHANGE_ITEM_REQUEST'">
+                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #fcd34d; background:#fffbeb;">
+                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:4px;">Change Item Request</label>
+                            <div style="font-size:14px; color:#92400e; font-weight:600;">Customer reported an issue with the completed item. Review the request below.</div>
+                        </div>
+                    </template>
+
+                    <template x-if="currentJo.change_item && currentJo.change_item.history && currentJo.change_item.history.length">
+                        <div style="margin-bottom:20px; padding:14px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb;">
+                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:10px;">Change Item</label>
+                            <div style="display:grid; gap:10px;">
+                                <template x-for="entry in (currentJo.change_item.history || [])" :key="'change-item-' + entry.id">
+                                    <div style="padding:10px 12px; border:1px solid #fde68a; border-radius:10px; background:#fff;">
+                                        <div style="font-size:12px; font-weight:800; color:#92400e;" x-text="'Change Item #' + entry.sequence_no"></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:4px;"><strong>Status:</strong> <span x-text="entry.status_label"></span></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:2px;"><strong>Reason:</strong> <span x-text="entry.reason"></span></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.description"><strong>Details:</strong> <span x-text="entry.description"></span></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.requested_at_display"><strong>Requested:</strong> <span x-text="entry.requested_at_display"></span></div>
+                                        <div style="font-size:12px; color:#78350f; margin-top:2px;" x-show="entry.processed_by"><strong>Processed by:</strong> <span x-text="entry.processed_by"></span></div>
+                                        <div style="font-size:12px; color:#991b1b; margin-top:2px;" x-show="entry.rejection_reason"><strong>Rejection reason:</strong> <span x-text="entry.rejection_reason"></span></div>
+                                        <a x-show="entry.proof_url" :href="entry.proof_url" target="_blank" rel="noopener noreferrer" style="display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#0369a1;text-decoration:none;">View proof</a>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
                     <!-- REJECTED -->
                     <template x-if="currentJo.status === 'REJECTED'">
                         <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #fca5a5; background:#fff1f2;">
@@ -2946,6 +2992,14 @@ $online_closed_count = 0;
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
                                 <button type="button" @click="completeOrder()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark Final Completed</button>
                             </div>
+                            <div x-show="changeItemCanCreate(currentJo)" style="display:flex; gap:8px;">
+                                <button type="button" @click="openChangeItemModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Change Item</button>
+                            </div>
+                            <div x-show="changeItemCanReview(currentJo)" style="display:flex; gap:8px;">
+                                <button type="button" @click="approveChangeItem()" :disabled="actionBusy || changeItemSubmitting" class="pf-entry-btn pf-entry-in" :style="(actionBusy || changeItemSubmitting) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve Change Item</button>
+                                <button type="button" @click="openChangeItemRejectModal()" :disabled="actionBusy || changeItemSubmitting" class="pf-entry-btn pf-entry-out" :style="(actionBusy || changeItemSubmitting) ? 'opacity:.6;cursor:not-allowed;' : ''">Reject Change Item</button>
+                            </div>
+                            <div x-show="currentJo.has_change_item && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="font-size:11px;font-weight:700;color:#92400e;">Rework in progress for this Change Item.</div>
                         </div>
                         <div x-show="footerActionError" x-cloak style="font-size:12px;font-weight:600;color:#dc2626;line-height:1.45;max-width:560px;" x-text="footerActionError"></div>
                     </div>
@@ -3113,6 +3167,72 @@ $online_closed_count = 0;
                             <span x-show="revisionSubmitting">Sending...</span>
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template x-if="showChangeItemModal">
+        <div>
+            <div x-show="showChangeItemModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,.45);" @click="closeChangeItemModal()"></div>
+            <div x-show="showChangeItemModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fde68a;">
+                <div style="padding:16px 20px; border-bottom:1px solid #fde68a; background:#fffbeb; display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#92400e;">Change Item</h3>
+                    <button type="button" @click="closeChangeItemModal()" style="background:none;border:none;color:#92400e;cursor:pointer;">✕</button>
+                </div>
+                <div style="padding:20px;">
+                    <div style="font-size:12px;color:#78350f;margin-bottom:12px;line-height:1.5;">
+                        <div><strong>Original Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                        <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim()"></span></div>
+                        <div><strong>Item:</strong> <span x-text="getRowDisplayName(currentJo)"></span></div>
+                        <div><strong>Original Status:</strong> Completed</div>
+                    </div>
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Reason for Change Item</label>
+                    <select x-model="changeItemReasonCode" style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;margin-bottom:12px;">
+                        <option value="">-- Select a reason --</option>
+                        <option value="damaged_item">Damaged Item</option>
+                        <option value="print_quality">Print/Output Quality Issue</option>
+                        <option value="incorrect_spec">Incorrect Item/Specification</option>
+                        <option value="production_defect">Production Defect</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <div x-show="changeItemReasonCode === 'other'" style="margin-bottom:12px;">
+                        <input x-model="changeItemReasonOther" type="text" placeholder="Specify reason..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">
+                    </div>
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Issue Description <span style="color:#dc2626;">*</span></label>
+                    <textarea x-model="changeItemDescription" rows="4" placeholder="Describe the issue..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:12px;"></textarea>
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Proof (optional)</label>
+                    <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Staff Notes</label>
+                    <textarea x-model="changeItemStaffNotes" rows="3" placeholder="Internal notes for staff..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+                    <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
+                </div>
+                <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">
+                    <button type="button" @click="closeChangeItemModal()" class="pf-entry-btn pf-entry-out">Cancel</button>
+                    <button type="button" @click="submitChangeItem()" class="pf-entry-btn pf-entry-in" :disabled="changeItemSubmitting" :style="changeItemSubmitting ? 'opacity:.6;cursor:not-allowed;' : ''">
+                        <span x-show="!changeItemSubmitting">Submit Change Item</span>
+                        <span x-show="changeItemSubmitting">Submitting...</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template x-if="showChangeItemRejectModal">
+        <div>
+            <div x-show="showChangeItemRejectModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,.45);" @click="closeChangeItemRejectModal()"></div>
+            <div x-show="showChangeItemRejectModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:420px; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fecaca;">
+                <div style="padding:16px 20px; border-bottom:1px solid #fecaca; background:#fef2f2;">
+                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#b91c1c;">Reject Change Item</h3>
+                </div>
+                <div style="padding:20px;">
+                    <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Reason for rejection <span style="color:#dc2626;">*</span></label>
+                    <textarea x-model="changeItemRejectReason" rows="4" placeholder="Explain why this Change Item cannot be approved..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+                    <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
+                </div>
+                <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">
+                    <button type="button" @click="closeChangeItemRejectModal()" class="pf-entry-btn pf-entry-out">Cancel</button>
+                    <button type="button" @click="rejectChangeItem()" class="pf-entry-btn pf-entry-in" style="background:#dc2626;border-color:#dc2626;color:#fff;" :disabled="changeItemSubmitting" :style="changeItemSubmitting ? 'opacity:.6;cursor:not-allowed;' : ''">Reject Change Item</button>
                 </div>
             </div>
         </div>
@@ -3332,6 +3452,17 @@ window.pfServiceFieldCatalog = (() => {
             revisionFieldOptions: [],
             revisionSubmitting: false,
             revisionModalError: '',
+            showChangeItemModal: false,
+            showChangeItemRejectModal: false,
+            changeItemReasonCode: '',
+            changeItemReasonOther: '',
+            changeItemDescription: '',
+            changeItemStaffNotes: '',
+            changeItemProofFile: null,
+            changeItemRejectReason: '',
+            changeItemSubmitting: false,
+            changeItemModalError: '',
+            changeItemIdempotencyKey: '',
             showRejectPaymentModal: false,
             rejectPaymentReasonSelect: '',
             rejectPaymentReasonText: '',
@@ -4073,6 +4204,41 @@ window.pfServiceFieldCatalog = (() => {
                 return row.is_urgent_request === true
                     || row.is_urgent_request === 1
                     || row.is_urgent_request === '1';
+            },
+            orderHasChangeItemBadge(row) {
+                if (!row) return false;
+                return row.has_change_item === true
+                    || row.has_change_item === 1
+                    || row.has_change_item === '1'
+                    || row.change_item_active === true
+                    || row.change_item_active === 1
+                    || row.change_item_active === '1'
+                    || String(row.change_item_badge || '').trim() !== '';
+            },
+            getChangeItemBadgeLabel(row) {
+                return String((row && row.change_item_badge) || 'Changed Item').trim() || 'Changed Item';
+            },
+            changeItemCanCreate(row) {
+                if (!row) return false;
+                const status = String(row.status || '').toUpperCase();
+                const completed = status === 'COMPLETED' || this.getPosWalkInBucket(row) === 'COMPLETED';
+                if (!completed) return false;
+                if (row.change_item_active === true || row.change_item_active === 1 || row.change_item_active === '1') {
+                    return false;
+                }
+                if (row.change_item && row.change_item.active) {
+                    return false;
+                }
+                if (row.change_item && row.change_item.eligible === false) {
+                    return false;
+                }
+                return true;
+            },
+            changeItemCanReview(row) {
+                if (!row) return false;
+                const status = String(row.status || '').toUpperCase();
+                const active = row.change_item && row.change_item.active;
+                return status === 'CHANGE_ITEM_REQUEST' && active && String(active.status || '').toLowerCase() === 'requested';
             },
             orderPriorityFilterMatches(row) {
                 if (this.priorityFilter === 'ALL') return true;
@@ -6566,6 +6732,7 @@ window.pfServiceFieldCatalog = (() => {
                     return 'Pending';
                 }
                 return jo.status === 'COMPLETED' ? 'Completed' :
+                    (jo.status === 'CHANGE_ITEM_REQUEST' ? 'Change Item Request' :
                     (jo.status === 'APPROVED' ? 'Approved' :
                     (jo.status === 'TO_PAY' ? 'To Pay' :
                     (jo.status === 'PAYMENT_CONFIRMED' ? 'Payment Confirmed' :
@@ -6590,7 +6757,7 @@ window.pfServiceFieldCatalog = (() => {
                     'badge-verify':     jo.status === 'VERIFY_PAY',
                     'badge-production': jo.status === 'IN_PRODUCTION',
                     'badge-pickup':     jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT',
-                    'badge-pending':    jo.status === 'PENDING',
+                    'badge-pending':    jo.status === 'PENDING' || jo.status === 'CHANGE_ITEM_REQUEST',
                     'badge-cancelled':  jo.status === 'REJECTED' || jo.status === 'CANCELLED'
                 };
             },
@@ -6604,6 +6771,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
                 if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
                 if (s === 'COMPLETED') return 'COMPLETED';
+                if (s === 'CHANGE_ITEM_REQUEST') return 'INQUIRY';
                 if (['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
             },
@@ -8334,6 +8502,142 @@ window.pfServiceFieldCatalog = (() => {
                     }
                 } finally {
                     this.revisionSubmitting = false;
+                    this.endModalAction();
+                }
+            },
+
+            openChangeItemModal() {
+                this.changeItemModalError = '';
+                this.changeItemReasonCode = '';
+                this.changeItemReasonOther = '';
+                this.changeItemDescription = '';
+                this.changeItemStaffNotes = '';
+                this.changeItemProofFile = null;
+                this.changeItemIdempotencyKey = 'staff-change-item-' + String(this.currentJo.order_id || this.currentJo.id || '') + '-' + Date.now();
+                this.showChangeItemModal = true;
+            },
+            closeChangeItemModal() {
+                this.changeItemModalError = '';
+                this.changeItemSubmitting = false;
+                this.showChangeItemModal = false;
+            },
+            openChangeItemRejectModal() {
+                this.changeItemModalError = '';
+                this.changeItemRejectReason = '';
+                this.showChangeItemRejectModal = true;
+            },
+            closeChangeItemRejectModal() {
+                this.changeItemModalError = '';
+                this.changeItemSubmitting = false;
+                this.showChangeItemRejectModal = false;
+            },
+            async submitChangeItem() {
+                const orderId = parseInt(this.currentJo.order_id || 0, 10);
+                if (!orderId) {
+                    this.changeItemModalError = 'Original order not found.';
+                    return;
+                }
+                if (!this.changeItemReasonCode) {
+                    this.changeItemModalError = 'Please select a reason.';
+                    return;
+                }
+                if (this.changeItemReasonCode === 'other' && !this.changeItemReasonOther.trim()) {
+                    this.changeItemModalError = 'Please specify the reason.';
+                    return;
+                }
+                if (!this.changeItemDescription.trim()) {
+                    this.changeItemModalError = 'Issue description is required.';
+                    return;
+                }
+                if (!this.beginModalAction()) return;
+                this.changeItemSubmitting = true;
+                this.changeItemModalError = '';
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'change_item_create');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('order_id', String(orderId));
+                    fd.append('source_channel', 'counter');
+                    fd.append('auto_approve', '1');
+                    fd.append('reason_code', this.changeItemReasonCode);
+                    fd.append('reason_label', this.changeItemReasonCode === 'other' ? this.changeItemReasonOther.trim() : '');
+                    fd.append('issue_description', this.changeItemDescription.trim());
+                    fd.append('staff_notes', this.changeItemStaffNotes.trim());
+                    fd.append('idempotency_key', this.changeItemIdempotencyKey || ('staff-change-item-' + orderId + '-' + Date.now()));
+                    if (this.changeItemProofFile) {
+                        fd.append('proof', this.changeItemProofFile);
+                    }
+                    const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                    if (!res.success) {
+                        this.changeItemModalError = res.error || res.message || 'Unable to submit Change Item.';
+                        return;
+                    }
+                    this.showChangeItemModal = false;
+                    this.showStaffAlert('Success', 'Change Item submitted. The original order is now in production.');
+                    await this.loadOrders();
+                    await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
+                } finally {
+                    this.changeItemSubmitting = false;
+                    this.endModalAction();
+                }
+            },
+            async approveChangeItem() {
+                const active = this.currentJo.change_item && this.currentJo.change_item.active;
+                const changeItemId = parseInt(active && active.id ? active.id : 0, 10);
+                if (!changeItemId) {
+                    this.setFooterActionError('No pending Change Item request was found.');
+                    return;
+                }
+                if (!this.beginModalAction()) return;
+                this.changeItemSubmitting = true;
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'change_item_approve');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('change_item_id', String(changeItemId));
+                    const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                    if (!res.success) {
+                        this.setFooterActionError(res.error || res.message || 'Unable to approve Change Item.');
+                        return;
+                    }
+                    this.showStaffAlert('Success', 'Change Item approved. Rework has started on the original order.');
+                    await this.loadOrders();
+                    await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
+                } finally {
+                    this.changeItemSubmitting = false;
+                    this.endModalAction();
+                }
+            },
+            async rejectChangeItem() {
+                const active = this.currentJo.change_item && this.currentJo.change_item.active;
+                const changeItemId = parseInt(active && active.id ? active.id : 0, 10);
+                if (!changeItemId) {
+                    this.changeItemModalError = 'No pending Change Item request was found.';
+                    return;
+                }
+                if (!this.changeItemRejectReason.trim()) {
+                    this.changeItemModalError = 'Rejection reason is required.';
+                    return;
+                }
+                if (!this.beginModalAction()) return;
+                this.changeItemSubmitting = true;
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'change_item_reject');
+                    fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
+                    fd.append('change_item_id', String(changeItemId));
+                    fd.append('reason', this.changeItemRejectReason.trim());
+                    const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                    if (!res.success) {
+                        this.changeItemModalError = res.error || res.message || 'Unable to reject Change Item.';
+                        return;
+                    }
+                    this.showChangeItemRejectModal = false;
+                    this.showStaffAlert('Updated', 'Change Item request rejected. Customer has been notified.');
+                    await this.loadOrders();
+                    await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
+                } finally {
+                    this.changeItemSubmitting = false;
                     this.endModalAction();
                 }
             },

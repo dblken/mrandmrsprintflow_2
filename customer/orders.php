@@ -962,6 +962,14 @@ require_once __DIR__ . '/../includes/header.php';
     backdrop-filter: blur(4px);
 }
 #cancelModal.open { opacity: 1; pointer-events: auto; }
+
+#changeItemModal {
+    position: fixed; inset: 0; z-index: 100002;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(15, 23, 42, 0.55);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+#changeItemModal.open { opacity: 1; pointer-events: auto; }
 .cm-box {
     background: #ffffff !important;
     border: 1px solid #e2e8f0;
@@ -2278,6 +2286,34 @@ window.addEventListener('DOMContentLoaded', () => {
     </div>
 </div>
 
+<!-- Modal: Change Item Request -->
+<div id="changeItemModal" onclick="if(event.target === this) closeChangeItemModal()">
+    <div class="cm-box" style="max-width:520px;">
+        <h2 class="text-2xl font-black text-slate-900 mb-2">Request Change Item</h2>
+        <p class="text-slate-600 font-medium text-sm mb-4">Report an issue with your completed order. This stays linked to your original order — no new order will be created.</p>
+        <div id="changeItemOrderMeta" class="text-sm text-slate-700 mb-4" style="line-height:1.6;"></div>
+        <label class="block text-sm font-bold text-slate-800 mb-2">Reason for Change Item</label>
+        <select id="changeItemReason" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900">
+            <option value="">-- Select a reason --</option>
+            <option value="damaged_item">Damaged Item</option>
+            <option value="print_quality">Print/Output Quality Issue</option>
+            <option value="incorrect_spec">Incorrect Item/Specification</option>
+            <option value="production_defect">Production Defect</option>
+            <option value="other">Other</option>
+        </select>
+        <input id="changeItemReasonOther" type="text" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl hidden text-sm font-medium text-slate-900" placeholder="Specify reason...">
+        <label class="block text-sm font-bold text-slate-800 mb-2">Issue Description</label>
+        <textarea id="changeItemDescription" rows="4" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900" placeholder="Describe the issue..."></textarea>
+        <label class="block text-sm font-bold text-slate-800 mb-2">Proof (optional)</label>
+        <input id="changeItemProof" type="file" accept="image/*,application/pdf" class="w-full mb-4 text-sm">
+        <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
+        <div class="grid grid-cols-2 gap-4">
+            <button class="cm-btn cm-btn-secondary" type="button" onclick="closeChangeItemModal()">Cancel</button>
+            <button class="cm-btn cm-btn-danger" type="button" id="changeItemSubmitBtn" onclick="submitChangeItemRequest()" style="background:#d97706;border-color:#d97706;">Submit Request</button>
+        </div>
+    </div>
+</div>
+
 <script>
 function imIsLongFormSpecKey(k) {
     const s = String(k || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -3104,6 +3140,13 @@ function openItemsModal(orderId, event, options = {}) {
         const payment = data.payment && typeof data.payment === 'object' ? data.payment : {};
         const paymentReceived = Boolean(data.payment_received || payment.received || String(data.payment_status || '').toLowerCase() === 'paid');
         const currentStatusLabel = data.display_status || data.status;
+        const changeItemActive = data.change_item && data.change_item.active ? data.change_item.active : null;
+        const changeItemEligible = !!(data.change_item && data.change_item.eligible);
+        window.__pfChangeItemModalContext = {
+            orderId: data.order_id,
+            code: data.order?.code || '',
+            csrf: data.csrf_token || ''
+        };
         const paymentMethod = payment.method || data.payment_method || 'Payment method not recorded';
         const paymentPaidAt = payment.paid_at || data.payment_paid_at || '';
         const paymentReference = payment.reference || data.payment_reference || '';
@@ -3212,6 +3255,20 @@ function openItemsModal(orderId, event, options = {}) {
                             </div>
                         ` : ''}
 
+                        ${changeItemActive ? `
+                            <div class="im-reject-card" style="border-color:#fde68a;background:#fffbeb;">
+                                <div class="im-reject-title" style="color:#92400e;">Change Item Request</div>
+                                <p class="im-reject-copy"><strong>Status:</strong> ${escIM(changeItemActive.status_label || changeItemActive.status || 'Under Review')}</p>
+                                <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Reason:</strong> ${escIM(changeItemActive.reason || '')}</p>
+                                ${changeItemActive.description ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Details:</strong> ${escIM(changeItemActive.description)}</p>` : ''}
+                                ${changeItemActive.rejection_reason ? `<p class="im-reject-copy" style="margin-top:0.5rem;color:#991b1b;"><strong>Rejection reason:</strong> ${escIM(changeItemActive.rejection_reason)}</p>` : ''}
+                            </div>
+                        ` : ''}
+
+                        ${changeItemEligible ? `
+                            <button type="button" onclick="openChangeItemModal()" class="im-primary-action" style="background:#d97706;border-color:#d97706;">Request Change Item</button>
+                        ` : ''}
+
                         ${data.receipt_available && data.receipt ? `
                             <button type="button" onclick='openReceiptModal(${JSON.stringify('__RECEIPT__')})' class="im-primary-action" data-receipt-button="1">View Receipt</button>
                         `.replace(JSON.stringify('__RECEIPT__'), JSON.stringify(data.receipt).replace(/</g, '\\u003c')) : ''}
@@ -3292,6 +3349,83 @@ function openCancelModal(id, token) {
 }
 function closeCancelModal() {
     document.getElementById('cancelModal').classList.remove('open');
+}
+
+let changeItemSubmitting = false;
+function openChangeItemModal() {
+    const ctx = window.__pfChangeItemModalContext || {};
+    if (!ctx.orderId) return;
+    document.getElementById('changeItemOrderMeta').innerHTML =
+        `<div><strong>Original Order:</strong> ${escIM(ctx.code || ('ORD-' + String(ctx.orderId).padStart(5, '0')))}</div>`;
+    document.getElementById('changeItemReason').value = '';
+    document.getElementById('changeItemReasonOther').value = '';
+    document.getElementById('changeItemReasonOther').classList.add('hidden');
+    document.getElementById('changeItemDescription').value = '';
+    document.getElementById('changeItemProof').value = '';
+    document.getElementById('changeItemError').classList.add('hidden');
+    document.getElementById('changeItemModal').classList.add('open');
+}
+function closeChangeItemModal() {
+    document.getElementById('changeItemModal').classList.remove('open');
+}
+document.getElementById('changeItemReason')?.addEventListener('change', function () {
+    const other = document.getElementById('changeItemReasonOther');
+    if (!other) return;
+    if (this.value === 'other') other.classList.remove('hidden');
+    else other.classList.add('hidden');
+});
+async function submitChangeItemRequest() {
+    const ctx = window.__pfChangeItemModalContext || {};
+    const err = document.getElementById('changeItemError');
+    const btn = document.getElementById('changeItemSubmitBtn');
+    const reason = document.getElementById('changeItemReason').value;
+    const reasonOther = document.getElementById('changeItemReasonOther').value.trim();
+    const description = document.getElementById('changeItemDescription').value.trim();
+    if (!ctx.orderId) return;
+    if (!reason) {
+        err.textContent = 'Please select a reason.';
+        err.classList.remove('hidden');
+        return;
+    }
+    if (reason === 'other' && !reasonOther) {
+        err.textContent = 'Please specify the reason.';
+        err.classList.remove('hidden');
+        return;
+    }
+    if (!description) {
+        err.textContent = 'Please describe the issue.';
+        err.classList.remove('hidden');
+        return;
+    }
+    if (changeItemSubmitting) return;
+    changeItemSubmitting = true;
+    btn.disabled = true;
+    err.classList.add('hidden');
+    try {
+        const fd = new FormData();
+        fd.append('order_id', String(ctx.orderId));
+        fd.append('reason_code', reason);
+        fd.append('reason_label', reason === 'other' ? reasonOther : '');
+        fd.append('issue_description', description);
+        fd.append('csrf_token', ctx.csrf || '');
+        fd.append('idempotency_key', 'customer-change-item-' + ctx.orderId + '-' + Date.now());
+        const proof = document.getElementById('changeItemProof').files[0];
+        if (proof) fd.append('proof', proof);
+        const res = await fetch(CUSTOMER_BASE_URL + '/customer/change_item_request.php', { method: 'POST', body: fd });
+        const payload = await res.json();
+        if (!payload.success) {
+            throw new Error(payload.message || 'Unable to submit Change Item request.');
+        }
+        closeChangeItemModal();
+        notifyCancelResult('Change Item request submitted. Our team will review your request.');
+        openItemsModal(ctx.orderId);
+    } catch (e) {
+        err.textContent = e.message || 'Unable to submit Change Item request.';
+        err.classList.remove('hidden');
+    } finally {
+        changeItemSubmitting = false;
+        btn.disabled = false;
+    }
 }
 
 document.addEventListener('change', e => {

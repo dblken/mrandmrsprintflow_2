@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/functions.php';
 require_once __DIR__ . '/../../includes/branch_context.php';
 require_once __DIR__ . '/../../includes/order_receipt_lookup.php';
+require_once __DIR__ . '/../../includes/change_item_workflow.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -106,6 +107,7 @@ try {
     }
 
     $status = trim((string)($order['status'] ?? ''));
+    $changeItemEligibility = printflow_change_item_order_is_eligible($orderId);
     $warning = in_array(strtolower($status), ['cancelled', 'canceled', 'deleted', 'rejected'], true)
         ? 'This order is ' . ($status !== '' ? strtolower($status) : 'not active') . '. Opening its existing record for review.'
         : '';
@@ -118,6 +120,7 @@ try {
             : $canonical,
         'source' => printflow_order_lookup_is_pos_source($orderSource) ? 'pos' : 'online',
         'status' => $status,
+        'change_item_eligible' => !empty($changeItemEligibility['eligible']),
         'warning' => $warning,
         'route' => $route,
     ]);

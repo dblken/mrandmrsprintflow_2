@@ -237,6 +237,14 @@ class JobOrderService {
         return (int)($row[0]['order_id'] ?? 0);
     }
 
+    public static function getJobBranchIdPublic(int $jobId): ?int {
+        return self::getJobBranchId($jobId);
+    }
+
+    public static function getScopedMaterialsPublic(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
+        return self::getScopedMaterials($jobId, $onlyUndeducted, $forUpdate);
+    }
+
     private static function getScopedMaterials(int $jobId, bool $onlyUndeducted = false, bool $forUpdate = false): array {
         $storeOrderId = self::getLinkedStoreOrderId($jobId);
         $sql = "SELECT *
@@ -1171,6 +1179,7 @@ class JobOrderService {
                     'COMPLETED'     => 'Completed',
                     'CANCELLED'     => 'Cancelled',
                     'FOR_REVISION'  => 'For Revision',
+                    'CHANGE_ITEM_REQUEST' => 'Change Item Request',
                 ];
                 $storeStatus = $order_status_map[$normalizedNewStatus] ?? $newStatus;
 
@@ -1196,6 +1205,9 @@ class JobOrderService {
 
                 db_execute("UPDATE orders SET " . implode(', ', $sql_parts) . " WHERE order_id = ?", $types, $params);
             }
+
+            require_once __DIR__ . '/change_item_workflow.php';
+            printflow_change_item_on_job_status_change((int)$orderId, $normalizedNewStatus);
 
             // Send real-time notification to customer on every status change
             if (!$silent && !empty($order['customer_id'])) {

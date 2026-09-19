@@ -20,6 +20,7 @@ function jo_api_summary_row(array $row): array
         'is_urgent_request', 'is_regular_priority', 'has_priority_field',
         'priority_request_label', 'priority_request_value', 'priority_request_related',
         'needed_date', 'needed_date_display',
+        'has_change_item', 'change_item_active', 'change_item_count', 'change_item_badge', 'change_item_status',
     ];
 
     $summary = [];
