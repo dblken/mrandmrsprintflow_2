@@ -3418,6 +3418,13 @@ function openItemsModal(orderId, event, options = {}) {
                                 <p class="im-reject-copy"><strong>Status:</strong> ${escIM(changeItemActive.status_label || changeItemActive.status || 'Under Review')}</p>
                                 <p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Reason:</strong> ${escIM(changeItemActive.reason || '')}</p>
                                 ${changeItemActive.description ? `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Details:</strong> ${escIM(changeItemActive.description)}</p>` : ''}
+                                ${changeItemActive.proof_url ? `
+                                    <div style="margin-top:0.75rem;">
+                                        <p class="im-reject-copy"><strong>Proof:</strong></p>
+                                        ${changeItemActive.proof_is_image ? `<img src="${escIM(changeItemActive.proof_url)}" alt="Change Item proof" loading="lazy" style="display:block;max-width:min(100%,220px);max-height:220px;margin-top:0.5rem;border-radius:10px;border:1px solid #fde68a;object-fit:contain;background:#fff;">` : ''}
+                                        <a href="${escIM(changeItemActive.proof_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;margin-top:0.5rem;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">View proof</a>
+                                    </div>
+                                ` : `<p class="im-reject-copy" style="margin-top:0.5rem;"><strong>Proof:</strong> No proof attached</p>`}
                                 ${changeItemActive.rejection_reason ? `<p class="im-reject-copy" style="margin-top:0.5rem;color:#991b1b;"><strong>Rejection reason:</strong> ${escIM(changeItemActive.rejection_reason)}</p>` : ''}
                             </div>
                         ` : ''}

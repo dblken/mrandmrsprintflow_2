@@ -15,6 +15,7 @@ function printflow_change_item_ensure_schema(): bool
         return $ready;
     }
 
+    global $conn;
     $ready = (bool) db_execute(
         "CREATE TABLE IF NOT EXISTS change_item_requests (
             change_item_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -54,7 +55,177 @@ function printflow_change_item_ensure_schema(): bool
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     );
 
+    if ($ready) {
+        printflow_change_item_upgrade_schema();
+    }
+
     return $ready;
+}
+
+function printflow_change_item_upgrade_schema(): void
+{
+    global $conn;
+    if (!$conn instanceof mysqli) {
+        return;
+    }
+
+    $columns = [
+        'order_item_id' => 'INT NULL DEFAULT NULL',
+        'job_order_id' => 'INT NULL DEFAULT NULL',
+        'customer_id' => 'INT NULL DEFAULT NULL',
+        'sequence_no' => 'INT NOT NULL DEFAULT 1',
+        'source_channel' => "VARCHAR(20) NOT NULL DEFAULT 'customer'",
+        'created_by_user_id' => 'INT NULL DEFAULT NULL',
+        'created_by_role' => 'VARCHAR(20) NULL DEFAULT NULL',
+        'reason_code' => "VARCHAR(64) NOT NULL DEFAULT 'other'",
+        'reason_label' => "VARCHAR(255) NOT NULL DEFAULT ''",
+        'issue_description' => "TEXT NULL",
+        'staff_notes' => 'TEXT NULL',
+        'proof_path' => 'VARCHAR(512) NULL DEFAULT NULL',
+        'proof_original_name' => 'VARCHAR(255) NULL DEFAULT NULL',
+        'request_status' => "VARCHAR(40) NOT NULL DEFAULT 'Requested'",
+        'active_flag' => 'TINYINT NULL DEFAULT 1',
+        'rejection_reason' => 'TEXT NULL',
+        'reviewed_by_user_id' => 'INT NULL DEFAULT NULL',
+        'inventory_recorded_at' => 'DATETIME NULL DEFAULT NULL',
+        'requested_at' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+        'reviewed_at' => 'DATETIME NULL DEFAULT NULL',
+        'approved_at' => 'DATETIME NULL DEFAULT NULL',
+        'rejected_at' => 'DATETIME NULL DEFAULT NULL',
+        'completed_at' => 'DATETIME NULL DEFAULT NULL',
+        'updated_at' => 'DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP',
+        'idempotency_key' => 'VARCHAR(64) NULL DEFAULT NULL',
+    ];
+
+    foreach ($columns as $column => $definition) {
+        if (!function_exists('db_table_has_column') || db_table_has_column('change_item_requests', $column)) {
+            continue;
+        }
+        @$conn->query("ALTER TABLE `change_item_requests` ADD COLUMN `{$column}` {$definition}");
+        if (function_exists('db_table_has_column')) {
+            db_table_has_column('change_item_requests', $column, true);
+        }
+    }
+
+    // Release legacy rows that still occupy the (order_id, active_flag=1) unique slot.
+    @$conn->query(
+        "UPDATE change_item_requests
+         SET active_flag = NULL
+         WHERE active_flag = 1
+           AND UPPER(REPLACE(REPLACE(request_status, '-', ' '), ' ', '')) IN ('REJECTED', 'COMPLETED')"
+    );
+}
+
+function printflow_change_item_release_inactive_slots(int $orderId): void
+{
+    $orderId = (int) $orderId;
+    if ($orderId <= 0) {
+        return;
+    }
+
+    db_execute(
+        "UPDATE change_item_requests
+         SET active_flag = NULL
+         WHERE order_id = ?
+           AND active_flag = 1
+           AND UPPER(REPLACE(REPLACE(request_status, '-', ' '), ' ', '')) IN ('REJECTED', 'COMPLETED')",
+        'i',
+        [$orderId]
+    );
+}
+
+function printflow_change_item_insert_row(array $row): int
+{
+    global $conn;
+
+    $orderId = (int)($row['order_id'] ?? 0);
+    $orderItemId = isset($row['order_item_id']) && (int)$row['order_item_id'] > 0 ? (int)$row['order_item_id'] : null;
+    $jobOrderId = isset($row['job_order_id']) && (int)$row['job_order_id'] > 0 ? (int)$row['job_order_id'] : null;
+    $customerId = isset($row['customer_id']) && (int)$row['customer_id'] > 0 ? (int)$row['customer_id'] : null;
+    $sequenceNo = (int)($row['sequence_no'] ?? 1);
+    $sourceChannel = (string)($row['source_channel'] ?? 'customer');
+    $createdBy = isset($row['created_by_user_id']) && (int)$row['created_by_user_id'] > 0 ? (int)$row['created_by_user_id'] : null;
+    $createdRole = trim((string)($row['created_by_role'] ?? ''));
+    $reasonCode = (string)($row['reason_code'] ?? '');
+    $reasonLabel = (string)($row['reason_label'] ?? '');
+    $description = (string)($row['issue_description'] ?? '');
+    $staffNotes = trim((string)($row['staff_notes'] ?? ''));
+    $proofPath = trim((string)($row['proof_path'] ?? ''));
+    $proofName = trim((string)($row['proof_original_name'] ?? ''));
+    $requestStatus = (string)($row['request_status'] ?? 'Requested');
+    $idempotencyKey = trim((string)($row['idempotency_key'] ?? ''));
+
+    $pOrderItemId = $orderItemId;
+    $pJobOrderId = $jobOrderId;
+    $pCustomerId = $customerId;
+    $pCreatedBy = $createdBy;
+    $pCreatedRole = $createdRole !== '' ? $createdRole : null;
+    $pStaffNotes = $staffNotes !== '' ? $staffNotes : null;
+    $pProofPath = $proofPath !== '' ? $proofPath : null;
+    $pProofName = $proofName !== '' ? $proofName : null;
+
+    $sql = 'INSERT INTO change_item_requests (
+                order_id, order_item_id, job_order_id, customer_id, sequence_no, source_channel,
+                created_by_user_id, created_by_role, reason_code, reason_label, issue_description,
+                staff_notes, proof_path, proof_original_name, request_status, active_flag, idempotency_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)';
+
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        error_log('[change_item] INSERT prepare failed: ' . $conn->error);
+        throw new RuntimeException('Unable to create Change Item request.');
+    }
+
+    $types = 'iiiiisissssssssss';
+    if (!$stmt->bind_param(
+        $types,
+        $orderId,
+        $pOrderItemId,
+        $pJobOrderId,
+        $pCustomerId,
+        $sequenceNo,
+        $sourceChannel,
+        $pCreatedBy,
+        $pCreatedRole,
+        $reasonCode,
+        $reasonLabel,
+        $description,
+        $pStaffNotes,
+        $pProofPath,
+        $pProofName,
+        $requestStatus,
+        $idempotencyKey
+    )) {
+        $stmt->close();
+        error_log('[change_item] INSERT bind failed: ' . $stmt->error);
+        throw new RuntimeException('Unable to create Change Item request.');
+    }
+
+    if (!$stmt->execute()) {
+        $errno = (int)$stmt->errno;
+        $error = (string)$stmt->error;
+        $stmt->close();
+        error_log('[change_item] INSERT execute failed [' . $errno . ']: ' . $error);
+        if ($errno === 1062) {
+            if (stripos($error, 'uq_order_active_change_item') !== false) {
+                throw new InvalidArgumentException('This order already has an active Change Item request.');
+            }
+            if (stripos($error, 'uq_change_item_idempotency') !== false) {
+                throw new InvalidArgumentException('This Change Item request was already submitted.');
+            }
+        }
+        throw new RuntimeException('Unable to create Change Item request.');
+    }
+
+    $changeItemId = (int)($stmt->insert_id ?: $conn->insert_id);
+    $stmt->close();
+
+    if ($changeItemId <= 0) {
+        error_log('[change_item] INSERT succeeded but change_item_id is missing.');
+        throw new RuntimeException('Unable to create Change Item request.');
+    }
+
+    return $changeItemId;
 }
 
 function printflow_change_item_reason_labels(): array
@@ -706,6 +877,8 @@ function printflow_change_item_create(array $input): array
     try {
         db_query('SELECT order_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', 'i', [$orderId]);
 
+        printflow_change_item_release_inactive_slots($orderId);
+
         $active = printflow_change_item_get_active($orderId);
         if ($active !== null && !in_array(printflow_change_item_normalize_status((string)($active['request_status'] ?? '')), ['REJECTED', 'COMPLETED'], true)) {
             throw new InvalidArgumentException('This order already has an active Change Item request.');
@@ -715,40 +888,24 @@ function printflow_change_item_create(array $input): array
         // Always insert as Requested; auto-approve runs approve_internal next.
         $initialStatus = 'Requested';
 
-        $inserted = db_execute(
-            'INSERT INTO change_item_requests (
-                order_id, order_item_id, job_order_id, customer_id, sequence_no, source_channel,
-                created_by_user_id, created_by_role, reason_code, reason_label, issue_description,
-                staff_notes, proof_path, proof_original_name, request_status, active_flag, idempotency_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
-            'iiiiisissssssssss',
-            [
-                $orderId,
-                $orderItemId > 0 ? $orderItemId : null,
-                $jobOrderId > 0 ? $jobOrderId : null,
-                $resolvedCustomerId > 0 ? $resolvedCustomerId : null,
-                $sequenceNo,
-                $sourceChannel,
-                $createdBy > 0 ? $createdBy : null,
-                $createdRole !== '' ? $createdRole : null,
-                $reasonCode,
-                $reasonLabel,
-                $description,
-                $staffNotes !== '' ? $staffNotes : null,
-                $proofPath !== '' ? $proofPath : null,
-                $proofName !== '' ? $proofName : null,
-                $initialStatus,
-                $idempotencyKey,
-            ]
-        );
-        if ($inserted === false) {
-            throw new RuntimeException('Unable to create Change Item request.');
-        }
-
-        $changeItemId = (int)($conn->insert_id ?? 0);
-        if ($changeItemId <= 0) {
-            throw new RuntimeException('Unable to create Change Item request.');
-        }
+        $changeItemId = printflow_change_item_insert_row([
+            'order_id' => $orderId,
+            'order_item_id' => $orderItemId,
+            'job_order_id' => $jobOrderId,
+            'customer_id' => $resolvedCustomerId,
+            'sequence_no' => $sequenceNo,
+            'source_channel' => $sourceChannel,
+            'created_by_user_id' => $createdBy,
+            'created_by_role' => $createdRole,
+            'reason_code' => $reasonCode,
+            'reason_label' => $reasonLabel,
+            'issue_description' => $description,
+            'staff_notes' => $staffNotes,
+            'proof_path' => $proofPath,
+            'proof_original_name' => $proofName,
+            'request_status' => $initialStatus,
+            'idempotency_key' => $idempotencyKey,
+        ]);
 
         if ($autoApprove) {
             printflow_change_item_approve_internal($changeItemId, $createdBy, true);

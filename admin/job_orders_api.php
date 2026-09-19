@@ -3027,6 +3027,7 @@ try {
             $upload = printflow_change_item_upload_proof($proof, $orderId);
             $record = printflow_change_item_create([
                 'order_id' => $orderId,
+                'order_item_id' => (int)($_POST['order_item_id'] ?? 0),
                 'source_channel' => sanitize($_POST['source_channel'] ?? 'counter') === 'customer' ? 'customer' : 'counter',
                 'reason_code' => sanitize($_POST['reason_code'] ?? ''),
                 'reason_label' => sanitize($_POST['reason_label'] ?? ''),

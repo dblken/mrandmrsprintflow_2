@@ -3213,12 +3213,12 @@ $online_closed_count = 0;
     <template x-if="showChangeItemModal">
         <div>
             <div x-show="showChangeItemModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,.45);" @click="closeChangeItemModal()"></div>
-            <div x-show="showChangeItemModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-y:auto; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fde68a;">
+            <div x-show="showChangeItemModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-x:hidden; overflow-y:auto; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fde68a; box-sizing:border-box;">
                 <div style="padding:16px 20px; border-bottom:1px solid #fde68a; background:#fffbeb; display:flex; justify-content:space-between; align-items:center;">
                     <h3 style="margin:0; font-size:16px; font-weight:700; color:#92400e;">Change Item</h3>
                     <button type="button" @click="closeChangeItemModal()" style="background:none;border:none;color:#92400e;cursor:pointer;">✕</button>
                 </div>
-                <div style="padding:20px;">
+                <div style="padding:20px; box-sizing:border-box; max-width:100%; overflow-x:hidden;">
                     <div style="font-size:12px;color:#78350f;margin-bottom:12px;line-height:1.5;">
                         <div><strong>Original Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
                         <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim()"></span></div>
@@ -3238,17 +3238,17 @@ $online_closed_count = 0;
                         <input x-model="changeItemReasonOther" type="text" placeholder="Specify reason..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">
                     </div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Issue Description <span style="color:#dc2626;">*</span></label>
-                    <textarea x-model="changeItemDescription" maxlength="500" rows="4" placeholder="Describe the issue..." style="width:100%;max-width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;"></textarea>
+                    <textarea x-model="changeItemDescription" maxlength="500" rows="4" placeholder="Describe the issue..." style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;overflow-wrap:anywhere;"></textarea>
                     <div style="font-size:11px;color:#6b7280;text-align:right;margin-bottom:12px;" x-text="(changeItemDescription || '').length + ' / ' + changeItemDescriptionMaxLen"></div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Proof (optional)</label>
                     <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Staff Notes</label>
-                    <textarea x-model="changeItemStaffNotes" maxlength="2000" rows="3" placeholder="Internal notes for staff..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+                    <textarea x-model="changeItemStaffNotes" maxlength="2000" rows="3" placeholder="Internal notes for staff..." style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;overflow-wrap:anywhere;"></textarea>
                     <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
                 </div>
-                <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">
-                    <button type="button" @click="closeChangeItemModal()" class="pf-entry-btn pf-entry-out">Cancel</button>
-                    <button type="button" @click="submitChangeItem()" class="pf-entry-btn pf-entry-in" :disabled="changeItemSubmitting" :style="changeItemSubmitting ? 'opacity:.6;cursor:not-allowed;' : ''">
+                <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+                    <button type="button" @click="closeChangeItemModal()" class="pf-entry-btn pf-entry-out" style="width:auto;min-width:0;">Cancel</button>
+                    <button type="button" @click="submitChangeItem()" class="pf-entry-btn pf-entry-in" style="width:auto;min-width:0;" :disabled="changeItemSubmitting" :style="changeItemSubmitting ? 'opacity:.6;cursor:not-allowed;' : ''">
                         <span x-show="!changeItemSubmitting">Submit Change Item</span>
                         <span x-show="changeItemSubmitting">Submitting...</span>
                     </button>
@@ -6383,7 +6383,7 @@ window.pfServiceFieldCatalog = (() => {
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CANCELLED',
                             'CANCELLED': 'CANCELLED',
-                            'CHANGE_ITEM_REQUEST': 'INQUIRY'
+                            'CHANGE_ITEM_REQUEST': 'COMPLETED'
                         }
                         : {
                             'PENDING': 'INQUIRY',
@@ -6405,7 +6405,7 @@ window.pfServiceFieldCatalog = (() => {
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CLOSED',
                             'CANCELLED': 'CLOSED',
-                            'CHANGE_ITEM_REQUEST': 'INQUIRY'
+                            'CHANGE_ITEM_REQUEST': 'COMPLETED'
                         };
                     const mapped = statusMap[initialStatus.toUpperCase().replace(/\s+/g, '_')] || initialStatus;
                     if (this.statuses.includes(mapped)) {
@@ -6912,8 +6912,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
                 if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
                 if (s === 'COMPLETED') return 'COMPLETED';
-                if (row.change_item_active && String(row.change_item_status || '').toLowerCase() === 'requested') return 'INQUIRY';
-                if (s === 'CHANGE_ITEM_REQUEST') return 'INQUIRY';
+                if (s === 'CHANGE_ITEM_REQUEST') return 'COMPLETED';
                 if (['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
             },
@@ -8709,6 +8708,11 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('order_id', String(orderId));
                     fd.append('source_channel', 'counter');
                     fd.append('auto_approve', '1');
+                    const primaryItem = this.resolvePrimaryOrderItem(this.currentJo);
+                    const orderItemId = parseInt((primaryItem && primaryItem.order_item_id) || this.currentJo.linked_order_item_id || this.currentJo.order_item_id || 0, 10);
+                    if (orderItemId > 0) {
+                        fd.append('order_item_id', String(orderItemId));
+                    }
                     fd.append('reason_code', this.changeItemReasonCode);
                     fd.append('reason_label', this.changeItemReasonCode === 'other' ? this.changeItemReasonOther.trim() : '');
                     fd.append('issue_description', this.changeItemDescription.trim());
