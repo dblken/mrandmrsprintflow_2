@@ -37,5 +37,9 @@ change_item_test_assert(strpos($receiptLookup, 'change_item_eligible') !== false
 change_item_test_assert(strpos($jobService, 'printflow_change_item_on_job_status_change') !== false, 'job completion closes change item cycle');
 change_item_test_assert(strpos($workflow, 'notify_shop_users') !== false, 'staff notification on customer change item request');
 change_item_test_assert(strpos($workflow, 'create_notification') !== false, 'customer notifications wired');
+change_item_test_assert(strpos($workflow, 'strlen($description) > 500') !== false, 'issue description capped at 500 characters');
+change_item_test_assert(strpos($customerOrders, 'changeItemSuccessModal') !== false, 'customer change item success modal replaces alert');
+change_item_test_assert(strpos($staffCustomizations, 'getStatusLabel(jo)') !== false, 'staff customizations status label helper present');
+change_item_test_assert(strpos($staffCustomizations, 'window.joManager = createJoManager') !== false, 'staff customizations registers joManager');
 
 echo "All change item workflow smoke checks passed.\n";

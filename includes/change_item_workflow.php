@@ -573,6 +573,9 @@ function printflow_change_item_create(array $input): array
     if ($description === '') {
         throw new InvalidArgumentException('Please describe the issue.');
     }
+    if (strlen($description) > 500) {
+        throw new InvalidArgumentException('Issue description must be 500 characters or fewer.');
+    }
     if ($reasonCode === 'other' && $reasonFallback === '') {
         throw new InvalidArgumentException('Please specify a reason for Other.');
     }

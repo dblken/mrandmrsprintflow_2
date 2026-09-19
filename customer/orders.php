@@ -952,6 +952,141 @@ require_once __DIR__ . '/../includes/header.php';
     cursor: not-allowed;
     box-shadow: none;
 }
+.im-order-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.65rem;
+}
+.im-order-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: auto;
+    min-width: min(100%, 12.5rem);
+    max-width: 100%;
+    min-height: 42px;
+    padding: 0.65rem 1rem;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: #0a2530;
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+.im-order-action:hover {
+    background: #0d3038;
+    box-shadow: 0 8px 18px rgba(10, 37, 48, 0.12);
+}
+.im-order-action svg {
+    flex-shrink: 0;
+}
+.im-order-action--change {
+    background: #0a2530;
+    border-color: #0a2530;
+}
+.im-order-action--receipt {
+    background: #0a2530;
+    border-color: #0a2530;
+}
+.im-order-action--rate {
+    background: rgba(249, 115, 22, 0.1);
+    color: #b45309;
+    border-color: rgba(249, 115, 22, 0.35);
+}
+.im-order-action--rate:hover {
+    background: #f97316;
+    color: #ffffff;
+    border-color: #f97316;
+}
+.change-item-textarea-wrap {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+.change-item-textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+}
+.change-item-char-count {
+    font-size: 0.72rem;
+    color: #64748b;
+    text-align: right;
+    margin-top: 0.35rem;
+    margin-bottom: 0.75rem;
+}
+.cm-actions-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+.cm-actions-row .cm-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 0.65rem 0.85rem;
+}
+.cm-btn-cancel {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+.cm-btn-cancel:hover {
+    background: #fee2e2;
+    color: #991b1b;
+    border-color: #fca5a5;
+}
+.cm-btn-submit {
+    background: #0a2530;
+    color: #ffffff;
+    border-color: #0a2530;
+}
+.cm-btn-submit:hover {
+    background: #0d3038;
+    border-color: #0d3038;
+}
+#changeItemSuccessModal {
+    position: fixed;
+    inset: 0;
+    z-index: 100003;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    backdrop-filter: blur(4px);
+}
+#changeItemSuccessModal.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+.cm-success-box {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 420px;
+    padding: 2rem;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+    text-align: center;
+    animation: pfChangeItemSuccessIn 0.3s ease-out;
+}
+@keyframes pfChangeItemSuccessIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
 
 #cancelModal {
     position: fixed; inset: 0; z-index: 100000;
@@ -968,8 +1103,15 @@ require_once __DIR__ . '/../includes/header.php';
     display: flex; align-items: center; justify-content: center;
     padding: 16px; background: rgba(15, 23, 42, 0.55);
     opacity: 0; pointer-events: none; transition: opacity .2s ease;
+    overflow-x: hidden;
 }
 #changeItemModal.open { opacity: 1; pointer-events: auto; }
+#changeItemModal .cm-box {
+    width: 100%;
+    max-width: min(520px, calc(100vw - 32px));
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
 .cm-box {
     background: #ffffff !important;
     border: 1px solid #e2e8f0;
@@ -2288,12 +2430,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
 <!-- Modal: Change Item Request -->
 <div id="changeItemModal" onclick="if(event.target === this) closeChangeItemModal()">
-    <div class="cm-box" style="max-width:520px;">
+    <div class="cm-box">
         <h2 class="text-2xl font-black text-slate-900 mb-2">Request Change Item</h2>
         <p class="text-slate-600 font-medium text-sm mb-4">Report an issue with your completed order. This stays linked to your original order — no new order will be created.</p>
         <div id="changeItemOrderMeta" class="text-sm text-slate-700 mb-4" style="line-height:1.6;"></div>
         <label class="block text-sm font-bold text-slate-800 mb-2">Reason for Change Item</label>
-        <select id="changeItemReason" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900">
+        <select id="changeItemReason" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900" style="box-sizing:border-box;max-width:100%;">
             <option value="">-- Select a reason --</option>
             <option value="damaged_item">Damaged Item</option>
             <option value="print_quality">Print/Output Quality Issue</option>
@@ -2301,16 +2443,31 @@ window.addEventListener('DOMContentLoaded', () => {
             <option value="production_defect">Production Defect</option>
             <option value="other">Other</option>
         </select>
-        <input id="changeItemReasonOther" type="text" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl hidden text-sm font-medium text-slate-900" placeholder="Specify reason...">
+        <input id="changeItemReasonOther" type="text" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl hidden text-sm font-medium text-slate-900" placeholder="Specify reason..." style="box-sizing:border-box;max-width:100%;">
         <label class="block text-sm font-bold text-slate-800 mb-2">Issue Description</label>
-        <textarea id="changeItemDescription" rows="4" class="w-full mb-3 p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900" placeholder="Describe the issue..."></textarea>
-        <label class="block text-sm font-bold text-slate-800 mb-2">Proof (optional)</label>
-        <input id="changeItemProof" type="file" accept="image/*,application/pdf" class="w-full mb-4 text-sm">
-        <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
-        <div class="grid grid-cols-2 gap-4">
-            <button class="cm-btn cm-btn-secondary" type="button" onclick="closeChangeItemModal()">Cancel</button>
-            <button class="cm-btn cm-btn-danger" type="button" id="changeItemSubmitBtn" onclick="submitChangeItemRequest()" style="background:#d97706;border-color:#d97706;">Submit Request</button>
+        <div class="change-item-textarea-wrap">
+            <textarea id="changeItemDescription" maxlength="500" rows="4" class="change-item-textarea w-full p-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-medium text-slate-900" placeholder="Describe the issue..."></textarea>
+            <div id="changeItemCharCount" class="change-item-char-count">0 / 500</div>
         </div>
+        <label class="block text-sm font-bold text-slate-800 mb-2">Proof (optional)</label>
+        <input id="changeItemProof" type="file" accept="image/*,application/pdf" class="w-full mb-4 text-sm" style="max-width:100%;box-sizing:border-box;">
+        <div id="changeItemError" class="hidden text-sm font-semibold text-red-600 mb-3"></div>
+        <div class="cm-actions-row">
+            <button class="cm-btn cm-btn-cancel" type="button" onclick="closeChangeItemModal()">Cancel</button>
+            <button class="cm-btn cm-btn-submit" type="button" id="changeItemSubmitBtn" onclick="submitChangeItemRequest()">Submit Request</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Change Item Success -->
+<div id="changeItemSuccessModal" onclick="if(event.target === this) closeChangeItemSuccessModal()">
+    <div class="cm-success-box" onclick="event.stopPropagation()">
+        <div style="width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;background:rgba(10,37,48,0.08);color:#0a2530;">
+            <svg width="28" height="28" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h2 class="text-xl font-black text-slate-900 mb-2">Change Item Request Submitted</h2>
+        <p class="text-slate-600 font-medium text-sm mb-6" style="line-height:1.6;">Your request has been sent to our team for review.</p>
+        <button type="button" class="cm-btn cm-btn-submit" style="width:100%;" onclick="closeChangeItemSuccessModal()">OK</button>
     </div>
 </div>
 
@@ -3226,7 +3383,7 @@ function openItemsModal(orderId, event, options = {}) {
                     </div>
 
                     <!-- Actions Area -->
-                    <div class="mt-auto pt-4 space-y-3">
+                    <div class="mt-auto pt-4 im-order-actions">
                         ${data.design_status === 'Revision Requested' && data.revision_request ? `
                             <div class="im-reject-card">
                                 <div class="im-reject-title">Revision Requested</div>
@@ -3266,17 +3423,23 @@ function openItemsModal(orderId, event, options = {}) {
                         ` : ''}
 
                         ${changeItemEligible ? `
-                            <button type="button" onclick="openChangeItemModal()" class="im-primary-action" style="background:#d97706;border-color:#d97706;">Request Change Item</button>
+                            <button type="button" onclick="openChangeItemModal()" class="im-order-action im-order-action--change">
+                                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0014-7.5M19 5a9 9 0 00-14 7.5"/></svg>
+                                <span>Request Change Item</span>
+                            </button>
                         ` : ''}
 
                         ${data.receipt_available && data.receipt ? `
-                            <button type="button" onclick='openReceiptModal(${JSON.stringify('__RECEIPT__')})' class="im-primary-action" data-receipt-button="1">View Receipt</button>
+                            <button type="button" onclick='openReceiptModal(${JSON.stringify('__RECEIPT__')})' class="im-order-action im-order-action--receipt" data-receipt-button="1">
+                                <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                <span>View Receipt</span>
+                            </button>
                         `.replace(JSON.stringify('__RECEIPT__'), JSON.stringify(data.receipt).replace(/</g, '\\u003c')) : ''}
 
                         ${['Completed', 'To Rate', 'Rated'].includes(data.status) ? (
                             data.rating_data
-                                ? `<a href="${data.rating_data.view_url}" class="w-full py-3.5 bg-[rgba(249,115,22,0.1)] text-[#f97316] text-[11px] font-black border border-[rgba(249,115,22,0.4)] hover:bg-[#f97316] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl">★ VIEW YOUR REVIEW</a>`
-                                : `<a href="${CUSTOMER_BASE_URL}/customer/rate_order.php?order_id=${data.order_id}" class="w-full py-3.5 bg-[rgba(249,115,22,0.1)] text-[#f97316] text-[11px] font-black border border-[rgba(249,115,22,0.4)] hover:bg-[#f97316] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl">★ RATE THIS ORDER</a>`
+                                ? `<a href="${data.rating_data.view_url}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>View Your Review</span></a>`
+                                : `<a href="${CUSTOMER_BASE_URL}/customer/rate_order.php?order_id=${data.order_id}" class="im-order-action im-order-action--rate"><svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span>Rate This Order</span></a>`
                         ) : ''}
 
                         ${data.can_cancel ? `
@@ -3289,10 +3452,16 @@ function openItemsModal(orderId, event, options = {}) {
 
         const reviewAction = document.querySelector('#imBody a[href*="rate_order.php"], #imBody a[href*="reviews.php?order_id="]');
         if (reviewAction) {
-            reviewAction.className = 'w-full py-3.5 bg-[rgba(250,204,21,0.15)] text-[#b45309] text-[11px] font-black border border-[rgba(234,179,8,0.5)] hover:bg-[#eab308] hover:text-white transition-all tracking-widest flex items-center justify-center gap-2 rounded-xl';
-            reviewAction.textContent = reviewAction.href.includes('reviews.php?order_id=')
-                ? '★ VIEW YOUR REVIEW'
-                : '★ RATE THIS ORDER';
+            reviewAction.className = 'im-order-action im-order-action--rate';
+            if (!reviewAction.querySelector('svg')) {
+                reviewAction.innerHTML = '<svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg><span></span>';
+            }
+            const reviewLabel = reviewAction.querySelector('span') || reviewAction;
+            if (reviewAction.querySelector('span')) {
+                reviewAction.querySelector('span').textContent = reviewAction.href.includes('reviews.php?order_id=')
+                    ? 'View Your Review'
+                    : 'Rate This Order';
+            }
         }
     })
     .catch((error) => {
@@ -3352,6 +3521,14 @@ function closeCancelModal() {
 }
 
 let changeItemSubmitting = false;
+const CHANGE_ITEM_DESCRIPTION_MAX = 500;
+function updateChangeItemCharCount() {
+    const field = document.getElementById('changeItemDescription');
+    const counter = document.getElementById('changeItemCharCount');
+    if (!field || !counter) return;
+    const length = String(field.value || '').length;
+    counter.textContent = `${length} / ${CHANGE_ITEM_DESCRIPTION_MAX}`;
+}
 function openChangeItemModal() {
     const ctx = window.__pfChangeItemModalContext || {};
     if (!ctx.orderId) return;
@@ -3363,10 +3540,25 @@ function openChangeItemModal() {
     document.getElementById('changeItemDescription').value = '';
     document.getElementById('changeItemProof').value = '';
     document.getElementById('changeItemError').classList.add('hidden');
+    updateChangeItemCharCount();
     document.getElementById('changeItemModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
 function closeChangeItemModal() {
     document.getElementById('changeItemModal').classList.remove('open');
+    if (!document.getElementById('itemsModal').classList.contains('open')) {
+        document.body.style.overflow = '';
+    }
+}
+function showChangeItemSuccessModal() {
+    document.getElementById('changeItemSuccessModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+function closeChangeItemSuccessModal() {
+    document.getElementById('changeItemSuccessModal').classList.remove('open');
+    if (!document.getElementById('itemsModal').classList.contains('open')) {
+        document.body.style.overflow = '';
+    }
 }
 document.getElementById('changeItemReason')?.addEventListener('change', function () {
     const other = document.getElementById('changeItemReasonOther');
@@ -3374,6 +3566,7 @@ document.getElementById('changeItemReason')?.addEventListener('change', function
     if (this.value === 'other') other.classList.remove('hidden');
     else other.classList.add('hidden');
 });
+document.getElementById('changeItemDescription')?.addEventListener('input', updateChangeItemCharCount);
 async function submitChangeItemRequest() {
     const ctx = window.__pfChangeItemModalContext || {};
     const err = document.getElementById('changeItemError');
@@ -3397,6 +3590,11 @@ async function submitChangeItemRequest() {
         err.classList.remove('hidden');
         return;
     }
+    if (description.length > CHANGE_ITEM_DESCRIPTION_MAX) {
+        err.textContent = 'Issue description must be 500 characters or fewer.';
+        err.classList.remove('hidden');
+        return;
+    }
     if (changeItemSubmitting) return;
     changeItemSubmitting = true;
     btn.disabled = true;
@@ -3406,7 +3604,7 @@ async function submitChangeItemRequest() {
         fd.append('order_id', String(ctx.orderId));
         fd.append('reason_code', reason);
         fd.append('reason_label', reason === 'other' ? reasonOther : '');
-        fd.append('issue_description', description);
+        fd.append('issue_description', description.slice(0, CHANGE_ITEM_DESCRIPTION_MAX));
         fd.append('csrf_token', ctx.csrf || '');
         fd.append('idempotency_key', 'customer-change-item-' + ctx.orderId + '-' + Date.now());
         const proof = document.getElementById('changeItemProof').files[0];
@@ -3417,7 +3615,7 @@ async function submitChangeItemRequest() {
             throw new Error(payload.message || 'Unable to submit Change Item request.');
         }
         closeChangeItemModal();
-        notifyCancelResult('Change Item request submitted. Our team will review your request.');
+        showChangeItemSuccessModal();
         openItemsModal(ctx.orderId);
     } catch (e) {
         err.textContent = e.message || 'Unable to submit Change Item request.';

@@ -3200,7 +3200,8 @@ $online_closed_count = 0;
                         <input x-model="changeItemReasonOther" type="text" placeholder="Specify reason..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box;">
                     </div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Issue Description <span style="color:#dc2626;">*</span></label>
-                    <textarea x-model="changeItemDescription" rows="4" placeholder="Describe the issue..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:12px;"></textarea>
+                    <textarea x-model="changeItemDescription" maxlength="500" rows="4" placeholder="Describe the issue..." style="width:100%;max-width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;margin-bottom:4px;"></textarea>
+                    <div style="font-size:11px;color:#6b7280;text-align:right;margin-bottom:12px;" x-text="(changeItemDescription || '').length + ' / ' + changeItemDescriptionMaxLen"></div>
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Proof (optional)</label>
                     <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Staff Notes</label>
@@ -3398,10 +3399,13 @@ window.pfServiceFieldCatalog = (() => {
             let ordersAbortController = null;
             let countsAbortController = null;
             let countsRequestPromise = null;
+            const svcModalMixin = typeof window.printflowStaffServiceOrderModalMixin === 'function'
+                ? window.printflowStaffServiceOrderModalMixin({
+                    async afterSvcMutation() { await this.loadOrders(); }
+                })
+                : {};
             return {
-            ...window.printflowStaffServiceOrderModalMixin({
-                async afterSvcMutation() { await this.loadOrders(); }
-            }),
+            ...svcModalMixin,
             statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             _initialized: false,
@@ -3463,6 +3467,7 @@ window.pfServiceFieldCatalog = (() => {
             changeItemSubmitting: false,
             changeItemModalError: '',
             changeItemIdempotencyKey: '',
+            changeItemDescriptionMaxLen: 500,
             showRejectPaymentModal: false,
             rejectPaymentReasonSelect: '',
             rejectPaymentReasonText: '',
@@ -4587,6 +4592,15 @@ window.pfServiceFieldCatalog = (() => {
                     'has_priority_field',
                 ].includes(token);
             },
+            staffCustomizationIsInternalLabel(label) {
+                const raw = String(label || '').trim();
+                if (!raw) return true;
+                if (this.staffCustomizationIsInternalKey(raw)) return true;
+                const token = this.staffCustomizationKeyToken(raw);
+                if (token.includes('staff_priority') || token.includes('priority_request')) return true;
+                if (/^staff\s+priority(\s+request)?$/i.test(raw)) return true;
+                return false;
+            },
             staffCustomizationIsInternalValue(value) {
                 if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
                 if (Object.prototype.hasOwnProperty.call(value, 'is_urgent_request')
@@ -5412,6 +5426,7 @@ window.pfServiceFieldCatalog = (() => {
 
                 const entries = Object.entries(specs).filter(([k, v]) => {
                     if (this.staffCustomizationIsInternalKey(k)) return false;
+                    if (this.staffCustomizationIsInternalLabel(k)) return false;
                     if (this.staffCustomizationIsInternalValue(v)) return false;
                     if (v === '' || v == null) return false;
                     if (typeof v === 'string' && v.length > 2000) return false;
@@ -5503,6 +5518,7 @@ window.pfServiceFieldCatalog = (() => {
                 return false;
             },
             getCustomLabel(k) {
+                if (this.staffCustomizationIsInternalLabel(k)) return '';
                 if (k === 'Dimensions' || k === 'Size / Dimensions') return 'Dimensions';
                 if (k === 'Notes') return 'Notes';
                 return this.customFieldLabels[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -6731,15 +6747,20 @@ window.pfServiceFieldCatalog = (() => {
                     if (bucket === 'CANCELLED') return 'Cancelled';
                     return 'Pending';
                 }
-                return jo.status === 'COMPLETED' ? 'Completed' :
-                    (jo.status === 'CHANGE_ITEM_REQUEST' ? 'Change Item Request' :
-                    (jo.status === 'APPROVED' ? 'Approved' :
-                    (jo.status === 'TO_PAY' ? 'To Pay' :
-                    (jo.status === 'PAYMENT_CONFIRMED' ? 'Payment Confirmed' :
-                    (jo.status === 'VERIFY_PAY' ? 'To Verify' :
-                    (jo.status === 'REJECTED' ? 'Rejected' :
-                    (jo.status === 'IN_PRODUCTION' ? 'In Production' :
-                    (jo.status === 'TO_RECEIVE' || jo.status === 'READY_TO_COLLECT' ? 'To Pickup' : jo.status)))))));
+                const statusKey = String(jo && jo.status ? jo.status : '').toUpperCase();
+                const statusMap = {
+                    COMPLETED: 'Completed',
+                    CHANGE_ITEM_REQUEST: 'Change Item Request',
+                    APPROVED: 'Approved',
+                    TO_PAY: 'To Pay',
+                    PAYMENT_CONFIRMED: 'Payment Confirmed',
+                    VERIFY_PAY: 'To Verify',
+                    REJECTED: 'Rejected',
+                    IN_PRODUCTION: 'In Production',
+                    TO_RECEIVE: 'To Pickup',
+                    READY_TO_COLLECT: 'To Pickup',
+                };
+                return statusMap[statusKey] || (jo && jo.status ? jo.status : '');
             },
             getStatusBadgeClass(jo) {
                 if (this.isPosSimplifiedView && this.isPosWalkInSource(jo)) {
@@ -8547,6 +8568,10 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!this.changeItemDescription.trim()) {
                     this.changeItemModalError = 'Issue description is required.';
+                    return;
+                }
+                if (this.changeItemDescription.trim().length > this.changeItemDescriptionMaxLen) {
+                    this.changeItemModalError = 'Issue description must be 500 characters or fewer.';
                     return;
                 }
                 if (!this.beginModalAction()) return;
