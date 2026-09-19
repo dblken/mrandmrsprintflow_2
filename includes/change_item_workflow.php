@@ -176,7 +176,8 @@ function printflow_change_item_insert_row(array $row): int
         throw new RuntimeException('Unable to create Change Item request.');
     }
 
-    $types = 'iiiiisissssssssss';
+    // 16 placeholders: iiiii + s + i + s×9
+    $types = 'iiiiisisssssssss';
     if (!$stmt->bind_param(
         $types,
         $orderId,

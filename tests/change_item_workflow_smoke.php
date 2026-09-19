@@ -40,7 +40,8 @@ change_item_test_assert(strpos($workflow, 'create_notification') !== false, 'cus
 change_item_test_assert(strpos($workflow, 'strlen($description) > 500') !== false, 'issue description capped at 500 characters');
 change_item_test_assert(strpos($customerOrders, 'changeItemSuccessModal') !== false, 'customer change item success modal replaces alert');
 change_item_test_assert(strpos($staffCustomizations, 'getStatusLabel(jo)') !== false, 'staff customizations status label helper present');
-change_item_test_assert(strpos($workflow, "'iiiiisissssssssss'") !== false, 'change item insert uses correct bind types');
+change_item_test_assert(strpos($workflow, "'iiiiisisssssssss'") !== false, 'change item insert uses correct bind types');
+change_item_test_assert(strpos($workflow, "'iiiiisissssssssss'") === false, 'change item insert does not use extra bind type char');
 change_item_test_assert(strpos($workflow, "initialStatus = 'Requested'") !== false, 'change item inserts as Requested before approval');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_blocks_store_order_sync') !== false, 'completed orders preserve store status during change item rework');
 change_item_test_assert(strpos($workflow, 'printflow_change_item_on_job_status_change($jobOrderId, \'IN_PRODUCTION\')') !== false, 'counter auto-approve triggers production hook');
