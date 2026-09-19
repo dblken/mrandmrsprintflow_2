@@ -102,13 +102,15 @@ if ($service_name === '') {
 
 $linked_job_id = 0;
 $linked_job_order_item_id = 0;
+$linked_job_status = '';
 $linkedJobRows = db_query(
-    "SELECT id, order_item_id FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
+    "SELECT id, order_item_id, status FROM job_orders WHERE order_id = ? ORDER BY id ASC LIMIT 1",
     'i',
     [$order_id]
 ) ?: [];
 $linked_job_id = (int)($linkedJobRows[0]['id'] ?? 0);
 $linked_job_order_item_id = (int)($linkedJobRows[0]['order_item_id'] ?? 0);
+$linked_job_status = (string)($linkedJobRows[0]['status'] ?? '');
 if ($linked_job_id <= 0 && $ensureJob && strtolower(trim((string)($o['order_type'] ?? ''))) === 'custom') {
     $linked_job_id = (int)(JobOrderService::ensureJobsForStoreOrder($order_id) ?? 0);
     if ($linked_job_id > 0) {
@@ -302,6 +304,7 @@ $data = [
     'id' => $o['order_id'],
     'order_id' => $o['order_id'],
     'job_order_id' => $linked_job_id ?: null,
+    'job_status' => $linked_job_status !== '' ? $linked_job_status : null,
     'requires_ink' => $linked_job_id ? printflow_job_requires_ink($linked_job_id) : true,
     'order_type' => 'ORDER',
     'customer_full_name' => $o['customer_full_name'] ?? trim(($o['first_name'] ?? '') . ' ' . ($o['last_name'] ?? '')),

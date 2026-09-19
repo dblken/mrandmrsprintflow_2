@@ -115,6 +115,31 @@ function printflow_change_item_status_label(string $status): string
     return $map[$key] ?? ucwords(strtolower(str_replace('_', ' ', $key)));
 }
 
+function printflow_change_item_blocks_store_order_sync(int $orderId): bool
+{
+    $orderId = (int) $orderId;
+    if ($orderId <= 0 || !printflow_change_item_ensure_schema()) {
+        return false;
+    }
+
+    $active = printflow_change_item_get_active($orderId);
+    if ($active === null) {
+        return false;
+    }
+
+    $orderRows = db_query(
+        'SELECT status FROM orders WHERE order_id = ? LIMIT 1',
+        'i',
+        [$orderId]
+    ) ?: [];
+    if ($orderRows === []) {
+        return false;
+    }
+
+    $job = printflow_change_item_get_job_for_order($orderId);
+    return printflow_change_item_order_completed($orderRows[0], $job);
+}
+
 function printflow_change_item_get_job_for_order(int $orderId): ?array
 {
     $orderId = (int) $orderId;
@@ -410,15 +435,33 @@ function printflow_change_item_notify_staff(int $orderId, string $event, array $
     notify_shop_users($message, 'Order', false, false, $orderId, ['Staff', 'Admin', 'Manager']);
 }
 
-function printflow_change_item_set_order_status(int $orderId, int $jobOrderId, string $jobStatus, string $storeStatus): void
+function printflow_change_item_set_job_status(int $jobOrderId, string $jobStatus): void
 {
-    if ($jobOrderId > 0) {
-        db_execute(
-            'UPDATE job_orders SET status = ?, updated_at = NOW() WHERE id = ?',
-            'si',
-            [$jobStatus, $jobOrderId]
-        );
+    $jobOrderId = (int) $jobOrderId;
+    if ($jobOrderId <= 0) {
+        return;
     }
+
+    db_execute(
+        'UPDATE job_orders SET status = ?, updated_at = NOW() WHERE id = ?',
+        'si',
+        [$jobStatus, $jobOrderId]
+    );
+}
+
+function printflow_change_item_set_order_status(
+    int $orderId,
+    int $jobOrderId,
+    string $jobStatus,
+    string $storeStatus,
+    bool $preserveStoreStatus = false
+): void {
+    printflow_change_item_set_job_status($jobOrderId, $jobStatus);
+
+    if ($preserveStoreStatus || printflow_change_item_blocks_store_order_sync($orderId)) {
+        return;
+    }
+
     db_execute(
         'UPDATE orders SET status = ?, updated_at = NOW() WHERE order_id = ?',
         'si',
@@ -608,6 +651,9 @@ function printflow_change_item_create(array $input): array
     }
 
     $staffNotes = trim((string)($input['staff_notes'] ?? ''));
+    if (strlen($staffNotes) > 2000) {
+        throw new InvalidArgumentException('Staff notes must be 2000 characters or fewer.');
+    }
     $createdBy = (int)($input['created_by_user_id'] ?? (function_exists('get_user_id') ? get_user_id() : 0));
     $createdRole = trim((string)($input['created_by_role'] ?? (function_exists('get_user_type') ? get_user_type() : '')));
     $idempotencyKey = trim((string)($input['idempotency_key'] ?? ''));
@@ -669,7 +715,7 @@ function printflow_change_item_create(array $input): array
         // Always insert as Requested; auto-approve runs approve_internal next.
         $initialStatus = 'Requested';
 
-        db_execute(
+        $inserted = db_execute(
             'INSERT INTO change_item_requests (
                 order_id, order_item_id, job_order_id, customer_id, sequence_no, source_channel,
                 created_by_user_id, created_by_role, reason_code, reason_label, issue_description,
@@ -695,6 +741,9 @@ function printflow_change_item_create(array $input): array
                 $idempotencyKey,
             ]
         );
+        if ($inserted === false) {
+            throw new RuntimeException('Unable to create Change Item request.');
+        }
 
         $changeItemId = (int)($conn->insert_id ?? 0);
         if ($changeItemId <= 0) {
@@ -704,12 +753,6 @@ function printflow_change_item_create(array $input): array
         if ($autoApprove) {
             printflow_change_item_approve_internal($changeItemId, $createdBy, true);
         } else {
-            printflow_change_item_set_order_status(
-                $orderId,
-                $jobOrderId,
-                'CHANGE_ITEM_REQUEST',
-                'Change Item Request'
-            );
             printflow_change_item_notify_customer($resolvedCustomerId, $orderId, 'submitted');
             printflow_change_item_notify_staff($orderId, 'submitted');
         }
@@ -789,8 +832,16 @@ function printflow_change_item_approve_internal(int $changeItemId, int $staffUse
         [$staffUserId > 0 ? $staffUserId : null, (int) $changeItemId]
     );
 
-    printflow_change_item_set_order_status($orderId, $jobOrderId, 'IN_PRODUCTION', 'In Production');
-    printflow_change_item_process_inventory((int) $changeItemId);
+    printflow_change_item_set_order_status(
+        $orderId,
+        $jobOrderId,
+        'IN_PRODUCTION',
+        'In Production',
+        true
+    );
+    if ($jobOrderId > 0) {
+        printflow_change_item_on_job_status_change($jobOrderId, 'IN_PRODUCTION');
+    }
 
     $customerId = (int)($change['customer_id'] ?? 0);
     if (!$silentCustomerNotification) {
@@ -858,7 +909,6 @@ function printflow_change_item_reject(int $changeItemId, string $reason, int $st
             [$reason, $staffUserId > 0 ? $staffUserId : null, (int) $changeItemId]
         );
 
-        printflow_change_item_set_order_status($orderId, $jobOrderId, 'COMPLETED', 'Completed');
         printflow_change_item_notify_customer((int)($change['customer_id'] ?? 0), $orderId, 'rejected', ['reason' => $reason]);
 
         if ($started) {
@@ -900,6 +950,18 @@ function printflow_change_item_on_job_status_change(int $jobOrderId, string $new
     $changeItemId = (int)($active['change_item_id'] ?? 0);
     $requestStatus = printflow_change_item_normalize_status((string)($active['request_status'] ?? ''));
 
+    if (
+        in_array($normalized, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)
+        && in_array($requestStatus, ['IN_REWORK', 'APPROVED'], true)
+        && empty($active['inventory_recorded_at'])
+    ) {
+        try {
+            printflow_change_item_process_inventory($changeItemId);
+        } catch (Throwable $e) {
+            error_log('[change_item] Inventory deduction failed for #' . $changeItemId . ': ' . $e->getMessage());
+        }
+    }
+
     if (in_array($normalized, ['TO_RECEIVE', 'READY_TO_COLLECT'], true) && $requestStatus === 'IN_REWORK') {
         printflow_change_item_notify_customer((int)($active['customer_id'] ?? 0), $orderId, 'ready');
         return;
@@ -933,7 +995,7 @@ function printflow_change_item_summary_for_order(int $orderId): array
         'has_history' => $history !== [],
         'change_item_count' => count($history),
         'show_badge' => $history !== [] || $active !== null,
-        'badge_label' => 'Changed Item',
+        'badge_label' => 'Change Item',
     ];
 }
 
@@ -975,7 +1037,7 @@ function printflow_change_item_batch_summaries(array $orderIds): array
             'change_item_active' => (int)($row['active_count'] ?? 0) > 0,
             'change_item_status' => (string)($row['active_status'] ?? ''),
             'change_item_request_id' => (int)($row['active_change_item_id'] ?? 0),
-            'change_item_badge' => (int)($row['total_count'] ?? 0) > 0 ? 'Changed Item' : '',
+            'change_item_badge' => (int)($row['total_count'] ?? 0) > 0 ? 'Change Item' : '',
         ];
     }
     return $out;

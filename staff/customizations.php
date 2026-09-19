@@ -3024,7 +3024,7 @@ $online_closed_count = 0;
                                 <button type="button" @click="verifyPayment()" :disabled="actionBusy || !canApproveVerification()" class="pf-entry-btn pf-entry-in" style="width:auto; max-width:220px; min-width:140px; justify-self:center; padding:0 14px; background:#10b981; color:#fff; border-color:#10b981;" :style="(actionBusy || !canApproveVerification()) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve</button>
                                 <button type="button" @click="openRejectPaymentModal()" :disabled="actionBusy" class="pf-entry-btn pf-entry-out" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Reject</button>
                             </div>
-                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="display:flex; gap:8px;">
+                            <div x-show="!isPosSimplifiedView && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing' || changeItemReworkInProgress(currentJo))" style="display:flex; gap:8px;">
                                 <button type="button" @click="markReadyForPickup()" :disabled="actionBusy" class="pf-entry-btn pf-entry-in" :style="actionBusy ? 'opacity:.6;cursor:not-allowed;' : ''">Mark as Ready for Pickup</button>
                             </div>
                             <div x-show="!isPosSimplifiedView && currentJo.status === 'TO_RECEIVE'" style="display:flex; gap:8px;">
@@ -3037,7 +3037,7 @@ $online_closed_count = 0;
                                 <button type="button" @click="approveChangeItem()" :disabled="actionBusy || changeItemSubmitting" class="pf-entry-btn pf-entry-in" :style="(actionBusy || changeItemSubmitting) ? 'opacity:.6;cursor:not-allowed;' : ''">Approve Change Item</button>
                                 <button type="button" @click="openChangeItemRejectModal()" :disabled="actionBusy || changeItemSubmitting" class="pf-entry-btn pf-entry-out" :style="(actionBusy || changeItemSubmitting) ? 'opacity:.6;cursor:not-allowed;' : ''">Reject Change Item</button>
                             </div>
-                            <div x-show="currentJo.has_change_item && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing')" style="font-size:11px;font-weight:700;color:#92400e;">Rework in progress for this Change Item.</div>
+                            <div x-show="currentJo.has_change_item && (currentJo.status === 'IN_PRODUCTION' || currentJo.status === 'Processing' || changeItemReworkInProgress(currentJo))" style="font-size:11px;font-weight:700;color:#92400e;">Rework in progress for this Change Item.</div>
                         </div>
                         <div x-show="footerActionError" x-cloak style="font-size:12px;font-weight:600;color:#dc2626;line-height:1.45;max-width:560px;" x-text="footerActionError"></div>
                     </div>
@@ -3243,7 +3243,7 @@ $online_closed_count = 0;
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Proof (optional)</label>
                     <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Staff Notes</label>
-                    <textarea x-model="changeItemStaffNotes" rows="3" placeholder="Internal notes for staff..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+                    <textarea x-model="changeItemStaffNotes" maxlength="2000" rows="3" placeholder="Internal notes for staff..." style="width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
                     <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
                 </div>
                 <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">
@@ -3887,6 +3887,13 @@ window.pfServiceFieldCatalog = (() => {
             },
             modalWorkflowStatus(jo) {
                 if (!jo) return '';
+                if (this.changeItemReworkInProgress(jo)) {
+                    const jobStatus = String(jo.job_status || 'IN_PRODUCTION').toUpperCase().replace(/\s+/g, '_');
+                    if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING', 'TO_RECEIVE', 'READY_TO_COLLECT'].includes(jobStatus)) {
+                        return jobStatus;
+                    }
+                    return 'IN_PRODUCTION';
+                }
                 const raw = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (this.isPosPricingMode()) {
                     if (raw === 'PENDING' || raw === 'PENDING_REVIEW' || raw === 'PENDING_APPROVAL' || raw === 'FOR_REVISION') {
@@ -4259,7 +4266,22 @@ window.pfServiceFieldCatalog = (() => {
                     || String(row.change_item_badge || '').trim() !== '';
             },
             getChangeItemBadgeLabel(row) {
-                return String((row && row.change_item_badge) || 'Changed Item').trim() || 'Changed Item';
+                return String((row && row.change_item_badge) || 'Change Item').trim() || 'Change Item';
+            },
+            resolveChangeItemOrderId(row) {
+                if (!row) return 0;
+                const direct = parseInt(row.order_id || 0, 10);
+                if (direct > 0) return direct;
+                if (String(row.order_type || '').toUpperCase() === 'ORDER') {
+                    return parseInt(row.id || 0, 10);
+                }
+                return 0;
+            },
+            changeItemReworkInProgress(row) {
+                const active = this.changeItemActiveRequest(row);
+                if (!active) return false;
+                const status = String(active.status || row.change_item_status || '').toLowerCase();
+                return status === 'in rework';
             },
             changeItemCanCreate(row) {
                 if (!row) return false;
@@ -4279,12 +4301,10 @@ window.pfServiceFieldCatalog = (() => {
             },
             changeItemCanReview(row) {
                 if (!row) return false;
-                const status = String(row.status || '').toUpperCase();
                 const active = this.changeItemActiveRequest(row);
                 if (!active) return false;
                 const activeStatus = String(active.status || row.change_item_status || '').toLowerCase();
-                const pending = activeStatus === 'requested' || activeStatus === 'under review';
-                return status === 'CHANGE_ITEM_REQUEST' && pending;
+                return activeStatus === 'requested' || activeStatus === 'under review';
             },
             changeItemActiveRequest(row) {
                 if (!row) return null;
@@ -5977,6 +5997,7 @@ window.pfServiceFieldCatalog = (() => {
             /** Store/job row is actively in production — strictly status-based only. */
             isInProductionRow(row) {
                 if (!row) return false;
+                if (this.changeItemReworkInProgress(row)) return true;
                 const raw = String(row.status || '').trim();
                 const t = raw.toUpperCase().replace(/\s+/g, '_');
                 if (t === 'IN_PRODUCTION' || t === 'PROCESSING' || t === 'PRINTING') return true;
@@ -6885,11 +6906,13 @@ window.pfServiceFieldCatalog = (() => {
             },
             getOnlineStageBucket(row) {
                 if (!row) return 'INQUIRY';
+                if (this.changeItemReworkInProgress(row)) return 'PRODUCTION';
                 const s = String(row.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (s === 'REJECTED' || s === 'CANCELLED') return 'CLOSED';
                 if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
                 if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
                 if (s === 'COMPLETED') return 'COMPLETED';
+                if (row.change_item_active && String(row.change_item_status || '').toLowerCase() === 'requested') return 'INQUIRY';
                 if (s === 'CHANGE_ITEM_REQUEST') return 'INQUIRY';
                 if (['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
@@ -8632,7 +8655,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.changeItemDescription = '';
                 this.changeItemStaffNotes = '';
                 this.changeItemProofFile = null;
-                this.changeItemIdempotencyKey = 'staff-change-item-' + String(this.currentJo.order_id || this.currentJo.id || '') + '-' + Date.now();
+                this.changeItemIdempotencyKey = 'staff-change-item-' + String(this.resolveChangeItemOrderId(this.currentJo) || this.currentJo.id || '') + '-' + Date.now();
                 this.showChangeItemModal = true;
             },
             closeChangeItemModal() {
@@ -8651,7 +8674,7 @@ window.pfServiceFieldCatalog = (() => {
                 this.showChangeItemRejectModal = false;
             },
             async submitChangeItem() {
-                const orderId = parseInt(this.currentJo.order_id || 0, 10);
+                const orderId = this.resolveChangeItemOrderId(this.currentJo);
                 if (!orderId) {
                     this.changeItemModalError = 'Original order not found.';
                     return;
@@ -8670,6 +8693,10 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (this.changeItemDescription.trim().length > this.changeItemDescriptionMaxLen) {
                     this.changeItemModalError = 'Issue description must be 500 characters or fewer.';
+                    return;
+                }
+                if (this.changeItemStaffNotes.trim().length > 2000) {
+                    this.changeItemModalError = 'Staff notes must be 2000 characters or fewer.';
                     return;
                 }
                 if (!this.beginModalAction()) return;
@@ -8699,7 +8726,7 @@ window.pfServiceFieldCatalog = (() => {
                         return;
                     }
                     this.showChangeItemModal = false;
-                    this.showStaffAlert('Success', 'Change Item submitted. The original order is now in production.');
+                    this.showStaffAlert('Success', 'Change Item submitted and linked to the original order.');
                     await this.loadOrders();
                     await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
                 } finally {

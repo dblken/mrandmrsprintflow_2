@@ -42,6 +42,10 @@ change_item_test_assert(strpos($customerOrders, 'changeItemSuccessModal') !== fa
 change_item_test_assert(strpos($staffCustomizations, 'getStatusLabel(jo)') !== false, 'staff customizations status label helper present');
 change_item_test_assert(strpos($workflow, "'iiiiisissssssssss'") !== false, 'change item insert uses correct bind types');
 change_item_test_assert(strpos($workflow, "initialStatus = 'Requested'") !== false, 'change item inserts as Requested before approval');
+change_item_test_assert(strpos($workflow, 'printflow_change_item_blocks_store_order_sync') !== false, 'completed orders preserve store status during change item rework');
+change_item_test_assert(strpos($workflow, 'printflow_change_item_on_job_status_change($jobOrderId, \'IN_PRODUCTION\')') !== false, 'counter auto-approve triggers production hook');
+change_item_test_assert(strpos($workflow, "'Change Item'") !== false, 'change item badge label is Change Item');
+change_item_test_assert(strpos($jobService, 'printflow_change_item_blocks_store_order_sync') !== false, 'job status updates preserve completed store orders during change item');
 change_item_test_assert(strpos($staffCustomizations, 'changeItemActiveRequest') !== false, 'staff modal renders active change item request');
 change_item_test_assert(strpos(file_get_contents($root . '/staff/get_order_for_modal.php'), 'printflow_change_item_summary_for_order') !== false, 'order modal payload includes change item summary');
 

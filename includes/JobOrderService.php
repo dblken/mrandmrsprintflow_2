@@ -1123,10 +1123,29 @@ class JobOrderService {
             } elseif (!empty($order['order_id'])) {
                 printflow_revision_close_active((int)$order['order_id'], 'Closed - ' . (string)$newStatus);
             }
+
+            $linkedOrderId = (int)($order['order_id'] ?? 0);
+            $preserveStoreOrderStatus = false;
+            if ($linkedOrderId > 0) {
+                require_once __DIR__ . '/change_item_workflow.php';
+                $preserveStoreOrderStatus = printflow_change_item_blocks_store_order_sync($linkedOrderId);
+            }
+            $activeChangeItem = ($preserveStoreOrderStatus && $linkedOrderId > 0)
+                ? printflow_change_item_get_active($linkedOrderId)
+                : null;
+
             // Materials are now handled once the job is live in production.
             if (in_array($normalizedNewStatus, ['IN_PRODUCTION', 'PROCESSING', 'PRINTING'], true)) {
-                // Deduct materials when moving to production
-                self::processDeductions($orderId);
+                if ($activeChangeItem !== null) {
+                    try {
+                        printflow_change_item_process_inventory((int)($activeChangeItem['change_item_id'] ?? 0));
+                    } catch (Throwable $e) {
+                        throw new Exception($e->getMessage());
+                    }
+                } else {
+                    // Deduct materials when moving to production
+                    self::processDeductions($orderId);
+                }
             }
 
             if ($normalizedNewStatus === 'COMPLETED') {
@@ -1153,7 +1172,9 @@ class JobOrderService {
                 
                 // Completion is a recovery pass for assigned materials only.
                 // Ink usage is processed at production entry and must not be issued twice.
-                self::processDeductions($orderId, ['materials' => true, 'inks' => false]);
+                if (!$preserveStoreOrderStatus) {
+                    self::processDeductions($orderId, ['materials' => true, 'inks' => false]);
+                }
                 if ($order['customer_id']) {
                     self::updateCustomerStatus($order['customer_id']);
                 }
@@ -1165,7 +1186,7 @@ class JobOrderService {
             }
 
             // Sync status back to standard orders table
-            if (!empty($order['order_id'])) {
+            if (!empty($order['order_id']) && !$preserveStoreOrderStatus) {
                 // Map job status → orders table status
                 $order_status_map = [
                     'PENDING'       => 'Pending Approval',
