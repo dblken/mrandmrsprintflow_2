@@ -2552,7 +2552,8 @@ try {
                 'Paid – In Process' => 'IN_PRODUCTION',
                 'Paid - In Process' => 'IN_PRODUCTION',
                 'Processing' => 'IN_PRODUCTION', 'In Production' => 'IN_PRODUCTION', 'Printing' => 'IN_PRODUCTION',
-                'Ready for Pickup' => 'TO_RECEIVE', 'Completed' => 'COMPLETED', 'Cancelled' => 'CANCELLED'
+                'Ready for Pickup' => 'TO_RECEIVE', 'Completed' => 'COMPLETED', 'Cancelled' => 'CANCELLED',
+                'Change Item Request' => 'CHANGE_ITEM_REQUEST',
             ];
             $db_status = $o['status'] ?? '';
             $mapped_status = $status_map[$db_status] ?? $db_status;
@@ -3033,7 +3034,7 @@ try {
                 'staff_notes' => trim((string)($_POST['staff_notes'] ?? '')),
                 'proof_path' => (string)($upload['path'] ?? ''),
                 'proof_original_name' => (string)($upload['original_name'] ?? ''),
-                'auto_approve' => !empty($_POST['auto_approve']) || sanitize($_POST['source_channel'] ?? 'counter') !== 'customer',
+                'auto_approve' => !empty($_POST['auto_approve']),
                 'idempotency_key' => trim((string)($_POST['idempotency_key'] ?? '')),
                 'created_by_user_id' => (int)get_user_id(),
                 'created_by_role' => (string)get_user_type(),

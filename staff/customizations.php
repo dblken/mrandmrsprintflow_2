@@ -2787,6 +2787,44 @@ $online_closed_count = 0;
                         </div>
                     </template>
 
+                    <template x-if="changeItemActiveRequest(currentJo)">
+                        <div style="margin-bottom:20px; padding:18px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb;">
+                            <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:12px;">Change Item Request</label>
+                            <div style="display:grid; gap:8px; font-size:13px; color:#78350f; line-height:1.5;">
+                                <div><strong>Original Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                                <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
+                                <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
+                                <div><strong>Original Status:</strong> Completed</div>
+                                <div><strong>Request Status:</strong> <span x-text="changeItemActiveRequest(currentJo).status_label || changeItemActiveRequest(currentJo).status || 'Under Review'"></span></div>
+                                <div><strong>Reason for Change:</strong> <span x-text="changeItemActiveRequest(currentJo).reason || '—'"></span></div>
+                                <div><strong>Issue Description:</strong> <span x-text="changeItemActiveRequest(currentJo).description || '—'"></span></div>
+                                <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
+                                <div><strong>Requested By:</strong> <span x-text="changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
+                                <div x-show="changeItemActiveRequest(currentJo).staff_notes"><strong>Staff Notes:</strong> <span x-text="changeItemActiveRequest(currentJo).staff_notes"></span></div>
+                                <div style="margin-top:4px;">
+                                    <strong>Proof:</strong>
+                                    <template x-if="changeItemActiveRequest(currentJo).proof_url">
+                                        <div style="margin-top:8px;">
+                                            <template x-if="changeItemProofIsImage(changeItemActiveRequest(currentJo))">
+                                                <img :src="changeItemActiveRequest(currentJo).proof_url"
+                                                     @click="previewFile = changeItemActiveRequest(currentJo).proof_url"
+                                                     loading="lazy"
+                                                     style="display:block;max-width:min(100%, 220px);max-height:220px;border-radius:10px;border:1px solid #fde68a;cursor:zoom-in;object-fit:contain;background:#fff;">
+                                            </template>
+                                            <a :href="changeItemActiveRequest(currentJo).proof_url"
+                                               target="_blank"
+                                               rel="noopener noreferrer"
+                                               style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;font-weight:700;color:#0369a1;text-decoration:none;">
+                                                View proof
+                                            </a>
+                                        </div>
+                                    </template>
+                                    <span x-show="!changeItemActiveRequest(currentJo).proof_url" style="color:#92400e;">No proof attached</span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
                     <template x-if="currentJo.change_item && currentJo.change_item.history && currentJo.change_item.history.length">
                         <div style="margin-bottom:20px; padding:14px; border-radius:12px; border:1px solid #fde68a; background:#fffbeb;">
                             <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:10px;">Change Item</label>
@@ -4242,8 +4280,66 @@ window.pfServiceFieldCatalog = (() => {
             changeItemCanReview(row) {
                 if (!row) return false;
                 const status = String(row.status || '').toUpperCase();
-                const active = row.change_item && row.change_item.active;
-                return status === 'CHANGE_ITEM_REQUEST' && active && String(active.status || '').toLowerCase() === 'requested';
+                const active = this.changeItemActiveRequest(row);
+                if (!active) return false;
+                const activeStatus = String(active.status || row.change_item_status || '').toLowerCase();
+                const pending = activeStatus === 'requested' || activeStatus === 'under review';
+                return status === 'CHANGE_ITEM_REQUEST' && pending;
+            },
+            changeItemActiveRequest(row) {
+                if (!row) return null;
+                if (row.change_item && row.change_item.active) {
+                    return row.change_item.active;
+                }
+                if (!row.change_item_active && !row.change_item_request_id) {
+                    return null;
+                }
+                const status = String(row.change_item_status || 'Requested');
+                return {
+                    id: parseInt(row.change_item_request_id || 0, 10) || 0,
+                    status,
+                    status_label: this.getChangeItemStatusLabel(status),
+                    reason: '',
+                    description: '',
+                    proof_url: '',
+                };
+            },
+            changeItemResolveId(row) {
+                const active = this.changeItemActiveRequest(row);
+                return parseInt((active && active.id) || row.change_item_request_id || 0, 10);
+            },
+            getChangeItemStatusLabel(status) {
+                const key = String(status || '').toLowerCase();
+                const map = {
+                    requested: 'Under Review',
+                    approved: 'Approved',
+                    rejected: 'Rejected',
+                    'in rework': 'In Production',
+                    completed: 'Completed',
+                };
+                return map[key] || (status ? String(status) : 'Under Review');
+            },
+            changeItemRequestedByLabel(active) {
+                if (!active) return '—';
+                const channel = String(active.source_channel || '').toLowerCase();
+                if (channel === 'counter') {
+                    return active.created_by ? ('Counter Staff — ' + active.created_by) : 'Counter Staff';
+                }
+                if (channel === 'customer') return 'Customer';
+                return active.created_by || 'Customer';
+            },
+            getChangeItemItemName(row) {
+                return this.getRowDisplayName(row)
+                    || row.service_type
+                    || row.job_title
+                    || (Array.isArray(row.items) && row.items[0] && row.items[0].product_name)
+                    || 'Order item';
+            },
+            changeItemProofIsImage(active) {
+                if (!active) return false;
+                if (active.proof_is_image === true || active.proof_is_image === 1) return true;
+                const url = String(active.proof_url || '').toLowerCase();
+                return /\.(jpe?g|png|gif|webp|bmp|avif)(\?|$)/.test(url);
             },
             orderPriorityFilterMatches(row) {
                 if (this.priorityFilter === 'ALL') return true;
@@ -6265,7 +6361,8 @@ window.pfServiceFieldCatalog = (() => {
                             'READY_TO_COLLECT': 'PENDING',
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CANCELLED',
-                            'CANCELLED': 'CANCELLED'
+                            'CANCELLED': 'CANCELLED',
+                            'CHANGE_ITEM_REQUEST': 'INQUIRY'
                         }
                         : {
                             'PENDING': 'INQUIRY',
@@ -6286,7 +6383,8 @@ window.pfServiceFieldCatalog = (() => {
                             'READY_TO_COLLECT': 'TO_RECEIVE',
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CLOSED',
-                            'CANCELLED': 'CLOSED'
+                            'CANCELLED': 'CLOSED',
+                            'CHANGE_ITEM_REQUEST': 'INQUIRY'
                         };
                     const mapped = statusMap[initialStatus.toUpperCase().replace(/\s+/g, '_')] || initialStatus;
                     if (this.statuses.includes(mapped)) {
@@ -8592,7 +8690,10 @@ window.pfServiceFieldCatalog = (() => {
                     if (this.changeItemProofFile) {
                         fd.append('proof', this.changeItemProofFile);
                     }
-                    const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                    const res = await this.parseJsonResponse(
+                        await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd }),
+                        'Change Item create'
+                    );
                     if (!res.success) {
                         this.changeItemModalError = res.error || res.message || 'Unable to submit Change Item.';
                         return;
@@ -8607,8 +8708,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async approveChangeItem() {
-                const active = this.currentJo.change_item && this.currentJo.change_item.active;
-                const changeItemId = parseInt(active && active.id ? active.id : 0, 10);
+                const changeItemId = this.changeItemResolveId(this.currentJo);
                 if (!changeItemId) {
                     this.setFooterActionError('No pending Change Item request was found.');
                     return;
@@ -8620,7 +8720,10 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('action', 'change_item_approve');
                     fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                     fd.append('change_item_id', String(changeItemId));
-                    const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                    const res = await this.parseJsonResponse(
+                        await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd }),
+                        'Change Item approve'
+                    );
                     if (!res.success) {
                         this.setFooterActionError(res.error || res.message || 'Unable to approve Change Item.');
                         return;
@@ -8634,8 +8737,7 @@ window.pfServiceFieldCatalog = (() => {
                 }
             },
             async rejectChangeItem() {
-                const active = this.currentJo.change_item && this.currentJo.change_item.active;
-                const changeItemId = parseInt(active && active.id ? active.id : 0, 10);
+                const changeItemId = this.changeItemResolveId(this.currentJo);
                 if (!changeItemId) {
                     this.changeItemModalError = 'No pending Change Item request was found.';
                     return;
@@ -8652,7 +8754,10 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                     fd.append('change_item_id', String(changeItemId));
                     fd.append('reason', this.changeItemRejectReason.trim());
-                    const res = await (await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd })).json();
+                    const res = await this.parseJsonResponse(
+                        await fetch(this.adminApiUrl('job_orders_api.php'), { method: 'POST', body: fd }),
+                        'Change Item reject'
+                    );
                     if (!res.success) {
                         this.changeItemModalError = res.error || res.message || 'Unable to reject Change Item.';
                         return;

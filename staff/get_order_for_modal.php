@@ -11,6 +11,7 @@ require_once __DIR__ . '/../includes/JobOrderService.php';
 require_once __DIR__ . '/../includes/payment_verification.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/provider_payments.php';
+require_once __DIR__ . '/../includes/change_item_workflow.php';
 
 header('Content-Type: application/json');
 
@@ -76,6 +77,7 @@ $status_map = [
     'Ready for Pickup' => 'TO_RECEIVE',
     'Completed' => 'COMPLETED',
     'Cancelled' => 'CANCELLED',
+    'Change Item Request' => 'CHANGE_ITEM_REQUEST',
 ];
 $db_status = (string)($o['status'] ?? '');
 $mapped_status = $status_map[$db_status] ?? $db_status;
@@ -360,5 +362,19 @@ $data = [
     'ink_usage' => $ink_usage,
     'revision_review' => printflow_revision_review_payload($order_id, true),
 ];
+
+$changeItemSummary = printflow_change_item_summary_for_order($order_id);
+$data['change_item'] = $changeItemSummary;
+$data['has_change_item'] = !empty($changeItemSummary['has_history']) || !empty($changeItemSummary['active']);
+$data['change_item_active'] = !empty($changeItemSummary['active']);
+$data['change_item_badge'] = !empty($changeItemSummary['show_badge'])
+    ? (string)($changeItemSummary['badge_label'] ?? 'Changed Item')
+    : '';
+$data['change_item_status'] = !empty($changeItemSummary['active'])
+    ? (string)($changeItemSummary['active']['status'] ?? '')
+    : '';
+$data['change_item_request_id'] = !empty($changeItemSummary['active']['id'])
+    ? (int)$changeItemSummary['active']['id']
+    : 0;
 
 echo json_encode(['success' => true, 'data' => $data]);

@@ -201,11 +201,15 @@ function printflow_change_item_get_active(int $orderId): ?array
         return null;
     }
     $rows = db_query(
-        "SELECT *
-         FROM change_item_requests
-         WHERE order_id = ?
-           AND active_flag = 1
-         ORDER BY change_item_id DESC
+        "SELECT cir.*,
+                CONCAT_WS(' ', u.first_name, u.last_name) AS created_by_name,
+                CONCAT_WS(' ', ru.first_name, ru.last_name) AS reviewed_by_name
+         FROM change_item_requests cir
+         LEFT JOIN users u ON u.user_id = cir.created_by_user_id
+         LEFT JOIN users ru ON ru.user_id = cir.reviewed_by_user_id
+         WHERE cir.order_id = ?
+           AND cir.active_flag = 1
+         ORDER BY cir.change_item_id DESC
          LIMIT 1",
         'i',
         [(int) $orderId]
@@ -249,6 +253,8 @@ function printflow_change_item_public_record(array $row): array
         'rejection_reason' => (string)($row['rejection_reason'] ?? ''),
         'source_channel' => (string)($row['source_channel'] ?? ''),
         'proof_url' => printflow_change_item_proof_url($row),
+        'proof_is_image' => printflow_change_item_proof_is_image($row),
+        'proof_original_name' => (string)($row['proof_original_name'] ?? ''),
         'requested_at' => (string)($row['requested_at'] ?? ''),
         'requested_at_display' => !empty($row['requested_at']) && function_exists('format_datetime')
             ? format_datetime($row['requested_at'])
@@ -273,7 +279,28 @@ function printflow_change_item_proof_url(array $row): string
         return $path;
     }
     $base = function_exists('pf_app_base_path') ? rtrim((string) pf_app_base_path(), '/') : '';
+    if (strpos($path, '/uploads/') === 0) {
+        return $base . $path;
+    }
     return $base . (strpos($path, '/') === 0 ? $path : '/' . $path);
+}
+
+function printflow_change_item_proof_is_image(array $row): bool
+{
+    $candidates = [
+        (string)($row['proof_path'] ?? ''),
+        (string)($row['proof_original_name'] ?? ''),
+    ];
+    foreach ($candidates as $candidate) {
+        $candidate = strtolower(trim($candidate));
+        if ($candidate === '') {
+            continue;
+        }
+        if (preg_match('/\.(jpe?g|png|gif|webp|bmp|avif)(\?.*)?$/', $candidate)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function printflow_change_item_upload_proof(array $file, int $orderId): array
@@ -639,7 +666,8 @@ function printflow_change_item_create(array $input): array
         }
 
         $sequenceNo = printflow_change_item_next_sequence($orderId);
-        $initialStatus = $autoApprove ? 'In Rework' : 'Requested';
+        // Always insert as Requested; auto-approve runs approve_internal next.
+        $initialStatus = 'Requested';
 
         db_execute(
             'INSERT INTO change_item_requests (
@@ -647,7 +675,7 @@ function printflow_change_item_create(array $input): array
                 created_by_user_id, created_by_role, reason_code, reason_label, issue_description,
                 staff_notes, proof_path, proof_original_name, request_status, active_flag, idempotency_key
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
-            'iiiiisisssssssss',
+            'iiiiisissssssssss',
             [
                 $orderId,
                 $orderItemId > 0 ? $orderItemId : null,
@@ -734,7 +762,12 @@ function printflow_change_item_approve_internal(int $changeItemId, int $staffUse
     }
     $change = $rows[0];
     $status = printflow_change_item_normalize_status((string)($change['request_status'] ?? ''));
-    if (!in_array($status, ['REQUESTED', 'APPROVED'], true)) {
+    if ($status === 'IN_REWORK') {
+        if (!empty($change['inventory_recorded_at'])) {
+            return printflow_change_item_public_record($change);
+        }
+        // Recovery path: approved in status but inventory not recorded yet.
+    } elseif (!in_array($status, ['REQUESTED', 'APPROVED'], true)) {
         throw new InvalidArgumentException('This Change Item request cannot be approved.');
     }
 
@@ -921,7 +954,8 @@ function printflow_change_item_batch_summaries(array $orderIds): array
         "SELECT order_id,
                 SUM(CASE WHEN active_flag = 1 THEN 1 ELSE 0 END) AS active_count,
                 COUNT(*) AS total_count,
-                MAX(CASE WHEN active_flag = 1 THEN request_status ELSE NULL END) AS active_status
+                MAX(CASE WHEN active_flag = 1 THEN request_status ELSE NULL END) AS active_status,
+                MAX(CASE WHEN active_flag = 1 THEN change_item_id ELSE NULL END) AS active_change_item_id
          FROM change_item_requests
          WHERE order_id IN ($placeholders)
          GROUP BY order_id",
@@ -940,6 +974,7 @@ function printflow_change_item_batch_summaries(array $orderIds): array
             'change_item_count' => (int)($row['total_count'] ?? 0),
             'change_item_active' => (int)($row['active_count'] ?? 0) > 0,
             'change_item_status' => (string)($row['active_status'] ?? ''),
+            'change_item_request_id' => (int)($row['active_change_item_id'] ?? 0),
             'change_item_badge' => (int)($row['total_count'] ?? 0) > 0 ? 'Changed Item' : '',
         ];
     }
@@ -954,6 +989,7 @@ function printflow_change_item_apply_to_row(array &$row, ?array $summary): void
         $row['change_item_count'] = 0;
         $row['change_item_badge'] = '';
         $row['change_item_status'] = '';
+        $row['change_item_request_id'] = 0;
         return;
     }
 
@@ -962,4 +998,5 @@ function printflow_change_item_apply_to_row(array &$row, ?array $summary): void
     $row['change_item_count'] = (int)($summary['change_item_count'] ?? 0);
     $row['change_item_badge'] = (string)($summary['change_item_badge'] ?? '');
     $row['change_item_status'] = (string)($summary['change_item_status'] ?? '');
+    $row['change_item_request_id'] = (int)($summary['change_item_request_id'] ?? 0);
 }

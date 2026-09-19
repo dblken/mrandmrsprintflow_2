@@ -40,6 +40,9 @@ change_item_test_assert(strpos($workflow, 'create_notification') !== false, 'cus
 change_item_test_assert(strpos($workflow, 'strlen($description) > 500') !== false, 'issue description capped at 500 characters');
 change_item_test_assert(strpos($customerOrders, 'changeItemSuccessModal') !== false, 'customer change item success modal replaces alert');
 change_item_test_assert(strpos($staffCustomizations, 'getStatusLabel(jo)') !== false, 'staff customizations status label helper present');
-change_item_test_assert(strpos($staffCustomizations, 'window.joManager = createJoManager') !== false, 'staff customizations registers joManager');
+change_item_test_assert(strpos($workflow, "'iiiiisissssssssss'") !== false, 'change item insert uses correct bind types');
+change_item_test_assert(strpos($workflow, "initialStatus = 'Requested'") !== false, 'change item inserts as Requested before approval');
+change_item_test_assert(strpos($staffCustomizations, 'changeItemActiveRequest') !== false, 'staff modal renders active change item request');
+change_item_test_assert(strpos(file_get_contents($root . '/staff/get_order_for_modal.php'), 'printflow_change_item_summary_for_order') !== false, 'order modal payload includes change item summary');
 
 echo "All change item workflow smoke checks passed.\n";
