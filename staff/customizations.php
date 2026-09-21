@@ -790,6 +790,29 @@ $online_closed_count = 0;
 
         .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-panel { background:#fff; border-radius:12px; box-shadow:0 25px 50px rgba(0,0,0,0.25); width:100%; max-width:560px; max-height:88vh; overflow-y:auto; margin:16px; position:relative; }
+        .pf-change-item-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 11030;
+            background: rgba(15, 23, 42, 0.45);
+        }
+        .pf-change-item-modal-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 11031;
+            width: calc(100% - 32px);
+            max-width: 520px;
+            max-height: calc(100vh - 32px);
+            overflow-x: hidden;
+            overflow-y: auto;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+            border: 1px solid #fde68a;
+            box-sizing: border-box;
+        }
         .modal-wrap-text { max-width:100%; white-space:normal; word-break:break-word; overflow-wrap:anywhere; }
         .modal-header-copy { min-width:0; flex:1 1 auto; padding-right:12px; }
         .modal-item-title { line-height:1.35; }
@@ -3310,11 +3333,12 @@ $online_closed_count = 0;
     </template>
 
     <template x-if="showChangeItemModal">
-        <div>
-            <div x-show="showChangeItemModal" x-cloak style="position:fixed; inset:0; z-index:10001; background:rgba(15,23,42,.45);" @click="closeChangeItemModal()"></div>
-            <div x-show="showChangeItemModal" x-cloak style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:10002; width:calc(100% - 32px); max-width:520px; max-height:calc(100vh - 32px); overflow-x:hidden; overflow-y:auto; background:#fff; border-radius:16px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.35); border:1px solid #fde68a; box-sizing:border-box;">
+        <template x-teleport="body">
+            <div>
+                <div x-show="showChangeItemModal" x-cloak class="pf-change-item-modal-backdrop" @click="closeChangeItemModal()"></div>
+                <div x-show="showChangeItemModal" x-cloak class="pf-change-item-modal-panel" role="dialog" aria-modal="true" aria-labelledby="pf-change-item-modal-title">
                 <div style="padding:16px 20px; border-bottom:1px solid #fde68a; background:#fffbeb; display:flex; justify-content:space-between; align-items:center;">
-                    <h3 style="margin:0; font-size:16px; font-weight:700; color:#92400e;">Change Item</h3>
+                    <h3 id="pf-change-item-modal-title" style="margin:0; font-size:16px; font-weight:700; color:#92400e;">Change Item</h3>
                     <button type="button" @click="closeChangeItemModal()" style="background:none;border:none;color:#92400e;cursor:pointer;">✕</button>
                 </div>
                 <div style="padding:20px; box-sizing:border-box; max-width:100%; overflow-x:hidden;">
@@ -3352,8 +3376,9 @@ $online_closed_count = 0;
                         <span x-show="changeItemSubmitting">Submitting...</span>
                     </button>
                 </div>
+                </div>
             </div>
-        </div>
+        </template>
     </template>
 
     <template x-if="showChangeItemRejectModal">

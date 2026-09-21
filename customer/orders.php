@@ -1221,6 +1221,20 @@ require_once __DIR__ . '/../includes/header.php';
     opacity: 0.6;
     cursor: not-allowed;
 }
+.cm-btn.cm-btn-cancel {
+    background: #ffffff;
+    color: #dc2626;
+    border: 2px solid #dc2626;
+}
+.cm-btn.cm-btn-cancel:hover {
+    background: #dc2626;
+    color: #ffffff;
+    border-color: #dc2626;
+}
+.cm-btn.cm-btn-cancel:focus-visible {
+    outline: 2px solid #fca5a5;
+    outline-offset: 2px;
+}
 
 @media (max-width: 640px) {
     #itemsModal {
