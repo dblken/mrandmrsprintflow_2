@@ -2194,8 +2194,8 @@ a.export-dd-link:hover { background: #f9fafb; }
             $today = date('Y-m-d');
             $active_p = '';
             if ($to === $today) {
-                if     ($from === date('Y-m-d', strtotime('-7 days')))       $active_p = 'last_7';
-                elseif ($from === date('Y-m-d', strtotime('-30 days')))      $active_p = 'last_30';
+                if     ($from === $today)                                    $active_p = 'today';
+                elseif ($from === date('Y-m-d', strtotime('monday this week'))) $active_p = 'this_week';
                 elseif ($from === date('Y-m-01'))                            $active_p = 'this_month';
                 elseif ($from === date('Y-m-d', strtotime('-3 months')))     $active_p = 'last_3';
                 elseif ($from === date('Y-m-d', strtotime('-6 months')))     $active_p = 'last_6';
@@ -2250,8 +2250,8 @@ a.export-dd-link:hover { background: #f9fafb; }
                                     <div style="margin-top:10px;">
                                         <div class="filter-date-label">Quick presets</div>
                                         <div class="fp-preset-grid">
-                                            <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'last_7' }" @click="setPreset('last_7')">Last 7 days</button>
-                                            <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'last_30' }" @click="setPreset('last_30')">Last 30 days</button>
+                                            <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'today' }" @click="setPreset('today')">Today</button>
+                                            <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'this_week' }" @click="setPreset('this_week')">This week</button>
                                             <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'this_month' }" @click="setPreset('this_month')">This month</button>
                                             <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'last_3' }" @click="setPreset('last_3')">Last 3 months</button>
                                             <button type="button" class="fp-preset-btn" :class="{ 'active': selectedPreset === 'last_6' }" @click="setPreset('last_6')">Last 6 months</button>

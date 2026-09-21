@@ -617,7 +617,7 @@ function reportsFilterPanel(initialPreset = '') {
             const t = document.getElementById('fp_to');
             if (f) f.value = fmt(d30);
             if (t) t.value = fmt(now);
-            this.selectedPreset = 'last_30';
+            this.selectedPreset = '';
             
             // Reset hidden preference fields
             const form = document.getElementById('reportsFilterForm');
@@ -631,14 +631,15 @@ function reportsFilterPanel(initialPreset = '') {
         setPreset(preset) {
             const today = new Date();
             let from, to;
-            if (preset === 'last_7') {
+            if (preset === 'today') {
+                from = new Date(today);
+                to = new Date(today);
+            } else if (preset === 'this_week') {
                 to = new Date(today);
                 from = new Date(today);
-                from.setDate(from.getDate() - 7);
-            } else if (preset === 'last_30') {
-                to = new Date(today);
-                from = new Date(today);
-                from.setDate(from.getDate() - 30);
+                const day = from.getDay();
+                const diff = day === 0 ? 6 : (day - 1);
+                from.setDate(from.getDate() - diff);
             } else if (preset === 'this_month') {
                 from = new Date(today.getFullYear(), today.getMonth(), 1);
                 to = new Date(today);
