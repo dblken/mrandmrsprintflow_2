@@ -24,11 +24,11 @@ $basePath  = defined('BASE_PATH') ? BASE_PATH : '';
 // Dashboard date filter - mirrors admin/dashboard.php while manager stays branch-locked.
 $dashToday = date('Y-m-d');
 $hasExplicitDateFilter = isset($_GET['preset']) || isset($_GET['from']) || isset($_GET['to']);
-$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? ($hasExplicitDateFilter ? '' : 'today'))));
+$dashPresetRaw = strtolower(trim((string)($_GET['preset'] ?? ($hasExplicitDateFilter ? '' : 'this_month'))));
 $dashFromInput = trim((string)($_GET['from'] ?? ''));
 $dashToInput = trim((string)($_GET['to'] ?? ''));
-$dashPreset = 'today';
-$dashboard_filter_label = 'Today';
+$dashPreset = 'this_month';
+$dashboard_filter_label = 'This month';
 
 $isValidDate = static function (string $date): bool {
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
@@ -60,9 +60,9 @@ if ($dashPresetRaw === 'today') {
         [$dashFromDate, $dashToDate] = [$dashToDate, $dashFromDate];
     }
 } else {
-    $dashPreset = 'today';
-    $dashboard_filter_label = 'Today';
-    $dashFromDate = $dashToday;
+    $dashPreset = 'this_month';
+    $dashboard_filter_label = 'This month';
+    $dashFromDate = date('Y-m-01');
     $dashToDate = $dashToday;
 }
 
@@ -1285,7 +1285,7 @@ window.debouncedSubmitDashboardFilter = function(delay) {
 function dashboardFilterPanel(initialPreset) {
     return {
         filterOpen: false,
-        selectedPreset: initialPreset || 'today',
+        selectedPreset: initialPreset || 'this_month',
         handleDateTyping(delay) {
             this.selectedPreset = '';
             var p = document.getElementById('dash_preset');
@@ -1293,7 +1293,7 @@ function dashboardFilterPanel(initialPreset) {
             window.debouncedSubmitDashboardFilter(typeof delay === 'number' ? delay : 300);
         },
         resetDateRange() {
-            this.setPreset('today');
+            this.setPreset('this_month');
         },
         setPreset(preset) {
             var today = new Date();

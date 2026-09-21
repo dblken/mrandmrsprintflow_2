@@ -22,8 +22,6 @@ $branchCtx = init_branch_context(false);
 $selectedBranchId = $branchCtx['selected_branch_id'] ?? InventoryManager::getCurrentBranchId();
 $selectedBranchParam = ($selectedBranchId === 'all') ? 'all' : (string)(int)$selectedBranchId;
 $branchId = ($selectedBranchId === 'all') ? 0 : (int)$selectedBranchId;
-$isAllBranchesView = ($branchId <= 0);
-$branchesList = $branchCtx['branches_list'] ?? (function_exists('get_all_branches') ? get_all_branches() : []);
 $is_admin_cross_branch_view = (($current_user['role'] ?? '') === 'Admin') && $branchId > 0 && !InventoryManager::isMainBranch($branchId);
 $inventory_read_only = $is_admin_cross_branch_view;
 $can_manage_item_master = !$is_manager && !$inventory_read_only;
@@ -161,33 +159,15 @@ if ($stock_status) {
     $filtered_items = [];
     foreach ($all_items as $item) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
-
-        if ($isAllBranchesView) {
-            $matchesFilter = false;
-            foreach ($branchesList as $branchRow) {
-                $stockBranchId = (int)($branchRow['id'] ?? 0);
-                if ($stockBranchId <= 0) {
-                    continue;
-                }
-                $branchEval = printflow_item_branch_stock_status($item, (int)$item['id'], $stockBranchId);
-                if (printflow_stock_matches_filter($branchEval['status'], $stock_status)) {
-                    $matchesFilter = true;
-                    break;
-                }
-            }
-            if (!$matchesFilter) {
-                continue;
-            }
-        } else {
-            $stock = (float)$item['current_stock'];
-            $reorder = printflow_item_stored_reorder_level($item);
-            $critical = printflow_item_stored_critical_level($item);
-            $status = printflow_resolve_stock_status($stock, $reorder, $critical);
-            if (!printflow_stock_matches_filter($status, $stock_status)) {
-                continue;
-            }
+        
+        $stock = (float)$item['current_stock'];
+        $reorder = printflow_item_stored_reorder_level($item);
+        $critical = printflow_item_stored_critical_level($item);
+        $status = printflow_resolve_stock_status($stock, $reorder, $critical);
+        if (!printflow_stock_matches_filter($status, $stock_status)) {
+            continue;
         }
-
+        
         $filtered_items[] = $item;
     }
     
@@ -243,13 +223,9 @@ if (isset($_GET['ajax'])) {
     <?php else: 
         foreach ($items as $item): 
             $stock = (float)$item['current_stock'];
-            if ($isAllBranchesView) {
-                $status = printflow_item_worst_all_branches_status($item, (int)$item['id'], $branchesList);
-            } else {
-                $reorder = printflow_item_stored_reorder_level($item);
-                $critical = printflow_item_stored_critical_level($item);
-                $status = printflow_resolve_stock_status($stock, $reorder, $critical);
-            }
+            $reorder = printflow_item_stored_reorder_level($item);
+            $critical = printflow_item_stored_critical_level($item);
+            $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             $stockColor = $status['text_color'];
             
             $trackBadge = $item['track_by_roll'] == 1
@@ -998,13 +974,9 @@ if (isset($_GET['ajax'])) {
                             <?php else: ?>
                                 <?php foreach ($items as $item): 
                                     $stock = (float)$item['current_stock'];
-                                    if ($isAllBranchesView) {
-                                        $status = printflow_item_worst_all_branches_status($item, (int)$item['id'], $branchesList);
-                                    } else {
-                                        $reorder = printflow_item_stored_reorder_level($item);
-                                        $critical = printflow_item_stored_critical_level($item);
-                                        $status = printflow_resolve_stock_status($stock, $reorder, $critical);
-                                    }
+                                    $reorder = printflow_item_stored_reorder_level($item);
+                                    $critical = printflow_item_stored_critical_level($item);
+                                    $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
                                     $displayTrackByRoll = (int)($item['track_by_roll'] ?? 0);
@@ -2550,11 +2522,11 @@ if (isset($_GET['ajax'])) {
             const data = await res.json();
             if (data.success && data.all_branches && data.by_branch) {
                 document.getElementById('scAllTotalStock').textContent = fmtQty(parseFloat(data.total_stock || 0), data.is_pcs);
+                const apiReorder = Math.max(0, Number(data.reorder_level != null ? data.reorder_level : reorder) || 0);
+                const apiCritical = Math.max(0, Number(data.critical_level != null ? data.critical_level : critical) || 0);
                 let columnsHtml = '';
                 data.by_branch.forEach(function (branchData) {
-                    const branchReorder = Math.max(0, Number(branchData.reorder_level != null ? branchData.reorder_level : reorder) || 0);
-                    const branchCritical = Math.max(0, Number(branchData.critical_level != null ? branchData.critical_level : critical) || 0);
-                    columnsHtml += scRenderBranchCompareColumn(branchData, branchReorder, branchCritical, data.is_pcs, item.id);
+                    columnsHtml += scRenderBranchCompareColumn(branchData, apiReorder, apiCritical, data.is_pcs, item.id);
                 });
                 if (compareEl) {
                     compareEl.innerHTML = columnsHtml || '<div style="padding:24px;color:#9ca3af;font-size:13px;">No branches found.</div>';

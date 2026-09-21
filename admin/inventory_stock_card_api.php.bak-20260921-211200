@@ -6,7 +6,6 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/InventoryManager.php';
 require_once __DIR__ . '/../includes/branch_context.php';
-require_once __DIR__ . '/../includes/inventory_stock_status.php';
 
 require_role(['Admin', 'Manager']);
 header('Content-Type: application/json; charset=utf-8');
@@ -109,16 +108,13 @@ if ($branchId <= 0) {
             continue;
         }
 
-        $branchEval = printflow_item_branch_stock_status($item, $item_id, $stockBranchId);
-        $branchStock = (float)$branchEval['stock'];
+        $branchStock = (float)InventoryManager::getStockOnHand($item_id, $stockBranchId);
         $totalStock += $branchStock;
 
         $byBranch[] = [
             'branch_id'      => $stockBranchId,
             'branch_name'    => trim((string)($branchRow['branch_name'] ?? ('Branch ' . $stockBranchId))),
             'current_stock'  => $branchStock,
-            'reorder_level'  => (float)$branchEval['reorder'],
-            'critical_level' => (float)$branchEval['critical'],
             'ledger'         => printflow_stock_card_branch_ledger($item_id, $stockBranchId),
         ];
     }
