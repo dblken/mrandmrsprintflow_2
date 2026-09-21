@@ -573,11 +573,13 @@ if (isset($_GET['ajax'])) {
         }
         .sc-branch-compare-scroll {
             overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 20px;
-            border: 1px solid #e5e7eb; border-radius: 12px; background: #fff;
+            border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; width: 100%;
         }
-        .sc-branch-compare-row { display: flex; min-width: min-content; }
+        .sc-branch-compare-row {
+            display: flex; width: 100%; min-width: min-content;
+        }
         .sc-branch-column {
-            flex: 0 0 300px; min-width: 300px; padding: 16px;
+            flex: 1 1 280px; min-width: 280px; padding: 16px;
             border-right: 1px solid #e5e7eb; box-sizing: border-box;
         }
         .sc-branch-column:last-child { border-right: none; }
