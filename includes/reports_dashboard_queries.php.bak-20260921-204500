@@ -1537,13 +1537,9 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
     $map = [];
     $storeSales = pf_reports_store_order_sales_expr('o');
     $storeRevenue = pf_reports_store_order_revenue_expr('o');
-    $storeProductScope = pf_reports_store_product_order_scope_sql('o');
-    $storeCustomScope = pf_reports_store_custom_order_scope_sql('o');
-    $storeOrderScope = "({$storeProductScope} OR {$storeCustomScope})";
     $jobSales = pf_reports_job_order_sales_expr('jo');
     $jobRevenue = pf_reports_job_order_revenue_expr('jo');
     $jobDate = pf_reports_job_order_sales_date_expr('jo');
-    $jobExcludeLinkedCustomStore = pf_reports_job_exclude_linked_custom_store_sale_sql('jo');
     $names = [];
     $branchIdInt = ($branchId === 'all' || $branchId === null) ? 0 : (int)$branchId;
     $branchWhere = '';
@@ -1604,8 +1600,8 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
 
         $oRows = db_query(
             "SELECT o.branch_id,
-                    SUM(CASE WHEN {$storeSales} AND {$storeOrderScope} THEN 1 ELSE 0 END) AS ord,
-                    SUM(CASE WHEN {$storeSales} AND {$storeOrderScope} THEN {$storeRevenue} ELSE 0 END) AS rev
+                    SUM(CASE WHEN {$storeSales} THEN 1 ELSE 0 END) AS ord,
+                    SUM(CASE WHEN {$storeSales} THEN {$storeRevenue} ELSE 0 END) AS rev
              FROM orders o
              WHERE o.branch_id IS NOT NULL {$oDatePart}
              GROUP BY o.branch_id",
@@ -1653,7 +1649,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
                     SUM(CASE WHEN {$jobSales} THEN 1 ELSE 0 END) AS ord,
                     SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) AS rev
              FROM job_orders jo
-             WHERE jo.branch_id IS NOT NULL{$jobExcludeLinkedCustomStore}{$jDatePart}
+             WHERE jo.branch_id IS NOT NULL {$jDatePart}
              GROUP BY jo.branch_id",
             $jdTypes,
             $jdParams
@@ -1687,7 +1683,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
                 $oDatePart .= " AND o.branch_id IN (SELECT id FROM branches WHERE status != 'Archived')";
             }
             $oRows = db_query(
-                "SELECT o.branch_id, SUM(CASE WHEN {$storeSales} AND {$storeOrderScope} THEN {$storeRevenue} ELSE 0 END) AS rev
+                "SELECT o.branch_id, SUM(CASE WHEN {$storeSales} THEN {$storeRevenue} ELSE 0 END) AS rev
                  FROM orders o
                  WHERE o.branch_id IS NOT NULL {$oDatePart}
                  GROUP BY o.branch_id",
@@ -1715,7 +1711,7 @@ function pf_reports_branch_performance_merged(string $from, string $toEnd, $bran
             $jRows = db_query(
                 "SELECT jo.branch_id, SUM(CASE WHEN {$jobSales} THEN {$jobRevenue} ELSE 0 END) AS rev
                  FROM job_orders jo
-                 WHERE jo.branch_id IS NOT NULL{$jobExcludeLinkedCustomStore}{$jDatePart}
+                 WHERE jo.branch_id IS NOT NULL {$jDatePart}
                  GROUP BY jo.branch_id",
                 $jdTypes,
                 $jdParams

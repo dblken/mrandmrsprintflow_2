@@ -68,9 +68,9 @@ if ($dashPresetRaw === 'today') {
         [$dashFromDate, $dashToDate] = [$dashToDate, $dashFromDate];
     }
 } else {
-    $dashPreset = 'today';
-    $dashboard_filter_label = 'Today';
-    $dashFromDate = $dashToday;
+    $dashPreset = 'this_month';
+    $dashboard_filter_label = 'This month';
+    $dashFromDate = date('Y-m-01');
     $dashToDate = $dashToday;
 }
 
@@ -132,10 +132,27 @@ try {
     )[0]['cnt'] ?? 0;
 } catch (Exception $e) { $total_customers = 0; }
 
-// ── KPI: Total Revenue (official sales rules — matches Reports & Sales pages) ─
+// ── KPI: Total Revenue (Orders + customizations, branch-filtered) ─
 try {
-    $dashboard_sales_summary = pf_reports_official_sales_breakdown($dashFromDate, $dashToEnd, $branchId, 1);
-    $total_revenue = (float)($dashboard_sales_summary['summary']['total_sales'] ?? 0);
+    [$bSqlO, $bTO, $bPO] = branch_where_parts('o', $branchId);
+    [$bSqlJ, $bTJ, $bPJ] = branch_where_parts('j', $branchId);
+    $store_revenue = db_query(
+        "SELECT COALESCE(SUM(o.total_amount),0) as total
+         FROM orders o
+         WHERE (o.payment_status = 'Paid' OR o.status = 'Completed')
+           AND o.order_date BETWEEN ? AND ? {$bSqlO}",
+        'ss' . ($bTO ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPO ?: [])
+    )[0]['total'] ?? 0;
+    $custom_revenue = db_query(
+        "SELECT COALESCE(SUM(COALESCE(NULLIF(j.amount_paid,0), j.estimated_total, 0)),0) as total
+         FROM job_orders j
+         WHERE (j.payment_status = 'PAID' OR j.status = 'COMPLETED')
+           AND j.created_at BETWEEN ? AND ? {$bSqlJ}",
+        'ss' . ($bTJ ?: ''),
+        array_merge([$kpiDateFrom, $kpiDateToEnd], $bPJ ?: [])
+    )[0]['total'] ?? 0;
+    $total_revenue = (float)$store_revenue + (float)$custom_revenue;
 } catch (Exception $e) { $total_revenue = 0; }
 
 // ── KPI: Total Orders (branch-filtered) ───────────────
@@ -2402,7 +2419,7 @@ window.debouncedSubmitDashboardFilter = function(delay) {
 function dashboardFilterPanel(initialPreset) {
     return {
         filterOpen: false,
-        selectedPreset: initialPreset || 'today',
+        selectedPreset: initialPreset || 'this_month',
         handleDateTyping(delay) {
             this.selectedPreset = '';
             var p = document.getElementById('dash_preset');
@@ -2410,7 +2427,7 @@ function dashboardFilterPanel(initialPreset) {
             window.debouncedSubmitDashboardFilter(typeof delay === 'number' ? delay : 300);
         },
         resetDateRange() {
-            this.setPreset('today');
+            this.setPreset('this_month');
         },
         setPreset(preset) {
             var today = new Date();

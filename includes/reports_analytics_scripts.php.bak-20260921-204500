@@ -577,23 +577,27 @@ if (document.getElementById('reportsFilterForm')) {
 }
 
 function reportsFilterPanel(initialPreset = '') {
-    const defFrom = '<?php echo date('Y-m-d'); ?>';
+    const defFrom = '<?php echo date('Y-m-d', strtotime('-30 days')); ?>';
     const defTo   = '<?php echo date('Y-m-d'); ?>';
     return {
         filterOpen: false,
         sortOpen: false,
-        selectedPreset: initialPreset || 'today',
+        selectedPreset: initialPreset,
         get hasActiveFilters() {
             const f = document.getElementById('fp_from')?.value || '';
             const t = document.getElementById('fp_to')?.value || '';
             
+            // Calculate dynamic defaults
             const now = new Date();
+            const d30 = new Date(now);
+            d30.setDate(d30.getDate() - 30);
             const fmt = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
             
-            const defFrom = fmt(now);
+            const defFrom = fmt(d30);
             const defTo   = fmt(now);
 
-            if (f === '' && t === '') return true;
+            // Active if dates differ from 30-day default OR if not empty (empty usually means All Time, which is also an 'active' filter vs default)
+            if (f === '' && t === '') return true; // All Time is active
             return (f !== defFrom) || (t !== defTo);
         },
         get filterCount() {
@@ -603,14 +607,17 @@ function reportsFilterPanel(initialPreset = '') {
             this.resetFilters();
         },
         resetFilters() {
+            // Restore to system 30-day default
             const now = new Date();
+            const d30 = new Date(now);
+            d30.setDate(d30.getDate() - 30);
             const fmt = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
             
             const f = document.getElementById('fp_from');
             const t = document.getElementById('fp_to');
-            if (f) f.value = fmt(now);
+            if (f) f.value = fmt(d30);
             if (t) t.value = fmt(now);
-            this.selectedPreset = 'today';
+            this.selectedPreset = '';
             
             // Reset hidden preference fields
             const form = document.getElementById('reportsFilterForm');

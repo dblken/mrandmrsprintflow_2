@@ -51,9 +51,9 @@ if ($is_manager) {
 $from_req = $_GET['from'] ?? null;
 $to_req   = $_GET['to']   ?? null;
 
-// Default to today ONLY if not set at all. If set to empty string, it means "All Time".
+// Default to 30 days ONLY if not set at all. If set to empty string, it means "All Time".
 if ($from_req === null) {
-    $from = date('Y-m-d');
+    $from = date('Y-m-d', strtotime('-30 days'));
 } else {
     $from = $from_req;
 }
