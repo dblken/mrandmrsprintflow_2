@@ -469,12 +469,22 @@ $page_title = 'My Profile - PrintFlow Admin';
             gap: 8px;
         }
         .section-title svg { color: #6b7280; }
+        .profile-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            align-items: start;
+        }
         .form-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
         }
+        .form-grid-full {
+            grid-column: 1 / -1;
+        }
         @media (max-width: 768px) {
+            .profile-columns { grid-template-columns: 1fr; }
             .form-grid { grid-template-columns: 1fr; }
             .profile-hero {
                 flex-direction: column;
@@ -718,8 +728,7 @@ $page_title = 'My Profile - PrintFlow Admin';
             box-shadow: none !important;
         }
         .security-link-card {
-            margin-top: 20px;
-            max-width: 720px;
+            margin-bottom: 0;
         }
         .security-link-card p {
             font-size: 13px;
@@ -790,7 +799,7 @@ $page_title = 'My Profile - PrintFlow Admin';
                 </div>
             </div>
 
-            <div class="profile-columns" style="max-width:720px;">
+            <div class="profile-columns">
                 <!-- Profile Information -->
                 <div class="section-card">
                     <div class="section-title">
@@ -822,69 +831,61 @@ $page_title = 'My Profile - PrintFlow Admin';
                                 <input type="date" name="birthday" id="birthday" value="<?php echo htmlspecialchars($admin['birthday'] ?? ''); ?>" required max="<?php echo htmlspecialchars($maxBirthday); ?>">
                                 <div class="error-message" id="error_birthday">You must be at least 18 years old.</div>
                             </div>
-                        </div>
-                        
-                        <div class="form-group" id="group_email">
-                            <label>Email *</label>
-                            <input type="email" name="email" id="email" value="<?php echo htmlspecialchars($admin['email']); ?>" required autocomplete="email" maxlength="100">
-                            <div class="error-message" id="error_email">Please enter a valid email address.</div>
-                        </div>
-                        
-                        <div class="form-group" id="group_contact_number">
-                            <label>Contact Number *</label>
-                            <input type="text" name="contact_number" id="contact_number" value="<?php echo htmlspecialchars($admin['contact_number'] ?? '09'); ?>" placeholder="e.g. 09171234567" required autocomplete="tel" maxlength="11" oninput="formatPhoneNumber(this)">
-                            <div class="error-message" id="error_contact_number">Contact number is required.</div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>Country</label>
-                            <input type="text" value="Philippines" disabled>
-                            <input type="hidden" name="address_country" id="address_country" value="Philippines">
-                        </div>
-
-                        <div class="form-group" id="group_address_province">
-                            <label>Province *</label>
-                            <select id="address_province" name="address_province" required>
-                                <option value="">Select province</option>
-                                <?php if ($addressProvince !== ''): ?>
-                                <option value="<?php echo htmlspecialchars($addressProvince); ?>" selected data-code=""><?php echo htmlspecialchars($addressProvince); ?></option>
-                                <?php endif; ?>
-                            </select>
-                            <div class="error-message" id="error_address_province">Province is required.</div>
-                        </div>
-
-                        <div class="form-group" id="group_address_city">
-                            <label>City / Municipality *</label>
-                            <select id="address_city" name="address_city" required <?php echo $addressProvince === '' ? 'disabled' : ''; ?>>
-                                <option value="">Select city/municipality</option>
-                                <?php if ($addressCity !== ''): ?>
-                                <option value="<?php echo htmlspecialchars($addressCity); ?>" selected data-code=""><?php echo htmlspecialchars($addressCity); ?></option>
-                                <?php endif; ?>
-                            </select>
-                            <div class="error-message" id="error_address_city">City / Municipality is required.</div>
-                        </div>
-
-                        <div class="form-group" id="group_address_barangay">
-                            <label>Barangay *</label>
-                            <select id="address_barangay" name="address_barangay" required <?php echo $addressCity === '' ? 'disabled' : ''; ?>>
-                                <option value="">Select barangay</option>
-                                <?php if ($addressBarangay !== ''): ?>
-                                <option value="<?php echo htmlspecialchars($addressBarangay); ?>" selected data-code=""><?php echo htmlspecialchars($addressBarangay); ?></option>
-                                <?php endif; ?>
-                            </select>
-                            <div class="error-message" id="error_address_barangay">Barangay is required.</div>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Street / House No. (Optional)</label>
-                            <input type="text" id="address_line" name="address_line" maxlength="120" placeholder="e.g. 123 Rizal St." value="<?php echo htmlspecialchars($addressLine); ?>">
-                            <p style="font-size:11px;color:#9ca3af;margin-top:4px;">Optional detailed line; location is validated by PSGC-based selectors.</p>
-                        </div>
-
-                        <div class="form-group" id="group_address">
-                            <label>Saved Address Preview</label>
-                            <textarea name="address" id="address" rows="2" readonly required><?php echo htmlspecialchars($admin['address'] ?? ''); ?></textarea>
-                            <div class="error-message" id="error_address">Please complete the Philippine address fields.</div>
+                            <div class="form-group" id="group_email">
+                                <label>Email *</label>
+                                <input type="email" name="email" id="email" value="<?php echo htmlspecialchars($admin['email']); ?>" required autocomplete="email" maxlength="100">
+                                <div class="error-message" id="error_email">Please enter a valid email address.</div>
+                            </div>
+                            <div class="form-group" id="group_contact_number">
+                                <label>Contact Number *</label>
+                                <input type="text" name="contact_number" id="contact_number" value="<?php echo htmlspecialchars($admin['contact_number'] ?? '09'); ?>" placeholder="e.g. 09171234567" required autocomplete="tel" maxlength="11" oninput="formatPhoneNumber(this)">
+                                <div class="error-message" id="error_contact_number">Contact number is required.</div>
+                            </div>
+                            <div class="form-group">
+                                <label>Country</label>
+                                <input type="text" value="Philippines" disabled>
+                                <input type="hidden" name="address_country" id="address_country" value="Philippines">
+                            </div>
+                            <div class="form-group" id="group_address_province">
+                                <label>Province *</label>
+                                <select id="address_province" name="address_province" required>
+                                    <option value="">Select province</option>
+                                    <?php if ($addressProvince !== ''): ?>
+                                    <option value="<?php echo htmlspecialchars($addressProvince); ?>" selected data-code=""><?php echo htmlspecialchars($addressProvince); ?></option>
+                                    <?php endif; ?>
+                                </select>
+                                <div class="error-message" id="error_address_province">Province is required.</div>
+                            </div>
+                            <div class="form-group" id="group_address_city">
+                                <label>City / Municipality *</label>
+                                <select id="address_city" name="address_city" required <?php echo $addressProvince === '' ? 'disabled' : ''; ?>>
+                                    <option value="">Select city/municipality</option>
+                                    <?php if ($addressCity !== ''): ?>
+                                    <option value="<?php echo htmlspecialchars($addressCity); ?>" selected data-code=""><?php echo htmlspecialchars($addressCity); ?></option>
+                                    <?php endif; ?>
+                                </select>
+                                <div class="error-message" id="error_address_city">City / Municipality is required.</div>
+                            </div>
+                            <div class="form-group" id="group_address_barangay">
+                                <label>Barangay *</label>
+                                <select id="address_barangay" name="address_barangay" required <?php echo $addressCity === '' ? 'disabled' : ''; ?>>
+                                    <option value="">Select barangay</option>
+                                    <?php if ($addressBarangay !== ''): ?>
+                                    <option value="<?php echo htmlspecialchars($addressBarangay); ?>" selected data-code=""><?php echo htmlspecialchars($addressBarangay); ?></option>
+                                    <?php endif; ?>
+                                </select>
+                                <div class="error-message" id="error_address_barangay">Barangay is required.</div>
+                            </div>
+                            <div class="form-group form-grid-full">
+                                <label>Street / House No. (Optional)</label>
+                                <input type="text" id="address_line" name="address_line" maxlength="120" placeholder="e.g. 123 Rizal St." value="<?php echo htmlspecialchars($addressLine); ?>">
+                                <p style="font-size:11px;color:#9ca3af;margin-top:4px;">Optional detailed line; location is validated by PSGC-based selectors.</p>
+                            </div>
+                            <div class="form-group form-grid-full" id="group_address">
+                                <label>Saved Address Preview</label>
+                                <textarea name="address" id="address" rows="2" readonly required><?php echo htmlspecialchars($admin['address'] ?? ''); ?></textarea>
+                                <div class="error-message" id="error_address">Please complete the Philippine address fields.</div>
+                            </div>
                         </div>
                         
                         <div class="profile-form-actions">

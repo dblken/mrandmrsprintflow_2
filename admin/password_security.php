@@ -29,10 +29,15 @@ if (!empty($_SESSION['password_security_error'])) {
     unset($_SESSION['password_security_error']);
 }
 
-$admin = db_query("SELECT user_id, first_name, last_name, email, role, password_hash FROM users WHERE user_id = ?", 'i', [$admin_id])[0] ?? null;
+$admin = db_query("SELECT user_id, first_name, last_name, email, role, password_hash, profile_picture FROM users WHERE user_id = ?", 'i', [$admin_id])[0] ?? null;
 if (!$admin) {
     redirect($base_path . '/logout');
 }
+
+$user_initial = strtoupper(substr((string)$admin['first_name'], 0, 1));
+$profile_pic_url = !empty($admin['profile_picture'])
+    ? $base_path . '/public/assets/uploads/profiles/' . $admin['profile_picture']
+    : '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password']) && verify_csrf_token($_POST['csrf_token'] ?? '')) {
     $current_password = $_POST['current_password'] ?? '';
@@ -71,40 +76,102 @@ $page_title = 'Password & Security - PrintFlow Admin';
     <link rel="stylesheet" href="<?php echo $base_path; ?>/public/assets/css/output.css">
     <?php include __DIR__ . '/../includes/admin_style.php'; ?>
     <style>
-        .security-hero {
+        .profile-hero {
             background: linear-gradient(90deg, #00232b, #53C5E0);
             border-radius: 16px;
-            padding: 32px;
+            padding: 40px 32px;
             margin-bottom: 24px;
-            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            position: relative;
+            overflow: hidden;
         }
-        .security-hero h2 {
-            margin: 0 0 8px;
+        .profile-hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.08);
+        }
+        .profile-avatar-wrapper { position: relative; flex-shrink: 0; }
+        .profile-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 4px solid rgba(255,255,255,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            font-weight: 700;
+            color: white;
+            background: rgba(255,255,255,0.15);
+            overflow: hidden;
+        }
+        .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .profile-hero-info h2 {
+            color: white;
             font-size: 24px;
             font-weight: 700;
+            margin: 0 0 4px;
         }
-        .security-hero p {
-            margin: 0;
-            opacity: 0.9;
+        .profile-hero-info p {
+            color: rgba(255,255,255,0.8);
             font-size: 14px;
+            margin: 0;
+        }
+        .profile-hero-info .role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+            margin-top: 8px;
+        }
+        .dashboard-container > .main-content {
+            flex: 1 1 auto;
+            min-width: 0;
+            max-width: 100%;
+        }
+        .profile-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            align-items: start;
         }
         .section-card {
-            background: #fff;
+            background: white;
+            border: 1px solid #f3f4f6;
             border-radius: 12px;
             padding: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            max-width: 560px;
+            margin-bottom: 20px;
         }
         .section-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1f2937;
+            margin: 0 0 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #f3f4f6;
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 16px;
-            font-weight: 700;
-            color: #111827;
-            margin-bottom: 20px;
         }
         .section-title svg { color: #6b7280; }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .form-grid-full { grid-column: 1 / -1; }
         .form-group { margin-bottom: 16px; }
         .form-group label {
             display: block;
@@ -130,30 +197,45 @@ $page_title = 'Password & Security - PrintFlow Admin';
         .profile-form-actions {
             display: flex;
             justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+            width: 100%;
             margin-top: 8px;
         }
         .btn-save {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             padding: 10px 20px;
-            background: #53C5E0;
-            color: #fff;
+            background: #00232b;
+            color: white;
             border: none;
             border-radius: 8px;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s, transform 0.1s;
+            transition: background 0.15s, color 0.15s, transform 0.2s, box-shadow 0.2s;
         }
-        .btn-save:hover { background: #3bb8d4; }
+        .btn-save:hover {
+            background: #0a3d4d;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(0, 35, 43, 0.25);
+        }
         .btn-save:disabled {
             opacity: 0.5;
             cursor: not-allowed;
             filter: grayscale(1);
+            transform: none !important;
+            box-shadow: none !important;
         }
-        .alert-success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
-        .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        .alert-success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+        .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
         .error-message {
             color: #ef4444;
             font-size: 11px;
@@ -183,12 +265,61 @@ $page_title = 'Password & Security - PrintFlow Admin';
         .security-tip {
             font-size: 13px;
             color: #6b7280;
-            margin-bottom: 20px;
+            margin: 0 0 16px;
             line-height: 1.5;
         }
+        .security-tips-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .security-tips-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            font-size: 13px;
+            color: #4b5563;
+            line-height: 1.5;
+        }
+        .security-tips-list svg {
+            flex-shrink: 0;
+            color: #53C5E0;
+            margin-top: 2px;
+        }
+        .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 18px;
+            border: 1px solid #53C5E0;
+            color: #0891b2;
+            background: #fff;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.2s, color 0.2s;
+            margin-top: 16px;
+        }
+        .btn-outline:hover {
+            background: #ecfeff;
+            color: #0e7490;
+        }
         @media (max-width: 768px) {
-            .security-hero { padding: 24px 18px; border-radius: 12px; }
-            .section-card { padding: 18px; }
+            .profile-columns { grid-template-columns: 1fr; }
+            .form-grid { grid-template-columns: 1fr; }
+            .profile-hero {
+                flex-direction: column;
+                text-align: center;
+                padding: 28px 18px;
+                gap: 18px;
+                border-radius: 12px;
+            }
+            .profile-avatar { width: 86px; height: 86px; font-size: 30px; }
+            .section-card { padding: 18px; border-radius: 10px; }
             .profile-form-actions .btn-save { width: 100%; justify-content: center; }
         }
     </style>
@@ -211,63 +342,111 @@ $page_title = 'Password & Security - PrintFlow Admin';
                 <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
             <?php endif; ?>
 
-            <div class="security-hero">
-                <h2>Account Security</h2>
-                <p>Keep your <?php echo htmlspecialchars($admin['role']); ?> account secure by using a strong, unique password.</p>
+            <div class="profile-hero">
+                <div class="profile-avatar-wrapper">
+                    <div class="profile-avatar">
+                        <?php if ($profile_pic_url): ?>
+                            <img src="<?php echo htmlspecialchars($profile_pic_url); ?>?t=<?php echo time(); ?>" alt="Profile">
+                        <?php else: ?>
+                            <?php echo htmlspecialchars($user_initial); ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="profile-hero-info">
+                    <h2><?php echo htmlspecialchars(trim($admin['first_name'] . ' ' . $admin['last_name'])); ?></h2>
+                    <p><?php echo htmlspecialchars($admin['email']); ?></p>
+                    <div class="role-badge">
+                        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                        <?php echo htmlspecialchars($admin['role']); ?>
+                    </div>
+                </div>
             </div>
 
-            <div class="section-card">
-                <div class="section-title">
-                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                    Change Password
+            <div class="profile-columns">
+                <div class="section-card">
+                    <div class="section-title">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                        Change Password
+                    </div>
+                    <p class="security-tip">Enter your current password, then choose a new one.</p>
+
+                    <form method="POST" id="passwordForm" onsubmit="return validatePasswordForm(event)">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="change_password" value="1">
+
+                        <div class="form-grid">
+                            <div class="form-group form-grid-full" id="group_current_password">
+                                <label>Current Password *</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="current_password" id="current_password" required autocomplete="current-password">
+                                    <button type="button" class="password-toggle" onclick="togglePassword('current_password', this)" aria-label="Show password">
+                                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    </button>
+                                </div>
+                                <div class="error-message" id="error_current_password">Current password is required.</div>
+                            </div>
+
+                            <div class="form-group" id="group_new_password">
+                                <label>New Password *</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="new_password" id="new_password" required autocomplete="new-password">
+                                    <button type="button" class="password-toggle" onclick="togglePassword('new_password', this)" aria-label="Show password">
+                                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    </button>
+                                </div>
+                                <p style="font-size:11px;color:#9ca3af;margin-top:4px;">Min. 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 symbol</p>
+                                <div class="error-message" id="error_new_password">Invalid password format.</div>
+                            </div>
+
+                            <div class="form-group" id="group_confirm_password">
+                                <label>Confirm New Password *</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="confirm_password" id="confirm_password" required autocomplete="new-password">
+                                    <button type="button" class="password-toggle" onclick="togglePassword('confirm_password', this)" aria-label="Show password">
+                                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                    </button>
+                                </div>
+                                <div class="error-message" id="error_confirm_password">Passwords do not match.</div>
+                            </div>
+                        </div>
+
+                        <div class="profile-form-actions">
+                            <button type="submit" class="btn-save" id="btn_update_password">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                                Update Password
+                            </button>
+                        </div>
+                    </form>
                 </div>
-                <p class="security-tip">Signed in as <strong><?php echo htmlspecialchars($admin['email']); ?></strong>. Enter your current password, then choose a new one.</p>
 
-                <form method="POST" id="passwordForm" onsubmit="return validatePasswordForm(event)">
-                    <?php echo csrf_field(); ?>
-                    <input type="hidden" name="change_password" value="1">
-
-                    <div class="form-group" id="group_current_password">
-                        <label>Current Password *</label>
-                        <div class="password-wrapper">
-                            <input type="password" name="current_password" id="current_password" required autocomplete="current-password">
-                            <button type="button" class="password-toggle" onclick="togglePassword('current_password', this)" aria-label="Show password">
-                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                            </button>
-                        </div>
-                        <div class="error-message" id="error_current_password">Current password is required.</div>
+                <div class="section-card">
+                    <div class="section-title">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                        Security Tips
                     </div>
-
-                    <div class="form-group" id="group_new_password">
-                        <label>New Password *</label>
-                        <div class="password-wrapper">
-                            <input type="password" name="new_password" id="new_password" required autocomplete="new-password">
-                            <button type="button" class="password-toggle" onclick="togglePassword('new_password', this)" aria-label="Show password">
-                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                            </button>
-                        </div>
-                        <p style="font-size:11px;color:#9ca3af;margin-top:4px;">Min. 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 symbol</p>
-                        <div class="error-message" id="error_new_password">Invalid password format.</div>
-                    </div>
-
-                    <div class="form-group" id="group_confirm_password">
-                        <label>Confirm New Password *</label>
-                        <div class="password-wrapper">
-                            <input type="password" name="confirm_password" id="confirm_password" required autocomplete="new-password">
-                            <button type="button" class="password-toggle" onclick="togglePassword('confirm_password', this)" aria-label="Show password">
-                                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                            </button>
-                        </div>
-                        <div class="error-message" id="error_confirm_password">Passwords do not match.</div>
-                    </div>
-
-                    <div class="profile-form-actions">
-                        <button type="submit" class="btn-save" id="btn_update_password">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                            Update Password
-                        </button>
-                    </div>
-                </form>
+                    <ul class="security-tips-list">
+                        <li>
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Use a unique password you do not reuse on other sites.
+                        </li>
+                        <li>
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Mix uppercase, lowercase, numbers, and symbols.
+                        </li>
+                        <li>
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Avoid personal info like birthdays or names in your password.
+                        </li>
+                        <li>
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            Log out when using shared or public devices.
+                        </li>
+                    </ul>
+                    <a href="profile.php" class="btn-outline">
+                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                        Back to My Profile
+                    </a>
+                </div>
             </div>
         </main>
     </div>
