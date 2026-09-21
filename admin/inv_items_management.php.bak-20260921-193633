@@ -557,58 +557,6 @@ if (isset($_GET['ajax'])) {
         @media (max-width: 600px) {
             .sc-card { flex: 1 1 calc(50% - 12px); max-width: none; }
         }
-        .sc-total-stock-banner {
-            background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px;
-            padding: 14px 16px; margin-bottom: 20px; text-align: center;
-        }
-        .sc-total-stock-banner .sc-total-label {
-            font-size: 11px; font-weight: 700; color: #0369a1;
-            text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;
-        }
-        .sc-total-stock-banner .sc-total-value {
-            font-size: 24px; font-weight: 800; color: #0c4a6e;
-        }
-        .sc-total-stock-banner .sc-total-uom {
-            font-size: 12px; font-weight: 700; color: #0ea5e9; text-transform: uppercase; margin-left: 4px;
-        }
-        .sc-branch-compare-scroll {
-            overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 20px;
-            border: 1px solid #e5e7eb; border-radius: 12px; background: #fff;
-        }
-        .sc-branch-compare-row { display: flex; min-width: min-content; }
-        .sc-branch-column {
-            flex: 0 0 300px; min-width: 300px; padding: 16px;
-            border-right: 1px solid #e5e7eb; box-sizing: border-box;
-        }
-        .sc-branch-column:last-child { border-right: none; }
-        .sc-branch-column-header {
-            font-size: 13px; font-weight: 700; color: #374151;
-            margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f3f4f6;
-        }
-        .sc-branch-mini-cards { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-        .sc-branch-mini-card {
-            border-radius: 10px; padding: 10px 12px; text-align: center;
-        }
-        .sc-branch-mini-card .sc-card-label { font-size: 10px; margin-bottom: 2px; }
-        .sc-branch-mini-card .sc-card-value { font-size: 16px; font-weight: 800; }
-        .sc-branch-progress { margin-bottom: 10px; }
-        .sc-branch-status {
-            padding: 8px 10px; border-radius: 8px; font-size: 12px;
-            font-weight: 600; margin-bottom: 12px; text-align: center;
-        }
-        .sc-branch-ledger-title {
-            font-size: 11px; font-weight: 700; color: #6b7280;
-            text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;
-        }
-        .sc-branch-ledger-table { width: 100%; font-size: 11px; border-collapse: collapse; }
-        .sc-branch-ledger-table th {
-            text-align: left; padding: 6px 4px; color: #9ca3af; font-weight: 600;
-            border-bottom: 1px solid #f3f4f6;
-        }
-        .sc-branch-ledger-table td { padding: 6px 4px; border-bottom: 1px solid #f9fafb; }
-        .sc-all-branches-note {
-            font-size: 12px; color: #6b7280; text-align: center; margin-bottom: 12px; font-style: italic;
-        }
         .kpi-mini-card { padding: 16px; border-radius: 16px; background: #f9fafb; border: 1px solid #e5e7eb; }
         .kpi-mini-card .label { font-size: 10px; font-weight: 700; color: #6b7280; text-transform: capitalize; margin-bottom: 2px; }
         .kpi-mini-card .value { font-size: 20px; font-weight: 800; color: #1f2937; }
@@ -1172,13 +1120,12 @@ if (isset($_GET['ajax'])) {
 
 <!-- Stock Card View Modal (SaaS-style) -->
 <div id="stockCardModal" class="modal">
-    <div id="stockCardModalContent" class="modal-content" style="max-width: 680px;">
+    <div class="modal-content" style="max-width: 680px;">
         <div class="modal-header">
             <h3 class="modal-title" id="scName" style="padding-right:30px; word-break:break-all; overflow-wrap:anywhere;">Item Name</h3>
             <button class="close-btn" onclick="closeStockCard()">&times;</button>
         </div>
         <div class="modal-body">
-        <div id="scSingleBranchView">
         <!-- Summary Cards -->
         <div class="sc-cards-grid" id="scCardsContainer">
             <div class="sc-card" style="background:#f0f9ff; border:1px solid #bae6fd;">
@@ -1246,50 +1193,12 @@ if (isset($_GET['ajax'])) {
                 </table>
             </div>
         </div>
-        </div><!-- /#scSingleBranchView -->
 
-        <div id="scAllBranchesView" style="display:none;">
-        <!-- Shared product details (All Branches) -->
-        <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:14px 16px; margin-bottom:16px;">
-            <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Product Details</div>
-            <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px 24px; font-size:13px;">
-                <div><span style="color:#6b7280;">Category:</span> <span id="scAllCategory" style="font-weight:600;">&mdash;</span></div>
-                <div><span style="color:#6b7280;">Unit:</span> <span id="scAllUnitDetail" style="font-weight:600;">&mdash;</span></div>
-                <div><span style="color:#6b7280;">Average Cost:</span> <span id="scAllUnitCost" style="font-weight:600;">&mdash;</span></div>
-                <div><span style="color:#6b7280;">Tracking Type:</span> <span id="scAllTrackType" style="font-weight:600;">&mdash;</span></div>
-                <div style="grid-column:1/-1;"><span style="color:#6b7280;">Last Updated:</span> <span id="scAllLastUpdated" style="font-weight:600;">&mdash;</span></div>
-            </div>
-        </div>
-
-        <div class="sc-total-stock-banner">
-            <div class="sc-total-label">Total Stock (All Branches)</div>
-            <div>
-                <span class="sc-total-value" id="scAllTotalStock">0</span>
-                <span class="sc-total-uom" id="scAllTotalUom">UNIT</span>
-            </div>
-        </div>
-
-        <div class="sc-branch-compare-scroll">
-            <div class="sc-branch-compare-row" id="scBranchCompareColumns">
-                <div style="padding:24px;color:#9ca3af;font-size:13px;">Loading branch comparison...</div>
-            </div>
-        </div>
-
-        <p class="sc-all-branches-note">Receive IN and Issue OUT are available when viewing a specific branch.</p>
-
+        <!-- Action Buttons -->
         <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
-            <?php if ($can_manage_item_master): ?>
-            <button onclick="editFromStockCard()" class="btn-action blue" style="flex:1; min-width:120px; height:40px; font-size:14px; border-radius:10px;">Edit Settings</button>
-            <?php endif; ?>
-            <a id="scAllLedgerLink" href="inv_transactions_ledger.php" class="btn-action" style="flex:1; min-width:120px; height:40px; font-size:14px; border-radius:10px; border:1px solid #e5e7eb; color:#374151; display:flex; align-items:center; justify-content:center; text-decoration:none;">View Full Ledger</a>
-        </div>
-        </div><!-- /#scAllBranchesView -->
-
-        <!-- Action Buttons (single branch) -->
-        <div id="scSingleBranchActions" style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center;">
             <?php if (!$inventory_read_only): ?>
-            <button id="scBtnReceiveIn" onclick="closeStockCard(); if(selectedItemForStockCard) openAddStockModal(selectedItemForStockCard)" class="btn-action teal" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Receive IN</button>
-            <button id="scBtnIssueOut" onclick="closeStockCard(); if(selectedItemForStockCard) openDeductStockModal(selectedItemForStockCard)" class="btn-action red" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Issue OUT</button>
+            <button onclick="closeStockCard(); if(selectedItemForStockCard) openAddStockModal(selectedItemForStockCard)" class="btn-action teal" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Receive IN</button>
+            <button onclick="closeStockCard(); if(selectedItemForStockCard) openDeductStockModal(selectedItemForStockCard)" class="btn-action red" style="flex:1; min-width:140px; height:40px; font-size:14px; border-radius:10px;">Issue OUT</button>
             <?php endif; ?>
             <?php if ($can_manage_item_master): ?>
             <button onclick="editFromStockCard()" class="btn-action blue" style="flex:1; min-width:120px; height:40px; font-size:14px; border-radius:10px;">Edit Settings</button>
@@ -2381,165 +2290,6 @@ if (isset($_GET['ajax'])) {
         return isPcs ? String(Math.round(val)) : parseFloat(val).toFixed(2);
     }
 
-    function scGetCurrentBranchParam() {
-        return new URLSearchParams(window.location.search).get('branch_id') || '<?php echo htmlspecialchars($selectedBranchParam, ENT_QUOTES, 'UTF-8'); ?>';
-    }
-
-    function scIsAllBranchesView() {
-        return String(scGetCurrentBranchParam()).toLowerCase() === 'all';
-    }
-
-    function scSetStockCardLayout(isAllBranches) {
-        const modalContent = document.getElementById('stockCardModalContent');
-        const singleView = document.getElementById('scSingleBranchView');
-        const allView = document.getElementById('scAllBranchesView');
-        const singleActions = document.getElementById('scSingleBranchActions');
-        if (modalContent) {
-            modalContent.style.maxWidth = isAllBranches ? '920px' : '680px';
-        }
-        if (singleView) singleView.style.display = isAllBranches ? 'none' : 'block';
-        if (allView) allView.style.display = isAllBranches ? 'block' : 'none';
-        if (singleActions) singleActions.style.display = isAllBranches ? 'none' : 'flex';
-    }
-
-    function scEscapeHtml(str) {
-        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function scBuildLedgerTableHtml(ledger, isPcs, compact) {
-        if (!ledger || !ledger.length) {
-            const pad = compact ? '12px' : '24px';
-            return '<tr><td colspan="4" style="text-align:center;padding:' + pad + ';color:#9ca3af;">No recent activity</td></tr>';
-        }
-        let html = '';
-        ledger.forEach(function (l) {
-            const isIN = l.direction === 'IN';
-            const qty = parseFloat(l.quantity);
-            const qtyDisp = (isIN ? '+' : '-') + fmtQty(qty, isPcs);
-            const balDisp = fmtQty(parseFloat(l.balance_after || 0), isPcs);
-            const qtyColor = isIN ? '#059669' : '#dc2626';
-            const act = l.action_display || (l.ref_type || '').replace(/_/g, ' ');
-            const cellPad = compact ? '6px 4px' : '10px 12px';
-            html += '<tr style="border-bottom:1px solid #f3f4f6;">' +
-                '<td style="padding:' + cellPad + ';color:#6b7280;white-space:nowrap;">' + scEscapeHtml((l.transaction_date || '').split(' ')[0]) + '</td>' +
-                '<td style="padding:' + cellPad + ';text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + scEscapeHtml(act) + '">' + scEscapeHtml(act) + '</td>' +
-                '<td style="padding:' + cellPad + ';text-align:right;font-weight:700;color:' + qtyColor + ';">' + qtyDisp + '</td>' +
-                '<td style="padding:' + cellPad + ';text-align:right;font-weight:600;color:#374151;">' + balDisp + '</td>' +
-                '</tr>';
-        });
-        return html;
-    }
-
-    function scGetStatusMessageText(status) {
-        if (status.key === 'out') return 'Out of stock. Immediate restocking required.';
-        if (status.key === 'critical') return 'Critical stock level. Urgent replenishment required.';
-        if (status.key === 'low') return 'Stock is getting low. Consider restocking.';
-        return 'Stock level is healthy.';
-    }
-
-    function scGetProgressColor(statusKey) {
-        if (statusKey === 'out') return '#dc2626';
-        if (statusKey === 'critical') return '#f97316';
-        if (statusKey === 'low') return '#f59e0b';
-        return '#10b981';
-    }
-
-    function scRenderBranchCompareColumn(branchData, reorder, critical, isPcs, itemId) {
-        const stock = parseFloat(branchData.current_stock || 0);
-        const status = pfResolveStockStatus(stock, reorder, critical, false);
-        const maxVal = Math.max(reorder, stock, 1);
-        const pct = Math.min(100, (stock / maxVal) * 100);
-        const progColor = scGetProgressColor(status.key);
-        const msgText = scGetStatusMessageText(status);
-        const branchName = scEscapeHtml(branchData.branch_name || ('Branch ' + branchData.branch_id));
-        const ledgerUrl = 'inv_transactions_ledger.php?branch_id=' + encodeURIComponent(branchData.branch_id) + '&item_id=' + encodeURIComponent(itemId);
-        const statusBorder = status.borderColor || '#e5e7eb';
-
-        return '<div class="sc-branch-column">' +
-            '<div class="sc-branch-column-header">' + branchName + '</div>' +
-            '<div class="sc-branch-mini-cards">' +
-                '<div class="sc-branch-mini-card" style="background:#f0f9ff;border:1px solid #bae6fd;">' +
-                    '<div class="sc-card-label" style="font-size:10px;font-weight:700;color:#0369a1;text-transform:uppercase;">Current Stock</div>' +
-                    '<div class="sc-card-value" style="color:#0c4a6e;">' + fmtQty(stock, isPcs) + '</div>' +
-                '</div>' +
-                '<div class="sc-branch-mini-card" style="background:#f0fdf4;border:1px solid #bbf7d0;">' +
-                    '<div class="sc-card-label" style="font-size:10px;font-weight:700;color:#15803d;text-transform:uppercase;">Reorder Level</div>' +
-                    '<div class="sc-card-value" style="color:#166534;">' + fmtQty(reorder, isPcs) + '</div>' +
-                '</div>' +
-                '<div class="sc-branch-mini-card" style="background:#fef2f2;border:1px solid #fecaca;">' +
-                    '<div class="sc-card-label" style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;">Critical Level</div>' +
-                    '<div class="sc-card-value" style="color:#991b1b;">' + fmtQty(critical, isPcs) + '</div>' +
-                '</div>' +
-            '</div>' +
-            '<div class="sc-branch-progress">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-                    '<span style="font-size:11px;font-weight:600;color:#4b5563;">Stock vs Reorder</span>' +
-                    '<span style="font-size:11px;font-weight:700;color:#374151;">' + fmtQty(stock, isPcs) + ' / ' + fmtQty(reorder, isPcs) + '</span>' +
-                '</div>' +
-                '<div style="height:8px;background:#e5e7eb;border-radius:9999px;overflow:hidden;">' +
-                    '<div style="height:100%;width:' + pct + '%;background:' + progColor + ';border-radius:9999px;"></div>' +
-                '</div>' +
-            '</div>' +
-            '<div class="sc-branch-status" style="background:' + status.bgColor + ';color:' + status.textColor + ';border:1px solid ' + statusBorder + ';">' + scEscapeHtml(msgText) + '</div>' +
-            '<div class="sc-branch-ledger-title">Recent Activity</div>' +
-            '<table class="sc-branch-ledger-table">' +
-                '<thead><tr><th>Date</th><th>Action</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Balance</th></tr></thead>' +
-                '<tbody>' + scBuildLedgerTableHtml(branchData.ledger || [], isPcs, true) + '</tbody>' +
-            '</table>' +
-            '<div style="margin-top:8px;text-align:right;">' +
-                '<a href="' + ledgerUrl + '" style="font-size:12px;font-weight:600;color:#0d9488;text-decoration:none;">See all &rarr;</a>' +
-            '</div>' +
-        '</div>';
-    }
-
-    async function openStockCardAllBranches(item, uom, isPcs, reorder, critical) {
-        document.getElementById('scName').textContent = item.name;
-        document.getElementById('scAllCategory').textContent = item.category_name || 'Uncategorized';
-        document.getElementById('scAllUnitDetail').textContent = uom;
-        document.getElementById('scAllUnitCost').textContent = '\u20B1' + parseFloat(item.unit_cost || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
-        document.getElementById('scAllTrackType').textContent = item.track_by_roll == 1 ? 'Roll-Based' : 'Standard';
-        document.getElementById('scAllLastUpdated').textContent = item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '\u2014';
-        document.getElementById('scAllTotalUom').textContent = uom;
-        document.getElementById('scAllTotalStock').textContent = fmtQty(parseFloat(item.current_stock || 0), isPcs);
-
-        const allLedgerLink = document.getElementById('scAllLedgerLink');
-        if (allLedgerLink) {
-            allLedgerLink.href = 'inv_transactions_ledger.php?branch_id=all&item_id=' + encodeURIComponent(item.id);
-        }
-
-        const compareEl = document.getElementById('scBranchCompareColumns');
-        if (compareEl) {
-            compareEl.innerHTML = '<div style="padding:24px;color:#9ca3af;font-size:13px;">Loading branch comparison...</div>';
-        }
-
-        document.getElementById('stockCardModal').style.display = 'flex';
-
-        try {
-            const currentBranch = scGetCurrentBranchParam();
-            const res = await fetch(ADMIN_API_BASE + 'inventory_stock_card_api.php?branch_id=' + encodeURIComponent(currentBranch) + '&item_id=' + encodeURIComponent(item.id));
-            const data = await res.json();
-            if (data.success && data.all_branches && data.by_branch) {
-                document.getElementById('scAllTotalStock').textContent = fmtQty(parseFloat(data.total_stock || 0), data.is_pcs);
-                const apiReorder = Math.max(0, Number(data.reorder_level != null ? data.reorder_level : reorder) || 0);
-                const apiCritical = Math.max(0, Number(data.critical_level != null ? data.critical_level : critical) || 0);
-                let columnsHtml = '';
-                data.by_branch.forEach(function (branchData) {
-                    columnsHtml += scRenderBranchCompareColumn(branchData, apiReorder, apiCritical, data.is_pcs, item.id);
-                });
-                if (compareEl) {
-                    compareEl.innerHTML = columnsHtml || '<div style="padding:24px;color:#9ca3af;font-size:13px;">No branches found.</div>';
-                }
-            } else if (compareEl) {
-                compareEl.innerHTML = '<div style="padding:24px;color:#9ca3af;font-size:13px;">Unable to load branch comparison.</div>';
-            }
-        } catch (e) {
-            console.error('Stock Card API error:', e);
-            if (compareEl) {
-                compareEl.innerHTML = '<div style="padding:24px;color:#9ca3af;font-size:13px;">Unable to load branch comparison.</div>';
-            }
-        }
-    }
-
     async function openStockCard(itemId) {
         if (!document.getElementById('stockCardModal')) return;
         const item = currentItems.find(i => i.id == itemId);
@@ -2552,14 +2302,6 @@ if (isset($_GET['ajax'])) {
         const isPcs = normalizedUom === 'pcs';
         const reorder = Math.max(0, Number(item.reorder_level) || 0);
         const critical = Math.max(0, Number(item.critical_level) || 0);
-
-        const isAllBranches = scIsAllBranchesView();
-        scSetStockCardLayout(isAllBranches);
-        if (isAllBranches) {
-            await openStockCardAllBranches(item, uom, isPcs, reorder, critical);
-            return;
-        }
-
         const status = pfResolveStockStatus(stock, reorder, critical, false);
         
         document.getElementById('scName').textContent = item.name;
@@ -2602,9 +2344,9 @@ if (isset($_GET['ajax'])) {
         document.getElementById('scTrackType').textContent = item.track_by_roll == 1 ? 'Roll-Based' : 'Standard';
         document.getElementById('scLastUpdated').textContent = item.updated_at ? new Date(item.updated_at).toLocaleDateString() : '\u2014';
         
-        const currentBranch = scGetCurrentBranchParam();
-        document.getElementById('scLedgerLink').href = 'inv_transactions_ledger.php?branch_id=' + encodeURIComponent(currentBranch) + '&item_id=' + encodeURIComponent(item.id);
-        const ledgerUrl = 'inv_transactions_ledger.php?branch_id=' + encodeURIComponent(currentBranch) + '&item_id=' + encodeURIComponent(item.id);
+        const currentBranch = new URLSearchParams(window.location.search).get('branch_id') || '<?php echo htmlspecialchars($selectedBranchParam, ENT_QUOTES, 'UTF-8'); ?>';
+        document.getElementById('scLedgerLink').href = `inv_transactions_ledger.php?branch_id=${encodeURIComponent(currentBranch)}&item_id=${item.id}`;
+        const ledgerUrl = `inv_transactions_ledger.php?branch_id=${encodeURIComponent(currentBranch)}&item_id=${item.id}`;
         const seeAllLink = document.getElementById('scSeeAllLedgerLink');
         if (seeAllLink) { seeAllLink.href = ledgerUrl; }
         document.getElementById('stockCardModal').style.display = 'flex';
@@ -2612,10 +2354,27 @@ if (isset($_GET['ajax'])) {
         document.getElementById('scLedgerBody').innerHTML = '<tr><td colspan="4" style="text-align:center; padding:24px; color:#9ca3af;">Loading...</td></tr>';
 
         try {
-            const res = await fetch(ADMIN_API_BASE + 'inventory_stock_card_api.php?branch_id=' + encodeURIComponent(currentBranch) + '&item_id=' + encodeURIComponent(item.id));
+            const currentBranch = new URLSearchParams(window.location.search).get('branch_id') || '<?php echo htmlspecialchars($selectedBranchParam, ENT_QUOTES, 'UTF-8'); ?>';
+            const res = await fetch(ADMIN_API_BASE + `inventory_stock_card_api.php?branch_id=${encodeURIComponent(currentBranch)}&item_id=${item.id}`);
             const data = await res.json();
             if (data.success) {
-                document.getElementById('scLedgerBody').innerHTML = scBuildLedgerTableHtml(data.ledger || [], data.is_pcs, false);
+                const ledger = data.ledger || [];
+                let ledgerHtml = '';
+                ledger.forEach(l => {
+                    const isIN = l.direction === 'IN';
+                    const qty = parseFloat(l.quantity);
+                    const qtyDisp = (isIN ? '+' : '-') + fmtQty(qty, data.is_pcs);
+                    const balDisp = fmtQty(parseFloat(l.balance_after || 0), data.is_pcs);
+                    const qtyColor = isIN ? '#059669' : '#dc2626';
+                    const act = l.action_display || (l.ref_type || '').replace(/_/g, ' ');
+                    ledgerHtml += `<tr style="border-bottom:1px solid #f3f4f6;">
+                        <td style="padding:10px 12px;color:#6b7280;white-space:nowrap;">${(l.transaction_date || '').split(' ')[0]}</td>
+                        <td style="padding:10px 12px;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${act}">${act}</td>
+                        <td style="padding:10px 12px;text-align:right;font-weight:700;color:${qtyColor};">${qtyDisp}</td>
+                        <td style="padding:10px 12px;text-align:right;font-weight:600;color:#374151;">${balDisp}</td>
+                    </tr>`;
+                });
+                document.getElementById('scLedgerBody').innerHTML = ledgerHtml || '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9ca3af;">No recent activity</td></tr>';
             } else {
                 document.getElementById('scLedgerBody').innerHTML = '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9ca3af;">No recent activity</td></tr>';
             }

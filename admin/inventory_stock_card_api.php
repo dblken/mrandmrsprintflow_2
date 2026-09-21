@@ -33,6 +33,96 @@ function fmtQty($val, $isPcs) {
     return $isPcs ? (string)(int)$val : number_format((float)$val, 2);
 }
 
+/**
+ * Build recent ledger rows for one branch (branch-scoped running balance).
+ *
+ * @return list<array<string,mixed>>
+ */
+function printflow_stock_card_branch_ledger(int $item_id, int $branchId): array {
+    [$txnBranchSql, $txnBranchTypes, $txnBranchParams] = InventoryManager::branchClause('branch_id', $branchId);
+    $txnsAsc = db_query(
+        "SELECT id, direction, ref_type, quantity, transaction_date
+         FROM inventory_transactions
+         WHERE item_id = ?{$txnBranchSql}
+         ORDER BY transaction_date ASC, id ASC",
+        'i' . $txnBranchTypes,
+        array_merge([$item_id], $txnBranchParams)
+    ) ?: [];
+
+    $running = 0;
+    $ledgerAsc = [];
+    foreach ($txnsAsc as $t) {
+        $qty = (float)$t['quantity'];
+        $running += ($t['direction'] === 'IN' ? $qty : -$qty);
+        $ledgerAsc[] = [
+            'id' => $t['id'],
+            'transaction_date' => $t['transaction_date'],
+            'direction' => $t['direction'],
+            'ref_type' => $t['ref_type'] ?? $t['direction'],
+            'quantity' => $qty,
+            'balance_after' => $running,
+        ];
+    }
+
+    $ledger = array_slice(array_reverse($ledgerAsc), 0, 5);
+
+    $actionMap = [
+        'purchase' => 'Stock In',
+        'stock_in' => 'Stock In',
+        'opening_balance' => 'Stock In',
+        'return' => 'Stock In',
+        'transfer_in' => 'Stock In',
+        'adjustment_up' => 'Adjustment',
+        'joborder' => 'Stock Out',
+        'stock_out' => 'Stock Out',
+        'transfer_out' => 'Stock Out',
+        'adjustment_down' => 'Adjustment',
+    ];
+    foreach ($ledger as &$l) {
+        $key = strtolower($l['ref_type'] ?? '');
+        $l['action_display'] = $actionMap[$key] ?? ucfirst(str_replace('_', ' ', $l['ref_type'] ?? 'Movement'));
+    }
+    unset($l);
+
+    return $ledger;
+}
+
+// All Branches: return per-branch stock and ledger (read-only aggregation).
+if ($branchId <= 0) {
+    $branches = $branchCtx['branches_list'] ?? get_all_branches();
+    $byBranch = [];
+    $totalStock = 0.0;
+
+    foreach ($branches as $branchRow) {
+        $stockBranchId = (int)($branchRow['id'] ?? 0);
+        if ($stockBranchId <= 0) {
+            continue;
+        }
+
+        $branchStock = (float)InventoryManager::getStockOnHand($item_id, $stockBranchId);
+        $totalStock += $branchStock;
+
+        $byBranch[] = [
+            'branch_id'      => $stockBranchId,
+            'branch_name'    => trim((string)($branchRow['branch_name'] ?? ('Branch ' . $stockBranchId))),
+            'current_stock'  => $branchStock,
+            'ledger'         => printflow_stock_card_branch_ledger($item_id, $stockBranchId),
+        ];
+    }
+
+    echo json_encode([
+        'success'        => true,
+        'all_branches'   => true,
+        'total_stock'    => $totalStock,
+        'reorder_level'  => max(0, (float)($item['reorder_level'] ?? 0)),
+        'critical_level' => max(0, (float)($item['critical_level'] ?? 0)),
+        'unit_cost'      => (float)($item['unit_cost'] ?? 0),
+        'by_branch'      => $byBranch,
+        'is_pcs'         => $isPcs,
+    ]);
+    exit;
+}
+
 // Rolls (for roll-based items)
 $rolls = [];
 if ($item['track_by_roll']) {
@@ -54,52 +144,11 @@ if ($item['track_by_roll']) {
     }
 }
 
-// Ledger (recent 10 with running balance) - fetch chronological, build balance
-[$txnBranchSql, $txnBranchTypes, $txnBranchParams] = InventoryManager::branchClause('branch_id', $branchId);
-$txnsAsc = db_query(
-    "SELECT id, direction, ref_type, quantity, transaction_date
-     FROM inventory_transactions
-     WHERE item_id = ?{$txnBranchSql}
-     ORDER BY transaction_date ASC, id ASC",
-    'i' . $txnBranchTypes,
-    array_merge([$item_id], $txnBranchParams)
-) ?: [];
-$running = 0;
-$ledgerAsc = [];
-foreach ($txnsAsc as $t) {
-    $qty = (float)$t['quantity'];
-    $running += ($t['direction'] === 'IN' ? $qty : -$qty);
-    $ledgerAsc[] = [
-        'id' => $t['id'],
-        'transaction_date' => $t['transaction_date'],
-        'direction' => $t['direction'],
-        'ref_type' => $t['ref_type'] ?? $t['direction'],
-        'quantity' => $qty,
-        'balance_after' => $running,
-    ];
-}
-$ledger = array_slice(array_reverse($ledgerAsc), 0, 5);
-
-// Map ref_type to display Action
-$actionMap = [
-    'purchase' => 'Stock In',
-    'stock_in' => 'Stock In',
-    'opening_balance' => 'Stock In',
-    'return' => 'Stock In',
-    'transfer_in' => 'Stock In',
-    'adjustment_up' => 'Adjustment',
-    'joborder' => 'Stock Out',
-    'stock_out' => 'Stock Out',
-    'transfer_out' => 'Stock Out',
-    'adjustment_down' => 'Adjustment',
-];
-foreach ($ledger as &$l) {
-    $key = strtolower($l['ref_type'] ?? '');
-    $l['action_display'] = $actionMap[$key] ?? ucfirst(str_replace('_', ' ', $l['ref_type'] ?? 'Movement'));
-}
-unset($l);
+// Ledger (recent 5 with running balance) - single branch
+$ledger = printflow_stock_card_branch_ledger($item_id, $branchId);
 
 // Usage stats for chart (last 7 days)
+[$txnBranchSql, $txnBranchTypes, $txnBranchParams] = InventoryManager::branchClause('branch_id', $branchId);
 $usageLabels = [];
 $usageValues = [];
 for ($i = 6; $i >= 0; $i--) {
