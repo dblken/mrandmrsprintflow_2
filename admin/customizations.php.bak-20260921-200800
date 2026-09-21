@@ -34,39 +34,13 @@ function admin_customization_order_code(array $row): string {
     return 'N/A';
 }
 
-function admin_customization_normalize_payment_key(?string $status): string {
-    return strtoupper(str_replace([' ', '-'], '_', trim((string)$status)));
-}
-
 function admin_customization_paid_states(): array {
-    return ['PAID', 'FULLY_PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
+    return ['PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
 }
 
 function admin_customization_payment_bucket(?string $status): string {
-    return in_array(admin_customization_normalize_payment_key($status), admin_customization_paid_states(), true)
-        ? 'PAID'
-        : 'UNPAID';
-}
-
-function admin_customization_effective_payment_status(array $row): string {
-    $jobPay = trim((string)($row['payment_status'] ?? ''));
-    $orderPay = trim((string)($row['order_payment_status'] ?? ''));
-
-    if (admin_customization_payment_bucket($jobPay) === 'PAID') {
-        return $jobPay !== '' ? $jobPay : 'PAID';
-    }
-    if (admin_customization_payment_bucket($orderPay) === 'PAID') {
-        return $orderPay !== '' ? $orderPay : 'Paid';
-    }
-
-    return $jobPay !== '' ? $jobPay : ($orderPay !== '' ? $orderPay : 'Unpaid');
-}
-
-function admin_customization_effective_payment_paid_sql(): string {
-    $jobPaid = "UPPER(REPLACE(TRIM(COALESCE(jo.payment_status, '')), ' ', '_')) IN ('PAID', 'FULLY_PAID', 'PARTIAL', 'PENDING_VERIFICATION')";
-    $orderPaid = "UPPER(REPLACE(TRIM(COALESCE(jo_ord.payment_status, '')), ' ', '_')) IN ('PAID', 'FULLY_PAID', 'PARTIAL', 'PENDING_VERIFICATION')";
-
-    return "({$jobPaid} OR {$orderPaid})";
+    $status = strtoupper(trim((string)$status));
+    return in_array($status, admin_customization_paid_states(), true) ? 'PAID' : 'UNPAID';
 }
 
 function admin_customization_payment_badge_html(?string $status, string $size = '12px'): string {
@@ -111,7 +85,6 @@ $jobCustomizationScopeSql = " AND (
 
 // Build query (branch from job row or linked store order)
 $sql = "SELECT jo.*, CONCAT(c.first_name, ' ', c.last_name) AS customer_name, c.email AS customer_email,
-               jo_ord.payment_status AS order_payment_status,
                COALESCE(jo.branch_id, jo_ord.branch_id) AS branch_display_id,
                b.branch_name AS branch_name
         FROM job_orders jo
@@ -154,9 +127,14 @@ if (!empty($status_filter)) {
 }
 
 if ($payment_filter === 'PAID') {
-    $sql .= ' AND ' . admin_customization_effective_payment_paid_sql();
+    $paidStates = admin_customization_paid_states();
+    $sql .= " AND jo.payment_status IN (" . implode(',', array_fill(0, count($paidStates), '?')) . ")";
+    $params = array_merge($params, $paidStates);
+    $types .= str_repeat('s', count($paidStates));
 } elseif ($payment_filter === 'UNPAID') {
-    $sql .= ' AND NOT ' . admin_customization_effective_payment_paid_sql();
+    $sql .= " AND (jo.payment_status IS NULL OR jo.payment_status = '' OR jo.payment_status NOT IN (" . implode(',', array_fill(0, count(admin_customization_paid_states()), '?')) . "))";
+    $params = array_merge($params, admin_customization_paid_states());
+    $types .= str_repeat('s', count(admin_customization_paid_states()));
 }
 
 if (!empty($date_from)) {
@@ -258,7 +236,7 @@ if (isset($_GET['ajax'])) {
                             <?php echo $jo['estimated_total'] ? '₱' . number_format($jo['estimated_total'], 2) : '<span class="text-gray-400 text-xs">Pending</span>'; ?>
                         </td>
                         <td class="py-3 text-center">
-                            <?php echo admin_customization_payment_badge_html(admin_customization_effective_payment_status($jo), '12px'); ?>
+                            <?php echo admin_customization_payment_badge_html($jo['payment_status'], '12px'); ?>
                         </td>
                         <td class="py-3 text-center">
                             <?php
@@ -818,28 +796,9 @@ function custom_payment_badge($status) {
                     return `<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;${s}">${labels[status] || status}</span>`;
                 },
 
-                normalizePaymentKey(status) {
-                    return String(status || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
-                },
-
-                getEffectivePaymentStatus(job) {
-                    if (!job) return 'Unpaid';
-                    const paidStates = ['PAID', 'FULLY_PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
-                    const jobPay = String(job.payment_status || '').trim();
-                    const orderPay = String(job.order_payment_status || job.store_payment_status || '').trim();
-                    const jobKey = this.normalizePaymentKey(jobPay);
-                    const orderKey = this.normalizePaymentKey(orderPay);
-
-                    if (paidStates.includes(jobKey)) return jobPay || 'PAID';
-                    if (paidStates.includes(orderKey)) return orderPay || 'Paid';
-                    if (jobPay !== '') return jobPay;
-                    if (orderPay !== '') return orderPay;
-                    return 'Unpaid';
-                },
-
                 paymentBadge(status) {
-                    const paidStates = ['PAID', 'FULLY_PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
-                    const bucket = paidStates.includes(this.normalizePaymentKey(status)) ? 'PAID' : 'UNPAID';
+                    const paidStates = ['PAID', 'PARTIAL', 'PENDING_VERIFICATION'];
+                    const bucket = paidStates.includes(String(status || '').toUpperCase()) ? 'PAID' : 'UNPAID';
                     const s = bucket === 'PAID' ? 'background:#d1fae5;color:#065f46' : 'background:#fee2e2;color:#991b1b';
                     const label = bucket === 'PAID' ? 'Paid' : 'Unpaid';
                     return `<span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;${s}">${label}</span>`;
@@ -1287,7 +1246,7 @@ function custom_payment_badge($status) {
                                             <?php echo $jo['estimated_total'] ? '₱' . number_format($jo['estimated_total'], 2) : '<span class="text-gray-400 text-xs">Pending</span>'; ?>
                                         </td>
                                         <td class="py-3 text-center">
-                                            <?php echo admin_customization_payment_badge_html(admin_customization_effective_payment_status($jo), '12px'); ?>
+                                            <?php echo admin_customization_payment_badge_html($jo['payment_status'], '12px'); ?>
                                         </td>
                                         <td class="py-3 text-center">
                                             <?php
@@ -1408,7 +1367,7 @@ function custom_payment_badge($status) {
                     <div class="detail-row">
                         <div class="detail-block">
                             <label>Payment Status</label>
-                            <span x-html="paymentBadge(getEffectivePaymentStatus(job))"></span>
+                            <span x-html="paymentBadge(job?.payment_status)"></span>
                         </div>
                         <div class="detail-block">
                             <label>Priority</label>
