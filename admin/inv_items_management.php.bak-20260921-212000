@@ -180,8 +180,9 @@ if ($stock_status) {
             }
         } else {
             $stock = (float)$item['current_stock'];
-            $thresholds = printflow_item_branch_thresholds($item, (int)$item['id'], $branchId);
-            $status = printflow_resolve_stock_status($stock, $thresholds['reorder'], $thresholds['critical']);
+            $reorder = printflow_item_stored_reorder_level($item);
+            $critical = printflow_item_stored_critical_level($item);
+            $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             if (!printflow_stock_matches_filter($status, $stock_status)) {
                 continue;
             }
@@ -217,17 +218,9 @@ if ($stock_status) {
     // Add stock info
     foreach ($items as &$item) {
         $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
-        printflow_item_apply_branch_threshold_fields($item, $branchId);
     }
     unset($item);
 }
-
-foreach ($items as &$item) {
-    if (!array_key_exists('reorder_level', $item) || !array_key_exists('critical_level', $item)) {
-        printflow_item_apply_branch_threshold_fields($item, $branchId);
-    }
-}
-unset($item);
 
 // Get categories for filters
 $categories = db_query("SELECT * FROM inv_categories ORDER BY sort_order ASC, name ASC") ?: [];
@@ -253,8 +246,9 @@ if (isset($_GET['ajax'])) {
             if ($isAllBranchesView) {
                 $status = printflow_item_worst_all_branches_status($item, (int)$item['id'], $branchesList);
             } else {
-                $thresholds = printflow_item_branch_thresholds($item, (int)$item['id'], $branchId);
-                $status = printflow_resolve_stock_status($stock, $thresholds['reorder'], $thresholds['critical']);
+                $reorder = printflow_item_stored_reorder_level($item);
+                $critical = printflow_item_stored_critical_level($item);
+                $status = printflow_resolve_stock_status($stock, $reorder, $critical);
             }
             $stockColor = $status['text_color'];
             
@@ -1007,8 +1001,9 @@ if (isset($_GET['ajax'])) {
                                     if ($isAllBranchesView) {
                                         $status = printflow_item_worst_all_branches_status($item, (int)$item['id'], $branchesList);
                                     } else {
-                                        $thresholds = printflow_item_branch_thresholds($item, (int)$item['id'], $branchId);
-                                        $status = printflow_resolve_stock_status($stock, $thresholds['reorder'], $thresholds['critical']);
+                                        $reorder = printflow_item_stored_reorder_level($item);
+                                        $critical = printflow_item_stored_critical_level($item);
+                                        $status = printflow_resolve_stock_status($stock, $reorder, $critical);
                                     }
                                     
                                     $displayUom = normalize_inventory_uom($item['unit_of_measure'] ?? '', $item['category_name'] ?? '');
@@ -1827,12 +1822,7 @@ if (isset($_GET['ajax'])) {
             var formData = new FormData();
             formData.append('action', 'reset_thresholds');
             formData.append('id', itemId);
-            var branchParam = scGetCurrentBranchParam();
-            if (String(branchParam).toLowerCase() === 'all') {
-                alert('Select a specific branch before resetting thresholds.');
-                return;
-            }
-            var res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php?branch_id=' + encodeURIComponent(branchParam), { method: 'POST', body: formData });
+            var res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
             var data = await res.json();
             if (!data.success) {
                 alert(data.error || 'Unable to reset thresholds.');
@@ -1845,11 +1835,6 @@ if (isset($_GET['ajax'])) {
             if (selectedItemForStockCard) {
                 selectedItemForStockCard.reorder_level = data.reorder_level;
                 selectedItemForStockCard.critical_level = data.critical_level;
-            }
-            var listItem = currentItems.find(function (i) { return String(i.id) === String(itemId); });
-            if (listItem) {
-                listItem.reorder_level = data.reorder_level;
-                listItem.critical_level = data.critical_level;
             }
             pfValidateThresholdFields(true);
             updateEditModalUI(false);
@@ -3747,11 +3732,8 @@ if (isset($_GET['ajax'])) {
         uomEl.disabled = uomWasDisabled;
         trackEl.disabled = trackWasDisabled;
         catEl.disabled = catWasDisabled;
-        const branchParam = scGetCurrentBranchParam();
-        const saveUrl = ADMIN_API_BASE + 'inventory_items_api.php'
-            + (branchParam ? ('?branch_id=' + encodeURIComponent(branchParam)) : '');
         try {
-            const res = await fetch(saveUrl, { method: 'POST', body: formData });
+            const res = await fetch(ADMIN_API_BASE + 'inventory_items_api.php', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.success) {
                 btn.disabled = false;

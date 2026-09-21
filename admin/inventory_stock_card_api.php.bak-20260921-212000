@@ -178,14 +178,10 @@ for ($i = 6; $i >= 0; $i--) {
 }
 $usage_stats = ['labels' => $usageLabels, 'values' => $usageValues];
 
-$branchThresholds = printflow_item_branch_thresholds($item, $item_id, $branchId);
-
 echo json_encode([
-    'success'        => true,
-    'rolls'          => $rolls,
-    'ledger'         => $ledger,
-    'usage_stats'    => $usage_stats,
-    'is_pcs'         => $isPcs,
-    'reorder_level'  => (float)$branchThresholds['reorder'],
-    'critical_level' => (float)$branchThresholds['critical'],
+    'success'    => true,
+    'rolls'      => $rolls,
+    'ledger'     => $ledger,
+    'usage_stats' => $usage_stats,
+    'is_pcs'     => $isPcs,
 ]);

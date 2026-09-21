@@ -15,7 +15,6 @@ require_once __DIR__ . '/../includes/inventory_stock_status.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 
 printflow_ensure_inv_items_threshold_schema();
-printflow_ensure_inv_item_branch_thresholds_table();
 printflow_ensure_inv_category_catalog();
 
 require_role(['Admin', 'Staff', 'Manager']);
@@ -107,7 +106,6 @@ try {
             $items = db_query($sql, $types ?: null, $params ?: null) ?: [];
             foreach ($items as &$item) {
                 $item['current_stock'] = InventoryManager::getStockOnHand($item['id'], $branchId);
-                printflow_item_apply_branch_threshold_fields($item, (int)$branchId);
                 $stockStatus = printflow_item_stock_status($item, (float)$item['current_stock']);
                 $item['stock_status'] = $stockStatus['status'];
                 if ($item['track_by_roll'] && $item['default_roll_length_ft'] > 0) {
@@ -202,26 +200,14 @@ try {
 
                 $soh = InventoryManager::getStockOnHand($id, $branchId);
                 $status = in_array(sanitize($_POST['status'] ?? ''), ['ACTIVE', 'INACTIVE']) ? sanitize($_POST['status']) : 'ACTIVE';
-
-                if ($branchId > 0) {
-                    printflow_item_branch_thresholds_upsert($id, $branchId, $reorderLevel, $criticalLevel);
-                    $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, status=?, unit_cost=? WHERE id=?";
-                    global $conn;
-                    $stmt = $conn->prepare($sql);
-                    $stmt->bind_param("isssidsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $status, $unit_cost, $id);
-                } else {
-                    $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, status=?, unit_cost=? WHERE id=?";
-                    global $conn;
-                    $stmt = $conn->prepare($sql);
-                    $stmt->bind_param("isssidddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $reorderLevel, $criticalLevel, $status, $unit_cost, $id);
-                }
+                $sql = "UPDATE inv_items SET category_id=?, sku=?, name=?, unit_of_measure=?, track_by_roll=?, default_roll_length_ft=?, reorder_level=?, critical_level=?, status=?, unit_cost=? WHERE id=?";
+                global $conn;
+                $stmt = $conn->prepare($sql);
+                $stmt->bind_param("isssidddsdi", $cat_id, $sku, $name, $unit, $track_by_roll, $roll_length, $reorderLevel, $criticalLevel, $status, $unit_cost, $id);
                 if (!$stmt->execute()) throw new Exception("Update failed: " . $stmt->error);
                 $stmt->close();
 
                 $updatedItem = InventoryManager::getItem($id) ?: [];
-                if ($branchId > 0) {
-                    printflow_item_apply_branch_threshold_fields($updatedItem, $branchId);
-                }
                 printflow_evaluate_stock_alert_notification($updatedItem, $id, $soh);
 
                 $thresholdWarning = null;
@@ -253,11 +239,8 @@ try {
                 // - Standard items: one IN ledger entry (no roll record).
                 // - Roll-tracked items: create roll(s) using receiveStock (no DB changes; uses existing inv_rolls + ledger).
                 if ($starting_stock > 0) {
-                    if ($branchId > 0) {
-                        printflow_item_branch_thresholds_upsert($itemId, $branchId, $min_stock, $critical_stock);
-                    }
                     if (!$track_by_roll) {
-                        InventoryManager::receiveStock($itemId, $starting_stock, $unit, null, 'opening_balance', null, 'Initial stock entry', null, null, $branchId);
+                        InventoryManager::receiveStock($itemId, $starting_stock, $unit, null, 'opening_balance', null, 'Initial stock entry');
                     } else {
                         $method = sanitize($_POST['stock_input_method'] ?? '');
                         $starting_rolls = (int)($_POST['starting_rolls'] ?? 0);
@@ -275,9 +258,7 @@ try {
                                     ['roll_code' => 'OPEN-' . $itemId . '-' . $i],
                                     'opening_balance',
                                     null,
-                                    'Initial stock entry',
-                                    null,
-                                    $branchId
+                                    'Initial stock entry'
                                 );
                             }
                         } else {
@@ -289,9 +270,7 @@ try {
                                 null,
                                 'opening_balance',
                                 null,
-                                'Initial stock entry',
-                                null,
-                                $branchId
+                                'Initial stock entry'
                             );
                         }
                     }
@@ -312,15 +291,9 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Item ID is required.']);
                 exit;
             }
-            if ($branchId <= 0) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Select a specific branch before resetting thresholds.']);
-                exit;
-            }
             $soh = InventoryManager::getStockOnHand($id, $branchId);
-            $thresholds = printflow_apply_suggested_branch_item_thresholds($id, $branchId, $soh);
+            $thresholds = printflow_apply_suggested_item_thresholds($id, $soh);
             $item = InventoryManager::getItem($id) ?: [];
-            printflow_item_apply_branch_threshold_fields($item, $branchId);
             printflow_evaluate_stock_alert_notification($item, $id, $soh);
             echo json_encode([
                 'success' => true,

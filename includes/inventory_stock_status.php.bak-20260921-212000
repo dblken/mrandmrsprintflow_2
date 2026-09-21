@@ -107,106 +107,6 @@ function printflow_ensure_inv_items_threshold_schema(): void {
     } catch (Throwable $e) {
         error_log('printflow_ensure_inv_items_threshold_schema: ' . $e->getMessage());
     }
-
-    printflow_ensure_inv_item_branch_thresholds_table();
-}
-
-/**
- * Per-branch inventory threshold overrides (independent reorder/critical per branch).
- */
-function printflow_ensure_inv_item_branch_thresholds_table(): void {
-    static $done = false;
-    if ($done) {
-        return;
-    }
-    global $conn;
-    if (function_exists('printflow_db_in_transaction') && printflow_db_in_transaction($conn)) {
-        $done = true;
-        return;
-    }
-
-    try {
-        db_execute(
-            "CREATE TABLE IF NOT EXISTS inv_item_branch_thresholds (
-                id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-                item_id INT NOT NULL,
-                branch_id INT NOT NULL,
-                reorder_level DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-                critical_level DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-                updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY uq_inv_item_branch_thresholds (item_id, branch_id),
-                KEY idx_inv_item_branch_thresholds_branch (branch_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-        );
-    } catch (Throwable $e) {
-        error_log('printflow_ensure_inv_item_branch_thresholds_table: ' . $e->getMessage());
-    }
-
-    $done = true;
-}
-
-/** @return array{reorder_level:float,critical_level:float}|null */
-function printflow_item_branch_thresholds_row(int $itemId, int $branchId): ?array {
-    printflow_ensure_inv_item_branch_thresholds_table();
-    if ($itemId <= 0 || $branchId <= 0) {
-        return null;
-    }
-
-    $rows = db_query(
-        'SELECT reorder_level, critical_level
-         FROM inv_item_branch_thresholds
-         WHERE item_id = ? AND branch_id = ?
-         LIMIT 1',
-        'ii',
-        [$itemId, $branchId]
-    ) ?: [];
-
-    return !empty($rows) ? $rows[0] : null;
-}
-
-function printflow_item_branch_thresholds_upsert(int $itemId, int $branchId, float $reorder, float $critical): bool {
-    printflow_ensure_inv_item_branch_thresholds_table();
-    if ($itemId <= 0 || $branchId <= 0) {
-        return false;
-    }
-
-    return db_execute(
-        'INSERT INTO inv_item_branch_thresholds (item_id, branch_id, reorder_level, critical_level)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-            reorder_level = VALUES(reorder_level),
-            critical_level = VALUES(critical_level),
-            updated_at = NOW()',
-        'iidd',
-        [$itemId, $branchId, $reorder, $critical]
-    ) !== false;
-}
-
-/** @return array{reorder:float,critical:float} */
-function printflow_apply_suggested_branch_item_thresholds(int $itemId, int $branchId, float $referenceQuantity): array {
-    $thresholds = printflow_thresholds_for_quantity($referenceQuantity);
-    if ($branchId > 0) {
-        printflow_item_branch_thresholds_upsert(
-            $itemId,
-            $branchId,
-            (float)$thresholds['reorder'],
-            (float)$thresholds['critical']
-        );
-    } else {
-        printflow_apply_suggested_item_thresholds($itemId, $referenceQuantity);
-    }
-
-    return $thresholds;
-}
-
-function printflow_item_apply_branch_threshold_fields(array &$item, int $branchId): void {
-    if ($branchId <= 0) {
-        return;
-    }
-    $thresholds = printflow_item_branch_thresholds($item, (int)($item['id'] ?? 0), $branchId);
-    $item['reorder_level'] = $thresholds['reorder'];
-    $item['critical_level'] = $thresholds['critical'];
 }
 
 function printflow_format_suggested_threshold(float $quantity, float $rate): float {
@@ -537,33 +437,11 @@ function printflow_item_branch_reference_quantity(int $itemId, int $branchId): f
 }
 
 /**
- * Effective reorder/critical for one branch.
- * Priority: persisted branch row → branch reference suggestion → global item defaults.
+ * Per-branch reorder/critical policy for All Branches views (display/evaluation only).
  *
- * @return array{reorder:float,critical:float,reference_quantity:float,uses_global:bool,persisted:bool}
+ * @return array{reorder:float,critical:float,reference_quantity:float,uses_global:bool}
  */
 function printflow_item_branch_thresholds(array $item, int $itemId, int $branchId): array {
-    if ($branchId <= 0) {
-        return [
-            'reorder' => printflow_item_stored_reorder_level($item),
-            'critical' => printflow_item_stored_critical_level($item),
-            'reference_quantity' => 0.0,
-            'uses_global' => true,
-            'persisted' => false,
-        ];
-    }
-
-    $row = printflow_item_branch_thresholds_row($itemId, $branchId);
-    if ($row !== null) {
-        return [
-            'reorder' => max(0.0, (float)($row['reorder_level'] ?? 0)),
-            'critical' => max(0.0, (float)($row['critical_level'] ?? 0)),
-            'reference_quantity' => 0.0,
-            'uses_global' => false,
-            'persisted' => true,
-        ];
-    }
-
     $referenceQty = printflow_item_branch_reference_quantity($itemId, $branchId);
     if ($referenceQty > 0) {
         $thresholds = printflow_thresholds_for_quantity($referenceQty);
@@ -572,7 +450,6 @@ function printflow_item_branch_thresholds(array $item, int $itemId, int $branchI
             'critical' => (float)$thresholds['critical'],
             'reference_quantity' => $referenceQty,
             'uses_global' => false,
-            'persisted' => false,
         ];
     }
 
@@ -581,7 +458,6 @@ function printflow_item_branch_thresholds(array $item, int $itemId, int $branchI
         'critical' => printflow_item_stored_critical_level($item),
         'reference_quantity' => 0.0,
         'uses_global' => true,
-        'persisted' => false,
     ];
 }
 
