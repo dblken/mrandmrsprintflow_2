@@ -176,6 +176,7 @@ $xlsxSalesUrl = sales_export_url('reports_export_excel.php', ['report' => 'sales
 function sales_transaction_modal_payload(array $row): array
 {
     $refType = strtolower(trim((string)($row['ref_type'] ?? '')));
+    $type = strtolower(trim((string)($row['type'] ?? '')));
     $linkedOrder = (int)($row['store_order_id'] ?? 0);
     return [
         'date' => !empty($row['sales_date']) ? date('M j, Y g:i A', strtotime((string)$row['sales_date'])) : '—',
@@ -188,7 +189,7 @@ function sales_transaction_modal_payload(array $row): array
         'payment_method' => sales_method_display($row['payment_method'] ?? ''),
         'order_status' => sales_format_label($row['status'] ?? ''),
         'amount' => number_format((float)($row['amount'] ?? 0), 2),
-        'record_type' => $refType === 'job' ? 'Customization / Job Order' : 'Store Product Order',
+        'record_type' => ($refType === 'job' || $type === 'service') ? 'Customization / Service Order' : 'Store Product Order',
         'linked_order' => $linkedOrder > 0 ? '#' . $linkedOrder : '',
     ];
 }
