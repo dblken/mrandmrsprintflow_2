@@ -1116,7 +1116,7 @@
         if (isStaff && t === 'system' && did > 0 && (msg.indexOf('ready for admin review') !== -1 || msg.indexOf('completed their profile') !== -1)) {
             url = base + '/admin/user_staff_management.php?open_user=' + did;
         } else if (isStaff && did > 0 && msg.indexOf('change item') !== -1) {
-            url = base + '/staff/customizations.php?order_id=' + did + '&job_type=ORDER&status=COMPLETED';
+            url = base + '/staff/customizations.php?order_id=' + did + '&job_type=ORDER&status=CHANGED_ITEMS';
         } else if (isStaff) {
             if (isRevisionSubmission) {
                 url = base + '/staff/customizations.php?order_id=' + did + '&job_type=ORDER&status=PENDING';

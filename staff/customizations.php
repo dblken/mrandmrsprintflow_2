@@ -1983,6 +1983,10 @@ $online_closed_count = 0;
                             <span>COMPLETED</span>
                             <span class="tab-count" x-text="getStatusCount('COMPLETED')"></span>
                         </button>
+                        <button type="button" @click="activeStatus = 'CHANGED_ITEMS'" :class="activeStatus === 'CHANGED_ITEMS' ? 'active' : ''" class="pill-tab">
+                            <span>CHANGED ITEMS</span>
+                            <span class="tab-count" x-text="getStatusCount('CHANGED_ITEMS')"></span>
+                        </button>
                         <button type="button" @click="activeStatus = 'CLOSED'" :class="activeStatus === 'CLOSED' ? 'active' : ''" class="pill-tab">
                             <span>CANCELLED</span>
                             <span class="tab-count" x-text="getStatusCount('CLOSED')"></span>
@@ -2792,10 +2796,14 @@ $online_closed_count = 0;
                             <label style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;display:block;margin-bottom:12px;">Change Item Request</label>
                             <div style="display:grid; gap:8px; font-size:13px; color:#78350f; line-height:1.5;">
                                 <div><strong>Original Order:</strong> <span x-text="getDisplayOrderCode(currentJo)"></span></div>
+                                <div><strong>Change Item:</strong> <span x-text="changeItemActiveRequest(currentJo).change_item_code || ('CI-' + String(changeItemActiveRequest(currentJo).id || '').padStart(6, '0'))"></span></div>
                                 <div><strong>Customer:</strong> <span x-text="(currentJo.customer_full_name || ((currentJo.first_name || '') + ' ' + (currentJo.last_name || ''))).trim() || 'Walk-in customer'"></span></div>
                                 <div><strong>Item:</strong> <span x-text="getChangeItemItemName(currentJo)"></span></div>
                                 <div><strong>Original Status:</strong> Completed</div>
-                                <div><strong>Request Status:</strong> <span x-text="changeItemActiveRequest(currentJo).status_label || changeItemActiveRequest(currentJo).status || 'Under Review'"></span></div>
+                                <div><strong>Request Source:</strong> <span x-text="changeItemActiveRequest(currentJo).request_source_label || changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
+                                <div><strong>Verification:</strong> <span x-text="changeItemActiveRequest(currentJo).verification_status_label || 'Pending Review'"></span></div>
+                                <div><strong>Change Item Status:</strong> <span x-text="changeItemActiveRequest(currentJo).change_status_label || changeItemActiveRequest(currentJo).status_label || changeItemActiveRequest(currentJo).status || 'Under Review'"></span></div>
+                                <div x-show="changeItemReworkInProgress(currentJo)"><strong>Current Production Status:</strong> In Production</div>
                                 <div><strong>Reason for Change:</strong> <span x-text="changeItemActiveRequest(currentJo).reason || '—'"></span></div>
                                 <div><strong>Issue Description:</strong> <span x-text="changeItemActiveRequest(currentJo).description || '—'"></span></div>
                                 <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
@@ -3244,6 +3252,9 @@ $online_closed_count = 0;
                     <input type="file" accept="image/*,application/pdf" @change="changeItemProofFile = $event.target.files[0] || null" style="width:100%;margin-bottom:12px;">
                     <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:8px;">Staff Notes</label>
                     <textarea x-model="changeItemStaffNotes" maxlength="2000" rows="3" placeholder="Internal notes for staff..." style="width:100%;max-width:100%;min-width:0;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;resize:vertical;box-sizing:border-box;overflow-wrap:anywhere;"></textarea>
+                    <div style="margin-top:14px;padding:12px 14px;border-radius:10px;border:1px solid #fde68a;background:#fff7ed;font-size:12px;color:#92400e;line-height:1.5;">
+                        Customer issue has been verified in-store. This request will be approved immediately and returned to Production.
+                    </div>
                     <div x-show="changeItemModalError" x-cloak style="margin-top:12px;font-size:12px;font-weight:600;color:#dc2626;" x-text="changeItemModalError"></div>
                 </div>
                 <div style="padding:16px 20px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
@@ -3444,7 +3455,7 @@ window.pfServiceFieldCatalog = (() => {
                 : {};
             return {
             ...svcModalMixin,
-            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CLOSED']"; ?>,
+            statuses: <?php echo $isPosCustomizationView ? "['ALL', 'PENDING', 'COMPLETED', 'CANCELLED']" : "['ALL', 'INQUIRY', 'PAYMENT', 'PRODUCTION', 'TO_RECEIVE', 'COMPLETED', 'CHANGED_ITEMS', 'CLOSED']"; ?>,
             activeStatus: defaultStatus || 'ALL',
             _initialized: false,
             loadingOrders: true,
@@ -4283,6 +4294,20 @@ window.pfServiceFieldCatalog = (() => {
                 const status = String(active.status || row.change_item_status || '').toLowerCase();
                 return status === 'in rework';
             },
+            changeItemPendingReview(row) {
+                if (!row) return false;
+                if (row.change_item_pending_review === true || row.change_item_pending_review === 1 || row.change_item_pending_review === '1') {
+                    return true;
+                }
+                const active = this.changeItemActiveRequest(row);
+                if (active && (active.is_pending_review === true || active.is_pending_review === 1)) {
+                    return true;
+                }
+                if (row.change_item_active && String(row.change_item_status || '').toLowerCase() === 'requested') {
+                    return true;
+                }
+                return false;
+            },
             changeItemCanCreate(row) {
                 if (!row) return false;
                 const status = String(row.status || '').toUpperCase();
@@ -4300,11 +4325,12 @@ window.pfServiceFieldCatalog = (() => {
                 return true;
             },
             changeItemCanReview(row) {
-                if (!row) return false;
+                if (!row || !this.changeItemPendingReview(row)) return false;
                 const active = this.changeItemActiveRequest(row);
                 if (!active) return false;
-                const activeStatus = String(active.status || row.change_item_status || '').toLowerCase();
-                return activeStatus === 'requested' || activeStatus === 'under review';
+                const source = String(active.request_source || active.source_channel || row.change_item_request_source || '').toUpperCase();
+                if (source === 'IN_STORE' || source === 'COUNTER') return false;
+                return true;
             },
             changeItemActiveRequest(row) {
                 if (!row) return null;
@@ -4317,11 +4343,23 @@ window.pfServiceFieldCatalog = (() => {
                 const status = String(row.change_item_status || 'Requested');
                 return {
                     id: parseInt(row.change_item_request_id || 0, 10) || 0,
+                    change_item_code: row.change_item_code || ('CI-' + String(row.change_item_request_id || 0).padStart(6, '0')),
                     status,
                     status_label: this.getChangeItemStatusLabel(status),
+                    change_status: row.change_item_change_status || '',
+                    change_status_label: this.getChangeItemChangeStatusLabel(row.change_item_change_status || status),
+                    verification_status: row.change_item_verification_status || '',
+                    verification_status_label: this.getChangeItemVerificationStatusLabel(row.change_item_verification_status || ''),
+                    request_source: row.change_item_request_source || '',
+                    request_source_label: row.change_item_request_source_label || '',
+                    source_channel: row.change_item_request_source === 'IN_STORE' ? 'counter' : 'customer',
+                    is_pending_review: row.change_item_pending_review === true
+                        || row.change_item_pending_review === 1
+                        || String(status).toLowerCase() === 'requested',
                     reason: '',
                     description: '',
                     proof_url: '',
+                    staff_notes: '',
                 };
             },
             changeItemResolveId(row) {
@@ -4331,22 +4369,42 @@ window.pfServiceFieldCatalog = (() => {
             getChangeItemStatusLabel(status) {
                 const key = String(status || '').toLowerCase();
                 const map = {
-                    requested: 'Under Review',
+                    requested: 'Pending Review',
                     approved: 'Approved',
                     rejected: 'Rejected',
                     'in rework': 'In Production',
                     completed: 'Completed',
                 };
-                return map[key] || (status ? String(status) : 'Under Review');
+                return map[key] || (status ? String(status) : 'Pending Review');
+            },
+            getChangeItemChangeStatusLabel(status) {
+                const key = String(status || '').toUpperCase().replace(/[\s-]+/g, '_');
+                const map = {
+                    PENDING_REVIEW: 'Pending Review',
+                    APPROVED: 'Approved',
+                    REJECTED: 'Rejected',
+                    COMPLETED: 'Completed',
+                };
+                return map[key] || this.getChangeItemStatusLabel(status);
+            },
+            getChangeItemVerificationStatusLabel(status) {
+                const key = String(status || '').toUpperCase();
+                const map = {
+                    PENDING: 'Pending Review',
+                    VERIFIED: 'Verified',
+                    REJECTED: 'Rejected',
+                };
+                return map[key] || (status ? String(status) : 'Pending Review');
             },
             changeItemRequestedByLabel(active) {
                 if (!active) return '—';
-                const channel = String(active.source_channel || '').toLowerCase();
-                if (channel === 'counter') {
-                    return active.created_by ? ('Counter Staff — ' + active.created_by) : 'Counter Staff';
+                if (active.request_source_label) return active.request_source_label;
+                const channel = String(active.source_channel || active.request_source || '').toLowerCase();
+                if (channel === 'counter' || channel === 'in_store' || channel === 'in-store') {
+                    return active.created_by ? ('In-Store — ' + active.created_by) : 'In-Store';
                 }
-                if (channel === 'customer') return 'Customer';
-                return active.created_by || 'Customer';
+                if (channel === 'customer' || channel === 'online') return 'Online';
+                return active.created_by || 'Online';
             },
             getChangeItemItemName(row) {
                 return this.getRowDisplayName(row)
@@ -6405,7 +6463,7 @@ window.pfServiceFieldCatalog = (() => {
                             'COMPLETED': 'COMPLETED',
                             'REJECTED': 'CLOSED',
                             'CANCELLED': 'CLOSED',
-                            'CHANGE_ITEM_REQUEST': 'COMPLETED'
+                            'CHANGE_ITEM_REQUEST': 'CHANGED_ITEMS'
                         };
                     const mapped = statusMap[initialStatus.toUpperCase().replace(/\s+/g, '_')] || initialStatus;
                     if (this.statuses.includes(mapped)) {
@@ -6906,13 +6964,14 @@ window.pfServiceFieldCatalog = (() => {
             },
             getOnlineStageBucket(row) {
                 if (!row) return 'INQUIRY';
+                if (this.changeItemPendingReview(row)) return 'CHANGED_ITEMS';
                 if (this.changeItemReworkInProgress(row)) return 'PRODUCTION';
                 const s = String(row.status || '').toUpperCase().replace(/\s+/g, '_');
                 if (s === 'REJECTED' || s === 'CANCELLED') return 'CLOSED';
                 if (['IN_PRODUCTION', 'PROCESSING', 'PRINTING'].includes(s)) return 'PRODUCTION';
                 if (['TO_RECEIVE', 'READY_TO_COLLECT'].includes(s)) return 'TO_RECEIVE';
                 if (s === 'COMPLETED') return 'COMPLETED';
-                if (s === 'CHANGE_ITEM_REQUEST') return 'COMPLETED';
+                if (s === 'CHANGE_ITEM_REQUEST') return 'CHANGED_ITEMS';
                 if (['TO_PAY', 'PAYMENT_CONFIRMED', 'TO_VERIFY', 'VERIFY_PAY', 'PENDING_VERIFICATION', 'DOWNPAYMENT_SUBMITTED'].includes(s)) return 'PAYMENT';
                 return 'INQUIRY';
             },
@@ -6923,8 +6982,12 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 if (!this.isPosSimplifiedView) {
                     if (status === 'ALL') return true;
+                    if (status === 'CHANGED_ITEMS') return this.changeItemPendingReview(jo);
                     if (status === 'TO_RECEIVE') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'TO_RECEIVE' || String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'READY_TO_COLLECT';
-                    if (status === 'COMPLETED') return String(jo.status || '').toUpperCase().replace(/\s+/g, '_') === 'COMPLETED';
+                    if (status === 'COMPLETED') {
+                        const normalizedStatus = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
+                        return normalizedStatus === 'COMPLETED' && !this.changeItemPendingReview(jo);
+                    }
                     if (status === 'CLOSED') {
                         const normalizedStatus = String(jo.status || '').toUpperCase().replace(/\s+/g, '_');
                         return normalizedStatus === 'REJECTED' || normalizedStatus === 'CANCELLED';
@@ -8706,8 +8769,9 @@ window.pfServiceFieldCatalog = (() => {
                     fd.append('action', 'change_item_create');
                     fd.append('csrf_token', document.body.getAttribute('data-csrf') || '');
                     fd.append('order_id', String(orderId));
-                    fd.append('source_channel', 'counter');
+                    fd.append('source_channel', 'in_store');
                     fd.append('auto_approve', '1');
+                    fd.append('verified_in_store', '1');
                     const primaryItem = this.resolvePrimaryOrderItem(this.currentJo);
                     const orderItemId = parseInt((primaryItem && primaryItem.order_item_id) || this.currentJo.linked_order_item_id || this.currentJo.order_item_id || 0, 10);
                     if (orderItemId > 0) {
@@ -8730,7 +8794,12 @@ window.pfServiceFieldCatalog = (() => {
                         return;
                     }
                     this.showChangeItemModal = false;
-                    this.showStaffAlert('Success', 'Change Item submitted and linked to the original order.');
+                    const successMessage = (res.message || '').trim()
+                        || 'Change Item submitted and routed to Production.';
+                    this.showStaffAlert('Success', successMessage);
+                    if (res.data && res.data.status && String(res.data.status).toLowerCase() === 'in rework') {
+                        this.activeStatus = 'PRODUCTION';
+                    }
                     await this.loadOrders();
                     await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
                 } finally {
@@ -8760,6 +8829,7 @@ window.pfServiceFieldCatalog = (() => {
                         return;
                     }
                     this.showStaffAlert('Success', 'Change Item approved. Rework has started on the original order.');
+                    this.activeStatus = 'PRODUCTION';
                     await this.loadOrders();
                     await this.viewDetails(this.currentJo.id, this.currentJo.order_type || 'CUSTOMIZATION');
                 } finally {

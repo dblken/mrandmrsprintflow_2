@@ -95,6 +95,7 @@ function printflow_change_item_upgrade_schema(): void
         'completed_at' => 'DATETIME NULL DEFAULT NULL',
         'updated_at' => 'DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP',
         'idempotency_key' => 'VARCHAR(64) NULL DEFAULT NULL',
+        'verification_status' => "VARCHAR(20) NULL DEFAULT NULL",
     ];
 
     foreach ($columns as $column => $definition) {
@@ -268,6 +269,132 @@ function printflow_change_item_reason_label(string $code, string $fallback = '')
     return $labels[$code] ?? ($fallback !== '' ? $fallback : 'Other');
 }
 
+function printflow_change_item_column_exists(string $column): bool
+{
+    return function_exists('db_table_has_column')
+        && db_table_has_column('change_item_requests', $column);
+}
+
+function printflow_change_item_set_column_value(int $changeItemId, string $column, ?string $value): void
+{
+    $changeItemId = (int) $changeItemId;
+    if ($changeItemId <= 0 || !printflow_change_item_column_exists($column)) {
+        return;
+    }
+
+    db_execute(
+        "UPDATE change_item_requests SET {$column} = ? WHERE change_item_id = ?",
+        'si',
+        [$value, $changeItemId]
+    );
+}
+
+function printflow_change_item_format_code(int $changeItemId): string
+{
+    $changeItemId = (int) $changeItemId;
+    return $changeItemId > 0
+        ? ('CI-' . str_pad((string) $changeItemId, 6, '0', STR_PAD_LEFT))
+        : '';
+}
+
+function printflow_change_item_normalize_source_channel(string $value): string
+{
+    $value = strtolower(trim($value));
+    $inStore = ['counter', 'in_store', 'in-store', 'instore', 'walkin', 'walk-in', 'pos', 'staff'];
+    if (in_array($value, $inStore, true)) {
+        return 'counter';
+    }
+
+    return 'customer';
+}
+
+function printflow_change_item_is_in_store_channel(string $channel): bool
+{
+    return printflow_change_item_normalize_source_channel($channel) === 'counter';
+}
+
+function printflow_change_item_source_label(string $channel): string
+{
+    return printflow_change_item_is_in_store_channel($channel) ? 'In-Store' : 'Online';
+}
+
+function printflow_change_item_request_source_key(string $channel): string
+{
+    return printflow_change_item_is_in_store_channel($channel) ? 'IN_STORE' : 'ONLINE';
+}
+
+function printflow_change_item_resolve_verification_status(array $row): string
+{
+    if (printflow_change_item_column_exists('verification_status')) {
+        $stored = strtoupper(trim((string)($row['verification_status'] ?? '')));
+        if (in_array($stored, ['PENDING', 'VERIFIED', 'REJECTED'], true)) {
+            return $stored;
+        }
+    }
+
+    $requestStatus = printflow_change_item_normalize_status((string)($row['request_status'] ?? ''));
+    if ($requestStatus === 'REJECTED') {
+        return 'REJECTED';
+    }
+    if (in_array($requestStatus, ['IN_REWORK', 'COMPLETED'], true)) {
+        return 'VERIFIED';
+    }
+    if (
+        printflow_change_item_is_in_store_channel((string)($row['source_channel'] ?? ''))
+        && $requestStatus !== 'REQUESTED'
+    ) {
+        return 'VERIFIED';
+    }
+
+    return 'PENDING';
+}
+
+function printflow_change_item_verification_status_label(string $status): string
+{
+    $map = [
+        'PENDING' => 'Pending Review',
+        'VERIFIED' => 'Verified',
+        'REJECTED' => 'Rejected',
+    ];
+    $key = strtoupper(trim($status));
+    return $map[$key] ?? ucwords(strtolower(str_replace('_', ' ', $key)));
+}
+
+function printflow_change_item_resolve_change_status(array $row): string
+{
+    $requestStatus = printflow_change_item_normalize_status((string)($row['request_status'] ?? ''));
+    $map = [
+        'REQUESTED' => 'PENDING_REVIEW',
+        'APPROVED' => 'APPROVED',
+        'REJECTED' => 'REJECTED',
+        'IN_REWORK' => 'APPROVED',
+        'COMPLETED' => 'COMPLETED',
+    ];
+
+    return $map[$requestStatus] ?? 'PENDING_REVIEW';
+}
+
+function printflow_change_item_change_status_label(string $status): string
+{
+    $map = [
+        'PENDING_REVIEW' => 'Pending Review',
+        'APPROVED' => 'Approved',
+        'REJECTED' => 'Rejected',
+        'COMPLETED' => 'Completed',
+    ];
+    $key = strtoupper(trim(str_replace(['-', ' '], '_', $status)));
+    return $map[$key] ?? ucwords(strtolower(str_replace('_', ' ', $key)));
+}
+
+function printflow_change_item_is_pending_review(array $row): bool
+{
+    if ((int)($row['active_flag'] ?? 0) !== 1) {
+        return false;
+    }
+
+    return printflow_change_item_normalize_status((string)($row['request_status'] ?? '')) === 'REQUESTED';
+}
+
 function printflow_change_item_normalize_status(string $status): string
 {
     $normalized = strtoupper(trim(str_replace(['-', ' '], '_', $status)));
@@ -277,7 +404,7 @@ function printflow_change_item_normalize_status(string $status): string
 function printflow_change_item_status_label(string $status): string
 {
     $map = [
-        'REQUESTED' => 'Under Review',
+        'REQUESTED' => 'Pending Review',
         'APPROVED' => 'Approved',
         'REJECTED' => 'Rejected',
         'IN_REWORK' => 'In Production',
@@ -438,17 +565,31 @@ function printflow_change_item_get_history(int $orderId): array
 function printflow_change_item_public_record(array $row): array
 {
     $status = (string)($row['request_status'] ?? 'Requested');
+    $changeItemId = (int)($row['change_item_id'] ?? 0);
+    $sourceChannel = (string)($row['source_channel'] ?? '');
+    $verificationStatus = printflow_change_item_resolve_verification_status($row);
+    $changeStatus = printflow_change_item_resolve_change_status($row);
+
     return [
-        'id' => (int)($row['change_item_id'] ?? 0),
+        'id' => $changeItemId,
+        'change_item_code' => printflow_change_item_format_code($changeItemId),
         'sequence_no' => (int)($row['sequence_no'] ?? 1),
         'status' => $status,
         'status_label' => printflow_change_item_status_label($status),
+        'change_status' => $changeStatus,
+        'change_status_label' => printflow_change_item_change_status_label($changeStatus),
+        'verification_status' => $verificationStatus,
+        'verification_status_label' => printflow_change_item_verification_status_label($verificationStatus),
+        'request_source' => printflow_change_item_request_source_key($sourceChannel),
+        'request_source_label' => printflow_change_item_source_label($sourceChannel),
+        'original_order_id' => (int)($row['order_id'] ?? 0),
+        'original_order_item_id' => (int)($row['order_item_id'] ?? 0),
         'reason_code' => (string)($row['reason_code'] ?? ''),
         'reason' => (string)($row['reason_label'] ?? ''),
         'description' => (string)($row['issue_description'] ?? ''),
         'staff_notes' => (string)($row['staff_notes'] ?? ''),
         'rejection_reason' => (string)($row['rejection_reason'] ?? ''),
-        'source_channel' => (string)($row['source_channel'] ?? ''),
+        'source_channel' => $sourceChannel,
         'proof_url' => printflow_change_item_proof_url($row),
         'proof_is_image' => printflow_change_item_proof_is_image($row),
         'proof_original_name' => (string)($row['proof_original_name'] ?? ''),
@@ -463,6 +604,7 @@ function printflow_change_item_public_record(array $row): array
         'processed_by' => trim((string)($row['reviewed_by_name'] ?? $row['created_by_name'] ?? '')),
         'created_by' => trim((string)($row['created_by_name'] ?? '')),
         'is_active' => (int)($row['active_flag'] ?? 0) === 1,
+        'is_pending_review' => printflow_change_item_is_pending_review($row),
     ];
 }
 
@@ -797,11 +939,8 @@ function printflow_change_item_create(array $input): array
     global $conn;
     $orderId = (int)($input['order_id'] ?? 0);
     $customerId = isset($input['customer_id']) ? (int)$input['customer_id'] : null;
-    $autoApprove = !empty($input['auto_approve']);
-    $sourceChannel = strtolower(trim((string)($input['source_channel'] ?? 'customer')));
-    if (!in_array($sourceChannel, ['customer', 'counter'], true)) {
-        $sourceChannel = 'customer';
-    }
+    $sourceChannel = printflow_change_item_normalize_source_channel((string)($input['source_channel'] ?? 'customer'));
+    $autoApprove = !empty($input['auto_approve']) || printflow_change_item_is_in_store_channel($sourceChannel);
 
     $eligibility = printflow_change_item_order_is_eligible($orderId, $customerId);
     if (empty($eligibility['eligible'])) {
@@ -908,6 +1047,10 @@ function printflow_change_item_create(array $input): array
             'idempotency_key' => $idempotencyKey,
         ]);
 
+        if (!$autoApprove) {
+            printflow_change_item_set_column_value($changeItemId, 'verification_status', 'PENDING');
+        }
+
         if ($autoApprove) {
             printflow_change_item_approve_internal($changeItemId, $createdBy, true);
         } else {
@@ -989,6 +1132,7 @@ function printflow_change_item_approve_internal(int $changeItemId, int $staffUse
         'ii',
         [$staffUserId > 0 ? $staffUserId : null, (int) $changeItemId]
     );
+    printflow_change_item_set_column_value((int) $changeItemId, 'verification_status', 'VERIFIED');
 
     printflow_change_item_set_order_status(
         $orderId,
@@ -1066,6 +1210,7 @@ function printflow_change_item_reject(int $changeItemId, string $reason, int $st
             'sii',
             [$reason, $staffUserId > 0 ? $staffUserId : null, (int) $changeItemId]
         );
+        printflow_change_item_set_column_value((int) $changeItemId, 'verification_status', 'REJECTED');
 
         printflow_change_item_notify_customer((int)($change['customer_id'] ?? 0), $orderId, 'rejected', ['reason' => $reason]);
 
@@ -1175,7 +1320,8 @@ function printflow_change_item_batch_summaries(array $orderIds): array
                 SUM(CASE WHEN active_flag = 1 THEN 1 ELSE 0 END) AS active_count,
                 COUNT(*) AS total_count,
                 MAX(CASE WHEN active_flag = 1 THEN request_status ELSE NULL END) AS active_status,
-                MAX(CASE WHEN active_flag = 1 THEN change_item_id ELSE NULL END) AS active_change_item_id
+                MAX(CASE WHEN active_flag = 1 THEN change_item_id ELSE NULL END) AS active_change_item_id,
+                MAX(CASE WHEN active_flag = 1 THEN source_channel ELSE NULL END) AS active_source_channel
          FROM change_item_requests
          WHERE order_id IN ($placeholders)
          GROUP BY order_id",
@@ -1189,13 +1335,34 @@ function printflow_change_item_batch_summaries(array $orderIds): array
         if ($oid <= 0) {
             continue;
         }
+        $activeStatus = (string)($row['active_status'] ?? '');
+        $pendingReview = (int)($row['active_count'] ?? 0) > 0
+            && printflow_change_item_normalize_status($activeStatus) === 'REQUESTED';
+        $activeSource = (string)($row['active_source_channel'] ?? '');
+
         $out[$oid] = [
             'has_change_item' => (int)($row['total_count'] ?? 0) > 0,
             'change_item_count' => (int)($row['total_count'] ?? 0),
             'change_item_active' => (int)($row['active_count'] ?? 0) > 0,
-            'change_item_status' => (string)($row['active_status'] ?? ''),
+            'change_item_status' => $activeStatus,
             'change_item_request_id' => (int)($row['active_change_item_id'] ?? 0),
             'change_item_badge' => (int)($row['total_count'] ?? 0) > 0 ? 'Change Item' : '',
+            'change_item_pending_review' => $pendingReview,
+            'change_item_code' => printflow_change_item_format_code((int)($row['active_change_item_id'] ?? 0)),
+            'change_item_request_source' => printflow_change_item_request_source_key($activeSource),
+            'change_item_request_source_label' => printflow_change_item_source_label($activeSource),
+            'change_item_verification_status' => $pendingReview ? 'PENDING' : (
+                printflow_change_item_normalize_status($activeStatus) === 'REJECTED' ? 'REJECTED' : (
+                    (int)($row['active_count'] ?? 0) > 0 ? 'VERIFIED' : ''
+                )
+            ),
+            'change_item_change_status' => $pendingReview ? 'PENDING_REVIEW' : (
+                printflow_change_item_normalize_status($activeStatus) === 'REJECTED' ? 'REJECTED' : (
+                    printflow_change_item_normalize_status($activeStatus) === 'COMPLETED' ? 'COMPLETED' : (
+                        (int)($row['active_count'] ?? 0) > 0 ? 'APPROVED' : ''
+                    )
+                )
+            ),
         ];
     }
     return $out;
@@ -1210,6 +1377,12 @@ function printflow_change_item_apply_to_row(array &$row, ?array $summary): void
         $row['change_item_badge'] = '';
         $row['change_item_status'] = '';
         $row['change_item_request_id'] = 0;
+        $row['change_item_pending_review'] = false;
+        $row['change_item_code'] = '';
+        $row['change_item_request_source'] = '';
+        $row['change_item_request_source_label'] = '';
+        $row['change_item_verification_status'] = '';
+        $row['change_item_change_status'] = '';
         return;
     }
 
@@ -1219,4 +1392,10 @@ function printflow_change_item_apply_to_row(array &$row, ?array $summary): void
     $row['change_item_badge'] = (string)($summary['change_item_badge'] ?? '');
     $row['change_item_status'] = (string)($summary['change_item_status'] ?? '');
     $row['change_item_request_id'] = (int)($summary['change_item_request_id'] ?? 0);
+    $row['change_item_pending_review'] = !empty($summary['change_item_pending_review']);
+    $row['change_item_code'] = (string)($summary['change_item_code'] ?? '');
+    $row['change_item_request_source'] = (string)($summary['change_item_request_source'] ?? '');
+    $row['change_item_request_source_label'] = (string)($summary['change_item_request_source_label'] ?? '');
+    $row['change_item_verification_status'] = (string)($summary['change_item_verification_status'] ?? '');
+    $row['change_item_change_status'] = (string)($summary['change_item_change_status'] ?? '');
 }

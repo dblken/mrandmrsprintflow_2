@@ -1160,13 +1160,28 @@ try {
 
             $counts = [
                 'ALL' => 0, 'INQUIRY' => 0, 'PAYMENT' => 0, 'PRODUCTION' => 0,
-                'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CLOSED' => 0,
+                'TO_RECEIVE' => 0, 'COMPLETED' => 0, 'CHANGED_ITEMS' => 0, 'CLOSED' => 0,
                 'PENDING' => 0, 'CANCELLED' => 0,
             ];
+            $changeItemOrderIds = [];
+            foreach ($countRows as $row) {
+                $oid = (int)($row['order_id'] ?? 0);
+                if ($oid > 0) {
+                    $changeItemOrderIds[] = $oid;
+                }
+            }
+            $changeItemSummaries = printflow_change_item_batch_summaries($changeItemOrderIds);
             foreach ($countRows as $row) {
                 $statusKey = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
                 $statusKey = str_replace(['–', '-'], '_', $statusKey);
+                $orderId = (int)($row['order_id'] ?? 0);
+                $pendingChangeReview = $orderId > 0
+                    && !empty($changeItemSummaries[$orderId]['change_item_pending_review']);
                 $counts['ALL']++;
+                if ($pendingChangeReview) {
+                    $counts['CHANGED_ITEMS']++;
+                    continue;
+                }
                 if (in_array($statusKey, ['REJECTED', 'CANCELLED'], true)) {
                     $counts['CLOSED']++;
                     $counts['CANCELLED']++;
@@ -3025,22 +3040,31 @@ try {
                 $proof = $_FILES['proof'];
             }
             $upload = printflow_change_item_upload_proof($proof, $orderId);
+            $sourceChannel = printflow_change_item_normalize_source_channel(sanitize($_POST['source_channel'] ?? 'counter'));
+            $autoApprove = !empty($_POST['auto_approve']) || printflow_change_item_is_in_store_channel($sourceChannel);
             $record = printflow_change_item_create([
                 'order_id' => $orderId,
                 'order_item_id' => (int)($_POST['order_item_id'] ?? 0),
-                'source_channel' => sanitize($_POST['source_channel'] ?? 'counter') === 'customer' ? 'customer' : 'counter',
+                'source_channel' => $sourceChannel,
                 'reason_code' => sanitize($_POST['reason_code'] ?? ''),
                 'reason_label' => sanitize($_POST['reason_label'] ?? ''),
                 'issue_description' => trim((string)($_POST['issue_description'] ?? '')),
                 'staff_notes' => trim((string)($_POST['staff_notes'] ?? '')),
                 'proof_path' => (string)($upload['path'] ?? ''),
                 'proof_original_name' => (string)($upload['original_name'] ?? ''),
-                'auto_approve' => !empty($_POST['auto_approve']),
+                'auto_approve' => $autoApprove,
                 'idempotency_key' => trim((string)($_POST['idempotency_key'] ?? '')),
                 'created_by_user_id' => (int)get_user_id(),
                 'created_by_role' => (string)get_user_type(),
             ]);
-            jo_api_json_response(['success' => true, 'data' => $record]);
+            jo_api_json_response([
+                'success' => true,
+                'message' => $autoApprove
+                    ? 'Change Item request approved and routed to Production.'
+                    : 'Change Item request created successfully.',
+                'change_item_id' => (int)($record['id'] ?? 0),
+                'data' => $record,
+            ]);
             break;
 
         case 'change_item_approve':

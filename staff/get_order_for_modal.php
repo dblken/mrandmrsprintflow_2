@@ -379,5 +379,11 @@ $data['change_item_status'] = !empty($changeItemSummary['active'])
 $data['change_item_request_id'] = !empty($changeItemSummary['active']['id'])
     ? (int)$changeItemSummary['active']['id']
     : 0;
+$data['change_item_pending_review'] = !empty($changeItemSummary['active']['is_pending_review']);
+$data['change_item_code'] = (string)($changeItemSummary['active']['change_item_code'] ?? '');
+$data['change_item_request_source'] = (string)($changeItemSummary['active']['request_source'] ?? '');
+$data['change_item_request_source_label'] = (string)($changeItemSummary['active']['request_source_label'] ?? '');
+$data['change_item_verification_status'] = (string)($changeItemSummary['active']['verification_status'] ?? '');
+$data['change_item_change_status'] = (string)($changeItemSummary['active']['change_status'] ?? '');
 
 echo json_encode(['success' => true, 'data' => $data]);
