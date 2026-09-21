@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS change_item_requests (
     updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
     idempotency_key VARCHAR(64) NULL DEFAULT NULL,
     verification_status VARCHAR(20) NULL DEFAULT NULL,
+    customer_notes TEXT NULL,
     PRIMARY KEY (change_item_id),
     UNIQUE KEY uq_order_active_change_item (order_id, active_flag),
     UNIQUE KEY uq_change_item_idempotency (idempotency_key),

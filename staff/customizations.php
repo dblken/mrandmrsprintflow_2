@@ -2805,7 +2805,8 @@ $online_closed_count = 0;
                                 <div><strong>Change Item Status:</strong> <span x-text="changeItemActiveRequest(currentJo).change_status_label || changeItemActiveRequest(currentJo).status_label || changeItemActiveRequest(currentJo).status || 'Under Review'"></span></div>
                                 <div x-show="changeItemReworkInProgress(currentJo)"><strong>Current Production Status:</strong> In Production</div>
                                 <div><strong>Reason for Change:</strong> <span x-text="changeItemActiveRequest(currentJo).reason || '—'"></span></div>
-                                <div><strong>Issue Description:</strong> <span x-text="changeItemActiveRequest(currentJo).description || '—'"></span></div>
+                                <div><strong>Issue Description:</strong> <span x-text="changeItemActiveRequest(currentJo).description || changeItemActiveRequest(currentJo).issue_description || '—'"></span></div>
+                                <div x-show="changeItemActiveRequest(currentJo).customer_notes"><strong>Customer Notes:</strong> <span x-text="changeItemActiveRequest(currentJo).customer_notes"></span></div>
                                 <div><strong>Requested:</strong> <span x-text="changeItemActiveRequest(currentJo).requested_at_display || changeItemActiveRequest(currentJo).requested_at || '—'"></span></div>
                                 <div><strong>Requested By:</strong> <span x-text="changeItemRequestedByLabel(changeItemActiveRequest(currentJo))"></span></div>
                                 <div x-show="changeItemActiveRequest(currentJo).staff_notes"><strong>Staff Notes:</strong> <span x-text="changeItemActiveRequest(currentJo).staff_notes"></span></div>
@@ -2827,7 +2828,7 @@ $online_closed_count = 0;
                                             </a>
                                         </div>
                                     </template>
-                                    <span x-show="!changeItemActiveRequest(currentJo).proof_url" style="color:#92400e;">No proof attached</span>
+                                    <span x-show="!changeItemActiveRequest(currentJo).proof_url" style="color:#92400e;">No proof uploaded</span>
                                 </div>
                             </div>
                         </div>
@@ -4195,7 +4196,55 @@ window.pfServiceFieldCatalog = (() => {
                     merged.items = loser.items;
                 }
 
+                this.mergeChangeItemFields(merged, winner, loser);
+
                 return merged;
+            },
+            mergeChangeItemFields(target, primary, secondary) {
+                if (!target) return target;
+                const fields = [
+                    'has_change_item',
+                    'change_item_active',
+                    'change_item_count',
+                    'change_item_badge',
+                    'change_item_status',
+                    'change_item_request_id',
+                    'change_item_pending_review',
+                    'change_item_code',
+                    'change_item_request_source',
+                    'change_item_request_source_label',
+                    'change_item_verification_status',
+                    'change_item_change_status',
+                ];
+                const isTruthy = (value) => value === true || value === 1 || value === '1';
+                const pickPending = (row) => {
+                    if (!row) return false;
+                    if (isTruthy(row.change_item_pending_review)) return true;
+                    return isTruthy(row.change_item_active)
+                        && String(row.change_item_status || '').toLowerCase() === 'requested';
+                };
+                const primaryPending = pickPending(primary);
+                const secondaryPending = pickPending(secondary);
+                const preferred = secondaryPending && !primaryPending ? secondary : primary;
+                const fallback = preferred === primary ? secondary : primary;
+
+                fields.forEach((field) => {
+                    const preferredValue = preferred && preferred[field];
+                    const fallbackValue = fallback && fallback[field];
+                    if (field === 'change_item_pending_review') {
+                        target[field] = pickPending(preferred) || pickPending(fallback);
+                        return;
+                    }
+                    if (preferredValue !== undefined && preferredValue !== null && preferredValue !== '') {
+                        target[field] = preferredValue;
+                        return;
+                    }
+                    if (fallbackValue !== undefined && fallbackValue !== null && fallbackValue !== '') {
+                        target[field] = fallbackValue;
+                    }
+                });
+
+                return target;
             },
             posDuplicateSignature(row) {
                 if (!row) return '';
@@ -4358,9 +4407,40 @@ window.pfServiceFieldCatalog = (() => {
                         || String(status).toLowerCase() === 'requested',
                     reason: '',
                     description: '',
+                    issue_description: '',
+                    customer_notes: '',
                     proof_url: '',
                     staff_notes: '',
                 };
+            },
+            async mergeChangeItemDetailIntoCurrentJo(orderId) {
+                const parsedOrderId = parseInt(orderId || 0, 10);
+                if (!parsedOrderId) return;
+                try {
+                    const detailRes = await this.fetchOrderModalSummary(parsedOrderId);
+                    if (!detailRes.success || !detailRes.data) return;
+                    const summary = detailRes.data.change_item || null;
+                    if (!summary) return;
+                    this.currentJo = {
+                        ...this.currentJo,
+                        change_item: summary,
+                        has_change_item: !!(summary.active || summary.has_history),
+                        change_item_active: !!summary.active,
+                        change_item_status: summary.active ? (summary.active.status || '') : '',
+                        change_item_request_id: summary.active ? (summary.active.id || 0) : 0,
+                        change_item_pending_review: summary.active ? !!summary.active.is_pending_review : false,
+                        change_item_code: summary.active ? (summary.active.change_item_code || '') : '',
+                        change_item_request_source: summary.active ? (summary.active.request_source || '') : '',
+                        change_item_request_source_label: summary.active ? (summary.active.request_source_label || '') : '',
+                        change_item_verification_status: summary.active ? (summary.active.verification_status || '') : '',
+                        change_item_change_status: summary.active ? (summary.active.change_status || '') : '',
+                    };
+                    const cacheKey = String(this.currentJo.order_type || 'ORDER') + '-' + String(this.currentJo.id || parsedOrderId);
+                    this.modalCache[cacheKey] = this.currentJo;
+                    this.modalCacheLoadedAt[cacheKey] = Date.now();
+                } catch (error) {
+                    console.warn('[Customizations] Unable to load Change Item detail:', error);
+                }
             },
             changeItemResolveId(row) {
                 const active = this.changeItemActiveRequest(row);
@@ -7208,6 +7288,9 @@ window.pfServiceFieldCatalog = (() => {
                         });
                         if (detailRes.success && detailRes.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(detailRes.data, 'ORDER', cacheKey);
+                            if (!detailRes.data.change_item && regularOrderId) {
+                                await this.mergeChangeItemDetailIntoCurrentJo(regularOrderId);
+                            }
                             this.loadingDetails = false;
                             this.loadingDetailKey = '';
                             this.loadModalAssignments(regularOrderId, cacheKey, requestToken);
@@ -7240,6 +7323,9 @@ window.pfServiceFieldCatalog = (() => {
                         );
                         if (res.success && res.data && requestToken === this.detailRequestToken) {
                             this.finishDetailLoadWith(res.data, 'JOB', cacheKey);
+                            if (res.data.order_id) {
+                                await this.mergeChangeItemDetailIntoCurrentJo(res.data.order_id);
+                            }
                             this.resetMaterialForm();
                             this.resetInkForm();
                             for (const m of this.currentJo.materials || []) {

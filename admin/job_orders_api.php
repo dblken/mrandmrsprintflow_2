@@ -1426,6 +1426,7 @@ try {
                 $orders = $visibleOrders;
             }
             jo_api_attach_provider_payments($orders);
+            jo_api_attach_change_item_rows($orders);
             if ($summaryOnly) {
                 $orders = jo_api_summary_rows($orders);
             }
@@ -1746,6 +1747,7 @@ try {
             $serviceHasMore = count($svc_orders) === $dashboardFetchLimit;
 
             $merged = array_merge($pending_orders, $custom_orders, $svc_orders);
+            $merged = printflow_change_item_merge_pending_dashboard_rows($merged, $joStaffBranch, $listSource);
             jo_api_attach_provider_payments($merged);
             usort($merged, function ($a, $b) {
                 $ta = strtotime($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? 'now');

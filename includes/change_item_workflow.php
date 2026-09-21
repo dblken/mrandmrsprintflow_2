@@ -96,6 +96,7 @@ function printflow_change_item_upgrade_schema(): void
         'updated_at' => 'DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP',
         'idempotency_key' => 'VARCHAR(64) NULL DEFAULT NULL',
         'verification_status' => "VARCHAR(20) NULL DEFAULT NULL",
+        'customer_notes' => 'TEXT NULL',
     ];
 
     foreach ($columns as $column => $definition) {
@@ -587,6 +588,8 @@ function printflow_change_item_public_record(array $row): array
         'reason_code' => (string)($row['reason_code'] ?? ''),
         'reason' => (string)($row['reason_label'] ?? ''),
         'description' => (string)($row['issue_description'] ?? ''),
+        'issue_description' => (string)($row['issue_description'] ?? ''),
+        'customer_notes' => (string)($row['customer_notes'] ?? ''),
         'staff_notes' => (string)($row['staff_notes'] ?? ''),
         'rejection_reason' => (string)($row['rejection_reason'] ?? ''),
         'source_channel' => $sourceChannel,
@@ -951,6 +954,7 @@ function printflow_change_item_create(array $input): array
     $reasonFallback = trim((string)($input['reason_label'] ?? ''));
     $reasonLabel = printflow_change_item_reason_label($reasonCode, $reasonFallback);
     $description = trim((string)($input['issue_description'] ?? ''));
+    $customerNotes = trim((string)($input['customer_notes'] ?? ''));
     if ($description === '') {
         throw new InvalidArgumentException('Please describe the issue.');
     }
@@ -964,6 +968,9 @@ function printflow_change_item_create(array $input): array
     $staffNotes = trim((string)($input['staff_notes'] ?? ''));
     if (strlen($staffNotes) > 2000) {
         throw new InvalidArgumentException('Staff notes must be 2000 characters or fewer.');
+    }
+    if (strlen($customerNotes) > 2000) {
+        throw new InvalidArgumentException('Customer notes must be 2000 characters or fewer.');
     }
     $createdBy = (int)($input['created_by_user_id'] ?? (function_exists('get_user_id') ? get_user_id() : 0));
     $createdRole = trim((string)($input['created_by_role'] ?? (function_exists('get_user_type') ? get_user_type() : '')));
@@ -1049,6 +1056,9 @@ function printflow_change_item_create(array $input): array
 
         if (!$autoApprove) {
             printflow_change_item_set_column_value($changeItemId, 'verification_status', 'PENDING');
+        }
+        if ($customerNotes !== '') {
+            printflow_change_item_set_column_value($changeItemId, 'customer_notes', $customerNotes);
         }
 
         if ($autoApprove) {
@@ -1300,6 +1310,183 @@ function printflow_change_item_summary_for_order(int $orderId): array
         'show_badge' => $history !== [] || $active !== null,
         'badge_label' => 'Change Item',
     ];
+}
+
+/**
+ * Dashboard rows for pending online Change Item review.
+ * Ensures completed orders with pending requests appear even when pagination would omit them.
+ *
+ * @return array<int,array<string,mixed>>
+ */
+function printflow_change_item_list_pending_dashboard_rows(?int $branchId = null, string $listSource = 'all'): array
+{
+    if (!printflow_change_item_ensure_schema()) {
+        return [];
+    }
+
+    $sql = "SELECT
+                o.order_id AS id,
+                o.order_id,
+                o.customer_id,
+                c.first_name,
+                c.last_name,
+                c.profile_picture AS customer_profile_picture,
+                c.customer_type,
+                c.transaction_count,
+                CONCAT(c.first_name, ' ', c.last_name) AS customer_full_name,
+                TRIM(CONCAT_WS(', ', NULLIF(TRIM(c.street_address), ''), NULLIF(TRIM(c.barangay), ''), NULLIF(TRIM(c.city), ''))) AS customer_contact,
+                'ORDER' AS order_type,
+                CASE
+                    WHEN o.status IN ('Pending', 'Pending Review', 'Pending Approval', 'For Revision') THEN 'PENDING'
+                    WHEN o.status IN ('Design Approved', 'Approved') THEN 'APPROVED'
+                    WHEN o.status IN ('Pending Verification', 'Downpayment Submitted', 'To Verify') THEN 'VERIFY_PAY'
+                    WHEN o.status IN ('To Pay') THEN 'TO_PAY'
+                    WHEN o.status = 'Payment Confirmed' THEN 'PAYMENT_CONFIRMED'
+                    WHEN o.status IN ('Paid – In Process', 'Paid - In Process', 'Processing', 'In Production', 'Printing') THEN 'IN_PRODUCTION'
+                    WHEN o.status = 'Change Item Request' THEN 'CHANGE_ITEM_REQUEST'
+                    WHEN o.status = 'Ready for Pickup' THEN 'TO_RECEIVE'
+                    WHEN o.status = 'Completed' THEN 'COMPLETED'
+                    WHEN o.status = 'Rejected' THEN 'REJECTED'
+                    WHEN o.status = 'Cancelled' THEN 'CANCELLED'
+                    ELSE 'COMPLETED'
+                END AS status,
+                'VERIFIED' AS payment_proof_status,
+                'NO' AS payment_status,
+                '' AS materials,
+                COALESCE(ci.requested_at, o.order_date) AS created_at,
+                GREATEST(COALESCE(ci.requested_at, o.updated_at), o.updated_at) AS updated_at,
+                o.order_date,
+                NULL AS due_date,
+                NULL AS priority,
+                o.total_amount AS estimated_total,
+                (SELECT MIN(jo.id) FROM job_orders jo WHERE jo.order_id = o.order_id) AS job_order_id,
+                COALESCE(o.order_source, 'customer') AS order_source,
+                ci.change_item_id,
+                ci.requested_at AS change_item_requested_at,
+                ci.reason_label AS change_item_reason_label
+            FROM change_item_requests ci
+            INNER JOIN orders o ON o.order_id = ci.order_id
+            LEFT JOIN customers c ON c.customer_id = o.customer_id
+            WHERE ci.active_flag = 1
+              AND UPPER(REPLACE(REPLACE(ci.request_status, '-', ' '), ' ', '')) = 'REQUESTED'
+              AND (o.order_type IS NULL OR o.order_type = 'product' OR o.order_type = 'custom')
+              AND COALESCE(o.order_source, '') NOT IN ('pos_merged', 'pos_draft')";
+
+    $types = '';
+    $params = [];
+    if ($branchId !== null) {
+        $sql .= ' AND o.branch_id = ?';
+        $types = 'i';
+        $params[] = $branchId;
+    }
+    $sql .= ' ORDER BY ci.requested_at DESC, ci.change_item_id DESC';
+
+    $rows = $types !== ''
+        ? (db_query($sql, $types, $params) ?: [])
+        : (db_query($sql) ?: []);
+
+    if ($rows === []) {
+        return [];
+    }
+
+    $orderIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int)($row['order_id'] ?? 0),
+        $rows
+    ))));
+    $payloads = class_exists('JobOrderService')
+        ? JobOrderService::getStoreOrderItemSummariesBatch($orderIds, true)
+        : [];
+    $summaries = printflow_change_item_batch_summaries($orderIds);
+
+    $out = [];
+    foreach ($rows as $row) {
+        $orderId = (int)($row['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            continue;
+        }
+        $row['readiness'] = 'READY';
+        $row['estimated_cost'] = 0;
+        $row['order_code'] = function_exists('printflow_format_order_code')
+            ? printflow_format_order_code($orderId, '')
+            : ('ORD-' . $orderId);
+
+        $payload = $payloads[$orderId] ?? null;
+        if (empty($payload) || empty($payload['items'])) {
+            continue;
+        }
+        if (class_exists('JobOrderService')) {
+            JobOrderService::enrichStaffJobRowFromStorePayload($row, $payload);
+        } elseif (!empty($row['change_item_reason_label'])) {
+            $row['service_type'] = (string)($payload['service_type'] ?? 'Custom Order');
+            $row['job_title'] = (string)$row['change_item_reason_label'];
+        }
+
+        printflow_change_item_apply_to_row($row, $summaries[$orderId] ?? null);
+        $out[] = $row;
+    }
+
+    return $out;
+}
+
+function printflow_change_item_merge_pending_dashboard_rows(array $rows, ?int $branchId = null, string $listSource = 'all'): array
+{
+    $pendingRows = printflow_change_item_list_pending_dashboard_rows($branchId, $listSource);
+    if ($pendingRows === []) {
+        return $rows;
+    }
+
+    if ($listSource !== 'all' && function_exists('jo_api_source_matches') && function_exists('jo_api_resolve_order_sources_batch')) {
+        $sourceMap = jo_api_resolve_order_sources_batch($pendingRows);
+        $pendingRows = array_values(array_filter(
+            $pendingRows,
+            static function (array $row) use ($sourceMap, $listSource): bool {
+                $orderId = (int)($row['order_id'] ?? 0);
+                $source = $sourceMap[$orderId] ?? (string)($row['order_source'] ?? 'customer');
+                return jo_api_source_matches($source, $listSource);
+            }
+        ));
+    }
+
+    if ($pendingRows === []) {
+        return $rows;
+    }
+
+    $indexByOrderId = [];
+    foreach ($rows as $idx => $row) {
+        $oid = (int)($row['order_id'] ?? 0);
+        if ($oid > 0) {
+            $indexByOrderId[$oid] = $idx;
+        }
+    }
+
+    foreach ($pendingRows as $pendingRow) {
+        $oid = (int)($pendingRow['order_id'] ?? 0);
+        if ($oid <= 0) {
+            continue;
+        }
+        if (isset($indexByOrderId[$oid])) {
+            $existingIdx = $indexByOrderId[$oid];
+            $existingTs = strtotime((string)($rows[$existingIdx]['updated_at'] ?? '')) ?: 0;
+            $pendingTs = strtotime((string)($pendingRow['updated_at'] ?? '')) ?: 0;
+            if ($pendingTs >= $existingTs) {
+                $rows[$existingIdx]['updated_at'] = $pendingRow['updated_at'];
+            }
+            printflow_change_item_apply_to_row(
+                $rows[$existingIdx],
+                printflow_change_item_batch_summaries([$oid])[$oid] ?? null
+            );
+            continue;
+        }
+        $rows[] = $pendingRow;
+    }
+
+    usort($rows, static function (array $a, array $b): int {
+        $ta = strtotime((string)($a['updated_at'] ?? $a['created_at'] ?? $a['order_date'] ?? 'now')) ?: 0;
+        $tb = strtotime((string)($b['updated_at'] ?? $b['created_at'] ?? $b['order_date'] ?? 'now')) ?: 0;
+        return $tb <=> $ta;
+    });
+
+    return $rows;
 }
 
 function printflow_change_item_batch_summaries(array $orderIds): array

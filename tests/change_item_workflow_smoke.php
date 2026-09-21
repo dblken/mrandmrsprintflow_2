@@ -58,5 +58,7 @@ change_item_test_assert(strpos($workflow, 'verification_status') !== false, 'ver
 change_item_test_assert(strpos($jobApi, "'change_item_id'") !== false, 'change item create API returns change_item_id');
 change_item_test_assert(strpos($staffCustomizations, 'changeItemActiveRequest') !== false, 'staff modal renders active change item request');
 change_item_test_assert(strpos(file_get_contents($root . '/staff/get_order_for_modal.php'), 'printflow_change_item_summary_for_order') !== false, 'order modal payload includes change item summary');
+change_item_test_assert(strpos($workflow, 'printflow_change_item_merge_pending_dashboard_rows') !== false, 'pending change item rows merge into customization list');
+change_item_test_assert(strpos(file_get_contents($root . '/includes/job_order_summary.php'), 'change_item_pending_review') !== false, 'summary row contract preserves change item pending review fields');
 
 echo "All change item workflow smoke checks passed.\n";

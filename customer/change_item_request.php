@@ -43,6 +43,7 @@ try {
         'reason_code' => sanitize($_POST['reason_code'] ?? ''),
         'reason_label' => sanitize($_POST['reason_label'] ?? ''),
         'issue_description' => trim((string)($_POST['issue_description'] ?? '')),
+        'customer_notes' => trim((string)($_POST['customer_notes'] ?? '')),
         'proof_path' => (string)($upload['path'] ?? ''),
         'proof_original_name' => (string)($upload['original_name'] ?? ''),
         'auto_approve' => false,
