@@ -1541,28 +1541,32 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         .receipt-printer-slot {
-            height: 10px;
-            background: linear-gradient(180deg, #475569 0%, #1e293b 100%);
-            border-radius: 6px 6px 0 0;
-            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
-            margin-bottom: -2px;
+            height: 12px;
+            background: linear-gradient(180deg, #334155 0%, #0f172a 55%, #020617 100%);
+            border-radius: 5px 5px 0 0;
+            box-shadow:
+                inset 0 2px 5px rgba(0, 0, 0, 0.55),
+                0 2px 6px rgba(15, 23, 42, 0.22);
             position: relative;
-            z-index: 2;
+            z-index: 3;
+            flex-shrink: 0;
         }
 
         .receipt-printer-viewport {
             overflow: hidden;
             position: relative;
+            z-index: 1;
+            margin-top: -1px;
         }
 
-        .receipt-sheet.receipt-feed-active {
-            will-change: transform;
+        .receipt-printer-viewport.receipt-feed-active {
+            will-change: max-height;
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .receipt-sheet.receipt-feed-active {
+            .receipt-printer-viewport.receipt-feed-active {
                 transition: none !important;
-                transform: none !important;
+                max-height: none !important;
             }
         }
 
@@ -3044,32 +3048,54 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return Math.max(900, Math.round(totalSec * 1000));
         }
 
-        function resetReceiptFeedAnimation(receiptEl) {
-            if (!receiptEl) return;
-            receiptEl.classList.remove('receipt-feed-active');
-            receiptEl.style.transition = 'none';
-            receiptEl.style.transform = '';
+        function getReceiptPrinterViewport() {
+            return document.getElementById('receipt-printer-viewport');
         }
 
+        function resetReceiptFeedAnimation(receiptEl) {
+            const viewport = getReceiptPrinterViewport();
+            if (viewport) {
+                viewport.classList.remove('receipt-feed-reveal', 'receipt-feed-active');
+                viewport.style.transition = 'none';
+                viewport.style.maxHeight = '';
+                viewport.style.clipPath = '';
+            }
+            if (receiptEl) {
+                receiptEl.classList.remove('receipt-feed-active');
+                receiptEl.style.transform = '';
+            }
+        }
+
+        /**
+         * Paper-feed reveal: the slot stays fixed; only the viewport's visible height
+         * grows downward so the receipt emerges top-first (no translate/scroll).
+         */
         function runReceiptFeedAnimation(receiptEl, durationMs) {
-            if (!receiptEl) return Promise.resolve();
+            const viewport = getReceiptPrinterViewport();
+            if (!receiptEl || !viewport) return Promise.resolve();
             if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
                 resetReceiptFeedAnimation(receiptEl);
                 return Promise.resolve();
             }
 
             return new Promise(resolve => {
-                receiptEl.classList.remove('receipt-feed-active');
-                receiptEl.style.transition = 'none';
-                receiptEl.style.transform = 'translateY(100%)';
-                void receiptEl.offsetHeight;
-                receiptEl.classList.add('receipt-feed-active');
+                const fullHeight = Math.ceil(receiptEl.scrollHeight || receiptEl.offsetHeight || 0);
+                viewport.classList.remove('receipt-feed-active');
+                viewport.style.transition = 'none';
+                viewport.style.maxHeight = '0px';
+                viewport.style.clipPath = 'inset(0 0 100% 0)';
+                void viewport.offsetHeight;
+                viewport.classList.add('receipt-feed-reveal', 'receipt-feed-active');
                 requestAnimationFrame(() => {
-                    receiptEl.style.transition = `transform ${durationMs}ms linear`;
-                    receiptEl.style.transform = 'translateY(0)';
+                    viewport.style.transition = `max-height ${durationMs}ms linear, clip-path ${durationMs}ms linear`;
+                    viewport.style.maxHeight = `${fullHeight}px`;
+                    viewport.style.clipPath = 'inset(0 0 0 0)';
                 });
                 window.setTimeout(() => {
-                    receiptEl.style.transition = 'none';
+                    viewport.style.transition = 'none';
+                    viewport.style.maxHeight = '';
+                    viewport.style.clipPath = '';
+                    viewport.classList.remove('receipt-feed-active');
                     resolve();
                 }, durationMs);
             });

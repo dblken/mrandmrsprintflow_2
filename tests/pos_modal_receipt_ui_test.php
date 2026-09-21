@@ -21,6 +21,9 @@ $assert(strpos($pos, 'speedMmPerSec: 50') !== false, 'receipt timing must use th
 $assert(strpos($pos, 'calibrationBufferSec: 0.4') !== false, 'receipt timing must include startup calibration buffer');
 $assert(strpos($pos, 'function runReceiptFeedAnimation(') !== false, 'receipt feed animation helper must exist');
 $assert(strpos($pos, 'receipt-printer-viewport') !== false, 'receipt modal must include a printer viewport wrapper');
+$assert(strpos($pos, 'max-height ${durationMs}ms linear') !== false, 'receipt feed must reveal via viewport max-height, not scroll');
+$assert(strpos($pos, 'clip-path ${durationMs}ms linear') !== false, 'receipt feed must use clip-path reveal from the fixed slot');
+$assert(strpos($pos, 'translateY(100%)') === false, 'receipt feed must not translate the whole receipt block');
 $assert(strpos($pos, 'WebUSB/WebSerial') !== false, 'receipt timing must document hardware sync limitation');
 
 echo "POS modal + receipt UI test passed.\n";
